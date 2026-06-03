@@ -7,6 +7,7 @@ let package = Package(
     products: [
         .library(name: "VibeBuddyMacCore", targets: ["VibeBuddyMacCore"]),
         .executable(name: "vibebuddyd", targets: ["vibebuddyd"]),
+        .executable(name: "VibeBuddyMenuBar", targets: ["VibeBuddyMenuBar"]),
     ],
     dependencies: [
         .package(path: "../VibeBuddyKit"),
@@ -22,6 +23,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "vibebuddyd",
+            dependencies: ["VibeBuddyMacCore"]
+        ),
+        .executableTarget(
+            name: "VibeBuddyMenuBar",
             dependencies: ["VibeBuddyMacCore"]
         ),
         .testTarget(

@@ -1,0 +1,29 @@
+import Foundation
+import CoreImage
+import CoreGraphics
+import VibeBuddyKit
+
+/// Builds the pairing payload and its QR image. The phone scans the QR, decodes
+/// the JSON into a `PairingPayload`, and connects.
+public enum Pairing {
+
+    public static func payload(host: String, port: Int, token: String) -> PairingPayload {
+        PairingPayload(host: host, port: port, token: token)
+    }
+
+    /// The exact JSON string encoded into the QR (and decoded by the phone).
+    public static func qrJSONString(for payload: PairingPayload) -> String {
+        guard let data = try? JSONEncoder().encode(payload) else { return "" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /// Render a string into a QR CGImage (10x scaled for crisp display).
+    public static func qrImage(from string: String) -> CGImage? {
+        guard let filter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
+        filter.setValue(Data(string.utf8), forKey: "inputMessage")
+        filter.setValue("M", forKey: "inputCorrectionLevel")
+        guard let output = filter.outputImage else { return nil }
+        let scaled = output.transformed(by: CGAffineTransform(scaleX: 10, y: 10))
+        return CIContext().createCGImage(scaled, from: scaled.extent)
+    }
+}
