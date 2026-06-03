@@ -1,0 +1,118 @@
+import Testing
+import Foundation
+import VibeBuddyKit
+@testable import VibeBuddyMacCore
+
+@Suite("SessionReducer — hook events to status")
+struct SessionReducerTests {
+
+    let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+
+    private func ev(
+        _ kind: HookEvent.Kind,
+        _ sid: String = "s1",
+        cwd: String? = "/Users/me/projects/vibebuddy",
+        tool: String? = nil,
+        message: String? = nil,
+        at: TimeInterval = 0
+    ) -> HookEvent {
+        HookEvent(kind: kind, sessionID: sid, agent: .claudeCode,
+                  cwd: cwd, toolName: tool, message: message,
+                  timestamp: t0.addingTimeInterval(at))
+    }
+
+    @Test("SessionStart creates a working session with project from cwd")
+    func startCreates() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart))
+        let s = r.sessions["s1"]
+        #expect(s?.status == .working)
+        #expect(s?.project == "vibebuddy")
+        #expect(s?.agent == .claudeCode)
+    }
+
+    @Test("Notification about permission → needsResponse/permission with summary")
+    func notificationPermission() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart))
+        r.apply(ev(.notification, message: "Claude needs your permission to use Bash", at: 1))
+        let s = r.sessions["s1"]
+        #expect(s?.status == .needsResponse)
+        #expect(s?.waitKind == .permission)
+        #expect(s?.summary == "Claude needs your permission to use Bash")
+    }
+
+    @Test("Notification about input → needsResponse/question")
+    func notificationQuestion() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart))
+        r.apply(ev(.notification, message: "Claude is waiting for your input", at: 1))
+        #expect(r.sessions["s1"]?.status == .needsResponse)
+        #expect(r.sessions["s1"]?.waitKind == .question)
+    }
+
+    @Test("PostToolUse moves a waiting session back to working and clears waitKind")
+    func recoverAfterApproval() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart))
+        r.apply(ev(.notification, message: "needs your permission", at: 1))
+        r.apply(ev(.postToolUse, tool: "Bash", at: 2))
+        #expect(r.sessions["s1"]?.status == .working)
+        #expect(r.sessions["s1"]?.waitKind == nil)
+    }
+
+    @Test("Stop marks the session done")
+    func stopDone() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart))
+        r.apply(ev(.stop, at: 5))
+        #expect(r.sessions["s1"]?.status == .done)
+    }
+
+    @Test("statusSince does not move when the status is unchanged")
+    func statusSinceStable() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart, at: 0))
+        r.apply(ev(.preToolUse, tool: "Read", at: 3))   // still working
+        #expect(r.sessions["s1"]?.statusSince == t0)
+    }
+
+    @Test("statusSince moves on a real transition")
+    func statusSinceChanges() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart, at: 0))
+        r.apply(ev(.notification, message: "permission", at: 4))
+        #expect(r.sessions["s1"]?.statusSince == t0.addingTimeInterval(4))
+    }
+
+    @Test("two sessions are tracked independently")
+    func twoSessions() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart, "a", at: 0))
+        r.apply(ev(.sessionStart, "b", at: 0))
+        r.apply(ev(.notification, "a", message: "permission", at: 1))
+        r.apply(ev(.stop, "b", at: 1))
+        #expect(r.sessions["a"]?.status == .needsResponse)
+        #expect(r.sessions["b"]?.status == .done)
+    }
+
+    @Test("Stop on an unknown session is ignored")
+    func stopUnknown() {
+        var r = SessionReducer()
+        r.apply(ev(.stop, "ghost", at: 0))
+        #expect(r.sessions["ghost"] == nil)
+    }
+
+    @Test("snapshot() returns sessions sorted by attention then recency")
+    func snapshotSorted() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart, "done1", at: 0))
+        r.apply(ev(.stop, "done1", at: 1))
+        r.apply(ev(.sessionStart, "work1", at: 2))
+        r.apply(ev(.sessionStart, "need1", at: 3))
+        r.apply(ev(.notification, "need1", message: "permission", at: 4))
+        let snap = r.snapshot(now: t0.addingTimeInterval(10))
+        #expect(snap.sessions.map(\.id) == ["need1", "work1", "done1"])
+        #expect(snap.serverTime == t0.addingTimeInterval(10))
+    }
+}
