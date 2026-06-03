@@ -2,6 +2,7 @@ import Foundation
 import NIOCore
 import HTTPTypes
 import Hummingbird
+import HummingbirdWebSocket
 import VibeBuddyKit
 
 /// The Mac-side HTTP server: localhost hook intake + token-gated LAN snapshot.
@@ -20,8 +21,32 @@ public struct VibeBuddyServer: Sendable {
     }
 
     public func buildApplication() -> some ApplicationProtocol {
-        Application(
+        let store = self.store
+        let token = self.token
+
+        let wsRouter = Router(context: BasicWebSocketRequestContext.self)
+        wsRouter.ws("/ws") { request, _ in
+            request.headers[.authorization] == "Bearer \(token)" ? .upgrade() : .dontUpgrade
+        } onUpgrade: { inbound, outbound, _ in
+            // Push the current snapshot, then every change, until the client closes.
+            let subscription = await store.subscribe()
+            let writer = Task {
+                for await snapshot in subscription.stream {
+                    let event = ServerEvent.snapshot(snapshot)
+                    guard let data = try? JSONEncoder().encode(event) else { continue }
+                    do {
+                        try await outbound.write(.text(String(decoding: data, as: UTF8.self)))
+                    } catch { break }
+                }
+            }
+            do { for try await _ in inbound {} } catch {}
+            writer.cancel()
+            await store.unsubscribe(subscription.id)
+        }
+
+        return Application(
             router: router(),
+            server: .http1WebSocketUpgrade(webSocketRouter: wsRouter),
             configuration: .init(address: .hostname(host, port: port))
         )
     }
