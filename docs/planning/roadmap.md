@@ -10,9 +10,16 @@
   hook installer (needs consent to edit `~/.claude/settings.json`).
 - ✅ **Phase C** — SwiftUI MenuBarExtra app + token + LAN IP + QR pairing
   (`27fefea`); GUI app boots and serves, verified live.
-- ⏭️ **Phase D (next)** — iOS app (requires introducing an Xcode project).
-- Mac-side tests: **40 passing across 6 suites.** `/ws` WebSocket push still TODO
-  (iOS can poll `/snapshot` until then).
+- ✅ **Phase D** — iOS app (xcodegen project): connect (manual + QR scan) + live
+  3-bucket dashboard (`f50e9a1`, `1950093`); **verified end-to-end in the
+  Simulator against the live daemon (screenshot).**
+- ✅ **Phase E (core)** — local notifications on a fresh `needsResponse`
+  transition (`d5043dc`).
+- Tests: **Mac 40 + Kit 12.** `/ws` WebSocket push still TODO (iOS polls
+  `/snapshot`, 2s).
+- **Next / open:** Claude Code hook installer (needs consent to edit
+  `~/.claude/settings.json`) for a real end-to-end; Codex adapter + Live Activity
+  (v1.5); launch-at-login + Keychain hardening.
 
 ---
 
