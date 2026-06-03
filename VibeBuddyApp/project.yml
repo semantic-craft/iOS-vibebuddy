@@ -1,0 +1,36 @@
+name: VibeBuddyApp
+options:
+  bundleIdPrefix: com.vibebuddy
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+packages:
+  VibeBuddyKit:
+    path: ../VibeBuddyKit
+targets:
+  VibeBuddyApp:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+    dependencies:
+      - package: VibeBuddyKit
+        product: VibeBuddyKit
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleDisplayName: vibebuddy
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        NSCameraUsageDescription: "Scan the pairing QR shown by the vibebuddy Mac app."
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.app
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "6.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGNING_ALLOWED: NO
