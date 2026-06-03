@@ -19,10 +19,13 @@
   **A real Claude Code session was verified end-to-end on the phone** (real
   project / model `claude-opus-4-8` / tokens / last-message from the JSONL
   transcript). Phase B DoD fully met.
-- Tests: **Mac 40 + Kit 12.** `/ws` WebSocket push still TODO (iOS polls
-  `/snapshot`, 2s).
-- **Next / open:** `/ws` WebSocket push; Codex adapter + Live Activity (v1.5);
-  launch-at-login + Keychain hardening.
+- ✅ **`/ws` WebSocket live push** — token-gated broadcast (Mac,
+  HummingbirdWebSocket) + auto-reconnecting WebSocket client (iOS); verified
+  end-to-end in the Simulator (a session pushed after launch appeared live, no
+  polling). Replaced REST polling.
+- Tests: **Mac 40 + Kit 12** (WS verified via live smoke).
+- **Next / open:** Codex adapter + Live Activity / Dynamic Island (v1.5);
+  launch-at-login + Keychain hardening; APNs closed-app push (v2).
 
 ---
 
