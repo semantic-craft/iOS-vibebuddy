@@ -16,6 +16,7 @@ final class DashboardStore: ObservableObject {
 
     private let streamer: SnapshotStreaming
     private let notifier: AttentionNotifier
+    private let liveActivity = LiveActivityManager()
     private var runTask: Task<Void, Never>?
     private var lastSessions: [AgentSession] = []
     private var seenFirstSnapshot = false
@@ -37,7 +38,7 @@ final class DashboardStore: ObservableObject {
                 guard let self else { return }
                 for await snapshot in self.streamer.stream(pairing) {
                     if Task.isCancelled { return }
-                    self.apply(snapshot)
+                    await self.apply(snapshot)
                 }
                 if Task.isCancelled { return }
                 self.state = .failed("连接断开,重连中…")
@@ -49,9 +50,10 @@ final class DashboardStore: ObservableObject {
     func stop() {
         runTask?.cancel()
         runTask = nil
+        Task { await liveActivity.end() }
     }
 
-    private func apply(_ snapshot: Snapshot) {
+    private func apply(_ snapshot: Snapshot) async {
         // Notify only on a fresh transition into needsResponse; lastSessions
         // persists across reconnects so the already-waiting set isn't re-fired.
         if seenFirstSnapshot {
@@ -64,5 +66,10 @@ final class DashboardStore: ObservableObject {
         seenFirstSnapshot = true
         groups = SessionGroups(snapshot.sessions)
         state = .connected
+        await liveActivity.sync(
+            needsResponse: groups.needsResponse.count,
+            working: groups.working.count,
+            done: groups.done.count,
+            topProject: groups.needsResponse.first?.project)
     }
 }
