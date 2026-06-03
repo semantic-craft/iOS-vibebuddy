@@ -30,65 +30,84 @@ struct MenuContent: View {
     @ObservedObject var model: MenuBarModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("vibebuddy").font(.headline)
-            if let pairing = model.pairing {
-                Text("\(pairing.host):\(pairing.port)")
-                    .font(.caption).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("vibebuddy").font(.headline)
+                Spacer()
+                if let pairing = model.pairing {
+                    Text("\(pairing.host):\(pairing.port)")
+                        .font(.caption.monospaced()).foregroundStyle(.secondary)
+                }
             }
 
-            HStack(spacing: 14) {
-                counter("\(model.needsResponse)", "exclamationmark.circle.fill", .orange)
-                counter("\(model.working)", "hourglass", .blue)
-                counter("\(model.done)", "checkmark.circle.fill", .green)
+            HStack(spacing: 16) {
+                counter(model.needsResponse, "exclamationmark.circle.fill", .orange)
+                counter(model.working, "hourglass", .blue)
+                counter(model.done, "checkmark.circle.fill", .green)
             }
 
             Divider()
+
             if model.sessions.isEmpty {
-                Text("No active sessions").font(.caption).foregroundStyle(.secondary)
+                Text("没有进行中的会话")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 2)
             } else {
-                ForEach(model.sessions) { session in
-                    row(session)
+                VStack(spacing: 9) {
+                    ForEach(model.sessions) { row($0) }
                 }
             }
 
             Divider()
+
             DisclosureGroup("Pair a phone") {
                 if let qr = model.qrImage {
                     Image(nsImage: qr).interpolation(.none)
-                        .frame(width: 200, height: 200)
-                    Text("Scan in the vibebuddy app")
+                        .frame(width: 188, height: 188)
+                    Text("在 vibebuddy iOS app 里扫这个码")
                         .font(.caption2).foregroundStyle(.secondary)
                 }
             }
+            .font(.callout)
 
             Divider()
-            Button("Quit vibebuddy") { NSApplication.shared.terminate(nil) }
+
+            Button("退出 vibebuddy") { NSApplication.shared.terminate(nil) }
+                .buttonStyle(.borderless)
         }
-        .padding(12)
-        .frame(width: 290)
+        .padding(14)
+        .frame(width: 300)
     }
 
-    private func counter(_ text: String, _ symbol: String, _ color: Color) -> some View {
-        Label(text, systemImage: symbol).foregroundStyle(color)
+    private func counter(_ value: Int, _ symbol: String, _ color: Color) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: symbol)
+            Text("\(value)").monospacedDigit()
+        }
+        .font(.callout.weight(.medium))
+        .foregroundStyle(value > 0 ? AnyShapeStyle(color) : AnyShapeStyle(.secondary))
     }
 
     private func row(_ session: AgentSession) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Circle().fill(color(for: session.status)).frame(width: 8, height: 8).padding(.top, 4)
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 6) {
-                    Text(session.project).font(.caption).bold()
+        HStack(alignment: .top, spacing: 9) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(color(for: session.status))
+                .frame(width: 3)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 5) {
+                    Text(session.project).font(.callout.weight(.semibold))
                     if let branch = session.branch {
-                        Text(branch).font(.caption2).foregroundStyle(.secondary)
+                        Text(branch).font(.caption2.monospaced()).foregroundStyle(.secondary)
                     }
                 }
                 if let summary = session.summary {
-                    Text(summary).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    Text(summary).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
-            Spacer()
+            Spacer(minLength: 0)
         }
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private func color(for status: SessionStatus) -> Color {

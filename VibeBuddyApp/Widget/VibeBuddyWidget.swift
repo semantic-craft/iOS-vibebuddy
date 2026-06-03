@@ -36,12 +36,12 @@ struct VibeBuddyLiveActivity: Widget {
                     .foregroundStyle(context.state.needsResponse > 0 ? .orange : .secondary)
             } compactTrailing: {
                 if context.state.needsResponse > 0 {
-                    Text("\(context.state.needsResponse)").foregroundStyle(.orange)
+                    Text("\(context.state.needsResponse)").monospacedDigit().foregroundStyle(.orange)
                 } else {
-                    Text("\(context.state.working)").foregroundStyle(.blue)
+                    Text("\(context.state.working)").monospacedDigit().foregroundStyle(.blue)
                 }
             } minimal: {
-                Text("\(context.state.needsResponse)")
+                Text("\(context.state.needsResponse)").monospacedDigit()
                     .foregroundStyle(context.state.needsResponse > 0 ? .orange : .secondary)
             }
         }
@@ -49,7 +49,7 @@ struct VibeBuddyLiveActivity: Widget {
 }
 
 private func counter(_ value: Int, _ symbol: String, _ color: Color) -> some View {
-    Label("\(value)", systemImage: symbol).foregroundStyle(color)
+    Label("\(value)", systemImage: symbol).monospacedDigit().foregroundStyle(color)
 }
 
 struct LockScreenView: View {
