@@ -2,6 +2,20 @@
 
 **Last Updated**: 2026-06-03
 
+## Status (2026-06-03)
+
+- ✅ **Phase A** — VibeBuddyKit shared model (committed `a997a07`)
+- ✅ **Phase B** — reducer + parser + Hummingbird server + TranscriptReader/enrichment
+  (`bfd3561`, `889e421`, `71ab9ca`); verified live over HTTP. *Open:* Claude Code
+  hook installer (needs consent to edit `~/.claude/settings.json`).
+- ✅ **Phase C** — SwiftUI MenuBarExtra app + token + LAN IP + QR pairing
+  (`27fefea`); GUI app boots and serves, verified live.
+- ⏭️ **Phase D (next)** — iOS app (requires introducing an Xcode project).
+- Mac-side tests: **40 passing across 6 suites.** `/ws` WebSocket push still TODO
+  (iOS can poll `/snapshot` until then).
+
+---
+
 Phased so each step ends at something runnable and verifiable. No hard dates (personal project); order matters more than calendar. Each phase notes the skills it leans on and a concrete Definition of Done (DoD).
 
 ## Phase A — Foundations (shared model)
