@@ -1,7 +1,8 @@
 import Foundation
 import VibeBuddyKit
 
-/// Polls the Mac for snapshots and publishes grouped sessions + connection state.
+/// Consumes the live snapshot stream and publishes grouped sessions, connection
+/// state, and notifications. Reconnects automatically when the socket drops.
 @MainActor
 final class DashboardStore: ObservableObject {
     enum ConnectionState: Equatable {
@@ -13,51 +14,55 @@ final class DashboardStore: ObservableObject {
     @Published private(set) var groups = SessionGroups([])
     @Published private(set) var state: ConnectionState = .connecting
 
-    private let client: SnapshotFetching
+    private let streamer: SnapshotStreaming
     private let notifier: AttentionNotifier
-    private var pollTask: Task<Void, Never>?
+    private var runTask: Task<Void, Never>?
     private var lastSessions: [AgentSession] = []
     private var seenFirstSnapshot = false
 
-    init(client: SnapshotFetching = HTTPSnapshotClient(),
+    init(streamer: SnapshotStreaming = WebSocketSnapshotClient(),
          notifier: AttentionNotifier = LocalNotifier()) {
-        self.client = client
+        self.streamer = streamer
         self.notifier = notifier
         notifier.requestAuthorization()
     }
 
-    func start(_ pairing: PairingPayload, interval: Duration = .seconds(2)) {
+    func start(_ pairing: PairingPayload) {
         stop()
         state = .connecting
         lastSessions = []
         seenFirstSnapshot = false
-        pollTask = Task { [weak self] in
+        runTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
-                do {
-                    let snapshot = try await self.client.fetch(pairing)
-                    // Notify only on a fresh transition into needsResponse,
-                    // and never for the set already waiting at connect time.
-                    if self.seenFirstSnapshot {
-                        for session in AttentionDiff.newlyNeedingResponse(
-                            old: self.lastSessions, new: snapshot.sessions) {
-                            self.notifier.notify(session)
-                        }
-                    }
-                    self.lastSessions = snapshot.sessions
-                    self.seenFirstSnapshot = true
-                    self.groups = SessionGroups(snapshot.sessions)
-                    self.state = .connected
-                } catch {
-                    self.state = .failed(error.localizedDescription)
+                for await snapshot in self.streamer.stream(pairing) {
+                    if Task.isCancelled { return }
+                    self.apply(snapshot)
                 }
-                try? await Task.sleep(for: interval)
+                if Task.isCancelled { return }
+                self.state = .failed("连接断开,重连中…")
+                try? await Task.sleep(for: .seconds(2))
             }
         }
     }
 
     func stop() {
-        pollTask?.cancel()
-        pollTask = nil
+        runTask?.cancel()
+        runTask = nil
+    }
+
+    private func apply(_ snapshot: Snapshot) {
+        // Notify only on a fresh transition into needsResponse; lastSessions
+        // persists across reconnects so the already-waiting set isn't re-fired.
+        if seenFirstSnapshot {
+            for session in AttentionDiff.newlyNeedingResponse(
+                old: lastSessions, new: snapshot.sessions) {
+                notifier.notify(session)
+            }
+        }
+        lastSessions = snapshot.sessions
+        seenFirstSnapshot = true
+        groups = SessionGroups(snapshot.sessions)
+        state = .connected
     }
 }
