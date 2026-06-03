@@ -15,11 +15,14 @@
   Simulator against the live daemon (screenshot).**
 - ✅ **Phase E (core)** — local notifications on a fresh `needsResponse`
   transition (`d5043dc`).
+- ✅ **Hook installer** — `hooks/install-claude-hooks.py` (idempotent, reversible).
+  **A real Claude Code session was verified end-to-end on the phone** (real
+  project / model `claude-opus-4-8` / tokens / last-message from the JSONL
+  transcript). Phase B DoD fully met.
 - Tests: **Mac 40 + Kit 12.** `/ws` WebSocket push still TODO (iOS polls
   `/snapshot`, 2s).
-- **Next / open:** Claude Code hook installer (needs consent to edit
-  `~/.claude/settings.json`) for a real end-to-end; Codex adapter + Live Activity
-  (v1.5); launch-at-login + Keychain hardening.
+- **Next / open:** `/ws` WebSocket push; Codex adapter + Live Activity (v1.5);
+  launch-at-login + Keychain hardening.
 
 ---
 

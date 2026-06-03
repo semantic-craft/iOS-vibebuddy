@@ -47,10 +47,15 @@ open VibeBuddyApp.xcodeproj   # run on a Simulator/device
 Pair by scanning the QR, or enter host/port/token manually. (Simulator: use
 `127.0.0.1` and the token from `~/Library/Application Support/vibebuddy/token`.)
 
-**Hooks (to feed real Claude Code):** install a fail-open `curl` POST to
-`http://127.0.0.1:9876/hook` for `SessionStart`, `UserPromptSubmit`,
-`PreToolUse`, `PostToolUse`, `Notification`, `Stop` in `~/.claude/settings.json`.
-*(Installer script: TODO — see roadmap.)*
+**Hooks (to feed real Claude Code):**
+```bash
+python3 hooks/install-claude-hooks.py --dry-run    # preview the change
+python3 hooks/install-claude-hooks.py --install    # back up + install
+python3 hooks/install-claude-hooks.py --uninstall  # revert
+```
+Installs fail-open `curl` POSTs to `http://127.0.0.1:9876/hook` for the 6
+lifecycle events. Then run the menu-bar app (or `vibebuddyd`) and your real
+Claude Code sessions appear on the phone.
 
 ## Tests
 
