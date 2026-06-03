@@ -28,6 +28,15 @@ Codex currently emits `agent-turn-complete`, which shows the session as **done**
 hook events (SessionStart/Stop/…), install them pointing at `…/hook?agent=codex`
 and they flow through the same state machine.
 
+**Already have a Codex `notify`** (e.g. Codex Computer Use)? Codex allows only one
+notify program, so use the chaining wrapper instead — it calls your existing
+notify *and* forwards to vibebuddy:
+```toml
+notify = ["/Users/example/Projects/iOS-vibebuddy/hooks/codex-notify-chain.sh"]
+```
+(Edit the `ORIG=` path inside the script to your existing notify program.)
+
+
 ## Daemon
 
 The hooks target `http://127.0.0.1:9876/hook` (override with `VIBEBUDDY_PORT`).
