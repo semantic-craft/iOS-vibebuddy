@@ -7,91 +7,140 @@ struct DashboardView: View {
 
     var body: some View {
         List {
-            section("需回应", systemImage: "exclamationmark.circle.fill",
-                    sessions: dashboard.groups.needsResponse, accent: .orange)
-            section("进行中", systemImage: "hourglass",
-                    sessions: dashboard.groups.working, accent: .blue)
-            section("已完成", systemImage: "checkmark.circle.fill",
-                    sessions: dashboard.groups.done, accent: .green)
+            section("需回应", sessions: dashboard.groups.needsResponse, accent: .orange)
+            section("进行中", sessions: dashboard.groups.working, accent: .blue)
+            section("已完成", sessions: dashboard.groups.done, accent: .green)
         }
+        .listStyle(.plain)
+        .animation(.smooth, value: dashboard.groups)
         .overlay {
-            if dashboard.groups.isEmpty {
-                ContentUnavailableView(emptyTitle, systemImage: emptyIcon)
-            }
+            if dashboard.groups.isEmpty { EmptyStateView(state: dashboard.state) }
         }
         .navigationTitle("vibebuddy")
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) { ConnectionDot(state: dashboard.state) }
             ToolbarItem(placement: .topBarTrailing) {
-                Button("Disconnect") {
-                    dashboard.stop()
-                    connection.clear()
-                }
+                Button("断开") { dashboard.stop(); connection.clear() }
+                    .font(.subheadline)
             }
         }
         .task(id: connection.pairing) {
-            if let pairing = connection.pairing {
-                dashboard.start(pairing)
-            }
+            if let pairing = connection.pairing { dashboard.start(pairing) }
         }
         .onDisappear { dashboard.stop() }
     }
 
-    private var emptyTitle: String {
-        switch dashboard.state {
-        case .connecting: "Connecting…"
-        case .connected: "No active sessions"
-        case .failed(let message): message
-        }
-    }
-
-    private var emptyIcon: String {
-        switch dashboard.state {
-        case .connecting: "antenna.radiowaves.left.and.right"
-        case .connected: "moon.zzz"
-        case .failed: "wifi.exclamationmark"
-        }
-    }
-
     @ViewBuilder
-    private func section(_ title: String, systemImage: String,
-                         sessions: [AgentSession], accent: Color) -> some View {
+    private func section(_ title: String, sessions: [AgentSession], accent: Color) -> some View {
         if !sessions.isEmpty {
             Section {
-                ForEach(sessions) { SessionRow(session: $0, accent: accent) }
+                ForEach(sessions) { session in
+                    SessionRow(session: session, accent: accent)
+                        .listRowInsets(.init(top: 6, leading: 0, bottom: 6, trailing: 16))
+                }
             } header: {
-                Label("\(title) (\(sessions.count))", systemImage: systemImage)
-                    .foregroundStyle(accent)
+                HStack(spacing: 6) {
+                    Text(title)
+                    Text("\(sessions.count)").monospacedDigit().opacity(0.7)
+                }
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(accent)
+                .textCase(nil)
             }
         }
     }
 }
 
-struct SessionRow: View {
+private struct SessionRow: View {
     let session: AgentSession
     let accent: Color
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Circle().fill(accent).frame(width: 10, height: 10).padding(.top, 5)
-            VStack(alignment: .leading, spacing: 3) {
+        HStack(alignment: .top, spacing: 12) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(accent)
+                .frame(width: 3)
+
+            VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Text(session.project).font(.headline)
                     if let branch = session.branch {
-                        Text(branch).font(.caption).foregroundStyle(.secondary)
+                        Text(branch)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
                     }
                 }
+
                 if let summary = session.summary {
-                    Text(summary).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+                    Text(summary)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
                 }
-                HStack(spacing: 8) {
+
+                HStack(spacing: 6) {
                     Text(session.agent == .claudeCode ? "Claude" : "Codex")
-                    if let model = session.model { Text(model) }
-                    if let tokens = session.tokens { Text("\(tokens) tok") }
+                    if let model = session.model { Text("· \(model)") }
+                    if let tokens = session.tokens {
+                        Text("· \(tokens.formatted()) tok").monospacedDigit()
+                    }
+                    Spacer(minLength: 8)
+                    Label {
+                        Text(session.statusSince, style: .timer).monospacedDigit()
+                    } icon: {
+                        Image(systemName: session.status == .needsResponse ? "hourglass" : "clock")
+                    }
+                    .foregroundStyle(session.status == .needsResponse
+                                     ? AnyShapeStyle(accent) : AnyShapeStyle(.tertiary))
                 }
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
             }
         }
-        .padding(.vertical, 2)
+        .padding(.leading, 4)
+    }
+}
+
+private struct ConnectionDot: View {
+    let state: DashboardStore.ConnectionState
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Circle().fill(color).frame(width: 7, height: 7)
+            Text(label).font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var color: Color {
+        switch state {
+        case .connecting: .yellow
+        case .connected: .green
+        case .failed: .red
+        }
+    }
+    private var label: String {
+        switch state {
+        case .connecting: "连接中"
+        case .connected: "已连接"
+        case .failed: "重连中"
+        }
+    }
+}
+
+private struct EmptyStateView: View {
+    let state: DashboardStore.ConnectionState
+
+    var body: some View {
+        switch state {
+        case .connecting:
+            ContentUnavailableView("正在连接 Mac", systemImage: "antenna.radiowaves.left.and.right")
+        case .connected:
+            ContentUnavailableView(
+                "没有进行中的会话", systemImage: "moon.zzz",
+                description: Text("启动一个 Claude Code 或 Codex 会话,它会出现在这里。"))
+        case .failed(let message):
+            ContentUnavailableView(
+                "连接断开", systemImage: "wifi.exclamationmark", description: Text(message))
+        }
     }
 }
