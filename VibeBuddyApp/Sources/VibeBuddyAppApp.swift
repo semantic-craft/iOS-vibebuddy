@@ -3,6 +3,7 @@ import VibeBuddyKit
 
 @main
 struct VibeBuddyAppApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var connection = ConnectionStore()
     @StateObject private var dashboard = DashboardStore()
 
@@ -25,6 +26,13 @@ struct RootView: View {
             } else {
                 ConnectView()
             }
+        }
+        .task {
+            PushRegistration.shared.registerForRemoteNotifications()
+            PushRegistration.shared.update(pairing: connection.pairing)
+        }
+        .onChange(of: connection.pairing) { _, newValue in
+            PushRegistration.shared.update(pairing: newValue)
         }
     }
 }

@@ -12,12 +12,16 @@ public struct VibeBuddyServer: Sendable {
     public let token: String
     public let host: String
     public let port: Int
+    public let pusher: APNsPusher?
+    public let deviceTokens = DeviceTokens()
 
-    public init(store: SessionStore, token: String, host: String = "0.0.0.0", port: Int = 9876) {
+    public init(store: SessionStore, token: String, host: String = "0.0.0.0",
+                port: Int = 9876, pusher: APNsPusher? = nil) {
         self.store = store
         self.token = token
         self.host = host
         self.port = port
+        self.pusher = pusher
     }
 
     public func buildApplication() -> some ApplicationProtocol {
@@ -44,6 +48,21 @@ public struct VibeBuddyServer: Sendable {
             await store.unsubscribe(subscription.id)
         }
 
+        // APNs: push a "needs you" alert to registered devices on each fresh
+        // needsResponse transition. Off until a pusher is configured.
+        if let pusher = self.pusher {
+            let deviceTokens = self.deviceTokens
+            Task {
+                await store.setNeedsResponseHandler { session in
+                    for deviceToken in await deviceTokens.all() {
+                        await pusher.send(title: "\(session.project) 需要你",
+                                          body: session.summary ?? "等待你的响应",
+                                          to: deviceToken)
+                    }
+                }
+            }
+        }
+
         return Application(
             router: router(),
             server: .http1WebSocketUpgrade(webSocketRouter: wsRouter),
@@ -56,9 +75,25 @@ public struct VibeBuddyServer: Sendable {
         let router = Router()
         let store = self.store
         let token = self.token
+        let deviceTokens = self.deviceTokens
 
         // Liveness — unauthenticated, used by the app's connection screen.
         router.get("health") { _, _ -> String in "ok" }
+
+        // Register an iOS APNs device token (uploaded by the app). Token-gated.
+        router.post("device") { request, _ -> HTTPResponse.Status in
+            guard request.headers[.authorization] == "Bearer \(token)" else {
+                throw HTTPError(.unauthorized)
+            }
+            let buffer = try await request.body.collect(upTo: 4096)
+            let body = String(decoding: Data(buffer: buffer), as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let deviceToken = body.hasPrefix("{")
+                ? (try? JSONDecoder().decode([String: String].self, from: Data(body.utf8)))?["token"] ?? ""
+                : body
+            if !deviceToken.isEmpty { await deviceTokens.add(deviceToken) }
+            return .ok
+        }
 
         // Hook intake — localhost only in practice; no token. `?agent=codex`
         // tags the source (Claude Code is the default).

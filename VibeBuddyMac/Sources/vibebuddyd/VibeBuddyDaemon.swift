@@ -10,7 +10,8 @@ struct VibeBuddyDaemon {
         let port = env["VIBEBUDDY_PORT"].flatMap(Int.init) ?? 9876
         let token = env["VIBEBUDDY_TOKEN"] ?? "devtoken"
 
-        let server = VibeBuddyServer(store: SessionStore(), token: token, port: port)
+        let pusher = APNsConfig.fromEnvironment().flatMap { try? APNsPusher(config: $0) }
+        let server = VibeBuddyServer(store: SessionStore(), token: token, port: port, pusher: pusher)
         FileHandle.standardError.write(Data("vibebuddyd: listening on 0.0.0.0:\(port)\n".utf8))
         try await server.buildApplication().runService()
     }

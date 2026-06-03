@@ -30,7 +30,8 @@ final class MenuBarModel: ObservableObject {
     var done: Int { sessions.lazy.filter { $0.status == .done }.count }
 
     private func startServer() {
-        let server = VibeBuddyServer(store: store, token: token, port: port)
+        let pusher = APNsConfig.fromEnvironment().flatMap { try? APNsPusher(config: $0) }
+        let server = VibeBuddyServer(store: store, token: token, port: port, pusher: pusher)
         Task.detached(priority: .utility) {
             do { try await server.buildApplication().runService() }
             catch { FileHandle.standardError.write(Data("server error: \(error)\n".utf8)) }
