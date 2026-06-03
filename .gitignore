@@ -1,5 +1,6 @@
 vendor/
 .build/
+build/
 .swiftpm/
 DerivedData/
 *.xcodeproj/xcuserdata/
