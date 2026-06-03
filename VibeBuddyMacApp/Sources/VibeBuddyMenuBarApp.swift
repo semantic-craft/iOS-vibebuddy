@@ -63,8 +63,11 @@ struct MenuContent: View {
 
             DisclosureGroup("Pair a phone") {
                 if let qr = model.qrImage {
-                    Image(nsImage: qr).interpolation(.none)
-                        .frame(width: 188, height: 188)
+                    Image(nsImage: qr).interpolation(.none).resizable()
+                        .frame(width: 176, height: 176)
+                        .padding(12)
+                        .background(.white)
+                        .clipShape(.rect(cornerRadius: 8))
                     Text("在 vibebuddy iOS app 里扫这个码")
                         .font(.caption2).foregroundStyle(.secondary)
                 }

@@ -17,13 +17,18 @@ public enum Pairing {
         return String(decoding: data, as: UTF8.self)
     }
 
-    /// Render a string into a QR CGImage (10x scaled for crisp display).
+    /// Render a string into a QR CGImage (10x scaled, black-on-white).
+    /// CIQRCodeGenerator outputs black modules on a *transparent* background, so
+    /// we composite over opaque white — otherwise it's invisible/unscannable on
+    /// a dark-mode menu background.
     public static func qrImage(from string: String) -> CGImage? {
         guard let filter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
         filter.setValue(Data(string.utf8), forKey: "inputMessage")
         filter.setValue("M", forKey: "inputCorrectionLevel")
-        guard let output = filter.outputImage else { return nil }
-        let scaled = output.transformed(by: CGAffineTransform(scaleX: 10, y: 10))
+        guard let qr = filter.outputImage else { return nil }
+        let white = CIImage(color: .white).cropped(to: qr.extent)
+        let onWhite = qr.composited(over: white)
+        let scaled = onWhite.transformed(by: CGAffineTransform(scaleX: 10, y: 10))
         return CIContext().createCGImage(scaled, from: scaled.extent)
     }
 }
