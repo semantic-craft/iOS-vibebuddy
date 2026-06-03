@@ -60,10 +60,12 @@ public struct VibeBuddyServer: Sendable {
         // Liveness — unauthenticated, used by the app's connection screen.
         router.get("health") { _, _ -> String in "ok" }
 
-        // Hook intake — localhost only in practice; no token.
+        // Hook intake — localhost only in practice; no token. `?agent=codex`
+        // tags the source (Claude Code is the default).
         router.post("hook") { request, _ -> HTTPResponse.Status in
+            let agent: AgentKind = request.uri.queryParameters["agent"] == "codex" ? .codex : .claudeCode
             let buffer = try await request.body.collect(upTo: 1 << 20) // 1 MB cap
-            await store.ingest(Data(buffer: buffer), receivedAt: Date())
+            await store.ingest(Data(buffer: buffer), agent: agent, receivedAt: Date())
             return .ok
         }
 

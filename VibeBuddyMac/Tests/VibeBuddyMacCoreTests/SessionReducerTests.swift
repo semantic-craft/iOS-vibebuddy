@@ -96,11 +96,22 @@ struct SessionReducerTests {
         #expect(r.sessions["b"]?.status == .done)
     }
 
-    @Test("Stop on an unknown session is ignored")
-    func stopUnknown() {
+    @Test("Stop on an unknown session creates it as done (late start / Codex notify)")
+    func stopCreatesDone() {
         var r = SessionReducer()
-        r.apply(ev(.stop, "ghost", at: 0))
-        #expect(r.sessions["ghost"] == nil)
+        r.apply(ev(.stop, "ghost", cwd: "/x/proj", at: 0))
+        #expect(r.sessions["ghost"]?.status == .done)
+        #expect(r.sessions["ghost"]?.project == "proj")
+    }
+
+    @Test("Stop carries a summary and agent when provided (Codex turn-complete)")
+    func stopSummary() {
+        var r = SessionReducer()
+        r.apply(HookEvent(kind: .stop, sessionID: "c", agent: .codex,
+                          cwd: "/x/p", message: "done refactoring", timestamp: t0))
+        #expect(r.sessions["c"]?.status == .done)
+        #expect(r.sessions["c"]?.summary == "done refactoring")
+        #expect(r.sessions["c"]?.agent == .codex)
     }
 
     @Test("snapshot() returns sessions sorted by attention then recency")

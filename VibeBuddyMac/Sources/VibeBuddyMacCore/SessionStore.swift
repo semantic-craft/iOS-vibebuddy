@@ -13,8 +13,11 @@ public actor SessionStore {
     /// Parse a raw hook payload, apply it, enrich from the transcript, and push
     /// the new snapshot to every subscriber. Returns false if it wasn't a hook.
     @discardableResult
-    public func ingest(_ data: Data, receivedAt: Date) -> Bool {
-        guard let event = HookParser.parse(data, receivedAt: receivedAt) else { return false }
+    public func ingest(_ data: Data, agent: AgentKind = .claudeCode, receivedAt: Date) -> Bool {
+        // Claude Code / Codex hooks first (hook_event_name); Codex notify second.
+        guard let event = HookParser.parse(data, agent: agent, receivedAt: receivedAt)
+            ?? CodexParser.parse(data, receivedAt: receivedAt)
+        else { return false }
         reducer.apply(event)
         if let path = event.transcriptPath, let info = TranscriptReader.read(path: path) {
             reducer.enrich(sessionID: event.sessionID, with: info)

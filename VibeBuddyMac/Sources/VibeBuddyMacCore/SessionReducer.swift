@@ -22,7 +22,9 @@ public struct SessionReducer: Sendable {
                    waitKind: Self.waitKind(from: event.message),
                    summary: event.message)
         case .stop:
-            transition(event, to: .done)
+            // Create-if-missing so a late-observed session or a Codex
+            // turn-complete still shows as done; carry a Codex summary if present.
+            upsert(event, status: .done, waitKind: nil, summary: event.message)
         }
     }
 
@@ -76,15 +78,6 @@ public struct SessionReducer: Sendable {
                 updatedAt: event.timestamp
             )
         }
-    }
-
-    private mutating func transition(_ event: HookEvent, to status: SessionStatus) {
-        guard var s = sessions[event.sessionID] else { return }
-        if s.status != status { s.statusSince = event.timestamp }
-        s.status = status
-        s.waitKind = nil
-        s.updatedAt = event.timestamp
-        sessions[event.sessionID] = s
     }
 
     static func projectName(_ cwd: String) -> String {
