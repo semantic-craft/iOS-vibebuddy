@@ -73,6 +73,12 @@ struct MenuContent: View {
 
             Divider()
 
+            Toggle("开机自启", isOn: Binding(
+                get: { model.launchAtLogin },
+                set: { model.setLaunchAtLogin($0) }))
+                .toggleStyle(.switch)
+                .font(.callout)
+
             Button("退出 vibebuddy") { NSApplication.shared.terminate(nil) }
                 .buttonStyle(.borderless)
         }

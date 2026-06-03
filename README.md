@@ -27,17 +27,21 @@ Claude Code / Codex ──hooks──▶ VibeBuddyMac (macOS menu-bar app)
 | Path | What |
 |------|------|
 | `VibeBuddyKit/` | Shared Codable wire model (SwiftPM) |
-| `VibeBuddyMac/` | macOS core + `vibebuddyd` (headless) + `VibeBuddyMenuBar` (SwiftPM) |
+| `VibeBuddyMac/` | macOS core lib + `vibebuddyd` headless CLI (SwiftPM) |
+| `VibeBuddyMacApp/` | macOS menu-bar app (xcodegen) — Keychain token, launch-at-login |
 | `VibeBuddyApp/` | iOS app (xcodegen — run `xcodegen generate` first) |
 | `docs/planning/` | overview, prd, architecture, roadmap, prior-art |
 
 ## Run it
 
-**Mac side (menu bar):**
+**Mac side (menu-bar app):**
 ```bash
-cd VibeBuddyMac && swift run VibeBuddyMenuBar
+cd VibeBuddyMacApp && xcodegen generate
+open VibeBuddyMacApp.xcodeproj   # build & run (⌘R)
 ```
-The menu bar shows live counts; "Pair a phone" shows the QR.
+A menu-bar-only app: live counts, "Pair a phone" QR, and a launch-at-login
+toggle; the LAN token lives in the Keychain. (`vibebuddyd` in `VibeBuddyMac/`
+remains as a headless CLI: `swift run vibebuddyd`.)
 
 **iOS app (Simulator):**
 ```bash

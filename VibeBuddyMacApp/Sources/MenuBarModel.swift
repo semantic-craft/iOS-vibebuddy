@@ -10,6 +10,7 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var sessions: [AgentSession] = []
     @Published private(set) var pairing: PairingPayload?
     @Published private(set) var qrImage: NSImage?
+    @Published var launchAtLogin = LaunchAtLogin.isEnabled
 
     let port: Int
     private let token: String
@@ -18,7 +19,7 @@ final class MenuBarModel: ObservableObject {
 
     init() {
         port = ProcessInfo.processInfo.environment["VIBEBUDDY_PORT"].flatMap(Int.init) ?? 9876
-        token = (try? TokenStore.defaultStore().loadOrCreate()) ?? Token.generate()
+        token = KeychainTokenStore.loadOrCreate()
         startServer()
         preparePairing()
         startPolling()
@@ -54,6 +55,11 @@ final class MenuBarModel: ObservableObject {
                 try? await Task.sleep(for: .seconds(2))
             }
         }
+    }
+
+    func setLaunchAtLogin(_ enabled: Bool) {
+        LaunchAtLogin.set(enabled)
+        launchAtLogin = LaunchAtLogin.isEnabled
     }
 
     deinit { pollTask?.cancel() }

@@ -23,9 +23,14 @@
   HummingbirdWebSocket) + auto-reconnecting WebSocket client (iOS); verified
   end-to-end in the Simulator (a session pushed after launch appeared live, no
   polling). Replaced REST polling.
-- Tests: **Mac 40 + Kit 12** (WS verified via live smoke).
-- **Next / open:** Codex adapter + Live Activity / Dynamic Island (v1.5);
-  launch-at-login + Keychain hardening; APNs closed-app push (v2).
+- ✅ **v1.5** — Codex adapter (notify, `?agent=codex`), Live Activity / Dynamic
+  Island, and an anti-slop **taste pass** across all screens (`swiftui-taste` skill).
+- ✅ **Mac app hardening** — the menu bar is now a real `.app` bundle
+  (`VibeBuddyMacApp`, xcodegen) with **Keychain** token storage + **SMAppService
+  launch-at-login**. Keychain + embedded server verified live in the .app.
+- Tests: **Mac 47 + Kit 12.**
+- **Next / open:** APNs closed-app push (v2); app icon + App Store packaging;
+  put the .app in /Applications so launch-at-login fully persists.
 
 ---
 
