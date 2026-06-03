@@ -25,6 +25,7 @@ public enum HookParser {
             cwd: raw.cwd,
             toolName: raw.toolName,
             message: raw.message,
+            transcriptPath: raw.transcriptPath,
             timestamp: receivedAt
         )
     }
@@ -47,5 +48,6 @@ public enum HookParser {
         let cwd: String?
         let toolName: String?
         let message: String?
+        let transcriptPath: String?
     }
 }

@@ -20,6 +20,7 @@ public struct HookEvent: Sendable, Equatable {
     public let cwd: String?
     public let toolName: String?
     public let message: String?
+    public let transcriptPath: String?
     public let timestamp: Date
 
     public init(
@@ -29,6 +30,7 @@ public struct HookEvent: Sendable, Equatable {
         cwd: String? = nil,
         toolName: String? = nil,
         message: String? = nil,
+        transcriptPath: String? = nil,
         timestamp: Date
     ) {
         self.kind = kind
@@ -37,6 +39,7 @@ public struct HookEvent: Sendable, Equatable {
         self.cwd = cwd
         self.toolName = toolName
         self.message = message
+        self.transcriptPath = transcriptPath
         self.timestamp = timestamp
     }
 }

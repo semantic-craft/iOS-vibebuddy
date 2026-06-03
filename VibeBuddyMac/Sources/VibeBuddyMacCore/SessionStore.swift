@@ -14,6 +14,9 @@ public actor SessionStore {
     public func ingest(_ data: Data, receivedAt: Date) -> Bool {
         guard let event = HookParser.parse(data, receivedAt: receivedAt) else { return false }
         reducer.apply(event)
+        if let path = event.transcriptPath, let info = TranscriptReader.read(path: path) {
+            reducer.enrich(sessionID: event.sessionID, with: info)
+        }
         return true
     }
 

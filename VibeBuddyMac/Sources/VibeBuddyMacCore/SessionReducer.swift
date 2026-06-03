@@ -26,6 +26,17 @@ public struct SessionReducer: Sendable {
         }
     }
 
+    /// Layer transcript-derived metadata onto an existing session. Model and
+    /// token usage always apply; the prose summary only applies when the session
+    /// is not waiting on the user (so a permission/question prompt isn't clobbered).
+    public mutating func enrich(sessionID: String, with info: TranscriptInfo) {
+        guard var s = sessions[sessionID] else { return }
+        if let model = info.model { s.model = model }
+        if let tokens = info.tokens { s.tokens = tokens }
+        if let summary = info.summary, s.status != .needsResponse { s.summary = summary }
+        sessions[sessionID] = s
+    }
+
     /// A sorted snapshot for broadcast: most-urgent first, then most-recent.
     public func snapshot(now: Date) -> Snapshot {
         let sorted = sessions.values.sorted { a, b in
