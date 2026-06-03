@@ -9,11 +9,22 @@ struct ConnectView: View {
     @State private var host = ""
     @State private var port = "9876"
     @State private var token = ""
+    @State private var showScanner = false
 
     private var canConnect: Bool { !host.isEmpty && Int(port) != nil && !token.isEmpty }
 
     var body: some View {
         Form {
+            Section {
+                Button {
+                    showScanner = true
+                } label: {
+                    Label("扫码配对", systemImage: "qrcode.viewfinder")
+                }
+            } footer: {
+                Text("打开 Mac 上 vibebuddy 菜单栏的“Pair a phone”，扫描那个二维码即可。")
+            }
+
             Section {
                 TextField("Host (e.g. 192.168.1.20)", text: $host)
                     .textInputAutocapitalization(.never)
@@ -37,5 +48,21 @@ struct ConnectView: View {
             .disabled(!canConnect)
         }
         .navigationTitle("vibebuddy")
+        .sheet(isPresented: $showScanner) {
+            NavigationStack {
+                QRScannerView { payload in
+                    connection.save(payload)
+                    showScanner = false
+                }
+                .ignoresSafeArea()
+                .navigationTitle("扫描配对二维码")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("取消") { showScanner = false }
+                    }
+                }
+            }
+        }
     }
 }
