@@ -1,47 +1,55 @@
 # APNs setup (closed-app push)
 
-The code is scaffolded and builds. To make it actually push — phone alerted on
-"needs you" even when the app is killed — you need a **paid Apple Developer
-account**, then wire in the key. Steps once enrolled:
+**Status:** the provider auth chain is **verified working** — a signed ES256 JWT
+from the real .p8 was accepted by APNs sandbox (returned `BadDeviceToken` for a
+dummy token, which means the key/JWT/team/connection are all correct). What's
+left is getting a real device token (iOS signing + run on device).
 
-## 1. Apple Developer portal
-1. **Keys → +** → enable *Apple Push Notifications service (APNs)* → download the
-   `AuthKey_XXXXXXXXXX.p8` (download once!). Note the **Key ID**.
-2. Note your **Team ID** (top-right of the portal). You already sign as team
-   `B6NUMVUKU7`.
-3. **Identifiers** → register `com.vibebuddy.app` with the *Push Notifications*
-   capability.
+## The values
 
-## 2. iOS app (signing + entitlement)
-In `VibeBuddyApp/project.yml`, on the `VibeBuddyApp` target:
+| Field | Value | Where |
+|---|---|---|
+| Key ID | `9L99B95NNM` | the APNs key page (also in the .p8 filename) |
+| **Team ID** | **`LQAVR62TK2`** | the signing cert's **OU**, not the CN parenthetical! |
+| Bundle ID | `com.vibebuddy.app` | App ID (must have Push capability) |
+| .p8 | `~/Library/Application Support/vibebuddy/apns/AuthKey_9L99B95NNM.p8` | copied from Downloads |
+
+> ⚠️ **Team ID gotcha:** `security find-identity` shows `(B6NUMVUKU7)` in the cert
+> *name*, but that is **not** the Team ID. The Team ID is the cert's **OU**:
+> `security find-certificate -a -c "Apple Development" -p | openssl x509 -noout -subject`
+> → `OU=LQAVR62TK2`. Using the wrong one gives `403 InvalidProviderToken`.
+
+## Mac config
+
+Two ways; `APNsConfig.load()` tries env first, then the file.
+
+- **CLI (`vibebuddyd`)** — env vars: `APNS_TEAM_ID`, `APNS_KEY_ID`,
+  `APNS_BUNDLE_ID`, `APNS_KEY_PATH`, `APNS_SANDBOX=1`.
+- **Menu-bar app (GUI)** — a JSON file, since GUI apps don't inherit shell env:
+  `~/Library/Application Support/vibebuddy/apns.json` →
+  `{ "teamID", "keyID", "bundleID", "keyPath", "sandbox" }`. **Already written.**
+
+The daemon logs `apns: on` at startup when configured.
+
+## iOS (the remaining step — needs a device)
+
+In `VibeBuddyApp/project.yml`, on the `VibeBuddyApp` target, switch to real signing:
 ```yaml
     settings:
       base:
-        DEVELOPMENT_TEAM: B6NUMVUKU7
+        DEVELOPMENT_TEAM: LQAVR62TK2
         CODE_SIGN_STYLE: Automatic
-        CODE_SIGN_ENTITLEMENTS: VibeBuddyApp.entitlements   # already in repo
-        # drop CODE_SIGNING_ALLOWED: NO
+        CODE_SIGN_ENTITLEMENTS: VibeBuddyApp.entitlements   # aps-environment
+        # remove CODE_SIGNING_ALLOWED: NO
 ```
-Then `xcodegen generate` and run **on a real device** (push doesn't work in the
-Simulator). The app registers, gets a token, and uploads it to the Mac's
-`POST /device`. (Use `production` in the entitlement for App Store builds.)
+`xcodegen generate`, open in Xcode, plug in the iPhone, pick it as the run
+destination, and Run. Xcode registers the device + makes the provisioning
+profile. The app registers for push, gets a token, and uploads it to the Mac's
+`POST /device`.
 
-## 3. Mac (the .p8 key)
-Launch the menu-bar app / `vibebuddyd` with these env vars set:
-```bash
-export APNS_TEAM_ID=B6NUMVUKU7
-export APNS_KEY_ID=XXXXXXXXXX            # the .p8 Key ID
-export APNS_BUNDLE_ID=com.vibebuddy.app
-export APNS_KEY_PATH=/path/to/AuthKey_XXXXXXXXXX.p8
-export APNS_SANDBOX=1                     # 1 for dev builds; unset for App Store
-```
-`APNsConfig.fromEnvironment()` picks these up; until they're set, push stays off
-and nothing else changes.
+## End-to-end
 
-## Flow
-app registers → uploads device token to Mac `/device` → on each fresh
-`needsResponse` transition the Mac signs an ES256 JWT and POSTs an alert to
-`api.push.apple.com/3/device/<token>` → phone shows the notification.
-
-The cryptographic core (`APNsJWT`) is unit-tested (sign + verify round-trip).
-Everything downstream is plumbing that only activates once the key is present.
+device token uploaded → kill the app → on the Mac trigger a `needsResponse`
+(a real Claude Code permission prompt, or `curl` a Notification hook) → the
+phone shows the push while the app is closed. Use `production` in the entitlement
+for App Store/TestFlight builds (and unset `sandbox` on the Mac).

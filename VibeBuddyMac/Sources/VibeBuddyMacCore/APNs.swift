@@ -16,6 +16,11 @@ public struct APNsConfig: Sendable {
         self.p8PEM = p8PEM; self.useSandbox = useSandbox
     }
 
+    /// Env first (CLI), then the config file (GUI apps don't inherit shell env).
+    public static func load() -> APNsConfig? {
+        fromEnvironment() ?? fromFile()
+    }
+
     /// APNS_TEAM_ID / APNS_KEY_ID / APNS_BUNDLE_ID / APNS_KEY_PATH (+ APNS_SANDBOX=1).
     public static func fromEnvironment() -> APNsConfig? {
         let e = ProcessInfo.processInfo.environment
@@ -25,6 +30,22 @@ public struct APNsConfig: Sendable {
         else { return nil }
         return APNsConfig(teamID: team, keyID: key, bundleID: bundle, p8PEM: pem,
                           useSandbox: e["APNS_SANDBOX"] == "1")
+    }
+
+    /// ~/Library/Application Support/vibebuddy/apns.json
+    public static func fromFile() -> APNsConfig? {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let url = base.appendingPathComponent("vibebuddy/apns.json")
+        guard let data = try? Data(contentsOf: url),
+              let cfg = try? JSONDecoder().decode(FileConfig.self, from: data),
+              let pem = try? String(contentsOfFile: cfg.keyPath, encoding: .utf8)
+        else { return nil }
+        return APNsConfig(teamID: cfg.teamID, keyID: cfg.keyID, bundleID: cfg.bundleID,
+                          p8PEM: pem, useSandbox: cfg.sandbox)
+    }
+
+    private struct FileConfig: Decodable {
+        let teamID: String, keyID: String, bundleID: String, keyPath: String, sandbox: Bool
     }
 }
 
