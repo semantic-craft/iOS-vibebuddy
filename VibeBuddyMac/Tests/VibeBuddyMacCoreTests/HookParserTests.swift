@@ -45,6 +45,16 @@ struct HookParserTests {
         #expect(e?.sessionID == "abc")
     }
 
+    @Test("parses a SessionEnd payload")
+    func sessionEnd() {
+        let e = parse("""
+        {"hook_event_name":"SessionEnd","session_id":"abc","cwd":"/x/proj","reason":"exit"}
+        """)
+        #expect(e?.kind == .sessionEnd)
+        #expect(e?.sessionID == "abc")
+        #expect(e?.cwd == "/x/proj")
+    }
+
     @Test("unknown hook_event_name → nil (ignored)")
     func unknownKind() {
         #expect(parse("""

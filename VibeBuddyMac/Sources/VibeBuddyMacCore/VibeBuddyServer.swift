@@ -48,6 +48,17 @@ public struct VibeBuddyServer: Sendable {
             await store.unsubscribe(subscription.id)
         }
 
+        // Self-healing: every minute, drop sessions that ended or went stale
+        // without a terminal hook (force-kill, dropped POST, daemon restart),
+        // so the dashboard's "需回应" count stays accurate.
+        let sweepStore = self.store
+        Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                await sweepStore.sweep(now: Date())
+            }
+        }
+
         // APNs: push a "needs you" alert to registered devices on each fresh
         // needsResponse transition. Off until a pusher is configured.
         if let pusher = self.pusher {

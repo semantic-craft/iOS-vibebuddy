@@ -24,7 +24,7 @@ COMMAND = (
 MARKER = f"127.0.0.1:{PORT}/hook"
 TOOL_EVENTS = {"PreToolUse", "PostToolUse"}
 EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse",
-          "PostToolUse", "Notification", "Stop"]
+          "PostToolUse", "Notification", "Stop", "SessionEnd"]
 
 
 def group(event):

@@ -57,15 +57,16 @@ python3 hooks/install-claude-hooks.py --dry-run    # preview the change
 python3 hooks/install-claude-hooks.py --install    # back up + install
 python3 hooks/install-claude-hooks.py --uninstall  # revert
 ```
-Installs fail-open `curl` POSTs to `http://127.0.0.1:9876/hook` for the 6
-lifecycle events. Then run the menu-bar app (or `vibebuddyd`) and your real
-Claude Code sessions appear on the phone.
+Installs fail-open `curl` POSTs to `http://127.0.0.1:9876/hook` for the 7
+lifecycle events (including `SessionEnd`, which clears a session from the
+dashboard when you exit). Then run the menu-bar app (or `vibebuddyd`) and your
+real Claude Code sessions appear on the phone.
 
 ## Tests
 
 ```bash
 cd VibeBuddyKit && swift test     # 12
-cd VibeBuddyMac && swift test     # 40
+cd VibeBuddyMac && swift test     # 61
 ```
 
 ## Status

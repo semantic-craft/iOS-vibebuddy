@@ -126,4 +126,80 @@ struct SessionReducerTests {
         #expect(snap.sessions.map(\.id) == ["need1", "work1", "done1"])
         #expect(snap.serverTime == t0.addingTimeInterval(10))
     }
+
+    // MARK: - Session termination
+
+    @Test("SessionEnd removes the session from the dashboard")
+    func sessionEndRemoves() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart))
+        r.apply(ev(.notification, message: "Claude is waiting for your input", at: 1))
+        r.apply(ev(.sessionEnd, at: 2))
+        #expect(r.sessions["s1"] == nil)
+    }
+
+    @Test("SessionEnd on an unknown session is a harmless no-op")
+    func sessionEndUnknown() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionEnd, "ghost", at: 0))
+        #expect(r.sessions.isEmpty)
+    }
+
+    // MARK: - RC3: stale wait-prompt summary on a terminal transition
+
+    @Test("Stop with no message clears a stale needsResponse summary")
+    func stopClearsStaleSummary() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart))
+        r.apply(ev(.notification, message: "Claude needs your permission to use Bash", at: 1))
+        r.apply(ev(.stop, at: 2))            // Stop carries no message
+        #expect(r.sessions["s1"]?.status == .done)
+        #expect(r.sessions["s1"]?.summary == nil)   // the permission prompt must not linger
+    }
+
+    // MARK: - Self-healing reconciliation
+
+    @Test("reconcile drops a needsResponse whose transcript advanced after it began waiting")
+    func reconcileDropsAnswered() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart, at: 0))
+        r.apply(ev(.notification, message: "waiting for your input", at: 5))  // statusSince = t0+5
+        r.reconcile(now: t0.addingTimeInterval(20),
+                    lastActivity: ["s1": t0.addingTimeInterval(12)],          // transcript grew after t0+5
+                    staleAfter: 3600)
+        #expect(r.sessions["s1"] == nil)
+    }
+
+    @Test("reconcile keeps a fresh, unanswered needsResponse")
+    func reconcileKeepsFresh() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart, at: 0))
+        r.apply(ev(.notification, message: "waiting for your input", at: 5))  // statusSince = updatedAt = t0+5
+        r.reconcile(now: t0.addingTimeInterval(10),
+                    lastActivity: ["s1": t0.addingTimeInterval(2)],           // transcript older than the wait
+                    staleAfter: 3600)                                          // age 5s << 3600
+        #expect(r.sessions["s1"]?.status == .needsResponse)
+    }
+
+    @Test("reconcile drops a needsResponse idle past staleAfter with no new activity")
+    func reconcileDropsStale() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart, at: 0))
+        r.apply(ev(.notification, message: "waiting for your input", at: 5))  // updatedAt = t0+5
+        r.reconcile(now: t0.addingTimeInterval(5000),                          // ~83 min later
+                    lastActivity: [:],                                         // no transcript activity known
+                    staleAfter: 1800)                                          // 30 min
+        #expect(r.sessions["s1"] == nil)
+    }
+
+    @Test("reconcile never touches working or done sessions")
+    func reconcileScopedToWaiting() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart, "w", at: 0))
+        r.apply(ev(.sessionStart, "d", at: 0))
+        r.apply(ev(.stop, "d", at: 1))
+        r.reconcile(now: t0.addingTimeInterval(100_000), lastActivity: [:], staleAfter: 60)
+        #expect(r.sessions["w"]?.status == .working)
+        #expect(r.sessions["d"]?.status == .done)
+    }
 }

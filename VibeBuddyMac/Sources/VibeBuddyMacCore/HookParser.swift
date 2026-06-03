@@ -38,6 +38,7 @@ public enum HookParser {
         case "PostToolUse": return .postToolUse
         case "Notification": return .notification
         case "Stop": return .stop
+        case "SessionEnd": return .sessionEnd
         default: return nil
         }
     }

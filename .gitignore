@@ -13,3 +13,6 @@ VibeBuddyApp/Sources/Info.plist
 VibeBuddyApp/Widget/Info.plist
 VibeBuddyMacApp/VibeBuddyMacApp.xcodeproj/
 VibeBuddyMacApp/Sources/Info.plist
+
+# Session handoffs (kept locally, not tracked)
+docs/handoffs/

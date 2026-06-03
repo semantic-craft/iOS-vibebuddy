@@ -8,8 +8,35 @@ public actor SessionStore {
     private var reducer = SessionReducer()
     private var subscribers: [UUID: AsyncStream<Snapshot>.Continuation] = [:]
     private var needsResponseHandler: (@Sendable (AgentSession) async -> Void)?
+    private let staleAfter: TimeInterval
+    /// Per-session transcript path, remembered so `sweep` can check whether a
+    /// waiting session's transcript advanced (i.e. the prompt was answered).
+    private var transcriptPaths: [String: String] = [:]
 
-    public init() {}
+    public init(staleAfter: TimeInterval = 2 * 60 * 60) {
+        self.staleAfter = staleAfter
+    }
+
+    /// Self-heal: drop `needsResponse` sessions that are answered (transcript
+    /// advanced past `statusSince`) or abandoned (idle past `staleAfter`), even
+    /// when their terminal hook was never received. Broadcasts if anything changed.
+    public func sweep(now: Date) {
+        var lastActivity: [String: Date] = [:]
+        for (id, session) in reducer.sessions where session.status == .needsResponse {
+            if let path = transcriptPaths[id], let mtime = Self.modificationDate(path) {
+                lastActivity[id] = mtime
+            }
+        }
+        let before = Set(reducer.sessions.keys)
+        reducer.reconcile(now: now, lastActivity: lastActivity, staleAfter: staleAfter)
+        let removed = before.subtracting(reducer.sessions.keys)
+        for id in removed { transcriptPaths[id] = nil }
+        if !removed.isEmpty { broadcast() }
+    }
+
+    private static func modificationDate(_ path: String) -> Date? {
+        (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
+    }
 
     /// Called once per fresh transition into needsResponse (used for APNs push).
     public func setNeedsResponseHandler(_ handler: @escaping @Sendable (AgentSession) async -> Void) {
@@ -25,8 +52,12 @@ public actor SessionStore {
             ?? CodexParser.parse(data, receivedAt: receivedAt)
         else { return false }
         let wasWaiting = reducer.sessions[event.sessionID]?.status == .needsResponse
+        if let path = event.transcriptPath { transcriptPaths[event.sessionID] = path }
         reducer.apply(event)
-        if let path = event.transcriptPath, let info = TranscriptReader.read(path: path) {
+        if reducer.sessions[event.sessionID] == nil {
+            // Session was removed (e.g. SessionEnd) — forget its transcript path.
+            transcriptPaths[event.sessionID] = nil
+        } else if let path = event.transcriptPath, let info = TranscriptReader.read(path: path) {
             reducer.enrich(sessionID: event.sessionID, with: info)
         }
         broadcast()

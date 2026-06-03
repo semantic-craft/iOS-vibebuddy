@@ -12,6 +12,7 @@ public struct HookEvent: Sendable, Equatable {
         case postToolUse
         case notification
         case stop
+        case sessionEnd
     }
 
     public let kind: Kind

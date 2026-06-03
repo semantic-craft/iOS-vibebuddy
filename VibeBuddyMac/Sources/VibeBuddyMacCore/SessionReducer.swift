@@ -25,7 +25,28 @@ public struct SessionReducer: Sendable {
             // Create-if-missing so a late-observed session or a Codex
             // turn-complete still shows as done; carry a Codex summary if present.
             upsert(event, status: .done, waitKind: nil, summary: event.message)
+        case .sessionEnd:
+            // The session is over (exit / clear / logout). Drop it entirely so
+            // an idle "needs you" prompt doesn't outlive the session it belonged to.
+            sessions.removeValue(forKey: event.sessionID)
         }
+    }
+
+    /// Self-healing pass for sessions that are no longer genuinely waiting but
+    /// whose clearing event the daemon never saw (force-kill, dropped POST,
+    /// daemon restart). Drops a `needsResponse` session when either:
+    ///  - its transcript was modified *after* it began waiting (`lastActivity`
+    ///    is the transcript's last-modified time) — the prompt was answered, or
+    ///  - it has been idle longer than `staleAfter` with no fresh activity.
+    /// `working`/`done` sessions are never touched — they self-correct via events.
+    public mutating func reconcile(now: Date, lastActivity: [String: Date], staleAfter: TimeInterval) {
+        let stale = sessions.values.filter { s in
+            guard s.status == .needsResponse else { return false }
+            let answered = lastActivity[s.id].map { $0 > s.statusSince } ?? false
+            let abandoned = now.timeIntervalSince(s.updatedAt) > staleAfter
+            return answered || abandoned
+        }.map(\.id)
+        for id in stale { sessions.removeValue(forKey: id) }
     }
 
     /// Layer transcript-derived metadata onto an existing session. Model and
@@ -59,10 +80,18 @@ public struct SessionReducer: Sendable {
         summary: String? = nil
     ) {
         if var s = sessions[event.sessionID] {
+            let wasWaiting = s.status == .needsResponse
             if s.status != status { s.statusSince = event.timestamp }
             s.status = status
             s.waitKind = waitKind
-            if let summary { s.summary = summary }
+            if let summary {
+                s.summary = summary
+            } else if wasWaiting, status != .needsResponse {
+                // Leaving a wait without a replacement: drop the stale "needs you"
+                // prompt so a done/working row never shows a permission/question
+                // line. Transcript enrichment refills it when prose is available.
+                s.summary = nil
+            }
             if let cwd = event.cwd { s.project = Self.projectName(cwd) }
             s.updatedAt = event.timestamp
             sessions[event.sessionID] = s

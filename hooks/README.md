@@ -10,9 +10,11 @@ python3 hooks/install-claude-hooks.py --dry-run    # preview
 python3 hooks/install-claude-hooks.py --install    # back up + install
 python3 hooks/install-claude-hooks.py --uninstall  # revert
 ```
-Installs the 6 lifecycle hooks (SessionStart / UserPromptSubmit / PreToolUse /
-PostToolUse / Notification / Stop) into `~/.claude/settings.json`. Gives the full
-needsResponse / working / done state machine.
+Installs the 7 lifecycle hooks (SessionStart / UserPromptSubmit / PreToolUse /
+PostToolUse / Notification / Stop / SessionEnd) into `~/.claude/settings.json`.
+Gives the full needsResponse / working / done state machine, and `SessionEnd`
+removes a session from the dashboard when you exit / `/clear` / log out — so an
+idle "needs you" prompt never outlives the session.
 
 ## Codex
 
