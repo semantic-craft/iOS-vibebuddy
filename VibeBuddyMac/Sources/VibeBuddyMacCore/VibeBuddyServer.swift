@@ -1,0 +1,61 @@
+import Foundation
+import NIOCore
+import HTTPTypes
+import Hummingbird
+import VibeBuddyKit
+
+/// The Mac-side HTTP server: localhost hook intake + token-gated LAN snapshot.
+/// WebSocket push (`/ws`) is added later (needed by the iOS app in Phase D).
+public struct VibeBuddyServer: Sendable {
+    public let store: SessionStore
+    public let token: String
+    public let host: String
+    public let port: Int
+
+    public init(store: SessionStore, token: String, host: String = "0.0.0.0", port: Int = 9876) {
+        self.store = store
+        self.token = token
+        self.host = host
+        self.port = port
+    }
+
+    public func buildApplication() -> some ApplicationProtocol {
+        Application(
+            router: router(),
+            configuration: .init(address: .hostname(host, port: port))
+        )
+    }
+
+    /// Built separately so in-process tests can exercise routes via `app.test(.router)`.
+    public func router() -> Router<BasicRequestContext> {
+        let router = Router()
+        let store = self.store
+        let token = self.token
+
+        // Liveness — unauthenticated, used by the app's connection screen.
+        router.get("health") { _, _ -> String in "ok" }
+
+        // Hook intake — localhost only in practice; no token.
+        router.post("hook") { request, _ -> HTTPResponse.Status in
+            let buffer = try await request.body.collect(upTo: 1 << 20) // 1 MB cap
+            await store.ingest(Data(buffer: buffer), receivedAt: Date())
+            return .ok
+        }
+
+        // Full snapshot — bearer-token gated.
+        router.get("snapshot") { request, _ -> Response in
+            guard request.headers[.authorization] == "Bearer \(token)" else {
+                throw HTTPError(.unauthorized)
+            }
+            let snapshot = await store.snapshot(now: Date())
+            let data = try JSONEncoder().encode(snapshot)
+            return Response(
+                status: .ok,
+                headers: [.contentType: "application/json"],
+                body: .init(byteBuffer: ByteBuffer(bytes: data))
+            )
+        }
+
+        return router
+    }
+}
