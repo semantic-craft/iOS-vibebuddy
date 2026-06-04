@@ -15,6 +15,7 @@ final class MenuBarModel: ObservableObject {
     let port: Int
     private let token: String
     private let store = SessionStore()
+    private let approvalRegistry = ApprovalRegistry()
     private let notificationCoordinator: NotificationCoordinator
     private var pollTask: Task<Void, Never>?
 
@@ -37,7 +38,8 @@ final class MenuBarModel: ObservableObject {
 
     private func startServer() {
         let pusher = APNsConfig.load().flatMap { try? APNsPusher(config: $0) }
-        let server = VibeBuddyServer(store: store, token: token, port: port, pusher: pusher)
+        let server = VibeBuddyServer(store: store, token: token, port: port,
+                                     pusher: pusher, approvalRegistry: approvalRegistry)
         Task.detached(priority: .utility) {
             do { try await server.buildApplication().runService() }
             catch { FileHandle.standardError.write(Data("server error: \(error)\n".utf8)) }
@@ -63,6 +65,11 @@ final class MenuBarModel: ObservableObject {
                 try? await Task.sleep(for: .seconds(2))
             }
         }
+    }
+
+    /// Resolve a pending approval from the Mac (Dashboard buttons / shortcuts).
+    func decide(_ approvalId: String, approve: Bool) {
+        Task { await approvalRegistry.resolve(id: approvalId, with: approve ? .allow : .deny) }
     }
 
     func setLaunchAtLogin(_ enabled: Bool) {
