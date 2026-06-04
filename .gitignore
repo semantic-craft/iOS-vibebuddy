@@ -16,3 +16,9 @@ VibeBuddyMacApp/Sources/Info.plist
 
 # Session handoffs (kept locally, not tracked)
 docs/handoffs/
+
+# Visual-companion brainstorm runtime
+.superpowers/
+
+# Python bytecode
+__pycache__/
