@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import VibeBuddyKit
 
 /// Consumes the live snapshot stream and publishes grouped sessions, connection
@@ -36,6 +37,8 @@ final class DashboardStore: ObservableObject {
     func start(_ pairing: PairingPayload) {
         stop()
         self.pairing = pairing
+        let phoneName = UIDevice.current.name        // tell the Mac which phone paired
+        Task { await Self.sendDeviceName(pairing, name: phoneName) }
         state = .connecting
         lastSessions = []
         seenFirstSnapshot = false
@@ -114,6 +117,16 @@ final class DashboardStore: ObservableObject {
     func jump(_ sessionId: String) {
         guard let pairing else { return }
         Task { await decisionClient.jump(pairing, sessionId: sessionId) }
+    }
+
+    /// Tell the Mac this phone's name so it can show "Paired: <name>". Best-effort.
+    private static func sendDeviceName(_ pairing: PairingPayload, name: String) async {
+        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/device") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["name": name])
+        _ = try? await URLSession.shared.data(for: request)
     }
 
     private func apply(_ snapshot: Snapshot) async {

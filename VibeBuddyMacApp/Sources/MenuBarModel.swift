@@ -10,6 +10,8 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var sessions: [AgentSession] = []
     @Published private(set) var pairing: PairingPayload?
     @Published private(set) var qrImage: NSImage?
+    /// The most-recently paired phone's display name (persisted), shown in the menu.
+    @Published private(set) var pairedPhone: String?
     @Published var launchAtLogin = LaunchAtLogin.isEnabled
     @Published var glanceScale: CGFloat = 1.0
     @Published var showGlance: Bool = true
@@ -34,6 +36,7 @@ final class MenuBarModel: ObservableObject {
         glanceScale = [0.8, 1.0, 1.2].min(by: { abs($0 - base) < abs($1 - base) }) ?? 1.0
         showGlance = Self.loadBool("showGlance", default: true)
         openDashboardHotkey = Hotkey.loadOpenDashboard()
+        pairedPhone = UserDefaults.standard.string(forKey: "pairedPhone")
         let notifier = UserNotificationsNotifier()
         notifier.requestAuthorization()
         notificationCoordinator = NotificationCoordinator(notifier: notifier)
@@ -64,7 +67,10 @@ final class MenuBarModel: ObservableObject {
     private func startServer() {
         let pusher = APNsConfig.load().flatMap { try? APNsPusher(config: $0) }
         let server = VibeBuddyServer(store: store, token: token, port: port,
-                                     pusher: pusher, approvalRegistry: approvalRegistry)
+                                     pusher: pusher, approvalRegistry: approvalRegistry,
+                                     onDevicePaired: { [weak self] name in
+                                         Task { @MainActor in self?.setPairedPhone(name) }
+                                     })
         Task.detached(priority: .utility) {
             do { try await server.buildApplication().runService() }
             catch { FileHandle.standardError.write(Data("server error: \(error)\n".utf8)) }
@@ -115,6 +121,12 @@ final class MenuBarModel: ObservableObject {
     func setLaunchAtLogin(_ enabled: Bool) {
         LaunchAtLogin.set(enabled)
         launchAtLogin = LaunchAtLogin.isEnabled
+    }
+
+    func setPairedPhone(_ name: String) {
+        guard name != pairedPhone else { return }
+        pairedPhone = name
+        UserDefaults.standard.set(name, forKey: "pairedPhone")
     }
 
     func setShowGlance(_ on: Bool) {

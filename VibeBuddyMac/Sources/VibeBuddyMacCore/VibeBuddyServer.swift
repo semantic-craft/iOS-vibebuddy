@@ -19,6 +19,7 @@ public struct VibeBuddyServer: Sendable {
     public let approvalTimeout: Duration
     public let approvalID: @Sendable () -> String
     public let onJump: @Sendable (TerminalRef) -> Void
+    public let onDevicePaired: @Sendable (String) -> Void
 
     public init(store: SessionStore, token: String, host: String = "0.0.0.0",
                 port: Int = 9876, pusher: APNsPusher? = nil,
@@ -26,7 +27,8 @@ public struct VibeBuddyServer: Sendable {
                 rules: @escaping @Sendable () -> PermissionRules = { PermissionRules.load() },
                 approvalTimeout: Duration = .seconds(25),
                 approvalID: @escaping @Sendable () -> String = { UUID().uuidString },
-                onJump: @escaping @Sendable (TerminalRef) -> Void = { TerminalJumper.jump($0) }) {
+                onJump: @escaping @Sendable (TerminalRef) -> Void = { TerminalJumper.jump($0) },
+                onDevicePaired: @escaping @Sendable (String) -> Void = { _ in }) {
         self.store = store
         self.token = token
         self.host = host
@@ -37,6 +39,7 @@ public struct VibeBuddyServer: Sendable {
         self.approvalTimeout = approvalTimeout
         self.approvalID = approvalID
         self.onJump = onJump
+        self.onDevicePaired = onDevicePaired
     }
 
     public func buildApplication() -> some ApplicationProtocol {
@@ -109,11 +112,14 @@ public struct VibeBuddyServer: Sendable {
         let store = self.store
         let token = self.token
         let deviceTokens = self.deviceTokens
+        let onDevicePaired = self.onDevicePaired
 
         // Liveness — unauthenticated, used by the app's connection screen.
         router.get("health") { _, _ -> String in "ok" }
 
-        // Register an iOS APNs device token (uploaded by the app). Token-gated.
+        // Register an iOS device. Token-gated. Body is `{"token","name"}` (or a
+        // raw APNs token string). `token` → APNs registry; `name` → the paired
+        // phone's display name shown in the Mac menu.
         router.post("device") { request, _ -> HTTPResponse.Status in
             guard request.headers[.authorization] == "Bearer \(token)" else {
                 throw HTTPError(.unauthorized)
@@ -121,10 +127,13 @@ public struct VibeBuddyServer: Sendable {
             let buffer = try await request.body.collect(upTo: 4096)
             let body = String(decoding: Data(buffer: buffer), as: UTF8.self)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            let deviceToken = body.hasPrefix("{")
-                ? (try? JSONDecoder().decode([String: String].self, from: Data(body.utf8)))?["token"] ?? ""
-                : body
-            if !deviceToken.isEmpty { await deviceTokens.add(deviceToken) }
+            if body.hasPrefix("{") {
+                let obj = (try? JSONDecoder().decode([String: String].self, from: Data(body.utf8))) ?? [:]
+                if let t = obj["token"], !t.isEmpty { await deviceTokens.add(t) }
+                if let n = obj["name"], !n.isEmpty { onDevicePaired(n) }
+            } else if !body.isEmpty {
+                await deviceTokens.add(body)
+            }
             return .ok
         }
 

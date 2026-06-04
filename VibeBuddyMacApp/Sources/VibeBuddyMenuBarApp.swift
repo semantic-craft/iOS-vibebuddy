@@ -121,6 +121,15 @@ struct MenuContent: View {
                 }
             }
 
+            HStack(spacing: 6) {
+                Image(systemName: model.pairedPhone != nil ? "iphone" : "iphone.slash")
+                    .foregroundStyle(model.pairedPhone != nil ? .green : .secondary)
+                Text(model.pairedPhone.map { "Paired: \($0)" } ?? "No phone paired")
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .font(.caption)
+
             HStack(spacing: 16) {
                 counter(model.needsResponse, "exclamationmark.circle.fill", .orange)
                 counter(model.working, "hourglass", .blue)
