@@ -11,9 +11,7 @@ struct VibeBuddyMenuBarApp: App {
         MenuBarExtra {
             MenuContent(model: model)
         } label: {
-            Image(systemName: model.needsResponse > 0
-                  ? "bell.badge.fill" : "dot.radiowaves.left.and.right")
-            if model.needsResponse > 0 { Text("\(model.needsResponse)") }
+            MenuBarLabel(model: model)
         }
         .menuBarExtraStyle(.window)
 
@@ -29,6 +27,29 @@ struct VibeBuddyMenuBarApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        GlobalHotkey.install()
+    }
+}
+
+/// The MenuBarExtra label. Always instantiated while the app runs, so its
+/// `.onReceive` is a reliable bridge from the global Carbon hotkey
+/// (`.openDashboard` notification) to SwiftUI's `openWindow`, which is only
+/// available from a View's environment.
+struct MenuBarLabel: View {
+    @ObservedObject var model: MenuBarModel
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        HStack {
+            Image(systemName: model.needsResponse > 0
+                  ? "bell.badge.fill" : "dot.radiowaves.left.and.right")
+            if model.needsResponse > 0 { Text("\(model.needsResponse)") }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openDashboard)) { _ in
+            NSApp.setActivationPolicy(.regular)   // show in Dock/⌘-tab while the window is open
+            openWindow(id: "dashboard")
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 }
 
