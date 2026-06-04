@@ -26,13 +26,15 @@ targets:
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         NSCameraUsageDescription: "Scan the pairing QR shown by the vibebuddy Mac app."
+        NSLocalNetworkUsageDescription: "Connect to the vibebuddy Mac app on your local network to show live session status and approve actions."
         NSSupportsLiveActivities: true
+        ITSAppUsesNonExemptEncryption: false
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.app
-        MARKETING_VERSION: "0.1"
+        MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"
@@ -40,6 +42,11 @@ targets:
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_ENTITLEMENTS: VibeBuddyApp.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      configs:
+        # Release/Archive (App Store, TestFlight) uses production APNs; local
+        # Debug runs on device use the sandbox (development) environment.
+        Debug:
+          CODE_SIGN_ENTITLEMENTS: VibeBuddyApp-Debug.entitlements
   VibeBuddyWidget:
     type: app-extension
     platform: iOS
@@ -55,7 +62,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.app.widget
-        MARKETING_VERSION: "0.1"
+        MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"

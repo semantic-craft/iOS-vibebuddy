@@ -18,13 +18,15 @@ public struct VibeBuddyServer: Sendable {
     public let rules: @Sendable () -> PermissionRules
     public let approvalTimeout: Duration
     public let approvalID: @Sendable () -> String
+    public let onJump: @Sendable (TerminalRef) -> Void
 
     public init(store: SessionStore, token: String, host: String = "0.0.0.0",
                 port: Int = 9876, pusher: APNsPusher? = nil,
                 approvalRegistry: ApprovalRegistry = ApprovalRegistry(),
                 rules: @escaping @Sendable () -> PermissionRules = { PermissionRules.load() },
                 approvalTimeout: Duration = .seconds(25),
-                approvalID: @escaping @Sendable () -> String = { UUID().uuidString }) {
+                approvalID: @escaping @Sendable () -> String = { UUID().uuidString },
+                onJump: @escaping @Sendable (TerminalRef) -> Void = { TerminalJumper.jump($0) }) {
         self.store = store
         self.token = token
         self.host = host
@@ -34,6 +36,7 @@ public struct VibeBuddyServer: Sendable {
         self.rules = rules
         self.approvalTimeout = approvalTimeout
         self.approvalID = approvalID
+        self.onJump = onJump
     }
 
     public func buildApplication() -> some ApplicationProtocol {
@@ -171,9 +174,12 @@ public struct VibeBuddyServer: Sendable {
             case .deny:  return Self.permissionResponse("deny")
             case .ask:
                 let id = makeID()
-                let preview = Self.preview(tool: tool, input: input)
+                let d = ApprovalDetails.from(tool: tool, input: input)
                 await store.beginApproval(sessionID: sessionID,
-                    PendingApproval(id: id, tool: tool, commandPreview: preview), at: Date())
+                    PendingApproval(id: id, tool: tool,
+                                    commandPreview: d.commandPreview.isEmpty ? tool : d.commandPreview,
+                                    command: d.command, filePath: d.filePath,
+                                    oldText: d.oldText, newText: d.newText), at: Date())
                 let outcome = await registry.wait(id: id, timeout: timeout)
                 await store.endApproval(sessionID: sessionID, at: Date())
                 switch outcome {
@@ -196,6 +202,26 @@ public struct VibeBuddyServer: Sendable {
             return .ok
         }
 
+        let onJump = self.onJump
+        router.post("terminal") { request, _ -> HTTPResponse.Status in
+            let buffer = try await request.body.collect(upTo: 64 * 1024)
+            guard let o = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
+                  let sid = o["session_id"] as? String, let tp = o["term_program"] as? String
+            else { return .ok }
+            func nz(_ k: String) -> String? { (o[k] as? String).flatMap { $0.isEmpty ? nil : $0 } }
+            let ref = TerminalRef(termProgram: tp, tty: nz("tty"), tmux: nz("tmux"), tmuxPane: nz("tmux_pane"))
+            await store.setTerminalRef(sessionID: sid, ref)
+            return .ok
+        }
+        router.post("jump") { request, _ -> HTTPResponse.Status in
+            guard request.headers[.authorization] == "Bearer \(token)" else { throw HTTPError(.unauthorized) }
+            let buffer = try await request.body.collect(upTo: 4096)
+            guard let o = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
+                  let sid = o["sessionId"] as? String else { throw HTTPError(.badRequest) }
+            if let ref = await store.terminalRef(for: sid) { onJump(ref) }
+            return .ok
+        }
+
         return router
     }
 
@@ -206,11 +232,4 @@ public struct VibeBuddyServer: Sendable {
                         body: .init(byteBuffer: ByteBuffer(string: json)))
     }
 
-    static func preview(tool: String, input: [String: Any]) -> String {
-        let raw: String
-        if let cmd = input["command"] as? String { raw = cmd }
-        else if let path = input["file_path"] as? String { raw = path }
-        else { raw = tool }
-        return String(raw.prefix(120))
-    }
 }

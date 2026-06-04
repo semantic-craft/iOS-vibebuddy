@@ -22,6 +22,7 @@ final class DashboardStore: ObservableObject {
     private var lastSessions: [AgentSession] = []
     private var seenFirstSnapshot = false
     private var pairing: PairingPayload?
+    private var isDemo = false
 
     init(streamer: SnapshotStreaming = WebSocketSnapshotClient(),
          notifier: AttentionNotifier = LocalNotifier(),
@@ -58,9 +59,61 @@ final class DashboardStore: ObservableObject {
         Task { await liveActivity.end() }
     }
 
+    /// Populate the dashboard with sample sessions and no network, so the app is
+    /// reviewable / explorable without a paired Mac.
+    func startDemo() {
+        stop()
+        isDemo = true
+        pairing = nil
+        state = .connected
+        groups = SessionGroups(Self.demoSessions())
+    }
+
     func decide(_ approvalId: String, approve: Bool) {
+        if isDemo {
+            // Resolve locally so a reviewer sees the approval card dismiss.
+            let resolved = (groups.needsResponse + groups.working + groups.done).map { s -> AgentSession in
+                guard s.pendingApproval?.id == approvalId else { return s }
+                var s = s; s.pendingApproval = nil; s.waitKind = nil; s.status = .working
+                return s
+            }
+            groups = SessionGroups(resolved)
+            return
+        }
         guard let pairing else { return }
         Task { await decisionClient.decide(pairing, approvalId: approvalId, approve: approve) }
+    }
+
+    private static func demoSessions() -> [AgentSession] {
+        let now = Date()
+        return [
+            AgentSession(
+                id: "demo-edit", agent: .claudeCode, project: "payments-api", branch: "feat/refunds",
+                model: "claude-opus-4-8", status: .needsResponse, waitKind: .permission,
+                pendingApproval: PendingApproval(
+                    id: "demo-ap", tool: "Edit", commandPreview: "src/refund.ts",
+                    filePath: "src/refund.ts",
+                    oldText: "const fee = 0.3\nreturn amount - fee",
+                    newText: "const fee = amount * 0.029 + 0.3\nreturn amount - fee"),
+                summary: "Apply a Stripe-style processing fee",
+                tokens: 4200, contextTokens: 128_000, contextWindow: 200_000,
+                statusSince: now.addingTimeInterval(-40), updatedAt: now.addingTimeInterval(-40)),
+            AgentSession(
+                id: "demo-work", agent: .codex, project: "ios-vibebuddy", branch: "main",
+                model: "gpt-5-codex", status: .working, summary: "Running the test suite…",
+                tokens: 1500, contextTokens: 64_000, contextWindow: 200_000,
+                statusSince: now.addingTimeInterval(-8), updatedAt: now.addingTimeInterval(-8)),
+            AgentSession(
+                id: "demo-done", agent: .claudeCode, project: "docs-site",
+                model: "claude-haiku-4-5", status: .done, summary: "Deployed to production.",
+                tokens: 900, contextTokens: 20_000, contextWindow: 200_000,
+                statusSince: now.addingTimeInterval(-300), updatedAt: now.addingTimeInterval(-300)),
+        ]
+    }
+
+    func jump(_ sessionId: String) {
+        guard let pairing else { return }
+        Task { await decisionClient.jump(pairing, sessionId: sessionId) }
     }
 
     private func apply(_ snapshot: Snapshot) async {

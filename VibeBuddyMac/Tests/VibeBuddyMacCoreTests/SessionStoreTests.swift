@@ -88,4 +88,15 @@ struct SessionStoreTests {
         #expect(done?.pendingApproval == nil)
         #expect(done?.status == .working)
     }
+
+    @Test("a terminalRef arriving before SessionStart still lands once the session exists")
+    func terminalRefBeforeSession() async {
+        let store = SessionStore()
+        // /terminal races ahead — the session doesn't exist yet
+        await store.setTerminalRef(sessionID: "s", TerminalRef(termProgram: "ghostty", tmux: "/tmp/x,1,0", tmuxPane: "%4"))
+        #expect(await store.snapshot(now: t0).sessions.isEmpty)
+        // SessionStart then creates it → the remembered ref is applied
+        await store.ingest(Data(#"{"hook_event_name":"SessionStart","session_id":"s","cwd":"/x/p"}"#.utf8), receivedAt: t0)
+        #expect(await store.snapshot(now: t0).sessions.first?.terminalRef?.tmuxPane == "%4")
+    }
 }

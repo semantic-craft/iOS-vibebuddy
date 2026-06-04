@@ -25,6 +25,20 @@ struct TranscriptReaderTests {
         #expect(info.summary == "Wrote section 2.")
     }
 
+    @Test("contextTokens = input + cache_read + cache_creation (the prompt actually sent)")
+    func contextTokens() {
+        let line = #"{"message":{"role":"assistant","model":"m","content":"hi","usage":{"input_tokens":1000,"output_tokens":200,"cache_read_input_tokens":12000,"cache_creation_input_tokens":8000}}}"#
+        let info = parse([line])
+        #expect(info.tokens == 1200)            // turn cost unchanged
+        #expect(info.contextTokens == 21000)    // 1000 + 12000 + 8000
+    }
+
+    @Test("contextTokens falls back to input+output when no cache fields present")
+    func contextTokensNoCache() {
+        let info = parse([assistant(text: "x", inTok: 1000, outTok: 200)])
+        #expect(info.contextTokens == 1000)     // input only; no cache fields
+    }
+
     @Test("uses the most recent assistant message for the summary")
     func mostRecent() {
         let info = parse([assistant(text: "old"), userLine, assistant(text: "newest")])

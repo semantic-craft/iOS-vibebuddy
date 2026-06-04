@@ -29,7 +29,14 @@ final class GlanceWindow {
         panel.isFloatingPanel = true
         panel.hidesOnDeactivate = false
         panel.contentView = hosting
-        show()
+        // Defer the first sizing+placement to the next runloop tick. Calling
+        // show()/reposition() synchronously here reads `hosting.fittingSize` and
+        // does `setFrame(display: true)`, forcing a layout of the hosting view
+        // while its SwiftUI view graph is still being established — which trips
+        // an AttributeGraph precondition (observed crash: GlanceWindow.init →
+        // reposition → NSHostingView.layout → AG::Graph::value_set). Deferring
+        // also keeps the panel hidden until positioned (no bottom-left flash).
+        DispatchQueue.main.async { [weak self] in self?.show() }
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                                object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.reposition() }
@@ -51,6 +58,9 @@ final class GlanceWindow {
         Self.log.notice("glance show mode=\(String(describing: self.mode), privacy: .public) frame=\(String(describing: self.panel.frame), privacy: .public) fitting=\(String(describing: self.hosting.fittingSize), privacy: .public) isVisible=\(self.panel.isVisible) occluded=\(self.panel.occlusionState.contains(.visible))")
     }
 
+    /// Remove the panel from screen (Settings → Show glance off). Reversible via `show()`.
+    func hide() { panel.orderOut(nil) }
+
     func reposition() {
         // Anchor to the menu-bar screen, NOT `NSScreen.main`. On a multi-display
         // Mac, `NSScreen.main` is the screen with keyboard focus and is
@@ -63,6 +73,6 @@ final class GlanceWindow {
         let w = max(size.width, 140), h = max(size.height, 28)
         let x = screen.frame.midX - w / 2
         let y = screen.frame.maxY - h
-        panel.setFrame(NSRect(x: x, y: y, width: w, height: h), display: true)
+        panel.setFrame(NSRect(x: x, y: y, width: w, height: h), display: false)
     }
 }

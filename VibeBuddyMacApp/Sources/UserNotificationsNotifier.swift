@@ -20,10 +20,11 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
     }
 
     func notify(_ session: AgentSession) {
+        guard Self.flag("notifyOnNeedsResponse") else { return }   // Settings → Notifications
         let content = UNMutableNotificationContent()
         content.title = "\(session.project) needs you"
         content.body = session.summary ?? "Waiting for your response"
-        content.sound = .default
+        content.sound = Self.flag("playNotificationSound") ? .default : nil
         // Keyed by session id: a still-waiting session won't stack duplicates.
         let request = UNNotificationRequest(identifier: session.id, content: content, trigger: nil)
         center.add(request)
@@ -34,6 +35,11 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        [.banner, .sound]
+        Self.flag("playNotificationSound") ? [.banner, .sound] : [.banner]
+    }
+
+    /// A Bool default that treats an absent key as `true` (notifications on by default).
+    private static func flag(_ key: String) -> Bool {
+        UserDefaults.standard.object(forKey: key) == nil ? true : UserDefaults.standard.bool(forKey: key)
     }
 }

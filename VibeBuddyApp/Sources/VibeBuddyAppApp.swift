@@ -21,7 +21,7 @@ struct RootView: View {
 
     var body: some View {
         NavigationStack {
-            if connection.pairing != nil {
+            if connection.pairing != nil || connection.demo {
                 DashboardView()
             } else {
                 ConnectView()

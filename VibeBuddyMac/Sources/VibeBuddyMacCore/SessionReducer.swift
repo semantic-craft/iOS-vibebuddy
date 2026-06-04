@@ -56,9 +56,17 @@ public struct SessionReducer: Sendable {
         guard var s = sessions[sessionID] else { return }
         if let model = info.model { s.model = model }
         if let tokens = info.tokens { s.tokens = tokens }
+        if let contextTokens = info.contextTokens {
+            s.contextTokens = contextTokens
+            s.contextWindow = Self.contextWindow(for: info.model ?? s.model)
+        }
         if let summary = info.summary, s.status != .needsResponse { s.summary = summary }
         sessions[sessionID] = s
     }
+
+    /// Context-window size by model. Current Claude (Opus/Sonnet/Haiku 4.x) and
+    /// Codex models are 200k; default to that until a model needs a different value.
+    static func contextWindow(for model: String?) -> Int { 200_000 }
 
     /// Mark a known session as blocked on a remote approval.
     public mutating func setPendingApproval(sessionID: String, _ approval: PendingApproval, at: Date) {
@@ -79,6 +87,13 @@ public struct SessionReducer: Sendable {
         s.status = .working
         s.statusSince = at
         s.updatedAt = at
+        sessions[sessionID] = s
+    }
+
+    /// Attach the terminal a session runs in (does not change status).
+    public mutating func setTerminalRef(sessionID: String, _ ref: TerminalRef) {
+        guard var s = sessions[sessionID] else { return }
+        s.terminalRef = ref
         sessions[sessionID] = s
     }
 

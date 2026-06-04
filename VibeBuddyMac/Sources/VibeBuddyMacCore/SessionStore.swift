@@ -12,6 +12,9 @@ public actor SessionStore {
     /// Per-session transcript path, remembered so `sweep` can check whether a
     /// waiting session's transcript advanced (i.e. the prompt was answered).
     private var transcriptPaths: [String: String] = [:]
+    /// Terminal refs remembered by session id, so a `/terminal` POST that races
+    /// ahead of the session-creating `SessionStart` still lands once it exists.
+    private var pendingTerminalRefs: [String: TerminalRef] = [:]
 
     public init(staleAfter: TimeInterval = 2 * 60 * 60) {
         self.staleAfter = staleAfter
@@ -55,10 +58,17 @@ public actor SessionStore {
         if let path = event.transcriptPath { transcriptPaths[event.sessionID] = path }
         reducer.apply(event)
         if reducer.sessions[event.sessionID] == nil {
-            // Session was removed (e.g. SessionEnd) — forget its transcript path.
+            // Session was removed (e.g. SessionEnd) — forget its side data.
             transcriptPaths[event.sessionID] = nil
-        } else if let path = event.transcriptPath, let info = TranscriptReader.read(path: path) {
-            reducer.enrich(sessionID: event.sessionID, with: info)
+            pendingTerminalRefs[event.sessionID] = nil
+        } else {
+            if let path = event.transcriptPath, let info = TranscriptReader.read(path: path) {
+                reducer.enrich(sessionID: event.sessionID, with: info)
+            }
+            // Apply a terminal ref that arrived before this session existed.
+            if let ref = pendingTerminalRefs[event.sessionID] {
+                reducer.setTerminalRef(sessionID: event.sessionID, ref)
+            }
         }
         broadcast()
         if !wasWaiting, let session = reducer.sessions[event.sessionID],
@@ -79,6 +89,18 @@ public actor SessionStore {
     public func endApproval(sessionID: String, at: Date) {
         reducer.clearPendingApproval(sessionID: sessionID, at: at)
         broadcast()
+    }
+
+    public func setTerminalRef(sessionID: String, _ ref: TerminalRef) {
+        pendingTerminalRefs[sessionID] = ref          // remembered even if the session isn't here yet
+        if reducer.sessions[sessionID] != nil {
+            reducer.setTerminalRef(sessionID: sessionID, ref)
+            broadcast()
+        }
+    }
+
+    public func terminalRef(for sessionID: String) -> TerminalRef? {
+        reducer.sessions[sessionID]?.terminalRef
     }
 
     public func snapshot(now: Date) -> Snapshot {

@@ -231,4 +231,27 @@ struct SessionReducerTests {
         #expect(s?.status == .working)
         #expect(s?.waitKind == nil)
     }
+
+    // MARK: - Terminal ref
+
+    @Test("setTerminalRef attaches the ref without changing status")
+    func setsTerminalRef() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart))
+        r.setTerminalRef(sessionID: "s1", TerminalRef(termProgram: "ghostty", tmux: "/tmp/x,1,0", tmuxPane: "%2"))
+        #expect(r.sessions["s1"]?.terminalRef?.tmuxPane == "%2")
+        #expect(r.sessions["s1"]?.status == .working)
+    }
+
+    // MARK: - Context usage enrichment
+
+    @Test("enrich carries contextTokens and a model-derived contextWindow")
+    func enrichContextUsage() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart))
+        r.enrich(sessionID: "s1", with: TranscriptInfo(model: "claude-opus-4-8", tokens: 1200, contextTokens: 21000))
+        #expect(r.sessions["s1"]?.contextTokens == 21000)
+        #expect(r.sessions["s1"]?.contextWindow == 200_000)
+        #expect(r.sessions["s1"]?.tokens == 1200)
+    }
 }

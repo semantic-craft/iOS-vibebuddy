@@ -3,12 +3,15 @@ import Foundation
 /// Derived metadata pulled from a session's JSONL transcript.
 public struct TranscriptInfo: Equatable, Sendable {
     public var model: String?
-    public var tokens: Int?
+    public var tokens: Int?           // turn cost: input + output
+    public var contextTokens: Int?    // prompt sent: input + cache_read + cache_creation
     public var summary: String?
 
-    public init(model: String? = nil, tokens: Int? = nil, summary: String? = nil) {
+    public init(model: String? = nil, tokens: Int? = nil,
+                contextTokens: Int? = nil, summary: String? = nil) {
         self.model = model
         self.tokens = tokens
+        self.contextTokens = contextTokens
         self.summary = summary
     }
 }
@@ -36,7 +39,10 @@ public enum TranscriptReader {
             if info.tokens == nil, let usage = message["usage"] as? [String: Any] {
                 let input = (usage["input_tokens"] as? Int) ?? 0
                 let output = (usage["output_tokens"] as? Int) ?? 0
+                let cacheRead = (usage["cache_read_input_tokens"] as? Int) ?? 0
+                let cacheCreate = (usage["cache_creation_input_tokens"] as? Int) ?? 0
                 info.tokens = input + output
+                info.contextTokens = input + cacheRead + cacheCreate
             }
             if info.model == nil, let model = message["model"] as? String, !model.isEmpty {
                 info.model = model

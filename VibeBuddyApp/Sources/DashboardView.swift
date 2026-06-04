@@ -12,6 +12,9 @@ struct DashboardView: View {
             section("已完成", sessions: dashboard.groups.done, accent: .green)
         }
         .listStyle(.plain)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            BuddyView(groups: dashboard.groups)
+        }
         .animation(.smooth, value: dashboard.groups)
         .overlay {
             if dashboard.groups.isEmpty { EmptyStateView(state: dashboard.state) }
@@ -20,13 +23,14 @@ struct DashboardView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { ConnectionDot(state: dashboard.state) }
             ToolbarItem(placement: .topBarTrailing) {
-                Button("断开") { dashboard.stop(); connection.clear() }
+                Button(connection.demo ? "退出演示" : "断开") { dashboard.stop(); connection.clear() }
                     .font(.subheadline)
             }
         }
         .task(id: connection.pairing) {
             if let pairing = connection.pairing { dashboard.start(pairing) }
         }
+        .task { if connection.demo { dashboard.startDemo() } }
         .onDisappear { dashboard.stop() }
     }
 
@@ -97,11 +101,12 @@ private struct SessionRow: View {
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
 
+                if let used = session.contextTokens, let window = session.contextWindow, window > 0 {
+                    ContextBar(used: used, window: window)
+                }
+
                 if let approval = session.pendingApproval {
-                    Text(approval.commandPreview)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.primary)
-                        .lineLimit(3)
+                    ApprovalCardView(approval: approval)
                         .padding(.top, 2)
                     HStack(spacing: 10) {
                         Button("拒绝") { dashboard.decide(approval.id, approve: false) }
@@ -112,10 +117,35 @@ private struct SessionRow: View {
                     .font(.subheadline)
                     .padding(.top, 4)
                 }
+
+                if session.terminalRef != nil {
+                    Button("Jump to terminal") { dashboard.jump(session.id) }
+                        .buttonStyle(.bordered).font(.subheadline)
+                        .padding(.top, 4)
+                }
             }
         }
         .padding(.leading, 4)
     }
+}
+
+/// A thin per-session context-window usage bar: used / window, coloured by fill.
+private struct ContextBar: View {
+    let used: Int
+    let window: Int
+
+    var body: some View {
+        let frac = min(1.0, Double(used) / Double(max(window, 1)))
+        VStack(alignment: .leading, spacing: 2) {
+            ProgressView(value: frac).tint(color(frac))
+            Text("\(short(used)) / \(short(window)) context")
+                .font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
+        }
+        .padding(.top, 2)
+    }
+
+    private func color(_ f: Double) -> Color { f > 0.9 ? .red : f > 0.7 ? .orange : .blue }
+    private func short(_ n: Int) -> String { n >= 1000 ? "\(n / 1000)k" : "\(n)" }
 }
 
 private struct ConnectionDot: View {

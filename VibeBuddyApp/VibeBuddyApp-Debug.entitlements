@@ -2,9 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- Release/Archive entitlements (App Store + TestFlight): production APNs.
-         Local Debug device runs use VibeBuddyApp-Debug.entitlements (development). -->
+    <!-- Debug device runs: sandbox (development) APNs. App Store/TestFlight
+         archives use VibeBuddyApp.entitlements (production). -->
     <key>aps-environment</key>
-    <string>production</string>
+    <string>development</string>
 </dict>
 </plist>
