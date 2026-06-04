@@ -49,18 +49,16 @@ private struct GeneralSettings: View {
             Divider().padding(.vertical, 4)
 
             LabeledContent("Open Dashboard") {
-                HotkeyRecorderView(model: model)
+                HotkeyRecorderView(current: model.openDashboardHotkey, onRecord: model.setHotkey)
             }
             Text("A global shortcut that opens the Dashboard from anywhere. Hyper (⌃⌥⇧⌘) combos recommended.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            LabeledContent("Hide Glance") {
-                Text(model.toggleGlanceHotkey.displayString)
-                    .font(.system(.body, design: .rounded).weight(.medium))
-                    .foregroundStyle(.secondary)
+            LabeledContent("Toggle Glance") {
+                HotkeyRecorderView(current: model.toggleGlanceHotkey, onRecord: model.setGlanceHotkey)
             }
-            Text("Toggle the floating glance from the keyboard — handy on a notchless screen where it would otherwise sit on top of your work.")
+            Text("Show/hide the floating glance from the keyboard — handy on a notchless screen where it would otherwise sit on top of your work.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -247,14 +245,15 @@ private struct DeviceSettings: View {
 /// enough — no Accessibility permission). Bare keys (no modifier) are rejected
 /// so the shortcut can't shadow ordinary typing; Esc cancels.
 struct HotkeyRecorderView: View {
-    @ObservedObject var model: MenuBarModel
+    let current: Hotkey
+    let onRecord: (Hotkey) -> Void
     @State private var recording = false
     @State private var monitor: Any?
     @State private var hint = false
 
     var body: some View {
         HStack(spacing: 8) {
-            Text(recording ? "Press a combo…" : model.openDashboardHotkey.displayString)
+            Text(recording ? "Press a combo…" : current.displayString)
                 .font(.system(.body, design: .rounded).weight(.medium))
                 .frame(minWidth: 84)
                 .padding(.horizontal, 10).padding(.vertical, 5)
@@ -290,7 +289,7 @@ struct HotkeyRecorderView: View {
                         cocoaModifiers: mods.rawValue,
                         displayKey: Self.keyLabel(for: event))
         guard hk.hasModifier else { hint = true; return }   // keep recording, show hint
-        model.setHotkey(hk)
+        onRecord(hk)
         stop()
     }
 

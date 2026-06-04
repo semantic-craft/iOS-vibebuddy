@@ -322,6 +322,12 @@ final class MenuBarModel: ObservableObject {
         GlobalHotkey.setHotkey(hotkey)
     }
 
+    func setGlanceHotkey(_ hotkey: Hotkey) {
+        toggleGlanceHotkey = hotkey
+        hotkey.saveAsToggleGlance()
+        GlobalHotkey.setGlanceHotkey(hotkey)
+    }
+
     private static func loadPairedPhone() -> PairedPhone? {
         let defaults = UserDefaults.standard
         if let data = defaults.data(forKey: pairedPhoneInfoKey),

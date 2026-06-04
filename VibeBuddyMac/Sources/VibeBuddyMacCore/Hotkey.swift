@@ -75,11 +75,11 @@ public struct Hotkey: Codable, Equatable, Sendable {
         }
     }
 
-    /// Default Toggle-Glance shortcut: Hyper + G (⌃⌥⇧⌘ + G). Hides/shows the
-    /// floating glance so it never has to block a notchless screen.
+    /// Default Toggle-Glance shortcut: ⌥⌘G — a light two-key combo (the Hyper
+    /// chord was awkward to press). Hides/shows the floating glance.
     public static let toggleGlanceDefault = Hotkey(
         keyCode: 5,  // kVK_ANSI_G
-        cocoaModifiers: cocoaControl | cocoaOption | cocoaShift | cocoaCommand,
+        cocoaModifiers: cocoaOption | cocoaCommand,
         displayKey: "G")
 
     private static let glanceStorageKey = "toggleGlanceHotkey"

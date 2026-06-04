@@ -149,14 +149,14 @@ final class DashboardStore: ObservableObject {
         let now = Date()
         return [
             AgentSession(
-                id: "demo-edit", agent: .claudeCode, project: "payments-api", branch: "feat/refunds",
+                id: "demo-edit", agent: .claudeCode, project: "todo-app", branch: "feat/reminders",
                 model: "claude-opus-4-8", status: .needsResponse, waitKind: .permission,
                 pendingApproval: PendingApproval(
-                    id: "demo-ap", tool: "Edit", commandPreview: "src/refund.ts",
-                    filePath: "src/refund.ts",
-                    oldText: "const fee = 0.3\nreturn amount - fee",
-                    newText: "const fee = amount * 0.029 + 0.3\nreturn amount - fee"),
-                summary: "Apply a Stripe-style processing fee",
+                    id: "demo-ap", tool: "Edit", commandPreview: "src/reminders.ts",
+                    filePath: "src/reminders.ts",
+                    oldText: "todos.sort((a, b) => a.id - b.id)",
+                    newText: "todos.sort((a, b) => a.dueDate - b.dueDate)"),
+                summary: "Sort reminders by due date",
                 tokens: 4200, contextTokens: 128_000, contextWindow: 200_000,
                 statusSince: now.addingTimeInterval(-40), updatedAt: now.addingTimeInterval(-40)),
             AgentSession(

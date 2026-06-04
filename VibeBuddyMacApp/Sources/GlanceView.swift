@@ -30,11 +30,13 @@ struct GlanceView: View {
                 HStack(spacing: 8 * s) {
                     counts
                     Button {
-                        model.setShowGlance(false)   // get out of the way; ⌃⌥⇧⌘G or the menu brings it back
+                        model.setShowGlance(false)   // get out of the way; the shortcut or menu brings it back
                     } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 13 * s))
-                            .foregroundStyle(.white.opacity(0.55))
+                        Image(systemName: "xmark")
+                            .font(.system(size: 12 * s, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 22 * s, height: 22 * s)
+                            .background(Color.white.opacity(0.18), in: Circle())
                     }
                     .buttonStyle(.plain)
                     .help("Hide glance (\(model.toggleGlanceHotkey.displayString))")
@@ -89,15 +91,19 @@ struct GlanceView: View {
     }
 
     @ViewBuilder private var background: some View {
-        if mode == .notch {
-            NotchShape().fill(.black)
-        } else {
-            Capsule().fill(.black)
-        }
+        panelShape.fill(.black)
+    }
+
+    /// A pill/notch when collapsed (short), but a rounded rectangle when expanded
+    /// so the tall content (session list, approval card) isn't clipped by a
+    /// capsule's rounded bottom.
+    private var panelShape: AnyShape {
+        if expanded { return AnyShape(RoundedRectangle(cornerRadius: 22 * s, style: .continuous)) }
+        return mode == .notch ? AnyShape(NotchShape()) : AnyShape(Capsule())
     }
 
     private var clipShape: AnyShape {
-        mode == .notch ? AnyShape(NotchShape()) : AnyShape(Capsule())
+        panelShape
     }
 }
 

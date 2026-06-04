@@ -1,7 +1,11 @@
 import Foundation
 import AVFoundation
+import AppKit
 import Speech
+import os
 import VibeBuddyKit
+
+private let voiceLog = Logger(subsystem: "com.vibebuddy.mac", category: "voice")
 
 /// The Mac voice companion: tap the buddy to talk → on-device speech-to-text →
 /// Qwen brain (knows your live sessions, your key) → on-device text-to-speech,
@@ -18,7 +22,8 @@ final class VoiceChat: NSObject, ObservableObject {
 
     var isListening: Bool { phase == .listening }
     var isSpeaking: Bool { phase == .speaking }
-    var isAvailable: Bool { VoiceSettings.enabled && VoiceSettings.apiKey?.isEmpty == false }
+    /// Available as soon as the user has pasted a key — no separate enable step.
+    var isAvailable: Bool { VoiceSettings.apiKey?.isEmpty == false }
 
     private let contextProvider: () -> [AgentSession]
     private let actionHandler: (VoiceAction) -> String
@@ -39,6 +44,7 @@ final class VoiceChat: NSObject, ObservableObject {
     }
 
     func toggle() {
+        voiceLog.info("toggle in phase=\(String(describing: self.phase), privacy: .public) available=\(self.isAvailable, privacy: .public)")
         switch phase {
         case .idle: requestPermissionsThenListen()
         case .listening: stopListeningAndSend()
@@ -47,12 +53,18 @@ final class VoiceChat: NSObject, ObservableObject {
     }
 
     private func requestPermissionsThenListen() {
-        guard isAvailable else { errorText = "先在设置里填入 Qwen (DashScope) Key 并开启语音"; return }
+        errorText = nil
+        guard isAvailable else { errorText = "先在设置里填入 Qwen (DashScope) Key"; return }
+        // An accessory (menu-bar) app must be active for the mic TCC prompt to show.
+        NSApp.activate(ignoringOtherApps: true)
         SFSpeechRecognizer.requestAuthorization { [weak self] auth in
+            voiceLog.info("speech auth=\(auth.rawValue, privacy: .public)")
             AVCaptureDevice.requestAccess(for: .audio) { granted in
+                voiceLog.info("mic granted=\(granted, privacy: .public)")
                 Task { @MainActor in
                     guard let self else { return }
-                    guard auth == .authorized, granted else { self.errorText = "需要麦克风和语音识别权限"; return }
+                    guard auth == .authorized else { self.errorText = "需要语音识别权限（系统设置 › 隐私 › 语音识别）"; return }
+                    guard granted else { self.errorText = "需要麦克风权限（系统设置 › 隐私 › 麦克风）"; return }
                     self.startListening()
                 }
             }
@@ -63,7 +75,10 @@ final class VoiceChat: NSObject, ObservableObject {
         guard let recognizer, recognizer.isAvailable else { errorText = "语音识别暂不可用"; return }
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
-        req.requiresOnDeviceRecognition = true
+        // Prefer on-device when the model is downloaded; otherwise let Apple's
+        // server-based recognition handle it (more reliable on a fresh Mac).
+        req.requiresOnDeviceRecognition = recognizer.supportsOnDeviceRecognition
+        voiceLog.info("startListening onDevice=\(recognizer.supportsOnDeviceRecognition, privacy: .public)")
         request = req
 
         let input = audioEngine.inputNode
@@ -86,7 +101,8 @@ final class VoiceChat: NSObject, ObservableObject {
     private func stopListeningAndSend() {
         teardownAudio()
         let text = lastUserText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { phase = .idle; return }
+        voiceLog.info("heard \(text.count, privacy: .public) chars")
+        guard !text.isEmpty else { errorText = "没听清，再试一次"; phase = .idle; return }
         phase = .thinking
         Task { await self.think(text) }
     }
@@ -104,6 +120,7 @@ final class VoiceChat: NSObject, ObservableObject {
         messages.append(ChatMessage(role: "user", content: userText))
         do {
             let raw = try await brain.reply(messages: messages)
+            voiceLog.info("brain replied \(raw.count, privacy: .public) chars")
             let (spoken, action) = VoicePrompt.parse(raw)
             history.append(ChatMessage(role: "user", content: userText))
             history.append(ChatMessage(role: "assistant", content: raw))
