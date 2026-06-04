@@ -95,4 +95,21 @@ struct WireCodingTests {
         #expect(SessionStatus.needsResponse.attentionRank < SessionStatus.working.attentionRank)
         #expect(SessionStatus.working.attentionRank < SessionStatus.done.attentionRank)
     }
+
+    // 8. PendingApproval round-trip
+    @Test("AgentSession round-trips a pendingApproval")
+    func pendingApprovalRoundTrips() throws {
+        var s = sampleSession(status: .needsResponse, waitKind: .permission)
+        s.pendingApproval = PendingApproval(id: "ap1", tool: "Bash", commandPreview: "rm -rf build")
+        let data = try JSONEncoder().encode(s)
+        let back = try JSONDecoder().decode(AgentSession.self, from: data)
+        #expect(back.pendingApproval == s.pendingApproval)
+        #expect(back.pendingApproval?.commandPreview == "rm -rf build")
+    }
+
+    @Test("pendingApproval defaults to nil and stays absent when unset")
+    func pendingApprovalDefaultsNil() {
+        let s = sampleSession(status: .working)
+        #expect(s.pendingApproval == nil)
+    }
 }

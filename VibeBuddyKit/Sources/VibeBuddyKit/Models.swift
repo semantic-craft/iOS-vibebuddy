@@ -29,6 +29,20 @@ public enum WaitKind: String, Codable, Sendable {
     case question        // asked something / idle waiting for input
 }
 
+/// A tool use awaiting the user's approval from the phone. Present only while a
+/// session is blocked on a remote approve/deny.
+public struct PendingApproval: Codable, Sendable, Equatable {
+    public let id: String
+    public let tool: String
+    public let commandPreview: String
+
+    public init(id: String, tool: String, commandPreview: String) {
+        self.id = id
+        self.tool = tool
+        self.commandPreview = commandPreview
+    }
+}
+
 /// One coding-agent session, as broadcast to the phone.
 public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     public let id: String
@@ -38,6 +52,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     public var model: String?
     public var status: SessionStatus
     public var waitKind: WaitKind?
+    public var pendingApproval: PendingApproval?
     public var summary: String?
     public var tokens: Int?
     public var statusSince: Date
@@ -51,6 +66,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         model: String? = nil,
         status: SessionStatus,
         waitKind: WaitKind? = nil,
+        pendingApproval: PendingApproval? = nil,
         summary: String? = nil,
         tokens: Int? = nil,
         statusSince: Date,
@@ -63,6 +79,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         self.model = model
         self.status = status
         self.waitKind = waitKind
+        self.pendingApproval = pendingApproval
         self.summary = summary
         self.tokens = tokens
         self.statusSince = statusSince
