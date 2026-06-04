@@ -25,6 +25,8 @@ MARKER = f"127.0.0.1:{PORT}/hook"
 APPROVAL_HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "approval-hook.sh")
 APPROVAL_COMMAND = f'"{APPROVAL_HOOK}"'
 APPROVAL_MARKER = "approval-hook.sh"
+CAPTURE_HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "capture-terminal.sh")
+CAPTURE_MARKER = "capture-terminal.sh"
 TOOL_EVENTS = {"PreToolUse", "PostToolUse"}
 EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse",
           "PostToolUse", "Notification", "Stop", "SessionEnd"]
@@ -37,7 +39,8 @@ def group(event):
 
 def is_vibebuddy(g):
     return isinstance(g, dict) and any(
-        (MARKER in h.get("command", "") or APPROVAL_MARKER in h.get("command", ""))
+        (MARKER in h.get("command", "") or APPROVAL_MARKER in h.get("command", "")
+         or CAPTURE_MARKER in h.get("command", ""))
         for h in g.get("hooks", []) if isinstance(h, dict)
     )
 
@@ -51,6 +54,11 @@ def install(data):
             continue
         arr.append(group(ev))
         added.append(ev)
+    ss = hooks.setdefault("SessionStart", [])
+    if not any(CAPTURE_MARKER in h.get("command", "")
+               for g in ss if isinstance(g, dict)
+               for h in g.get("hooks", []) if isinstance(h, dict)):
+        ss.append({"hooks": [{"type": "command", "command": f'"{CAPTURE_HOOK}"'}]})
     return added
 
 

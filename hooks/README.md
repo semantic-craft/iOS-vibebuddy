@@ -54,3 +54,12 @@ python3 hooks/install-claude-hooks.py --uninstall  # removes it too
 Commands not in your `permissions.allow` are sent to the phone to approve/deny.
 On timeout/unreachable, Claude proceeds with its normal behaviour. Useful only if
 your Mac actually prompts (prompting mode); auto-mode users gain nothing.
+
+## Terminal capture (jump-back)
+
+`capture-terminal.sh` is installed automatically as a second SessionStart hook by
+`--install` (and removed by `--uninstall`). On each new Claude Code session it
+POSTs the session's `TERM_PROGRAM`, `TTY`, `TMUX`, and `TMUX_PANE` to
+`http://127.0.0.1:${VIBEBUDDY_PORT:-9876}/terminal`. The Mac app stores this as
+`AgentSession.terminalRef` and uses it to focus the right terminal window when you
+press **Jump to terminal** in the Dashboard.
