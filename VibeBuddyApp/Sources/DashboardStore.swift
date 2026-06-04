@@ -63,6 +63,11 @@ final class DashboardStore: ObservableObject {
         Task { await decisionClient.decide(pairing, approvalId: approvalId, approve: approve) }
     }
 
+    func jump(_ sessionId: String) {
+        guard let pairing else { return }
+        Task { await decisionClient.jump(pairing, sessionId: sessionId) }
+    }
+
     private func apply(_ snapshot: Snapshot) async {
         // Notify only on a fresh transition into needsResponse; lastSessions
         // persists across reconnects so the already-waiting set isn't re-fired.

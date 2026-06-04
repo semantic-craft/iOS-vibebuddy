@@ -112,6 +112,12 @@ private struct SessionRow: View {
                     .font(.subheadline)
                     .padding(.top, 4)
                 }
+
+                if session.terminalRef != nil {
+                    Button("Jump to terminal") { dashboard.jump(session.id) }
+                        .buttonStyle(.bordered).font(.subheadline)
+                        .padding(.top, 4)
+                }
             }
         }
         .padding(.leading, 4)
