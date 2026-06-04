@@ -112,4 +112,13 @@ struct WireCodingTests {
         let s = sampleSession(status: .working)
         #expect(s.pendingApproval == nil)
     }
+
+    @Test("AgentSession round-trips a terminalRef")
+    func terminalRefRoundTrips() throws {
+        var s = sampleSession(status: .working)
+        s.terminalRef = TerminalRef(termProgram: "ghostty", tty: "ttys003", tmux: "/tmp/tmux-501/default,1,0", tmuxPane: "%3")
+        let back = try JSONDecoder().decode(AgentSession.self, from: try JSONEncoder().encode(s))
+        #expect(back.terminalRef == s.terminalRef)
+        #expect(back.terminalRef?.tmuxPane == "%3")
+    }
 }

@@ -43,6 +43,17 @@ public struct PendingApproval: Codable, Sendable, Equatable {
     }
 }
 
+/// Identifies the terminal a session runs in, so the Mac can jump to it.
+public struct TerminalRef: Codable, Sendable, Equatable {
+    public let termProgram: String
+    public let tty: String?
+    public let tmux: String?
+    public let tmuxPane: String?
+    public init(termProgram: String, tty: String? = nil, tmux: String? = nil, tmuxPane: String? = nil) {
+        self.termProgram = termProgram; self.tty = tty; self.tmux = tmux; self.tmuxPane = tmuxPane
+    }
+}
+
 /// One coding-agent session, as broadcast to the phone.
 public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     public let id: String
@@ -53,6 +64,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     public var status: SessionStatus
     public var waitKind: WaitKind?
     public var pendingApproval: PendingApproval?
+    public var terminalRef: TerminalRef?
     public var summary: String?
     public var tokens: Int?
     public var statusSince: Date
@@ -67,6 +79,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         status: SessionStatus,
         waitKind: WaitKind? = nil,
         pendingApproval: PendingApproval? = nil,
+        terminalRef: TerminalRef? = nil,
         summary: String? = nil,
         tokens: Int? = nil,
         statusSince: Date,
@@ -80,6 +93,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         self.status = status
         self.waitKind = waitKind
         self.pendingApproval = pendingApproval
+        self.terminalRef = terminalRef
         self.summary = summary
         self.tokens = tokens
         self.statusSince = statusSince
