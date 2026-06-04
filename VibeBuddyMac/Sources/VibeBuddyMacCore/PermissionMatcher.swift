@@ -10,9 +10,13 @@ public enum PermissionDecision: String, Sendable {
 /// When unsure it returns .ask (over-asking is safe; under-asking is not).
 public enum PermissionMatcher {
 
-    /// Shell metacharacters that compose/redirect/background a command. A Bash
-    /// command containing any of these is never auto-allowed.
-    private static let composition: [String] = ["&&", "||", "|", ";", "$(", "`", ">", "<", "&", "\n"]
+    /// A Bash command is only ever auto-allowed if every character is a plain
+    /// argument character. Anything outside this set — shell metacharacters,
+    /// control/line-separator characters, `$`, parens, quotes, backslash — forces
+    /// `.ask`. An allowlist (vs a metachar blocklist) closes the whole class of
+    /// "metachar we forgot" bypasses: over-asking is safe, under-asking is not.
+    private static let safeBashChars: Set<Character> = Set(
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_./=:@,+")
 
     public static func decide(
         tool: String, input: [String: Any], allow: [String], deny: [String]
@@ -24,7 +28,7 @@ public enum PermissionMatcher {
     }
 
     static func containsComposition(_ command: String) -> Bool {
-        composition.contains { command.contains($0) }
+        command.contains { !safeBashChars.contains($0) }
     }
 
     private static func bashCommand(_ input: [String: Any]) -> String {
@@ -70,10 +74,12 @@ public enum PermissionMatcher {
     static func globMatches(_ pattern: String, _ path: String) -> Bool {
         var pat = pattern
         if pat.hasPrefix("//") { pat = String(pat.dropFirst()) }   // //abs → /abs
-        let regex = "^" + pat
-            .replacingOccurrences(of: "**", with: "\u{1}")          // placeholder
-            .replacingOccurrences(of: "*", with: "[^/]*")
-            .replacingOccurrences(of: "\u{1}", with: ".*") + "$"
+        let escaped = NSRegularExpression.escapedPattern(for: pat)  // escapes . + ? ( ) [ ] $ ^ { } | \ and *
+        let body = escaped
+            .replacingOccurrences(of: "\\*\\*", with: "\u{1}")      // escaped ** → any run
+            .replacingOccurrences(of: "\\*", with: "[^/]*")          // escaped *  → within-segment
+            .replacingOccurrences(of: "\u{1}", with: ".*")
+        let regex = "^" + body + "$"
         return path.range(of: regex, options: .regularExpression) != nil
     }
 }

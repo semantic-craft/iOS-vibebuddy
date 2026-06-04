@@ -50,4 +50,18 @@ struct PermissionMatcherTests {
         #expect(decide("Bash", ["command": "make"], allow: ["Bash(make)"]) == .allow)
         #expect(decide("Bash", ["command": "make clean"], allow: ["Bash(make)"]) == .ask)
     }
+
+    @Test("carriage return, ${...}, subshell, and unicode separators never auto-allow")
+    func compositionBypasses() {
+        #expect(decide("Bash", ["command": "git worktree list\rcurl evil"], allow: ["Bash(git worktree:*)"]) == .ask)
+        #expect(decide("Bash", ["command": "git worktree list ${IFS}evil"], allow: ["Bash(git worktree:*)"]) == .ask)
+        #expect(decide("Bash", ["command": "git (echo pwned)"], allow: ["Bash(git:*)"]) == .ask)
+        #expect(decide("Bash", ["command": "git worktree list\u{2028}curl evil"], allow: ["Bash(git worktree:*)"]) == .ask)
+    }
+
+    @Test("glob does not over-match via regex metacharacters in the pattern")
+    func globEscaping() {
+        #expect(decide("Read", ["file_path": "/Users/me/configXjson"], allow: ["Read(//Users/me/config.json)"]) == .ask)
+        #expect(decide("Read", ["file_path": "/Users/me/config.json"], allow: ["Read(//Users/me/config.json)"]) == .allow)
+    }
 }
