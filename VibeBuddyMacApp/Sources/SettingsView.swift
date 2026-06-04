@@ -19,8 +19,10 @@ struct SettingsView: View {
                 .tabItem { Label("Devices", systemImage: "iphone.gen3") }
             NotificationSettings()
                 .tabItem { Label("Notifications", systemImage: "bell") }
+            VoiceSettingsTab()
+                .tabItem { Label("Voice", systemImage: "waveform") }
         }
-        .frame(width: 500, height: 330)
+        .frame(width: 500, height: 360)
         .onDisappear { AppActivationPolicy.leave() }
     }
 }
@@ -160,6 +162,29 @@ private struct NotificationSettings: View {
 
     private static func saveQuietHours(_ q: QuietHours) {
         if let data = try? JSONEncoder().encode(q) { UserDefaults.standard.set(data, forKey: "quietHours") }
+    }
+}
+
+private struct VoiceSettingsTab: View {
+    @AppStorage(VoiceSettings.enabledKey) private var enabled = false
+    @AppStorage(VoiceSettings.regionIntlKey) private var intl = false
+    @State private var apiKey = ""
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Voice companion", isOn: $enabled)
+                SecureField("Qwen (DashScope) API Key", text: $apiKey)
+                    .disabled(!enabled)
+                Toggle("Use international site (dashscope-intl)", isOn: $intl).disabled(!enabled)
+            } footer: {
+                Text("Tap the buddy to talk — it knows your sessions and can approve / answer for you. Speech recognition and reading aloud run on-device; only the conversation uses your own Qwen key (kept in the Keychain, never uploaded or committed).")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .onAppear { apiKey = VoiceSettings.apiKey ?? "" }
+        .onChange(of: apiKey) { _, v in KeychainStore.set(v, for: VoiceSettings.apiKeyKeychain) }
     }
 }
 

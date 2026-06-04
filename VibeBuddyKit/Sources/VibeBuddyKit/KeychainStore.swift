@@ -1,12 +1,13 @@
 import Foundation
 import Security
 
-/// Minimal Keychain wrapper for the one secret we hold: the DashScope API key.
-/// Never written to UserDefaults or committed.
-enum KeychainStore {
-    private static let service = "com.vibebuddy.app.secrets"
+/// Minimal Keychain wrapper for the one secret we hold: the user's own DashScope
+/// API key. Never written to UserDefaults or committed; read at runtime only.
+/// Shared by iOS and Mac.
+public enum KeychainStore {
+    private static let service = "com.vibebuddy.secrets"
 
-    static func set(_ value: String?, for key: String) {
+    public static func set(_ value: String?, for key: String) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -20,7 +21,7 @@ enum KeychainStore {
         SecItemAdd(add as CFDictionary, nil)
     }
 
-    static func get(_ key: String) -> String? {
+    public static func get(_ key: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -36,16 +37,17 @@ enum KeychainStore {
     }
 }
 
-/// Names for the secrets/settings the voice companion uses.
-enum VoiceSettings {
-    static let apiKeyKeychain = "dashscope.apiKey"
-    static let enabledKey = "voiceCompanionEnabled"
-    static let modelKey = "voiceModel"
-    static let regionIntlKey = "voiceRegionIntl"
+/// Names + accessors for the voice companion's settings. The API key lives in the
+/// Keychain (user-provided, BYO); the rest are plain UserDefaults toggles.
+public enum VoiceSettings {
+    public static let apiKeyKeychain = "dashscope.apiKey"
+    public static let enabledKey = "voiceCompanionEnabled"
+    public static let modelKey = "voiceModel"
+    public static let regionIntlKey = "voiceRegionIntl"
 
-    static var apiKey: String? { KeychainStore.get(apiKeyKeychain) }
-    static var enabled: Bool { UserDefaults.standard.bool(forKey: enabledKey) }
-    static var model: String { UserDefaults.standard.string(forKey: modelKey) ?? "qwen-plus" }
+    public static var apiKey: String? { KeychainStore.get(apiKeyKeychain) }
+    public static var enabled: Bool { UserDefaults.standard.bool(forKey: enabledKey) }
+    public static var model: String { UserDefaults.standard.string(forKey: modelKey) ?? "qwen-plus" }
     /// China (Beijing) endpoint by default; toggle for the international site.
-    static var useIntl: Bool { UserDefaults.standard.bool(forKey: regionIntlKey) }
+    public static var useIntl: Bool { UserDefaults.standard.bool(forKey: regionIntlKey) }
 }

@@ -29,6 +29,9 @@ struct DashboardView: View {
             }
             .searchable(text: $query, prompt: "Search sessions")
             .navigationTitle("vibebuddy")
+            .safeAreaInset(edge: .top, spacing: 0) {
+                MacBuddyBar(model: model, voice: model.voiceChat)
+            }
         } detail: {
             if let s = selectedSession {
                 DetailView(session: s, model: model)
@@ -86,6 +89,34 @@ struct DashboardView: View {
             Text("\(count)").foregroundStyle(.secondary).monospacedDigit()
         }
         .tag(Optional(status))
+    }
+}
+
+/// The buddy header on the Mac dashboard: tap the face to talk to it.
+private struct MacBuddyBar: View {
+    @ObservedObject var model: MenuBarModel
+    @ObservedObject var voice: VoiceChat
+
+    var body: some View {
+        HStack(spacing: 12) {
+            PetFace(state: model.buddyState, speaking: voice.isSpeaking, listening: voice.isListening)
+                .onTapGesture { voice.toggle() }
+            VStack(alignment: .leading, spacing: 1) {
+                Text(voice.isListening ? "在听…轻点结束" : (voice.isSpeaking ? "说话中…" : "轻点宠物和我说话"))
+                    .font(.headline)
+                if let err = voice.errorText {
+                    Text(err).font(.caption).foregroundStyle(.red).lineLimit(2)
+                } else if !voice.lastReply.isEmpty {
+                    Text(voice.lastReply).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                } else if !voice.lastUserText.isEmpty {
+                    Text(voice.lastUserText).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.bar)
     }
 }
 

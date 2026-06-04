@@ -64,7 +64,8 @@ struct GlanceView: View {
 
     private var counts: some View {
         HStack(spacing: 16 * s) {
-            GlanceBuddy(state: BuddyState.from(groups, now: Date()), scale: s)
+            PetFace(state: BuddyState.from(groups, now: Date()), bare: true, scale: s)
+                .onTapGesture { model.voiceChat.toggle() }   // tap the buddy to talk
             countPill(groups.needsResponse.count, .orange)
             countPill(groups.working.count, .blue)
             countPill(groups.done.count, .green)
@@ -97,29 +98,6 @@ struct GlanceView: View {
 
     private var clipShape: AnyShape {
         mode == .notch ? AnyShape(NotchShape()) : AnyShape(Capsule())
-    }
-}
-
-/// The buddy inside the glance — a paw with the shared state badge, matching the
-/// phone's moods so both surfaces read the same.
-private struct GlanceBuddy: View {
-    let state: BuddyState
-    let scale: CGFloat
-
-    var body: some View {
-        ZStack(alignment: .topTrailing) {
-            Image(systemName: "pawprint.fill")
-                .font(.system(size: 15 * scale, weight: .semibold))
-                .foregroundStyle(.white)
-            Image(systemName: state.badgeSymbol)
-                .font(.system(size: 8 * scale, weight: .bold))
-                .foregroundStyle(.white)
-                .padding(2 * scale)
-                .background(macBuddyColor(state.accent), in: Circle())
-                .offset(x: 5 * scale, y: -5 * scale)
-        }
-        .frame(height: 22 * scale)
-        .animation(.smooth, value: state)
     }
 }
 

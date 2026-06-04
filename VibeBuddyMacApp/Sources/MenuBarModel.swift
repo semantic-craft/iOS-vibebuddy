@@ -48,6 +48,10 @@ final class MenuBarModel: ObservableObject {
     private let deviceTokens = DeviceTokens()
     private let phonePolicy = SoundPolicy()
     private let budgetMonitor = BudgetMonitor()
+    /// The voice companion (tap the buddy to talk). Lazy so `self` is fully built.
+    lazy var voiceChat = VoiceChat(
+        contextProvider: { [weak self] in self?.sessions ?? [] },
+        actionHandler: { [weak self] action in self?.performVoiceAction(action) ?? "" })
     private var pollTask: Task<Void, Never>?
     private var glance: GlanceWindow?
     private static let pairedPhoneInfoKey = "pairedPhoneInfo"
@@ -214,6 +218,28 @@ final class MenuBarModel: ObservableObject {
     func jump(_ session: AgentSession) {
         guard let ref = session.terminalRef else { return }
         TerminalJumper.jump(ref)
+    }
+
+    /// Execute a voice action against the matching session; returns a spoken confirmation.
+    func performVoiceAction(_ action: VoiceAction) -> String {
+        switch action {
+        case .approve(let project):
+            guard let s = match(project), let ap = s.pendingApproval else { return "没找到要批准的会话" }
+            decide(ap.id, approve: true); return "已批准 \(s.project)"
+        case .deny(let project):
+            guard let s = match(project), let ap = s.pendingApproval else { return "没找到要拒绝的会话" }
+            decide(ap.id, approve: false); return "已拒绝 \(s.project)"
+        case .answer(let project, let text):
+            guard let s = match(project), let ref = s.terminalRef else { return "没找到那个会话或它没有终端" }
+            TerminalInjector.inject(text, into: ref); return "已回复 \(s.project)"
+        case .none:
+            return ""
+        }
+    }
+
+    private func match(_ project: String) -> AgentSession? {
+        let q = project.lowercased()
+        return sessions.first { let p = $0.project.lowercased(); return p.contains(q) || q.contains(p) }
     }
 
     static func defaultGlanceScale() -> CGFloat {

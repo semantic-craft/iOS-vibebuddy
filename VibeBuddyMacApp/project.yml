@@ -26,6 +26,8 @@ targets:
         CFBundleDisplayName: vibebuddy
         LSUIElement: true
         LSMinimumSystemVersion: "14.0"
+        NSMicrophoneUsageDescription: "Talk to your buddy to ask about your agents and approve actions by voice."
+        NSSpeechRecognitionUsageDescription: "Recognize your speech on-device so your buddy understands what you say."
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.mac

@@ -1,30 +1,41 @@
 import Foundation
 
-struct ChatMessage: Codable, Equatable {
-    let role: String    // "system" | "user" | "assistant"
-    let content: String
+public struct ChatMessage: Codable, Equatable, Sendable {
+    public let role: String    // "system" | "user" | "assistant"
+    public let content: String
+    public init(role: String, content: String) {
+        self.role = role
+        self.content = content
+    }
 }
 
-enum VoiceBrainError: Error { case noKey, http(Int), badResponse }
+public enum VoiceBrainError: Error { case noKey, http(Int), badResponse }
 
 /// The conversational brain. Injectable so the voice flow can be tested with a fake.
-protocol VoiceBrain: Sendable {
+public protocol VoiceBrain: Sendable {
     func reply(messages: [ChatMessage]) async throws -> String
 }
 
 /// Alibaba Bailian / DashScope, via the OpenAI-compatible chat-completions endpoint.
 /// Text-in / text-out (ASR and TTS are on-device), so this is a single plain POST.
-struct QwenClient: VoiceBrain {
-    var apiKey: String?
-    var model: String
-    var useIntl: Bool
+/// Shared by iOS and Mac.
+public struct QwenClient: VoiceBrain {
+    public var apiKey: String?
+    public var model: String
+    public var useIntl: Bool
+
+    public init(apiKey: String?, model: String, useIntl: Bool) {
+        self.apiKey = apiKey
+        self.model = model
+        self.useIntl = useIntl
+    }
 
     private var endpoint: URL {
         let host = useIntl ? "dashscope-intl.aliyuncs.com" : "dashscope.aliyuncs.com"
         return URL(string: "https://\(host)/compatible-mode/v1/chat/completions")!
     }
 
-    func reply(messages: [ChatMessage]) async throws -> String {
+    public func reply(messages: [ChatMessage]) async throws -> String {
         guard let apiKey, !apiKey.isEmpty else { throw VoiceBrainError.noKey }
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
