@@ -16,6 +16,12 @@ struct VibeBuddyMenuBarApp: App {
             if model.needsResponse > 0 { Text("\(model.needsResponse)") }
         }
         .menuBarExtraStyle(.window)
+
+        Window("vibebuddy", id: "dashboard") {
+            DashboardView(model: model)
+                .frame(minWidth: 760, minHeight: 480)
+        }
+        .windowResizability(.contentMinSize)
     }
 }
 
@@ -28,9 +34,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 struct MenuContent: View {
     @ObservedObject var model: MenuBarModel
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            Button("打开 Dashboard") {
+                NSApp.setActivationPolicy(.regular)   // show in Dock/⌘-tab while the window is open
+                openWindow(id: "dashboard")
+                NSApp.activate(ignoringOtherApps: true)
+            }
+            .buttonStyle(.borderless)
+
             HStack {
                 Text("vibebuddy").font(.headline)
                 Spacer()
