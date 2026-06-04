@@ -38,6 +38,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        // Keep the background daemon alive. macOS cleanly auto-terminates idle
+        // accessory apps to reclaim resources (no crash report — exactly the
+        // observed ~4-min clean exits). Opt out, since we run an HTTP/WS server.
+        ProcessInfo.processInfo.disableSuddenTermination()
+        ProcessInfo.processInfo.disableAutomaticTermination(
+            "vibebuddy runs a background daemon (HTTP/WebSocket server + hooks) that must stay alive")
         GlobalHotkey.install()
         Self.log.notice("didFinishLaunching")
     }
