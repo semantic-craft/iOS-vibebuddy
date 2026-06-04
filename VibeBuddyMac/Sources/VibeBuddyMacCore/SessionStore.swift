@@ -71,6 +71,9 @@ public actor SessionStore {
     public func beginApproval(sessionID: String, _ approval: PendingApproval, at: Date) {
         reducer.setPendingApproval(sessionID: sessionID, approval, at: at)
         broadcast()
+        if let session = reducer.sessions[sessionID], let handler = needsResponseHandler {
+            Task { await handler(session) }
+        }
     }
 
     public func endApproval(sessionID: String, at: Date) {

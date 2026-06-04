@@ -51,6 +51,24 @@ struct SessionStoreTests {
         #expect(await store.snapshot(now: t0.addingTimeInterval(200)).sessions.isEmpty)
     }
 
+    @Test("beginApproval fires the needsResponse handler so a closed app can be pushed")
+    func beginApprovalNotifies() async {
+        actor Box { var ids: [String] = []; func add(_ id: String) { ids.append(id) }; func all() -> [String] { ids } }
+        let box = Box()
+        let store = SessionStore()
+        await store.ingest(
+            Data(#"{"hook_event_name":"SessionStart","session_id":"s","cwd":"/x/proj"}"#.utf8),
+            receivedAt: t0)
+        await store.setNeedsResponseHandler { session in
+            await box.add(session.pendingApproval?.id ?? "none")
+        }
+        await store.beginApproval(sessionID: "s",
+                                  PendingApproval(id: "ap1", tool: "Bash", commandPreview: "rm x"),
+                                  at: t0.addingTimeInterval(1))
+        try? await Task.sleep(for: .milliseconds(100))   // handler runs in a detached Task
+        #expect(await box.all() == ["ap1"])
+    }
+
     @Test("beginApproval makes the session needsResponse with a pendingApproval; endApproval clears it")
     func approvalLifecycle() async {
         let store = SessionStore()
