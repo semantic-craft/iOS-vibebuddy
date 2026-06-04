@@ -23,13 +23,14 @@ struct DashboardView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { ConnectionDot(state: dashboard.state) }
             ToolbarItem(placement: .topBarTrailing) {
-                Button("断开") { dashboard.stop(); connection.clear() }
+                Button(connection.demo ? "退出演示" : "断开") { dashboard.stop(); connection.clear() }
                     .font(.subheadline)
             }
         }
         .task(id: connection.pairing) {
             if let pairing = connection.pairing { dashboard.start(pairing) }
         }
+        .task { if connection.demo { dashboard.startDemo() } }
         .onDisappear { dashboard.stop() }
     }
 

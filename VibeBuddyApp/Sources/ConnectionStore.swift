@@ -6,6 +6,9 @@ import VibeBuddyKit
 @MainActor
 final class ConnectionStore: ObservableObject {
     @Published private(set) var pairing: PairingPayload?
+    /// Demo mode: show the dashboard populated with sample data and no network,
+    /// so the app is reviewable (and explorable) without a paired Mac.
+    @Published private(set) var demo = false
 
     private let defaults = UserDefaults.standard
     private let key = "vibebuddy.pairing"
@@ -36,8 +39,11 @@ final class ConnectionStore: ObservableObject {
         }
     }
 
+    func enterDemo() { demo = true }
+
     func clear() {
         pairing = nil
+        demo = false
         defaults.removeObject(forKey: key)
     }
 }

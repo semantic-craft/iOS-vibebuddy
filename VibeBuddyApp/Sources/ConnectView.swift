@@ -45,6 +45,11 @@ struct ConnectView: View {
                 .font(.subheadline)
 
                 if showManual { manualFields }
+
+                Button("查看演示(无需 Mac)") { connection.enterDemo() }
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 4)
             }
             .padding(24)
         }
