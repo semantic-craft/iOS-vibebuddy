@@ -1,28 +1,31 @@
 import SwiftUI
+import Lottie
 import VibeBuddyKit
 
-/// The ambient status buddy: an emoji inside an animated colored ring whose mood
-/// follows the most urgent session state. Pinned above the dashboard list.
+/// The ambient status buddy — a Lottie cat animation, with state cues overlaid
+/// (a "批准?" sign when it needs you, a "z" when idle). Pinned above the list.
+/// Animations live in Resources/Buddy/*.json; falls back to an SF Symbol cat.
 struct BuddyView: View {
     let groups: SessionGroups
-    @State private var animate = false
+    @State private var bounce = false
 
+    /// Which bundled animation to play. (One cat for now; per-state later.)
+    private let animationName = "cat_popof"
     private var state: BuddyState { BuddyState.from(groups) }
-    private var animating: Bool { state == .working || state == .needsResponse }
-    private var bouncing: Bool { state == .needsResponse }
 
     var body: some View {
-        HStack(spacing: 13) {
+        HStack(spacing: 14) {
             ZStack {
-                Circle()
-                    .stroke(ring.opacity(0.9), lineWidth: 3)
-                    .frame(width: 46, height: 46)
-                    .scaleEffect(animating ? (animate ? 1.07 : 0.93) : 1)
-                    .opacity(state == .working ? (animate ? 1 : 0.55) : 1)
-                Text(emoji)
-                    .font(.system(size: 26))
-                    .offset(y: bouncing ? (animate ? -3 : 2) : 0)
+                LottieCat(name: animationName)
+                    .frame(width: 60, height: 60)
+                    .offset(y: state == .needsResponse && bounce ? -4 : 0)
+                if state == .needsResponse { sign }
+                if state == .sleeping { Text("z").font(.headline.weight(.heavy))
+                    .foregroundStyle(.secondary).offset(x: 26, y: -22) }
+                if state == .done { Text("✨").offset(x: 24, y: -22) }
             }
+            .frame(width: 72, height: 60)
+            .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: bounce)
             VStack(alignment: .leading, spacing: 1) {
                 Text(title).font(.headline)
                 Text(subtitle).font(.caption).foregroundStyle(.secondary)
@@ -33,33 +36,26 @@ struct BuddyView: View {
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.bar)
-        .onAppear {
-            withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) { animate = true }
-        }
+        .onAppear { bounce = true }
     }
 
-    private var emoji: String {
-        switch state {
-        case .needsResponse: "🔔"
-        case .working: "🤖"
-        case .done: "✅"
-        case .sleeping: "😴"
+    private var sign: some View {
+        VStack(spacing: 0) {
+            Text("批准?")
+                .font(.caption2.bold()).foregroundStyle(.white)
+                .padding(.horizontal, 6).padding(.vertical, 3)
+                .background(.orange, in: .rect(cornerRadius: 5))
+            Rectangle().fill(.brown).frame(width: 2, height: 8)
         }
+        .offset(x: 26, y: -20)
     }
-    private var ring: Color {
-        switch state {
-        case .needsResponse: .orange
-        case .working: .blue
-        case .done: .green
-        case .sleeping: .gray
-        }
-    }
+
     private var title: String {
         switch state {
-        case .needsResponse: "需要你回应"
-        case .working: "工作中…"
-        case .done: "全部完成"
-        case .sleeping: "休息中"
+        case .needsResponse: "喵!要你批准"
+        case .working: "干活中…"
+        case .done: "全部搞定 ✨"
+        case .sleeping: "打盹中…"
         }
     }
     private var subtitle: String {
@@ -69,5 +65,22 @@ struct BuddyView: View {
         if !groups.working.isEmpty { parts.append("\(groups.working.count) 进行中") }
         if !groups.done.isEmpty { parts.append("\(groups.done.count) 已完成") }
         return parts.joined(separator: " · ")
+    }
+}
+
+/// Plays a bundled Lottie animation, looping. Falls back to an SF Symbol cat
+/// if the named .json isn't present.
+private struct LottieCat: View {
+    let name: String
+    var body: some View {
+        if Bundle.main.url(forResource: name, withExtension: "json") != nil {
+            LottieView(animation: .named(name))
+                .looping()
+        } else {
+            Image(systemName: "cat.fill")
+                .resizable().scaledToFit()
+                .foregroundStyle(.secondary)
+                .padding(6)
+        }
     }
 }
