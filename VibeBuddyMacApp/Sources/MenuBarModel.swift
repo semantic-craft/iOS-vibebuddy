@@ -18,6 +18,7 @@ final class MenuBarModel: ObservableObject {
     private let approvalRegistry = ApprovalRegistry()
     private let notificationCoordinator: NotificationCoordinator
     private var pollTask: Task<Void, Never>?
+    private var glance: GlanceWindow?
 
     init() {
         port = ProcessInfo.processInfo.environment["VIBEBUDDY_PORT"].flatMap(Int.init) ?? 9876
@@ -30,6 +31,7 @@ final class MenuBarModel: ObservableObject {
         startServer()
         preparePairing()
         startPolling()
+        glance = GlanceWindow(model: self)
     }
 
     var needsResponse: Int { sessions.lazy.filter { $0.status == .needsResponse }.count }
