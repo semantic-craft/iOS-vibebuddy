@@ -31,7 +31,14 @@ final class MenuBarModel: ObservableObject {
         startServer()
         preparePairing()
         startPolling()
-        glance = GlanceWindow(model: self)
+        // Create the glance on the next main-runloop tick — NOT synchronously here.
+        // Hosting/displaying a SwiftUI view that observes `self` while `init` is
+        // still running trips an AttributeGraph precondition (NSHostingView.layout
+        // → ViewGraph update on a half-initialized ObservableObject).
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.glance = GlanceWindow(model: self)
+        }
     }
 
     var needsResponse: Int { sessions.lazy.filter { $0.status == .needsResponse }.count }
