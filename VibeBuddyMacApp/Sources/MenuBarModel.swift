@@ -15,11 +15,15 @@ final class MenuBarModel: ObservableObject {
     let port: Int
     private let token: String
     private let store = SessionStore()
+    private let notificationCoordinator: NotificationCoordinator
     private var pollTask: Task<Void, Never>?
 
     init() {
         port = ProcessInfo.processInfo.environment["VIBEBUDDY_PORT"].flatMap(Int.init) ?? 9876
         token = KeychainTokenStore.loadOrCreate()
+        let notifier = UserNotificationsNotifier()
+        notifier.requestAuthorization()
+        notificationCoordinator = NotificationCoordinator(notifier: notifier)
         startServer()
         preparePairing()
         startPolling()
@@ -53,6 +57,7 @@ final class MenuBarModel: ObservableObject {
                 guard let self else { return }
                 let snapshot = await self.store.snapshot(now: Date())
                 self.sessions = snapshot.sessions
+                self.notificationCoordinator.observe(snapshot.sessions)
                 try? await Task.sleep(for: .seconds(2))
             }
         }
