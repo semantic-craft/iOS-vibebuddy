@@ -26,13 +26,13 @@ struct DashboardView: View {
             List(filtered, selection: $selection) { s in
                 SessionRowView(session: s).tag(s.id)
             }
-            .searchable(text: $query, prompt: "搜索会话")
+            .searchable(text: $query, prompt: "Search sessions")
             .navigationTitle("vibebuddy")
         } detail: {
             if let s = selectedSession {
                 DetailView(session: s, model: model)
             } else {
-                ContentUnavailableView("选择一个会话", systemImage: "sidebar.right")
+                ContentUnavailableView("Select a session", systemImage: "sidebar.right")
             }
         }
         .background {
@@ -47,10 +47,10 @@ struct DashboardView: View {
 
     private var sidebar: some View {
         List(selection: $statusFilter) {
-            Section("状态") {
-                statusItem(.needsResponse, "需回应", .orange)
-                statusItem(.working, "进行中", .blue)
-                statusItem(.done, "已完成", .green)
+            Section("Status") {
+                statusItem(.needsResponse, "Needs Response", .orange)
+                statusItem(.working, "Working", .blue)
+                statusItem(.done, "Done", .green)
             }
             Section("Agent") {
                 ForEach(SessionFilter.presentAgents(model.sessions), id: \.self) { a in
@@ -114,23 +114,23 @@ private struct DetailView: View {
             VStack(alignment: .leading, spacing: 14) {
                 Text(session.project).font(.title2.bold())
                 if let approval = session.pendingApproval {
-                    Text("Claude 想执行,需要你批准:").font(.headline)
+                    Text("Claude wants to run this — approve?").font(.headline)
                     Text(approval.commandPreview)
                         .font(.system(.body, design: .monospaced))
                         .padding(10)
                         .background(Color(nsColor: .textBackgroundColor))
                         .cornerRadius(8)
                     HStack(spacing: 10) {
-                        Button("批准") { model.decide(approval.id, approve: true) }
+                        Button("Approve") { model.decide(approval.id, approve: true) }
                             .keyboardShortcut("a", modifiers: []).tint(.green)
-                        Button("拒绝") { model.decide(approval.id, approve: false) }
+                        Button("Deny") { model.decide(approval.id, approve: false) }
                             .keyboardShortcut("d", modifiers: []).tint(.red)
-                        Button("跳回终端") { }.disabled(true)   // STUB — sub-project 2
+                        Button("Jump to terminal") { }.disabled(true)   // STUB — sub-project 2
                     }
                     .buttonStyle(.borderedProminent)
                 } else {
                     if let s = session.summary { Text(s).foregroundStyle(.secondary) }
-                    Button("跳回终端") { }.disabled(true)   // STUB — sub-project 2
+                    Button("Jump to terminal") { }.disabled(true)   // STUB — sub-project 2
                 }
                 if let m = session.model {
                     Label(m, systemImage: "cpu").font(.caption).foregroundStyle(.secondary)

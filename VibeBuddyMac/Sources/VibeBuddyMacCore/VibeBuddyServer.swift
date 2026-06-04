@@ -80,11 +80,11 @@ public struct VibeBuddyServer: Sendable {
                     let title: String
                     let body: String
                     if let approval = session.pendingApproval {
-                        title = "\(session.project) 需要批准"
+                        title = "\(session.project) needs approval"
                         body = approval.commandPreview
                     } else {
-                        title = "\(session.project) 需要你"
-                        body = session.summary ?? "等待你的响应"
+                        title = "\(session.project) needs you"
+                        body = session.summary ?? "Waiting for your response"
                     }
                     for deviceToken in await deviceTokens.all() {
                         await pusher.send(title: title, body: body, to: deviceToken)

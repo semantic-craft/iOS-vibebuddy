@@ -59,12 +59,17 @@ struct MenuContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Button("打开 Dashboard") {
+            Button {
                 NSApp.setActivationPolicy(.regular)   // show in Dock/⌘-tab while the window is open
                 openWindow(id: "dashboard")
                 NSApp.activate(ignoringOtherApps: true)
+            } label: {
+                Label("Open Dashboard", systemImage: "macwindow")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.bordered)
+            .controlSize(.large)
 
             HStack {
                 Text("vibebuddy").font(.headline)
@@ -84,7 +89,7 @@ struct MenuContent: View {
             Divider()
 
             if model.sessions.isEmpty {
-                Text("没有进行中的会话")
+                Text("No active sessions")
                     .font(.caption).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 2)
@@ -103,7 +108,7 @@ struct MenuContent: View {
                         .padding(12)
                         .background(.white)
                         .clipShape(.rect(cornerRadius: 8))
-                    Text("在 vibebuddy iOS app 里扫这个码")
+                    Text("Scan this in the vibebuddy iOS app")
                         .font(.caption2).foregroundStyle(.secondary)
                 }
             }
@@ -111,13 +116,13 @@ struct MenuContent: View {
 
             Divider()
 
-            Toggle("开机自启", isOn: Binding(
+            Toggle("Launch at Login", isOn: Binding(
                 get: { model.launchAtLogin },
                 set: { model.setLaunchAtLogin($0) }))
                 .toggleStyle(.switch)
                 .font(.callout)
 
-            Button("退出 vibebuddy") { NSApplication.shared.terminate(nil) }
+            Button("Quit vibebuddy") { NSApplication.shared.terminate(nil) }
                 .buttonStyle(.borderless)
         }
         .padding(14)

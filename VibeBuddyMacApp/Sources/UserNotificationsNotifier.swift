@@ -21,8 +21,8 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
 
     func notify(_ session: AgentSession) {
         let content = UNMutableNotificationContent()
-        content.title = "\(session.project) 需要你"
-        content.body = session.summary ?? "等待你的响应"
+        content.title = "\(session.project) needs you"
+        content.body = session.summary ?? "Waiting for your response"
         content.sound = .default
         // Keyed by session id: a still-waiting session won't stack duplicates.
         let request = UNNotificationRequest(identifier: session.id, content: content, trigger: nil)
