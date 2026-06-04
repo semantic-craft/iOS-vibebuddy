@@ -5,13 +5,23 @@ import VibeBuddyKit
 struct VibeBuddyAppApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var connection = ConnectionStore()
-    @StateObject private var dashboard = DashboardStore()
+    @StateObject private var dashboard: DashboardStore
+    @StateObject private var voice: VoiceChat
+
+    init() {
+        let dash = DashboardStore()
+        _dashboard = StateObject(wrappedValue: dash)
+        _voice = StateObject(wrappedValue: VoiceChat(
+            contextProvider: { [weak dash] in dash?.allSessions ?? [] },
+            actionHandler: { [weak dash] action in dash?.performVoiceAction(action) ?? "" }))
+    }
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environmentObject(connection)
                 .environmentObject(dashboard)
+                .environmentObject(voice)
         }
     }
 }

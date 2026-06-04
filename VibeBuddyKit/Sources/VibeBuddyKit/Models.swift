@@ -1,10 +1,17 @@
 import Foundation
 
 /// Which coding agent a session belongs to. Source-agnostic by design — new
-/// agents are added here without changing the rest of the wire model.
+/// agents are added here without changing the rest of the wire model. Raw values
+/// are stable wire strings; `claudeCode`/`codex` are kept for back-compat.
 public enum AgentKind: String, Codable, Sendable, CaseIterable {
     case claudeCode
     case codex
+    case qwen
+    case kimi
+    case antigravity
+    case grok
+    case opencode
+    case copilot
 }
 
 /// The three buckets the dashboard cares about.
@@ -112,6 +119,13 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     /// and the model's context window, for the phone's usage bar. Both optional.
     public var contextTokens: Int?
     public var contextWindow: Int?
+    /// The last turn / tool ended in an error (Bash non-zero exit, tool error,
+    /// or a failure-looking Stop message). Optional so older payloads decode as
+    /// "unknown"; drives the `agentStuck` cue and the buddy's worried face.
+    public var failed: Bool?
+    /// Cumulative tokens spent across this session's turns (input+output),
+    /// accumulated by the reducer. Drives the estimated cost + budget alert.
+    public var spentTokens: Int?
     public var statusSince: Date
     public var updatedAt: Date
 
@@ -130,6 +144,8 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         tokens: Int? = nil,
         contextTokens: Int? = nil,
         contextWindow: Int? = nil,
+        failed: Bool? = nil,
+        spentTokens: Int? = nil,
         statusSince: Date,
         updatedAt: Date
     ) {
@@ -147,9 +163,14 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         self.tokens = tokens
         self.contextTokens = contextTokens
         self.contextWindow = contextWindow
+        self.failed = failed
+        self.spentTokens = spentTokens
         self.statusSince = statusSince
         self.updatedAt = updatedAt
     }
+
+    /// Whether to treat this session as failed/stuck (Optional `failed` is "no").
+    public var isStuck: Bool { failed == true }
 }
 
 /// Full state of every known session — sent on initial load and on reconnect.
@@ -187,13 +208,20 @@ public struct DeviceRegistrationPayload: Codable, Sendable, Equatable {
     public var name: String?
     public var model: String?
     public var systemVersion: String?
+    /// The phone's sound preferences, so the Mac's background push respects them.
+    /// Optional so older payloads decode unchanged.
+    public var playSound: Bool?
+    public var quietMode: Bool?
 
     public init(token: String? = nil, name: String? = nil,
-                model: String? = nil, systemVersion: String? = nil) {
+                model: String? = nil, systemVersion: String? = nil,
+                playSound: Bool? = nil, quietMode: Bool? = nil) {
         self.token = token
         self.name = name
         self.model = model
         self.systemVersion = systemVersion
+        self.playSound = playSound
+        self.quietMode = quietMode
     }
 
     public var hasPushToken: Bool { token?.isEmpty == false }

@@ -128,22 +128,12 @@ public final class SoundPolicy {
         // not already looking at the result.
         guard let prev, prev.status != .done, !input.appActive else { return nil }
 
-        if Self.looksFailed(session.summary) {
-            return SoundAlert(session: session, sound: .agentStuck)   // failures ring regardless of runtime
+        // Real signal first (a tool/turn error reported by the hook), then the
+        // prose heuristic as a fallback. Either way failures ring regardless of runtime.
+        if session.isStuck || FailureHeuristic.looksFailed(session.summary) {
+            return SoundAlert(session: session, sound: .agentStuck)
         }
         guard input.now.timeIntervalSince(prev.statusSince) >= config.doneMinRuntime else { return nil }
         return SoundAlert(session: session, sound: .agentDone)
-    }
-
-    /// Heuristic failure detection — there is no distinct "failed" status today,
-    /// so a completion whose summary reads like a failure rings the duller cue.
-    private static let failureMarkers = [
-        "fail", "crash", "abort", "panic", "fatal", "exception",
-        "timed out", "timeout", "interrupted", "stuck", "killed",
-    ]
-
-    private static func looksFailed(_ summary: String?) -> Bool {
-        guard let s = summary?.lowercased() else { return false }
-        return failureMarkers.contains { s.contains($0) }
     }
 }

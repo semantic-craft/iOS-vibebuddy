@@ -28,6 +28,10 @@ final class PushRegistration {
         upload()
     }
 
+    /// Re-report current sound prefs to the Mac (call when the user changes them),
+    /// so the Mac's background push respects play-sound / quiet mode.
+    func reportPrefs() { upload() }
+
     private func upload() {
         guard let token = deviceToken, let pairing,
               let url = URL(string: "http://\(pairing.host):\(pairing.port)/device")
@@ -40,7 +44,9 @@ final class PushRegistration {
             token: token,
             name: UIDevice.current.name,
             model: UIDevice.current.model,
-            systemVersion: "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)"
+            systemVersion: "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)",
+            playSound: SoundPrefs.playSound,
+            quietMode: SoundPrefs.effectiveQuiet()
         ))
         Task { _ = try? await URLSession.shared.data(for: request) }
     }
@@ -69,6 +75,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
+        // A remote push that arrives while the app is foreground is redundant:
+        // the live stream + local SoundPolicy already handle it (and completion
+        // is meant to be silent when you're watching). Suppress to avoid a
+        // double sound; backgrounded pushes are unaffected (willPresent isn't called).
+        if notification.request.trigger is UNPushNotificationTrigger { return [] }
         // Pairing confirmation: a sound is enough — the dashboard is already up.
         if notification.request.identifier == NotificationID.pairSuccess { return [.sound] }
         return [.banner, .sound, .list]

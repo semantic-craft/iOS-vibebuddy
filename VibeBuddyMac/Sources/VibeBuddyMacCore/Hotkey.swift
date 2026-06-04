@@ -74,4 +74,27 @@ public struct Hotkey: Codable, Equatable, Sendable {
             defaults.set(data, forKey: Self.storageKey)
         }
     }
+
+    /// Default Toggle-Glance shortcut: Hyper + G (⌃⌥⇧⌘ + G). Hides/shows the
+    /// floating glance so it never has to block a notchless screen.
+    public static let toggleGlanceDefault = Hotkey(
+        keyCode: 5,  // kVK_ANSI_G
+        cocoaModifiers: cocoaControl | cocoaOption | cocoaShift | cocoaCommand,
+        displayKey: "G")
+
+    private static let glanceStorageKey = "toggleGlanceHotkey"
+
+    /// The persisted Toggle-Glance shortcut, or the default if none/invalid.
+    public static func loadToggleGlance(_ defaults: UserDefaults = .standard) -> Hotkey {
+        guard let data = defaults.data(forKey: glanceStorageKey),
+              let hk = try? JSONDecoder().decode(Hotkey.self, from: data)
+        else { return .toggleGlanceDefault }
+        return hk
+    }
+
+    public func saveAsToggleGlance(_ defaults: UserDefaults = .standard) {
+        if let data = try? JSONEncoder().encode(self) {
+            defaults.set(data, forKey: Self.glanceStorageKey)
+        }
+    }
 }

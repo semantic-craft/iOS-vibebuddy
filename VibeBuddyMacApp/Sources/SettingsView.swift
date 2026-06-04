@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import VibeBuddyKit
 import VibeBuddyMacCore
 
 /// The Cmd+, Settings window: a classic top-tab Preferences layout (deliberately
@@ -51,6 +52,28 @@ private struct GeneralSettings: View {
             Text("A global shortcut that opens the Dashboard from anywhere. Hyper (⌃⌥⇧⌘) combos recommended.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            LabeledContent("Hide Glance") {
+                Text(model.toggleGlanceHotkey.displayString)
+                    .font(.system(.body, design: .rounded).weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
+            Text("Toggle the floating glance from the keyboard — handy on a notchless screen where it would otherwise sit on top of your work.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider().padding(.vertical, 4)
+
+            Picker("Clean up idle sessions after", selection: Binding(
+                get: { model.idleTimeoutHours }, set: { model.setIdleTimeout($0) })) {
+                Text("30 min").tag(0.5)
+                Text("1 hour").tag(1.0)
+                Text("2 hours").tag(2.0)
+                Text("4 hours").tag(4.0)
+                Text("8 hours").tag(8.0)
+                Text("24 hours").tag(24.0)
+                Text("Never").tag(0.0)
+            }
         }
         .formStyle(.grouped)
     }
@@ -79,6 +102,9 @@ private struct NotificationSettings: View {
     @AppStorage("notifyOnNeedsResponse") private var notify = true
     @AppStorage("playNotificationSound") private var sound = true
     @AppStorage("quietMode") private var quiet = false
+    @AppStorage("sessionBudgetUSD") private var budgetUSD = 0.0
+    @State private var quietHours = NotificationSettings.loadQuietHours()
+
     var body: some View {
         Form {
             Section {
@@ -94,8 +120,46 @@ private struct NotificationSettings: View {
                 Text("For night or focus time: only security approvals make a sound. Everything else stays silent.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section {
+                Picker("Budget alert per session", selection: $budgetUSD) {
+                    Text("Off").tag(0.0)
+                    Text("$1").tag(1.0)
+                    Text("$2").tag(2.0)
+                    Text("$5").tag(5.0)
+                    Text("$10").tag(10.0)
+                    Text("$20").tag(20.0)
+                }.disabled(!notify)
+            } footer: {
+                Text("A gentle heads-up when a session's estimated spend crosses this amount. Cost is a rough estimate from token usage.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section {
+                Toggle("Quiet hours", isOn: $quietHours.enabled).disabled(!notify)
+                if quietHours.enabled {
+                    Picker("From", selection: $quietHours.startHour) { hourTags }
+                    Picker("To", selection: $quietHours.endHour) { hourTags }
+                }
+            } footer: {
+                Text("Automatically enter Quiet mode during this nightly window.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
+        .onChange(of: quietHours) { _, q in NotificationSettings.saveQuietHours(q) }
+    }
+
+    private var hourTags: some View {
+        ForEach(0..<24, id: \.self) { h in Text(String(format: "%02d:00", h)).tag(h) }
+    }
+
+    private static func loadQuietHours() -> QuietHours {
+        guard let data = UserDefaults.standard.data(forKey: "quietHours"),
+              let q = try? JSONDecoder().decode(QuietHours.self, from: data) else { return QuietHours() }
+        return q
+    }
+
+    private static func saveQuietHours(_ q: QuietHours) {
+        if let data = try? JSONEncoder().encode(q) { UserDefaults.standard.set(data, forKey: "quietHours") }
     }
 }
 

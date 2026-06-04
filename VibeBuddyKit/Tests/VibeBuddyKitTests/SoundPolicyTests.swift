@@ -144,6 +144,16 @@ struct SoundPolicyTests {
         #expect(alerts.map(\.sound) == [.agentStuck])
     }
 
+    @Test("the real failed flag rings stuck even with a benign summary")
+    func failedFlagRingsStuck() {
+        let p = SoundPolicy()
+        _ = p.evaluate(input([session("a", .working, since: 0)], now: 0))
+        var done = session("a", .done, since: 40, summary: "All changes applied cleanly")
+        done.failed = true
+        let alerts = p.evaluate(input([done], now: 40, appActive: false))
+        #expect(alerts.map(\.sound) == [.agentStuck])
+    }
+
     @Test("a quick failure still rings stuck — failures matter regardless of runtime")
     func quickFailureRingsStuck() {
         let p = SoundPolicy()

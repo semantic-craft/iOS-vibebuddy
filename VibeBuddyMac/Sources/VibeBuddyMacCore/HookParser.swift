@@ -26,8 +26,34 @@ public enum HookParser {
             toolName: raw.toolName,
             message: raw.message,
             transcriptPath: raw.transcriptPath,
+            toolError: kind == .postToolUse && detectToolError(data),
             timestamp: receivedAt
         )
+    }
+
+    /// Did this tool result report a failure? Read defensively with
+    /// `JSONSerialization` (not the strict decoder) because `tool_response` can
+    /// be a string, object, or array depending on the tool — we only look for an
+    /// error marker and ignore everything else.
+    static func detectToolError(_ data: Data) -> Bool {
+        guard let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return false }
+        if let response = obj["tool_response"] as? [String: Any] {
+            if isTruthy(response["is_error"]) { return true }
+            if isTruthy(response["interrupted"]) { return true }
+            if isTruthy(response["error"]) { return true }
+            if let success = response["success"] as? Bool, !success { return true }
+        }
+        // Some agents put the error at the top level instead.
+        return isTruthy(obj["error"])
+    }
+
+    private static func isTruthy(_ value: Any?) -> Bool {
+        switch value {
+        case let b as Bool: return b
+        case let s as String: return !s.isEmpty
+        case let n as NSNumber: return n.boolValue
+        default: return false
+        }
     }
 
     private static func mapKind(_ name: String) -> HookEvent.Kind? {

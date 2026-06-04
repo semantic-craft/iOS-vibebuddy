@@ -77,13 +77,16 @@ struct MenuBarLabel: View {
 
     var body: some View {
         HStack {
-            Image(systemName: model.needsResponse > 0
-                  ? "bell.badge.fill" : "pawprint.fill")
+            // The buddy's mood, right in the menu bar (same glyph as the phone).
+            Image(systemName: model.buddyState.badgeSymbol)
             if model.needsResponse > 0 { Text("\(model.needsResponse)") }
         }
         .onReceive(NotificationCenter.default.publisher(for: .openDashboard)) { _ in
             AppActivationPolicy.enter()
             openWindow(id: "dashboard")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleGlance)) { _ in
+            model.setShowGlance(!model.showGlance)
         }
     }
 }
@@ -111,6 +114,22 @@ struct MenuContent: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.large)
+
+            Button {
+                model.setShowGlance(!model.showGlance)
+            } label: {
+                HStack(spacing: 8) {
+                    Label(model.showGlance ? "Hide Glance" : "Show Glance",
+                          systemImage: model.showGlance ? "eye.slash" : "eye")
+                    Spacer()
+                    Text(model.toggleGlanceHotkey.displayString)
+                        .font(.callout.weight(.medium).monospaced())
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
 
             HStack {
                 Text("vibebuddy").font(.headline)

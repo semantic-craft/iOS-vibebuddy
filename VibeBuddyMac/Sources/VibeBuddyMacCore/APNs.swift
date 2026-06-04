@@ -1,4 +1,5 @@
 import Foundation
+import VibeBuddyKit
 
 /// APNs provider config. Filled from env once the user has a paid account +
 /// an APNs auth key (.p8). Returns nil until configured, so push stays off.
@@ -49,12 +50,31 @@ public struct APNsConfig: Sendable {
     }
 }
 
-/// Registered iOS device tokens (uploaded by the app via POST /device).
+/// Registered iOS devices (uploaded by the app via POST /device), keyed by APNs
+/// token, with the phone's sound preferences so the Mac's push respects them.
 public actor DeviceTokens {
-    private var tokens: Set<String> = []
+    private var devicesByToken: [String: DeviceRegistrationPayload] = [:]
     public init() {}
-    public func add(_ token: String) { tokens.insert(token) }
-    public func all() -> [String] { Array(tokens) }
+
+    public func add(_ token: String) {
+        if devicesByToken[token] == nil { devicesByToken[token] = DeviceRegistrationPayload(token: token) }
+    }
+
+    /// Upsert a device, merging in any preference fields the payload carries.
+    public func register(_ payload: DeviceRegistrationPayload) {
+        guard let token = payload.token, !token.isEmpty else { return }
+        var merged = devicesByToken[token] ?? DeviceRegistrationPayload(token: token)
+        merged.token = token
+        if let v = payload.name { merged.name = v }
+        if let v = payload.model { merged.model = v }
+        if let v = payload.systemVersion { merged.systemVersion = v }
+        if let v = payload.playSound { merged.playSound = v }
+        if let v = payload.quietMode { merged.quietMode = v }
+        devicesByToken[token] = merged
+    }
+
+    public func all() -> [String] { Array(devicesByToken.keys) }
+    public func devices() -> [DeviceRegistrationPayload] { Array(devicesByToken.values) }
 }
 
 /// Sends "needs you" alerts to registered devices over APNs (HTTP/2 + cached
@@ -81,7 +101,9 @@ public actor APNsPusher {
         request.setValue(config.bundleID, forHTTPHeaderField: "apns-topic")
         request.setValue("alert", forHTTPHeaderField: "apns-push-type")
         request.setValue("10", forHTTPHeaderField: "apns-priority")
-        let payload = #"{"aps":{"alert":{"title":"\#(escape(title))","body":"\#(escape(body))"},"sound":"\#(escape(sound))"}}"#
+        // An empty sound means a silent (banner-only) push.
+        let soundField = sound.isEmpty ? "" : #","sound":"\#(escape(sound))""#
+        let payload = #"{"aps":{"alert":{"title":"\#(escape(title))","body":"\#(escape(body))"}\#(soundField)}}"#
         request.httpBody = Data(payload.utf8)
         _ = try? await URLSession.shared.data(for: request)
     }

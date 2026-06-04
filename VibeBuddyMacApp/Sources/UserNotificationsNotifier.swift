@@ -33,6 +33,14 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
              sound: .pairSuccess, id: "pair-success")
     }
 
+    /// A session crossed the spend budget — a gentle heads-up (estimate).
+    func notifyBudget(project: String, cost: String) {
+        guard Self.flag("notifyOnNeedsResponse") else { return }
+        post(title: "\(project) over budget",
+             body: "≈ \(cost) spent this session (estimate)",
+             sound: .longWaitNudge, id: "budget-\(project)")
+    }
+
     private func post(title: String, body: String, sound: NotificationSound, id: String) {
         let content = UNMutableNotificationContent()
         content.title = title

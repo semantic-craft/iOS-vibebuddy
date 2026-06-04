@@ -22,6 +22,9 @@ public struct HookEvent: Sendable, Equatable {
     public let toolName: String?
     public let message: String?
     public let transcriptPath: String?
+    /// A `PostToolUse` whose tool reported an error (non-zero exit, `is_error`,
+    /// or interruption). Drives the session's `failed`/stuck signal.
+    public let toolError: Bool
     public let timestamp: Date
 
     public init(
@@ -32,6 +35,7 @@ public struct HookEvent: Sendable, Equatable {
         toolName: String? = nil,
         message: String? = nil,
         transcriptPath: String? = nil,
+        toolError: Bool = false,
         timestamp: Date
     ) {
         self.kind = kind
@@ -41,6 +45,7 @@ public struct HookEvent: Sendable, Equatable {
         self.toolName = toolName
         self.message = message
         self.transcriptPath = transcriptPath
+        self.toolError = toolError
         self.timestamp = timestamp
     }
 }

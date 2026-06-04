@@ -32,6 +32,9 @@ final class MenuBarModel: ObservableObject {
     @Published var showGlance: Bool = true
     @Published var glanceExpanded: Bool = false
     @Published var openDashboardHotkey: Hotkey = .openDashboardDefault
+    @Published var toggleGlanceHotkey: Hotkey = .toggleGlanceDefault
+    /// Idle-cleanup window in hours; 0 means never. Default 2h.
+    @Published var idleTimeoutHours: Double = 2
 
     let port: Int
     private let token: String
@@ -39,6 +42,12 @@ final class MenuBarModel: ObservableObject {
     private let approvalRegistry = ApprovalRegistry()
     private let notifier = UserNotificationsNotifier()
     private let notificationCoordinator: NotificationCoordinator
+    // Phone push: the same SoundPolicy engine, run from the Mac's perspective of
+    // a backgrounded phone, so the phone hears the full pack (not just needs-you).
+    private let pusher: APNsPusher? = APNsConfig.load().flatMap { try? APNsPusher(config: $0) }
+    private let deviceTokens = DeviceTokens()
+    private let phonePolicy = SoundPolicy()
+    private let budgetMonitor = BudgetMonitor()
     private var pollTask: Task<Void, Never>?
     private var glance: GlanceWindow?
     private static let pairedPhoneInfoKey = "pairedPhoneInfo"
@@ -55,12 +64,18 @@ final class MenuBarModel: ObservableObject {
         glanceScale = [0.8, 1.0, 1.2].min(by: { abs($0 - base) < abs($1 - base) }) ?? 1.0
         showGlance = Self.loadBool("showGlance", default: true)
         openDashboardHotkey = Hotkey.loadOpenDashboard()
+        toggleGlanceHotkey = Hotkey.loadToggleGlance()
+        if let saved = UserDefaults.standard.object(forKey: "idleTimeoutHours") as? Double {
+            idleTimeoutHours = saved
+        }
         pairedPhone = Self.loadPairedPhone()
         notifier.requestAuthorization()
         notificationCoordinator = NotificationCoordinator(notifier: notifier)
         startServer()
         preparePairing()
         startPolling()
+        let interval = Self.staleInterval(forHours: idleTimeoutHours)
+        Task { [store] in await store.setStaleAfter(interval) }
         // Create the glance on the next main-runloop tick — NOT synchronously here.
         // Hosting/displaying a SwiftUI view that observes `self` while `init` is
         // still running trips an AttributeGraph precondition (NSHostingView.layout
@@ -78,9 +93,20 @@ final class MenuBarModel: ObservableObject {
         UserDefaults.standard.object(forKey: key) == nil ? fallback : UserDefaults.standard.bool(forKey: key)
     }
 
+    /// Quiet right now if the user toggled it, or the nightly window is active.
+    static func effectiveQuiet(now: Date = Date()) -> Bool {
+        if UserDefaults.standard.bool(forKey: "quietMode") { return true }
+        guard let data = UserDefaults.standard.data(forKey: "quietHours"),
+              let q = try? JSONDecoder().decode(QuietHours.self, from: data) else { return false }
+        return q.isQuiet(at: now)
+    }
+
     var needsResponse: Int { sessions.lazy.filter { $0.status == .needsResponse }.count }
     var working: Int { sessions.lazy.filter { $0.status == .working }.count }
     var done: Int { sessions.lazy.filter { $0.status == .done }.count }
+    /// The buddy's mood, shared with the menu-bar icon and the glance so the Mac
+    /// reads the same as the phone.
+    var buddyState: BuddyState { BuddyState.from(SessionGroups(sessions), now: Date()) }
     var macDisplayName: String { Self.localMacName() }
     var pairingAddress: String {
         guard let pairing else { return "Not ready" }
@@ -88,9 +114,11 @@ final class MenuBarModel: ObservableObject {
     }
 
     private func startServer() {
-        let pusher = APNsConfig.load().flatMap { try? APNsPusher(config: $0) }
+        // pusher: nil — push is driven from startPolling via `phonePolicy` so the
+        // phone gets the whole pack; the server only collects device tokens/prefs.
         let server = VibeBuddyServer(store: store, token: token, port: port,
-                                     pusher: pusher, approvalRegistry: approvalRegistry,
+                                     pusher: nil, deviceTokens: deviceTokens,
+                                     approvalRegistry: approvalRegistry,
                                      onDevicePaired: { [weak self] device in
                                          Task { @MainActor in self?.recordPairedDevice(device) }
                                      })
@@ -117,10 +145,64 @@ final class MenuBarModel: ObservableObject {
                 self.sessions = snapshot.sessions
                 self.notificationCoordinator.observe(
                     snapshot.sessions,
-                    appActive: NSApp.isActive,                                   // user looking at VibeBuddy?
-                    quietMode: UserDefaults.standard.bool(forKey: "quietMode"))  // Focus mode → approvals only
+                    appActive: NSApp.isActive,                 // user looking at VibeBuddy?
+                    quietMode: Self.effectiveQuiet())          // Focus mode (manual or nightly) → approvals only
+                await self.pushToPhones(snapshot.sessions)
+                await self.checkBudget(snapshot.sessions)
                 try? await Task.sleep(for: .seconds(2))
             }
+        }
+    }
+
+    /// Push the full sound pack to paired phones, each device respecting its own
+    /// prefs. `appActive: false` = the phone's backgrounded view; when the phone
+    /// is actually foreground it suppresses the remote push (see willPresent).
+    private func pushToPhones(_ sessions: [AgentSession]) async {
+        guard let pusher else { return }
+        let alerts = phonePolicy.evaluate(SoundPolicyInput(
+            sessions: sessions, now: Date(), appActive: false, quietMode: false))
+        guard !alerts.isEmpty else { return }
+        let devices = await deviceTokens.devices()
+        for alert in alerts {
+            let (title, body) = Self.pushCopy(for: alert)
+            for device in devices {
+                guard let deviceToken = device.token else { continue }
+                if device.quietMode == true && !alert.sound.survivesQuietMode { continue }  // night: approvals only
+                let sound = device.playSound != false ? alert.sound.fileName : ""           // mute → silent banner
+                await pusher.send(title: title, body: body, to: deviceToken, sound: sound)
+            }
+        }
+    }
+
+    /// Fire a one-time budget heads-up (local + push) for sessions that just
+    /// crossed the user's per-session spend budget. 0 = disabled.
+    private func checkBudget(_ sessions: [AgentSession]) async {
+        let budget = UserDefaults.standard.double(forKey: "sessionBudgetUSD")
+        let alerts = budgetMonitor.newlyOverBudget(sessions, budgetUSD: budget)
+        guard !alerts.isEmpty else { return }
+        let devices = pusher == nil ? [] : await deviceTokens.devices()
+        for alert in alerts {
+            let cost = String(format: "$%.2f", alert.estimatedUSD)
+            notifier.notifyBudget(project: alert.session.project, cost: cost)
+            for device in devices {
+                guard let deviceToken = device.token, device.quietMode != true else { continue }  // not an approval → quiet suppresses
+                let sound = device.playSound != false ? NotificationSound.longWaitNudge.fileName : ""
+                await pusher?.send(title: "\(alert.session.project) over budget",
+                                   body: "≈ \(cost) spent this session (estimate)",
+                                   to: deviceToken, sound: sound)
+            }
+        }
+    }
+
+    private static func pushCopy(for alert: SoundAlert) -> (title: String, body: String) {
+        let s = alert.session
+        switch alert.sound {
+        case .needsApproval: return ("\(s.project) needs approval", s.pendingApproval?.commandPreview ?? s.summary ?? "Approve or deny")
+        case .needsAnswer:   return ("\(s.project) needs you", s.summary ?? "Waiting for your response")
+        case .longWaitNudge: return ("\(s.project) is still waiting", s.summary ?? "Waiting for your response")
+        case .agentDone:     return ("\(s.project) finished", s.summary ?? "Task complete")
+        case .agentStuck:    return ("\(s.project) stopped", s.summary ?? "It may need a look")
+        case .pairSuccess:   return ("Paired", "VibeBuddy is watching your sessions.")
         }
     }
 
@@ -142,6 +224,19 @@ final class MenuBarModel: ObservableObject {
     func setGlanceScale(_ s: CGFloat) {
         glanceScale = s
         UserDefaults.standard.set(Double(s), forKey: "glanceScale")
+    }
+
+    /// Idle-cleanup window: how long a `needsResponse` session may sit before the
+    /// daemon drops it. 0 hours = never. Applied to the store immediately.
+    func setIdleTimeout(_ hours: Double) {
+        idleTimeoutHours = hours
+        UserDefaults.standard.set(hours, forKey: "idleTimeoutHours")
+        let interval = Self.staleInterval(forHours: hours)
+        Task { [store] in await store.setStaleAfter(interval) }
+    }
+
+    private static func staleInterval(forHours hours: Double) -> TimeInterval {
+        hours <= 0 ? .greatestFiniteMagnitude : hours * 3600
     }
 
     func setLaunchAtLogin(_ enabled: Bool) {

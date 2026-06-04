@@ -7,6 +7,9 @@ import VibeBuddyKit
 /// tokens, branch) is layered on by the server, not here.
 public struct SessionReducer: Sendable {
     public private(set) var sessions: [String: AgentSession] = [:]
+    /// The last per-turn token reading we added to a session's cumulative spend,
+    /// so the same turn (re-read on every mid-turn event) is counted only once.
+    private var lastCountedTokens: [String: Int] = [:]
 
     public init() {}
 
@@ -16,19 +19,31 @@ public struct SessionReducer: Sendable {
             // Active work: a tool starting/finishing means the agent is busy,
             // which also clears any prior "needs you" wait state.
             upsert(event, status: .working, waitKind: nil)
+            // Track the last tool outcome for the stuck cue: a new turn clears it,
+            // a tool result reflects that tool's success/failure.
+            switch event.kind {
+            case .sessionStart, .userPromptSubmit: sessions[event.sessionID]?.failed = false
+            case .postToolUse: sessions[event.sessionID]?.failed = event.toolError
+            default: break
+            }
         case .notification:
             // The purpose-built "Claude wants your attention" signal.
             upsert(event, status: .needsResponse,
                    waitKind: Self.waitKind(from: event.message),
                    summary: event.message)
+            sessions[event.sessionID]?.failed = false   // waiting on you, not stuck
         case .stop:
             // Create-if-missing so a late-observed session or a Codex
             // turn-complete still shows as done; carry a Codex summary if present.
             upsert(event, status: .done, waitKind: nil, summary: event.message)
+            // Carry the last tool's outcome; also treat a failure-looking stop
+            // message as stuck even when no tool error was reported.
+            if FailureHeuristic.looksFailed(event.message) { sessions[event.sessionID]?.failed = true }
         case .sessionEnd:
             // The session is over (exit / clear / logout). Drop it entirely so
             // an idle "needs you" prompt doesn't outlive the session it belonged to.
             sessions.removeValue(forKey: event.sessionID)
+            lastCountedTokens[event.sessionID] = nil
         }
     }
 
@@ -55,7 +70,14 @@ public struct SessionReducer: Sendable {
     public mutating func enrich(sessionID: String, with info: TranscriptInfo) {
         guard var s = sessions[sessionID] else { return }
         if let model = info.model { s.model = model }
-        if let tokens = info.tokens { s.tokens = tokens }
+        if let tokens = info.tokens {
+            s.tokens = tokens
+            // Accumulate cumulative spend, counting each fresh turn reading once.
+            if lastCountedTokens[sessionID] != tokens {
+                s.spentTokens = (s.spentTokens ?? 0) + tokens
+                lastCountedTokens[sessionID] = tokens
+            }
+        }
         if let contextTokens = info.contextTokens {
             s.contextTokens = contextTokens
             s.contextWindow = Self.contextWindow(for: info.model ?? s.model)

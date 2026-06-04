@@ -14,6 +14,8 @@ final class DashboardStore: ObservableObject {
 
     @Published private(set) var groups = SessionGroups([])
     @Published private(set) var state: ConnectionState = .connecting
+    /// Bumped whenever a cue fires, so the buddy can react in step with the sound.
+    @Published private(set) var cuePulse = 0
 
     private let streamer: SnapshotStreaming
     private let notifier: AttentionNotifier
@@ -69,6 +71,34 @@ final class DashboardStore: ObservableObject {
     /// (a QR scan or manual connect), not on automatic reconnects.
     func confirmPairing() {
         notifier.confirmPairing()
+    }
+
+    /// A flat list of all known sessions, for the voice companion's context.
+    var allSessions: [AgentSession] { groups.needsResponse + groups.working + groups.done }
+
+    /// Execute a voice action on the matching session; returns a spoken confirmation.
+    func performVoiceAction(_ action: VoiceAction) -> String {
+        switch action {
+        case .approve(let project):
+            guard let s = match(project), let ap = s.pendingApproval else { return "没找到要批准的会话" }
+            decide(ap.id, approve: true); return "已批准 \(s.project)"
+        case .deny(let project):
+            guard let s = match(project), let ap = s.pendingApproval else { return "没找到要拒绝的会话" }
+            decide(ap.id, approve: false); return "已拒绝 \(s.project)"
+        case .answer(let project, let text):
+            guard let s = match(project) else { return "没找到那个会话" }
+            answer(s.id, answer: text); return "已回复 \(s.project)"
+        case .none:
+            return ""
+        }
+    }
+
+    private func match(_ project: String) -> AgentSession? {
+        let q = project.lowercased()
+        return allSessions.first {
+            let p = $0.project.lowercased()
+            return p.contains(q) || q.contains(p)
+        }
     }
 
     /// Populate the dashboard with sample sessions and no network, so the app is
@@ -170,7 +200,9 @@ final class DashboardStore: ObservableObject {
         request.httpBody = try? JSONEncoder().encode(DeviceRegistrationPayload(
             name: name,
             model: UIDevice.current.model,
-            systemVersion: "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)"
+            systemVersion: "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)",
+            playSound: SoundPrefs.playSound,
+            quietMode: SoundPrefs.effectiveQuiet()
         ))
         _ = try? await URLSession.shared.data(for: request)
     }
@@ -181,8 +213,12 @@ final class DashboardStore: ObservableObject {
             sessions: snapshot.sessions,
             now: Date(),
             appActive: UIApplication.shared.applicationState == .active,
-            quietMode: UserDefaults.standard.bool(forKey: "quietMode")))
-        for alert in alerts { notifier.notify(alert) }
+            quietMode: SoundPrefs.effectiveQuiet()))
+        for alert in alerts {
+            notifier.notify(alert)
+            Haptics.play(for: alert.sound)   // a tasteful tap to go with the cue
+        }
+        if !alerts.isEmpty { cuePulse += 1 }   // let the buddy react
         groups = SessionGroups(snapshot.sessions)
         state = .connected
         await liveActivity.sync(

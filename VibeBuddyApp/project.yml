@@ -28,6 +28,8 @@ targets:
           - UIInterfaceOrientationPortrait
         NSCameraUsageDescription: "Scan the pairing QR shown by the vibebuddy Mac app."
         NSLocalNetworkUsageDescription: "Connect to the vibebuddy Mac app on your local network to show live session status and approve actions."
+        NSMicrophoneUsageDescription: "Talk to your buddy to ask about your agents and approve actions by voice."
+        NSSpeechRecognitionUsageDescription: "Recognize your speech on-device so your buddy understands what you say."
         NSSupportsLiveActivities: true
         ITSAppUsesNonExemptEncryption: false
         NSAppTransportSecurity:

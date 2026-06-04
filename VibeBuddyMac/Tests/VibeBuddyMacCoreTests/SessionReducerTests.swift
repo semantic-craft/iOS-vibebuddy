@@ -14,11 +14,60 @@ struct SessionReducerTests {
         cwd: String? = "/Users/me/projects/vibebuddy",
         tool: String? = nil,
         message: String? = nil,
+        toolError: Bool = false,
         at: TimeInterval = 0
     ) -> HookEvent {
         HookEvent(kind: kind, sessionID: sid, agent: .claudeCode,
                   cwd: cwd, toolName: tool, message: message,
-                  timestamp: t0.addingTimeInterval(at))
+                  toolError: toolError, timestamp: t0.addingTimeInterval(at))
+    }
+
+    @Test("a tool error before Stop marks the done session failed")
+    func toolErrorThenStopIsFailed() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart))
+        r.apply(ev(.postToolUse, tool: "Bash", toolError: true, at: 1))
+        r.apply(ev(.stop, at: 2))
+        #expect(r.sessions["s1"]?.status == .done)
+        #expect(r.sessions["s1"]?.isStuck == true)
+    }
+
+    @Test("a clean turn ends not-failed")
+    func cleanTurnNotFailed() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart))
+        r.apply(ev(.postToolUse, tool: "Bash", toolError: true, at: 1))   // errored mid-turn
+        r.apply(ev(.postToolUse, tool: "Bash", toolError: false, at: 2))  // …then recovered
+        r.apply(ev(.stop, at: 3))
+        #expect(r.sessions["s1"]?.isStuck == false)
+    }
+
+    @Test("a failure-looking Stop message marks failed even without a tool error")
+    func failureStopMessage() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart))
+        r.apply(ev(.stop, message: "Build failed: 3 errors", at: 1))
+        #expect(r.sessions["s1"]?.isStuck == true)
+    }
+
+    @Test("spentTokens accumulates distinct per-turn readings, ignoring re-reads")
+    func spentAccumulates() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart))
+        r.enrich(sessionID: "s1", with: TranscriptInfo(tokens: 1000))   // turn 1
+        r.enrich(sessionID: "s1", with: TranscriptInfo(tokens: 1000))   // same turn re-read → not double-counted
+        r.enrich(sessionID: "s1", with: TranscriptInfo(tokens: 1500))   // turn 2
+        #expect(r.sessions["s1"]?.spentTokens == 2500)
+        #expect(r.sessions["s1"]?.tokens == 1500)   // latest turn
+    }
+
+    @Test("a new prompt clears a prior failure")
+    func newPromptClearsFailure() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart))
+        r.apply(ev(.postToolUse, tool: "Bash", toolError: true, at: 1))
+        r.apply(ev(.userPromptSubmit, at: 2))
+        #expect(r.sessions["s1"]?.isStuck == false)
     }
 
     @Test("SessionStart creates a working session with project from cwd")

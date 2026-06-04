@@ -4,6 +4,7 @@ import VibeBuddyKit
 struct DashboardView: View {
     @EnvironmentObject private var connection: ConnectionStore
     @EnvironmentObject private var dashboard: DashboardStore
+    @EnvironmentObject private var voice: VoiceChat
     @State private var showSettings = false
 
     var body: some View {
@@ -15,7 +16,13 @@ struct DashboardView: View {
         .listStyle(.plain)
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
-                BuddyView(groups: dashboard.groups)
+                BuddyView(groups: dashboard.groups, pulse: dashboard.cuePulse,
+                          speaking: voice.isSpeaking, listening: voice.isListening) {
+                    voice.toggle()
+                }
+                if voice.phase != .idle || voice.errorText != nil {
+                    VoiceStrip(voice: voice)
+                }
                 if let pairing = connection.pairing {
                     PairedMacStrip(pairing: pairing, state: dashboard.state)
                 }
@@ -126,6 +133,12 @@ private struct SessionRow: View {
                             .font(.caption.monospaced())
                             .foregroundStyle(.secondary)
                     }
+                    if session.isStuck {
+                        Label("卡住", systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.red)
+                            .labelStyle(.titleAndIcon)
+                    }
                 }
 
                 if let summary = session.summary {
@@ -136,10 +149,13 @@ private struct SessionRow: View {
                 }
 
                 HStack(spacing: 6) {
-                    Text(session.agent == .claudeCode ? "Claude" : "Codex")
+                    Text(session.agent.shortName)
                     if let model = session.model { Text("· \(model)") }
                     if let tokens = session.tokens {
                         Text("· \(tokens.formatted()) tok").monospacedDigit()
+                    }
+                    if let cost = session.estimatedCostUSD {
+                        Text("· ≈ $\(cost, specifier: "%.2f")").monospacedDigit()
                     }
                     Spacer(minLength: 8)
                     Label {

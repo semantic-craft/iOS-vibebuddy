@@ -2,34 +2,51 @@ import SwiftUI
 import VibeBuddyKit
 
 /// The ambient status buddy, drawn with SwiftUI and SF Symbols so it has no
-/// bundled third-party mascot artwork.
+/// bundled third-party mascot artwork. Its mood mirrors the sound pack so the
+/// face you see matches the cue you hear.
 struct BuddyView: View {
     let groups: SessionGroups
-    @State private var bounce = false
-
-    private var state: BuddyState { BuddyState.from(groups) }
+    var pulse: Int = 0          // bumped when a cue fires → the buddy reacts
+    var speaking: Bool = false  // companion is talking
+    var listening: Bool = false // companion is listening
+    var onTap: (() -> Void)?    // tap the pet to talk
+    @State private var react = false
 
     var body: some View {
-        HStack(spacing: 14) {
-            BuddyMark(state: state, bounce: bounce)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.headline)
-                Text(subtitle).font(.caption).foregroundStyle(.secondary)
+        // A slow clock so a long wait can turn the buddy impatient over time.
+        TimelineView(.periodic(from: .now, by: 30)) { ctx in
+            let state = BuddyState.from(groups, now: ctx.date)
+            HStack(spacing: 14) {
+                PetFace(state: state, speaking: speaking, listening: listening)
+                    .scaleEffect(react ? 1.08 : 1)
+                    .animation(.spring(response: 0.3, dampingFraction: 0.4), value: react)
+                    .onTapGesture { onTap?() }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(listening ? "在听…" : (speaking ? "说话中…" : title(state))).font(.headline)
+                    Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.bar)
+            .animation(.smooth, value: state)
+            .onChange(of: pulse) { _, _ in
+                react = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { react = false }
+            }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.bar)
-        .onAppear { bounce = true }
     }
 
-    private var title: String {
+    private func title(_ state: BuddyState) -> String {
         switch state {
-        case .needsResponse: "需要回应"
-        case .working: "干活中..."
-        case .done: "全部搞定"
+        case .approval: "等你批准"
+        case .question: "在等你回答"
+        case .longWait: "等好久了…"
+        case .working:  "干活中..."
+        case .stuck:    "卡住了"
+        case .done:     "全部搞定"
         case .sleeping: "打盹中..."
         }
     }
@@ -44,50 +61,15 @@ struct BuddyView: View {
     }
 }
 
-private struct BuddyMark: View {
-    let state: BuddyState
-    let bounce: Bool
-
-    var body: some View {
-        ZStack(alignment: .topTrailing) {
-            Circle()
-                .fill(Color(.secondarySystemBackground))
-                .overlay(Circle().stroke(accent.opacity(0.28), lineWidth: 4))
-                .overlay {
-                    Image(systemName: "pawprint.fill")
-                        .font(.system(size: 25, weight: .semibold))
-                        .foregroundStyle(accent)
-                        .offset(y: state == .needsResponse && bounce ? -3 : 0)
-                }
-
-            Image(systemName: badge)
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: 23, height: 23)
-                .background(accent, in: Circle())
-                .offset(x: 4, y: -4)
-        }
-        .frame(width: 58, height: 58)
-        .scaleEffect(state == .working && bounce ? 1.04 : 1)
-        .animation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true), value: bounce)
-        .accessibilityHidden(true)
-    }
-
-    private var accent: Color {
-        switch state {
-        case .needsResponse: .orange
-        case .working: .blue
-        case .done: .green
-        case .sleeping: .secondary
-        }
-    }
-
-    private var badge: String {
-        switch state {
-        case .needsResponse: "bell.fill"
-        case .working: "gearshape.fill"
-        case .done: "checkmark"
-        case .sleeping: "moon.fill"
-        }
+/// Maps a shared `BuddyAccent` to a concrete color (kept identical on Mac).
+func buddyColor(_ accent: BuddyAccent) -> Color {
+    switch accent {
+    case .alert:     .orange
+    case .curious:   .blue
+    case .impatient: .pink
+    case .busy:      .blue
+    case .worry:     .red
+    case .good:      .green
+    case .calm:      .secondary
     }
 }

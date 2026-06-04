@@ -8,7 +8,7 @@ public actor SessionStore {
     private var reducer = SessionReducer()
     private var subscribers: [UUID: AsyncStream<Snapshot>.Continuation] = [:]
     private var needsResponseHandler: (@Sendable (AgentSession) async -> Void)?
-    private let staleAfter: TimeInterval
+    private var staleAfter: TimeInterval
     /// Per-session transcript path, remembered so `sweep` can check whether a
     /// waiting session's transcript advanced (i.e. the prompt was answered).
     private var transcriptPaths: [String: String] = [:]
@@ -19,6 +19,9 @@ public actor SessionStore {
     public init(staleAfter: TimeInterval = 2 * 60 * 60) {
         self.staleAfter = staleAfter
     }
+
+    /// Change the idle-cleanup window at runtime (from Settings).
+    public func setStaleAfter(_ interval: TimeInterval) { staleAfter = interval }
 
     /// Self-heal: drop `needsResponse` sessions that are answered (transcript
     /// advanced past `statusSince`) or abandoned (idle past `staleAfter`), even

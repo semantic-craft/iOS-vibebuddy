@@ -45,11 +45,8 @@ struct LocalNotifier: AttentionNotifier {
             .add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
     }
 
-    /// Treats an absent key as `true` — sound on by default. Mute = sound off.
-    private static var soundOn: Bool {
-        UserDefaults.standard.object(forKey: "playNotificationSound") == nil
-            ? true : UserDefaults.standard.bool(forKey: "playNotificationSound")
-    }
+    /// Sound on by default. Mute = sound off.
+    private static var soundOn: Bool { SoundPrefs.playSound }
 
     /// Banner copy per cue, in the app's Chinese voice.
     private static func copy(for alert: SoundAlert) -> (title: String, body: String) {

@@ -36,6 +36,35 @@ struct HookParserTests {
         #expect(e?.message == "Claude needs your permission to use Bash")
     }
 
+    @Test("PostToolUse with an is_error tool_response is flagged as a tool error")
+    func postToolUseError() {
+        let e = parse("""
+        {"hook_event_name":"PostToolUse","session_id":"abc","tool_name":"Bash",
+         "tool_response":{"is_error":true,"stdout":"","stderr":"command not found"}}
+        """)
+        #expect(e?.kind == .postToolUse)
+        #expect(e?.toolError == true)
+    }
+
+    @Test("PostToolUse with a string tool_response decodes and is not an error")
+    func postToolUseStringResponse() {
+        let e = parse("""
+        {"hook_event_name":"PostToolUse","session_id":"abc","tool_name":"Read",
+         "tool_response":"file contents here"}
+        """)
+        #expect(e?.kind == .postToolUse)          // a string tool_response must not break decoding
+        #expect(e?.toolError == false)
+    }
+
+    @Test("a successful PostToolUse is not a tool error")
+    func postToolUseSuccess() {
+        let e = parse("""
+        {"hook_event_name":"PostToolUse","session_id":"abc","tool_name":"Bash",
+         "tool_response":{"is_error":false,"stdout":"ok"}}
+        """)
+        #expect(e?.toolError == false)
+    }
+
     @Test("parses a Stop payload")
     func stop() {
         let e = parse("""

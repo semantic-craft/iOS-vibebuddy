@@ -13,7 +13,7 @@ public struct VibeBuddyServer: Sendable {
     public let host: String
     public let port: Int
     public let pusher: APNsPusher?
-    public let deviceTokens = DeviceTokens()
+    public let deviceTokens: DeviceTokens
     public let approvalRegistry: ApprovalRegistry
     public let rules: @Sendable () -> PermissionRules
     public let approvalTimeout: Duration
@@ -24,6 +24,7 @@ public struct VibeBuddyServer: Sendable {
 
     public init(store: SessionStore, token: String, host: String = "0.0.0.0",
                 port: Int = 9876, pusher: APNsPusher? = nil,
+                deviceTokens: DeviceTokens = DeviceTokens(),
                 approvalRegistry: ApprovalRegistry = ApprovalRegistry(),
                 rules: @escaping @Sendable () -> PermissionRules = { PermissionRules.load() },
                 approvalTimeout: Duration = .seconds(25),
@@ -36,6 +37,7 @@ public struct VibeBuddyServer: Sendable {
         self.host = host
         self.port = port
         self.pusher = pusher
+        self.deviceTokens = deviceTokens
         self.approvalRegistry = approvalRegistry
         self.rules = rules
         self.approvalTimeout = approvalTimeout
@@ -137,7 +139,7 @@ public struct VibeBuddyServer: Sendable {
                 let payload = (try? JSONDecoder().decode(DeviceRegistrationPayload.self,
                                                           from: Data(body.utf8)))
                     ?? DeviceRegistrationPayload()
-                if let t = payload.token, !t.isEmpty { await deviceTokens.add(t) }
+                await deviceTokens.register(payload)   // token + sound prefs (playSound/quietMode)
                 if payload.hasVisibleDeviceInfo { onDevicePaired(payload) }
             } else if !body.isEmpty {
                 await deviceTokens.add(body)
@@ -146,10 +148,11 @@ public struct VibeBuddyServer: Sendable {
             return .ok
         }
 
-        // Hook intake — localhost only in practice; no token. `?agent=codex`
-        // tags the source (Claude Code is the default).
+        // Hook intake — localhost only in practice; no token. `?agent=<source>`
+        // tags which CLI it came from (claude/codex/qwen/kimi/antigravity/grok/
+        // opencode/copilot); Claude Code is the default for unknown sources.
         router.post("hook") { request, _ -> HTTPResponse.Status in
-            let agent: AgentKind = request.uri.queryParameters["agent"] == "codex" ? .codex : .claudeCode
+            let agent = AgentKind.fromSource(request.uri.queryParameters["agent"].map(String.init))
             let buffer = try await request.body.collect(upTo: 1 << 20) // 1 MB cap
             await store.ingest(Data(buffer: buffer), agent: agent, receivedAt: Date())
             return .ok

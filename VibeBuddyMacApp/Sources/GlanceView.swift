@@ -27,7 +27,18 @@ struct GlanceView: View {
     @ViewBuilder private var content: some View {
         if expanded {
             VStack(alignment: .leading, spacing: 8 * s) {
-                counts
+                HStack(spacing: 8 * s) {
+                    counts
+                    Button {
+                        model.setShowGlance(false)   // get out of the way; ⌃⌥⇧⌘G or the menu brings it back
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 13 * s))
+                            .foregroundStyle(.white.opacity(0.55))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Hide glance (\(model.toggleGlanceHotkey.displayString))")
+                }
                 if let p = pending, let a = p.pendingApproval {
                     Divider().overlay(.white.opacity(0.2))
                     Text(p.project).font(.system(size: 13 * s, weight: .bold)).foregroundStyle(.white)
@@ -52,7 +63,8 @@ struct GlanceView: View {
     }
 
     private var counts: some View {
-        HStack(spacing: 20 * s) {
+        HStack(spacing: 16 * s) {
+            GlanceBuddy(state: BuddyState.from(groups, now: Date()), scale: s)
             countPill(groups.needsResponse.count, .orange)
             countPill(groups.working.count, .blue)
             countPill(groups.done.count, .green)
@@ -85,5 +97,41 @@ struct GlanceView: View {
 
     private var clipShape: AnyShape {
         mode == .notch ? AnyShape(NotchShape()) : AnyShape(Capsule())
+    }
+}
+
+/// The buddy inside the glance — a paw with the shared state badge, matching the
+/// phone's moods so both surfaces read the same.
+private struct GlanceBuddy: View {
+    let state: BuddyState
+    let scale: CGFloat
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Image(systemName: "pawprint.fill")
+                .font(.system(size: 15 * scale, weight: .semibold))
+                .foregroundStyle(.white)
+            Image(systemName: state.badgeSymbol)
+                .font(.system(size: 8 * scale, weight: .bold))
+                .foregroundStyle(.white)
+                .padding(2 * scale)
+                .background(macBuddyColor(state.accent), in: Circle())
+                .offset(x: 5 * scale, y: -5 * scale)
+        }
+        .frame(height: 22 * scale)
+        .animation(.smooth, value: state)
+    }
+}
+
+/// Mac color mapping for the shared `BuddyAccent` (kept identical to iOS).
+func macBuddyColor(_ accent: BuddyAccent) -> Color {
+    switch accent {
+    case .alert:     .orange
+    case .curious:   .blue
+    case .impatient: .pink
+    case .busy:      .blue
+    case .worry:     .red
+    case .good:      .green
+    case .calm:      .gray
     }
 }

@@ -96,12 +96,22 @@ private struct SessionRowView: View {
             HStack(spacing: 7) {
                 Circle().fill(statusColor).frame(width: 8, height: 8)
                 Text(session.project).fontWeight(.semibold)
+                if session.isStuck {
+                    Label("Stuck", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.red)
+                }
             }
             if let s = session.summary {
                 Text(s).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
-            Text(session.agent == .claudeCode ? "Claude Code" : "Codex")
-                .font(.caption2).foregroundStyle(.tertiary)
+            HStack(spacing: 6) {
+                Text(session.agent.displayName)
+                if let cost = session.estimatedCostUSD {
+                    Text("≈ $\(cost, specifier: "%.2f")").monospacedDigit()
+                }
+            }
+            .font(.caption2).foregroundStyle(.tertiary)
         }
         .padding(.vertical, 2)
     }
