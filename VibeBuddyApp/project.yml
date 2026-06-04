@@ -26,6 +26,7 @@ targets:
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         NSCameraUsageDescription: "Scan the pairing QR shown by the vibebuddy Mac app."
+        NSLocalNetworkUsageDescription: "Connect to the vibebuddy Mac app on your local network to show live session status and approve actions."
         NSSupportsLiveActivities: true
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
