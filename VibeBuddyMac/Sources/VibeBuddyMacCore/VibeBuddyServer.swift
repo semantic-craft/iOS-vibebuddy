@@ -174,9 +174,12 @@ public struct VibeBuddyServer: Sendable {
             case .deny:  return Self.permissionResponse("deny")
             case .ask:
                 let id = makeID()
-                let preview = Self.preview(tool: tool, input: input)
+                let d = ApprovalDetails.from(tool: tool, input: input)
                 await store.beginApproval(sessionID: sessionID,
-                    PendingApproval(id: id, tool: tool, commandPreview: preview), at: Date())
+                    PendingApproval(id: id, tool: tool,
+                                    commandPreview: d.commandPreview.isEmpty ? tool : d.commandPreview,
+                                    command: d.command, filePath: d.filePath,
+                                    oldText: d.oldText, newText: d.newText), at: Date())
                 let outcome = await registry.wait(id: id, timeout: timeout)
                 await store.endApproval(sessionID: sessionID, at: Date())
                 switch outcome {
@@ -229,11 +232,4 @@ public struct VibeBuddyServer: Sendable {
                         body: .init(byteBuffer: ByteBuffer(string: json)))
     }
 
-    static func preview(tool: String, input: [String: Any]) -> String {
-        let raw: String
-        if let cmd = input["command"] as? String { raw = cmd }
-        else if let path = input["file_path"] as? String { raw = path }
-        else { raw = tool }
-        return String(raw.prefix(120))
-    }
 }

@@ -242,4 +242,16 @@ struct SessionReducerTests {
         #expect(r.sessions["s1"]?.terminalRef?.tmuxPane == "%2")
         #expect(r.sessions["s1"]?.status == .working)
     }
+
+    // MARK: - Context usage enrichment
+
+    @Test("enrich carries contextTokens and a model-derived contextWindow")
+    func enrichContextUsage() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart))
+        r.enrich(sessionID: "s1", with: TranscriptInfo(model: "claude-opus-4-8", tokens: 1200, contextTokens: 21000))
+        #expect(r.sessions["s1"]?.contextTokens == 21000)
+        #expect(r.sessions["s1"]?.contextWindow == 200_000)
+        #expect(r.sessions["s1"]?.tokens == 1200)
+    }
 }

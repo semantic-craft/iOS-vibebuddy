@@ -35,11 +35,23 @@ public struct PendingApproval: Codable, Sendable, Equatable {
     public let id: String
     public let tool: String
     public let commandPreview: String
+    /// Rich detail for the phone's approval card. All optional and defaulted so
+    /// older payloads decode and existing callers compile unchanged.
+    public let command: String?      // full Bash command
+    public let filePath: String?     // Edit/Write/Read target
+    public let oldText: String?      // Edit: pre-image (for a diff)
+    public let newText: String?      // Edit/Write: post-image / new content
 
-    public init(id: String, tool: String, commandPreview: String) {
+    public init(id: String, tool: String, commandPreview: String,
+                command: String? = nil, filePath: String? = nil,
+                oldText: String? = nil, newText: String? = nil) {
         self.id = id
         self.tool = tool
         self.commandPreview = commandPreview
+        self.command = command
+        self.filePath = filePath
+        self.oldText = oldText
+        self.newText = newText
     }
 }
 
@@ -67,6 +79,10 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     public var terminalRef: TerminalRef?
     public var summary: String?
     public var tokens: Int?
+    /// Context consumed on the last turn (input + cache_read + cache_creation)
+    /// and the model's context window, for the phone's usage bar. Both optional.
+    public var contextTokens: Int?
+    public var contextWindow: Int?
     public var statusSince: Date
     public var updatedAt: Date
 
@@ -82,6 +98,8 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         terminalRef: TerminalRef? = nil,
         summary: String? = nil,
         tokens: Int? = nil,
+        contextTokens: Int? = nil,
+        contextWindow: Int? = nil,
         statusSince: Date,
         updatedAt: Date
     ) {
@@ -96,6 +114,8 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         self.terminalRef = terminalRef
         self.summary = summary
         self.tokens = tokens
+        self.contextTokens = contextTokens
+        self.contextWindow = contextWindow
         self.statusSince = statusSince
         self.updatedAt = updatedAt
     }
