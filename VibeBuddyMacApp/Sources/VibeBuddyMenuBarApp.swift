@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import os
 import VibeBuddyKit
 
 @main
@@ -33,9 +34,30 @@ struct VibeBuddyMenuBarApp: App {
 
 /// Hide the Dock icon — menu-bar-only app.
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private static let log = Logger(subsystem: "com.vibebuddy.app", category: "lifecycle")
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         GlobalHotkey.install()
+        Self.log.notice("didFinishLaunching")
+    }
+
+    /// A menu-bar app must NOT quit when the dashboard/settings window closes.
+    /// (Likely cause of the observed clean exits: a window opens via
+    /// AppActivationPolicy.enter() → .regular, then closing the last window
+    /// terminates the app.) Returning false keeps the daemon alive.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        Self.log.notice("shouldTerminateAfterLastWindowClosed -> false")
+        return false
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        Self.log.notice("applicationShouldTerminate (someone asked us to quit)")
+        return .terminateNow
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        Self.log.notice("applicationWillTerminate")
     }
 }
 
