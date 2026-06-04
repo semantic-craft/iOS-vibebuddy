@@ -1,11 +1,37 @@
 #!/usr/bin/env bash
 # SessionStart hook: report which terminal this session runs in, keyed by session_id.
+# Claude Code may run hooks with a stripped env / no controlling tty, so we fall
+# back to reading TMUX/TMUX_PANE/TERM_PROGRAM from an ancestor process (the shell
+# or `claude` running in the pane) via `ps eww`.
 INPUT=$(cat)
 SID=$(printf '%s' "$INPUT" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
 [ -z "$SID" ] && exit 0
-PORT="${VIBEBUDDY_PORT:-9876}"
+
+# Read $1 from this process's env, else walk up ancestors and read theirs.
+read_var() {
+  local var="$1" pid depth=0 val
+  eval "val=\${$var:-}"
+  [ -n "$val" ] && { printf '%s' "$val"; return; }
+  pid=$(ps -o ppid= -p "$$" 2>/dev/null | tr -d ' ')
+  while [ -n "$pid" ] && [ "$pid" != "0" ] && [ "$pid" != "1" ] && [ "$depth" -lt 8 ]; do
+    val=$(ps eww -p "$pid" -o command= 2>/dev/null | tr ' ' '\n' | sed -n "s/^${var}=//p" | head -1)
+    [ -n "$val" ] && { printf '%s' "$val"; return; }
+    pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+    depth=$((depth + 1))
+  done
+}
+
+TP=$(read_var TERM_PROGRAM)
+TMUXV=$(read_var TMUX)
+PANE=$(read_var TMUX_PANE)
 TTY=$(ps -o tty= -p $$ 2>/dev/null | tr -d ' ')
+{ [ -z "$TTY" ] || [ "$TTY" = "??" ]; } && TTY=$(ps -o tty= -p "$(ps -o ppid= -p $$ | tr -d ' ')" 2>/dev/null | tr -d ' ')
+
+# Debug (temporary): record what we resolved + the raw env, to verify the capture.
+{ echo "=== $(date) sid=$SID ==="; echo "resolved: TP=[$TP] TMUX=[$TMUXV] PANE=[$PANE] TTY=[$TTY]"; echo "own-env: TMUX=[${TMUX:-}] TMUX_PANE=[${TMUX_PANE:-}] TERM_PROGRAM=[${TERM_PROGRAM:-}] PPID=$PPID"; } >> /tmp/vb-capture-debug.log 2>/dev/null
+
+PORT="${VIBEBUDDY_PORT:-9876}"
 printf '{"session_id":"%s","term_program":"%s","tty":"%s","tmux":"%s","tmux_pane":"%s"}' \
-  "$SID" "${TERM_PROGRAM:-}" "$TTY" "${TMUX:-}" "${TMUX_PANE:-}" \
+  "$SID" "$TP" "$TTY" "$TMUXV" "$PANE" \
   | curl -sS --max-time 3 -X POST --data-binary @- "http://127.0.0.1:${PORT}/terminal" 2>/dev/null || true
 exit 0
