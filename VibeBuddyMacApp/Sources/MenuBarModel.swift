@@ -20,7 +20,9 @@ final class MenuBarModel: ObservableObject {
 
     init() {
         port = ProcessInfo.processInfo.environment["VIBEBUDDY_PORT"].flatMap(Int.init) ?? 9876
-        token = KeychainTokenStore.loadOrCreate()
+        // File-based store (owner-only): no Keychain ACL, so an ad-hoc rebuild
+        // never re-prompts. Shared with vibebuddyd's default store.
+        token = (try? TokenStore.defaultStore().loadOrCreate()) ?? Token.generate()
         let notifier = UserNotificationsNotifier()
         notifier.requestAuthorization()
         notificationCoordinator = NotificationCoordinator(notifier: notifier)

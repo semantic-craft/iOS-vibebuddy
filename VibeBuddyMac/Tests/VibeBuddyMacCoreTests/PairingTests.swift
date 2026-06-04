@@ -26,6 +26,16 @@ struct PairingTests {
         #expect(a.count == 32)
     }
 
+    @Test("TokenStore writes the token file owner-only (0600)")
+    func tokenStorePermissions() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory() + "vb-token-\(UUID().uuidString)")
+        let url = dir.appendingPathComponent("token")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        _ = try TokenStore(fileURL: url).loadOrCreate()
+        let perms = try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int
+        #expect(perms == 0o600)
+    }
+
     @Test("LAN picker prefers en*, skips loopback and link-local")
     func lanPick() {
         #expect(LANAddress.pick(from: [("lo0", "127.0.0.1"), ("en0", "192.168.1.20")]) == "192.168.1.20")

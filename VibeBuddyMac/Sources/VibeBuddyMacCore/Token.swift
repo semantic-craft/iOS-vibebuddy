@@ -33,6 +33,10 @@ public struct TokenStore: Sendable {
         try FileManager.default.createDirectory(
             at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(token.utf8).write(to: fileURL, options: .atomic)
+        // A LAN token in the clear is fine (it's low-sensitivity by design), but
+        // keep it owner-only so other local users can't read it.
+        try? FileManager.default.setAttributes(
+            [.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
         return token
     }
 }
