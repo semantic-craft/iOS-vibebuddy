@@ -43,6 +43,7 @@ struct DashboardView: View {
             }
             .opacity(0)
         }
+        .onDisappear { AppActivationPolicy.leave() }
     }
 
     private var sidebar: some View {

@@ -46,9 +46,8 @@ struct MenuBarLabel: View {
             if model.needsResponse > 0 { Text("\(model.needsResponse)") }
         }
         .onReceive(NotificationCenter.default.publisher(for: .openDashboard)) { _ in
-            NSApp.setActivationPolicy(.regular)   // show in Dock/⌘-tab while the window is open
+            AppActivationPolicy.enter()
             openWindow(id: "dashboard")
-            NSApp.activate(ignoringOtherApps: true)
         }
     }
 }
@@ -60,9 +59,8 @@ struct MenuContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Button {
-                NSApp.setActivationPolicy(.regular)   // show in Dock/⌘-tab while the window is open
+                AppActivationPolicy.enter()
                 openWindow(id: "dashboard")
-                NSApp.activate(ignoringOtherApps: true)
             } label: {
                 Label("Open Dashboard", systemImage: "macwindow")
                     .frame(maxWidth: .infinity, alignment: .leading)
