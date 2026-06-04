@@ -6,9 +6,13 @@ import VibeBuddyKit
 struct VibeBuddyMenuBarApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var model = MenuBarModel()
+    // Settings → General → "Show icon in menu bar". `isInserted` keeps the
+    // MenuBarExtra scene in the graph (so its label still bridges the global
+    // hotkey to openWindow) while removing the icon from the menu bar.
+    @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
 
     var body: some Scene {
-        MenuBarExtra {
+        MenuBarExtra(isInserted: $showMenuBarIcon) {
             MenuContent(model: model)
         } label: {
             MenuBarLabel(model: model)
@@ -20,6 +24,10 @@ struct VibeBuddyMenuBarApp: App {
                 .frame(minWidth: 760, minHeight: 480)
         }
         .windowResizability(.contentMinSize)
+
+        Settings {
+            SettingsView(model: model)
+        }
     }
 }
 
@@ -55,6 +63,7 @@ struct MenuBarLabel: View {
 struct MenuContent: View {
     @ObservedObject var model: MenuBarModel
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -62,9 +71,15 @@ struct MenuContent: View {
                 AppActivationPolicy.enter()
                 openWindow(id: "dashboard")
             } label: {
-                Label("Open Dashboard", systemImage: "macwindow")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+                HStack(spacing: 8) {
+                    Label("Open Dashboard", systemImage: "macwindow")
+                    Spacer()
+                    Text(model.openDashboardHotkey.displayString)
+                        .font(.callout.weight(.medium).monospaced())
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.bordered)
             .controlSize(.large)
@@ -114,24 +129,19 @@ struct MenuContent: View {
 
             Divider()
 
-            Picker("Glance size", selection: Binding(
-                get: { model.glanceScale },
-                set: { model.setGlanceScale($0) })) {
-                Text("Small").tag(CGFloat(0.8))
-                Text("Medium").tag(CGFloat(1.0))
-                Text("Large").tag(CGFloat(1.2))
-            }
-            .pickerStyle(.segmented)
-            .font(.callout)
-
-            Toggle("Launch at Login", isOn: Binding(
-                get: { model.launchAtLogin },
-                set: { model.setLaunchAtLogin($0) }))
-                .toggleStyle(.switch)
-                .font(.callout)
-
-            Button("Quit vibebuddy") { NSApplication.shared.terminate(nil) }
+            HStack {
+                Button {
+                    AppActivationPolicy.enter()
+                    openSettings()
+                } label: {
+                    Label("Settings…", systemImage: "gearshape")
+                }
                 .buttonStyle(.borderless)
+                Spacer()
+                Button("Quit vibebuddy") { NSApplication.shared.terminate(nil) }
+                    .buttonStyle(.borderless)
+            }
+            .font(.callout)
         }
         .padding(14)
         .frame(width: 300)

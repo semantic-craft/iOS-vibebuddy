@@ -12,6 +12,8 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var qrImage: NSImage?
     @Published var launchAtLogin = LaunchAtLogin.isEnabled
     @Published var glanceScale: CGFloat = 1.0
+    @Published var showGlance: Bool = true
+    @Published var openDashboardHotkey: Hotkey = .openDashboardDefault
 
     let port: Int
     private let token: String
@@ -30,6 +32,8 @@ final class MenuBarModel: ObservableObject {
         let base: CGFloat = saved > 0 ? saved : Self.defaultGlanceScale()
         // Snap to one of the 3 presets so the menu Picker selection always matches.
         glanceScale = [0.8, 1.0, 1.2].min(by: { abs($0 - base) < abs($1 - base) }) ?? 1.0
+        showGlance = Self.loadBool("showGlance", default: true)
+        openDashboardHotkey = Hotkey.loadOpenDashboard()
         let notifier = UserNotificationsNotifier()
         notifier.requestAuthorization()
         notificationCoordinator = NotificationCoordinator(notifier: notifier)
@@ -43,8 +47,14 @@ final class MenuBarModel: ObservableObject {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }            // throwaway @StateObject probe deallocated
             guard self.glance == nil else { return }  // create the glance exactly once
+            guard self.showGlance else { return }     // honor the Settings toggle at launch
             self.glance = GlanceWindow(model: self)
         }
+    }
+
+    /// A Bool default that treats an absent key as `default` (so first launch is on).
+    private static func loadBool(_ key: String, default fallback: Bool) -> Bool {
+        UserDefaults.standard.object(forKey: key) == nil ? fallback : UserDefaults.standard.bool(forKey: key)
     }
 
     var needsResponse: Int { sessions.lazy.filter { $0.status == .needsResponse }.count }
@@ -105,6 +115,22 @@ final class MenuBarModel: ObservableObject {
     func setLaunchAtLogin(_ enabled: Bool) {
         LaunchAtLogin.set(enabled)
         launchAtLogin = LaunchAtLogin.isEnabled
+    }
+
+    func setShowGlance(_ on: Bool) {
+        showGlance = on
+        UserDefaults.standard.set(on, forKey: "showGlance")
+        if on {
+            if glance == nil { glance = GlanceWindow(model: self) } else { glance?.show() }
+        } else {
+            glance?.hide()
+        }
+    }
+
+    func setHotkey(_ hotkey: Hotkey) {
+        openDashboardHotkey = hotkey
+        hotkey.saveAsOpenDashboard()
+        GlobalHotkey.setHotkey(hotkey)
     }
 
     deinit { pollTask?.cancel() }

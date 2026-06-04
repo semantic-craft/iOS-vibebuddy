@@ -4,6 +4,7 @@ import VibeBuddyMacCore
 
 struct DashboardView: View {
     @ObservedObject var model: MenuBarModel
+    @Environment(\.openSettings) private var openSettings
     @State private var statusFilter: SessionStatus? = .needsResponse
     @State private var agentFilter: AgentKind? = nil
     @State private var query: String = ""
@@ -33,6 +34,12 @@ struct DashboardView: View {
                 DetailView(session: s, model: model)
             } else {
                 ContentUnavailableView("Select a session", systemImage: "sidebar.right")
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button { openSettings() } label: { Image(systemName: "gearshape") }
+                    .help("Settings")
             }
         }
         .background {
@@ -138,7 +145,6 @@ private struct DetailView: View {
                 if let m = session.model {
                     Label(m, systemImage: "cpu").font(.caption).foregroundStyle(.secondary)
                 }
-                Spacer()
             }
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
