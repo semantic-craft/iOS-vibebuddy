@@ -82,6 +82,13 @@ public struct SessionReducer: Sendable {
         sessions[sessionID] = s
     }
 
+    /// Attach the terminal a session runs in (does not change status).
+    public mutating func setTerminalRef(sessionID: String, _ ref: TerminalRef) {
+        guard var s = sessions[sessionID] else { return }
+        s.terminalRef = ref
+        sessions[sessionID] = s
+    }
+
     /// A sorted snapshot for broadcast: most-urgent first, then most-recent.
     public func snapshot(now: Date) -> Snapshot {
         let sorted = sessions.values.sorted { a, b in

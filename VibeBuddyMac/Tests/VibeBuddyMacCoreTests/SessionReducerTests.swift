@@ -231,4 +231,15 @@ struct SessionReducerTests {
         #expect(s?.status == .working)
         #expect(s?.waitKind == nil)
     }
+
+    // MARK: - Terminal ref
+
+    @Test("setTerminalRef attaches the ref without changing status")
+    func setsTerminalRef() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart))
+        r.setTerminalRef(sessionID: "s1", TerminalRef(termProgram: "ghostty", tmux: "/tmp/x,1,0", tmuxPane: "%2"))
+        #expect(r.sessions["s1"]?.terminalRef?.tmuxPane == "%2")
+        #expect(r.sessions["s1"]?.status == .working)
+    }
 }

@@ -81,6 +81,15 @@ public actor SessionStore {
         broadcast()
     }
 
+    public func setTerminalRef(sessionID: String, _ ref: TerminalRef) {
+        reducer.setTerminalRef(sessionID: sessionID, ref)
+        broadcast()
+    }
+
+    public func terminalRef(for sessionID: String) -> TerminalRef? {
+        reducer.sessions[sessionID]?.terminalRef
+    }
+
     public func snapshot(now: Date) -> Snapshot {
         reducer.snapshot(now: now)
     }
