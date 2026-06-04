@@ -218,6 +218,46 @@ struct SessionReducerTests {
         #expect(s?.pendingApproval?.id == "ap1")
     }
 
+    @Test("setPendingApproval clears any pending question")
+    func setPendingApprovalClearsQuestion() {
+        var r = SessionReducer()
+        let question = PendingQuestion(
+            id: "branch",
+            prompt: "Which branch?",
+            options: [QuestionOption(id: "main", label: "main")]
+        )
+        r.apply(ev(.sessionStart))
+        r.apply(ev(.notification, message: "waiting for your input", at: 1))
+        r.enrich(sessionID: "s1", with: TranscriptInfo(pendingQuestion: question))
+        r.setPendingApproval(sessionID: "s1",
+                             PendingApproval(id: "ap1", tool: "Bash", commandPreview: "x"),
+                             at: t0.addingTimeInterval(2))
+        let s = r.sessions["s1"]
+        #expect(s?.waitKind == .permission)
+        #expect(s?.pendingQuestion == nil)
+        #expect(s?.pendingApproval?.id == "ap1")
+    }
+
+    @Test("enrich pending question replaces an existing approval")
+    func enrichPendingQuestionReplacesApproval() {
+        var r = SessionReducer()
+        let question = PendingQuestion(
+            id: "branch",
+            prompt: "Which branch?",
+            options: [QuestionOption(id: "main", label: "main")]
+        )
+        r.apply(ev(.sessionStart))
+        r.setPendingApproval(sessionID: "s1",
+                             PendingApproval(id: "ap1", tool: "Bash", commandPreview: "x"),
+                             at: t0.addingTimeInterval(1))
+        r.enrich(sessionID: "s1", with: TranscriptInfo(pendingQuestion: question))
+        let s = r.sessions["s1"]
+        #expect(s?.waitKind == .question)
+        #expect(s?.pendingApproval == nil)
+        #expect(s?.pendingQuestion?.id == "branch")
+        #expect(s?.summary == "Which branch?")
+    }
+
     @Test("clearPendingApproval drops the approval and returns the session to working")
     func clearsPendingApproval() {
         var r = SessionReducer()

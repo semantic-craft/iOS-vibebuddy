@@ -55,6 +55,34 @@ public struct PendingApproval: Codable, Sendable, Equatable {
     }
 }
 
+/// A question the agent asked in the terminal, with optional pre-defined answers
+/// that can be sent back by typing into the captured pane.
+public struct QuestionOption: Codable, Sendable, Equatable, Identifiable {
+    public let id: String
+    public let label: String
+    public let value: String
+    public let description: String?
+
+    public init(id: String, label: String, value: String? = nil, description: String? = nil) {
+        self.id = id
+        self.label = label
+        self.value = value ?? label
+        self.description = description
+    }
+}
+
+public struct PendingQuestion: Codable, Sendable, Equatable, Identifiable {
+    public let id: String
+    public let prompt: String
+    public let options: [QuestionOption]
+
+    public init(id: String, prompt: String, options: [QuestionOption] = []) {
+        self.id = id
+        self.prompt = prompt
+        self.options = options
+    }
+}
+
 /// Identifies the terminal a session runs in, so the Mac can jump to it.
 public struct TerminalRef: Codable, Sendable, Equatable {
     public let termProgram: String
@@ -76,6 +104,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     public var status: SessionStatus
     public var waitKind: WaitKind?
     public var pendingApproval: PendingApproval?
+    public var pendingQuestion: PendingQuestion?
     public var terminalRef: TerminalRef?
     public var summary: String?
     public var tokens: Int?
@@ -95,6 +124,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         status: SessionStatus,
         waitKind: WaitKind? = nil,
         pendingApproval: PendingApproval? = nil,
+        pendingQuestion: PendingQuestion? = nil,
         terminalRef: TerminalRef? = nil,
         summary: String? = nil,
         tokens: Int? = nil,
@@ -111,6 +141,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         self.status = status
         self.waitKind = waitKind
         self.pendingApproval = pendingApproval
+        self.pendingQuestion = pendingQuestion
         self.terminalRef = terminalRef
         self.summary = summary
         self.tokens = tokens
@@ -138,10 +169,36 @@ public struct PairingPayload: Codable, Sendable, Equatable {
     public var host: String
     public var port: Int
     public var token: String
+    public var macName: String?
 
-    public init(host: String, port: Int, token: String) {
+    public init(host: String, port: Int, token: String, macName: String? = nil) {
         self.host = host
         self.port = port
         self.token = token
+        self.macName = macName
+    }
+}
+
+/// What the paired iPhone reports back to the Mac after scanning the QR. The
+/// APNs token is optional because the dashboard connection and push registration
+/// can arrive in either order.
+public struct DeviceRegistrationPayload: Codable, Sendable, Equatable {
+    public var token: String?
+    public var name: String?
+    public var model: String?
+    public var systemVersion: String?
+
+    public init(token: String? = nil, name: String? = nil,
+                model: String? = nil, systemVersion: String? = nil) {
+        self.token = token
+        self.name = name
+        self.model = model
+        self.systemVersion = systemVersion
+    }
+
+    public var hasPushToken: Bool { token?.isEmpty == false }
+
+    public var hasVisibleDeviceInfo: Bool {
+        hasPushToken || name?.isEmpty == false || model?.isEmpty == false || systemVersion?.isEmpty == false
     }
 }

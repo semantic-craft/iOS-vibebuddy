@@ -7,8 +7,8 @@ import VibeBuddyKit
 /// the JSON into a `PairingPayload`, and connects.
 public enum Pairing {
 
-    public static func payload(host: String, port: Int, token: String) -> PairingPayload {
-        PairingPayload(host: host, port: port, token: token)
+    public static func payload(host: String, port: Int, token: String, macName: String? = nil) -> PairingPayload {
+        PairingPayload(host: host, port: port, token: token, macName: macName)
     }
 
     /// The exact JSON string encoded into the QR (and decoded by the phone).

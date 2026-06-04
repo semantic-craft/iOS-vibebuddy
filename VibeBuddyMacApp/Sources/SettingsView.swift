@@ -14,10 +14,12 @@ struct SettingsView: View {
                 .tabItem { Label("General", systemImage: "gearshape") }
             GlanceSettings(model: model)
                 .tabItem { Label("Glance", systemImage: "menubar.rectangle") }
+            DeviceSettings(model: model)
+                .tabItem { Label("Devices", systemImage: "iphone.gen3") }
             NotificationSettings()
                 .tabItem { Label("Notifications", systemImage: "bell") }
         }
-        .frame(width: 460, height: 280)
+        .frame(width: 500, height: 330)
         .onDisappear { AppActivationPolicy.leave() }
     }
 }
@@ -76,10 +78,76 @@ private struct GlanceSettings: View {
 private struct NotificationSettings: View {
     @AppStorage("notifyOnNeedsResponse") private var notify = true
     @AppStorage("playNotificationSound") private var sound = true
+    @AppStorage("quietMode") private var quiet = false
     var body: some View {
         Form {
-            Toggle("Notify when a session needs response", isOn: $notify)
-            Toggle("Play sound", isOn: $sound).disabled(!notify)
+            Section {
+                Toggle("Show notifications", isOn: $notify)
+                Toggle("Play sound", isOn: $sound).disabled(!notify)
+            } footer: {
+                Text("A short, built-in cue for each state change — needs you, approval, finished, or stuck. Only boundaries ring; ongoing work stays silent.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section {
+                Toggle("Quiet mode (approvals only)", isOn: $quiet).disabled(!notify)
+            } footer: {
+                Text("For night or focus time: only security approvals make a sound. Everything else stays silent.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+private struct DeviceSettings: View {
+    @ObservedObject var model: MenuBarModel
+
+    var body: some View {
+        Form {
+            Section {
+                LabeledContent("This Mac") {
+                    Text(model.macDisplayName)
+                        .font(.body.weight(.medium))
+                }
+                LabeledContent("Pairing address") {
+                    Text(model.pairingAddress)
+                        .font(.body.monospaced())
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section {
+                if let phone = model.pairedPhone {
+                    LabeledContent("Paired phone") {
+                        Text(phone.name)
+                            .font(.body.weight(.medium))
+                    }
+                    if !phone.subtitle.isEmpty {
+                        LabeledContent("Device") {
+                            Text(phone.subtitle)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    LabeledContent("Last seen") {
+                        Text(phone.lastSeen, style: .relative)
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+                    LabeledContent("Push") {
+                        Label(phone.pushRegistered ? "Registered" : "Pending",
+                              systemImage: phone.pushRegistered ? "bell.badge.fill" : "bell.slash")
+                            .foregroundStyle(phone.pushRegistered ? .green : .secondary)
+                    }
+                    Button(role: .destructive) {
+                        model.forgetPairedPhone()
+                    } label: {
+                        Label("Forget phone", systemImage: "iphone.slash")
+                    }
+                } else {
+                    Label("No phone paired", systemImage: "iphone.slash")
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
         .formStyle(.grouped)
     }

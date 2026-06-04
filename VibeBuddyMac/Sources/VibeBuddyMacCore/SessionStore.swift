@@ -91,6 +91,11 @@ public actor SessionStore {
         broadcast()
     }
 
+    public func endQuestion(sessionID: String, at: Date) {
+        reducer.clearPendingQuestion(sessionID: sessionID, at: at)
+        broadcast()
+    }
+
     public func setTerminalRef(sessionID: String, _ ref: TerminalRef) {
         pendingTerminalRefs[sessionID] = ref          // remembered even if the session isn't here yet
         if reducer.sessions[sessionID] != nil {

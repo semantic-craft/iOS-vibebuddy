@@ -5,22 +5,23 @@ import VibeBuddyMacCore
 struct GlanceView: View {
     @ObservedObject var model: MenuBarModel
     let mode: GlanceMode
-    @State private var expanded = false
 
     private var s: CGFloat { model.glanceScale }
+    private var expanded: Bool { model.glanceExpanded }
     private var groups: SessionGroups { SessionGroups(model.sessions) }
     private var pending: AgentSession? { model.sessions.first { $0.pendingApproval != nil } }
+    private var width: CGFloat { (expanded ? 440 : 300) * s }
 
     var body: some View {
         content
+            .frame(maxWidth: .infinity, alignment: expanded ? .leading : .center)
             .padding(.horizontal, 20 * s).padding(.vertical, (expanded ? 16 : 9) * s)
-            .frame(maxWidth: (expanded ? 440 : 300) * s)
+            .frame(width: width, alignment: expanded ? .leading : .center)
             .background(background)
             .clipShape(clipShape)
             .onHover { hovering in
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { expanded = hovering }
+                model.setGlanceExpanded(hovering)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     @ViewBuilder private var content: some View {
@@ -56,6 +57,7 @@ struct GlanceView: View {
             countPill(groups.working.count, .blue)
             countPill(groups.done.count, .green)
         }
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     private func countPill(_ n: Int, _ c: Color) -> some View {
@@ -77,7 +79,7 @@ struct GlanceView: View {
         if mode == .notch {
             NotchShape().fill(.black)
         } else {
-            Capsule().fill(.black.opacity(0.92))
+            Capsule().fill(.black)
         }
     }
 

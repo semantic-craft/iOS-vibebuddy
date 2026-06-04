@@ -28,11 +28,19 @@ struct RootView: View {
             }
         }
         .task {
-            PushRegistration.shared.registerForRemoteNotifications()
-            PushRegistration.shared.update(pairing: connection.pairing)
+            if !Self.skipNotifications {
+                PushRegistration.shared.registerForRemoteNotifications()
+                PushRegistration.shared.update(pairing: connection.pairing)
+            }
         }
         .onChange(of: connection.pairing) { _, newValue in
-            PushRegistration.shared.update(pairing: newValue)
+            if !Self.skipNotifications {
+                PushRegistration.shared.update(pairing: newValue)
+            }
         }
+    }
+
+    private static var skipNotifications: Bool {
+        ProcessInfo.processInfo.environment["VIBEBUDDY_SKIP_NOTIFICATIONS"] == "1"
     }
 }

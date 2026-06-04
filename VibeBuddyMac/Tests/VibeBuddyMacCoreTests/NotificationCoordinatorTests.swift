@@ -3,56 +3,60 @@ import Foundation
 import VibeBuddyKit
 @testable import VibeBuddyMacCore
 
-@Suite("NotificationCoordinator — fires only on fresh needsResponse transitions")
+/// The coordinator is a thin adapter over `SoundPolicy` (whose full rule matrix
+/// is tested in VibeBuddyKit). These tests pin the adapter's contract: it
+/// forwards the policy's cues to the notifier, stays silent on the opening
+/// backlog, and threads Quiet mode through.
+@Suite("NotificationCoordinator — forwards SoundPolicy cues")
 struct NotificationCoordinatorTests {
 
-    /// Records which session ids it was asked to notify about.
+    /// Records the sounds it was asked to play, paired with the session id.
     final class SpyNotifier: AttentionNotifier {
-        private(set) var notified: [String] = []
-        func notify(_ session: AgentSession) { notified.append(session.id) }
+        private(set) var played: [(id: String, sound: NotificationSound)] = []
+        func notify(_ alert: SoundAlert) { played.append((alert.sessionID, alert.sound)) }
     }
 
-    private func session(_ id: String, _ status: SessionStatus) -> AgentSession {
+    private func session(_ id: String, _ status: SessionStatus, wait: WaitKind? = nil) -> AgentSession {
         let t0 = Date(timeIntervalSince1970: 0)
         return AgentSession(id: id, agent: .claudeCode, project: "p",
-                            status: status, statusSince: t0, updatedAt: t0)
+                            status: status, waitKind: wait, statusSince: t0, updatedAt: t0)
     }
 
-    @Test("fires when a session newly enters needsResponse")
-    func firesForNewlyWaiting() {
+    @Test("forwards a fresh question transition as needs_answer")
+    func forwardsFreshQuestion() {
         let spy = SpyNotifier()
         let c = NotificationCoordinator(notifier: spy)
-        c.observe([session("a", .working)])            // first snapshot
-        c.observe([session("a", .needsResponse)])      // a transitions
-        #expect(spy.notified == ["a"])
+        c.observe([session("a", .working)], appActive: false, quietMode: false)
+        c.observe([session("a", .needsResponse, wait: .question)], appActive: false, quietMode: false)
+        #expect(spy.played.map(\.sound) == [.needsAnswer])
+        #expect(spy.played.map(\.id) == ["a"])
     }
 
-    @Test("stays silent for sessions already waiting on the first snapshot")
-    func silentOnFirstSnapshotBacklog() {
+    @Test("forwards a fresh permission transition as needs_approval")
+    func forwardsFreshPermission() {
         let spy = SpyNotifier()
         let c = NotificationCoordinator(notifier: spy)
-        c.observe([session("a", .needsResponse), session("b", .needsResponse)])
-        #expect(spy.notified.isEmpty)
+        c.observe([session("a", .working)], appActive: false, quietMode: false)
+        c.observe([session("a", .needsResponse, wait: .permission)], appActive: false, quietMode: false)
+        #expect(spy.played.map(\.sound) == [.needsApproval])
     }
 
-    @Test("does not re-fire while a session keeps waiting")
-    func noRefireWhileWaiting() {
+    @Test("stays silent for the backlog already waiting on the first snapshot")
+    func silentOnFirstSnapshot() {
         let spy = SpyNotifier()
         let c = NotificationCoordinator(notifier: spy)
-        c.observe([session("a", .working)])
-        c.observe([session("a", .needsResponse)])      // fire
-        c.observe([session("a", .needsResponse)])      // still waiting → no fire
-        #expect(spy.notified == ["a"])
+        c.observe([session("a", .needsResponse, wait: .question)], appActive: false, quietMode: false)
+        #expect(spy.played.isEmpty)
     }
 
-    @Test("re-fires after a session leaves and re-enters needsResponse")
-    func refiresAfterReentry() {
+    @Test("Quiet mode forwards approvals but not questions")
+    func quietModeKeepsApprovalsOnly() {
         let spy = SpyNotifier()
         let c = NotificationCoordinator(notifier: spy)
-        c.observe([session("a", .working)])
-        c.observe([session("a", .needsResponse)])      // fire
-        c.observe([session("a", .working)])            // left
-        c.observe([session("a", .needsResponse)])      // re-entered → fire again
-        #expect(spy.notified == ["a", "a"])
+        c.observe([session("a", .working), session("b", .working)], appActive: false, quietMode: true)
+        c.observe([session("a", .needsResponse, wait: .question),
+                   session("b", .needsResponse, wait: .permission)], appActive: false, quietMode: true)
+        #expect(spy.played.map(\.sound) == [.needsApproval])
+        #expect(spy.played.map(\.id) == ["b"])
     }
 }

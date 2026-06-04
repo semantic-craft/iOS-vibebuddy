@@ -14,7 +14,9 @@ final class ConnectionStore: ObservableObject {
     private let key = "vibebuddy.pairing"
 
     init() {
-        if let data = defaults.data(forKey: key),
+        if ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1" {
+            demo = true
+        } else if let data = defaults.data(forKey: key),
            let saved = try? JSONDecoder().decode(PairingPayload.self, from: data) {
             pairing = saved
         } else {

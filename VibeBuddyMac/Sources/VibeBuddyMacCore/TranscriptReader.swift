@@ -1,4 +1,5 @@
 import Foundation
+import VibeBuddyKit
 
 /// Derived metadata pulled from a session's JSONL transcript.
 public struct TranscriptInfo: Equatable, Sendable {
@@ -6,13 +7,16 @@ public struct TranscriptInfo: Equatable, Sendable {
     public var tokens: Int?           // turn cost: input + output
     public var contextTokens: Int?    // prompt sent: input + cache_read + cache_creation
     public var summary: String?
+    public var pendingQuestion: PendingQuestion?
 
     public init(model: String? = nil, tokens: Int? = nil,
-                contextTokens: Int? = nil, summary: String? = nil) {
+                contextTokens: Int? = nil, summary: String? = nil,
+                pendingQuestion: PendingQuestion? = nil) {
         self.model = model
         self.tokens = tokens
         self.contextTokens = contextTokens
         self.summary = summary
+        self.pendingQuestion = pendingQuestion
     }
 }
 
@@ -36,6 +40,9 @@ public enum TranscriptReader {
             if info.summary == nil {
                 info.summary = Self.text(from: message["content"], limit: summaryLimit)
             }
+            if info.pendingQuestion == nil {
+                info.pendingQuestion = Self.pendingQuestion(from: message["content"])
+            }
             if info.tokens == nil, let usage = message["usage"] as? [String: Any] {
                 let input = (usage["input_tokens"] as? Int) ?? 0
                 let output = (usage["output_tokens"] as? Int) ?? 0
@@ -47,7 +54,8 @@ public enum TranscriptReader {
             if info.model == nil, let model = message["model"] as? String, !model.isEmpty {
                 info.model = model
             }
-            if info.summary != nil, info.tokens != nil, info.model != nil { break }
+            if info.summary != nil, info.tokens != nil, info.model != nil,
+               info.pendingQuestion != nil { break }
         }
         return info
     }
@@ -89,5 +97,60 @@ public enum TranscriptReader {
             .filter { !$0.isEmpty }
             .joined(separator: " ")
         return collapsed.isEmpty ? nil : String(collapsed.prefix(limit))
+    }
+
+    private static func pendingQuestion(from content: Any?) -> PendingQuestion? {
+        guard let blocks = content as? [[String: Any]] else { return nil }
+        for block in blocks.reversed() {
+            guard (block["type"] as? String) == "tool_use",
+                  let name = block["name"] as? String,
+                  Self.isAskUserQuestion(name),
+                  let input = block["input"] as? [String: Any]
+            else { continue }
+            return Self.pendingQuestion(fromInput: input, fallbackID: block["id"] as? String)
+        }
+        return nil
+    }
+
+    private static func isAskUserQuestion(_ name: String) -> Bool {
+        let normalized = name.lowercased().replacingOccurrences(of: "_", with: "")
+        return normalized == "askuserquestion" || normalized == "askquestion"
+    }
+
+    private static func pendingQuestion(fromInput input: [String: Any], fallbackID: String?) -> PendingQuestion? {
+        let questionObject: [String: Any]
+        if let questions = input["questions"] as? [[String: Any]], let first = questions.first {
+            questionObject = first
+        } else {
+            questionObject = input
+        }
+        let prompt = Self.firstString(questionObject, keys: ["question", "prompt", "message", "text"])
+        guard let prompt, !prompt.isEmpty else { return nil }
+        let id = Self.firstString(questionObject, keys: ["id", "name"]) ?? fallbackID ?? "question"
+        let options = Self.options(from: questionObject["options"])
+        return PendingQuestion(id: id, prompt: prompt, options: options)
+    }
+
+    private static func options(from raw: Any?) -> [QuestionOption] {
+        if let strings = raw as? [String] {
+            return strings.map { QuestionOption(id: $0, label: $0) }
+        }
+        guard let objects = raw as? [[String: Any]] else { return [] }
+        return objects.compactMap { object in
+            guard let label = Self.firstString(object, keys: ["label", "title", "text", "value"]) else {
+                return nil
+            }
+            let id = Self.firstString(object, keys: ["id", "key"]) ?? label
+            let value = Self.firstString(object, keys: ["value", "answer"]) ?? label
+            let description = Self.firstString(object, keys: ["description", "detail", "subtitle"])
+            return QuestionOption(id: id, label: label, value: value, description: description)
+        }
+    }
+
+    private static func firstString(_ object: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            if let value = object[key] as? String, !value.isEmpty { return value }
+        }
+        return nil
     }
 }

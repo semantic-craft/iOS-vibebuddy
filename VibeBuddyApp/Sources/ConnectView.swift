@@ -4,6 +4,7 @@ import VibeBuddyKit
 /// Connect screen: QR pairing is the primary path; manual entry is tucked away.
 struct ConnectView: View {
     @EnvironmentObject private var connection: ConnectionStore
+    @EnvironmentObject private var dashboard: DashboardStore
 
     @State private var host = ""
     @State private var port = "9876"
@@ -12,6 +13,12 @@ struct ConnectView: View {
     @State private var showManual = false
 
     private var canConnect: Bool { !host.isEmpty && Int(port) != nil && !token.isEmpty }
+
+    /// Save a freshly entered pairing and play the pairing-success cue once.
+    private func pair(_ payload: PairingPayload) {
+        connection.save(payload)
+        dashboard.confirmPairing()
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -63,7 +70,7 @@ struct ConnectView: View {
             field("Token", placeholder: "菜单栏配对里的 token", text: $token)
             Button("连接") {
                 if let portValue = Int(port) {
-                    connection.save(PairingPayload(host: host, port: portValue, token: token))
+                    pair(PairingPayload(host: host, port: portValue, token: token))
                 }
             }
             .buttonStyle(.bordered)
@@ -91,7 +98,7 @@ struct ConnectView: View {
     private var scannerSheet: some View {
         NavigationStack {
             QRScannerView { payload in
-                connection.save(payload)
+                pair(payload)
                 showScanner = false
             }
             .ignoresSafeArea()

@@ -8,8 +8,9 @@ struct TerminalJumperTests {
     func tmux() {
         let ref = TerminalRef(termProgram: "ghostty", tty: "ttys003", tmux: "/tmp/tmux-501/default,1234,0", tmuxPane: "%3")
         let c = TerminalJumper.commands(for: ref)
-        #expect(c.contains(["/usr/bin/tmux", "-S", "/tmp/tmux-501/default", "select-pane", "-t", "%3"]))
-        #expect(c.contains(["/usr/bin/tmux", "-S", "/tmp/tmux-501/default", "switch-client", "-t", "%3"]))
+        let tmux = TerminalCommand.tmuxPath()
+        #expect(c.contains([tmux, "-S", "/tmp/tmux-501/default", "select-pane", "-t", "%3"]))
+        #expect(c.contains([tmux, "-S", "/tmp/tmux-501/default", "switch-client", "-t", "%3"]))
         #expect(c.last == ["/usr/bin/open", "-a", "Ghostty"])
     }
     @Test("no tmux → just activate the app")

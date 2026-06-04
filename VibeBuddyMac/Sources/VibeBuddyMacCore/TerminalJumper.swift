@@ -9,9 +9,10 @@ public enum TerminalJumper {
         if let tmux = ref.tmux, let pane = ref.tmuxPane,
            !tmux.isEmpty, !pane.isEmpty,
            let socket = tmux.split(separator: ",").first.map(String.init), !socket.isEmpty {
-            cmds.append(["/usr/bin/tmux", "-S", socket, "switch-client", "-t", pane])
-            cmds.append(["/usr/bin/tmux", "-S", socket, "select-window", "-t", pane])
-            cmds.append(["/usr/bin/tmux", "-S", socket, "select-pane", "-t", pane])
+            let tmuxPath = TerminalCommand.tmuxPath()
+            cmds.append([tmuxPath, "-S", socket, "switch-client", "-t", pane])
+            cmds.append([tmuxPath, "-S", socket, "select-window", "-t", pane])
+            cmds.append([tmuxPath, "-S", socket, "select-pane", "-t", pane])
         }
         if let app = appName(forTermProgram: ref.termProgram) {
             cmds.append(["/usr/bin/open", "-a", app])

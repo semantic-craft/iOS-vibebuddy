@@ -33,9 +33,14 @@ public enum LANAddress {
             var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
             if getnameinfo(addr, socklen_t(addr.pointee.sa_len),
                            &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST) == 0 {
-                candidates.append((String(cString: ptr.pointee.ifa_name), String(cString: host)))
+                candidates.append((String(cString: ptr.pointee.ifa_name), Self.string(from: host)))
             }
         }
         return pick(from: candidates)
+    }
+
+    private static func string(from buffer: [CChar]) -> String {
+        let prefix = buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+        return String(decoding: prefix, as: UTF8.self)
     }
 }

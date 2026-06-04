@@ -60,6 +60,12 @@ public struct SessionReducer: Sendable {
             s.contextTokens = contextTokens
             s.contextWindow = Self.contextWindow(for: info.model ?? s.model)
         }
+        if s.status == .needsResponse, let pendingQuestion = info.pendingQuestion {
+            s.pendingQuestion = pendingQuestion
+            s.pendingApproval = nil
+            s.waitKind = .question
+            s.summary = pendingQuestion.prompt
+        }
         if let summary = info.summary, s.status != .needsResponse { s.summary = summary }
         sessions[sessionID] = s
     }
@@ -75,6 +81,7 @@ public struct SessionReducer: Sendable {
         s.status = .needsResponse
         s.waitKind = .permission
         s.pendingApproval = approval
+        s.pendingQuestion = nil
         s.updatedAt = at
         sessions[sessionID] = s
     }
@@ -83,6 +90,17 @@ public struct SessionReducer: Sendable {
     public mutating func clearPendingApproval(sessionID: String, at: Date) {
         guard var s = sessions[sessionID], s.pendingApproval != nil else { return }
         s.pendingApproval = nil
+        s.waitKind = nil
+        s.status = .working
+        s.statusSince = at
+        s.updatedAt = at
+        sessions[sessionID] = s
+    }
+
+    /// Clear an answered question and return the session to working.
+    public mutating func clearPendingQuestion(sessionID: String, at: Date) {
+        guard var s = sessions[sessionID], s.pendingQuestion != nil else { return }
+        s.pendingQuestion = nil
         s.waitKind = nil
         s.status = .working
         s.statusSince = at
@@ -128,6 +146,9 @@ public struct SessionReducer: Sendable {
                 // prompt so a done/working row never shows a permission/question
                 // line. Transcript enrichment refills it when prose is available.
                 s.summary = nil
+            }
+            if status != .needsResponse {
+                s.pendingQuestion = nil
             }
             if let cwd = event.cwd { s.project = Self.projectName(cwd) }
             s.updatedAt = event.timestamp

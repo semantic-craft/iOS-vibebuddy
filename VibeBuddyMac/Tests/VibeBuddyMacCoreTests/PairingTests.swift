@@ -46,7 +46,8 @@ struct PairingTests {
 
     @Test("pairing QR JSON round-trips to PairingPayload")
     func qrJSON() throws {
-        let payload = PairingPayload(host: "192.168.1.20", port: 9876, token: "abc123")
+        let payload = PairingPayload(host: "192.168.1.20", port: 9876,
+                                     token: "abc123", macName: "Xianwei's Mac")
         let json = Pairing.qrJSONString(for: payload)
         let decoded = try JSONDecoder().decode(PairingPayload.self, from: Data(json.utf8))
         #expect(decoded == payload)

@@ -57,7 +57,15 @@ struct WireCodingTests {
     // 4. Pairing payload
     @Test("PairingPayload round-trips")
     func pairingRoundTrip() throws {
-        let p = PairingPayload(host: "192.168.1.20", port: 9876, token: "s3cr3t")
+        let p = PairingPayload(host: "192.168.1.20", port: 9876,
+                               token: "s3cr3t", macName: "Xianwei's Mac")
+        #expect(try roundTrip(p) == p)
+    }
+
+    @Test("DeviceRegistrationPayload round-trips")
+    func deviceRegistrationRoundTrip() throws {
+        let p = DeviceRegistrationPayload(token: "apns-token", name: "Hermes",
+                                          model: "iPhone", systemVersion: "iOS 26.0")
         #expect(try roundTrip(p) == p)
     }
 
@@ -111,6 +119,21 @@ struct WireCodingTests {
     func pendingApprovalDefaultsNil() {
         let s = sampleSession(status: .working)
         #expect(s.pendingApproval == nil)
+    }
+
+    @Test("AgentSession round-trips a pendingQuestion with options")
+    func pendingQuestionRoundTrips() throws {
+        var s = sampleSession(status: .needsResponse, waitKind: .question)
+        s.pendingQuestion = PendingQuestion(
+            id: "q1",
+            prompt: "Which branch should I use?",
+            options: [
+                QuestionOption(id: "main", label: "main", value: "main", description: "Use the current branch"),
+                QuestionOption(id: "new", label: "new branch", value: "create a new branch"),
+            ])
+        let back = try JSONDecoder().decode(AgentSession.self, from: try JSONEncoder().encode(s))
+        #expect(back.pendingQuestion == s.pendingQuestion)
+        #expect(back.pendingQuestion?.options.map(\.value) == ["main", "create a new branch"])
     }
 
     @Test("AgentSession round-trips a terminalRef")

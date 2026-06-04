@@ -7,9 +7,6 @@ options:
 packages:
   VibeBuddyKit:
     path: ../VibeBuddyKit
-  Lottie:
-    url: https://github.com/airbnb/lottie-spm
-    from: "4.4.0"
 targets:
   VibeBuddyApp:
     type: application
@@ -21,8 +18,6 @@ targets:
     dependencies:
       - package: VibeBuddyKit
         product: VibeBuddyKit
-      - package: Lottie
-        product: Lottie
       - target: VibeBuddyWidget
     info:
       path: Sources/Info.plist

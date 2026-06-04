@@ -79,6 +79,38 @@ struct TranscriptReaderTests {
         #expect(parse([]) == TranscriptInfo())
     }
 
+    @Test("extracts the latest AskUserQuestion prompt and options")
+    func askUserQuestion() {
+        let line = """
+        {"message":{"role":"assistant","model":"m","content":[{"type":"tool_use","id":"toolu_q1","name":"AskUserQuestion","input":{"questions":[{"id":"branch","question":"Which branch should I use?","options":[{"id":"main","label":"main","description":"Use the current branch"},{"id":"new","label":"new branch","value":"create a new branch"}]}]}}],"usage":{"input_tokens":5,"output_tokens":1}}}
+        """
+        let info = parse([line])
+        #expect(info.pendingQuestion?.id == "branch")
+        #expect(info.pendingQuestion?.prompt == "Which branch should I use?")
+        #expect(info.pendingQuestion?.options.map(\.label) == ["main", "new branch"])
+        #expect(info.pendingQuestion?.options.map(\.value) == ["main", "create a new branch"])
+    }
+
+    @Test("AskUserQuestion accepts string options")
+    func askUserQuestionStringOptions() {
+        let line = """
+        {"message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_q1","name":"ask_question","input":{"prompt":"Pick one","options":["main","new branch"]}}]}}
+        """
+        let info = parse([line])
+        #expect(info.pendingQuestion?.id == "toolu_q1")
+        #expect(info.pendingQuestion?.prompt == "Pick one")
+        #expect(info.pendingQuestion?.options.map(\.value) == ["main", "new branch"])
+    }
+
+    @Test("AskUserQuestion without a prompt is ignored")
+    func askUserQuestionWithoutPromptIgnored() {
+        let line = """
+        {"message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_q1","name":"AskUserQuestion","input":{"options":["main"]}}]}}
+        """
+        let info = parse([line])
+        #expect(info.pendingQuestion == nil)
+    }
+
     @Test("read(path:) parses the tail of a file")
     func readFile() throws {
         let tmp = NSTemporaryDirectory() + "vb-transcript-\(UUID().uuidString).jsonl"

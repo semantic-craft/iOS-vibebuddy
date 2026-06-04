@@ -1,32 +1,31 @@
 import Foundation
 import VibeBuddyKit
 
-/// Sink for "this session just needs you" events. The macOS app's concrete
-/// implementation posts a local notification; tests use a spy.
+/// Sink for "play this cue for this session" events. The macOS app's concrete
+/// implementation posts a local notification with the cue's sound; tests use a spy.
 public protocol AttentionNotifier {
-    func notify(_ session: AgentSession)
+    func notify(_ alert: SoundAlert)
 }
 
-/// Watches the snapshot stream and fires `notifier` exactly once per *fresh*
-/// transition into needsResponse — never the backlog already waiting on the
-/// first snapshot, and never twice for a session that keeps waiting. Mirrors
-/// the iOS dashboard's notification behaviour, reusing the tested `AttentionDiff`.
+/// Feeds each snapshot through the shared `SoundPolicy` and forwards the cues it
+/// earns to `notifier`. All the *when to ring* logic lives in `SoundPolicy`
+/// (unit-tested in VibeBuddyKit); this type only supplies the ambient context
+/// (clock, app-active, Quiet mode) and fans the decisions out.
 public final class NotificationCoordinator {
     private let notifier: AttentionNotifier
-    private var lastSessions: [AgentSession] = []
-    private var seenFirstSnapshot = false
+    private let policy: SoundPolicy
 
-    public init(notifier: AttentionNotifier) {
+    public init(notifier: AttentionNotifier, policy: SoundPolicy = SoundPolicy()) {
         self.notifier = notifier
+        self.policy = policy
     }
 
-    public func observe(_ sessions: [AgentSession]) {
-        if seenFirstSnapshot {
-            for session in AttentionDiff.newlyNeedingResponse(old: lastSessions, new: sessions) {
-                notifier.notify(session)
-            }
+    public func observe(_ sessions: [AgentSession], now: Date = Date(),
+                        appActive: Bool, quietMode: Bool) {
+        let input = SoundPolicyInput(sessions: sessions, now: now,
+                                     appActive: appActive, quietMode: quietMode)
+        for alert in policy.evaluate(input) {
+            notifier.notify(alert)
         }
-        lastSessions = sessions
-        seenFirstSnapshot = true
     }
 }

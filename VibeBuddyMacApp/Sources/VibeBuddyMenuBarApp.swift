@@ -78,7 +78,7 @@ struct MenuBarLabel: View {
     var body: some View {
         HStack {
             Image(systemName: model.needsResponse > 0
-                  ? "bell.badge.fill" : "dot.radiowaves.left.and.right")
+                  ? "bell.badge.fill" : "pawprint.fill")
             if model.needsResponse > 0 { Text("\(model.needsResponse)") }
         }
         .onReceive(NotificationCenter.default.publisher(for: .openDashboard)) { _ in
@@ -115,17 +115,32 @@ struct MenuContent: View {
             HStack {
                 Text("vibebuddy").font(.headline)
                 Spacer()
-                if let pairing = model.pairing {
-                    Text("\(pairing.host):\(pairing.port)")
-                        .font(.caption.monospaced()).foregroundStyle(.secondary)
-                }
+                Text(model.pairingAddress)
+                    .font(.caption.monospaced()).foregroundStyle(.secondary)
             }
 
-            HStack(spacing: 6) {
-                Image(systemName: model.pairedPhone != nil ? "iphone" : "iphone.slash")
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: model.pairedPhone != nil ? "iphone.gen3" : "iphone.slash")
                     .foregroundStyle(model.pairedPhone != nil ? .green : .secondary)
-                Text(model.pairedPhone.map { "Paired: \($0)" } ?? "No phone paired")
-                    .foregroundStyle(.secondary)
+                    .frame(width: 18)
+                if let phone = model.pairedPhone {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Paired: \(phone.name)")
+                            .foregroundStyle(.primary)
+                        if !phone.subtitle.isEmpty {
+                            Text(phone.subtitle)
+                                .foregroundStyle(.secondary)
+                        }
+                        HStack(spacing: 6) {
+                            Text("Last seen \(phone.lastSeen.formatted(date: .omitted, time: .shortened))")
+                            Text(phone.pushRegistered ? "Push ready" : "Push pending")
+                        }
+                        .foregroundStyle(.tertiary)
+                    }
+                } else {
+                    Text("No phone paired")
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
             }
             .font(.caption)

@@ -4,6 +4,7 @@ import VibeBuddyKit
 struct DashboardView: View {
     @EnvironmentObject private var connection: ConnectionStore
     @EnvironmentObject private var dashboard: DashboardStore
+    @State private var showSettings = false
 
     var body: some View {
         List {
@@ -13,7 +14,13 @@ struct DashboardView: View {
         }
         .listStyle(.plain)
         .safeAreaInset(edge: .top, spacing: 0) {
-            BuddyView(groups: dashboard.groups)
+            VStack(spacing: 0) {
+                BuddyView(groups: dashboard.groups)
+                if let pairing = connection.pairing {
+                    PairedMacStrip(pairing: pairing, state: dashboard.state)
+                }
+            }
+            .background(.background)
         }
         .animation(.smooth, value: dashboard.groups)
         .overlay {
@@ -23,10 +30,14 @@ struct DashboardView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { ConnectionDot(state: dashboard.state) }
             ToolbarItem(placement: .topBarTrailing) {
+                Button { showSettings = true } label: { Image(systemName: "gearshape") }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 Button(connection.demo ? "退出演示" : "断开") { dashboard.stop(); connection.clear() }
                     .font(.subheadline)
             }
         }
+        .sheet(isPresented: $showSettings) { SettingsView() }
         .task(id: connection.pairing) {
             if let pairing = connection.pairing { dashboard.start(pairing) }
         }
@@ -51,6 +62,47 @@ struct DashboardView: View {
                 .foregroundStyle(accent)
                 .textCase(nil)
             }
+        }
+    }
+}
+
+private struct PairedMacStrip: View {
+    let pairing: PairingPayload
+    let state: DashboardStore.ConnectionState
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "laptopcomputer.and.iphone")
+                .foregroundStyle(color)
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Connected to \(macName)")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Text("\(pairing.host):\(pairing.port)")
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 7)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Color(.separator)).frame(height: 0.5)
+        }
+    }
+
+    private var macName: String {
+        let trimmed = pairing.macName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? "Mac" : trimmed
+    }
+
+    private var color: Color {
+        switch state {
+        case .connected: .green
+        case .connecting: .yellow
+        case .failed: .red
         }
     }
 }
@@ -116,6 +168,13 @@ private struct SessionRow: View {
                     }
                     .font(.subheadline)
                     .padding(.top, 4)
+                }
+
+                if let question = session.pendingQuestion {
+                    QuestionCardView(question: question) { answer in
+                        dashboard.answer(session.id, answer: answer)
+                    }
+                    .padding(.top, 2)
                 }
 
                 if session.terminalRef != nil {

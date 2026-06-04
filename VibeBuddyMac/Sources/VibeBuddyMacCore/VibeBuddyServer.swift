@@ -19,7 +19,8 @@ public struct VibeBuddyServer: Sendable {
     public let approvalTimeout: Duration
     public let approvalID: @Sendable () -> String
     public let onJump: @Sendable (TerminalRef) -> Void
-    public let onDevicePaired: @Sendable (String) -> Void
+    public let onAnswer: @Sendable (TerminalRef, String) -> Void
+    public let onDevicePaired: @Sendable (DeviceRegistrationPayload) -> Void
 
     public init(store: SessionStore, token: String, host: String = "0.0.0.0",
                 port: Int = 9876, pusher: APNsPusher? = nil,
@@ -28,7 +29,8 @@ public struct VibeBuddyServer: Sendable {
                 approvalTimeout: Duration = .seconds(25),
                 approvalID: @escaping @Sendable () -> String = { UUID().uuidString },
                 onJump: @escaping @Sendable (TerminalRef) -> Void = { TerminalJumper.jump($0) },
-                onDevicePaired: @escaping @Sendable (String) -> Void = { _ in }) {
+                onAnswer: @escaping @Sendable (TerminalRef, String) -> Void = { ref, answer in TerminalInjector.inject(answer, into: ref) },
+                onDevicePaired: @escaping @Sendable (DeviceRegistrationPayload) -> Void = { _ in }) {
         self.store = store
         self.token = token
         self.host = host
@@ -39,6 +41,7 @@ public struct VibeBuddyServer: Sendable {
         self.approvalTimeout = approvalTimeout
         self.approvalID = approvalID
         self.onJump = onJump
+        self.onAnswer = onAnswer
         self.onDevicePaired = onDevicePaired
     }
 
@@ -85,15 +88,18 @@ public struct VibeBuddyServer: Sendable {
                 await store.setNeedsResponseHandler { session in
                     let title: String
                     let body: String
+                    let sound: NotificationSound
                     if let approval = session.pendingApproval {
                         title = "\(session.project) needs approval"
                         body = approval.commandPreview
+                        sound = .needsApproval
                     } else {
                         title = "\(session.project) needs you"
                         body = session.summary ?? "Waiting for your response"
+                        sound = session.waitKind == .permission ? .needsApproval : .needsAnswer
                     }
                     for deviceToken in await deviceTokens.all() {
-                        await pusher.send(title: title, body: body, to: deviceToken)
+                        await pusher.send(title: title, body: body, to: deviceToken, sound: sound.fileName)
                     }
                 }
             }
@@ -117,9 +123,9 @@ public struct VibeBuddyServer: Sendable {
         // Liveness — unauthenticated, used by the app's connection screen.
         router.get("health") { _, _ -> String in "ok" }
 
-        // Register an iOS device. Token-gated. Body is `{"token","name"}` (or a
-        // raw APNs token string). `token` → APNs registry; `name` → the paired
-        // phone's display name shown in the Mac menu.
+        // Register an iOS device. Token-gated. Body is `{"token","name","model",
+        // "systemVersion"}` (or a raw APNs token string). `token` -> APNs
+        // registry; the other fields feed the paired-device display.
         router.post("device") { request, _ -> HTTPResponse.Status in
             guard request.headers[.authorization] == "Bearer \(token)" else {
                 throw HTTPError(.unauthorized)
@@ -128,11 +134,14 @@ public struct VibeBuddyServer: Sendable {
             let body = String(decoding: Data(buffer: buffer), as: UTF8.self)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if body.hasPrefix("{") {
-                let obj = (try? JSONDecoder().decode([String: String].self, from: Data(body.utf8))) ?? [:]
-                if let t = obj["token"], !t.isEmpty { await deviceTokens.add(t) }
-                if let n = obj["name"], !n.isEmpty { onDevicePaired(n) }
+                let payload = (try? JSONDecoder().decode(DeviceRegistrationPayload.self,
+                                                          from: Data(body.utf8)))
+                    ?? DeviceRegistrationPayload()
+                if let t = payload.token, !t.isEmpty { await deviceTokens.add(t) }
+                if payload.hasVisibleDeviceInfo { onDevicePaired(payload) }
             } else if !body.isEmpty {
                 await deviceTokens.add(body)
+                onDevicePaired(DeviceRegistrationPayload(token: body))
             }
             return .ok
         }
@@ -228,6 +237,23 @@ public struct VibeBuddyServer: Sendable {
             guard let o = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
                   let sid = o["sessionId"] as? String else { throw HTTPError(.badRequest) }
             if let ref = await store.terminalRef(for: sid) { onJump(ref) }
+            return .ok
+        }
+
+        let onAnswer = self.onAnswer
+        router.post("answer") { request, _ -> HTTPResponse.Status in
+            guard request.headers[.authorization] == "Bearer \(token)" else { throw HTTPError(.unauthorized) }
+            let buffer = try await request.body.collect(upTo: 4096)
+            guard let o = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
+                  let sid = o["sessionId"] as? String,
+                  let rawAnswer = o["answer"] as? String
+            else { throw HTTPError(.badRequest) }
+            let answer = rawAnswer.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !answer.isEmpty else { throw HTTPError(.badRequest) }
+            if let ref = await store.terminalRef(for: sid) {
+                onAnswer(ref, answer)
+                await store.endQuestion(sessionID: sid, at: Date())
+            }
             return .ok
         }
 

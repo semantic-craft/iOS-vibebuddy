@@ -1,1 +1,5 @@
-Lottie cat animations (source: github darkladymarshall-tech/cat-paw — likely LottieFiles free; verify license before App Store release).
+No bundled third-party mascot artwork is used in the app.
+
+The dashboard buddy is drawn at runtime with SwiftUI and SF Symbols
+(`pawprint.fill` plus status badges), so there are no Lottie JSON files or
+external character-art licenses to review for App Store submission.
