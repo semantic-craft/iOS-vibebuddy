@@ -202,4 +202,33 @@ struct SessionReducerTests {
         #expect(r.sessions["w"]?.status == .working)
         #expect(r.sessions["d"]?.status == .done)
     }
+
+    // MARK: - Remote approval set/clear
+
+    @Test("setPendingApproval marks the session needsResponse/permission with the approval")
+    func setsPendingApproval() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart))
+        r.setPendingApproval(sessionID: "s1",
+                             PendingApproval(id: "ap1", tool: "Bash", commandPreview: "rm -rf x"),
+                             at: t0.addingTimeInterval(1))
+        let s = r.sessions["s1"]
+        #expect(s?.status == .needsResponse)
+        #expect(s?.waitKind == .permission)
+        #expect(s?.pendingApproval?.id == "ap1")
+    }
+
+    @Test("clearPendingApproval drops the approval and returns the session to working")
+    func clearsPendingApproval() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart))
+        r.setPendingApproval(sessionID: "s1",
+                             PendingApproval(id: "ap1", tool: "Bash", commandPreview: "x"),
+                             at: t0.addingTimeInterval(1))
+        r.clearPendingApproval(sessionID: "s1", at: t0.addingTimeInterval(2))
+        let s = r.sessions["s1"]
+        #expect(s?.pendingApproval == nil)
+        #expect(s?.status == .working)
+        #expect(s?.waitKind == nil)
+    }
 }

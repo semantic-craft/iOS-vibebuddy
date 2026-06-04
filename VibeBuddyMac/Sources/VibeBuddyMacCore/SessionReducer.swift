@@ -60,6 +60,28 @@ public struct SessionReducer: Sendable {
         sessions[sessionID] = s
     }
 
+    /// Mark a known session as blocked on a remote approval.
+    public mutating func setPendingApproval(sessionID: String, _ approval: PendingApproval, at: Date) {
+        guard var s = sessions[sessionID] else { return }
+        if s.status != .needsResponse { s.statusSince = at }
+        s.status = .needsResponse
+        s.waitKind = .permission
+        s.pendingApproval = approval
+        s.updatedAt = at
+        sessions[sessionID] = s
+    }
+
+    /// Clear a resolved/expired approval and return the session to working.
+    public mutating func clearPendingApproval(sessionID: String, at: Date) {
+        guard var s = sessions[sessionID], s.pendingApproval != nil else { return }
+        s.pendingApproval = nil
+        s.waitKind = nil
+        s.status = .working
+        s.statusSince = at
+        s.updatedAt = at
+        sessions[sessionID] = s
+    }
+
     /// A sorted snapshot for broadcast: most-urgent first, then most-recent.
     public func snapshot(now: Date) -> Snapshot {
         let sorted = sessions.values.sorted { a, b in
