@@ -68,6 +68,16 @@ public actor SessionStore {
         return true
     }
 
+    public func beginApproval(sessionID: String, _ approval: PendingApproval, at: Date) {
+        reducer.setPendingApproval(sessionID: sessionID, approval, at: at)
+        broadcast()
+    }
+
+    public func endApproval(sessionID: String, at: Date) {
+        reducer.clearPendingApproval(sessionID: sessionID, at: at)
+        broadcast()
+    }
+
     public func snapshot(now: Date) -> Snapshot {
         reducer.snapshot(now: now)
     }

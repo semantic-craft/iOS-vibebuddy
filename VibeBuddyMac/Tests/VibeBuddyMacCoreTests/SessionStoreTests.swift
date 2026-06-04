@@ -50,4 +50,24 @@ struct SessionStoreTests {
         await store.sweep(now: t0.addingTimeInterval(200))
         #expect(await store.snapshot(now: t0.addingTimeInterval(200)).sessions.isEmpty)
     }
+
+    @Test("beginApproval makes the session needsResponse with a pendingApproval; endApproval clears it")
+    func approvalLifecycle() async {
+        let store = SessionStore()
+        await store.ingest(
+            Data(#"{"hook_event_name":"SessionStart","session_id":"s","cwd":"/x/proj"}"#.utf8),
+            receivedAt: t0)
+
+        await store.beginApproval(sessionID: "s",
+                                  PendingApproval(id: "ap1", tool: "Bash", commandPreview: "rm x"),
+                                  at: t0.addingTimeInterval(1))
+        let waiting = await store.snapshot(now: t0).sessions.first
+        #expect(waiting?.status == .needsResponse)
+        #expect(waiting?.pendingApproval?.id == "ap1")
+
+        await store.endApproval(sessionID: "s", at: t0.addingTimeInterval(2))
+        let done = await store.snapshot(now: t0).sessions.first
+        #expect(done?.pendingApproval == nil)
+        #expect(done?.status == .working)
+    }
 }
