@@ -16,20 +16,25 @@ final class DashboardStore: ObservableObject {
 
     private let streamer: SnapshotStreaming
     private let notifier: AttentionNotifier
+    private let decisionClient: DecisionClient
     private let liveActivity = LiveActivityManager()
     private var runTask: Task<Void, Never>?
     private var lastSessions: [AgentSession] = []
     private var seenFirstSnapshot = false
+    private var pairing: PairingPayload?
 
     init(streamer: SnapshotStreaming = WebSocketSnapshotClient(),
-         notifier: AttentionNotifier = LocalNotifier()) {
+         notifier: AttentionNotifier = LocalNotifier(),
+         decisionClient: DecisionClient = HTTPDecisionClient()) {
         self.streamer = streamer
         self.notifier = notifier
+        self.decisionClient = decisionClient
         notifier.requestAuthorization()
     }
 
     func start(_ pairing: PairingPayload) {
         stop()
+        self.pairing = pairing
         state = .connecting
         lastSessions = []
         seenFirstSnapshot = false
@@ -51,6 +56,11 @@ final class DashboardStore: ObservableObject {
         runTask?.cancel()
         runTask = nil
         Task { await liveActivity.end() }
+    }
+
+    func decide(_ approvalId: String, approve: Bool) {
+        guard let pairing else { return }
+        Task { await decisionClient.decide(pairing, approvalId: approvalId, approve: approve) }
     }
 
     private func apply(_ snapshot: Snapshot) async {

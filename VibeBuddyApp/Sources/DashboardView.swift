@@ -54,6 +54,7 @@ struct DashboardView: View {
 private struct SessionRow: View {
     let session: AgentSession
     let accent: Color
+    @EnvironmentObject private var dashboard: DashboardStore
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -95,6 +96,22 @@ private struct SessionRow: View {
                 }
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
+
+                if let approval = session.pendingApproval {
+                    Text(approval.commandPreview)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.primary)
+                        .lineLimit(3)
+                        .padding(.top, 2)
+                    HStack(spacing: 10) {
+                        Button("拒绝") { dashboard.decide(approval.id, approve: false) }
+                            .buttonStyle(.bordered).tint(.red)
+                        Button("批准") { dashboard.decide(approval.id, approve: true) }
+                            .buttonStyle(.borderedProminent).tint(.green)
+                    }
+                    .font(.subheadline)
+                    .padding(.top, 4)
+                }
             }
         }
         .padding(.leading, 4)
