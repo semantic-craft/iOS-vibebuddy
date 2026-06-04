@@ -14,14 +14,26 @@ public struct VibeBuddyServer: Sendable {
     public let port: Int
     public let pusher: APNsPusher?
     public let deviceTokens = DeviceTokens()
+    public let approvalRegistry: ApprovalRegistry
+    public let rules: @Sendable () -> PermissionRules
+    public let approvalTimeout: Duration
+    public let approvalID: @Sendable () -> String
 
     public init(store: SessionStore, token: String, host: String = "0.0.0.0",
-                port: Int = 9876, pusher: APNsPusher? = nil) {
+                port: Int = 9876, pusher: APNsPusher? = nil,
+                approvalRegistry: ApprovalRegistry = ApprovalRegistry(),
+                rules: @escaping @Sendable () -> PermissionRules = { PermissionRules.load() },
+                approvalTimeout: Duration = .seconds(25),
+                approvalID: @escaping @Sendable () -> String = { UUID().uuidString }) {
         self.store = store
         self.token = token
         self.host = host
         self.port = port
         self.pusher = pusher
+        self.approvalRegistry = approvalRegistry
+        self.rules = rules
+        self.approvalTimeout = approvalTimeout
+        self.approvalID = approvalID
     }
 
     public func buildApplication() -> some ApplicationProtocol {
@@ -129,6 +141,69 @@ public struct VibeBuddyServer: Sendable {
             )
         }
 
+        // Blocking approval intake — localhost only in practice; no token.
+        // Parse the PreToolUse hook payload, run the permission matcher, and
+        // either decide immediately (allow/deny) or hold until the phone
+        // responds via `/decision` or the timeout fires.
+        let registry = self.approvalRegistry
+        let rules = self.rules
+        let timeout = self.approvalTimeout
+        let makeID = self.approvalID
+        router.post("approval") { request, _ -> Response in
+            let buffer = try await request.body.collect(upTo: 1 << 20)
+            let data = Data(buffer: buffer)
+            let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+            let tool = obj["tool_name"] as? String ?? ""
+            let input = obj["tool_input"] as? [String: Any] ?? [:]
+            let sessionID = obj["session_id"] as? String ?? ""
+            let r = rules()
+            let decision = PermissionMatcher.decide(tool: tool, input: input, allow: r.allow, deny: r.deny)
+            await store.ingest(data, receivedAt: Date())
+            switch decision {
+            case .allow: return Self.permissionResponse("allow")
+            case .deny:  return Self.permissionResponse("deny")
+            case .ask:
+                let id = makeID()
+                let preview = Self.preview(tool: tool, input: input)
+                await store.beginApproval(sessionID: sessionID,
+                    PendingApproval(id: id, tool: tool, commandPreview: preview), at: Date())
+                let outcome = await registry.wait(id: id, timeout: timeout)
+                await store.endApproval(sessionID: sessionID, at: Date())
+                switch outcome {
+                case .allow: return Self.permissionResponse("allow")
+                case .deny:  return Self.permissionResponse("deny")
+                case .pass:  return Response(status: .ok)
+                }
+            }
+        }
+
+        // Resolve a held approval — bearer-token gated (the phone sends this).
+        router.post("decision") { request, _ -> HTTPResponse.Status in
+            guard request.headers[.authorization] == "Bearer \(token)" else { throw HTTPError(.unauthorized) }
+            let buffer = try await request.body.collect(upTo: 4096)
+            guard let obj = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
+                  let id = obj["approvalId"] as? String,
+                  let decision = obj["decision"] as? String
+            else { throw HTTPError(.badRequest) }
+            await registry.resolve(id: id, with: decision == "allow" ? .allow : .deny)
+            return .ok
+        }
+
         return router
+    }
+
+    static func permissionResponse(_ decision: String) -> Response {
+        let json = #"{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"\#(decision)","permissionDecisionReason":"vibebuddy"}}"#
+        return Response(status: .ok,
+                        headers: [.contentType: "application/json"],
+                        body: .init(byteBuffer: ByteBuffer(string: json)))
+    }
+
+    static func preview(tool: String, input: [String: Any]) -> String {
+        let raw: String
+        if let cmd = input["command"] as? String { raw = cmd }
+        else if let path = input["file_path"] as? String { raw = path }
+        else { raw = tool }
+        return String(raw.prefix(120))
     }
 }
