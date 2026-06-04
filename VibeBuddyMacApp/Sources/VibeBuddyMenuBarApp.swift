@@ -117,9 +117,9 @@ struct MenuContent: View {
             Picker("Glance size", selection: Binding(
                 get: { model.glanceScale },
                 set: { model.setGlanceScale($0) })) {
-                Text("Small").tag(CGFloat(1.0))
-                Text("Medium").tag(CGFloat(1.3))
-                Text("Large").tag(CGFloat(1.6))
+                Text("Small").tag(CGFloat(0.8))
+                Text("Medium").tag(CGFloat(1.0))
+                Text("Large").tag(CGFloat(1.2))
             }
             .pickerStyle(.segmented)
             .font(.callout)

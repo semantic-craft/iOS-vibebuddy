@@ -27,7 +27,9 @@ final class MenuBarModel: ObservableObject {
         // never re-prompts. Shared with vibebuddyd's default store.
         token = (try? TokenStore.defaultStore().loadOrCreate()) ?? Token.generate()
         let saved = UserDefaults.standard.double(forKey: "glanceScale")
-        glanceScale = saved > 0 ? saved : Self.defaultGlanceScale()
+        let base: CGFloat = saved > 0 ? saved : Self.defaultGlanceScale()
+        // Snap to one of the 3 presets so the menu Picker selection always matches.
+        glanceScale = [0.8, 1.0, 1.2].min(by: { abs($0 - base) < abs($1 - base) }) ?? 1.0
         let notifier = UserNotificationsNotifier()
         notifier.requestAuthorization()
         notificationCoordinator = NotificationCoordinator(notifier: notifier)
@@ -39,7 +41,8 @@ final class MenuBarModel: ObservableObject {
         // still running trips an AttributeGraph precondition (NSHostingView.layout
         // → ViewGraph update on a half-initialized ObservableObject).
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
+            guard let self else { return }            // throwaway @StateObject probe deallocated
+            guard self.glance == nil else { return }  // create the glance exactly once
             self.glance = GlanceWindow(model: self)
         }
     }
@@ -86,9 +89,7 @@ final class MenuBarModel: ObservableObject {
 
     static func defaultGlanceScale() -> CGFloat {
         let w = NSScreen.main?.frame.width ?? 1512
-        if w >= 2200 { return 1.6 }        // iMac 27"/large external
-        else if w >= 1600 { return 1.3 }   // 16" MacBook / mid external
-        else { return 1.0 }                // 14" MacBook
+        return w >= 2000 ? 1.0 : 0.8        // iMac → Medium, MacBook → Small; pick Large for bigger
     }
 
     func setGlanceScale(_ s: CGFloat) {
