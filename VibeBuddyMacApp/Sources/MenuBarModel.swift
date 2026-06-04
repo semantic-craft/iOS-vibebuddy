@@ -87,6 +87,11 @@ final class MenuBarModel: ObservableObject {
         Task { await approvalRegistry.resolve(id: approvalId, with: approve ? .allow : .deny) }
     }
 
+    func jump(_ session: AgentSession) {
+        guard let ref = session.terminalRef else { return }
+        TerminalJumper.jump(ref)
+    }
+
     static func defaultGlanceScale() -> CGFloat {
         let w = NSScreen.main?.frame.width ?? 1512
         return w >= 2000 ? 1.0 : 0.8        // iMac → Medium, MacBook → Small; pick Large for bigger

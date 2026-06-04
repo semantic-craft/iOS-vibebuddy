@@ -126,12 +126,14 @@ private struct DetailView: View {
                             .keyboardShortcut("a", modifiers: []).tint(.green)
                         Button("Deny") { model.decide(approval.id, approve: false) }
                             .keyboardShortcut("d", modifiers: []).tint(.red)
-                        Button("Jump to terminal") { }.disabled(true)   // STUB — sub-project 2
+                        Button("Jump to terminal") { model.jump(session) }
+                            .disabled(session.terminalRef == nil)
                     }
                     .buttonStyle(.borderedProminent)
                 } else {
                     if let s = session.summary { Text(s).foregroundStyle(.secondary) }
-                    Button("Jump to terminal") { }.disabled(true)   // STUB — sub-project 2
+                    Button("Jump to terminal") { model.jump(session) }
+                        .disabled(session.terminalRef == nil)
                 }
                 if let m = session.model {
                     Label(m, systemImage: "cpu").font(.caption).foregroundStyle(.secondary)
