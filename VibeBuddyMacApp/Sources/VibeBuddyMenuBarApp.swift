@@ -114,6 +114,16 @@ struct MenuContent: View {
 
             Divider()
 
+            Picker("Glance size", selection: Binding(
+                get: { model.glanceScale },
+                set: { model.setGlanceScale($0) })) {
+                Text("Small").tag(CGFloat(1.0))
+                Text("Medium").tag(CGFloat(1.3))
+                Text("Large").tag(CGFloat(1.6))
+            }
+            .pickerStyle(.segmented)
+            .font(.callout)
+
             Toggle("Launch at Login", isOn: Binding(
                 get: { model.launchAtLogin },
                 set: { model.setLaunchAtLogin($0) }))

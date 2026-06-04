@@ -11,6 +11,7 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var pairing: PairingPayload?
     @Published private(set) var qrImage: NSImage?
     @Published var launchAtLogin = LaunchAtLogin.isEnabled
+    @Published var glanceScale: CGFloat = 1.0
 
     let port: Int
     private let token: String
@@ -25,6 +26,8 @@ final class MenuBarModel: ObservableObject {
         // File-based store (owner-only): no Keychain ACL, so an ad-hoc rebuild
         // never re-prompts. Shared with vibebuddyd's default store.
         token = (try? TokenStore.defaultStore().loadOrCreate()) ?? Token.generate()
+        let saved = UserDefaults.standard.double(forKey: "glanceScale")
+        glanceScale = saved > 0 ? saved : Self.defaultGlanceScale()
         let notifier = UserNotificationsNotifier()
         notifier.requestAuthorization()
         notificationCoordinator = NotificationCoordinator(notifier: notifier)
@@ -79,6 +82,18 @@ final class MenuBarModel: ObservableObject {
     /// Resolve a pending approval from the Mac (Dashboard buttons / shortcuts).
     func decide(_ approvalId: String, approve: Bool) {
         Task { await approvalRegistry.resolve(id: approvalId, with: approve ? .allow : .deny) }
+    }
+
+    static func defaultGlanceScale() -> CGFloat {
+        let w = NSScreen.main?.frame.width ?? 1512
+        if w >= 2200 { return 1.6 }        // iMac 27"/large external
+        else if w >= 1600 { return 1.3 }   // 16" MacBook / mid external
+        else { return 1.0 }                // 14" MacBook
+    }
+
+    func setGlanceScale(_ s: CGFloat) {
+        glanceScale = s
+        UserDefaults.standard.set(Double(s), forKey: "glanceScale")
     }
 
     func setLaunchAtLogin(_ enabled: Bool) {

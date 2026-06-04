@@ -1,11 +1,13 @@
 import AppKit
 import SwiftUI
+import Combine
 import VibeBuddyMacCore
 
 @MainActor
 final class GlanceWindow {
     private let panel: NSPanel
     private let hosting: NSHostingView<GlanceView>
+    private var cancellable: AnyCancellable?
 
     init(model: MenuBarModel) {
         let mode = GlanceMode.from(topInset: NSScreen.main?.safeAreaInsets.top ?? 0)
@@ -25,6 +27,9 @@ final class GlanceWindow {
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                                object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.reposition() }
+        }
+        cancellable = model.$glanceScale.dropFirst().sink { [weak self] _ in
+            DispatchQueue.main.async { self?.reposition() }
         }
     }
 
