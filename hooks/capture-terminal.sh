@@ -27,8 +27,16 @@ PANE=$(read_var TMUX_PANE)
 TTY=$(ps -o tty= -p $$ 2>/dev/null | tr -d ' ')
 { [ -z "$TTY" ] || [ "$TTY" = "??" ]; } && TTY=$(ps -o tty= -p "$(ps -o ppid= -p $$ | tr -d ' ')" 2>/dev/null | tr -d ' ')
 
-# Debug (temporary): record what we resolved + the raw env, to verify the capture.
-{ echo "=== $(date) sid=$SID ==="; echo "resolved: TP=[$TP] TMUX=[$TMUXV] PANE=[$PANE] TTY=[$TTY]"; echo "own-env: TMUX=[${TMUX:-}] TMUX_PANE=[${TMUX_PANE:-}] TERM_PROGRAM=[${TERM_PROGRAM:-}] PPID=$PPID"; } >> /tmp/vb-capture-debug.log 2>/dev/null
+# Inside tmux, TERM_PROGRAM is "tmux"; the real terminal is the one that launched
+# the tmux server (its pid is the middle field of $TMUX). Resolve it so the Mac
+# can foreground the actual app (e.g. Ghostty), not "tmux".
+if [ "$TP" = "tmux" ] && [ -n "$TMUXV" ]; then
+  server_pid=$(printf '%s' "$TMUXV" | cut -d, -f2)
+  if [ -n "$server_pid" ]; then
+    real=$(ps eww -p "$server_pid" -o command= 2>/dev/null | tr ' ' '\n' | sed -n 's/^TERM_PROGRAM=//p' | head -1)
+    [ -n "$real" ] && TP="$real"
+  fi
+fi
 
 PORT="${VIBEBUDDY_PORT:-9876}"
 printf '{"session_id":"%s","term_program":"%s","tty":"%s","tmux":"%s","tmux_pane":"%s"}' \
