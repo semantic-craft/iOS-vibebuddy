@@ -44,3 +44,13 @@ notify = ["/Users/example/Projects/iOS-vibebuddy/hooks/codex-notify-chain.sh"]
 The hooks target `http://127.0.0.1:9876/hook` (override with `VIBEBUDDY_PORT`).
 Run the menu-bar app (`swift run VibeBuddyMenuBar`) or `vibebuddyd` so something
 is listening.
+
+## Remote approval (opt-in)
+
+```bash
+python3 hooks/install-claude-hooks.py --approval   # add the blocking PreToolUse approval hook
+python3 hooks/install-claude-hooks.py --uninstall  # removes it too
+```
+Commands not in your `permissions.allow` are sent to the phone to approve/deny.
+On timeout/unreachable, Claude proceeds with its normal behaviour. Useful only if
+your Mac actually prompts (prompting mode); auto-mode users gain nothing.

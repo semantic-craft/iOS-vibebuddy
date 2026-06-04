@@ -22,6 +22,9 @@ COMMAND = (
     f"http://127.0.0.1:{PORT}/hook 2>/dev/null || true"
 )
 MARKER = f"127.0.0.1:{PORT}/hook"
+APPROVAL_HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "approval-hook.sh")
+APPROVAL_COMMAND = f'"{APPROVAL_HOOK}"'
+APPROVAL_MARKER = "approval-hook.sh"
 TOOL_EVENTS = {"PreToolUse", "PostToolUse"}
 EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse",
           "PostToolUse", "Notification", "Stop", "SessionEnd"]
@@ -34,7 +37,8 @@ def group(event):
 
 def is_vibebuddy(g):
     return isinstance(g, dict) and any(
-        MARKER in h.get("command", "") for h in g.get("hooks", []) if isinstance(h, dict)
+        (MARKER in h.get("command", "") or APPROVAL_MARKER in h.get("command", ""))
+        for h in g.get("hooks", []) if isinstance(h, dict)
     )
 
 
@@ -48,6 +52,19 @@ def install(data):
         arr.append(group(ev))
         added.append(ev)
     return added
+
+
+def install_approval(data):
+    hooks = data.setdefault("hooks", {})
+    arr = hooks.setdefault("PreToolUse", [])
+    # Drop the fire-and-forget vibebuddy /hook group for PreToolUse; the blocking
+    # approval hook subsumes the working-status update via /approval.
+    arr[:] = [g for g in arr if not is_vibebuddy(g)]
+    if not any(APPROVAL_MARKER in h.get("command", "")
+               for g in arr if isinstance(g, dict)
+               for h in g.get("hooks", []) if isinstance(h, dict)):
+        arr.append({"matcher": "*", "hooks": [{"type": "command", "command": APPROVAL_COMMAND}]})
+    return ["PreToolUse(approval)"]
 
 
 def uninstall(data):
@@ -81,6 +98,13 @@ def main():
         removed = uninstall(data)
         write(data)
         print("removed vibebuddy hooks from:", removed or "(none)")
+        return
+
+    if mode == "--approval":
+        install(data)              # ensure base status hooks exist
+        added = install_approval(data)
+        write(data)
+        print("installed vibebuddy approval hook:", added)
         return
 
     added = install(data)
