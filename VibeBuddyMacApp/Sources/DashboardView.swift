@@ -35,6 +35,14 @@ struct DashboardView: View {
                 ContentUnavailableView("选择一个会话", systemImage: "sidebar.right")
             }
         }
+        .background {
+            Group {
+                Button("") { statusFilter = .needsResponse }.keyboardShortcut("1", modifiers: .command)
+                Button("") { statusFilter = .working }.keyboardShortcut("2", modifiers: .command)
+                Button("") { statusFilter = .done }.keyboardShortcut("3", modifiers: .command)
+            }
+            .opacity(0)
+        }
     }
 
     private var sidebar: some View {
