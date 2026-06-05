@@ -20,12 +20,16 @@ final class VoiceChat: NSObject, ObservableObject {
     @Published private(set) var lastReply = ""
     @Published private(set) var activeProvider: VoiceProvider?
     @Published var errorText: String?
+    /// Drives the inline consent sheet when a disabled buddy is tapped.
+    @Published var showConsent = false
 
     var isListening: Bool { phase == .listening }
     var isSpeaking: Bool { phase == .speaking }
     var isActive: Bool { phase != .idle }
     /// Available once the selected provider has a key — no separate enable step.
     var isAvailable: Bool { VoiceSettings.provider.apiKey?.isEmpty == false }
+    /// The opt-in consent gate (default OFF). A tap can't open the mic until set.
+    var isEnabled: Bool { VoiceSettings.companionEnabled }
 
     private let contextProvider: () -> [AgentSession]
     private let actionHandler: (VoiceAction) -> String
@@ -55,12 +59,21 @@ final class VoiceChat: NSObject, ObservableObject {
     }
 
     func toggle() {
-        voiceLog.info("toggle in phase=\(String(describing: self.phase), privacy: .public) available=\(self.isAvailable, privacy: .public)")
+        voiceLog.info("toggle in phase=\(String(describing: self.phase), privacy: .public) available=\(self.isAvailable, privacy: .public) enabled=\(self.isEnabled, privacy: .public)")
         switch phase {
-        case .idle: startRealtime()
+        case .idle:
+            guard isEnabled else { showConsent = true; return }   // consent gate: ask before opening the mic
+            startRealtime()
         default: stopRealtime()
         }
     }
+
+    /// Record consent (from the inline sheet or Settings). Persisted; does **not**
+    /// auto-open the mic — the next tap starts the call.
+    func enableCompanion() { UserDefaults.standard.set(true, forKey: VoiceSettings.companionEnabledKey) }
+
+    /// The master switch was turned off in Settings — end any live call.
+    func companionDisabled() { if isActive { stopRealtime() } }
 
     // MARK: Omni-realtime speech-to-speech (active path)
 

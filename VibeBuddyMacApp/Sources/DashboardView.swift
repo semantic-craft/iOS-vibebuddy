@@ -96,6 +96,16 @@ struct DashboardView: View {
 private struct MacBuddyBar: View {
     @ObservedObject var model: MenuBarModel
     @ObservedObject var voice: VoiceChat
+    @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
+
+    /// The buddy header reads "off" until the companion is opted in; otherwise the
+    /// live Listening/Speaking/idle status.
+    private var headline: LocalizedStringKey {
+        if !companionEnabled { return "Voice companion off" }
+        if voice.isListening { return "Listening…" }
+        if voice.isSpeaking { return "Speaking…" }
+        return "Tap the pet to talk"
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -103,13 +113,17 @@ private struct MacBuddyBar: View {
                 .onTapGesture { voice.toggle() }
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 6) {
-                    Text(voice.isListening ? "Listening…" as LocalizedStringKey : (voice.isSpeaking ? "Speaking…" : "Tap the pet to talk"))
-                        .font(.headline)
-                    Text((voice.activeProvider ?? VoiceSettings.provider).display)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 6).padding(.vertical, 1)
-                        .background(.quaternary, in: Capsule())
+                    if !companionEnabled {
+                        Image(systemName: "mic.slash").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Text(headline).font(.headline)
+                    if companionEnabled {
+                        Text((voice.activeProvider ?? VoiceSettings.provider).display)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6).padding(.vertical, 1)
+                            .background(.quaternary, in: Capsule())
+                    }
                 }
                 if let err = voice.errorText {
                     Text(err).font(.caption).foregroundStyle(.red).lineLimit(2)
@@ -124,6 +138,34 @@ private struct MacBuddyBar: View {
         .padding(.horizontal, 16).padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.bar)
+        .sheet(isPresented: $voice.showConsent) { VoiceConsentSheet(voice: voice) }
+    }
+}
+
+/// Inline consent before the voice companion's first use: you tapped to talk, so
+/// the ask is here, not buried in Settings. Enabling persists; it does not open
+/// the mic — the next tap starts the call.
+private struct VoiceConsentSheet: View {
+    @ObservedObject var voice: VoiceChat
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Label("Voice companion", systemImage: "waveform").font(.headline)
+            Text("Tap the buddy to talk — it knows your sessions and can approve / answer for you. Pick the provider whose key you've filled in below. Switching applies instantly if the buddy is already listening.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Enabling opens the mic on the next tap and shares your live sessions with your selected provider, using your own key.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                Button("Enable") { voice.enableCompanion(); dismiss() }
+                    .keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(20).frame(width: 380)
     }
 }
 

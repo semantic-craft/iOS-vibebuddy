@@ -167,10 +167,13 @@ private struct VoiceSettingsTab: View {
     @ObservedObject var model: MenuBarModel
     @AppStorage(VoiceSettings.conversationLanguageKey) private var language = VoiceLanguage.english.rawValue
     @AppStorage(VoiceSettings.providerKey) private var provider = VoiceProvider.qwen.rawValue
+    @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
 
     var body: some View {
         Form {
             Section {
+                Toggle("Voice companion", isOn: $companionEnabled)
+                    .onChange(of: companionEnabled) { _, on in if !on { model.voiceChat.companionDisabled() } }
                 Picker("Voice provider", selection: $provider) {
                     ForEach(VoiceProvider.allCases, id: \.rawValue) { p in
                         Text(p.display).tag(p.rawValue)

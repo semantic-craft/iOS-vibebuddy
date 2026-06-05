@@ -100,6 +100,12 @@
 "Use international site (dashscope-intl)" = "使用国际站（dashscope-intl）";
 "Paste your %@ key" = "粘贴你的 %@ 密钥";
 
+/* MARK: Voice companion opt-in (consent gate) */
+"Voice companion" = "语音伙伴";
+"Voice companion off" = "语音伙伴已关闭";
+"Enable" = "启用";
+"Enabling opens the mic on the next tap and shares your live sessions with your selected provider, using your own key." = "启用后，下次点击会打开麦克风，并用你自己的密钥把你的实时会话分享给所选服务商。";
+
 /* MARK: Settings — Devices */
 "This Mac" = "这台 Mac";
 "Pairing address" = "配对地址";

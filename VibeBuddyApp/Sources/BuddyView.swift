@@ -9,6 +9,7 @@ struct BuddyView: View {
     var pulse: Int = 0          // bumped when a cue fires → the buddy reacts
     var speaking: Bool = false  // companion is talking
     var listening: Bool = false // companion is listening
+    var companionEnabled: Bool = true   // false → off-state header (opt-in gate)
     var onTap: (() -> Void)?    // tap the pet to talk
     @State private var react = false
 
@@ -22,7 +23,12 @@ struct BuddyView: View {
                     .animation(.spring(response: 0.3, dampingFraction: 0.4), value: react)
                     .onTapGesture { onTap?() }
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(listening ? "Listening…" : (speaking ? "Speaking…" : title(state))).font(.headline)
+                    if !companionEnabled {
+                        Label("Voice companion off", systemImage: "mic.slash")
+                            .font(.headline).foregroundStyle(.secondary)
+                    } else {
+                        Text(listening ? "Listening…" : (speaking ? "Speaking…" : title(state))).font(.headline)
+                    }
                     Text(subtitle).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)

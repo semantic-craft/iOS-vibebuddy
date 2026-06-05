@@ -13,6 +13,7 @@ struct SettingsView: View {
     @State private var quietHours = SoundPrefs.quietHours
     @AppStorage(VoiceSettings.conversationLanguageKey) private var voiceLanguage = VoiceLanguage.english.rawValue
     @AppStorage(VoiceSettings.providerKey) private var provider = VoiceProvider.qwen.rawValue
+    @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
 
     var body: some View {
         NavigationStack {
@@ -39,6 +40,8 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    Toggle("Voice companion", isOn: $companionEnabled)
+                        .onChange(of: companionEnabled) { _, on in if !on { voice.companionDisabled() } }
                     Picker("Voice provider", selection: $provider) {
                         ForEach(VoiceProvider.allCases, id: \.rawValue) { p in
                             Text(p.display).tag(p.rawValue)
