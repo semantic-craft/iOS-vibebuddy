@@ -137,6 +137,10 @@ final class VoiceChat: ObservableObject {
     }
 
     private func handleRealtime(_ event: RealtimeVoiceEvent) {
+        // Ignore events that arrive after teardown (e.g. the model's farewell audio
+        // still streaming in when a close phrase ended the call) — otherwise a late
+        // .audioDelta re-sets phase=.speaking with audioIO already gone → stuck.
+        guard realtime != nil else { return }
         switch event {
         case .connected:
             voiceLog.info("realtime connected")
