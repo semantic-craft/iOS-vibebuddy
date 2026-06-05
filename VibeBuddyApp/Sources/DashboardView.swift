@@ -60,6 +60,19 @@ struct DashboardView: View {
             SettingsView().environmentObject(voice)
         }
         .sheet(isPresented: $voice.showConsent) { VoiceConsentSheet(voice: voice) }
+        .overlay(alignment: .bottom) {
+            if let toast = dashboard.toast {
+                Text(toast)
+                    .font(.subheadline)
+                    .padding(.horizontal, 14).padding(.vertical, 10)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .overlay(Capsule().strokeBorder(.quaternary))
+                    .shadow(radius: 8, y: 2)
+                    .padding(.bottom, 28)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.smooth, value: dashboard.toast)
         .task(id: connection.pairing) {
             if let pairing = connection.pairing { dashboard.start(pairing) }
         }

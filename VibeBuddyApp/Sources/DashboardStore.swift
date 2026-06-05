@@ -186,9 +186,36 @@ final class DashboardStore: ObservableObject {
         ]
     }
 
+    /// A brief, self-clearing status line for one-shot actions (e.g. jump result).
+    @Published var toast: String?
+    private var toastTask: Task<Void, Never>?
+
     func jump(_ sessionId: String) {
-        guard let pairing else { return }
-        Task { await decisionClient.jump(pairing, sessionId: sessionId) }
+        guard let pairing else { showToast(String(localized: "Couldn't reach your Mac")); return }
+        Task {
+            let outcome = await decisionClient.jump(pairing, sessionId: sessionId)
+            showToast(Self.jumpMessage(outcome))
+        }
+    }
+
+    /// Honest feedback for a jump — success lands on the Mac, so the phone has to
+    /// say so; `nil` means the Mac wasn't reachable.
+    static func jumpMessage(_ outcome: JumpOutcome?) -> String {
+        switch outcome {
+        case .focused:     return String(localized: "Focused the terminal on your Mac")
+        case .unsupported: return String(localized: "Can't focus this terminal type yet")
+        case .noTerminal:  return String(localized: "No terminal for this session")
+        case nil:          return String(localized: "Couldn't reach your Mac")
+        }
+    }
+
+    private func showToast(_ message: String) {
+        toast = message
+        toastTask?.cancel()
+        toastTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2.5))
+            self?.toast = nil
+        }
     }
 
     /// Tell the Mac this phone's name so it can show "Paired: <name>". Best-effort.
