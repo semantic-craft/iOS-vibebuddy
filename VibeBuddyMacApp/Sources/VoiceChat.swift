@@ -85,7 +85,7 @@ final class VoiceChat: NSObject, ObservableObject {
             phase = .idle; return
         }
         let language = VoiceSettings.conversationLanguage
-        let instructions = VoicePrompt.systemPrompt(sessions: contextProvider(), language: language)
+        let instructions = VoicePrompt.systemPrompt(sessions: contextProvider(), language: language, actionStyle: .tools)
             + "\n\nThis is a live voice call. Stay silent until the user actually speaks — never start talking on your own or fill silence, and never reply to your own voice. Answer in one short, natural sentence unless asked for more, and don't repeat yourself. Speak in a calm, gentle, even tone at a steady volume; never suddenly raise your pitch, shout, or get loud."
         let model = VoiceSettings.model(provider)
         let voice = VoiceSettings.voice(provider, language)
@@ -107,7 +107,7 @@ final class VoiceChat: NSObject, ObservableObject {
         phase = .listening
 
         eventTask = Task { [weak self] in
-            let stream = await session.start(instructions: instructions, voice: voice)
+            let stream = await session.start(instructions: instructions, voice: voice, tools: VoiceTools.all)
             for await event in stream {
                 await self?.handleRealtime(event)
             }
@@ -154,6 +154,17 @@ final class VoiceChat: NSObject, ObservableObject {
             audioIO?.enqueue(pcm)
         case .speechStarted:           // server detected real user speech
             break
+        case .toolCall(let name, let arguments, let callID):
+            // Approach A — function calling. The model emits a structured call only
+            // when it decides to act, so ordinary conversation never approves a real
+            // Mac command. Decode strictly; on garbage `action` is `.none` and we run
+            // nothing. Feed the confirmation back so the model can speak it.
+            let action = VoiceTools.action(name: name, arguments: arguments)
+            let result = action == .none ? "Sorry, I couldn't do that." : actionHandler(action)
+            voiceLog.info("voice tool=\(name, privacy: .public) resolved=\(action != .none, privacy: .public)")
+            if action != .none { lastReply = result }
+            let session = realtime
+            Task { await session?.sendToolResult(callID: callID, name: name, result: result) }
         case .responseDone:
             gate.turnDidComplete()          // un-mutes once playback also drains
             audioIO?.micMuted = gate.micMuted
