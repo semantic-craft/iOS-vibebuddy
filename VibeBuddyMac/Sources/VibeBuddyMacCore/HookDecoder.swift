@@ -22,6 +22,10 @@ public enum HookDecoder {
         case .grok:
             // Grok's envelope is camelCase keys with snake_case event values.
             return GrokParser.parse(data, receivedAt: receivedAt)
+        case .antigravity:
+            // Antigravity/Gemini: Claude-shape envelope but Gemini event names
+            // (BeforeTool/AfterAgent/…), plus the Antigravity-2.0 spelling.
+            return AntigravityParser.parse(data, receivedAt: receivedAt)
         default:
             // Claude-shape passthrough, with Codex notify kept as a defensive
             // fallback so existing flows are byte-for-byte unchanged.

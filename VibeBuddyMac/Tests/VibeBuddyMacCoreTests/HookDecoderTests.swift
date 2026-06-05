@@ -62,6 +62,16 @@ struct HookDecoderTests {
         #expect(e?.toolName == "run_terminal_cmd")
     }
 
+    @Test("antigravity source routes to the Antigravity decoder, tagged antigravity")
+    func antigravityRoute() {
+        let e = HookDecoder.decode(
+            Data(#"{"hook_event_name":"BeforeTool","session_id":"a1","cwd":"/x/proj","tool_name":"run_shell_command"}"#.utf8),
+            agent: .antigravity, receivedAt: now)
+        #expect(e?.kind == .preToolUse)
+        #expect(e?.agent == .antigravity)
+        #expect(e?.sessionID == "a1")
+    }
+
     @Test("malformed input → nil (fail-open)")
     func malformed() {
         #expect(HookDecoder.decode(Data("{not json".utf8), agent: .grok, receivedAt: now) == nil)
