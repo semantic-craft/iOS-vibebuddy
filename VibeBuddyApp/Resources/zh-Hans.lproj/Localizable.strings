@@ -1,0 +1,94 @@
+/* VibeBuddy iOS — Simplified Chinese (zh-Hans).
+   Keys are the English source text (development language = en); SwiftUI's
+   automatic localization and String(localized:) resolve them here on a
+   Chinese device. Brand name, provider names, model/voice IDs and numeric
+   instrument data are intentionally not translated. */
+
+/* MARK: Connect / pairing */
+"Keep an eye on your Mac's Claude Code and Codex sessions from your phone." = "在手机上盯着 Mac 上的 Claude Code 与 Codex 会话。";
+"Scan to pair" = "扫码配对";
+"Open “Pair a phone” in the vibebuddy Mac menu bar and scan that QR code." = "在 vibebuddy 的 Mac 菜单栏点“Pair a phone”，扫描那个二维码。";
+"Enter address manually" = "手动输入地址";
+"Hide manual entry" = "收起手动输入";
+"See the demo (no Mac needed)" = "查看演示（无需 Mac）";
+"Connect" = "连接";
+"Scan pairing QR" = "扫描配对二维码";
+"Cancel" = "取消";
+"Host" = "主机";
+"Port" = "端口";
+"Token" = "令牌";
+
+/* MARK: Dashboard */
+"Needs response" = "需回应";
+"Working" = "进行中";
+"Done" = "完成";
+"Connected to %@" = "已连接到 %@";
+"Stuck" = "卡住";
+"Deny" = "拒绝";
+"Approve" = "批准";
+"Jump to terminal" = "跳到终端";
+"Connecting to your Mac" = "正在连接你的 Mac";
+"No active sessions" = "没有活动会话";
+"Start a Claude Code or Codex session and it'll show up here." = "启动一个 Claude Code 或 Codex 会话，它就会出现在这里。";
+"Disconnected" = "已断开";
+"Disconnected — reconnecting…" = "已断开——正在重连…";
+"Connecting" = "连接中";
+"Connected" = "已连接";
+"Reconnecting" = "重连中";
+"Exit demo" = "退出演示";
+"Disconnect" = "断开连接";
+
+/* MARK: Buddy header + voice strip */
+"Listening…" = "聆听中…";
+"Speaking…" = "说话中…";
+"Waiting for approval" = "等待批准";
+"Waiting for your answer" = "等待你的回答";
+"Been waiting a while…" = "已经等了一会儿…";
+"Working…" = "进行中…";
+"All done" = "全部完成";
+"Napping…" = "打盹中…";
+"%lld waiting" = "%lld 个等待";
+"%lld working" = "%lld 个进行中";
+"%lld done" = "%lld 个已完成";
+"Listening… tap the pet to end" = "聆听中…点一下宠物结束";
+"Thinking…" = "思考中…";
+
+/* MARK: Approval / question cards */
+"Question" = "问题";
+"Answer" = "回答";
+"… (truncated)" = "…（已截断）";
+
+/* MARK: Settings */
+"Sound" = "声音";
+"Focus mode (only permission cues)" = "专注模式（仅权限提示音）";
+"Each status change gets a short built-in cue — needs you, permission, done, stuck. Only status boundaries sound; nothing interrupts mid-task. In Focus mode only permission prompts make a sound." = "每次状态变化都有一段简短的内置提示音——需要你、权限、完成、卡住。只有状态边界会响，任务进行中不打扰。专注模式下只有权限请求才出声。";
+"Auto-mute at night" = "夜间自动静音";
+"Night" = "夜间";
+"Start" = "开始";
+"End" = "结束";
+"During this window the app auto-enters Focus mode — only permission prompts make a sound." = "在这个时间段内，应用自动进入专注模式——只有权限请求才出声。";
+"Voice provider" = "语音服务商";
+"Conversation language" = "对话语言";
+"Voice companion" = "语音伙伴";
+"Tap the pet to talk — it holds a live voice conversation that knows your sessions and can approve / answer for you. Pick the provider whose key you've filled in below; switching applies instantly if it's already listening. The conversation uses your own key (kept in the Keychain, never uploaded or committed)." = "点一下宠物就能说话——它会进行实时语音对话，了解你的会话，并能替你批准／回答。选择你在下方填了密钥的服务商；如果它正在聆听，切换会即时生效。对话使用你自己的密钥（存在钥匙串里，绝不上传或提交）。";
+"Settings" = "设置";
+"API Key — paste your own (kept in the Keychain)" = "API 密钥——粘贴你自己的（存在钥匙串里）";
+"Get an API key" = "获取 API 密钥";
+"Model ID — editable, type any model" = "模型 ID——可编辑，可输入任意模型";
+"Browse available models" = "浏览可用模型";
+"Voice ID — editable (blank = auto by language)" = "音色 ID——可编辑（留空＝按语言自动）";
+"Browse available voices" = "浏览可用音色";
+"Use international site (dashscope-intl)" = "使用国际站（dashscope-intl）";
+"Paste your %@ key" = "粘贴你的 %@ 密钥";
+
+/* MARK: Notifications */
+"VibeBuddy is watching your sessions." = "VibeBuddy 正在盯着你的会话。";
+"%@ needs permission" = "%@ 需要权限";
+"Approve or deny" = "批准或拒绝";
+"%@ needs you" = "%@ 需要你";
+"Waiting for your input" = "等待你的输入";
+"%@ is still waiting" = "%@ 仍在等待";
+"%@ is done" = "%@ 已完成";
+"Task complete" = "任务完成";
+"%@ stopped" = "%@ 已停止";
+"Might need a look" = "可能需要看一眼";

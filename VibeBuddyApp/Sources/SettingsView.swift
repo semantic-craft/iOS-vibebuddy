@@ -142,7 +142,7 @@ private struct ProviderSection: View {
     /// One labelled, clearly-editable field with a click-through link to the
     /// provider's list of valid values.
     @ViewBuilder
-    private func field<F: View>(caption: String, link: String, icon: String, url: URL,
+    private func field<F: View>(caption: LocalizedStringKey, link: LocalizedStringKey, icon: String, url: URL,
                                 @ViewBuilder _ input: () -> F) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(caption).font(.caption).foregroundStyle(.secondary)

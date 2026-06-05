@@ -46,7 +46,8 @@ struct ConnectView: View {
                     .font(.caption).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
 
-                Button(showManual ? "Hide manual entry" : "Enter address manually") {
+                Button(showManual ? LocalizedStringKey("Hide manual entry")
+                                  : LocalizedStringKey("Enter address manually")) {
                     withAnimation(.smooth) { showManual.toggle() }
                 }
                 .font(.subheadline)
@@ -81,7 +82,7 @@ struct ConnectView: View {
         .transition(.opacity.combined(with: .move(edge: .top)))
     }
 
-    private func field(_ label: String, placeholder: String,
+    private func field(_ label: LocalizedStringKey, placeholder: String,
                        text: Binding<String>, keyboard: UIKeyboardType = .default) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label).font(.caption).foregroundStyle(.secondary)

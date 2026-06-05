@@ -46,8 +46,10 @@ struct DashboardView: View {
                 Button { showSettings = true } label: { Image(systemName: "gearshape") }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button(connection.demo ? "Exit demo" : "Disconnect") { dashboard.stop(); connection.clear() }
-                    .font(.subheadline)
+                Button(connection.demo ? LocalizedStringKey("Exit demo") : LocalizedStringKey("Disconnect")) {
+                    dashboard.stop(); connection.clear()
+                }
+                .font(.subheadline)
             }
         }
         .sheet(isPresented: $showSettings) {
@@ -79,7 +81,7 @@ struct DashboardView: View {
     }
 
     @ViewBuilder
-    private func section(_ title: String, sessions: [AgentSession], accent: Color) -> some View {
+    private func section(_ title: LocalizedStringKey, sessions: [AgentSession], accent: Color) -> some View {
         if !sessions.isEmpty {
             Section {
                 ForEach(sessions) { session in
@@ -269,7 +271,7 @@ private struct ConnectionDot: View {
         case .failed: .red
         }
     }
-    private var label: String {
+    private var label: LocalizedStringKey {
         switch state {
         case .connecting: "Connecting"
         case .connected: "Connected"

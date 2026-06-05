@@ -97,7 +97,7 @@
 > 审核只剩"无私有 API + 隐私合规 + 可体验"这些常规项。
 
 - [ ] ✅ **保留 demo 模式**(reviewer 无需配对即可体验)— 已做对,别回退
-- [ ] `[iOS]` `M` 本地化 .lproj(现 iOS 字符串硬编码中文)+ 商店元数据 en/zh-Hans
+- [x] `[iOS]` `M` 本地化 .lproj(iOS UI 已加 zh-Hans,英文为 base,2026-06-05);⬜ 商店元数据 en/zh-Hans(App Store Connect,HITL)
 - [ ] ⚠️ 若加分析(PostHog 类):进隐私营养标签 + tracking 类目 opt-in(或干脆不加)
 - [ ] 不抄:终端跳转 / 写 CLI 配置 / SSH(iOS 无权限,本就做不了)
 
@@ -120,7 +120,9 @@
   全局快捷键(⌃⌥⇧⌘G)+菜单开关。**延后**（已记下）：审批「始终允许」(要写 ~/.claude/settings.json)、
   按前台终端的智能抑制、tool 活动详情、更多终端、Sparkle、onboarding。
 - **§5 过审 ✅** 已核验：无支付/无分析/无 StoreKit/无 tracking（全免费，零 IAP 风险）；
-  隐私串齐全；demo 模式在。**延后**：完整 .lproj 本地化（现 iOS 中文硬编码，非阻断项）。
+  隐私串齐全；demo 模式在。**.lproj 本地化 ✅**（2026-06-05 iOS UI 全量加 zh-Hans，
+  英文为 base/dev language，~65 串，中文模拟器验证；前判“iOS 中文硬编码”已过时——实为英文）。
+  **延后**：商店元数据 en/zh-Hans（App Store Connect，HITL）、Mac app 本地化（另一块活）。
 - **附加（用户本轮新增）✅** Glance 关闭按钮 + ⌃⌥⇧⌘G 全局开关（解决 iMac 遮挡）；
   多 CLI 支持：`AgentKind` 扩展到 claude/codex/qwen/kimi/antigravity/grok/opencode/copilot
   + `fromSource` 路由 + 每 agent 名称/图标 + `docs/multi-cli-hook-setup.md`（注入安装为后续）。

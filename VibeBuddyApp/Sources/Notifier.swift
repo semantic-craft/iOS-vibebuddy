@@ -30,7 +30,8 @@ struct LocalNotifier: AttentionNotifier {
 
     /// A fresh pairing just succeeded — the one chrome cue not tied to a session.
     func confirmPairing() {
-        post(title: "Connected", body: "VibeBuddy is watching your sessions.",
+        post(title: String(localized: "Connected"),
+             body: String(localized: "VibeBuddy is watching your sessions."),
              sound: .pairSuccess, id: NotificationID.pairSuccess)
     }
 
@@ -53,17 +54,23 @@ struct LocalNotifier: AttentionNotifier {
         let s = alert.session
         switch alert.sound {
         case .needsApproval:
-            return ("\(s.project) needs permission", s.pendingApproval?.commandPreview ?? s.summary ?? "Approve or deny")
+            return (String(localized: "\(s.project) needs permission"),
+                    s.pendingApproval?.commandPreview ?? s.summary ?? String(localized: "Approve or deny"))
         case .needsAnswer:
-            return ("\(s.project) needs you", s.summary ?? "Waiting for your input")
+            return (String(localized: "\(s.project) needs you"),
+                    s.summary ?? String(localized: "Waiting for your input"))
         case .longWaitNudge:
-            return ("\(s.project) is still waiting", s.summary ?? "Waiting for your input")
+            return (String(localized: "\(s.project) is still waiting"),
+                    s.summary ?? String(localized: "Waiting for your input"))
         case .agentDone:
-            return ("\(s.project) is done", s.summary ?? "Task complete")
+            return (String(localized: "\(s.project) is done"),
+                    s.summary ?? String(localized: "Task complete"))
         case .agentStuck:
-            return ("\(s.project) stopped", s.summary ?? "Might need a look")
+            return (String(localized: "\(s.project) stopped"),
+                    s.summary ?? String(localized: "Might need a look"))
         case .pairSuccess:
-            return ("Connected", "VibeBuddy is watching your sessions.")
+            return (String(localized: "Connected"),
+                    String(localized: "VibeBuddy is watching your sessions."))
         }
     }
 }

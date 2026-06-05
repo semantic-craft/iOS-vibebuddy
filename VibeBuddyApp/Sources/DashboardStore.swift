@@ -58,7 +58,7 @@ final class DashboardStore: ObservableObject {
                     await self.apply(snapshot)
                 }
                 if Task.isCancelled { return }
-                self.state = .failed("Disconnected — reconnecting…")
+                self.state = .failed(String(localized: "Disconnected — reconnecting…"))
                 try? await Task.sleep(for: .seconds(2))
             }
         }
