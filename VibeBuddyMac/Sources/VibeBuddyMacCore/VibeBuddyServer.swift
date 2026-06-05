@@ -234,13 +234,20 @@ public struct VibeBuddyServer: Sendable {
             await store.setTerminalRef(sessionID: sid, ref)
             return .ok
         }
-        router.post("jump") { request, _ -> HTTPResponse.Status in
+        router.post("jump") { request, _ -> Response in
             guard request.headers[.authorization] == "Bearer \(token)" else { throw HTTPError(.unauthorized) }
             let buffer = try await request.body.collect(upTo: 4096)
             guard let o = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
                   let sid = o["sessionId"] as? String else { throw HTTPError(.badRequest) }
-            if let ref = await store.terminalRef(for: sid) { onJump(ref) }
-            return .ok
+            // Report what actually happened so the phone can give honest feedback:
+            // focused (ran), unsupported (known terminal type → no command), or none.
+            let ref = await store.terminalRef(for: sid)
+            let hasRunnable = ref.map { !TerminalJumper.commands(for: $0).isEmpty } ?? false
+            let outcome = JumpOutcome.decide(hasRef: ref != nil, hasRunnableCommand: hasRunnable)
+            if outcome == .focused, let ref { onJump(ref) }
+            let data = try JSONEncoder().encode(["outcome": outcome.rawValue])
+            return Response(status: .ok, headers: [.contentType: "application/json"],
+                            body: .init(byteBuffer: ByteBuffer(bytes: data)))
         }
 
         let onAnswer = self.onAnswer

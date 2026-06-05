@@ -27,6 +27,10 @@
 "Deny" = "拒绝";
 "Approve" = "批准";
 "Jump to terminal" = "跳到终端";
+"Focused the terminal on your Mac" = "已在你的 Mac 上聚焦终端";
+"Can't focus this terminal type yet" = "暂不支持聚焦这种终端";
+"No terminal for this session" = "该会话没有终端";
+"Couldn't reach your Mac" = "连不上你的 Mac";
 "Connecting to your Mac" = "正在连接你的 Mac";
 "No active sessions" = "没有活动会话";
 "Start a Claude Code or Codex session and it'll show up here." = "启动一个 Claude Code 或 Codex 会话，它就会出现在这里。";

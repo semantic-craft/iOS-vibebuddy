@@ -6,7 +6,8 @@ import VibeBuddyKit
 protocol DecisionClient: Sendable {
     func decide(_ pairing: PairingPayload, approvalId: String, approve: Bool) async
     func answer(_ pairing: PairingPayload, sessionId: String, answer: String) async
-    func jump(_ pairing: PairingPayload, sessionId: String) async
+    /// Returns what the Mac reported, or `nil` if it couldn't be reached.
+    func jump(_ pairing: PairingPayload, sessionId: String) async -> JumpOutcome?
 }
 
 struct HTTPDecisionClient: DecisionClient {
@@ -31,13 +32,17 @@ struct HTTPDecisionClient: DecisionClient {
         _ = try? await URLSession.shared.data(for: req)
     }
 
-    func jump(_ pairing: PairingPayload, sessionId: String) async {
-        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/jump") else { return }
+    func jump(_ pairing: PairingPayload, sessionId: String) async -> JumpOutcome? {
+        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/jump") else { return nil }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try? JSONSerialization.data(withJSONObject: ["sessionId": sessionId])
-        _ = try? await URLSession.shared.data(for: req)
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+              let body = try? JSONDecoder().decode([String: String].self, from: data),
+              let raw = body["outcome"] else { return nil }   // nil → unreachable / refused
+        return JumpOutcome(rawValue: raw)
     }
 }
