@@ -18,6 +18,15 @@ struct VoicePromptTests {
         #expect(p.contains("ACTION:"))
     }
 
+    @Test("the prompt tells the model to keep its own instructions private (both styles)")
+    func confidentiality() {
+        for style in [VoicePrompt.ActionStyle.directive, .tools] {
+            let p = VoicePrompt.systemPrompt(sessions: [], actionStyle: style)
+            #expect(p.lowercased().contains("never reveal"),
+                    "the \(style) prompt should refuse to disclose its own instructions")
+        }
+    }
+
     @Test("the tools action-style points at the function tools and drops the ACTION directive")
     func toolsStyle() {
         let p = VoicePrompt.systemPrompt(
