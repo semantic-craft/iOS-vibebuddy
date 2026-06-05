@@ -19,7 +19,7 @@ struct VibeBuddyLiveActivity: Widget {
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    ActivityRobotFace(mood: mood(context.state), size: 40)
+                    ActivityPixelCat(mood: mood(context.state), size: 40)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
                     VStack(alignment: .trailing, spacing: 2) {
@@ -75,7 +75,7 @@ struct LockScreenView: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            ActivityRobotFace(mood: mood(state), size: 40)
+            ActivityPixelCat(mood: mood(state), size: 40)
             HStack(spacing: 18) {
                 counter(state.needsResponse, "exclamationmark.circle.fill", .orange)
                 counter(state.working, "hourglass", .blue)

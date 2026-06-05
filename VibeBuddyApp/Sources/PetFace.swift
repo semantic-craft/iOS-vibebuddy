@@ -1,99 +1,114 @@
 import SwiftUI
 import VibeBuddyKit
 
-/// A Stack-chan-inspired expressive face, drawn entirely with SwiftUI shapes (no
-/// third-party art → App-Store-clean). Eyes blink and gaze; the expression
-/// follows the buddy's mood; the mouth animates while the companion is speaking.
+/// The iOS buddy: a pixel black-and-white cat, drawn entirely in code (no bundled
+/// art → App-Store-clean, see ADR-0007). The body is `Color.primary` so it reads
+/// as a black silhouette in light mode and white in dark; the eyes carry the
+/// status accent colour. Ears + eyes change with mood; the muzzle flaps while the
+/// companion speaks; the ears perk and a tinted ring shows while it listens.
+///
+/// Mac keeps the robot `PetFace`; only iOS is the cat (ADR-0007).
 struct PetFace: View {
     let state: BuddyState
     var speaking: Bool = false
     var listening: Bool = false
 
-    @State private var blink = false
-    @State private var gaze: CGFloat = 0      // -1 … 1 horizontal look
-    @State private var mouthOpen: CGFloat = 0
-
     private var accent: Color { buddyColor(state.accent) }
 
+    private enum Mood { case calm, alert, worry, happy, sleep }
+    private var mood: Mood {
+        switch state {
+        case .done:                       return .happy
+        case .sleeping:                   return .sleep
+        case .stuck:                      return .worry
+        case .approval, .question:        return .alert
+        default:                          return .calm   // working, longWait
+        }
+    }
+
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color(.secondarySystemBackground))
-                .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(accent.opacity(listening ? 0.9 : 0.3), lineWidth: listening ? 3 : 2))
-
-            VStack(spacing: 7) {
-                HStack(spacing: 12) {
-                    eye
-                    eye
+        TimelineView(.periodic(from: .now, by: 0.1)) { tl in
+            let t = tl.date.timeIntervalSinceReferenceDate
+            let blink = t.truncatingRemainder(dividingBy: 3.2) < 0.13
+            let mouthOpen = speaking && Int(t / 0.16) % 2 == 0
+            Canvas { ctx, size in
+                let grid = rows(blink: blink, mouthOpen: mouthOpen)
+                let cw = size.width / 13
+                let ch = size.height / CGFloat(grid.count)
+                for (r, line) in grid.enumerated() {
+                    for (c, char) in line.enumerated() {
+                        guard let color = fill(char) else { continue }
+                        let rect = CGRect(x: CGFloat(c) * cw, y: CGFloat(r) * ch,
+                                          width: cw + 0.6, height: ch + 0.6)
+                        ctx.fill(Path(rect), with: .color(color))
+                    }
                 }
-                mouth
             }
-            .foregroundStyle(accent)
-            .offset(x: gaze * 4)
-        }
-        .frame(width: 58, height: 52)
-        .onAppear { startIdle() }
-        .onChange(of: speaking) { _, on in if on { startTalking() } else { mouthOpen = 0 } }
-        .accessibilityHidden(true)
-    }
-
-    // MARK: eyes
-
-    @ViewBuilder private var eye: some View {
-        switch state {
-        case .done:                       // happy ^ ^
-            Arc().stroke(accent, style: .init(lineWidth: 3, lineCap: .round))
-                .frame(width: 12, height: 8)
-        case .sleeping:                   // closed — —
-            Capsule().frame(width: 12, height: 3)
-        case .stuck, .approval:           // wide, alert
-            Circle().frame(width: 12, height: 12)
-                .scaleEffect(y: blink ? 0.1 : 1, anchor: .center)
-        default:                          // normal, blinking
-            Capsule().frame(width: 11, height: blink ? 2 : 11)
+            .frame(width: 52, height: 60)
+            .overlay {
+                if listening {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .stroke(accent.opacity(0.8), lineWidth: 2)
+                }
+            }
+            .accessibilityHidden(true)
         }
     }
 
-    // MARK: mouth — expression + talking
+    // MARK: pixel rows (13 wide)
 
-    @ViewBuilder private var mouth: some View {
-        switch state {
-        case .done:
-            Arc().stroke(accent, style: .init(lineWidth: 2.5, lineCap: .round))
-                .frame(width: 16, height: 8)
-        case .stuck:
-            Arc().stroke(accent, style: .init(lineWidth: 2.5, lineCap: .round))
-                .frame(width: 14, height: 7).rotationEffect(.degrees(180))   // worried frown
-        case .sleeping:
-            Circle().frame(width: 5, height: 5)                              // small o (Zzz vibe)
-        default:
-            Capsule()
-                .frame(width: 14, height: 3 + mouthOpen * 7)                 // opens while talking
+    private func rows(blink: Bool, mouthOpen: Bool) -> [String] {
+        if mood == .sleep { return Self.sleeping }
+        let eyesOpen = !blink
+        let ears = (listening || mood == .alert) ? Self.alertEars
+                 : (mood == .worry ? Self.worryEars : Self.calmEars)
+        let eyeRow = eyesOpen ? "#.o#.....#o.#" : "#.-#.....#-.#"
+        let mouthRow = mouthOpen ? "####.....####" : "#####.#.#####"
+        return ears + [
+            ".###########.",
+            "#############",
+            eyeRow,
+            mouthRow,
+            "#############",
+            ".###########.",
+            ".###########.",
+            ".###########.",
+            ".###########.",
+            ".####...####.",
+            ".###########.",
+            "#####...#####",
+            "..........##.",
+        ]
+    }
+
+    private static let calmEars  = [".##.......##.", ".###.....###."]
+    private static let alertEars = ["#.#.......#.#", "#.#.......#.#"]
+    private static let worryEars = ["#...........#", "##.........##"]
+
+    private static let sleeping = [
+        ".............",
+        "...#######...",
+        "..#########..",
+        ".###########.",
+        ".###########.",
+        ".#--.....--#.",
+        ".###########.",
+        ".###########.",
+        ".###########.",
+        "..#########..",
+        "...#######...",
+        ".....###.....",
+        ".............",
+        ".............",
+        ".............",
+    ]
+
+    private func fill(_ char: Character) -> Color? {
+        switch char {
+        case "#":      return .primary       // black in light mode, white in dark
+        case "o", "O": return accent          // status colour in the eyes
+        case "-":      return .secondary      // closed / sleeping eyes
+        default:       return nil             // "." → empty (and open-mouth gap)
         }
-    }
-
-    // MARK: behaviours
-
-    private func startIdle() {
-        // Slow blink loop.
-        withAnimation(.easeInOut(duration: 0.12).repeatForever().delay(2.6)) { blink = true }
-        // Wander the gaze a little so it feels alive.
-        withAnimation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true)) { gaze = 1 }
-    }
-
-    private func startTalking() {
-        withAnimation(.easeInOut(duration: 0.16).repeatForever(autoreverses: true)) { mouthOpen = 1 }
-    }
-}
-
-/// A simple smile/frown arc (concave-up by default).
-private struct Arc: Shape {
-    func path(in rect: CGRect) -> Path {
-        var p = Path()
-        p.move(to: CGPoint(x: rect.minX, y: rect.maxY))
-        p.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.maxY),
-                       control: CGPoint(x: rect.midX, y: rect.minY))
-        return p
     }
 }
