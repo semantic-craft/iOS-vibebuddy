@@ -1,200 +1,178 @@
 import Foundation
 import AVFoundation
-import Speech
+import os
 import VibeBuddyKit
 
-/// The voice companion: tap to talk → speech-to-text → Qwen brain (which knows
-/// your live sessions) → on-device text-to-speech, and it can act on your agents
-/// ("approve the payments one"). Recognition, reply, and voice all follow the
-/// conversation language in Settings; the brain call uses your DashScope key.
+private let voiceLog = Logger(subsystem: "com.vibebuddy.app", category: "voice")
+
+/// The phone's voice companion: tap the pet to hold a **realtime speech-to-speech**
+/// conversation with the agent companion using the provider you picked
+/// (Qwen / OpenAI / Gemini). Audio streams directly to that provider via your own
+/// key; the companion knows your live sessions. This is the iOS twin of the Mac
+/// `VoiceChat` — the provider sessions and config live in `VibeBuddyKit` and are
+/// reused as-is; only the audio I/O (`RealtimeAudioIO`, which adds `AVAudioSession`)
+/// and this thin controller are iOS-specific.
 @MainActor
-final class VoiceChat: NSObject, ObservableObject {
+final class VoiceChat: ObservableObject {
     enum Phase: Equatable { case idle, listening, thinking, speaking }
 
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var lastUserText = ""
     @Published private(set) var lastReply = ""
+    @Published private(set) var activeProvider: VoiceProvider?
     @Published var errorText: String?
 
     var isListening: Bool { phase == .listening }
     var isSpeaking: Bool { phase == .speaking }
-    /// Available as soon as the user has pasted a key — no separate enable step.
-    var isAvailable: Bool { VoiceSettings.apiKey?.isEmpty == false }
+    var isActive: Bool { phase != .idle }
+    /// Available once the selected provider has a key — no separate enable step.
+    var isAvailable: Bool { VoiceSettings.provider.apiKey?.isEmpty == false }
 
     private let contextProvider: () -> [AgentSession]
     private let actionHandler: (VoiceAction) -> String
-    private var history: [ChatMessage] = []
 
-    private let audioEngine = AVAudioEngine()
-    private var request: SFSpeechAudioBufferRecognitionRequest?
-    private var task: SFSpeechRecognitionTask?
-    private let synthesizer = AVSpeechSynthesizer()
+    // Realtime speech-to-speech — the only path. Provider chosen in Settings.
+    private var realtime: (any RealtimeVoiceProvider)?
+    private var audioIO: RealtimeAudioIO?
+    private var eventTask: Task<Void, Never>?
+    private var assistantBuffer = ""
 
     init(contextProvider: @escaping () -> [AgentSession],
          actionHandler: @escaping (VoiceAction) -> String) {
         self.contextProvider = contextProvider
         self.actionHandler = actionHandler
-        super.init()
-        synthesizer.delegate = self
     }
 
-    /// One control for the whole flow: start listening, or stop and send.
+    /// One control for the whole flow: tap to start a live call, tap again to end.
     func toggle() {
+        voiceLog.info("toggle phase=\(String(describing: self.phase), privacy: .public) available=\(self.isAvailable, privacy: .public)")
         switch phase {
-        case .idle: requestPermissionsThenListen()
-        case .listening: stopListeningAndSend()
-        case .thinking, .speaking: cancelSpeaking()
+        case .idle: startRealtime()
+        default: stopRealtime()
         }
     }
 
-    // MARK: permissions
+    // MARK: Realtime speech-to-speech
 
-    private func requestPermissionsThenListen() {
-        guard isAvailable else { errorText = "Add your Qwen (DashScope) key in Settings first."; return }
-        // The TCC completion handlers fire on a background thread, so run them off
-        // the main actor (a main-actor-isolated closure would trap Swift's executor
-        // check), then hop back to the main actor with the result.
-        Self.requestPermissions { [weak self] speechOK, micOK in
+    private func startRealtime() {
+        errorText = nil
+        guard isAvailable else {
+            errorText = "Add your \(VoiceSettings.provider.display) API key in Settings first."; return
+        }
+        // The mic permission prompt is delivered on a background thread, so request
+        // it off the main actor, then hop back to begin the session.
+        Self.requestMic { [weak self] micOK in
             Task { @MainActor in
                 guard let self else { return }
-                guard speechOK, micOK else {
-                    self.errorText = "Microphone and Speech Recognition permissions are needed."; return
+                guard micOK else {
+                    self.errorText = "Microphone permission needed (Settings › Privacy › Microphone)."; return
                 }
-                self.startListening()
+                self.beginRealtimeSession()
             }
         }
     }
 
-    /// Runs the speech + microphone permission prompts. `nonisolated` so the SDK
-    /// callbacks (delivered on a background thread) are not main-actor isolated.
-    nonisolated private static func requestPermissions(_ done: @escaping @Sendable (_ speech: Bool, _ mic: Bool) -> Void) {
-        SFSpeechRecognizer.requestAuthorization { auth in
-            AVAudioApplication.requestRecordPermission { granted in
-                done(auth == .authorized, granted)
-            }
+    /// `nonisolated` so the system callback (off the main thread) is not
+    /// main-actor isolated; reports the grant back through a `Sendable` closure.
+    nonisolated private static func requestMic(_ done: @escaping @Sendable (Bool) -> Void) {
+        AVAudioApplication.requestRecordPermission { granted in
+            voiceLog.info("mic granted=\(granted, privacy: .public)")
+            done(granted)
         }
     }
 
-    // MARK: ASR (on-device)
+    private func beginRealtimeSession() {
+        let provider = VoiceSettings.provider
+        guard let key = provider.apiKey, !key.isEmpty else {
+            errorText = "Add your \(provider.display) API key in Settings first."
+            phase = .idle; return
+        }
+        let language = VoiceSettings.conversationLanguage
+        let instructions = VoicePrompt.systemPrompt(sessions: contextProvider(), language: language)
+            + "\n\nThis is a live voice call. Stay silent until the user actually speaks — never start talking on your own or fill silence, and never reply to your own voice. Answer in one short, natural sentence unless asked for more, and don't repeat yourself. Speak in a calm, gentle, even tone at a steady volume; never suddenly raise your pitch, shout, or get loud."
+        let model = VoiceSettings.model(provider)
+        let voice = VoiceSettings.voice(provider, language)
+        voiceLog.info("realtime start provider=\(provider.rawValue, privacy: .public) model=\(model, privacy: .public) voice=\(voice, privacy: .public)")
 
-    private func startListening() {
-        let lang = VoiceSettings.conversationLanguage
-        guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: lang.bcp47)),
-              recognizer.isAvailable else { errorText = "Speech recognition is unavailable."; return }
+        let session: any RealtimeVoiceProvider
+        switch provider {
+        case .qwen:   session = QwenRealtimeSession(apiKey: key, model: model, useIntl: VoiceSettings.useIntl)
+        case .openai: session = OpenAIRealtimeSession(apiKey: key, model: model)
+        case .gemini: session = GeminiRealtimeSession(apiKey: key, model: model)
+        }
+        let io = RealtimeAudioIO(inputSampleRate: provider.inputSampleRate)
+        realtime = session
+        audioIO = io
+        activeProvider = provider
+        assistantBuffer = ""
+        lastUserText = ""; lastReply = ""
+        phase = .listening
+
+        eventTask = Task { [weak self] in
+            let stream = await session.start(instructions: instructions, voice: voice)
+            for await event in stream {
+                await self?.handleRealtime(event)
+            }
+        }
+        io.onAudioFrame = { @Sendable data in Task { await session.appendAudio(data) } }
+        io.onPlaybackDrained = { [weak self] in
+            Task { @MainActor in
+                guard let self, let io = self.audioIO else { return }
+                io.micMuted = false           // model finished speaking → listen again
+                if self.phase == .speaking { self.phase = .listening }
+            }
+        }
         do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord, mode: .default, options: [.duckOthers, .defaultToSpeaker])
-            try session.setActive(true, options: .notifyOthersOnDeactivation)
+            try io.start()
+        } catch {
+            voiceLog.error("realtime audio start failed: \(String(describing: error), privacy: .public)")
+            errorText = "Couldn't start audio: \(error.localizedDescription)"
+            stopRealtime()
+        }
+    }
 
-            let req = SFSpeechAudioBufferRecognitionRequest()
-            req.shouldReportPartialResults = true
-            // This chat runs on online models — use Apple's server-based
-            // recognition rather than insisting on the on-device model.
-            req.requiresOnDeviceRecognition = false
-            request = req
-
-            let input = audioEngine.inputNode
-            input.removeTap(onBus: 0)
-            // The tap fires on the audio render thread — keep the closure
-            // non-isolated and capture the request directly (not `self`).
-            nonisolated(unsafe) let tapReq = req
-            input.installTap(onBus: 0, bufferSize: 1024, format: input.outputFormat(forBus: 0)) { @Sendable buffer, _ in
-                tapReq.append(buffer)
-            }
-            audioEngine.prepare()
-            try audioEngine.start()
+    private func handleRealtime(_ event: RealtimeVoiceEvent) {
+        switch event {
+        case .connected:
+            voiceLog.info("realtime connected")
+        case .userTranscript(let text, _):
+            lastUserText = text
+        case .assistantTranscript(let text, let final):
+            if final { lastReply = text; assistantBuffer = "" }
+            else { assistantBuffer += text; lastReply = assistantBuffer }
+        case .audioDelta(let pcm):
+            audioIO?.micMuted = true        // half-duplex: don't hear ourselves
+            phase = .speaking
+            audioIO?.enqueue(pcm)
+        case .speechStarted:                // server detected real user speech
+            break
+        case .responseDone:
             phase = .listening
-            lastUserText = ""
-            // The result handler is delivered off the main thread; keep it
-            // non-isolated and hop back to the main actor for the @Published update.
-            task = recognizer.recognitionTask(with: req) { @Sendable [weak self] result, _ in
-                guard let result else { return }
-                let text = result.bestTranscription.formattedString
-                Task { @MainActor in self?.lastUserText = text }
-            }
-        } catch {
-            errorText = "Couldn't start recording: \(error.localizedDescription)"
-            teardownAudio()
-            phase = .idle
+        case .failed(let message):
+            voiceLog.error("realtime failed: \(message, privacy: .public)")
+            errorText = message
+            stopRealtime()                  // tear down cleanly so the next tap starts fresh
+        case .closed:
+            break
         }
     }
 
-    private func stopListeningAndSend() {
-        teardownAudio()
-        let text = lastUserText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { phase = .idle; return }
-        phase = .thinking
-        Task { await self.think(text) }
-    }
-
-    private func teardownAudio() {
-        audioEngine.inputNode.removeTap(onBus: 0)
-        if audioEngine.isRunning { audioEngine.stop() }
-        request?.endAudio()
-        task?.cancel()
-        request = nil
-        task = nil
-    }
-
-    // MARK: brain
-
-    private func think(_ userText: String) async {
-        let brain = QwenClient(apiKey: VoiceSettings.apiKey,
-                               model: VoiceSettings.model,
-                               useIntl: VoiceSettings.useIntl)
-        var messages = [ChatMessage(role: "system",
-                                    content: VoicePrompt.systemPrompt(sessions: contextProvider(),
-                                                                      language: VoiceSettings.conversationLanguage))]
-        messages += history.suffix(8)
-        messages.append(ChatMessage(role: "user", content: userText))
-        do {
-            let raw = try await brain.reply(messages: messages)
-            let (spoken, action) = VoicePrompt.parse(raw)
-            history.append(ChatMessage(role: "user", content: userText))
-            history.append(ChatMessage(role: "assistant", content: raw))
-            var toSpeak = spoken
-            if action != .none {
-                let confirm = actionHandler(action)   // execute on the dashboard
-                if !confirm.isEmpty { toSpeak = spoken.isEmpty ? confirm : spoken }
-            }
-            lastReply = toSpeak
-            speak(toSpeak)
-        } catch VoiceBrainError.noKey {
-            fail("Add your Qwen key in Settings first.")
-        } catch VoiceBrainError.http(let code) {
-            fail("Qwen request failed (HTTP \(code)).")
-        } catch {
-            fail("Something went wrong: \(error.localizedDescription)")
-        }
-    }
-
-    private func fail(_ message: String) {
-        errorText = message
+    private func stopRealtime() {
+        eventTask?.cancel(); eventTask = nil
+        audioIO?.stop(); audioIO = nil
+        let session = realtime
+        realtime = nil
+        Task { await session?.close() }
+        activeProvider = nil
         phase = .idle
     }
 
-    // MARK: TTS (on-device)
-
-    private func speak(_ text: String) {
-        guard !text.isEmpty else { phase = .idle; return }
-        phase = .speaking
-        let utterance = AVSpeechUtterance(string: text)
-        utterance.voice = AVSpeechSynthesisVoice(language: VoiceSettings.conversationLanguage.bcp47)
-        utterance.rate = AVSpeechUtteranceDefaultSpeechRate
-        synthesizer.speak(utterance)
-    }
-
-    private func cancelSpeaking() {
-        synthesizer.stopSpeaking(at: .immediate)
-        phase = .idle
-    }
-}
-
-extension VoiceChat: AVSpeechSynthesizerDelegate {
-    nonisolated func speechSynthesizer(_ s: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        Task { @MainActor in if self.phase == .speaking { self.phase = .idle } }
-    }
-    nonisolated func speechSynthesizer(_ s: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
-        Task { @MainActor in if self.phase == .speaking { self.phase = .idle } }
+    /// Called when the provider (or its model/voice) changes in Settings: if a
+    /// session is live, restart it so the new provider takes effect immediately —
+    /// no manual close-then-reopen. A no-op when idle.
+    func reloadProviderIfActive() {
+        guard isActive else { return }
+        stopRealtime()
+        startRealtime()
     }
 }

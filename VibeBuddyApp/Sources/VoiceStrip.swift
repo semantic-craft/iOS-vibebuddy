@@ -1,7 +1,8 @@
 import SwiftUI
+import VibeBuddyKit
 
 /// A thin strip under the buddy showing the voice conversation state: what you
-/// said, what it replied, or an error / hint.
+/// said, what it replied, or an error / hint — plus which provider is live.
 struct VoiceStrip: View {
     @ObservedObject var voice: VoiceChat
 
@@ -20,13 +21,20 @@ struct VoiceStrip: View {
                     if !voice.lastReply.isEmpty {
                         Text(voice.lastReply).font(.caption.weight(.medium)).lineLimit(2)
                     } else if voice.phase == .listening {
-                        Text("Listening… tap the pet to finish").font(.caption).foregroundStyle(.secondary)
+                        Text("Listening… tap the pet to end").font(.caption).foregroundStyle(.secondary)
                     } else if voice.phase == .thinking {
                         Text("Thinking…").font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }
             Spacer(minLength: 0)
+            if let provider = voice.activeProvider {
+                Text(provider.display)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background(.quaternary, in: Capsule())
+            }
         }
         .padding(.horizontal, 16).padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)

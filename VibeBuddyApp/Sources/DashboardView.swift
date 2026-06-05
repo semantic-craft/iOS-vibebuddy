@@ -44,7 +44,11 @@ struct DashboardView: View {
                     .font(.subheadline)
             }
         }
-        .sheet(isPresented: $showSettings) { SettingsView() }
+        .sheet(isPresented: $showSettings) {
+            // A sheet doesn't inherit the presenter's environment objects, so
+            // re-inject `voice` — Settings restarts a live session on change.
+            SettingsView().environmentObject(voice)
+        }
         .task(id: connection.pairing) {
             if let pairing = connection.pairing { dashboard.start(pairing) }
         }
