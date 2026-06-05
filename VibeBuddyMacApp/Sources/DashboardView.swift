@@ -69,7 +69,7 @@ struct DashboardView: View {
                         agentFilter = (agentFilter == a) ? nil : a
                     } label: {
                         HStack {
-                            Text(a == .claudeCode ? "Claude Code" : "Codex")
+                            Text(a.displayName)
                             Spacer()
                             if agentFilter == a { Image(systemName: "checkmark") }
                         }
