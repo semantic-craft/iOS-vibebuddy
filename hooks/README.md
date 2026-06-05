@@ -1,7 +1,28 @@
 # Feeding agents into vibebuddy
 
-Both wire-ups are fail-open `curl` POSTs to the local daemon — if no daemon is
-running they fail instantly and never affect the agent.
+Every wire-up is a fail-open POST to the local daemon — if no daemon is running it
+fails instantly and never affects the agent.
+
+## Universal installer (all CLIs at once)
+
+```bash
+python3 hooks/install-agent-hooks.py --dry-run    # detect + preview
+python3 hooks/install-agent-hooks.py --install    # wire every detected CLI
+python3 hooks/install-agent-hooks.py --uninstall  # revert every detected CLI
+```
+
+Detects which CLIs are configured (by their config dir/file — no PATH scanning)
+and delegates to the per-CLI installer for each: **Claude, Qwen, Grok,
+Antigravity, Kimi, OpenCode**. Idempotent (re-run = no-op), reversible (removes
+exactly what it added; pre-existing user hooks untouched), each per-CLI installer
+backs up before writing. **Codex** is detected but not auto-managed (its single
+`notify` slot is user-owned — see below). The per-CLI installers below are still
+available if you want to wire one CLI at a time.
+
+Claude-shape CLIs (Claude, Qwen, Kimi) need no daemon decoder; Codex / Grok /
+Antigravity are decoded per-source inside the daemon. (Note: Antigravity `agy`
+1.0.5 *loads* its hooks but does not yet *execute* them — an agy-side bug; the
+wiring is ready for when an agy update fixes it.)
 
 ## Claude Code
 
