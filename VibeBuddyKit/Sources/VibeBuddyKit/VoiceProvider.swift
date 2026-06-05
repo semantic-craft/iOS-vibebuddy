@@ -47,7 +47,7 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
         switch self {
         case .qwen:   return language == .chinese ? "Tina" : "Jennifer"
         case .openai: return "marin"
-        case .gemini: return "Puck"
+        case .gemini: return language == .chinese ? "Aoede" : "Puck"
         }
     }
 
