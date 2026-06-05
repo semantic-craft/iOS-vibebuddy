@@ -39,6 +39,15 @@ public actor GeminiRealtimeSession: RealtimeVoiceProvider {
             "systemInstruction": ["parts": [["text": instructions]]],
             "inputAudioTranscription": [:],
             "outputAudioTranscription": [:],
+            // We run half-duplex (mic muted while the model speaks). Make the
+            // server VAD less twitchy so any residual echo/noise doesn't get read
+            // as the user barging in and cancel the model mid-sentence.
+            "realtimeInputConfig": [
+                "automaticActivityDetection": [
+                    "startOfSpeechSensitivity": "START_SENSITIVITY_LOW",
+                    "silenceDurationMs": 800,
+                ],
+            ],
         ]]
         send(setup)
         Task { await self.receiveLoop() }

@@ -36,6 +36,9 @@ final class VoiceChat: ObservableObject {
     private var audioIO: RealtimeAudioIO?
     private var eventTask: Task<Void, Never>?
     private var assistantBuffer = ""
+    /// Keeps the mic muted for the whole model turn (un-mutes only when the turn
+    /// is complete AND playback drained) so the model never hears its own echo.
+    private var gate = HalfDuplexGate()
 
     init(contextProvider: @escaping () -> [AgentSession],
          actionHandler: @escaping (VoiceAction) -> String) {
@@ -106,6 +109,7 @@ final class VoiceChat: ObservableObject {
         activeProvider = provider
         assistantBuffer = ""
         lastUserText = ""; lastReply = ""
+        gate = HalfDuplexGate()
         phase = .listening
 
         eventTask = Task { [weak self] in
@@ -118,8 +122,9 @@ final class VoiceChat: ObservableObject {
         io.onPlaybackDrained = { [weak self] in
             Task { @MainActor in
                 guard let self, let io = self.audioIO else { return }
-                io.micMuted = false           // model finished speaking → listen again
-                if self.phase == .speaking { self.phase = .listening }
+                self.gate.playbackDrained()    // only re-opens if the turn is also complete
+                io.micMuted = self.gate.micMuted
+                if !self.gate.micMuted, self.phase == .speaking { self.phase = .listening }
             }
         }
         do {
@@ -141,13 +146,16 @@ final class VoiceChat: ObservableObject {
             if final { lastReply = text; assistantBuffer = "" }
             else { assistantBuffer += text; lastReply = assistantBuffer }
         case .audioDelta(let pcm):
-            audioIO?.micMuted = true        // half-duplex: don't hear ourselves
+            gate.modelAudioReceived()       // half-duplex: mute for the whole turn
+            audioIO?.micMuted = gate.micMuted
             phase = .speaking
             audioIO?.enqueue(pcm)
         case .speechStarted:                // server detected real user speech
             break
         case .responseDone:
-            phase = .listening
+            gate.turnDidComplete()          // un-mutes once playback also drains
+            audioIO?.micMuted = gate.micMuted
+            if !gate.micMuted { phase = .listening }
         case .failed(let message):
             voiceLog.error("realtime failed: \(message, privacy: .public)")
             errorText = message
