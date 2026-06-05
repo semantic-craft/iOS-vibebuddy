@@ -62,6 +62,17 @@ Other hook-compatible CLIs (OpenCode, Qwen, Grok) follow the same shape with
 a Gemini plugin that shells out to the same curl. Copilot has no hook surface
 yet — it appears once a future watcher observes it.
 
+### Terminal capture (for jump-to-terminal)
+
+Jump-to-terminal needs to know which terminal each session runs in. A second hook,
+`hooks/capture-terminal.sh`, POSTs `{session_id, term_program, tty, tmux, tmux_pane}`
+to `/terminal`. `install-claude-hooks.py` wires it to **both `SessionStart` and
+`UserPromptSubmit`**: SessionStart catches new sessions, and UserPromptSubmit
+re-captures so a session that missed SessionStart — e.g. the hook was added while
+the session was already open — **self-heals on its next prompt** (writing the same
+ref is idempotent). A session with no captured terminal can't be jumped to (the iOS
+button hides; the Mac button disables; a phone jump reports "no terminal").
+
 ### Reversibility
 
 Every managed entry should carry a marker comment so it can be removed cleanly,
