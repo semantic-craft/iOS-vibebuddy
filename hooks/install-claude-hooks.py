@@ -30,6 +30,10 @@ CAPTURE_MARKER = "capture-terminal.sh"
 TOOL_EVENTS = {"PreToolUse", "PostToolUse"}
 EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse",
           "PostToolUse", "Notification", "Stop", "SessionEnd"]
+# Terminal capture runs on SessionStart (catch new sessions) AND UserPromptSubmit
+# (re-capture so a session that missed SessionStart — e.g. the hook was added
+# mid-session — self-heals on its next prompt; writing the same ref is idempotent).
+CAPTURE_EVENTS = ["SessionStart", "UserPromptSubmit"]
 
 
 def group(event):
@@ -54,11 +58,12 @@ def install(data):
             continue
         arr.append(group(ev))
         added.append(ev)
-    ss = hooks.setdefault("SessionStart", [])
-    if not any(CAPTURE_MARKER in h.get("command", "")
-               for g in ss if isinstance(g, dict)
-               for h in g.get("hooks", []) if isinstance(h, dict)):
-        ss.append({"hooks": [{"type": "command", "command": f'"{CAPTURE_HOOK}"'}]})
+    for ev in CAPTURE_EVENTS:
+        arr = hooks.setdefault(ev, [])
+        if not any(CAPTURE_MARKER in h.get("command", "")
+                   for g in arr if isinstance(g, dict)
+                   for h in g.get("hooks", []) if isinstance(h, dict)):
+            arr.append({"hooks": [{"type": "command", "command": f'"{CAPTURE_HOOK}"'}]})
     return added
 
 
