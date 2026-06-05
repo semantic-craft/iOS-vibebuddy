@@ -79,6 +79,7 @@ public enum VoiceSettings {
     public static let regionIntlKey = "voiceRegionIntl"
     public static let conversationLanguageKey = "voiceConversationLanguage"
     public static let providerKey = "voiceProvider"
+    public static let companionEnabledKey = "voiceCompanionEnabled"
 
     /// Per-provider model / voice ID UserDefaults keys (one set each).
     public static func modelKey(_ p: VoiceProvider) -> String { "voiceModel.\(p.rawValue)" }
@@ -93,6 +94,12 @@ public enum VoiceSettings {
         VoiceLanguage(rawValue: UserDefaults.standard.string(forKey: conversationLanguageKey) ?? "")
             ?? .english
     }
+
+    /// Opt-in consent gate for the voice companion. Default **OFF**: tapping the
+    /// buddy must not open the mic or share session context with a provider until
+    /// the user deliberately enables it (absent key → `false` = hard default-off
+    /// for everyone, including existing-key users after an update).
+    public static var companionEnabled: Bool { UserDefaults.standard.bool(forKey: companionEnabledKey) }
 
     /// The active real-time voice provider.
     public static var provider: VoiceProvider {

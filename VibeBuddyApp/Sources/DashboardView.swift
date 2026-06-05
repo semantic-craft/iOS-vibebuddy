@@ -5,6 +5,7 @@ struct DashboardView: View {
     @EnvironmentObject private var connection: ConnectionStore
     @EnvironmentObject private var dashboard: DashboardStore
     @EnvironmentObject private var voice: VoiceChat
+    @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
     @State private var showSettings = false
     @State private var highlightId: String?
 
@@ -23,7 +24,8 @@ struct DashboardView: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
                 BuddyView(groups: dashboard.groups, pulse: dashboard.cuePulse,
-                          speaking: voice.isSpeaking, listening: voice.isListening) {
+                          speaking: voice.isSpeaking, listening: voice.isListening,
+                          companionEnabled: companionEnabled) {
                     voice.toggle()
                 }
                 if voice.phase != .idle || voice.errorText != nil {
@@ -57,6 +59,7 @@ struct DashboardView: View {
             // re-inject `voice` — Settings restarts a live session on change.
             SettingsView().environmentObject(voice)
         }
+        .sheet(isPresented: $voice.showConsent) { VoiceConsentSheet(voice: voice) }
         .task(id: connection.pairing) {
             if let pairing = connection.pairing { dashboard.start(pairing) }
         }
@@ -295,5 +298,34 @@ private struct EmptyStateView: View {
             ContentUnavailableView(
                 "Disconnected", systemImage: "wifi.exclamationmark", description: Text(message))
         }
+    }
+}
+
+/// Inline consent before the voice companion's first use: you tapped to talk, so
+/// the ask is here, not buried in Settings. Enabling persists; it does not open
+/// the mic — the next tap starts the call.
+private struct VoiceConsentSheet: View {
+    @ObservedObject var voice: VoiceChat
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Tap the pet to talk — it holds a live voice conversation that knows your sessions and can approve / answer for you. Pick the provider whose key you've filled in below; switching applies instantly if it's already listening. The conversation uses your own key (kept in the Keychain, never uploaded or committed).")
+                    .foregroundStyle(.secondary)
+                Text("Enabling opens the mic on the next tap and shares your live sessions with your selected provider, using your own key.")
+                    .font(.callout).foregroundStyle(.secondary)
+                Spacer()
+                Button { voice.enableCompanion(); dismiss() } label: {
+                    Text("Enable").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            .padding()
+            .navigationTitle("Voice companion")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } } }
+        }
+        .presentationDetents([.medium])
     }
 }
