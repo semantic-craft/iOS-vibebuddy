@@ -130,10 +130,10 @@ private struct MacBuddyBar: View {
 private struct SessionRowView: View {
     let session: AgentSession
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 7) {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
                 Circle().fill(statusColor).frame(width: 8, height: 8)
-                Text(session.project).fontWeight(.semibold)
+                Text(session.project).font(.headline)   // row subject = .headline (matches iOS)
                 if session.isStuck {
                     Label("Stuck", systemImage: "exclamationmark.triangle.fill")
                         .font(.caption2.weight(.semibold))

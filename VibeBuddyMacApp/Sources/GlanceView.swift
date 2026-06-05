@@ -22,9 +22,12 @@ struct GlanceView: View {
             .clipShape(clipShape)
             .overlay {
                 if voice.isActive {
-                    panelShape.stroke(voice.isSpeaking ? Color.green : Color.red,
-                                      lineWidth: 2.5 * s)
-                        .shadow(color: (voice.isSpeaking ? Color.green : Color.red).opacity(0.7), radius: 5 * s)
+                    // Designed, not neon: a thin muted-tint border + a single soft
+                    // tinted shadow (per swiftui-taste). The voiceBadge spells out
+                    // Listening/Speaking, so the border only needs to hint.
+                    let tint = voice.isSpeaking ? Color.green : Color.red
+                    panelShape.stroke(tint.opacity(0.8), lineWidth: 1.5 * s)
+                        .shadow(color: tint.opacity(0.28), radius: 3 * s)
                 }
             }
             .onHover { hovering in
