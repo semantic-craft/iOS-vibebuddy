@@ -53,9 +53,9 @@ public actor SessionStore {
     /// the new snapshot to every subscriber. Returns false if it wasn't a hook.
     @discardableResult
     public func ingest(_ data: Data, agent: AgentKind = .claudeCode, receivedAt: Date) -> Bool {
-        // Claude Code / Codex hooks first (hook_event_name); Codex notify second.
-        guard let event = HookParser.parse(data, agent: agent, receivedAt: receivedAt)
-            ?? CodexParser.parse(data, receivedAt: receivedAt)
+        // Source-aware decode: the `?agent=` value selects the per-source decoder
+        // (Claude-shape passthrough by default; Codex/Grok have their own).
+        guard let event = HookDecoder.decode(data, agent: agent, receivedAt: receivedAt)
         else { return false }
         let wasWaiting = reducer.sessions[event.sessionID]?.status == .needsResponse
         if let path = event.transcriptPath { transcriptPaths[event.sessionID] = path }
