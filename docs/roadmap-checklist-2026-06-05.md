@@ -122,7 +122,9 @@
 - **§5 过审 ✅** 已核验：无支付/无分析/无 StoreKit/无 tracking（全免费，零 IAP 风险）；
   隐私串齐全；demo 模式在。**.lproj 本地化 ✅**（2026-06-05 iOS UI 全量加 zh-Hans，
   英文为 base/dev language，~65 串，中文模拟器验证；前判“iOS 中文硬编码”已过时——实为英文）。
-  **延后**：商店元数据 en/zh-Hans（App Store Connect，HITL）、Mac app 本地化（另一块活）。
+  **Mac app 本地化 ✅**（2026-06-05，镜像 iOS：`zh-Hans.lproj` 107 串 + 不自动本地化处转
+  `LocalizedStringKey`/`String(localized:)`；BUILD + 解析 + 键对账通过；待人工强制 zh-Hans 目视）。
+  **延后**：商店元数据 en/zh-Hans（App Store Connect，HITL）。
 - **附加（用户本轮新增）✅** Glance 关闭按钮 + ⌃⌥⇧⌘G 全局开关（解决 iMac 遮挡）；
   多 CLI 支持：`AgentKind` 扩展到 claude/codex/qwen/kimi/antigravity/grok/opencode/copilot
   + `fromSource` 路由 + 每 agent 名称/图标 + `docs/multi-cli-hook-setup.md`（注入安装为后续）。

@@ -255,7 +255,7 @@ private struct ProviderSection: View {
     /// One labelled, clearly-editable field with a click-through link to the
     /// provider's list of valid values.
     @ViewBuilder
-    private func field<F: View>(caption: String, link: String, icon: String, url: URL,
+    private func field<F: View>(caption: LocalizedStringKey, link: LocalizedStringKey, icon: String, url: URL,
                                 @ViewBuilder _ input: () -> F) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(caption).font(.caption).foregroundStyle(.secondary)
@@ -311,7 +311,7 @@ private struct DeviceSettings: View {
                             .foregroundStyle(.secondary)
                     }
                     LabeledContent("Push") {
-                        Label(phone.pushRegistered ? "Registered" : "Pending",
+                        Label(phone.pushRegistered ? "Registered" as LocalizedStringKey : "Pending",
                               systemImage: phone.pushRegistered ? "bell.badge.fill" : "bell.slash")
                             .foregroundStyle(phone.pushRegistered ? .green : .secondary)
                     }
@@ -343,14 +343,14 @@ struct HotkeyRecorderView: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Text(recording ? "Press a combo…" : current.displayString)
+            (recording ? Text("Press a combo…") : Text(verbatim: current.displayString))
                 .font(.system(.body, design: .rounded).weight(.medium))
                 .frame(minWidth: 84)
                 .padding(.horizontal, 10).padding(.vertical, 5)
                 .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .controlColor)))
                 .overlay(RoundedRectangle(cornerRadius: 6)
                     .stroke(recording ? Color.accentColor : Color(nsColor: .separatorColor), lineWidth: 1))
-            Button(recording ? "Cancel" : "Record") { recording ? stop() : start() }
+            Button(recording ? "Cancel" as LocalizedStringKey : "Record") { recording ? stop() : start() }
             if hint {
                 Text("needs a modifier").font(.caption2).foregroundStyle(.red)
             }

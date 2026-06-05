@@ -98,7 +98,7 @@ struct GlanceView: View {
                 .font(.system(size: 15 * s, weight: .semibold))
                 .foregroundStyle(speaking ? Color.green : Color.red)
                 .symbolEffect(.variableColor.iterative, options: .repeating, isActive: true)
-            Text(speaking ? "Speaking" : "Listening")
+            Text(speaking ? "Speaking" as LocalizedStringKey : "Listening")
                 .font(.system(size: 15 * s, weight: .semibold))
                 .foregroundStyle(.white)
             if let p = voice.activeProvider {

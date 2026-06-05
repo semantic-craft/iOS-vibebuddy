@@ -1,6 +1,7 @@
 name: VibeBuddyMacApp
 options:
   bundleIdPrefix: com.vibebuddy
+  developmentLanguage: en
   deploymentTarget:
     macOS: "14.0"
   createIntermediateGroups: true
@@ -15,6 +16,7 @@ targets:
     platform: macOS
     sources:
       - path: Sources
+      - path: Resources
     dependencies:
       - package: VibeBuddyMac
         product: VibeBuddyMacCore
