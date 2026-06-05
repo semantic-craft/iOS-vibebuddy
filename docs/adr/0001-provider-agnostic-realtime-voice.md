@@ -1,5 +1,7 @@
 # Provider-agnostic realtime voice over WebSocket
 
+**Status:** Accepted (2026-06-05)
+
 The voice companion talks to three different cloud realtime APIs (Qwen Omni,
 OpenAI Realtime, Gemini Live). We put them all behind one `RealtimeVoiceProvider`
 actor protocol that emits a shared `RealtimeVoiceEvent` stream, so the audio

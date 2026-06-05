@@ -1,5 +1,7 @@
 # BYO key, audio direct to the provider, no vibebuddy cloud
 
+**Status:** Accepted (2026-06-05)
+
 The user brings their own API key (DashScope / OpenAI / Google), stored in the
 Keychain; voice audio streams directly from the device to the user's chosen
 provider. vibebuddy runs no server in the voice path and has no account. This

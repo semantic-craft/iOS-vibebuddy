@@ -1,5 +1,7 @@
 # Shared Kit realtime sessions; platform-specific audio I/O and UI
 
+**Status:** Accepted (2026-06-05)
+
 The realtime WebSocket sessions (`QwenRealtimeSession`, `OpenAIRealtimeSession`,
 `GeminiRealtimeSession`) live in `VibeBuddyKit` as pure Foundation /
 `URLSessionWebSocketTask` and are platform-agnostic. The audio I/O

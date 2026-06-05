@@ -1,5 +1,7 @@
 # Free, no IAP, no analytics, no tracking
 
+**Status:** Accepted (2026-06-05)
+
 The iOS app ships free with no in-app purchase, no StoreKit, no analytics SDK,
 and no tracking. This sidesteps the App Store payment-review minefield and
 reduces the review surface to "no private API + accurate privacy +

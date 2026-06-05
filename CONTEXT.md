@@ -15,8 +15,11 @@ code, and tests — don't drift to synonyms.
   - **done** — finished and not waiting.
 - **waitKind** — when `needsResponse`, *why*: **permission** (approve/deny a
   tool/command/edit) or **question** (free-text answer).
-- **failed / stuck** *(planned)* — a real failure signal (non-zero Bash exit,
-  error Stop reason). Today approximated by summary keywords.
+- **failed / stuck** — a real failure signal: the Mac hook flags `PostToolUse`
+  tool errors (`HookEvent.toolError`, parsed from `is_error` in `tool_response`),
+  the reducer sets `AgentSession.failed` on stop, and `isStuck` drives the pet's
+  stuck mood + stuck sound. The summary-keyword `FailureHeuristic` is now only a
+  fallback.
 
 ## Mac side
 

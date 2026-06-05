@@ -1,5 +1,7 @@
 # Half-duplex mic gating instead of hardware echo cancellation
 
+**Status:** Accepted (2026-06-05)
+
 Enabling AVAudioEngine voice-processing (`setVoiceProcessingEnabled`, which would
 give hardware echo cancellation) failed to initialize the engine on macOS
 (`-10875`, "client-side input and output formats do not match" under the realtime
