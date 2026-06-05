@@ -22,7 +22,7 @@ struct BuddyView: View {
                     .animation(.spring(response: 0.3, dampingFraction: 0.4), value: react)
                     .onTapGesture { onTap?() }
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(listening ? "在听…" : (speaking ? "说话中…" : title(state))).font(.headline)
+                    Text(listening ? "Listening…" : (speaking ? "Speaking…" : title(state))).font(.headline)
                     Text(subtitle).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
@@ -41,22 +41,22 @@ struct BuddyView: View {
 
     private func title(_ state: BuddyState) -> String {
         switch state {
-        case .approval: "等你批准"
-        case .question: "在等你回答"
-        case .longWait: "等好久了…"
-        case .working:  "干活中..."
-        case .stuck:    "卡住了"
-        case .done:     "全部搞定"
-        case .sleeping: "打盹中..."
+        case .approval: "Waiting for approval"
+        case .question: "Waiting for your answer"
+        case .longWait: "Been waiting a while…"
+        case .working:  "Working…"
+        case .stuck:    "Stuck"
+        case .done:     "All done"
+        case .sleeping: "Napping…"
         }
     }
 
     private var subtitle: String {
-        if groups.isEmpty { return "没有进行中的会话" }
+        if groups.isEmpty { return "No active sessions" }
         var parts: [String] = []
-        if !groups.needsResponse.isEmpty { parts.append("\(groups.needsResponse.count) 待回应") }
-        if !groups.working.isEmpty { parts.append("\(groups.working.count) 进行中") }
-        if !groups.done.isEmpty { parts.append("\(groups.done.count) 已完成") }
+        if !groups.needsResponse.isEmpty { parts.append("\(groups.needsResponse.count) waiting") }
+        if !groups.working.isEmpty { parts.append("\(groups.working.count) working") }
+        if !groups.done.isEmpty { parts.append("\(groups.done.count) done") }
         return parts.joined(separator: " · ")
     }
 }

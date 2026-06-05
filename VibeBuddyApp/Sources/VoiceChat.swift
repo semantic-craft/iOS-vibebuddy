@@ -3,10 +3,10 @@ import AVFoundation
 import Speech
 import VibeBuddyKit
 
-/// The voice companion: tap to talk → on-device speech-to-text → Qwen brain
-/// (which knows your live sessions) → on-device text-to-speech, and it can act
-/// on your agents ("approve the payments one"). ASR/TTS are on-device (free,
-/// private); only the brain call uses your DashScope key.
+/// The voice companion: tap to talk → speech-to-text → Qwen brain (which knows
+/// your live sessions) → on-device text-to-speech, and it can act on your agents
+/// ("approve the payments one"). Recognition, reply, and voice all follow the
+/// conversation language in Settings; the brain call uses your DashScope key.
 @MainActor
 final class VoiceChat: NSObject, ObservableObject {
     enum Phase: Equatable { case idle, listening, thinking, speaking }
@@ -18,13 +18,13 @@ final class VoiceChat: NSObject, ObservableObject {
 
     var isListening: Bool { phase == .listening }
     var isSpeaking: Bool { phase == .speaking }
-    var isAvailable: Bool { VoiceSettings.enabled && VoiceSettings.apiKey?.isEmpty == false }
+    /// Available as soon as the user has pasted a key — no separate enable step.
+    var isAvailable: Bool { VoiceSettings.apiKey?.isEmpty == false }
 
     private let contextProvider: () -> [AgentSession]
     private let actionHandler: (VoiceAction) -> String
     private var history: [ChatMessage] = []
 
-    private let recognizer = SFSpeechRecognizer()
     private let audioEngine = AVAudioEngine()
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
@@ -50,16 +50,27 @@ final class VoiceChat: NSObject, ObservableObject {
     // MARK: permissions
 
     private func requestPermissionsThenListen() {
-        guard isAvailable else { errorText = "先在设置里填入 Qwen (DashScope) Key 并开启语音"; return }
-        SFSpeechRecognizer.requestAuthorization { [weak self] auth in
-            AVAudioApplication.requestRecordPermission { granted in
-                Task { @MainActor in
-                    guard let self else { return }
-                    guard auth == .authorized, granted else {
-                        self.errorText = "需要麦克风和语音识别权限"; return
-                    }
-                    self.startListening()
+        guard isAvailable else { errorText = "Add your Qwen (DashScope) key in Settings first."; return }
+        // The TCC completion handlers fire on a background thread, so run them off
+        // the main actor (a main-actor-isolated closure would trap Swift's executor
+        // check), then hop back to the main actor with the result.
+        Self.requestPermissions { [weak self] speechOK, micOK in
+            Task { @MainActor in
+                guard let self else { return }
+                guard speechOK, micOK else {
+                    self.errorText = "Microphone and Speech Recognition permissions are needed."; return
                 }
+                self.startListening()
+            }
+        }
+    }
+
+    /// Runs the speech + microphone permission prompts. `nonisolated` so the SDK
+    /// callbacks (delivered on a background thread) are not main-actor isolated.
+    nonisolated private static func requestPermissions(_ done: @escaping @Sendable (_ speech: Bool, _ mic: Bool) -> Void) {
+        SFSpeechRecognizer.requestAuthorization { auth in
+            AVAudioApplication.requestRecordPermission { granted in
+                done(auth == .authorized, granted)
             }
         }
     }
@@ -67,7 +78,9 @@ final class VoiceChat: NSObject, ObservableObject {
     // MARK: ASR (on-device)
 
     private func startListening() {
-        guard let recognizer, recognizer.isAvailable else { errorText = "语音识别暂不可用"; return }
+        let lang = VoiceSettings.conversationLanguage
+        guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: lang.bcp47)),
+              recognizer.isAvailable else { errorText = "Speech recognition is unavailable."; return }
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playAndRecord, mode: .default, options: [.duckOthers, .defaultToSpeaker])
@@ -75,24 +88,32 @@ final class VoiceChat: NSObject, ObservableObject {
 
             let req = SFSpeechAudioBufferRecognitionRequest()
             req.shouldReportPartialResults = true
-            req.requiresOnDeviceRecognition = true
+            // This chat runs on online models — use Apple's server-based
+            // recognition rather than insisting on the on-device model.
+            req.requiresOnDeviceRecognition = false
             request = req
 
             let input = audioEngine.inputNode
             input.removeTap(onBus: 0)
-            input.installTap(onBus: 0, bufferSize: 1024, format: input.outputFormat(forBus: 0)) { [weak self] buffer, _ in
-                self?.request?.append(buffer)
+            // The tap fires on the audio render thread — keep the closure
+            // non-isolated and capture the request directly (not `self`).
+            nonisolated(unsafe) let tapReq = req
+            input.installTap(onBus: 0, bufferSize: 1024, format: input.outputFormat(forBus: 0)) { @Sendable buffer, _ in
+                tapReq.append(buffer)
             }
             audioEngine.prepare()
             try audioEngine.start()
             phase = .listening
             lastUserText = ""
-            task = recognizer.recognitionTask(with: req) { [weak self] result, _ in
-                guard let self, let result else { return }
-                Task { @MainActor in self.lastUserText = result.bestTranscription.formattedString }
+            // The result handler is delivered off the main thread; keep it
+            // non-isolated and hop back to the main actor for the @Published update.
+            task = recognizer.recognitionTask(with: req) { @Sendable [weak self] result, _ in
+                guard let result else { return }
+                let text = result.bestTranscription.formattedString
+                Task { @MainActor in self?.lastUserText = text }
             }
         } catch {
-            errorText = "无法开始录音：\(error.localizedDescription)"
+            errorText = "Couldn't start recording: \(error.localizedDescription)"
             teardownAudio()
             phase = .idle
         }
@@ -121,7 +142,9 @@ final class VoiceChat: NSObject, ObservableObject {
         let brain = QwenClient(apiKey: VoiceSettings.apiKey,
                                model: VoiceSettings.model,
                                useIntl: VoiceSettings.useIntl)
-        var messages = [ChatMessage(role: "system", content: VoicePrompt.systemPrompt(sessions: contextProvider()))]
+        var messages = [ChatMessage(role: "system",
+                                    content: VoicePrompt.systemPrompt(sessions: contextProvider(),
+                                                                      language: VoiceSettings.conversationLanguage))]
         messages += history.suffix(8)
         messages.append(ChatMessage(role: "user", content: userText))
         do {
@@ -137,11 +160,11 @@ final class VoiceChat: NSObject, ObservableObject {
             lastReply = toSpeak
             speak(toSpeak)
         } catch VoiceBrainError.noKey {
-            fail("先在设置里填入 Qwen Key")
+            fail("Add your Qwen key in Settings first.")
         } catch VoiceBrainError.http(let code) {
-            fail("Qwen 请求失败 (HTTP \(code))")
+            fail("Qwen request failed (HTTP \(code)).")
         } catch {
-            fail("出错了：\(error.localizedDescription)")
+            fail("Something went wrong: \(error.localizedDescription)")
         }
     }
 
@@ -156,7 +179,7 @@ final class VoiceChat: NSObject, ObservableObject {
         guard !text.isEmpty else { phase = .idle; return }
         phase = .speaking
         let utterance = AVSpeechUtterance(string: text)
-        utterance.voice = AVSpeechSynthesisVoice(language: Self.bcp47(for: text))
+        utterance.voice = AVSpeechSynthesisVoice(language: VoiceSettings.conversationLanguage.bcp47)
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate
         synthesizer.speak(utterance)
     }
@@ -164,11 +187,6 @@ final class VoiceChat: NSObject, ObservableObject {
     private func cancelSpeaking() {
         synthesizer.stopSpeaking(at: .immediate)
         phase = .idle
-    }
-
-    /// Pick a voice language from the text (Chinese if it has CJK, else English).
-    private static func bcp47(for text: String) -> String {
-        text.unicodeScalars.contains { $0.value >= 0x4E00 && $0.value <= 0x9FFF } ? "zh-CN" : "en-US"
     }
 }
 

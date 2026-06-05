@@ -9,9 +9,9 @@ struct DashboardView: View {
 
     var body: some View {
         List {
-            section("需回应", sessions: dashboard.groups.needsResponse, accent: .orange)
-            section("进行中", sessions: dashboard.groups.working, accent: .blue)
-            section("已完成", sessions: dashboard.groups.done, accent: .green)
+            section("Needs response", sessions: dashboard.groups.needsResponse, accent: .orange)
+            section("Working", sessions: dashboard.groups.working, accent: .blue)
+            section("Done", sessions: dashboard.groups.done, accent: .green)
         }
         .listStyle(.plain)
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -40,7 +40,7 @@ struct DashboardView: View {
                 Button { showSettings = true } label: { Image(systemName: "gearshape") }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button(connection.demo ? "退出演示" : "断开") { dashboard.stop(); connection.clear() }
+                Button(connection.demo ? "Exit demo" : "Disconnect") { dashboard.stop(); connection.clear() }
                     .font(.subheadline)
             }
         }
@@ -134,7 +134,7 @@ private struct SessionRow: View {
                             .foregroundStyle(.secondary)
                     }
                     if session.isStuck {
-                        Label("卡住", systemImage: "exclamationmark.triangle.fill")
+                        Label("Stuck", systemImage: "exclamationmark.triangle.fill")
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.red)
                             .labelStyle(.titleAndIcon)
@@ -177,9 +177,9 @@ private struct SessionRow: View {
                     ApprovalCardView(approval: approval)
                         .padding(.top, 2)
                     HStack(spacing: 10) {
-                        Button("拒绝") { dashboard.decide(approval.id, approve: false) }
+                        Button("Deny") { dashboard.decide(approval.id, approve: false) }
                             .buttonStyle(.bordered).tint(.red)
-                        Button("批准") { dashboard.decide(approval.id, approve: true) }
+                        Button("Approve") { dashboard.decide(approval.id, approve: true) }
                             .buttonStyle(.borderedProminent).tint(.green)
                     }
                     .font(.subheadline)
@@ -242,9 +242,9 @@ private struct ConnectionDot: View {
     }
     private var label: String {
         switch state {
-        case .connecting: "连接中"
-        case .connected: "已连接"
-        case .failed: "重连中"
+        case .connecting: "Connecting"
+        case .connected: "Connected"
+        case .failed: "Reconnecting"
         }
     }
 }
@@ -255,14 +255,14 @@ private struct EmptyStateView: View {
     var body: some View {
         switch state {
         case .connecting:
-            ContentUnavailableView("正在连接 Mac", systemImage: "antenna.radiowaves.left.and.right")
+            ContentUnavailableView("Connecting to your Mac", systemImage: "antenna.radiowaves.left.and.right")
         case .connected:
             ContentUnavailableView(
-                "没有进行中的会话", systemImage: "moon.zzz",
-                description: Text("启动一个 Claude Code 或 Codex 会话,它会出现在这里。"))
+                "No active sessions", systemImage: "moon.zzz",
+                description: Text("Start a Claude Code or Codex session and it'll show up here."))
         case .failed(let message):
             ContentUnavailableView(
-                "连接断开", systemImage: "wifi.exclamationmark", description: Text(message))
+                "Disconnected", systemImage: "wifi.exclamationmark", description: Text(message))
         }
     }
 }

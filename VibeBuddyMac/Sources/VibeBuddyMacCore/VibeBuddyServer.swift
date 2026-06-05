@@ -73,7 +73,7 @@ public struct VibeBuddyServer: Sendable {
 
         // Self-healing: every minute, drop sessions that ended or went stale
         // without a terminal hook (force-kill, dropped POST, daemon restart),
-        // so the dashboard's "需回应" count stays accurate.
+        // so the dashboard's "Needs response" count stays accurate.
         let sweepStore = self.store
         Task {
             while !Task.isCancelled {

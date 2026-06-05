@@ -18,6 +18,14 @@ struct VoicePromptTests {
         #expect(p.contains("ACTION:"))
     }
 
+    @Test("the conversation language pins the reply language")
+    func language() {
+        let en = VoicePrompt.systemPrompt(sessions: [], language: .english)
+        #expect(en.contains("Always reply in English."))
+        let zh = VoicePrompt.systemPrompt(sessions: [], language: .chinese)
+        #expect(zh.contains("Always reply in Chinese"))
+    }
+
     @Test("a plain reply has no action")
     func plain() {
         let (spoken, action) = VoicePrompt.parse("Two sessions are running and one needs you.")

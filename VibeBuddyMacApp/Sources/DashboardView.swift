@@ -102,7 +102,7 @@ private struct MacBuddyBar: View {
             PetFace(state: model.buddyState, speaking: voice.isSpeaking, listening: voice.isListening)
                 .onTapGesture { voice.toggle() }
             VStack(alignment: .leading, spacing: 1) {
-                Text(voice.isListening ? "在听…轻点结束" : (voice.isSpeaking ? "说话中…" : "轻点宠物和我说话"))
+                Text(voice.isListening ? "Listening… tap to finish" : (voice.isSpeaking ? "Speaking…" : "Tap the pet to talk"))
                     .font(.headline)
                 if let err = voice.errorText {
                     Text(err).font(.caption).foregroundStyle(.red).lineLimit(2)

@@ -55,7 +55,7 @@ final class DashboardStore: ObservableObject {
                     await self.apply(snapshot)
                 }
                 if Task.isCancelled { return }
-                self.state = .failed("连接断开,重连中…")
+                self.state = .failed("Disconnected — reconnecting…")
                 try? await Task.sleep(for: .seconds(2))
             }
         }
@@ -80,14 +80,14 @@ final class DashboardStore: ObservableObject {
     func performVoiceAction(_ action: VoiceAction) -> String {
         switch action {
         case .approve(let project):
-            guard let s = match(project), let ap = s.pendingApproval else { return "没找到要批准的会话" }
-            decide(ap.id, approve: true); return "已批准 \(s.project)"
+            guard let s = match(project), let ap = s.pendingApproval else { return "No session to approve." }
+            decide(ap.id, approve: true); return "Approved \(s.project)."
         case .deny(let project):
-            guard let s = match(project), let ap = s.pendingApproval else { return "没找到要拒绝的会话" }
-            decide(ap.id, approve: false); return "已拒绝 \(s.project)"
+            guard let s = match(project), let ap = s.pendingApproval else { return "No session to deny." }
+            decide(ap.id, approve: false); return "Denied \(s.project)."
         case .answer(let project, let text):
-            guard let s = match(project) else { return "没找到那个会话" }
-            answer(s.id, answer: text); return "已回复 \(s.project)"
+            guard let s = match(project) else { return "No matching session." }
+            answer(s.id, answer: text); return "Replied to \(s.project)."
         case .none:
             return ""
         }

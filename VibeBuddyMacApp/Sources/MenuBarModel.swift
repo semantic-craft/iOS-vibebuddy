@@ -224,14 +224,14 @@ final class MenuBarModel: ObservableObject {
     func performVoiceAction(_ action: VoiceAction) -> String {
         switch action {
         case .approve(let project):
-            guard let s = match(project), let ap = s.pendingApproval else { return "没找到要批准的会话" }
-            decide(ap.id, approve: true); return "已批准 \(s.project)"
+            guard let s = match(project), let ap = s.pendingApproval else { return "No session to approve." }
+            decide(ap.id, approve: true); return "Approved \(s.project)."
         case .deny(let project):
-            guard let s = match(project), let ap = s.pendingApproval else { return "没找到要拒绝的会话" }
-            decide(ap.id, approve: false); return "已拒绝 \(s.project)"
+            guard let s = match(project), let ap = s.pendingApproval else { return "No session to deny." }
+            decide(ap.id, approve: false); return "Denied \(s.project)."
         case .answer(let project, let text):
-            guard let s = match(project), let ref = s.terminalRef else { return "没找到那个会话或它没有终端" }
-            TerminalInjector.inject(text, into: ref); return "已回复 \(s.project)"
+            guard let s = match(project), let ref = s.terminalRef else { return "No matching session, or it has no terminal." }
+            TerminalInjector.inject(text, into: ref); return "Replied to \(s.project)."
         case .none:
             return ""
         }

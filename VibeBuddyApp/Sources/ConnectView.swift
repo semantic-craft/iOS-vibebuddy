@@ -24,7 +24,7 @@ struct ConnectView: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("vibebuddy").font(.largeTitle.bold())
-                Text("在手机上盯着 Mac 上的 Claude Code 和 Codex 会话。")
+                Text("Keep an eye on your Mac's Claude Code and Codex sessions from your phone.")
                     .font(.subheadline).foregroundStyle(.secondary)
             }
             .padding(.horizontal, 24)
@@ -36,24 +36,24 @@ struct ConnectView: View {
                 Button {
                     showScanner = true
                 } label: {
-                    Label("扫码配对", systemImage: "qrcode.viewfinder")
+                    Label("Scan to pair", systemImage: "qrcode.viewfinder")
                         .font(.headline).frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
 
-                Text("打开 Mac 菜单栏 vibebuddy 的「Pair a phone」,扫那个二维码。")
+                Text("Open “Pair a phone” in the vibebuddy Mac menu bar and scan that QR code.")
                     .font(.caption).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
 
-                Button(showManual ? "收起手动输入" : "手动输入地址") {
+                Button(showManual ? "Hide manual entry" : "Enter address manually") {
                     withAnimation(.smooth) { showManual.toggle() }
                 }
                 .font(.subheadline)
 
                 if showManual { manualFields }
 
-                Button("查看演示(无需 Mac)") { connection.enterDemo() }
+                Button("See the demo (no Mac needed)") { connection.enterDemo() }
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .padding(.top, 4)
@@ -67,8 +67,8 @@ struct ConnectView: View {
         VStack(spacing: 12) {
             field("Host", placeholder: "192.168.1.20", text: $host)
             field("Port", placeholder: "9876", text: $port, keyboard: .numberPad)
-            field("Token", placeholder: "菜单栏配对里的 token", text: $token)
-            Button("连接") {
+            field("Token", placeholder: "token from the menu-bar pairing", text: $token)
+            Button("Connect") {
                 if let portValue = Int(port) {
                     pair(PairingPayload(host: host, port: portValue, token: token))
                 }
@@ -102,11 +102,11 @@ struct ConnectView: View {
                 showScanner = false
             }
             .ignoresSafeArea()
-            .navigationTitle("扫描配对二维码")
+            .navigationTitle("Scan pairing QR")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("取消") { showScanner = false }
+                    Button("Cancel") { showScanner = false }
                 }
             }
         }

@@ -8,52 +8,54 @@ struct SettingsView: View {
     @AppStorage(SoundPrefs.playSoundKey) private var playSound = true
     @AppStorage(SoundPrefs.quietModeKey) private var quiet = false
     @State private var quietHours = SoundPrefs.quietHours
-    @AppStorage(VoiceSettings.enabledKey) private var voiceEnabled = false
     @AppStorage(VoiceSettings.regionIntlKey) private var voiceIntl = false
+    @AppStorage(VoiceSettings.conversationLanguageKey) private var voiceLanguage = VoiceLanguage.english.rawValue
     @State private var apiKey = ""
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    Toggle("提示音", isOn: $playSound)
-                    Toggle("专注模式（只保留权限提示）", isOn: $quiet).disabled(!playSound)
+                    Toggle("Sound", isOn: $playSound)
+                    Toggle("Focus mode (only permission cues)", isOn: $quiet).disabled(!playSound)
                 } header: {
-                    Text("声音")
+                    Text("Sound")
                 } footer: {
-                    Text("每个状态变化配一段简短的内置提示音——需要你、权限、完成、卡住。只有状态边界会响，过程中不打扰。专注模式下只有安全权限会发声，其余静音。")
+                    Text("Each status change gets a short built-in cue — needs you, permission, done, stuck. Only status boundaries sound; nothing interrupts mid-task. In Focus mode only permission prompts make a sound.")
                 }
 
                 Section {
-                    Toggle("夜间自动静音", isOn: $quietHours.enabled).disabled(!playSound)
+                    Toggle("Auto-mute at night", isOn: $quietHours.enabled).disabled(!playSound)
                     if quietHours.enabled {
-                        Picker("开始", selection: $quietHours.startHour) { hourTags }
-                        Picker("结束", selection: $quietHours.endHour) { hourTags }
+                        Picker("Start", selection: $quietHours.startHour) { hourTags }
+                        Picker("End", selection: $quietHours.endHour) { hourTags }
                     }
                 } header: {
-                    Text("夜间")
+                    Text("Night")
                 } footer: {
-                    Text("在这个时间段内自动进入专注模式，只有安全权限会发声。")
+                    Text("During this window the app auto-enters Focus mode — only permission prompts make a sound.")
                 }
 
                 Section {
-                    Toggle("语音助手", isOn: $voiceEnabled)
                     SecureField("Qwen (DashScope) API Key", text: $apiKey)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                        .disabled(!voiceEnabled)
-                    Toggle("使用国际站 (dashscope-intl)", isOn: $voiceIntl).disabled(!voiceEnabled)
+                    Picker("Conversation language", selection: $voiceLanguage) {
+                        Text("English").tag(VoiceLanguage.english.rawValue)
+                        Text("中文").tag(VoiceLanguage.chinese.rawValue)
+                    }
+                    Toggle("Use international site (dashscope-intl)", isOn: $voiceIntl)
                 } header: {
-                    Text("语音助手")
+                    Text("Voice companion")
                 } footer: {
-                    Text("轻点宠物即可语音对话——它知道你的会话，还能帮你批准/回答。语音识别与朗读在本机完成；只有对话用到你的 Qwen Key（存于钥匙串，不上传、不入库）。")
+                    Text("Tap the pet to talk — it knows your sessions and can approve / answer for you. Pick the language you'll speak and it'll reply in. The conversation uses your own Qwen key (kept in the Keychain, never uploaded or committed).")
                 }
             }
-            .navigationTitle("设置")
+            .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("完成") { dismiss() }
+                    Button("Done") { dismiss() }
                 }
             }
             .onAppear { apiKey = VoiceSettings.apiKey ?? "" }

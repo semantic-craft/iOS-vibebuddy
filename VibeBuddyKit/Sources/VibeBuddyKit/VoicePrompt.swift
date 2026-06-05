@@ -11,10 +11,11 @@ public enum VoiceAction: Equatable, Sendable {
 /// Builds the companion's system prompt from live session state and parses the
 /// model's reply into a spoken part + an optional action. Pure & unit-tested.
 public enum VoicePrompt {
-    public static func systemPrompt(sessions: [AgentSession]) -> String {
+    public static func systemPrompt(sessions: [AgentSession],
+                                    language: VoiceLanguage = .english) -> String {
         var lines = [
             "You are VibeBuddy, a concise, warm voice companion for a developer watching AI coding agents.",
-            "Answer in the user's language, in one or two short spoken sentences — no markdown, no lists.",
+            "\(language.replyInstruction) Keep it to one or two short spoken sentences — no markdown, no lists.",
             "Current sessions:",
         ]
         if sessions.isEmpty { lines.append("- (none right now)") }

@@ -20,9 +20,9 @@ struct VoiceStrip: View {
                     if !voice.lastReply.isEmpty {
                         Text(voice.lastReply).font(.caption.weight(.medium)).lineLimit(2)
                     } else if voice.phase == .listening {
-                        Text("在听…轻点宠物结束").font(.caption).foregroundStyle(.secondary)
+                        Text("Listening… tap the pet to finish").font(.caption).foregroundStyle(.secondary)
                     } else if voice.phase == .thinking {
-                        Text("思考中…").font(.caption).foregroundStyle(.secondary)
+                        Text("Thinking…").font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }

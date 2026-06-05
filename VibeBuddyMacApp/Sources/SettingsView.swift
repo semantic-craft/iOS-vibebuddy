@@ -164,19 +164,41 @@ private struct NotificationSettings: View {
 }
 
 private struct VoiceSettingsTab: View {
-    @AppStorage(VoiceSettings.enabledKey) private var enabled = false
     @AppStorage(VoiceSettings.regionIntlKey) private var intl = false
+    @AppStorage(VoiceSettings.conversationLanguageKey) private var language = VoiceLanguage.english.rawValue
+    @AppStorage(VoiceSettings.realtimeVoiceKey) private var voice = ""
+    @AppStorage(VoiceSettings.qwenRealtimeModelKey) private var qwenModel = VoiceSettings.qwenRealtimeModelDefault
     @State private var apiKey = ""
 
     var body: some View {
         Form {
             Section {
-                Toggle("Voice companion", isOn: $enabled)
-                SecureField("Qwen (DashScope) API Key", text: $apiKey)
-                    .disabled(!enabled)
-                Toggle("Use international site (dashscope-intl)", isOn: $intl).disabled(!enabled)
+                Picker("Conversation language", selection: $language) {
+                    Text("English").tag(VoiceLanguage.english.rawValue)
+                    Text("中文").tag(VoiceLanguage.chinese.rawValue)
+                }
+                TextField("Voice ID (auto by language)", text: $voice)
+                    .font(.body.monospaced())
+                    .autocorrectionDisabled()
+            } header: {
+                Text("Companion")
             } footer: {
-                Text("Tap the buddy to talk — it knows your sessions and can approve / answer for you. Speech recognition and reading aloud run on-device; only the conversation uses your own Qwen key (kept in the Keychain, never uploaded or committed).")
+                Text("Tap the buddy to talk — it knows your sessions and can approve / answer for you. Voice ID: leave blank to auto-pick by language. For English try Jennifer, Ryan, Aiden, or Katerina; for 中文 try Tina or Serena (CN voices carry an accent in English).")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            // One section per voice provider; each carries its own credentials +
+            // an editable model ID. (More providers — OpenAI, Gemini — slot in here.)
+            Section {
+                SecureField("DashScope API Key", text: $apiKey)
+                TextField("Model ID", text: $qwenModel)
+                    .font(.body.monospaced())
+                    .autocorrectionDisabled()
+                Toggle("Use international site (dashscope-intl)", isOn: $intl)
+            } header: {
+                Text("Qwen (DashScope)")
+            } footer: {
+                Text("Realtime speech-to-speech model. Default: \(VoiceSettings.qwenRealtimeModelDefault). The key is kept in the Keychain — never uploaded or committed.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }

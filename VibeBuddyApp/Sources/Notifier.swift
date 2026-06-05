@@ -30,7 +30,7 @@ struct LocalNotifier: AttentionNotifier {
 
     /// A fresh pairing just succeeded — the one chrome cue not tied to a session.
     func confirmPairing() {
-        post(title: "已连接", body: "VibeBuddy 正在盯着你的会话。",
+        post(title: "Connected", body: "VibeBuddy is watching your sessions.",
              sound: .pairSuccess, id: NotificationID.pairSuccess)
     }
 
@@ -48,22 +48,22 @@ struct LocalNotifier: AttentionNotifier {
     /// Sound on by default. Mute = sound off.
     private static var soundOn: Bool { SoundPrefs.playSound }
 
-    /// Banner copy per cue, in the app's Chinese voice.
+    /// Banner copy per cue.
     private static func copy(for alert: SoundAlert) -> (title: String, body: String) {
         let s = alert.session
         switch alert.sound {
         case .needsApproval:
-            return ("\(s.project) 需要权限", s.pendingApproval?.commandPreview ?? s.summary ?? "批准或拒绝")
+            return ("\(s.project) needs permission", s.pendingApproval?.commandPreview ?? s.summary ?? "Approve or deny")
         case .needsAnswer:
-            return ("\(s.project) 需要你", s.summary ?? "等待你的输入")
+            return ("\(s.project) needs you", s.summary ?? "Waiting for your input")
         case .longWaitNudge:
-            return ("\(s.project) 还在等你", s.summary ?? "等待你的输入")
+            return ("\(s.project) is still waiting", s.summary ?? "Waiting for your input")
         case .agentDone:
-            return ("\(s.project) 完成了", s.summary ?? "任务完成")
+            return ("\(s.project) is done", s.summary ?? "Task complete")
         case .agentStuck:
-            return ("\(s.project) 停下了", s.summary ?? "可能需要看一下")
+            return ("\(s.project) stopped", s.summary ?? "Might need a look")
         case .pairSuccess:
-            return ("已连接", "VibeBuddy 正在盯着你的会话。")
+            return ("Connected", "VibeBuddy is watching your sessions.")
         }
     }
 }
