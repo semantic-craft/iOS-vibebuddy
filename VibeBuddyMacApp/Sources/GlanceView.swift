@@ -57,16 +57,35 @@ struct GlanceView: View {
                     Text(p.project).font(.system(size: 13 * s, weight: .bold)).foregroundStyle(.white)
                     Text(a.commandPreview).font(.system(size: 11 * s, design: .monospaced))
                         .foregroundStyle(.white.opacity(0.8)).lineLimit(2)
-                    HStack {
-                        Button("Approve") { model.decide(a.id, approve: true) }.tint(.green)
-                        Button("Deny") { model.decide(a.id, approve: false) }.tint(.red)
-                    }.buttonStyle(.borderedProminent).controlSize(.regular)
+                    HStack(spacing: 8 * s) {
+                        Button("Approve") { model.decide(a.id, approve: true) }
+                            .tint(.green).buttonStyle(.borderedProminent).controlSize(.regular)
+                        Button("Deny") { model.decide(a.id, approve: false) }
+                            .tint(.red).buttonStyle(.borderedProminent).controlSize(.regular)
+                        if p.terminalRef != nil {
+                            Button { model.jump(p) } label: {
+                                Label("Jump", systemImage: "terminal")
+                            }
+                            .tint(.white).buttonStyle(.bordered).controlSize(.regular)
+                            .help("Jump to terminal")
+                        }
+                    }
                 } else {
                     ForEach(model.sessions.prefix(6)) { sess in
+                        let canJump = sess.terminalRef != nil
                         HStack(spacing: 8 * s) {
                             Circle().fill(color(sess.status)).frame(width: 8 * s, height: 8 * s)
                             Text(sess.project).font(.system(size: 13 * s)).foregroundStyle(.white).lineLimit(1)
+                            if canJump {
+                                Spacer(minLength: 0)
+                                Image(systemName: "terminal")          // tap the row to focus its terminal
+                                    .font(.system(size: 11 * s))
+                                    .foregroundStyle(.white.opacity(0.5))
+                            }
                         }
+                        .contentShape(Rectangle())
+                        .onTapGesture { if canJump { model.jump(sess) } }
+                        .help(canJump ? "Jump to terminal" : "")
                     }
                 }
             }

@@ -19,6 +19,7 @@
 "Claude wants to run this — approve?" = "Claude 想运行这个——批准吗？";
 "Approve" = "批准";
 "Deny" = "拒绝";
+"Jump" = "跳转";
 "Jump to terminal" = "跳到终端";
 
 /* MARK: Menu bar popover */
