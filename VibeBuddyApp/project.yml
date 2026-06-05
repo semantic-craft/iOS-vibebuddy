@@ -31,6 +31,10 @@ targets:
         NSMicrophoneUsageDescription: "Talk to your agents by voice. With the optional voice companion, your speech is streamed to the AI provider you choose (OpenAI, Google, or Alibaba) using your own API key — it never passes through a vibebuddy server."
         NSSupportsLiveActivities: true
         ITSAppUsesNonExemptEncryption: false
+        CFBundleURLTypes:
+          - CFBundleURLName: com.vibebuddy.app.deeplink
+            CFBundleURLSchemes:
+              - vibebuddy
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
     settings:

@@ -22,6 +22,7 @@ struct VibeBuddyAppApp: App {
                 .environmentObject(connection)
                 .environmentObject(dashboard)
                 .environmentObject(voice)
+                .onOpenURL { dashboard.open($0) }
         }
     }
 }

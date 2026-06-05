@@ -29,4 +29,21 @@ struct SessionGroupsTests {
         #expect(SessionGroups([]).isEmpty)
         #expect(!SessionGroups([session("a", .done)]).isEmpty)
     }
+
+    @Test("focusSessionId prefers the top needs-response session")
+    func focusPrefersNeedsResponse() {
+        let groups = SessionGroups([
+            session("w", .working),
+            session("n", .needsResponse),
+            session("d", .done),
+        ])
+        #expect(groups.focusSessionId == "n")
+    }
+
+    @Test("focusSessionId falls back to working, then done")
+    func focusFallsBack() {
+        #expect(SessionGroups([session("w", .working), session("d", .done)]).focusSessionId == "w")
+        #expect(SessionGroups([session("d", .done)]).focusSessionId == "d")
+        #expect(SessionGroups([]).focusSessionId == nil)
+    }
 }

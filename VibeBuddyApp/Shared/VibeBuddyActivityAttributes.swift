@@ -9,5 +9,8 @@ struct VibeBuddyActivityAttributes: ActivityAttributes, Sendable {
         var working: Int
         var done: Int
         var topProject: String?
+        /// The session a tap should open (top needs-response, else working/done).
+        /// Optional so older payloads decode; the activity just opens the app then.
+        var topSessionId: String?
     }
 }

@@ -11,12 +11,14 @@ final class LiveActivityManager {
 
     /// Reflect the latest counts. Starts the activity on first non-empty state,
     /// updates it thereafter, and ends it when everything is gone.
-    func sync(needsResponse: Int, working: Int, done: Int, topProject: String?) async {
+    func sync(needsResponse: Int, working: Int, done: Int,
+              topProject: String?, topSessionId: String?) async {
         let total = needsResponse + working + done
         guard total > 0 else { await end(); return }
 
         let state = VibeBuddyActivityAttributes.ContentState(
-            needsResponse: needsResponse, working: working, done: done, topProject: topProject)
+            needsResponse: needsResponse, working: working, done: done,
+            topProject: topProject, topSessionId: topSessionId)
         let content = ActivityContent(state: state, staleDate: nil)
 
         if let activity {

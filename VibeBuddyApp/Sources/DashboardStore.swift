@@ -16,6 +16,9 @@ final class DashboardStore: ObservableObject {
     @Published private(set) var state: ConnectionState = .connecting
     /// Bumped whenever a cue fires, so the buddy can react in step with the sound.
     @Published private(set) var cuePulse = 0
+    /// Set when a Live Activity / deep link asks to open a specific session; the
+    /// dashboard scrolls to and highlights it, then clears it via `clearFocus()`.
+    @Published var focusedSessionId: String?
 
     private let streamer: SnapshotStreaming
     private let notifier: AttentionNotifier
@@ -225,6 +228,15 @@ final class DashboardStore: ObservableObject {
             needsResponse: groups.needsResponse.count,
             working: groups.working.count,
             done: groups.done.count,
-            topProject: groups.needsResponse.first?.project)
+            topProject: groups.needsResponse.first?.project,
+            topSessionId: groups.focusSessionId)
     }
+
+    /// Handle a `vibebuddy://session?id=…` deep link from the Live Activity.
+    func open(_ url: URL) {
+        guard let id = VibeBuddyDeepLink.sessionId(from: url) else { return }
+        focusedSessionId = id
+    }
+
+    func clearFocus() { focusedSessionId = nil }
 }

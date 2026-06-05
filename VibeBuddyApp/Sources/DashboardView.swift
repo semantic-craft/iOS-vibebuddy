@@ -6,14 +6,20 @@ struct DashboardView: View {
     @EnvironmentObject private var dashboard: DashboardStore
     @EnvironmentObject private var voice: VoiceChat
     @State private var showSettings = false
+    @State private var highlightId: String?
 
     var body: some View {
+        ScrollViewReader { proxy in
         List {
             section("Needs response", sessions: dashboard.groups.needsResponse, accent: .orange)
             section("Working", sessions: dashboard.groups.working, accent: .blue)
             section("Done", sessions: dashboard.groups.done, accent: .green)
         }
         .listStyle(.plain)
+        .onChange(of: dashboard.focusedSessionId) { _, _ in focus(proxy) }
+        .onChange(of: dashboard.groups) { _, _ in
+            if dashboard.focusedSessionId != nil { focus(proxy) }
+        }
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
                 BuddyView(groups: dashboard.groups, pulse: dashboard.cuePulse,
@@ -54,6 +60,22 @@ struct DashboardView: View {
         }
         .task { if connection.demo { dashboard.startDemo() } }
         .onDisappear { dashboard.stop() }
+        }
+    }
+
+    /// Scroll to and briefly highlight the session a deep link asked to open.
+    /// No-ops (leaving the request pending) until that session is in the list, so
+    /// a cold-start link still lands once the first snapshot arrives.
+    private func focus(_ proxy: ScrollViewProxy) {
+        guard let id = dashboard.focusedSessionId,
+              dashboard.allSessions.contains(where: { $0.id == id }) else { return }
+        dashboard.clearFocus()
+        withAnimation(.smooth) { proxy.scrollTo(id, anchor: .center) }
+        highlightId = id
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            withAnimation { if highlightId == id { highlightId = nil } }
+        }
     }
 
     @ViewBuilder
@@ -62,7 +84,10 @@ struct DashboardView: View {
             Section {
                 ForEach(sessions) { session in
                     SessionRow(session: session, accent: accent)
+                        .id(session.id)
                         .listRowInsets(.init(top: 6, leading: 0, bottom: 6, trailing: 16))
+                        .listRowBackground(highlightId == session.id
+                                           ? accent.opacity(0.15) : Color.clear)
                 }
             } header: {
                 HStack(spacing: 6) {
