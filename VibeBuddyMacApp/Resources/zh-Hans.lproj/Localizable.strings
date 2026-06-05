@@ -1,0 +1,134 @@
+/* VibeBuddy Mac — Simplified Chinese (zh-Hans).
+   Keys are the English source text (development language = en); SwiftUI's
+   automatic localization and String(localized:) resolve them here on a
+   Chinese system. Brand name, provider names, model/voice IDs and numeric
+   instrument data are intentionally not translated. Mirrors the iOS table. */
+
+/* MARK: Dashboard */
+"Search sessions" = "搜索会话";
+"Select a session" = "选择一个会话";
+"Status" = "状态";
+"Agent" = "代理";
+"Needs Response" = "需回应";
+"Working" = "进行中";
+"Done" = "完成";
+"Stuck" = "卡住";
+"Tap the pet to talk" = "点一下宠物开始说话";
+"Listening…" = "聆听中…";
+"Speaking…" = "说话中…";
+"Claude wants to run this — approve?" = "Claude 想运行这个——批准吗？";
+"Approve" = "批准";
+"Deny" = "拒绝";
+"Jump to terminal" = "跳到终端";
+
+/* MARK: Menu bar popover */
+"Open Dashboard" = "打开仪表盘";
+"Hide Glance" = "隐藏速览";
+"Show Glance" = "显示速览";
+"Paired: %@" = "已配对：%@";
+"Last seen %@" = "最后在线 %@";
+"Push ready" = "推送就绪";
+"Push pending" = "推送待定";
+"No phone paired" = "未配对手机";
+"No active sessions" = "没有活动会话";
+"Pair a phone" = "配对手机";
+"Scan this in the vibebuddy iOS app" = "在 vibebuddy iOS app 里扫描";
+"Settings…" = "设置…";
+"Quit vibebuddy" = "退出 vibebuddy";
+
+/* MARK: Glance (notch / floating) */
+"Speaking" = "说话中";
+"Listening" = "聆听中";
+"Hide glance (%@)" = "隐藏速览（%@）";
+
+/* MARK: Settings — tabs */
+"General" = "通用";
+"Glance" = "速览";
+"Devices" = "设备";
+"Notifications" = "通知";
+"Voice" = "语音";
+"Settings" = "设置";
+
+/* MARK: Settings — General */
+"Launch at Login" = "登录时启动";
+"Show icon in menu bar" = "在菜单栏显示图标";
+"Hidden. You can still open the Dashboard with %@ — it has a Settings button." = "已隐藏。你仍可用 %@ 打开仪表盘——里面有设置按钮。";
+"A global shortcut that opens the Dashboard from anywhere. Hyper (⌃⌥⇧⌘) combos recommended." = "一个可从任何地方打开仪表盘的全局快捷键。推荐用 Hyper（⌃⌥⇧⌘）组合键。";
+"Toggle Glance" = "切换速览";
+"Show/hide the floating glance from the keyboard — handy on a notchless screen where it would otherwise sit on top of your work." = "用键盘显示／隐藏悬浮速览——在无刘海的屏幕上很方便，否则它会挡住你的工作。";
+"Clean up idle sessions after" = "空闲会话清理时间";
+"30 min" = "30 分钟";
+"1 hour" = "1 小时";
+"2 hours" = "2 小时";
+"4 hours" = "4 小时";
+"8 hours" = "8 小时";
+"24 hours" = "24 小时";
+"Never" = "从不";
+
+/* MARK: Settings — Glance */
+"Show glance" = "显示速览";
+"Size" = "大小";
+"Small" = "小";
+"Medium" = "中";
+"Large" = "大";
+
+/* MARK: Settings — Notifications */
+"Show notifications" = "显示通知";
+"Play sound" = "播放声音";
+"A short, built-in cue for each state change — needs you, approval, finished, or stuck. Only boundaries ring; ongoing work stays silent." = "每次状态变化都有一段简短的内置提示音——需要你、批准、完成或卡住。只有状态边界会响，进行中的任务保持安静。";
+"Quiet mode (approvals only)" = "安静模式（仅批准）";
+"For night or focus time: only security approvals make a sound. Everything else stays silent." = "用于夜间或专注时段：只有安全批准才出声，其余一律静音。";
+"Budget alert per session" = "单会话预算提醒";
+"Off" = "关闭";
+"A gentle heads-up when a session's estimated spend crosses this amount. Cost is a rough estimate from token usage." = "当某个会话的预估花费超过该金额时，温和提醒一下。费用是按 token 用量粗略估算的。";
+"Quiet hours" = "免打扰时段";
+"From" = "从";
+"To" = "到";
+"Automatically enter Quiet mode during this nightly window." = "在每晚的这个时间段内自动进入安静模式。";
+
+/* MARK: Settings — Voice */
+"Voice provider" = "语音服务商";
+"Conversation language" = "对话语言";
+"Companion" = "伙伴";
+"Tap the buddy to talk — it knows your sessions and can approve / answer for you. Pick the provider whose key you've filled in below. Switching applies instantly if the buddy is already listening." = "点一下伙伴就能说话——它了解你的会话，并能替你批准／回答。选择你在下方填了密钥的服务商；如果伙伴正在聆听，切换会即时生效。";
+"API Key — paste your own (kept in the Keychain)" = "API 密钥——粘贴你自己的（存在钥匙串里）";
+"Get an API key" = "获取 API 密钥";
+"Model ID — editable, type any model" = "模型 ID——可编辑，可输入任意模型";
+"Browse available models" = "浏览可用模型";
+"Voice ID — editable (blank = auto by language)" = "音色 ID——可编辑（留空＝按语言自动）";
+"Browse available voices" = "浏览可用音色";
+"Use international site (dashscope-intl)" = "使用国际站（dashscope-intl）";
+"Paste your %@ key" = "粘贴你的 %@ 密钥";
+
+/* MARK: Settings — Devices */
+"This Mac" = "这台 Mac";
+"Pairing address" = "配对地址";
+"Paired phone" = "已配对手机";
+"Device" = "设备";
+"Last seen" = "最后在线";
+"Push" = "推送";
+"Registered" = "已注册";
+"Pending" = "待定";
+"Forget phone" = "忘记手机";
+
+/* MARK: Hotkey recorder */
+"Press a combo…" = "按下组合键…";
+"Cancel" = "取消";
+"Record" = "录制";
+"needs a modifier" = "需要修饰键";
+
+/* MARK: Notifications (macOS banners) */
+"%@ needs approval" = "%@ 需要批准";
+"Approve or deny" = "批准或拒绝";
+"%@ needs you" = "%@ 需要你";
+"Waiting for your response" = "等待你的回应";
+"%@ is still waiting" = "%@ 仍在等待";
+"%@ finished" = "%@ 已完成";
+"Task complete" = "任务完成";
+"%@ stopped" = "%@ 已停止";
+"It may need a look" = "可能需要看一眼";
+"Paired" = "已配对";
+"VibeBuddy is watching your sessions." = "VibeBuddy 正在盯着你的会话。";
+"Paired with %@" = "已与 %@ 配对";
+"%@ over budget" = "%@ 超出预算";
+"≈ %@ spent this session (estimate)" = "本会话已花费 ≈ %@（估算）";

@@ -171,7 +171,7 @@ struct MenuContent: View {
                 model.setShowGlance(!model.showGlance)
             } label: {
                 HStack(spacing: 8) {
-                    Label(model.showGlance ? "Hide Glance" : "Show Glance",
+                    Label(model.showGlance ? "Hide Glance" as LocalizedStringKey : "Show Glance",
                           systemImage: model.showGlance ? "eye.slash.fill" : "eye.fill")
                         .fontWeight(.medium)
                     Spacer()
@@ -207,7 +207,7 @@ struct MenuContent: View {
                         }
                         HStack(spacing: 6) {
                             Text("Last seen \(phone.lastSeen.formatted(date: .omitted, time: .shortened))")
-                            Text(phone.pushRegistered ? "Push ready" : "Push pending")
+                            Text(phone.pushRegistered ? "Push ready" as LocalizedStringKey : "Push pending")
                         }
                         .foregroundStyle(.tertiary)
                     }

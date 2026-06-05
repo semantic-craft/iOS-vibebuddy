@@ -29,15 +29,16 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
     /// A phone just paired — the one chrome cue that isn't tied to a session.
     func confirmPairing(deviceName: String) {
         guard Self.flag("notifyOnNeedsResponse") else { return }
-        post(title: "Paired with \(deviceName)", body: "VibeBuddy is watching your sessions.",
+        post(title: String(localized: "Paired with \(deviceName)"),
+             body: String(localized: "VibeBuddy is watching your sessions."),
              sound: .pairSuccess, id: "pair-success")
     }
 
     /// A session crossed the spend budget — a gentle heads-up (estimate).
     func notifyBudget(project: String, cost: String) {
         guard Self.flag("notifyOnNeedsResponse") else { return }
-        post(title: "\(project) over budget",
-             body: "≈ \(cost) spent this session (estimate)",
+        post(title: String(localized: "\(project) over budget"),
+             body: String(localized: "≈ \(cost) spent this session (estimate)"),
              sound: .longWaitNudge, id: "budget-\(project)")
     }
 
@@ -70,18 +71,18 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
         let project = session.project
         switch alert.sound {
         case .needsApproval:
-            return ("\(project) needs approval",
-                    session.pendingApproval?.commandPreview ?? session.summary ?? "Approve or deny")
+            return (String(localized: "\(project) needs approval"),
+                    session.pendingApproval?.commandPreview ?? session.summary ?? String(localized: "Approve or deny"))
         case .needsAnswer:
-            return ("\(project) needs you", session.summary ?? "Waiting for your response")
+            return (String(localized: "\(project) needs you"), session.summary ?? String(localized: "Waiting for your response"))
         case .longWaitNudge:
-            return ("\(project) is still waiting", session.summary ?? "Waiting for your response")
+            return (String(localized: "\(project) is still waiting"), session.summary ?? String(localized: "Waiting for your response"))
         case .agentDone:
-            return ("\(project) finished", session.summary ?? "Task complete")
+            return (String(localized: "\(project) finished"), session.summary ?? String(localized: "Task complete"))
         case .agentStuck:
-            return ("\(project) stopped", session.summary ?? "It may need a look")
+            return (String(localized: "\(project) stopped"), session.summary ?? String(localized: "It may need a look"))
         case .pairSuccess:
-            return ("Paired", "VibeBuddy is watching your sessions.")
+            return (String(localized: "Paired"), String(localized: "VibeBuddy is watching your sessions."))
         }
     }
 }

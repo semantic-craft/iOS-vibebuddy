@@ -80,7 +80,7 @@ struct DashboardView: View {
         }
     }
 
-    private func statusItem(_ status: SessionStatus, _ label: String, _ color: Color) -> some View {
+    private func statusItem(_ status: SessionStatus, _ label: LocalizedStringKey, _ color: Color) -> some View {
         let count = model.sessions.filter { $0.status == status }.count
         return HStack {
             Circle().fill(color).frame(width: 9, height: 9)
@@ -103,7 +103,7 @@ private struct MacBuddyBar: View {
                 .onTapGesture { voice.toggle() }
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 6) {
-                    Text(voice.isListening ? "Listening…" : (voice.isSpeaking ? "Speaking…" : "Tap the pet to talk"))
+                    Text(voice.isListening ? "Listening…" as LocalizedStringKey : (voice.isSpeaking ? "Speaking…" : "Tap the pet to talk"))
                         .font(.headline)
                     Text((voice.activeProvider ?? VoiceSettings.provider).display)
                         .font(.caption.weight(.medium))
