@@ -136,6 +136,10 @@ final class VoiceChat: NSObject, ObservableObject {
             voiceLog.info("realtime connected")
         case .userTranscript(let text, _):
             lastUserText = text
+            if VoiceCloseIntent.shouldClose(text) {     // "再见 / 关闭 / bye" → hang up hands-free
+                voiceLog.info("voice close phrase heard — ending call")
+                stopRealtime()
+            }
         case .assistantTranscript(let text, let final):
             if final { lastReply = text; assistantBuffer = "" }
             else { assistantBuffer += text; lastReply = assistantBuffer }
