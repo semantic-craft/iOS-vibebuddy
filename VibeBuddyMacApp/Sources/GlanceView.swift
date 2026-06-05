@@ -4,6 +4,7 @@ import VibeBuddyMacCore
 
 struct GlanceView: View {
     @ObservedObject var model: MenuBarModel
+    @ObservedObject var voice: VoiceChat
     let mode: GlanceMode
 
     private var s: CGFloat { model.glanceScale }
@@ -19,6 +20,13 @@ struct GlanceView: View {
             .frame(width: width, alignment: expanded ? .leading : .center)
             .background(background)
             .clipShape(clipShape)
+            .overlay {
+                if voice.isActive {
+                    panelShape.stroke(voice.isSpeaking ? Color.green : Color.red,
+                                      lineWidth: 2.5 * s)
+                        .shadow(color: (voice.isSpeaking ? Color.green : Color.red).opacity(0.7), radius: 5 * s)
+                }
+            }
             .onHover { hovering in
                 model.setGlanceExpanded(hovering)
             }
@@ -66,13 +74,36 @@ struct GlanceView: View {
 
     private var counts: some View {
         HStack(spacing: 16 * s) {
-            PetFace(state: BuddyState.from(groups, now: Date()), bare: true, scale: s)
-                .onTapGesture { model.voiceChat.toggle() }   // tap the buddy to talk
-            countPill(groups.needsResponse.count, .orange)
-            countPill(groups.working.count, .blue)
-            countPill(groups.done.count, .green)
+            PetFace(state: BuddyState.from(groups, now: Date()),
+                    speaking: voice.isSpeaking, listening: voice.isListening, bare: true, scale: s)
+                .onTapGesture { voice.toggle() }   // tap the buddy to talk
+            if voice.isActive { voiceBadge } else {
+                countPill(groups.needsResponse.count, .orange)
+                countPill(groups.working.count, .blue)
+                countPill(groups.done.count, .green)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    /// When the realtime voice is live, the counts give way to a clear status
+    /// badge so it's obvious from the notch that the buddy is listening/talking.
+    private var voiceBadge: some View {
+        let speaking = voice.isSpeaking
+        return HStack(spacing: 8 * s) {
+            Image(systemName: speaking ? "waveform" : "mic.fill")
+                .font(.system(size: 15 * s, weight: .semibold))
+                .foregroundStyle(speaking ? Color.green : Color.red)
+                .symbolEffect(.variableColor.iterative, options: .repeating, isActive: true)
+            Text(speaking ? "Speaking" : "Listening")
+                .font(.system(size: 15 * s, weight: .semibold))
+                .foregroundStyle(.white)
+            if let p = voice.activeProvider {
+                Text(p.rawValue)
+                    .font(.system(size: 11 * s, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.6))
+            }
+        }
     }
 
     private func countPill(_ n: Int, _ c: Color) -> some View {

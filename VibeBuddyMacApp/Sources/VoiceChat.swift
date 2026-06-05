@@ -18,12 +18,14 @@ final class VoiceChat: NSObject, ObservableObject {
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var lastUserText = ""
     @Published private(set) var lastReply = ""
+    @Published private(set) var activeProvider: VoiceProvider?
     @Published var errorText: String?
 
     var isListening: Bool { phase == .listening }
     var isSpeaking: Bool { phase == .speaking }
-    /// Available as soon as the user has pasted a key — no separate enable step.
-    var isAvailable: Bool { VoiceSettings.apiKey?.isEmpty == false }
+    var isActive: Bool { phase != .idle }
+    /// Available once the selected provider has a key — no separate enable step.
+    var isAvailable: Bool { VoiceSettings.provider.apiKey?.isEmpty == false }
 
     private let contextProvider: () -> [AgentSession]
     private let actionHandler: (VoiceAction) -> String
@@ -35,8 +37,8 @@ final class VoiceChat: NSObject, ObservableObject {
     private let synthesizer = AVSpeechSynthesizer()
     private var audioPlayer: AVAudioPlayer?
 
-    // Omni-realtime (qwen3.5-omni-flash-realtime) — the active speech-to-speech path.
-    private var realtime: QwenRealtimeSession?
+    // Realtime speech-to-speech — the active path. Provider chosen in Settings.
+    private var realtime: (any RealtimeVoiceProvider)?
     private var audioIO: RealtimeAudioIO?
     private var eventTask: Task<Void, Never>?
     private var assistantBuffer = ""
@@ -74,20 +76,32 @@ final class VoiceChat: NSObject, ObservableObject {
     }
 
     private func beginRealtimeSession() {
+        let provider = VoiceSettings.provider
+        guard let key = provider.apiKey, !key.isEmpty else {
+            errorText = "Add your \(provider.display) API key in Settings first."
+            phase = .idle; return
+        }
         let language = VoiceSettings.conversationLanguage
         let instructions = VoicePrompt.systemPrompt(sessions: contextProvider(), language: language)
             + "\n\nThis is a live voice call. Stay silent until the user actually speaks — never start talking on your own or fill silence, and never reply to your own voice. Answer in one short, natural sentence unless asked for more, and don't repeat yourself. Speak in a calm, gentle, even tone at a steady volume; never suddenly raise your pitch, shout, or get loud."
-        let session = QwenRealtimeSession(apiKey: VoiceSettings.apiKey ?? "",
-                                          model: VoiceSettings.qwenRealtimeModel,
-                                          useIntl: VoiceSettings.useIntl)
-        let io = RealtimeAudioIO()
+        let model = VoiceSettings.model(provider)
+        let voice = VoiceSettings.voice(provider, language)
+        voiceLog.info("realtime start provider=\(provider.rawValue, privacy: .public) model=\(model, privacy: .public) voice=\(voice, privacy: .public)")
+
+        let session: any RealtimeVoiceProvider
+        switch provider {
+        case .qwen:   session = QwenRealtimeSession(apiKey: key, model: model, useIntl: VoiceSettings.useIntl)
+        case .openai: session = OpenAIRealtimeSession(apiKey: key, model: model)
+        case .gemini: session = GeminiRealtimeSession(apiKey: key, model: model)
+        }
+        let io = RealtimeAudioIO(inputSampleRate: provider.inputSampleRate)
         realtime = session
         audioIO = io
+        activeProvider = provider
         assistantBuffer = ""
         lastUserText = ""; lastReply = ""
         phase = .listening
 
-        let voice = VoiceSettings.realtimeVoice
         eventTask = Task { [weak self] in
             let stream = await session.start(instructions: instructions, voice: voice)
             for await event in stream {
@@ -143,7 +157,17 @@ final class VoiceChat: NSObject, ObservableObject {
         let session = realtime
         realtime = nil
         Task { await session?.close() }
+        activeProvider = nil
         phase = .idle
+    }
+
+    /// Called when the provider (or its model/voice) changes in Settings: if a
+    /// session is live, restart it so the new provider takes effect immediately —
+    /// no manual close-then-reopen. A no-op when idle.
+    func reloadProviderIfActive() {
+        guard isActive else { return }
+        stopRealtime()
+        startRealtime()
     }
 
     private func requestPermissionsThenListen() {

@@ -19,7 +19,7 @@ struct SettingsView: View {
                 .tabItem { Label("Devices", systemImage: "iphone.gen3") }
             NotificationSettings()
                 .tabItem { Label("Notifications", systemImage: "bell") }
-            VoiceSettingsTab()
+            VoiceSettingsTab(model: model)
                 .tabItem { Label("Voice", systemImage: "waveform") }
         }
         .frame(width: 500, height: 360)
@@ -164,47 +164,115 @@ private struct NotificationSettings: View {
 }
 
 private struct VoiceSettingsTab: View {
-    @AppStorage(VoiceSettings.regionIntlKey) private var intl = false
+    @ObservedObject var model: MenuBarModel
     @AppStorage(VoiceSettings.conversationLanguageKey) private var language = VoiceLanguage.english.rawValue
-    @AppStorage(VoiceSettings.realtimeVoiceKey) private var voice = ""
-    @AppStorage(VoiceSettings.qwenRealtimeModelKey) private var qwenModel = VoiceSettings.qwenRealtimeModelDefault
-    @State private var apiKey = ""
+    @AppStorage(VoiceSettings.providerKey) private var provider = VoiceProvider.qwen.rawValue
 
     var body: some View {
         Form {
             Section {
+                Picker("Voice provider", selection: $provider) {
+                    ForEach(VoiceProvider.allCases, id: \.rawValue) { p in
+                        Text(p.display).tag(p.rawValue)
+                    }
+                }
+                .onChange(of: provider) { _, _ in model.voiceChat.reloadProviderIfActive() }
                 Picker("Conversation language", selection: $language) {
                     Text("English").tag(VoiceLanguage.english.rawValue)
                     Text("中文").tag(VoiceLanguage.chinese.rawValue)
                 }
-                TextField("Voice ID (auto by language)", text: $voice)
-                    .font(.body.monospaced())
-                    .autocorrectionDisabled()
+                .onChange(of: language) { _, _ in model.voiceChat.reloadProviderIfActive() }
             } header: {
                 Text("Companion")
             } footer: {
-                Text("Tap the buddy to talk — it knows your sessions and can approve / answer for you. Voice ID: leave blank to auto-pick by language. For English try Jennifer, Ryan, Aiden, or Katerina; for 中文 try Tina or Serena (CN voices carry an accent in English).")
+                Text("Tap the buddy to talk — it knows your sessions and can approve / answer for you. Pick the provider whose key you've filled in below. Switching applies instantly if the buddy is already listening.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
-            // One section per voice provider; each carries its own credentials +
-            // an editable model ID. (More providers — OpenAI, Gemini — slot in here.)
-            Section {
-                SecureField("DashScope API Key", text: $apiKey)
-                TextField("Model ID", text: $qwenModel)
-                    .font(.body.monospaced())
-                    .autocorrectionDisabled()
-                Toggle("Use international site (dashscope-intl)", isOn: $intl)
-            } header: {
-                Text("Qwen (DashScope)")
-            } footer: {
-                Text("Realtime speech-to-speech model. Default: \(VoiceSettings.qwenRealtimeModelDefault). The key is kept in the Keychain — never uploaded or committed.")
-                    .font(.caption).foregroundStyle(.secondary)
+            // Only the selected provider's credentials show — key + editable
+            // Model ID + Voice ID — and they swap as the picker changes. `.id`
+            // recreates the section so its fields reload for the new provider.
+            if let p = VoiceProvider(rawValue: provider) {
+                ProviderSection(provider: p)
+                    .id(p.rawValue)
             }
         }
         .formStyle(.grouped)
-        .onAppear { apiKey = VoiceSettings.apiKey ?? "" }
-        .onChange(of: apiKey) { _, v in KeychainStore.set(v, for: VoiceSettings.apiKeyKeychain) }
+        .animation(.smooth, value: provider)
+    }
+}
+
+/// Credentials + editable Model ID and Voice ID for one voice provider. The key
+/// lives in the Keychain (per-provider account); model/voice are UserDefaults.
+private struct ProviderSection: View {
+    let provider: VoiceProvider
+    @AppStorage(VoiceSettings.regionIntlKey) private var intl = false
+    @State private var apiKey = ""
+    @State private var model = ""
+    @State private var voice = ""
+
+    var body: some View {
+        Section {
+            // API key
+            field(caption: "API Key — paste your own (kept in the Keychain)",
+                  link: "Get an API key", icon: "key", url: provider.apiKeyURL) {
+                SecureField("Paste your \(provider.display) key", text: $apiKey)
+                    .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+            }
+            // Model ID — clearly editable
+            field(caption: "Model ID — editable, type any model",
+                  link: "Browse available models", icon: "arrow.up.right.square", url: provider.modelsURL) {
+                TextField(provider.defaultModel, text: $model)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.body.monospaced())
+                    .autocorrectionDisabled()
+            }
+            // Voice ID — clearly editable
+            field(caption: "Voice ID — editable (blank = auto by language)",
+                  link: "Browse available voices", icon: "arrow.up.right.square", url: provider.voicesURL) {
+                TextField(exampleVoice, text: $voice)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.body.monospaced())
+                    .autocorrectionDisabled()
+            }
+            if provider == .qwen {
+                Toggle("Use international site (dashscope-intl)", isOn: $intl)
+            }
+        } header: {
+            Text(provider.display)
+        }
+        .onAppear {
+            apiKey = provider.apiKey ?? ""
+            model = UserDefaults.standard.string(forKey: VoiceSettings.modelKey(provider)) ?? ""
+            voice = UserDefaults.standard.string(forKey: VoiceSettings.voiceKey(provider)) ?? ""
+        }
+        .onChange(of: apiKey) { _, v in KeychainStore.set(v, for: provider.keychainAccount) }
+        .onChange(of: model) { _, v in UserDefaults.standard.set(v, forKey: VoiceSettings.modelKey(provider)) }
+        .onChange(of: voice) { _, v in UserDefaults.standard.set(v, forKey: VoiceSettings.voiceKey(provider)) }
+    }
+
+    /// One labelled, clearly-editable field with a click-through link to the
+    /// provider's list of valid values.
+    @ViewBuilder
+    private func field<F: View>(caption: String, link: String, icon: String, url: URL,
+                                @ViewBuilder _ input: () -> F) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(caption).font(.caption).foregroundStyle(.secondary)
+            input()
+            Link(destination: url) {
+                Label(link, systemImage: icon).font(.caption)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var exampleVoice: String {
+        switch provider {
+        case .qwen:   return "e.g. Tina / Jennifer"
+        case .openai: return "e.g. marin / cedar"
+        case .gemini: return "e.g. Puck / Kore"
+        }
     }
 }
 

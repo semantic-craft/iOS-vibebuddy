@@ -73,14 +73,16 @@ public enum VoiceLanguage: String, CaseIterable, Sendable {
 /// Keychain (user-provided, BYO); the rest are plain UserDefaults values. The
 /// companion is available whenever a key is present — no separate enable toggle.
 public enum VoiceSettings {
+    /// Legacy alias for the Qwen key account (kept so existing keys still load).
     public static let apiKeyKeychain = "dashscope.apiKey"
     public static let modelKey = "voiceModel"
     public static let regionIntlKey = "voiceRegionIntl"
     public static let conversationLanguageKey = "voiceConversationLanguage"
-    public static let realtimeVoiceKey = "voiceRealtimeVoice"
-    public static let qwenRealtimeModelKey = "voiceQwenRealtimeModel"
+    public static let providerKey = "voiceProvider"
 
-    public static let qwenRealtimeModelDefault = "qwen3.5-omni-plus-realtime"
+    /// Per-provider model / voice ID UserDefaults keys (one set each).
+    public static func modelKey(_ p: VoiceProvider) -> String { "voiceModel.\(p.rawValue)" }
+    public static func voiceKey(_ p: VoiceProvider) -> String { "voiceVoice.\(p.rawValue)" }
 
     public static var apiKey: String? { KeychainStore.get(apiKeyKeychain) }
     public static var model: String { UserDefaults.standard.string(forKey: modelKey) ?? "qwen-plus" }
@@ -91,19 +93,25 @@ public enum VoiceSettings {
         VoiceLanguage(rawValue: UserDefaults.standard.string(forKey: conversationLanguageKey) ?? "")
             ?? .english
     }
-    /// The qwen3.5-omni-realtime speaking voice ID, user-editable. When blank it
-    /// follows the conversation language: an English-native voice for English,
-    /// a warm Chinese voice for 中文 (CN voices carry an accent in English).
-    public static var realtimeVoice: String {
-        let v = (UserDefaults.standard.string(forKey: realtimeVoiceKey) ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if !v.isEmpty { return v }
-        return conversationLanguage == .chinese ? "Tina" : "Jennifer"
+
+    /// The active real-time voice provider.
+    public static var provider: VoiceProvider {
+        VoiceProvider(rawValue: UserDefaults.standard.string(forKey: providerKey) ?? "") ?? .qwen
     }
-    /// The Qwen realtime model ID, user-editable (blank → the default).
-    public static var qwenRealtimeModel: String {
-        let v = (UserDefaults.standard.string(forKey: qwenRealtimeModelKey) ?? "")
+
+    /// The model ID for a provider, user-editable (blank → its default).
+    public static func model(_ p: VoiceProvider) -> String {
+        let v = (UserDefaults.standard.string(forKey: modelKey(p)) ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return v.isEmpty ? qwenRealtimeModelDefault : v
+        return v.isEmpty ? p.defaultModel : v
+    }
+
+    /// The voice ID for a provider, user-editable (blank → a language-appropriate
+    /// default). CN voices carry an accent in English, so the default is chosen
+    /// from the conversation language.
+    public static func voice(_ p: VoiceProvider, _ language: VoiceLanguage) -> String {
+        let v = (UserDefaults.standard.string(forKey: voiceKey(p)) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return v.isEmpty ? p.defaultVoice(language) : v
     }
 }

@@ -20,7 +20,7 @@ final class GlanceWindow {
         // uses, so notch-vs-pill detection matches where the panel is placed.
         let anchor = NSScreen.screens.first ?? NSScreen.main
         mode = GlanceMode.from(topInset: anchor?.safeAreaInsets.top ?? 0)
-        let rootView = GlanceView(model: model, mode: mode)
+        let rootView = GlanceView(model: model, voice: model.voiceChat, mode: mode)
         hosting = NSHostingView(rootView: rootView)
         measuringController = NSHostingController(rootView: rootView)
         let initialSize = NSSize(width: 220, height: mode == .notch ? 38 : 30)

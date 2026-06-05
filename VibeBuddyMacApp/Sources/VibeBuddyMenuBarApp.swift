@@ -67,6 +67,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+/// The robot-head menu-bar mark. A SwiftUI `Canvas` doesn't render reliably in a
+/// `MenuBarExtra` label, so the head is drawn once into a **template** `NSImage`
+/// (eyes punched out with `destinationOut`); the system then tints it for
+/// light/dark menu bars and selection — same identity as the ASCII pet.
+struct RobotHeadIcon: View {
+    var body: some View {
+        Image(nsImage: MenuBarGlyph.robot)
+            .resizable()
+            .renderingMode(.template)
+    }
+}
+
+enum MenuBarGlyph {
+    static let robot: NSImage = {
+        let s: CGFloat = 18
+        let img = NSImage(size: NSSize(width: s, height: s), flipped: true) { rect in
+            let w = rect.width, h = rect.height
+            let solid = NSBezierPath()
+            solid.appendOval(in: NSRect(x: 0.40 * w, y: 0.02 * h, width: 0.20 * w, height: 0.18 * h))   // knob
+            solid.append(NSBezierPath(rect: NSRect(x: 0.455 * w, y: 0.12 * h, width: 0.09 * w, height: 0.22 * h))) // stem
+            solid.append(NSBezierPath(roundedRect: NSRect(x: 0.16 * w, y: 0.30 * h, width: 0.68 * w, height: 0.62 * h),
+                                      xRadius: 0.16 * w, yRadius: 0.16 * w))                              // head
+            NSColor.black.setFill()
+            solid.fill()
+            NSGraphicsContext.current?.compositingOperation = .destinationOut
+            let eyes = NSBezierPath()
+            let r: CGFloat = 0.085 * w
+            for ex in [0.39, 0.61] as [CGFloat] {
+                eyes.appendOval(in: NSRect(x: ex * w - r, y: 0.58 * h - r, width: r * 2, height: r * 2))
+            }
+            eyes.fill()
+            NSGraphicsContext.current?.compositingOperation = .sourceOver
+            return true
+        }
+        img.isTemplate = true
+        return img
+    }()
+}
+
 /// The MenuBarExtra label. Always instantiated while the app runs, so its
 /// `.onReceive` is a reliable bridge from the global Carbon hotkey
 /// (`.openDashboard` notification) to SwiftUI's `openWindow`, which is only
@@ -76,10 +115,23 @@ struct MenuBarLabel: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        HStack {
-            // The buddy's mood, right in the menu bar (same glyph as the phone).
-            Image(systemName: model.buddyState.badgeSymbol)
-            if model.needsResponse > 0 { Text("\(model.needsResponse)") }
+        HStack(spacing: 3) {
+            // A stable robot-head mark (matches the pet), monochrome so the system
+            // tints it for light/dark. State shows as a badge + count, not a
+            // shape change, so the silhouette stays recognizable.
+            RobotHeadIcon()
+                .frame(width: 17, height: 17)
+                .overlay(alignment: .topTrailing) {
+                    if model.needsResponse > 0 {
+                        Circle().fill(.orange)
+                            .frame(width: 5, height: 5)
+                            .offset(x: 1.5, y: -0.5)
+                    }
+                }
+            if model.needsResponse > 0 {
+                Text("\(model.needsResponse)")
+                    .font(.system(size: 12, weight: .semibold).monospacedDigit())
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .openDashboard)) { _ in
             AppActivationPolicy.enter()
@@ -120,7 +172,8 @@ struct MenuContent: View {
             } label: {
                 HStack(spacing: 8) {
                     Label(model.showGlance ? "Hide Glance" : "Show Glance",
-                          systemImage: model.showGlance ? "eye.slash" : "eye")
+                          systemImage: model.showGlance ? "eye.slash.fill" : "eye.fill")
+                        .fontWeight(.medium)
                     Spacer()
                     Text(model.toggleGlanceHotkey.displayString)
                         .font(.callout.weight(.medium).monospaced())
@@ -129,7 +182,9 @@ struct MenuContent: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .tint(model.showGlance ? .secondary : .blue)
 
             HStack {
                 Text("vibebuddy").font(.headline)

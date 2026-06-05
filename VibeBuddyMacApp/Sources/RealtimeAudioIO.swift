@@ -20,10 +20,16 @@ final class RealtimeAudioIO: @unchecked Sendable {
     private let player = AVAudioPlayerNode()
     private var converter: AVAudioConverter?
 
-    private let captureFormat = AVAudioFormat(commonFormat: .pcmFormatInt16,
-                                              sampleRate: 16000, channels: 1, interleaved: true)!
+    private let captureFormat: AVAudioFormat
     private let playFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32,
                                            sampleRate: 24000, channels: 1, interleaved: false)!
+
+    /// `inputSampleRate` is the mic rate the chosen provider expects (Qwen/Gemini
+    /// 16 kHz, OpenAI 24 kHz). Output is always 24 kHz PCM16.
+    init(inputSampleRate: Double = 16000) {
+        captureFormat = AVAudioFormat(commonFormat: .pcmFormatInt16,
+                                      sampleRate: inputSampleRate, channels: 1, interleaved: true)!
+    }
 
     /// Called from the audio render thread with one 16 kHz mono PCM16 chunk —
     /// `@Sendable` so it stays non-isolated (never hops to the main actor).
