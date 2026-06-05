@@ -97,11 +97,9 @@ final class DashboardStore: ObservableObject {
     }
 
     private func match(_ project: String) -> AgentSession? {
-        let q = project.lowercased()
-        return allSessions.first {
-            let p = $0.project.lowercased()
-            return p.contains(q) || q.contains(p)
-        }
+        // Conservative resolution (exact-first, unique-substring, refuse ambiguous)
+        // so a voice approve never lands on the wrong real command target.
+        VoiceSessionMatch.match(project, in: allSessions)
     }
 
     /// Populate the dashboard with sample sessions and no network, so the app is

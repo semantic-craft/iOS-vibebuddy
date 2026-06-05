@@ -10,6 +10,7 @@ public enum RealtimeVoiceEvent: Sendable {
     case audioDelta(Data)                                 // PCM 24 kHz mono 16-bit, to play
     case speechStarted                                    // server VAD: user started talking → barge-in
     case responseDone
+    case toolCall(name: String, arguments: String, callID: String)  // model wants to run a function tool
     case failed(String)
     case closed
 }
@@ -17,10 +18,15 @@ public enum RealtimeVoiceEvent: Sendable {
 /// A real-time speech-to-speech voice backend. Implementations stream 16 kHz mono
 /// PCM16 up and emit `RealtimeVoiceEvent`s (including 24 kHz PCM16 audio) down.
 public protocol RealtimeVoiceProvider: Actor {
-    /// Open the session with a system prompt + voice; returns the event stream.
-    func start(instructions: String, voice: String) -> AsyncStream<RealtimeVoiceEvent>
+    /// Open the session with a system prompt + voice + the function tools the model
+    /// may call; returns the event stream.
+    func start(instructions: String, voice: String, tools: [VoiceTool]) -> AsyncStream<RealtimeVoiceEvent>
     /// Append captured microphone audio (16 kHz mono PCM16).
     func appendAudio(_ pcm16k: Data)
+    /// Return a tool call's result to the model so it can continue the turn (and
+    /// speak a confirmation). `name` is required by some providers (Gemini); the
+    /// OpenAI-style providers correlate on `callID` alone.
+    func sendToolResult(callID: String, name: String, result: String)
     /// Tear the session down.
     func close()
 }
@@ -35,6 +41,7 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
 
     private var task: URLSessionWebSocketTask?
     private var continuation: AsyncStream<RealtimeVoiceEvent>.Continuation?
+    private var tools: [VoiceTool] = []
 
     public init(apiKey: String, model: String = "qwen3.5-omni-plus-realtime", useIntl: Bool = false) {
         self.apiKey = apiKey
@@ -47,9 +54,10 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
         return URL(string: "wss://\(host)/api-ws/v1/realtime?model=\(model)")!
     }
 
-    public func start(instructions: String, voice: String) -> AsyncStream<RealtimeVoiceEvent> {
+    public func start(instructions: String, voice: String, tools: [VoiceTool]) -> AsyncStream<RealtimeVoiceEvent> {
         let (stream, cont) = AsyncStream<RealtimeVoiceEvent>.makeStream()
         continuation = cont
+        self.tools = tools
 
         var request = URLRequest(url: endpoint)
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
@@ -63,7 +71,7 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
     }
 
     private func configureSession(instructions: String, voice: String) {
-        let session: [String: Any] = [
+        var session: [String: Any] = [
             "modalities": ["text", "audio"],
             "voice": voice,
             "input_audio_format": "pcm",
@@ -76,12 +84,24 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
                 "silence_duration_ms": 800,
             ],
         ]
+        if !tools.isEmpty {
+            session["tools"] = tools.map { $0.functionSchema() }
+            session["tool_choice"] = "auto"
+        }
         send(["event_id": "ev_\(UUID().uuidString)", "type": "session.update", "session": session])
         continuation?.yield(.connected)
     }
 
     public func appendAudio(_ pcm16k: Data) {
         send(["type": "input_audio_buffer.append", "audio": pcm16k.base64EncodedString()])
+    }
+
+    public func sendToolResult(callID: String, name: String, result: String) {
+        // OpenAI-Realtime shape: append the function result as a conversation item,
+        // then ask the model to continue so it can speak its confirmation.
+        send(["type": "conversation.item.create",
+              "item": ["type": "function_call_output", "call_id": callID, "output": result]])
+        send(["type": "response.create"])
     }
 
     public func close() {
@@ -139,6 +159,13 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
             if let t = obj["transcript"] as? String { continuation?.yield(.userTranscript(text: t, final: true)) }
         case "input_audio_buffer.speech_started":
             continuation?.yield(.speechStarted)
+        case "response.function_call_arguments.done":
+            let name = obj["name"] as? String ?? ""
+            let callID = obj["call_id"] as? String ?? ""
+            let args = obj["arguments"] as? String ?? "{}"
+            if !name.isEmpty, !callID.isEmpty {
+                continuation?.yield(.toolCall(name: name, arguments: args, callID: callID))
+            }
         case "response.done":
             continuation?.yield(.responseDone)
         case "error":

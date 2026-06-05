@@ -18,6 +18,16 @@ struct VoicePromptTests {
         #expect(p.contains("ACTION:"))
     }
 
+    @Test("the tools action-style points at the function tools and drops the ACTION directive")
+    func toolsStyle() {
+        let p = VoicePrompt.systemPrompt(
+            sessions: [session("payments-api", .needsResponse, wait: .permission)],
+            actionStyle: .tools)
+        #expect(p.contains("payments-api"))       // still lists live sessions
+        #expect(p.contains("approve_session"))    // names the tools the model is given
+        #expect(!p.contains("ACTION:"))           // no spoken-text directive in voice mode
+    }
+
     @Test("the conversation language pins the reply language")
     func language() {
         let en = VoicePrompt.systemPrompt(sessions: [], language: .english)

@@ -10,6 +10,7 @@ public actor OpenAIRealtimeSession: RealtimeVoiceProvider {
 
     private var task: URLSessionWebSocketTask?
     private var continuation: AsyncStream<RealtimeVoiceEvent>.Continuation?
+    private var tools: [VoiceTool] = []
 
     public init(apiKey: String, model: String = "gpt-realtime") {
         self.apiKey = apiKey
@@ -20,9 +21,10 @@ public actor OpenAIRealtimeSession: RealtimeVoiceProvider {
         URL(string: "wss://api.openai.com/v1/realtime?model=\(model)")!
     }
 
-    public func start(instructions: String, voice: String) -> AsyncStream<RealtimeVoiceEvent> {
+    public func start(instructions: String, voice: String, tools: [VoiceTool]) -> AsyncStream<RealtimeVoiceEvent> {
         let (stream, cont) = AsyncStream<RealtimeVoiceEvent>.makeStream()
         continuation = cont
+        self.tools = tools
 
         var request = URLRequest(url: endpoint)
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")  // GA: no beta header
@@ -37,7 +39,7 @@ public actor OpenAIRealtimeSession: RealtimeVoiceProvider {
 
     private func configureSession(instructions: String, voice: String) {
         let pcm: [String: Any] = ["type": "audio/pcm", "rate": 24000]
-        let session: [String: Any] = [
+        var session: [String: Any] = [
             "type": "realtime",
             "output_modalities": ["audio"],
             "instructions": instructions,
@@ -50,12 +52,22 @@ public actor OpenAIRealtimeSession: RealtimeVoiceProvider {
                 "output": ["format": pcm, "voice": voice],
             ],
         ]
+        if !tools.isEmpty {
+            session["tools"] = tools.map { $0.functionSchema() }
+            session["tool_choice"] = "auto"
+        }
         send(["type": "session.update", "session": session])
         continuation?.yield(.connected)
     }
 
     public func appendAudio(_ pcm24k: Data) {
         send(["type": "input_audio_buffer.append", "audio": pcm24k.base64EncodedString()])
+    }
+
+    public func sendToolResult(callID: String, name: String, result: String) {
+        send(["type": "conversation.item.create",
+              "item": ["type": "function_call_output", "call_id": callID, "output": result]])
+        send(["type": "response.create"])
     }
 
     public func close() {
@@ -112,6 +124,13 @@ public actor OpenAIRealtimeSession: RealtimeVoiceProvider {
             if let t = obj["transcript"] as? String { continuation?.yield(.userTranscript(text: t, final: true)) }
         case "input_audio_buffer.speech_started":
             continuation?.yield(.speechStarted)
+        case "response.function_call_arguments.done":
+            let name = obj["name"] as? String ?? ""
+            let callID = obj["call_id"] as? String ?? ""
+            let args = obj["arguments"] as? String ?? "{}"
+            if !name.isEmpty, !callID.isEmpty {
+                continuation?.yield(.toolCall(name: name, arguments: args, callID: callID))
+            }
         case "response.done":
             continuation?.yield(.responseDone)
         case "error":
