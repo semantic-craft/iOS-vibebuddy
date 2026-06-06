@@ -19,11 +19,18 @@ public struct SessionReducer: Sendable {
             // Active work: a tool starting/finishing means the agent is busy,
             // which also clears any prior "needs you" wait state.
             upsert(event, status: .working, waitKind: nil)
-            // Track the last tool outcome for the stuck cue: a new turn clears it,
-            // a tool result reflects that tool's success/failure.
+            // Track the last tool outcome for the stuck cue and the current tool
+            // for the activity line: a new turn clears both, PreToolUse names the
+            // running tool, PostToolUse records its outcome and clears the tool.
             switch event.kind {
-            case .sessionStart, .userPromptSubmit: sessions[event.sessionID]?.failed = false
-            case .postToolUse: sessions[event.sessionID]?.failed = event.toolError
+            case .sessionStart, .userPromptSubmit:
+                sessions[event.sessionID]?.failed = false
+                sessions[event.sessionID]?.activeTool = nil
+            case .preToolUse:
+                sessions[event.sessionID]?.activeTool = event.toolName
+            case .postToolUse:
+                sessions[event.sessionID]?.failed = event.toolError
+                sessions[event.sessionID]?.activeTool = nil
             default: break
             }
         case .notification:
@@ -31,11 +38,13 @@ public struct SessionReducer: Sendable {
             upsert(event, status: .needsResponse,
                    waitKind: Self.waitKind(from: event.message),
                    summary: event.message)
-            sessions[event.sessionID]?.failed = false   // waiting on you, not stuck
+            sessions[event.sessionID]?.failed = false       // waiting on you, not stuck
+            sessions[event.sessionID]?.activeTool = nil      // no tool running while waiting
         case .stop:
             // Create-if-missing so a late-observed session or a Codex
             // turn-complete still shows as done; carry a Codex summary if present.
             upsert(event, status: .done, waitKind: nil, summary: event.message)
+            sessions[event.sessionID]?.activeTool = nil
             // Carry the last tool's outcome; also treat a failure-looking stop
             // message as stuck even when no tool error was reported.
             if FailureHeuristic.looksFailed(event.message) { sessions[event.sessionID]?.failed = true }

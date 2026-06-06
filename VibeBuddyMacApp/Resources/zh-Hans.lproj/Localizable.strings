@@ -13,6 +13,14 @@
 "Working" = "进行中";
 "Done" = "完成";
 "Stuck" = "卡住";
+/* Session row — what a working agent is doing (ToolActivity) */
+"Editing…" = "正在编辑…";
+"Reading…" = "正在读取…";
+"Running…" = "正在运行…";
+"Searching…" = "搜索中…";
+"Browsing…" = "联网查询…";
+"Delegating…" = "调度子任务…";
+"Planning…" = "规划中…";
 "Tap the pet to talk" = "点一下宠物开始说话";
 "Listening…" = "聆听中…";
 "Speaking…" = "说话中…";

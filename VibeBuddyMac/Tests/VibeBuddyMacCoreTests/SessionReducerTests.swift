@@ -22,6 +22,30 @@ struct SessionReducerTests {
                   toolError: toolError, timestamp: t0.addingTimeInterval(at))
     }
 
+    @Test("preToolUse sets the active tool; postToolUse and a new turn clear it")
+    func activeToolTracking() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart))
+        #expect(r.sessions["s1"]?.activeTool == nil)
+        r.apply(ev(.preToolUse, tool: "Edit", at: 1))
+        #expect(r.sessions["s1"]?.activeTool == "Edit")
+        r.apply(ev(.postToolUse, tool: "Edit", at: 2))   // tool finished → cleared
+        #expect(r.sessions["s1"]?.activeTool == nil)
+        r.apply(ev(.preToolUse, tool: "Grep", at: 3))
+        #expect(r.sessions["s1"]?.activeTool == "Grep")
+        r.apply(ev(.userPromptSubmit, at: 4))            // new turn → cleared
+        #expect(r.sessions["s1"]?.activeTool == nil)
+    }
+
+    @Test("a needs-you notification clears any active tool")
+    func notificationClearsActiveTool() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart))
+        r.apply(ev(.preToolUse, tool: "Bash", at: 1))
+        r.apply(ev(.notification, message: "needs your permission", at: 2))
+        #expect(r.sessions["s1"]?.activeTool == nil)
+    }
+
     @Test("a tool error before Stop marks the done session failed")
     func toolErrorThenStopIsFailed() {
         var r = SessionReducer()

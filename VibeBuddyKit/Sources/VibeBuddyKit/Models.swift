@@ -126,6 +126,10 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     /// Cumulative tokens spent across this session's turns (input+output),
     /// accumulated by the reducer. Drives the estimated cost + budget alert.
     public var spentTokens: Int?
+    /// The tool the agent is currently running (set on PreToolUse, cleared on
+    /// PostToolUse / a new turn). Drives the Mac row's "Editing…/Searching…"
+    /// activity line. Optional so older payloads decode as "unknown".
+    public var activeTool: String?
     public var statusSince: Date
     public var updatedAt: Date
 
@@ -146,6 +150,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         contextWindow: Int? = nil,
         failed: Bool? = nil,
         spentTokens: Int? = nil,
+        activeTool: String? = nil,
         statusSince: Date,
         updatedAt: Date
     ) {
@@ -165,6 +170,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         self.contextWindow = contextWindow
         self.failed = failed
         self.spentTokens = spentTokens
+        self.activeTool = activeTool
         self.statusSince = statusSince
         self.updatedAt = updatedAt
     }

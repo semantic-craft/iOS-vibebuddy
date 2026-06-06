@@ -9,6 +9,7 @@ struct DashboardView: View {
     @State private var agentFilter: AgentKind? = nil
     @State private var query: String = ""
     @State private var selection: String? = nil
+    @FocusState private var searchFocused: Bool
 
     private var filtered: [AgentSession] {
         SessionFilter.apply(model.sessions, status: statusFilter, agent: agentFilter, query: query)
@@ -28,6 +29,7 @@ struct DashboardView: View {
                 SessionRowView(session: s).tag(s.id)
             }
             .searchable(text: $query, prompt: "Search sessions")
+            .searchFocusedCompat($searchFocused)
             .navigationTitle("vibebuddy")
             .safeAreaInset(edge: .top, spacing: 0) {
                 MacBuddyBar(model: model, voice: model.voiceChat)
@@ -50,6 +52,13 @@ struct DashboardView: View {
                 Button("") { statusFilter = .needsResponse }.keyboardShortcut("1", modifiers: .command)
                 Button("") { statusFilter = .working }.keyboardShortcut("2", modifiers: .command)
                 Button("") { statusFilter = .done }.keyboardShortcut("3", modifiers: .command)
+                // ⌘F focuses the sessions search field.
+                Button("") { searchFocused = true }.keyboardShortcut("f", modifiers: .command)
+                // ⏎ jumps to the selected session's terminal (no-op without a
+                // terminalRef; ignored while typing in search so it doesn't shadow
+                // the field's own Return).
+                Button("") { if !searchFocused, let s = selectedSession, s.terminalRef != nil { model.jump(s) } }
+                    .keyboardShortcut(.return, modifiers: [])
             }
             .opacity(0)
         }
@@ -97,6 +106,18 @@ struct DashboardView: View {
             .contentShape(Rectangle())   // whole row is clickable, not just the text
         }
         .buttonStyle(.plain)
+    }
+}
+
+private extension View {
+    /// `.searchFocused` is macOS 15+; on 14 we degrade gracefully (⌘F no-ops).
+    @ViewBuilder
+    func searchFocusedCompat(_ binding: FocusState<Bool>.Binding) -> some View {
+        if #available(macOS 15.0, *) {
+            searchFocused(binding)
+        } else {
+            self
+        }
     }
 }
 
@@ -190,7 +211,11 @@ private struct SessionRowView: View {
                         .foregroundStyle(.red)
                 }
             }
-            if let s = session.summary {
+            // While a tool is running, say what it's doing ("Editing…/Searching…");
+            // otherwise fall back to the prose summary.
+            if session.status == .working, let activity = ToolActivity.phrase(for: session.activeTool) {
+                Text(LocalizedStringKey(activity + "…")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            } else if let s = session.summary {
                 Text(s).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             HStack(spacing: 6) {
