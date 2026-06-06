@@ -1,6 +1,24 @@
 # iOS pet is a pixel cat; Mac keeps the robot
 
-**Status:** Accepted (2026-06-05) — amends ADR-0006
+**Status:** Superseded in part (2026-06-06) — see *Amendment* below. Originally
+Accepted (2026-06-05), amends ADR-0006.
+
+> **Amendment (2026-06-06): the cat is now on _both_ platforms.** Per a product
+> call, macOS drops the robot and adopts the same pixel cat as iOS, so the pet
+> identity is unified everywhere:
+> - **macOS notch glance + dashboard header** (`VibeBuddyMacApp/Sources/PetFace.swift`)
+>   now render the identical 13-wide pixel-cat grid (white in the dark glance,
+>   `.primary` on a card; eyes carry the status accent), replacing the ASCII robot.
+> - **macOS menu-bar mark** (`MenuBarGlyph.cat` in `VibeBuddyMenuBarApp.swift`) is a
+>   cat-head template silhouette (rounded head + triangle ears + punched eyes),
+>   replacing the robot-head glyph.
+> - **iOS app icon** (`VibeBuddyApp/Tools/make_app_icon.py` → `AppIcon.appiconset`)
+>   is a code-drawn kawaii cat (white cat, green eyes, dark slate), replacing the
+>   three-bar mark that read as a paw print on the home screen.
+>
+> Everything below describes the original iOS-only decision; the "Mac keeps the
+> robot" rationale no longer holds. Still **0 bundled artwork** except the app
+> icon raster (required by the platform), which is itself generated from code.
 
 ADR-0006 made the pet an all-code-drawn **robot** on both platforms. We now
 diverge the pet's *identity per platform*: **iOS** renders a **pixel

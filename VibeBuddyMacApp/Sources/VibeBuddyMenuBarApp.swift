@@ -67,35 +67,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-/// The robot-head menu-bar mark. A SwiftUI `Canvas` doesn't render reliably in a
+/// The cat-head menu-bar mark. A SwiftUI `Canvas` doesn't render reliably in a
 /// `MenuBarExtra` label, so the head is drawn once into a **template** `NSImage`
 /// (eyes punched out with `destinationOut`); the system then tints it for
-/// light/dark menu bars and selection — same identity as the ASCII pet.
-struct RobotHeadIcon: View {
+/// light/dark menu bars and selection — the same cat identity as the pet and the
+/// app icon (ADR-0007, amended: cat on both platforms).
+struct CatHeadIcon: View {
     var body: some View {
-        Image(nsImage: MenuBarGlyph.robot)
+        Image(nsImage: MenuBarGlyph.cat)
             .resizable()
             .renderingMode(.template)
     }
 }
 
 enum MenuBarGlyph {
-    static let robot: NSImage = {
+    static let cat: NSImage = {
         let s: CGFloat = 18
         let img = NSImage(size: NSSize(width: s, height: s), flipped: true) { rect in
             let w = rect.width, h = rect.height
+            // y grows downward (flipped): ears on top, rounded head below.
             let solid = NSBezierPath()
-            solid.appendOval(in: NSRect(x: 0.40 * w, y: 0.02 * h, width: 0.20 * w, height: 0.18 * h))   // knob
-            solid.append(NSBezierPath(rect: NSRect(x: 0.455 * w, y: 0.12 * h, width: 0.09 * w, height: 0.22 * h))) // stem
-            solid.append(NSBezierPath(roundedRect: NSRect(x: 0.16 * w, y: 0.30 * h, width: 0.68 * w, height: 0.62 * h),
-                                      xRadius: 0.16 * w, yRadius: 0.16 * w))                              // head
+            // Triangular ears.
+            let leftEar = NSBezierPath()
+            leftEar.move(to: NSPoint(x: 0.22 * w, y: 0.40 * h))
+            leftEar.line(to: NSPoint(x: 0.30 * w, y: 0.04 * h))
+            leftEar.line(to: NSPoint(x: 0.50 * w, y: 0.36 * h))
+            leftEar.close()
+            let rightEar = NSBezierPath()
+            rightEar.move(to: NSPoint(x: 0.78 * w, y: 0.40 * h))
+            rightEar.line(to: NSPoint(x: 0.70 * w, y: 0.04 * h))
+            rightEar.line(to: NSPoint(x: 0.50 * w, y: 0.36 * h))
+            rightEar.close()
+            solid.append(leftEar)
+            solid.append(rightEar)
+            // Rounded head.
+            solid.append(NSBezierPath(roundedRect: NSRect(x: 0.17 * w, y: 0.32 * h, width: 0.66 * w, height: 0.62 * h),
+                                      xRadius: 0.22 * w, yRadius: 0.22 * w))
             NSColor.black.setFill()
             solid.fill()
+            // Punch out the two eyes so the system tint shows through cleanly.
             NSGraphicsContext.current?.compositingOperation = .destinationOut
             let eyes = NSBezierPath()
             let r: CGFloat = 0.085 * w
-            for ex in [0.39, 0.61] as [CGFloat] {
-                eyes.appendOval(in: NSRect(x: ex * w - r, y: 0.58 * h - r, width: r * 2, height: r * 2))
+            for ex in [0.38, 0.62] as [CGFloat] {
+                eyes.appendOval(in: NSRect(x: ex * w - r, y: 0.62 * h - r, width: r * 2, height: r * 2))
             }
             eyes.fill()
             NSGraphicsContext.current?.compositingOperation = .sourceOver
@@ -116,10 +131,10 @@ struct MenuBarLabel: View {
 
     var body: some View {
         HStack(spacing: 3) {
-            // A stable robot-head mark (matches the pet), monochrome so the system
-            // tints it for light/dark. State shows as a badge + count, not a
-            // shape change, so the silhouette stays recognizable.
-            RobotHeadIcon()
+            // A stable cat-head mark (matches the pet + app icon), monochrome so
+            // the system tints it for light/dark. State shows as a badge + count,
+            // not a shape change, so the silhouette stays recognizable.
+            CatHeadIcon()
                 .frame(width: 17, height: 17)
                 .overlay(alignment: .topTrailing) {
                     if model.needsResponse > 0 {
