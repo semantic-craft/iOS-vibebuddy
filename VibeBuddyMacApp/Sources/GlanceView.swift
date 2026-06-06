@@ -73,18 +73,21 @@ struct GlanceView: View {
                 } else {
                     ForEach(model.sessions.prefix(6)) { sess in
                         let canJump = sess.terminalRef != nil
-                        HStack(spacing: 8 * s) {
-                            Circle().fill(color(sess.status)).frame(width: 8 * s, height: 8 * s)
-                            Text(sess.project).font(.system(size: 13 * s)).foregroundStyle(.white).lineLimit(1)
-                            if canJump {
-                                Spacer(minLength: 0)
-                                Image(systemName: "terminal")          // tap the row to focus its terminal
-                                    .font(.system(size: 11 * s))
-                                    .foregroundStyle(.white.opacity(0.5))
+                        Button { model.jump(sess) } label: {
+                            HStack(spacing: 8 * s) {
+                                Circle().fill(color(sess.status)).frame(width: 8 * s, height: 8 * s)
+                                Text(sess.project).font(.system(size: 13 * s)).foregroundStyle(.white).lineLimit(1)
+                                if canJump {
+                                    Spacer(minLength: 0)
+                                    Image(systemName: "terminal")      // click the row to focus its terminal
+                                        .font(.system(size: 11 * s))
+                                        .foregroundStyle(.white.opacity(0.5))
+                                }
                             }
+                            .contentShape(Rectangle())
                         }
-                        .contentShape(Rectangle())
-                        .onTapGesture { if canJump { model.jump(sess) } }
+                        .buttonStyle(.plain)
+                        .disabled(!canJump)
                         .help(canJump ? "Jump to terminal" : "")
                     }
                 }

@@ -53,11 +53,12 @@ struct DashboardView: View {
             }
             .opacity(0)
         }
+        .onAppear { AppActivationPolicy.activateFront() }
         .onDisappear { AppActivationPolicy.leave() }
     }
 
     private var sidebar: some View {
-        List(selection: $statusFilter) {
+        List {
             Section("Status") {
                 statusItem(.needsResponse, "Needs Response", .orange)
                 statusItem(.working, "Working", .blue)
@@ -82,13 +83,20 @@ struct DashboardView: View {
 
     private func statusItem(_ status: SessionStatus, _ label: LocalizedStringKey, _ color: Color) -> some View {
         let count = model.sessions.filter { $0.status == status }.count
-        return HStack {
-            Circle().fill(color).frame(width: 9, height: 9)
-            Text(label)
-            Spacer()
-            Text("\(count)").foregroundStyle(.secondary).monospacedDigit()
+        let selected = statusFilter == status
+        return Button {
+            statusFilter = selected ? nil : status   // click again to clear the filter
+        } label: {
+            HStack {
+                Circle().fill(color).frame(width: 9, height: 9)
+                Text(label)
+                Spacer()
+                if selected { Image(systemName: "checkmark").font(.caption) }
+                Text("\(count)").foregroundStyle(.secondary).monospacedDigit()
+            }
+            .contentShape(Rectangle())   // whole row is clickable, not just the text
         }
-        .tag(Optional(status))
+        .buttonStyle(.plain)
     }
 }
 

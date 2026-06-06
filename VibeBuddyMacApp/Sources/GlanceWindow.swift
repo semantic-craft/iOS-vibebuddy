@@ -4,6 +4,20 @@ import Combine
 import os
 import VibeBuddyMacCore
 
+/// Delivers the first mouse-down to the SwiftUI content even though the glance
+/// panel isn't the key window — without this, taps on the non-activating panel
+/// (jump / Approve / Deny) are swallowed.
+private final class FirstMouseHostingView<V: View>: NSHostingView<V> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
+/// A borderless panel can't become key by default, which blocks SwiftUI button
+/// taps. Allow it — the panel is `.nonactivatingPanel`, so becoming key never
+/// steals app focus or brings vibebuddy to the front.
+private final class KeyablePanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+}
+
 @MainActor
 final class GlanceWindow {
     private static let log = Logger(subsystem: "com.vibebuddy.app", category: "glance")
@@ -21,7 +35,7 @@ final class GlanceWindow {
         let anchor = NSScreen.screens.first ?? NSScreen.main
         mode = GlanceMode.from(topInset: anchor?.safeAreaInsets.top ?? 0)
         let rootView = GlanceView(model: model, voice: model.voiceChat, mode: mode)
-        hosting = NSHostingView(rootView: rootView)
+        hosting = FirstMouseHostingView(rootView: rootView)
         measuringController = NSHostingController(rootView: rootView)
         let initialSize = NSSize(width: 220, height: mode == .notch ? 38 : 30)
         container = NSView(frame: NSRect(origin: .zero, size: initialSize))
@@ -40,8 +54,8 @@ final class GlanceWindow {
             // area changes invalidate SwiftUI again, and AppKit eventually traps.
             hosting.sizingOptions = []
         }
-        panel = NSPanel(contentRect: NSRect(origin: .zero, size: initialSize),
-                        styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel = KeyablePanel(contentRect: NSRect(origin: .zero, size: initialSize),
+                             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isReleasedWhenClosed = false
         panel.isOpaque = false
         panel.backgroundColor = .clear

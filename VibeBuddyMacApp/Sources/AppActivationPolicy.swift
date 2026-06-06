@@ -18,4 +18,16 @@ enum AppActivationPolicy {
         guard count == 0 else { return }
         NSApp.setActivationPolicy(.accessory)
     }
+
+    /// Re-assert frontmost activation *after* a window has appeared. `enter()`
+    /// activates before `openWindow`, so on recent macOS the window can end up
+    /// key for the keyboard yet not the frontmost app — every mouse click is
+    /// then swallowed as a click-to-activate. Calling this from the window's
+    /// `onAppear` makes the app active so clicks land on the SwiftUI views.
+    static func activateFront() {
+        DispatchQueue.main.async {
+            NSApp.windows.first { $0.isVisible && $0.canBecomeKey }?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
 }
