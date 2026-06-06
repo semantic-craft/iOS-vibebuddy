@@ -24,3 +24,10 @@ docs/handoffs/
 
 # Python bytecode
 __pycache__/
+
+# Build artifacts / release packaging (the DMG is attached to GitHub Releases, not tracked)
+build-device/
+dist/*.dmg
+
+# Local agent tooling
+.antigravitycli/

@@ -87,13 +87,22 @@ final class MenuBarModel: ObservableObject {
             idleTimeoutHours = saved
         }
         pairedPhone = Self.loadPairedPhone()
-        notifier.requestAuthorization()
         notificationCoordinator = NotificationCoordinator(notifier: notifier)
-        startServer()
-        preparePairing()
-        startPolling()
-        let interval = Self.staleInterval(forHours: idleTimeoutHours)
-        Task { [store] in await store.setStaleAfter(interval) }
+        // Screenshot / exploration instance: seed sample sessions and skip the
+        // server, polling, pairing, and notifications entirely. It never binds the
+        // port or pushes to a phone, so it runs harmlessly alongside a real
+        // instance and never touches real session data.
+        let isDemo = ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1"
+        if isDemo {
+            sessions = MacDemoData.sessions()
+        } else {
+            notifier.requestAuthorization()
+            startServer()
+            preparePairing()
+            startPolling()
+            let interval = Self.staleInterval(forHours: idleTimeoutHours)
+            Task { [store] in await store.setStaleAfter(interval) }
+        }
         // Create the glance on the next main-runloop tick — NOT synchronously here.
         // Hosting/displaying a SwiftUI view that observes `self` while `init` is
         // still running trips an AttributeGraph precondition (NSHostingView.layout
@@ -101,8 +110,16 @@ final class MenuBarModel: ObservableObject {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }            // throwaway @StateObject probe deallocated
             guard self.glance == nil else { return }  // create the glance exactly once
-            guard self.showGlance else { return }     // honor the Settings toggle at launch
+            guard self.showGlance || isDemo else { return }  // honor the toggle (always on in demo)
             self.glance = GlanceWindow(model: self)
+        }
+        // Demo instance: open its own dashboard so it's ready to screenshot. The
+        // notification is in-process (NotificationCenter.default), so it never
+        // reaches a real instance running in another process.
+        if isDemo {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                NotificationCenter.default.post(name: .openDashboard, object: nil)
+            }
         }
     }
 

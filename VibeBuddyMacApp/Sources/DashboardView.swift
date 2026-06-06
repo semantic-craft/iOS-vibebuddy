@@ -8,7 +8,10 @@ struct DashboardView: View {
     @State private var statusFilter: SessionStatus? = .needsResponse
     @State private var agentFilter: AgentKind? = nil
     @State private var query: String = ""
-    @State private var selection: String? = nil
+    // Demo instance pre-selects the approval session so the detail pane (diff +
+    // Approve/Deny) is shown for screenshots; nil in normal use.
+    @State private var selection: String? =
+        ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1" ? "demo-edit" : nil
     @FocusState private var searchFocused: Bool
     @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
 
