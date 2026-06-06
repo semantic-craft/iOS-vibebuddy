@@ -234,6 +234,12 @@ final class MenuBarModel: ObservableObject {
         else { buddySessionIDs.insert(id) }
     }
 
+    /// The session's recent output, for the detail pane's "Recent output" sheet.
+    /// Reads off the store actor; empty when no transcript is known.
+    func transcript(for sessionID: String) async -> [TranscriptEntry] {
+        await store.recentTranscript(sessionID: sessionID)
+    }
+
     /// Execute a voice action against the matching session; returns a spoken confirmation.
     func performVoiceAction(_ action: VoiceAction) -> String {
         switch action {

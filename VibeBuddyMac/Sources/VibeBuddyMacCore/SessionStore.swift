@@ -115,6 +115,15 @@ public actor SessionStore {
         reducer.snapshot(now: now)
     }
 
+    /// The session's recent output (user prompts + assistant prose / tool activity)
+    /// for the detail pane. Empty when the session has no known transcript — e.g.
+    /// an agent that doesn't report a `transcriptPath` (Codex) — so the UI can show
+    /// a graceful "no transcript" state.
+    public func recentTranscript(sessionID: String, limit: Int = 12) -> [TranscriptEntry] {
+        guard let path = transcriptPaths[sessionID] else { return [] }
+        return TranscriptReader.recentEntries(path: path, limit: limit) ?? []
+    }
+
     /// Subscribe to live snapshots. The current snapshot is delivered immediately.
     public func subscribe() -> (id: UUID, stream: AsyncStream<Snapshot>) {
         let id = UUID()

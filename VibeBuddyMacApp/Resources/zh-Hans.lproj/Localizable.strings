@@ -34,6 +34,12 @@
 "Deny" = "拒绝";
 "Jump" = "跳转";
 "Jump to terminal" = "跳到终端";
+/* Detail pane — recent output / transcript peek ("Done" reuses the existing key) */
+"Recent output" = "最近输出";
+"No recent output" = "暂无最近输出";
+"This session hasn't reported a transcript yet." = "该会话尚未上报任何记录。";
+"Assistant" = "助手";
+"You" = "你";
 
 /* MARK: Menu bar popover */
 "Open Dashboard" = "打开仪表盘";

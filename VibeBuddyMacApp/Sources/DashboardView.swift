@@ -266,6 +266,7 @@ private struct SessionRowView: View {
 private struct DetailView: View {
     let session: AgentSession
     @ObservedObject var model: MenuBarModel
+    @State private var showTranscript = false
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
@@ -291,12 +292,79 @@ private struct DetailView: View {
                     Button("Jump to terminal") { model.jump(session) }
                         .disabled(session.terminalRef == nil)
                 }
+                // Peek at what the agent has been doing without leaving the app.
+                Button { showTranscript = true } label: {
+                    Label("Recent output", systemImage: "text.alignleft")
+                }
                 if let m = session.model {
                     Label(m, systemImage: "cpu").font(.caption).foregroundStyle(.secondary)
                 }
             }
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .sheet(isPresented: $showTranscript) {
+            TranscriptSheet(session: session, model: model)
+        }
+    }
+}
+
+/// A read-only peek at a session's recent output (user prompts + assistant
+/// prose / tool activity), loaded on demand off the store actor.
+private struct TranscriptSheet: View {
+    let session: AgentSession
+    @ObservedObject var model: MenuBarModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var entries: [TranscriptEntry] = []
+    @State private var loaded = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Recent output").font(.headline)
+                    Text(session.project).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+            }
+            .padding()
+            Divider()
+            content
+        }
+        .frame(minWidth: 460, minHeight: 360)
+        .task {
+            entries = await model.transcript(for: session.id)
+            loaded = true
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if !loaded {
+            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if entries.isEmpty {
+            ContentUnavailableView(
+                "No recent output", systemImage: "text.alignleft",
+                description: Text("This session hasn't reported a transcript yet."))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(entry.role == "assistant" ? "Assistant" : "You")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(entry.role == "assistant" ? Color.blue : Color.secondary)
+                            Text(entry.text)
+                                .font(.callout)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }
+                .padding()
+            }
         }
     }
 }
