@@ -25,7 +25,8 @@ struct DashboardView: View {
             VStack(spacing: 0) {
                 BuddyView(groups: dashboard.groups, pulse: dashboard.cuePulse,
                           speaking: voice.isSpeaking, listening: voice.isListening,
-                          companionEnabled: companionEnabled) {
+                          companionEnabled: companionEnabled,
+                          buddyScopeCount: dashboard.buddySessionIDs.count) {
                     voice.toggle()
                 }
                 if voice.phase != .idle || voice.errorText != nil {
@@ -165,6 +166,9 @@ private struct SessionRow: View {
     let session: AgentSession
     let accent: Color
     @EnvironmentObject private var dashboard: DashboardStore
+    @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
+
+    private var included: Bool { dashboard.buddySessionIDs.contains(session.id) }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -185,6 +189,15 @@ private struct SessionRow: View {
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.red)
                             .labelStyle(.titleAndIcon)
+                    }
+                    if companionEnabled {
+                        Spacer(minLength: 8)
+                        Button { dashboard.toggleBuddy(session.id) } label: {
+                            Image(systemName: included ? "waveform.circle.fill" : "waveform.circle")
+                                .foregroundStyle(included ? AnyShapeStyle(accent) : AnyShapeStyle(.tertiary))
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel(included ? "In the buddy's context" : "Add to the buddy's context")
                     }
                 }
 

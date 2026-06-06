@@ -10,6 +10,7 @@ struct BuddyView: View {
     var speaking: Bool = false  // companion is talking
     var listening: Bool = false // companion is listening
     var companionEnabled: Bool = true   // false → off-state header (opt-in gate)
+    var buddyScopeCount: Int = 0         // live sessions scoped into the buddy (0 = all)
     var onTap: (() -> Void)?    // tap the pet to talk
     @State private var react = false
 
@@ -30,6 +31,9 @@ struct BuddyView: View {
                         Text(listening ? "Listening…" : (speaking ? "Speaking…" : title(state))).font(.headline)
                     }
                     Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                    if companionEnabled {
+                        Text(scopeLine).font(.caption2).foregroundStyle(.tertiary)
+                    }
                 }
                 Spacer(minLength: 0)
             }
@@ -55,6 +59,11 @@ struct BuddyView: View {
         case .done:     "All done"
         case .sleeping: "Napping…"
         }
+    }
+
+    /// "Buddy: all sessions" when nothing is scoped, else "Buddy: N selected".
+    private var scopeLine: LocalizedStringKey {
+        buddyScopeCount == 0 ? "Buddy: all sessions" : "Buddy: \(buddyScopeCount) selected"
     }
 
     private var subtitle: String {

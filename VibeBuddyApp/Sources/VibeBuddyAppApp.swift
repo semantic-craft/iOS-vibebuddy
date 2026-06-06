@@ -12,7 +12,7 @@ struct VibeBuddyAppApp: App {
         let dash = DashboardStore()
         _dashboard = StateObject(wrappedValue: dash)
         _voice = StateObject(wrappedValue: VoiceChat(
-            contextProvider: { [weak dash] in dash?.allSessions ?? [] },
+            contextProvider: { [weak dash] in dash?.buddyContext ?? [] },
             actionHandler: { [weak dash] action in dash?.performVoiceAction(action) ?? "" }))
     }
 

@@ -10,6 +10,7 @@ struct DashboardView: View {
     @State private var query: String = ""
     @State private var selection: String? = nil
     @FocusState private var searchFocused: Bool
+    @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
 
     private var filtered: [AgentSession] {
         SessionFilter.apply(model.sessions, status: statusFilter, agent: agentFilter, query: query)
@@ -26,7 +27,11 @@ struct DashboardView: View {
             sidebar
         } content: {
             List(filtered, selection: $selection) { s in
-                SessionRowView(session: s).tag(s.id)
+                SessionRowView(session: s,
+                               included: model.buddySessionIDs.contains(s.id),
+                               showInclude: companionEnabled,
+                               onToggleInclude: { model.toggleBuddy(s.id) })
+                    .tag(s.id)
             }
             .searchable(text: $query, prompt: "Search sessions")
             .searchFocusedCompat($searchFocused)
@@ -136,6 +141,12 @@ private struct MacBuddyBar: View {
         return "Tap the pet to talk"
     }
 
+    /// "Buddy: all sessions" when nothing is scoped, else "Buddy: N selected".
+    private var scopeLine: LocalizedStringKey {
+        let n = model.buddySessionIDs.count
+        return n == 0 ? "Buddy: all sessions" : "Buddy: \(n) selected"
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             PetFace(state: model.buddyState, speaking: voice.isSpeaking, listening: voice.isListening)
@@ -160,6 +171,9 @@ private struct MacBuddyBar: View {
                     Text(voice.lastReply).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                 } else if !voice.lastUserText.isEmpty {
                     Text(voice.lastUserText).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                if companionEnabled {
+                    Text(scopeLine).font(.caption2).foregroundStyle(.tertiary)
                 }
             }
             Spacer(minLength: 0)
@@ -200,6 +214,9 @@ private struct VoiceConsentSheet: View {
 
 private struct SessionRowView: View {
     let session: AgentSession
+    var included: Bool = false           // in the buddy's scoped context
+    var showInclude: Bool = false        // only when the voice companion is on
+    var onToggleInclude: () -> Void = {}
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
@@ -209,6 +226,15 @@ private struct SessionRowView: View {
                     Label("Stuck", systemImage: "exclamationmark.triangle.fill")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.red)
+                }
+                if showInclude {
+                    Spacer(minLength: 8)
+                    Button(action: onToggleInclude) {
+                        Image(systemName: included ? "waveform.circle.fill" : "waveform.circle")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(included ? Color.accentColor : Color.secondary)
+                    .help(included ? "In the buddy's context" : "Add to the buddy's context")
                 }
             }
             // While a tool is running, say what it's doing ("Editing…/Searching…");

@@ -13,6 +13,9 @@ final class DashboardStore: ObservableObject {
     }
 
     @Published private(set) var groups = SessionGroups([])
+    /// Sessions the user has pointed the buddy at (in-memory, never persisted).
+    /// Empty = the buddy sees all sessions; pruned to live IDs on every snapshot.
+    @Published private(set) var buddySessionIDs: Set<String> = []
     @Published private(set) var state: ConnectionState = .connecting
     /// Bumped whenever a cue fires, so the buddy can react in step with the sound.
     @Published private(set) var cuePulse = 0
@@ -79,6 +82,17 @@ final class DashboardStore: ObservableObject {
     /// A flat list of all known sessions, for the voice companion's context.
     var allSessions: [AgentSession] { groups.needsResponse + groups.working + groups.done }
 
+    /// The sessions the buddy is actually grounded in, honouring the scope toggles
+    /// (empty selection = all). Read by `VoiceChat`'s contextProvider at call start.
+    var buddyContext: [AgentSession] { BuddyScope.included(from: allSessions, selectedIDs: buddySessionIDs) }
+
+    /// Include/exclude a session from the buddy's context (ephemeral). Takes effect
+    /// on the next call — a live call keeps the snapshot it started with.
+    func toggleBuddy(_ id: String) {
+        if buddySessionIDs.contains(id) { buddySessionIDs.remove(id) }
+        else { buddySessionIDs.insert(id) }
+    }
+
     /// Execute a voice action on the matching session; returns a spoken confirmation.
     func performVoiceAction(_ action: VoiceAction) -> String {
         switch action {
@@ -109,7 +123,9 @@ final class DashboardStore: ObservableObject {
         isDemo = true
         pairing = nil
         state = .connected
-        groups = SessionGroups(Self.demoSessions())
+        let demo = Self.demoSessions()
+        groups = SessionGroups(demo)
+        buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: demo)
     }
 
     func decide(_ approvalId: String, approve: Bool) {
@@ -248,6 +264,7 @@ final class DashboardStore: ObservableObject {
         }
         if !alerts.isEmpty { cuePulse += 1 }   // let the buddy react
         groups = SessionGroups(snapshot.sessions)
+        buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: snapshot.sessions)
         state = .connected
         await liveActivity.sync(
             needsResponse: groups.needsResponse.count,

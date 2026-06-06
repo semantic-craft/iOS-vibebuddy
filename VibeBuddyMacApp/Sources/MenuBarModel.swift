@@ -23,6 +23,9 @@ struct PairedPhone: Codable, Equatable {
 @MainActor
 final class MenuBarModel: ObservableObject {
     @Published private(set) var sessions: [AgentSession] = []
+    /// Sessions the user has pointed the buddy at (in-memory, never persisted).
+    /// Empty = the buddy sees all sessions; pruned to live IDs on every snapshot.
+    @Published private(set) var buddySessionIDs: Set<String> = []
     @Published private(set) var pairing: PairingPayload?
     @Published private(set) var qrImage: NSImage?
     /// The most-recently paired phone's display metadata (persisted), shown in the UI.
@@ -50,7 +53,10 @@ final class MenuBarModel: ObservableObject {
     private let budgetMonitor = BudgetMonitor()
     /// The voice companion (tap the buddy to talk). Lazy so `self` is fully built.
     lazy var voiceChat = VoiceChat(
-        contextProvider: { [weak self] in self?.sessions ?? [] },
+        contextProvider: { [weak self] in
+            guard let self else { return [] }
+            return BuddyScope.included(from: self.sessions, selectedIDs: self.buddySessionIDs)
+        },
         actionHandler: { [weak self] action in self?.performVoiceAction(action) ?? "" })
     private var pollTask: Task<Void, Never>?
     private var glance: GlanceWindow?
@@ -147,6 +153,7 @@ final class MenuBarModel: ObservableObject {
                 guard let self else { return }
                 let snapshot = await self.store.snapshot(now: Date())
                 self.sessions = snapshot.sessions
+                self.buddySessionIDs = BuddyScope.pruned(self.buddySessionIDs, toLive: snapshot.sessions)
                 self.notificationCoordinator.observe(
                     snapshot.sessions,
                     appActive: NSApp.isActive,                 // user looking at VibeBuddy?
@@ -218,6 +225,13 @@ final class MenuBarModel: ObservableObject {
     func jump(_ session: AgentSession) {
         guard let ref = session.terminalRef else { return }
         TerminalJumper.jump(ref)
+    }
+
+    /// Include/exclude a session from the buddy's context (ephemeral). Takes effect
+    /// on the next call — a live call keeps the snapshot it started with.
+    func toggleBuddy(_ id: String) {
+        if buddySessionIDs.contains(id) { buddySessionIDs.remove(id) }
+        else { buddySessionIDs.insert(id) }
     }
 
     /// Execute a voice action against the matching session; returns a spoken confirmation.
