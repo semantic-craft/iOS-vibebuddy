@@ -39,12 +39,19 @@ public struct SoundPolicyInput: Sendable {
     public var appActive: Bool
     /// Quiet / Focus mode: only approvals ring.
     public var quietMode: Bool
+    /// IDs of sessions whose own terminal window is currently frontmost — the user
+    /// is already looking at them, so their completion stays silent, the same way
+    /// `appActive` silences completion when VibeBuddy itself is frontmost. The Mac
+    /// fills this from the frontmost terminal app; iOS leaves it empty.
+    public var focusedSessionIDs: Set<String>
 
-    public init(sessions: [AgentSession], now: Date, appActive: Bool, quietMode: Bool) {
+    public init(sessions: [AgentSession], now: Date, appActive: Bool, quietMode: Bool,
+                focusedSessionIDs: Set<String> = []) {
         self.sessions = sessions
         self.now = now
         self.appActive = appActive
         self.quietMode = quietMode
+        self.focusedSessionIDs = focusedSessionIDs
     }
 }
 
@@ -125,8 +132,10 @@ public final class SoundPolicy {
     private func completionAlert(prev: AgentSession?, now session: AgentSession,
                                  input: SoundPolicyInput) -> SoundAlert? {
         // Only a real transition into done that we watched, and only when you're
-        // not already looking at the result.
-        guard let prev, prev.status != .done, !input.appActive else { return nil }
+        // not already looking at the result — either VibeBuddy is frontmost
+        // (`appActive`) or this session's own terminal window is (`focusedSessionIDs`).
+        let watching = input.appActive || input.focusedSessionIDs.contains(session.id)
+        guard let prev, prev.status != .done, !watching else { return nil }
 
         // Real signal first (a tool/turn error reported by the hook), then the
         // prose heuristic as a fallback. Either way failures ring regardless of runtime.

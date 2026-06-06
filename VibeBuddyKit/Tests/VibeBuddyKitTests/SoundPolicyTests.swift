@@ -19,9 +19,10 @@ struct SoundPolicyTests {
     }
 
     private func input(_ sessions: [AgentSession], now: TimeInterval,
-                       appActive: Bool = false, quiet: Bool = false) -> SoundPolicyInput {
+                       appActive: Bool = false, quiet: Bool = false,
+                       focused: Set<String> = []) -> SoundPolicyInput {
         SoundPolicyInput(sessions: sessions, now: Date(timeIntervalSince1970: now),
-                         appActive: appActive, quietMode: quiet)
+                         appActive: appActive, quietMode: quiet, focusedSessionIDs: focused)
     }
 
     // MARK: NotificationSound
@@ -114,6 +115,25 @@ struct SoundPolicyTests {
         _ = p.evaluate(input([session("a", .working, since: 0)], now: 0))
         let alerts = p.evaluate(input([session("a", .done, since: 40)], now: 40, appActive: true))
         #expect(alerts.isEmpty)
+    }
+
+    @Test("done is silent when its own terminal is frontmost — you're already looking at it")
+    func doneFocusedTerminalSilent() {
+        let p = SoundPolicy()
+        _ = p.evaluate(input([session("a", .working, since: 0)], now: 0))
+        let alerts = p.evaluate(input([session("a", .done, since: 40)], now: 40,
+                                      appActive: false, focused: ["a"]))
+        #expect(alerts.isEmpty)
+    }
+
+    @Test("done still rings for a session whose terminal is NOT the focused one")
+    func doneOtherTerminalRings() {
+        let p = SoundPolicy()
+        _ = p.evaluate(input([session("a", .working, since: 0)], now: 0))
+        // The user is staring at session "b"'s terminal; "a" finishing should still ring.
+        let alerts = p.evaluate(input([session("a", .done, since: 40)], now: 40,
+                                      appActive: false, focused: ["b"]))
+        #expect(alerts.map(\.sound) == [.agentDone])
     }
 
     @Test("done after a <30s run stays silent — too quick to be worth a sound")

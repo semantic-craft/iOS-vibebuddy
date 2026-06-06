@@ -58,10 +58,13 @@ struct GlanceView: View {
                     Text(a.commandPreview).font(.system(size: 11 * s, design: .monospaced))
                         .foregroundStyle(.white.opacity(0.8)).lineLimit(2)
                     HStack(spacing: 8 * s) {
-                        Button("Approve") { model.decide(a.id, approve: true) }
+                        Button("Approve") { model.decide(a.id, .allow) }
                             .tint(.green).buttonStyle(.borderedProminent).controlSize(.regular)
-                        Button("Deny") { model.decide(a.id, approve: false) }
+                        Button("Deny") { model.decide(a.id, .deny) }
                             .tint(.red).buttonStyle(.borderedProminent).controlSize(.regular)
+                        Button("Always") { model.decide(a.id, .alwaysAllow) }
+                            .tint(.white).buttonStyle(.bordered).controlSize(.regular)
+                            .help("Always allow this exact command in future")
                         if p.terminalRef != nil {
                             Button { model.jump(p) } label: {
                                 Label("Jump", systemImage: "terminal")

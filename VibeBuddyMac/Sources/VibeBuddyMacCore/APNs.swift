@@ -102,10 +102,42 @@ public actor APNsPusher {
         request.setValue("alert", forHTTPHeaderField: "apns-push-type")
         request.setValue("10", forHTTPHeaderField: "apns-priority")
         // An empty sound means a silent (banner-only) push.
-        let soundField = sound.isEmpty ? "" : #","sound":"\#(escape(sound))""#
-        let payload = #"{"aps":{"alert":{"title":"\#(escape(title))","body":"\#(escape(body))"}\#(soundField)}}"#
+        let soundField = sound.isEmpty ? "" : #","sound":"\#(Self.escape(sound))""#
+        let payload = #"{"aps":{"alert":{"title":"\#(Self.escape(title))","body":"\#(Self.escape(body))"}\#(soundField)}}"#
         request.httpBody = Data(payload.utf8)
         _ = try? await URLSession.shared.data(for: request)
+    }
+
+    /// Push a Live Activity content-state update (`dynamic-island/02`). Unlike `send`
+    /// (an `alert` push to a *device* token), this is an `apns-push-type: liveactivity`
+    /// push to a per-activity push token, on the `…push-type.liveactivity` topic.
+    public func sendActivityUpdate(needsResponse: Int, working: Int, done: Int,
+                                   topProject: String?, topSessionId: String?,
+                                   to activityToken: String, now: Date = Date()) async {
+        guard let url = URL(string: "https://\(config.host)/3/device/\(activityToken)"),
+              let auth = try? providerToken(now: now) else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("bearer \(auth)", forHTTPHeaderField: "authorization")
+        request.setValue("\(config.bundleID).push-type.liveactivity", forHTTPHeaderField: "apns-topic")
+        request.setValue("liveactivity", forHTTPHeaderField: "apns-push-type")
+        request.setValue("10", forHTTPHeaderField: "apns-priority")
+        request.httpBody = Data(Self.activityPayload(
+            needsResponse: needsResponse, working: working, done: done,
+            topProject: topProject, topSessionId: topSessionId,
+            timestamp: Int(now.timeIntervalSince1970)).utf8)
+        _ = try? await URLSession.shared.data(for: request)
+    }
+
+    /// The `liveactivity` push body. `content-state` keys mirror
+    /// `VibeBuddyActivityAttributes.ContentState`; optional strings are omitted when nil.
+    nonisolated static func activityPayload(needsResponse: Int, working: Int, done: Int,
+                                            topProject: String?, topSessionId: String?,
+                                            timestamp: Int) -> String {
+        var state = #""needsResponse":\#(needsResponse),"working":\#(working),"done":\#(done)"#
+        if let p = topProject { state += #","topProject":"\#(escape(p))""# }
+        if let s = topSessionId { state += #","topSessionId":"\#(escape(s))""# }
+        return #"{"aps":{"timestamp":\#(timestamp),"event":"update","content-state":{\#(state)}}}"#
     }
 
     private func providerToken(now: Date) throws -> String {
@@ -115,7 +147,7 @@ public actor APNsPusher {
         return token
     }
 
-    private nonisolated func escape(_ s: String) -> String {
+    nonisolated static func escape(_ s: String) -> String {
         s.replacingOccurrences(of: "\\", with: "\\\\")
          .replacingOccurrences(of: "\"", with: "\\\"")
          .replacingOccurrences(of: "\n", with: " ")

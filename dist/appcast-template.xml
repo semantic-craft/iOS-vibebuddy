@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Template for issue 07. `generate_appcast dist/` (see docs/sparkle-setup.md) produces the
+  real appcast: it fills in `length` and the `sparkle:edSignature` for each archive. Host the
+  generated file at the URL in project.yml → SUFeedURL. Do NOT hand-edit signatures.
+-->
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>vibebuddy</title>
+    <item>
+      <title>0.1</title>
+      <sparkle:version>1</sparkle:version>            <!-- CURRENT_PROJECT_VERSION -->
+      <sparkle:shortVersionString>0.1</sparkle:shortVersionString>  <!-- MARKETING_VERSION -->
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <enclosure
+        url="https://REPLACE_WITH_YOUR_HOST/VibeBuddyMacApp-0.1.zip"
+        sparkle:edSignature="GENERATED_BY_generate_appcast"
+        length="0"
+        type="application/octet-stream" />
+    </item>
+  </channel>
+</rss>

@@ -13,6 +13,8 @@ struct SettingsView: View {
         TabView {
             GeneralSettings(model: model)
                 .tabItem { Label("General", systemImage: "gearshape") }
+            SetupSettings()
+                .tabItem { Label("Setup", systemImage: "checklist") }
             GlanceSettings(model: model)
                 .tabItem { Label("Glance", systemImage: "menubar.rectangle") }
             DeviceSettings(model: model)
@@ -24,6 +26,57 @@ struct SettingsView: View {
         }
         .frame(width: 500, height: 360)
         .onDisappear { AppActivationPolicy.leave() }
+    }
+}
+
+/// Onboarding / hook setup (issues 05 + 06): shows which agent CLIs are configured
+/// and whether the vibebuddy hook is wired, with install/uninstall (shells out to the
+/// bundled, tested Python installers). The actual install touches the user's real CLI
+/// configs — so it's only ever an explicit button click here.
+private struct SetupSettings: View {
+    @StateObject private var setup = HookSetup()
+
+    var body: some View {
+        Form {
+            Section {
+                if setup.statuses.isEmpty {
+                    Text("No agent CLIs detected yet.").foregroundStyle(.secondary)
+                }
+                ForEach(setup.statuses, id: \.name) { s in
+                    HStack(spacing: 8) {
+                        Image(systemName: s.hookInjected ? "checkmark.circle.fill"
+                              : (s.configured ? "exclamationmark.triangle.fill" : "minus.circle"))
+                            .foregroundStyle(s.hookInjected ? .green : (s.configured ? .orange : .secondary))
+                        Text(s.name).bold()
+                        Spacer()
+                        Text(s.hookInjected ? "hooked"
+                             : (s.configured ? "configured · not hooked" : "not installed"))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            } header: { Text("Agent CLIs") }
+
+            HStack {
+                Button("Install / repair hooks") { setup.install() }.disabled(setup.running)
+                Button("Uninstall") { setup.uninstall() }.disabled(setup.running)
+                if setup.running { ProgressView().controlSize(.small) }
+            }
+            Text("Wires (or removes) the vibebuddy hook in every detected CLI's config (~/.claude/settings.json …) via the bundled installer. Reversible. Re-run after installing a new CLI.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if !setup.lastOutput.isEmpty {
+                ScrollView {
+                    Text(setup.lastOutput)
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 110)
+            }
+        }
+        .padding(.horizontal)
+        .onAppear { setup.refresh() }
     }
 }
 

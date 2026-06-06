@@ -279,14 +279,20 @@ private struct DetailView: View {
                         .background(Color(nsColor: .textBackgroundColor))
                         .cornerRadius(8)
                     HStack(spacing: 10) {
-                        Button("Approve") { model.decide(approval.id, approve: true) }
+                        Button("Approve") { model.decide(approval.id, .allow) }
                             .keyboardShortcut("a", modifiers: []).tint(.green)
-                        Button("Deny") { model.decide(approval.id, approve: false) }
+                        Button("Deny") { model.decide(approval.id, .deny) }
                             .keyboardShortcut("d", modifiers: []).tint(.red)
                         Button("Jump to terminal") { model.jump(session) }
                             .disabled(session.terminalRef == nil)
                     }
                     .buttonStyle(.borderedProminent)
+                    HStack(spacing: 10) {
+                        Button("Always allow this") { model.decide(approval.id, .alwaysAllow) }
+                        Button("Allow all this session") { model.decide(approval.id, .allowSession) }
+                    }
+                    .buttonStyle(.bordered).controlSize(.small)
+                    .help("Always allow: auto-approve this exact command in future. Allow all this session: stop asking for the rest of this run.")
                 } else {
                     if let s = session.summary { Text(s).foregroundStyle(.secondary) }
                     Button("Jump to terminal") { model.jump(session) }

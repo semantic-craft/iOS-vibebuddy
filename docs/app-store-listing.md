@@ -6,7 +6,7 @@ Drafts for App Store Connect. English. Edit freely.
 
 ## Listing metadata
 
-**Name:** vibebuddy
+**Name:** VibeBuddy: Agent Monitor   <!-- "vibebuddy" alone was taken on the store 2026-06-06; bundle id / repo / Mac app stay "vibebuddy" -->
 **Subtitle (≤30 chars):** Watch your AI coding agents
 **Primary category:** Developer Tools
 **Secondary category:** Utilities

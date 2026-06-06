@@ -21,9 +21,11 @@ public final class NotificationCoordinator {
     }
 
     public func observe(_ sessions: [AgentSession], now: Date = Date(),
-                        appActive: Bool, quietMode: Bool) {
+                        appActive: Bool, quietMode: Bool,
+                        focusedSessionIDs: Set<String> = []) {
         let input = SoundPolicyInput(sessions: sessions, now: now,
-                                     appActive: appActive, quietMode: quietMode)
+                                     appActive: appActive, quietMode: quietMode,
+                                     focusedSessionIDs: focusedSessionIDs)
         for alert in policy.evaluate(input) {
             notifier.notify(alert)
         }

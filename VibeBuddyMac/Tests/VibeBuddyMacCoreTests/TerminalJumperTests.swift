@@ -21,4 +21,16 @@ struct TerminalJumperTests {
     func unknown() {
         #expect(TerminalJumper.commands(for: TerminalRef(termProgram: "mystery")).isEmpty)
     }
+    @Test("Warp (TERM_PROGRAM=WarpTerminal) → activate Warp")
+    func warp() {
+        #expect(TerminalJumper.commands(for: TerminalRef(termProgram: "WarpTerminal")) == [["/usr/bin/open", "-a", "Warp"]])
+    }
+    @Test("WezTerm → activate WezTerm")
+    func wezterm() {
+        #expect(TerminalJumper.commands(for: TerminalRef(termProgram: "WezTerm")) == [["/usr/bin/open", "-a", "WezTerm"]])
+    }
+    @Test("kitty (synthesized term program) → activate kitty")
+    func kitty() {
+        #expect(TerminalJumper.commands(for: TerminalRef(termProgram: "kitty")) == [["/usr/bin/open", "-a", "kitty"]])
+    }
 }

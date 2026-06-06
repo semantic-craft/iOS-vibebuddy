@@ -43,6 +43,14 @@ final class MenuBarModel: ObservableObject {
     private let token: String
     private let store = SessionStore()
     private let approvalRegistry = ApprovalRegistry()
+    // Always-allow / allow-this-session state, shared with the embedded server so
+    // the daemon's /approval path and this in-process UI agree (ADR 0010).
+    private let allowStore = VibeBuddyAllowStore()
+    private let sessionAllow = SessionAllowList()
+    private let approvalContext = ApprovalContextStore()
+    // Live Activity push tokens + the last content we pushed, so we only push on change.
+    private let activityTokens = ActivityTokens()
+    private var lastActivityKey: String?
     private let notifier = UserNotificationsNotifier()
     private let notificationCoordinator: NotificationCoordinator
     // Phone push: the same SoundPolicy engine, run from the Mac's perspective of
@@ -128,7 +136,11 @@ final class MenuBarModel: ObservableObject {
         // phone gets the whole pack; the server only collects device tokens/prefs.
         let server = VibeBuddyServer(store: store, token: token, port: port,
                                      pusher: nil, deviceTokens: deviceTokens,
+                                     activityTokens: activityTokens,
                                      approvalRegistry: approvalRegistry,
+                                     allowStore: allowStore,
+                                     sessionAllow: sessionAllow,
+                                     approvalContext: approvalContext,
                                      onDevicePaired: { [weak self] device in
                                          Task { @MainActor in self?.recordPairedDevice(device) }
                                      })
@@ -154,14 +166,41 @@ final class MenuBarModel: ObservableObject {
                 let snapshot = await self.store.snapshot(now: Date())
                 self.sessions = snapshot.sessions
                 self.buddySessionIDs = BuddyScope.pruned(self.buddySessionIDs, toLive: snapshot.sessions)
+                // Precise suppression: a finishing session stays silent when *its
+                // own* terminal is frontmost, not just when VibeBuddy is.
+                let frontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+                let focused = ForegroundTerminal.focusedSessionIDs(
+                    among: snapshot.sessions, frontmostBundleID: frontmost)
                 self.notificationCoordinator.observe(
                     snapshot.sessions,
                     appActive: NSApp.isActive,                 // user looking at VibeBuddy?
-                    quietMode: Self.effectiveQuiet())          // Focus mode (manual or nightly) → approvals only
+                    quietMode: Self.effectiveQuiet(),          // Focus mode (manual or nightly) → approvals only
+                    focusedSessionIDs: focused)                // …or looking at the session's own terminal
                 await self.pushToPhones(snapshot.sessions)
+                await self.pushActivityUpdates(snapshot.sessions)
                 await self.checkBudget(snapshot.sessions)
                 try? await Task.sleep(for: .seconds(2))
             }
+        }
+    }
+
+    /// Push a Live Activity content-state update to registered phones, but only when
+    /// the displayed counts/top session actually change (dynamic-island/02). No-op
+    /// without an APNs key or any registered activity token.
+    private func pushActivityUpdates(_ sessions: [AgentSession]) async {
+        guard let pusher else { return }
+        let tokens = await activityTokens.all()
+        guard !tokens.isEmpty else { return }
+        let groups = SessionGroups(sessions)
+        let nr = groups.needsResponse.count, w = groups.working.count, d = groups.done.count
+        let topProject = groups.needsResponse.first?.project
+        let topSession = groups.focusSessionId
+        let key = "\(nr)|\(w)|\(d)|\(topProject ?? "")|\(topSession ?? "")"
+        guard key != lastActivityKey else { return }
+        lastActivityKey = key
+        for t in tokens {
+            await pusher.sendActivityUpdate(needsResponse: nr, working: w, done: d,
+                topProject: topProject, topSessionId: topSession, to: t)
         }
     }
 
@@ -218,9 +257,33 @@ final class MenuBarModel: ObservableObject {
     }
 
     /// Resolve a pending approval from the Mac (Dashboard buttons / shortcuts).
-    func decide(_ approvalId: String, approve: Bool) {
-        Task { await approvalRegistry.resolve(id: approvalId, with: approve ? .allow : .deny) }
+    /// Mirrors the daemon's `/decision` route in-process (the Mac IS the daemon),
+    /// so "always allow" / "allow this session" behave identically to the phone.
+    func decide(_ approvalId: String, _ choice: ApprovalDecision) {
+        Task {
+            switch choice {
+            case .alwaysAllow:
+                if let ctx = await approvalContext.take(id: approvalId), let rule = ctx.rule {
+                    await allowStore.add(rule)
+                }
+                await approvalRegistry.resolve(id: approvalId, with: .allow)
+            case .allowSession:
+                if let ctx = await approvalContext.take(id: approvalId) {
+                    await sessionAllow.add(ctx.sessionID)
+                }
+                await approvalRegistry.resolve(id: approvalId, with: .allow)
+            case .allow:
+                _ = await approvalContext.take(id: approvalId)
+                await approvalRegistry.resolve(id: approvalId, with: .allow)
+            case .deny:
+                _ = await approvalContext.take(id: approvalId)
+                await approvalRegistry.resolve(id: approvalId, with: .deny)
+            }
+        }
     }
+
+    /// Back-compat for voice + existing callers.
+    func decide(_ approvalId: String, approve: Bool) { decide(approvalId, approve ? .allow : .deny) }
 
     func jump(_ session: AgentSession) {
         guard let ref = session.terminalRef else { return }

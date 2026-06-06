@@ -38,6 +38,15 @@ if [ "$TP" = "tmux" ] && [ -n "$TMUXV" ]; then
   fi
 fi
 
+# kitty doesn't set TERM_PROGRAM; synthesize it from kitty's own markers so the
+# Mac can foreground it (open -a kitty). Other terminals (Warp=WarpTerminal,
+# WezTerm=WezTerm) already export TERM_PROGRAM, so no fallback needed for them.
+if [ -z "$TP" ]; then
+  if [ -n "$(read_var KITTY_WINDOW_ID)" ] || [ "$(read_var TERM)" = "xterm-kitty" ]; then
+    TP="kitty"
+  fi
+fi
+
 PORT="${VIBEBUDDY_PORT:-9876}"
 # /terminal is bearer-token gated (daemon-security/01); read the token at runtime.
 TOKEN_FILE="${VIBEBUDDY_TOKEN_FILE:-$HOME/Library/Application Support/vibebuddy/token}"

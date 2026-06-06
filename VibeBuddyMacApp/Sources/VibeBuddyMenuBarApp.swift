@@ -278,6 +278,13 @@ struct MenuContent: View {
                     Label("Settings…", systemImage: "gearshape")
                 }
                 .buttonStyle(.borderless)
+                Button {
+                    AppActivationPolicy.enter()
+                    Updater.shared.checkForUpdates()
+                } label: {
+                    Label("Check for Updates…", systemImage: "arrow.down.circle")
+                }
+                .buttonStyle(.borderless)
                 Spacer()
                 Button("Quit vibebuddy") { NSApplication.shared.terminate(nil) }
                     .buttonStyle(.borderless)

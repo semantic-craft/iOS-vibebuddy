@@ -77,7 +77,7 @@ struct JumpRoutesTests {
                 body: ByteBuffer(string: #"{"hook_event_name":"SessionStart","session_id":"s","cwd":"/x/p"}"#)) { _ in }
             _ = try await client.execute(uri: "/terminal", method: .post,
                 headers: [.authorization: "Bearer t0k"],
-                body: ByteBuffer(string: #"{"session_id":"s","term_program":"warp"}"#)) { _ in }
+                body: ByteBuffer(string: #"{"session_id":"s","term_program":"mystery"}"#)) { _ in }
             try await client.execute(uri: "/jump", method: .post,
                 headers: [.authorization: "Bearer t0k"],
                 body: ByteBuffer(string: #"{"sessionId":"s"}"#)) { res in

@@ -14,8 +14,16 @@ public struct VibeBuddyServer: Sendable {
     public let port: Int
     public let pusher: APNsPusher?
     public let deviceTokens: DeviceTokens
+    /// Live Activity push tokens registered by phones (dynamic-island/02).
+    public let activityTokens: ActivityTokens
     public let approvalRegistry: ApprovalRegistry
     public let rules: @Sendable () -> PermissionRules
+    /// vibebuddy's own "always allow" store, overlaid on the native rules (ADR 0010).
+    public let allowStore: VibeBuddyAllowStore
+    /// Sessions the user chose to allow wholesale for their lifetime (in-memory).
+    public let sessionAllow: SessionAllowList
+    /// Per-approval context so `/decision` can persist an always-allow rule.
+    public let approvalContext: ApprovalContextStore
     public let approvalTimeout: Duration
     public let approvalID: @Sendable () -> String
     public let onJump: @Sendable (TerminalRef) -> Void
@@ -25,8 +33,12 @@ public struct VibeBuddyServer: Sendable {
     public init(store: SessionStore, token: String, host: String = "0.0.0.0",
                 port: Int = 9876, pusher: APNsPusher? = nil,
                 deviceTokens: DeviceTokens = DeviceTokens(),
+                activityTokens: ActivityTokens = ActivityTokens(),
                 approvalRegistry: ApprovalRegistry = ApprovalRegistry(),
                 rules: @escaping @Sendable () -> PermissionRules = { PermissionRules.load() },
+                allowStore: VibeBuddyAllowStore = VibeBuddyAllowStore(),
+                sessionAllow: SessionAllowList = SessionAllowList(),
+                approvalContext: ApprovalContextStore = ApprovalContextStore(),
                 approvalTimeout: Duration = .seconds(25),
                 approvalID: @escaping @Sendable () -> String = { UUID().uuidString },
                 onJump: @escaping @Sendable (TerminalRef) -> Void = { TerminalJumper.jump($0) },
@@ -38,8 +50,12 @@ public struct VibeBuddyServer: Sendable {
         self.port = port
         self.pusher = pusher
         self.deviceTokens = deviceTokens
+        self.activityTokens = activityTokens
         self.approvalRegistry = approvalRegistry
         self.rules = rules
+        self.allowStore = allowStore
+        self.sessionAllow = sessionAllow
+        self.approvalContext = approvalContext
         self.approvalTimeout = approvalTimeout
         self.approvalID = approvalID
         self.onJump = onJump
@@ -148,6 +164,18 @@ public struct VibeBuddyServer: Sendable {
             return .ok
         }
 
+        // Live Activity push-token registration (dynamic-island/02) — token-gated,
+        // sent by the phone when its activity produces / rotates a push token.
+        let activityTokens = self.activityTokens
+        router.post("activity") { request, _ -> HTTPResponse.Status in
+            guard request.headers[.authorization] == "Bearer \(token)" else { throw HTTPError(.unauthorized) }
+            let buffer = try await request.body.collect(upTo: 4096)
+            guard let o = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
+                  let t = o["token"] as? String, !t.isEmpty else { return .ok }
+            await activityTokens.register(t)
+            return .ok
+        }
+
         // Hook intake — bearer-token gated (the forwarder reads the token file and
         // sends it). The listener is LAN-bound for the phone, so an open /hook let
         // any local process — or a browser hitting the port via DNS rebinding —
@@ -182,6 +210,9 @@ public struct VibeBuddyServer: Sendable {
         // until the phone responds via `/decision` or the timeout fires.
         let registry = self.approvalRegistry
         let rules = self.rules
+        let allowStore = self.allowStore
+        let sessionAllow = self.sessionAllow
+        let approvalContext = self.approvalContext
         let timeout = self.approvalTimeout
         let makeID = self.approvalID
         router.post("approval") { request, _ -> Response in
@@ -193,9 +224,22 @@ public struct VibeBuddyServer: Sendable {
             let input = obj["tool_input"] as? [String: Any] ?? [:]
             let sessionID = obj["session_id"] as? String ?? ""
             let r = rules()
-            let decision = PermissionMatcher.decide(tool: tool, input: input, allow: r.allow, deny: r.deny)
             await store.ingest(data, receivedAt: Date())
-            switch decision {
+            // Native deny always wins, over every vibebuddy overlay (ADR 0010).
+            if PermissionMatcher.decide(tool: tool, input: input, allow: [], deny: r.deny) == .deny {
+                return Self.permissionResponse("deny")
+            }
+            // vibebuddy overlay: a session-wide allow, or an exact always-allow rule the
+            // user set — both bypass the matcher's pattern heuristics since the user
+            // explicitly approved this precise tool use.
+            let sessionAllowed = await sessionAllow.contains(sessionID)
+            let storeRules = await allowStore.all()   // [String] is Sendable; match locally
+            let storeAllowed = storeRules.contains { AllowRule.matchesExactly($0, tool: tool, input: input) }
+            if sessionAllowed || storeAllowed {
+                return Self.permissionResponse("allow")
+            }
+            // Otherwise the native allow/ask matching (composition-guarded).
+            switch PermissionMatcher.decide(tool: tool, input: input, allow: r.allow, deny: r.deny) {
             case .allow: return Self.permissionResponse("allow")
             case .deny:  return Self.permissionResponse("deny")
             case .ask:
@@ -206,6 +250,9 @@ public struct VibeBuddyServer: Sendable {
                                     commandPreview: d.commandPreview.isEmpty ? tool : d.commandPreview,
                                     command: d.command, filePath: d.filePath,
                                     oldText: d.oldText, newText: d.newText), at: Date())
+                // Record what an "always allow" / "allow this session" would act on.
+                await approvalContext.set(id: id, sessionID: sessionID,
+                                          rule: AllowRule.forApproval(tool: tool, input: input))
                 let outcome = await registry.wait(id: id, timeout: timeout)
                 await store.endApproval(sessionID: sessionID, at: Date())
                 switch outcome {
@@ -224,7 +271,26 @@ public struct VibeBuddyServer: Sendable {
                   let id = obj["approvalId"] as? String,
                   let decision = obj["decision"] as? String
             else { throw HTTPError(.badRequest) }
-            await registry.resolve(id: id, with: decision == "allow" ? .allow : .deny)
+            // "allow"/"deny" resolve this one prompt; "alwaysAllow" also persists a rule;
+            // "allowSession" also allows the rest of this session (ADR 0010). Unknown → deny.
+            switch decision {
+            case "alwaysAllow":
+                if let ctx = await approvalContext.take(id: id), let rule = ctx.rule {
+                    await allowStore.add(rule)
+                }
+                await registry.resolve(id: id, with: .allow)
+            case "allowSession":
+                if let ctx = await approvalContext.take(id: id) {
+                    await sessionAllow.add(ctx.sessionID)
+                }
+                await registry.resolve(id: id, with: .allow)
+            case "allow":
+                _ = await approvalContext.take(id: id)
+                await registry.resolve(id: id, with: .allow)
+            default:
+                _ = await approvalContext.take(id: id)
+                await registry.resolve(id: id, with: .deny)
+            }
             return .ok
         }
 

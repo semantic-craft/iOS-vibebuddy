@@ -26,6 +26,8 @@ public enum TerminalJumper {
         case "iterm.app": return "iTerm"
         case "apple_terminal": return "Terminal"
         case "wezterm": return "WezTerm"
+        case "warpterminal", "warp": return "Warp"   // Warp sets TERM_PROGRAM=WarpTerminal
+        case "kitty": return "kitty"                  // kitty has no TERM_PROGRAM; capture-terminal.sh synthesizes it
         case "vscode": return "Visual Studio Code"
         default: return nil
         }

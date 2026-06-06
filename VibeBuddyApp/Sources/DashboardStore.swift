@@ -43,6 +43,21 @@ final class DashboardStore: ObservableObject {
         if ProcessInfo.processInfo.environment["VIBEBUDDY_SKIP_NOTIFICATIONS"] != "1" {
             notifier.requestAuthorization()
         }
+        // Report the Live Activity's push token to the Mac so it can update the
+        // activity in the background (dynamic-island/02).
+        liveActivity.onPushToken = { [weak self] hex in self?.uploadActivityToken(hex) }
+    }
+
+    /// Register this Live Activity's APNs push token with the Mac. Best-effort.
+    private func uploadActivityToken(_ token: String) {
+        guard !isDemo, let pairing,
+              let url = URL(string: "http://\(pairing.host):\(pairing.port)/activity") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["token": token])
+        Task { _ = try? await URLSession.shared.data(for: request) }
     }
 
     func start(_ pairing: PairingPayload) {
@@ -128,9 +143,9 @@ final class DashboardStore: ObservableObject {
         buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: demo)
     }
 
-    func decide(_ approvalId: String, approve: Bool) {
+    func decide(_ approvalId: String, _ decision: ApprovalDecision) {
         if isDemo {
-            // Resolve locally so a reviewer sees the approval card dismiss.
+            // Resolve locally so a reviewer sees the approval card dismiss (any choice).
             let resolved = (groups.needsResponse + groups.working + groups.done).map { s -> AgentSession in
                 guard s.pendingApproval?.id == approvalId else { return s }
                 var s = s; s.pendingApproval = nil; s.waitKind = nil; s.status = .working
@@ -140,8 +155,11 @@ final class DashboardStore: ObservableObject {
             return
         }
         guard let pairing else { return }
-        Task { await decisionClient.decide(pairing, approvalId: approvalId, approve: approve) }
+        Task { await decisionClient.decide(pairing, approvalId: approvalId, decision: decision) }
     }
+
+    /// Back-compat for the voice companion's approve/deny intents.
+    func decide(_ approvalId: String, approve: Bool) { decide(approvalId, approve ? .allow : .deny) }
 
     func answer(_ sessionId: String, answer: String) {
         guard !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }

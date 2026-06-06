@@ -237,13 +237,19 @@ private struct SessionRow: View {
                     ApprovalCardView(approval: approval)
                         .padding(.top, 2)
                     HStack(spacing: 10) {
-                        Button("Deny") { dashboard.decide(approval.id, approve: false) }
+                        Button("Deny") { dashboard.decide(approval.id, .deny) }
                             .buttonStyle(.bordered).tint(.red)
-                        Button("Approve") { dashboard.decide(approval.id, approve: true) }
+                        Button("Approve") { dashboard.decide(approval.id, .allow) }
                             .buttonStyle(.borderedProminent).tint(.green)
                     }
                     .font(.subheadline)
                     .padding(.top, 4)
+                    HStack(spacing: 10) {
+                        Button("Always allow this") { dashboard.decide(approval.id, .alwaysAllow) }
+                        Button("Allow all this session") { dashboard.decide(approval.id, .allowSession) }
+                    }
+                    .buttonStyle(.bordered).controlSize(.small).font(.caption)
+                    .padding(.top, 1)
                 }
 
                 if let question = session.pendingQuestion {

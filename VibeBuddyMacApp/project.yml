@@ -10,6 +10,9 @@ packages:
     path: ../VibeBuddyKit
   VibeBuddyMac:
     path: ../VibeBuddyMac
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: 2.6.0
 targets:
   VibeBuddyMacApp:
     type: application
@@ -17,11 +20,19 @@ targets:
     sources:
       - path: Sources
       - path: Resources
+      # Bundle the tested Python hook installers so the in-app setup (issue 06) can
+      # shell out to them. Folder reference → copied to Contents/Resources/hooks/.
+      - path: ../hooks
+        name: hooks
+        type: folder
+        buildPhase: resources
     dependencies:
       - package: VibeBuddyMac
         product: VibeBuddyMacCore
       - package: VibeBuddyKit
         product: VibeBuddyKit
+      - package: Sparkle
+        product: Sparkle
     info:
       path: Sources/Info.plist
       properties:
@@ -30,6 +41,11 @@ targets:
         LSMinimumSystemVersion: "14.0"
         NSMicrophoneUsageDescription: "Talk to your buddy to ask about your agents and approve actions by voice."
         NSSpeechRecognitionUsageDescription: "Recognize your speech on-device so your buddy understands what you say."
+        # Sparkle auto-update (issue 07, direct-distribution only). Inert until a real
+        # signed appcast + EdDSA public key are filled in (see .scratch/.../07 + handoff).
+        SUFeedURL: "https://vibebuddy.invalid/appcast.xml"   # TODO: host a signed appcast
+        SUPublicEDKey: "3Ze0A+sHbvkQ8CLlDUIcYvm7BJS4IJLU1rNEX66F9R4="  # public key (private key in login Keychain); generated 2026-06-06
+        SUEnableAutomaticChecks: false                        # opt-in only until configured
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.mac
