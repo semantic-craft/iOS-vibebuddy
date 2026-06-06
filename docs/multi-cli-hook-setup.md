@@ -34,12 +34,16 @@ The CLI pipes its event JSON on stdin. VibeBuddy reads `hook_event_name`,
 | OpenCode | `opencode` | `~/.config/opencode/` plugin | Claude-compatible hooks | ⚠️ template |
 | Qwen Code | `qwen` | `~/.qwen/` | Claude-compatible hooks | ⚠️ template |
 | Kimi | `kimi` | `~/.kimi/config.toml` | TOML hooks | ⚠️ template |
-| Antigravity (Gemini) | `antigravity` | `~/.gemini/.../plugins/` | plugin | ⚠️ template |
+| Antigravity (Gemini) | `antigravity` | `~/.gemini/antigravity-cli/hooks.json` | JSON `command` hooks | blocked: `agy` 1.0.5 loads but skips execution |
 | Grok | `grok` | per-CLI hooks | Claude-compatible hooks | ⚠️ template |
 | GitHub Copilot | `copilot` | — | observe mode (no hooks) | ⚠️ partial |
 
 ✅ = wired and exercised. ⚠️ template = the source routing + display are done in
 the app; the config snippet below needs validation against the installed CLI.
+Antigravity's VibeBuddy decoder and source routing are ready, but the installed
+`agy` 1.0.5 binary loads `hooks.json` without executing command hooks, even with
+explicit `enabled: true`, `PreToolUse`, matcher `run_command`, and a trusted
+workspace.
 
 ### Claude Code (`~/.claude/settings.json`)
 
