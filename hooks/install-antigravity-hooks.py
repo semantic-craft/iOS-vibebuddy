@@ -32,9 +32,19 @@ but agy does NOT *execute* the hook. This was checked exhaustively against every
 controllable variable — correct path, correct schema (tool matcher-nested +
 non-tool direct-handler, ingested unmangled), hook toggled ON, trusted workspace,
 fresh session, real tool call — and nothing fired (no POST, not even non-tool
-PreInvocation/Stop). It's an agy-side execution bug, not a vibebuddy issue: the
-decoder + daemon path are verified correct (synthetic E2E tags `agent=antigravity`).
-Re-check after an agy update; the wiring here is ready the moment agy runs hooks.
+PreInvocation/Stop).
+
+A second minimal repro also failed: explicit top-level `enabled: true`, only a
+`PreToolUse` hook, official matcher `run_command`, and a capture command that
+would append stdin to `/tmp/agy-cap.log` while returning `{"decision":"allow"}`.
+Running `agy --prompt-interactive 'run the shell command: echo agy-hook-live-test'`
+executed the Bash tool and logged `loaded 1 named hooks`, but never created the
+capture file. Official docs say `enabled` defaults to true, and public issue
+google-antigravity/antigravity-cli#222 reports the same load-but-skip symptom.
+
+It's an agy-side execution bug, not a vibebuddy issue: the decoder + daemon path
+are verified correct (synthetic E2E tags `agent=antigravity`). Re-check after an
+agy update; the wiring here is ready the moment agy runs hooks.
 
 Idempotent (manages the single `vibebuddy` named spec), reversible
 (`--uninstall` removes it; backs up a foreign hooks.json once). Fail-open.
