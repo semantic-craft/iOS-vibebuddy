@@ -5,10 +5,24 @@
 //
 // Install: copy to ~/.config/opencode/plugins/vibebuddy.js (auto-loaded at startup).
 
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+
 const PORT = process.env.VIBEBUDDY_PORT || "9876";
 const HOOK_URL = `http://127.0.0.1:${PORT}/hook?agent=opencode`;
 const TERM_URL = `http://127.0.0.1:${PORT}/terminal`;
 const TIMEOUT_MS = 1500;
+
+// /hook and /terminal are bearer-token gated (daemon-security/01). Read the
+// daemon's token once at load; no token → request 401s, swallowed (fail-open).
+const TOKEN = (() => {
+  try {
+    return (process.env.VIBEBUDDY_TOKEN
+      || readFileSync(`${homedir()}/Library/Application Support/vibebuddy/token`, "utf8")).trim();
+  } catch {
+    return "";
+  }
+})();
 
 async function post(url, body) {
   try {
@@ -16,7 +30,9 @@ async function post(url, body) {
     const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
     await fetch(url, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: TOKEN
+        ? { "content-type": "application/json", authorization: `Bearer ${TOKEN}` }
+        : { "content-type": "application/json" },
       body: JSON.stringify(body),
       signal: ctrl.signal,
     }).catch(() => {});

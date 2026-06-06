@@ -39,7 +39,11 @@ if [ "$TP" = "tmux" ] && [ -n "$TMUXV" ]; then
 fi
 
 PORT="${VIBEBUDDY_PORT:-9876}"
+# /terminal is bearer-token gated (daemon-security/01); read the token at runtime.
+TOKEN_FILE="${VIBEBUDDY_TOKEN_FILE:-$HOME/Library/Application Support/vibebuddy/token}"
+TOKEN="${VIBEBUDDY_TOKEN:-$(cat "$TOKEN_FILE" 2>/dev/null)}"
+AUTH=(); [ -n "$TOKEN" ] && AUTH=(-H "Authorization: Bearer $TOKEN")
 printf '{"session_id":"%s","term_program":"%s","tty":"%s","tmux":"%s","tmux_pane":"%s"}' \
   "$SID" "$TP" "$TTY" "$TMUXV" "$PANE" \
-  | curl -sS --max-time 3 -X POST --data-binary @- "http://127.0.0.1:${PORT}/terminal" 2>/dev/null || true
+  | curl -sS --max-time 3 "${AUTH[@]}" -X POST --data-binary @- "http://127.0.0.1:${PORT}/terminal" 2>/dev/null || true
 exit 0

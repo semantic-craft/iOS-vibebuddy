@@ -7,5 +7,9 @@
 #     notify = ["/Users/example/Projects/iOS-vibebuddy/hooks/codex-notify.sh"]
 PAYLOAD="$1"
 [ -z "$PAYLOAD" ] && exit 0
-curl -sS --max-time 3 -X POST --data-binary "$PAYLOAD" \
+# /hook is bearer-token gated (daemon-security/01); read the token at runtime.
+TOKEN_FILE="${VIBEBUDDY_TOKEN_FILE:-$HOME/Library/Application Support/vibebuddy/token}"
+TOKEN="${VIBEBUDDY_TOKEN:-$(cat "$TOKEN_FILE" 2>/dev/null)}"
+AUTH=(); [ -n "$TOKEN" ] && AUTH=(-H "Authorization: Bearer $TOKEN")
+curl -sS --max-time 3 "${AUTH[@]}" -X POST --data-binary "$PAYLOAD" \
   "http://127.0.0.1:${VIBEBUDDY_PORT:-9876}/hook?agent=codex" 2>/dev/null || true

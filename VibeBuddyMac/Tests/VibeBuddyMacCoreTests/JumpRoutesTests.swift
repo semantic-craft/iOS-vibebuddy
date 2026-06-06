@@ -17,8 +17,10 @@ struct JumpRoutesTests {
                                      onJump: { box.jumped.append($0.tmuxPane ?? "") })
         try await server.buildApplication().test(.router) { client in
             _ = try await client.execute(uri: "/hook", method: .post,
+                headers: [.authorization: "Bearer t0k"],
                 body: ByteBuffer(string: #"{"hook_event_name":"SessionStart","session_id":"s","cwd":"/x/p"}"#)) { _ in }
             try await client.execute(uri: "/terminal", method: .post,
+                headers: [.authorization: "Bearer t0k"],
                 body: ByteBuffer(string: #"{"session_id":"s","term_program":"ghostty","tmux":"/tmp/x,1,0","tmux_pane":"%5"}"#)) { res in
                 #expect(res.status == .ok)
             }
@@ -49,8 +51,10 @@ struct JumpRoutesTests {
         let server = VibeBuddyServer(store: store, token: "t0k", onJump: { _ in })
         try await server.buildApplication().test(.router) { client in
             _ = try await client.execute(uri: "/hook", method: .post,
+                headers: [.authorization: "Bearer t0k"],
                 body: ByteBuffer(string: #"{"hook_event_name":"SessionStart","session_id":"s","cwd":"/x/p"}"#)) { _ in }
             _ = try await client.execute(uri: "/terminal", method: .post,
+                headers: [.authorization: "Bearer t0k"],
                 body: ByteBuffer(string: #"{"session_id":"s","term_program":"ghostty"}"#)) { _ in }
             try await client.execute(uri: "/jump", method: .post,
                 headers: [.authorization: "Bearer t0k"],
@@ -69,8 +73,10 @@ struct JumpRoutesTests {
         let server = VibeBuddyServer(store: store, token: "t0k", onJump: { _ in box.jumped += 1 })
         try await server.buildApplication().test(.router) { client in
             _ = try await client.execute(uri: "/hook", method: .post,
+                headers: [.authorization: "Bearer t0k"],
                 body: ByteBuffer(string: #"{"hook_event_name":"SessionStart","session_id":"s","cwd":"/x/p"}"#)) { _ in }
             _ = try await client.execute(uri: "/terminal", method: .post,
+                headers: [.authorization: "Bearer t0k"],
                 body: ByteBuffer(string: #"{"session_id":"s","term_program":"warp"}"#)) { _ in }
             try await client.execute(uri: "/jump", method: .post,
                 headers: [.authorization: "Bearer t0k"],

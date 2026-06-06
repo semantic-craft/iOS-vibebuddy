@@ -17,8 +17,13 @@ import sys
 SETTINGS = os.path.expanduser("~/.claude/settings.json")
 BACKUP = os.path.expanduser("~/.claude/settings.json.vibebuddy-backup")
 PORT = int(os.environ.get("VIBEBUDDY_PORT", "9876"))
+# /hook is bearer-token gated (daemon-security/01). The command reads the daemon's
+# token file at runtime, so rotating the token never needs a re-install; no token
+# → 401 → swallowed (fail-open). MARKER stays token-independent for idempotency.
 COMMAND = (
-    f"curl -sS --max-time 3 -X POST --data-binary @- "
+    "curl -sS --max-time 3 "
+    '-H "Authorization: Bearer $(cat "$HOME/Library/Application Support/vibebuddy/token" 2>/dev/null)" '
+    "-X POST --data-binary @- "
     f"http://127.0.0.1:{PORT}/hook 2>/dev/null || true"
 )
 MARKER = f"127.0.0.1:{PORT}/hook"

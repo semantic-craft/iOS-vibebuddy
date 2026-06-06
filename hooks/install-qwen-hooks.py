@@ -22,7 +22,21 @@ import sys
 SETTINGS = os.path.expanduser("~/.qwen/settings.json")
 BACKUP = os.path.expanduser("~/.qwen/settings.json.vibebuddy-backup")
 PORT = int(os.environ.get("VIBEBUDDY_PORT", "9876"))
-HOOK_URL = f"http://127.0.0.1:{PORT}/hook?agent=qwen"
+# /hook is bearer-token gated (daemon-security/01). Qwen's native http hook can't
+# set headers, so the token rides as a ?token= query param, read from the daemon's
+# token file at install time. HOOK_MARKER (token-free) drives idempotent detect /
+# uninstall, so a rotated token still matches the installed hook.
+def _vibebuddy_token():
+    try:
+        with open(os.path.expanduser("~/Library/Application Support/vibebuddy/token")) as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+HOOK_MARKER = f"http://127.0.0.1:{PORT}/hook?agent=qwen"
+_TOKEN = _vibebuddy_token()
+HOOK_URL = HOOK_MARKER + (f"&token={_TOKEN}" if _TOKEN else "")
 CAPTURE_HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "capture-terminal.sh")
 CAPTURE_MARKER = "capture-terminal.sh"
 
@@ -43,7 +57,7 @@ def http_group(event):
 
 def is_vibebuddy(g):
     return isinstance(g, dict) and any(
-        (HOOK_URL in h.get("url", "") or CAPTURE_MARKER in h.get("command", ""))
+        (HOOK_MARKER in h.get("url", "") or CAPTURE_MARKER in h.get("command", ""))
         for h in g.get("hooks", []) if isinstance(h, dict)
     )
 

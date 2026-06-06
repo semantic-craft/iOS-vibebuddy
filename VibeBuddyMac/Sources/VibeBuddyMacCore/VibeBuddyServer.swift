@@ -148,10 +148,14 @@ public struct VibeBuddyServer: Sendable {
             return .ok
         }
 
-        // Hook intake — localhost only in practice; no token. `?agent=<source>`
-        // tags which CLI it came from (claude/codex/qwen/kimi/antigravity/grok/
-        // opencode/copilot); Claude Code is the default for unknown sources.
+        // Hook intake — bearer-token gated (the forwarder reads the token file and
+        // sends it). The listener is LAN-bound for the phone, so an open /hook let
+        // any local process — or a browser hitting the port via DNS rebinding —
+        // spoof sessions; the token closes that (daemon-security/01, ADR-0009).
+        // `?agent=<source>` tags which CLI it came from (claude/codex/qwen/kimi/
+        // antigravity/grok/opencode/copilot); Claude Code is the default.
         router.post("hook") { request, _ -> HTTPResponse.Status in
+            guard Self.hookAuthorized(request, token: token) else { throw HTTPError(.unauthorized) }
             let agent = AgentKind.fromSource(request.uri.queryParameters["agent"].map(String.init))
             let buffer = try await request.body.collect(upTo: 1 << 20) // 1 MB cap
             await store.ingest(Data(buffer: buffer), agent: agent, receivedAt: Date())
@@ -172,15 +176,16 @@ public struct VibeBuddyServer: Sendable {
             )
         }
 
-        // Blocking approval intake — localhost only in practice; no token.
-        // Parse the PreToolUse hook payload, run the permission matcher, and
-        // either decide immediately (allow/deny) or hold until the phone
-        // responds via `/decision` or the timeout fires.
+        // Blocking approval intake — bearer-token gated (the approval hook reads
+        // the token file and sends it). Parse the PreToolUse hook payload, run the
+        // permission matcher, and either decide immediately (allow/deny) or hold
+        // until the phone responds via `/decision` or the timeout fires.
         let registry = self.approvalRegistry
         let rules = self.rules
         let timeout = self.approvalTimeout
         let makeID = self.approvalID
         router.post("approval") { request, _ -> Response in
+            guard Self.hookAuthorized(request, token: token) else { throw HTTPError(.unauthorized) }
             let buffer = try await request.body.collect(upTo: 1 << 20)
             let data = Data(buffer: buffer)
             let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
@@ -224,7 +229,11 @@ public struct VibeBuddyServer: Sendable {
         }
 
         let onJump = self.onJump
+        // Terminal-ref capture — bearer-token gated (the capture hook reads the
+        // token file and sends it). Without it any local process could hijack a
+        // session's terminal target. (daemon-security/01, ADR-0009.)
         router.post("terminal") { request, _ -> HTTPResponse.Status in
+            guard Self.hookAuthorized(request, token: token) else { throw HTTPError(.unauthorized) }
             let buffer = try await request.body.collect(upTo: 64 * 1024)
             guard let o = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
                   let sid = o["session_id"] as? String, let tp = o["term_program"] as? String
@@ -268,6 +277,16 @@ public struct VibeBuddyServer: Sendable {
         }
 
         return router
+    }
+
+    /// CLI-hook routes (`/hook`, `/approval`, `/terminal`) accept the bearer token
+    /// as an `Authorization: Bearer` header (script hooks) OR a `?token=` query
+    /// param (native-http hooks that can't set a header, e.g. Qwen). The phone
+    /// routes stay header-only. daemon-security/01, ADR-0009.
+    static func hookAuthorized(_ request: Request, token: String) -> Bool {
+        if request.headers[.authorization] == "Bearer \(token)" { return true }
+        if request.uri.queryParameters["token"].map(String.init) == token { return true }
+        return false
     }
 
     static func permissionResponse(_ decision: String) -> Response {

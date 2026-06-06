@@ -18,8 +18,15 @@ SOURCE="${1:-claude}"
 
 PORT="${VIBEBUDDY_PORT:-9876}"
 
+# /hook is bearer-token gated (daemon-security/01). Read the daemon's token file
+# at runtime so rotating the token never needs a hook re-install; no token →
+# request 401s and is swallowed (fail-open).
+TOKEN_FILE="${VIBEBUDDY_TOKEN_FILE:-$HOME/Library/Application Support/vibebuddy/token}"
+TOKEN="${VIBEBUDDY_TOKEN:-$(cat "$TOKEN_FILE" 2>/dev/null)}"
+AUTH=(); [ -n "$TOKEN" ] && AUTH=(-H "Authorization: Bearer $TOKEN")
+
 # Fire-and-forget: discard the response body (-o /dev/null) so a blocking hook
 # (e.g. Grok PreToolUse) never mistakes our stdout for an allow/deny decision.
-curl -sS --max-time 3 -o /dev/null -X POST --data-binary @- \
+curl -sS --max-time 3 -o /dev/null "${AUTH[@]}" -X POST --data-binary @- \
   "http://127.0.0.1:${PORT}/hook?agent=${SOURCE}" 2>/dev/null || true
 exit 0

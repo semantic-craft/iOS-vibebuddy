@@ -68,10 +68,12 @@ struct VibeBuddyServerTests {
         let notif = #"{"hook_event_name":"Notification","session_id":"s","message":"needs your permission"}"#
 
         try await server(token: "t0k").buildApplication().test(.router) { client in
-            try await client.execute(uri: "/hook", method: .post, body: ByteBuffer(string: start)) { res in
+            try await client.execute(uri: "/hook", method: .post,
+                                     headers: [.authorization: "Bearer t0k"], body: ByteBuffer(string: start)) { res in
                 #expect(res.status == .ok)
             }
-            try await client.execute(uri: "/hook", method: .post, body: ByteBuffer(string: notif)) { res in
+            try await client.execute(uri: "/hook", method: .post,
+                                     headers: [.authorization: "Bearer t0k"], body: ByteBuffer(string: notif)) { res in
                 #expect(res.status == .ok)
             }
             try await client.execute(uri: "/snapshot", method: .get,
@@ -95,8 +97,10 @@ struct VibeBuddyServerTests {
                                      onAnswer: { ref, answer in box.answers.append((ref.tmuxPane ?? "", answer)) })
         try await server.buildApplication().test(.router) { client in
             try await client.execute(uri: "/hook", method: .post,
+                                     headers: [.authorization: "Bearer t0k"],
                                      body: ByteBuffer(string: #"{"hook_event_name":"SessionStart","session_id":"s","cwd":"/x/demo"}"#)) { _ in }
             try await client.execute(uri: "/terminal", method: .post,
+                                     headers: [.authorization: "Bearer t0k"],
                                      body: ByteBuffer(string: #"{"session_id":"s","term_program":"ghostty","tmux":"/tmp/x,1,0","tmux_pane":"%9"}"#)) { res in
                 #expect(res.status == .ok)
             }
@@ -120,8 +124,10 @@ struct VibeBuddyServerTests {
                                      onAnswer: { _, answer in box.answers.append(answer) })
         try await server.buildApplication().test(.router) { client in
             try await client.execute(uri: "/hook", method: .post,
+                                     headers: [.authorization: "Bearer t0k"],
                                      body: ByteBuffer(string: #"{"hook_event_name":"SessionStart","session_id":"s","cwd":"/x/demo"}"#)) { _ in }
             try await client.execute(uri: "/terminal", method: .post,
+                                     headers: [.authorization: "Bearer t0k"],
                                      body: ByteBuffer(string: #"{"session_id":"s","term_program":"ghostty","tmux":"/tmp/x,1,0","tmux_pane":"%9"}"#)) { _ in }
             try await client.execute(uri: "/answer", method: .post,
                                      headers: [.authorization: "Bearer t0k"],
@@ -157,6 +163,7 @@ struct VibeBuddyServerTests {
                                      onAnswer: { _, answer in box.answers.append(answer) })
         try await server.buildApplication().test(.router) { client in
             try await client.execute(uri: "/hook", method: .post,
+                                     headers: [.authorization: "Bearer t0k"],
                                      body: ByteBuffer(string: #"{"hook_event_name":"SessionStart","session_id":"s","cwd":"/x/demo"}"#)) { _ in }
             try await client.execute(uri: "/answer", method: .post,
                                      headers: [.authorization: "Bearer t0k"],
@@ -172,6 +179,80 @@ struct VibeBuddyServerTests {
         try await server().buildApplication().test(.router) { client in
             try await client.execute(uri: "/answer", method: .post,
                                      body: ByteBuffer(string: #"{"sessionId":"s","answer":"x"}"#)) { res in
+                #expect(res.status == .unauthorized)
+            }
+        }
+    }
+
+    // The CLI-hook routes (/hook, /approval, /terminal) used to be unauthenticated,
+    // which let any local process — or a malicious web page hitting the LAN-bound
+    // port — spoof sessions, fake approvals, or hijack a terminal ref. They now
+    // require the same bearer token as the phone routes (daemon-security/01, ADR-0009).
+
+    @Test("/hook without a token is 401, and the forged session is not ingested")
+    func hookUnauthorized() async throws {
+        let server = self.server(token: "t0k")
+        let start = #"{"hook_event_name":"SessionStart","session_id":"s","cwd":"/x/demo"}"#
+        try await server.buildApplication().test(.router) { client in
+            try await client.execute(uri: "/hook", method: .post, body: ByteBuffer(string: start)) { res in
+                #expect(res.status == .unauthorized)
+            }
+        }
+        let snap = await server.store.snapshot(now: Date())
+        #expect(snap.sessions.isEmpty)
+    }
+
+    @Test("/hook with the wrong token is 401")
+    func hookWrongToken() async throws {
+        try await server(token: "right").buildApplication().test(.router) { client in
+            try await client.execute(uri: "/hook", method: .post,
+                                     headers: [.authorization: "Bearer wrong"],
+                                     body: ByteBuffer(string: #"{"hook_event_name":"SessionStart","session_id":"s","cwd":"/x/demo"}"#)) { res in
+                #expect(res.status == .unauthorized)
+            }
+        }
+    }
+
+    @Test("/terminal without a token is 401")
+    func terminalUnauthorized() async throws {
+        try await server().buildApplication().test(.router) { client in
+            try await client.execute(uri: "/terminal", method: .post,
+                                     body: ByteBuffer(string: #"{"session_id":"s","term_program":"ghostty"}"#)) { res in
+                #expect(res.status == .unauthorized)
+            }
+        }
+    }
+
+    @Test("/approval without a token is 401")
+    func approvalUnauthorized() async throws {
+        try await server().buildApplication().test(.router) { client in
+            try await client.execute(uri: "/approval", method: .post,
+                                     body: ByteBuffer(string: #"{"tool_name":"Bash","session_id":"s"}"#)) { res in
+                #expect(res.status == .unauthorized)
+            }
+        }
+    }
+
+    @Test("/hook with the right token is accepted")
+    func hookAuthorized() async throws {
+        try await server(token: "t0k").buildApplication().test(.router) { client in
+            try await client.execute(uri: "/hook", method: .post,
+                                     headers: [.authorization: "Bearer t0k"],
+                                     body: ByteBuffer(string: #"{"hook_event_name":"SessionStart","session_id":"s","cwd":"/x/demo"}"#)) { res in
+                #expect(res.status == .ok)
+            }
+        }
+    }
+
+    @Test("/hook accepts the token as a ?token= query param (native-http hooks, e.g. Qwen)")
+    func hookAuthorizedViaQueryToken() async throws {
+        try await server(token: "t0k").buildApplication().test(.router) { client in
+            try await client.execute(uri: "/hook?agent=qwen&token=t0k", method: .post,
+                                     body: ByteBuffer(string: #"{"hook_event_name":"SessionStart","session_id":"s","cwd":"/x/demo"}"#)) { res in
+                #expect(res.status == .ok)
+            }
+            try await client.execute(uri: "/hook?agent=qwen&token=nope", method: .post,
+                                     body: ByteBuffer(string: #"{"hook_event_name":"SessionStart","session_id":"s2","cwd":"/x/demo"}"#)) { res in
                 #expect(res.status == .unauthorized)
             }
         }
