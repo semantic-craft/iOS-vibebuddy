@@ -2,18 +2,28 @@ import SwiftUI
 import AppKit
 import os
 import VibeBuddyKit
+import VibeBuddyMacCore
 
 @main
 struct VibeBuddyMenuBarApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
-    @StateObject private var model = MenuBarModel()
+    @StateObject private var model: MenuBarModel
+    private let role: AppRuntime.Role
     // Settings → General → "Show icon in menu bar". `isInserted` keeps the
     // MenuBarExtra scene in the graph (so its label still bridges the global
     // hotkey to openWindow) while removing the icon from the menu bar.
     @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
 
+    init() {
+        let role = AppRuntime.role
+        self.role = role
+        _model = StateObject(wrappedValue: MenuBarModel(runtimeEnabled: role == .primary))
+    }
+
     var body: some Scene {
-        MenuBarExtra(isInserted: $showMenuBarIcon) {
+        MenuBarExtra(isInserted: Binding(
+            get: { role == .primary && showMenuBarIcon },
+            set: { showMenuBarIcon = $0 })) {
             MenuContent(model: model)
         } label: {
             MenuBarLabel(model: model)
@@ -32,11 +42,57 @@ struct VibeBuddyMenuBarApp: App {
     }
 }
 
+private enum AppRuntime {
+    enum Role { case primary, secondary }
+
+    private static let log = Logger(subsystem: "com.vibebuddy.app", category: "single-instance")
+    private static let openDashboardNotification = Notification.Name("com.vibebuddy.mac.openDashboard")
+    nonisolated(unsafe) private static var lock: SingleInstanceLock?
+
+    static let role: Role = {
+        if ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1" { return .primary }
+        do {
+            if let acquired = try SingleInstanceLock.acquire(lockFileURL: try SingleInstanceLock.defaultLockFileURL()) {
+                lock = acquired
+                return .primary
+            }
+            return .secondary
+        } catch {
+            log.error("single-instance lock failed; continuing as primary: \(String(describing: error), privacy: .public)")
+            return .primary
+        }
+    }()
+
+    static func requestPrimaryDashboard() {
+        DistributedNotificationCenter.default().postNotificationName(
+            openDashboardNotification,
+            object: nil,
+            userInfo: nil,
+            deliverImmediately: true)
+    }
+
+    static func observeOpenRequests() -> NSObjectProtocol {
+        DistributedNotificationCenter.default().addObserver(
+            forName: openDashboardNotification,
+            object: nil,
+            queue: .main) { _ in
+                NotificationCenter.default.post(name: .openDashboard, object: nil)
+            }
+    }
+}
+
 /// Hide the Dock icon — menu-bar-only app.
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let log = Logger(subsystem: "com.vibebuddy.app", category: "lifecycle")
+    private var openRequestObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        guard AppRuntime.role == .primary else {
+            AppRuntime.requestPrimaryDashboard()
+            Self.log.notice("secondary instance requested primary dashboard and will terminate")
+            DispatchQueue.main.async { NSApp.terminate(nil) }
+            return
+        }
         NSApp.setActivationPolicy(.accessory)
         // Keep the background daemon alive. macOS cleanly auto-terminates idle
         // accessory apps to reclaim resources (no crash report — exactly the
@@ -44,6 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ProcessInfo.processInfo.disableSuddenTermination()
         ProcessInfo.processInfo.disableAutomaticTermination(
             "vibebuddy runs a background daemon (HTTP/WebSocket server + hooks) that must stay alive")
+        openRequestObserver = AppRuntime.observeOpenRequests()
         GlobalHotkey.install()
         Self.log.notice("didFinishLaunching")
     }

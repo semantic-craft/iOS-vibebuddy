@@ -71,7 +71,7 @@ final class MenuBarModel: ObservableObject {
     private static let pairedPhoneInfoKey = "pairedPhoneInfo"
     private static let legacyPairedPhoneKey = "pairedPhone"
 
-    init() {
+    init(runtimeEnabled: Bool = true) {
         port = ProcessInfo.processInfo.environment["VIBEBUDDY_PORT"].flatMap(Int.init) ?? 9876
         // File-based store (owner-only): no Keychain ACL, so an ad-hoc rebuild
         // never re-prompts. Shared with vibebuddyd's default store.
@@ -95,7 +95,7 @@ final class MenuBarModel: ObservableObject {
         let isDemo = ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1"
         if isDemo {
             sessions = MacDemoData.sessions()
-        } else {
+        } else if runtimeEnabled {
             notifier.requestAuthorization()
             startServer()
             preparePairing()
@@ -110,6 +110,7 @@ final class MenuBarModel: ObservableObject {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }            // throwaway @StateObject probe deallocated
             guard self.glance == nil else { return }  // create the glance exactly once
+            guard runtimeEnabled || isDemo else { return }
             guard self.showGlance || isDemo else { return }  // honor the toggle (always on in demo)
             self.glance = GlanceWindow(model: self)
         }

@@ -43,14 +43,6 @@ auth_header() {
   printf 'Authorization: Bearer %s' "$(token)"
 }
 
-post_json() {
-  local path="$1"
-  local body="$2"
-  curl -fsS -X POST "$BASE_URL/$path" \
-    -H 'Content-Type: application/json' \
-    --data-binary "$body" >/dev/null
-}
-
 post_authed_json() {
   local path="$1"
   local body="$2"
@@ -95,7 +87,7 @@ register_terminal() {
   local pane="$3"
   local socket
   socket="$(tmux_socket "$tmux_name")"
-  post_json "terminal" "$(python3 - "$session_id" "$socket" "$pane" <<'PY'
+  post_authed_json "terminal" "$(python3 - "$session_id" "$socket" "$pane" <<'PY'
 import json, sys
 session_id, socket, pane = sys.argv[1:]
 print(json.dumps({
@@ -165,7 +157,7 @@ create_question_session() {
   pane="$(create_tmux_session "$tmux_name")"
   write_question_transcript "$transcript" "$kind" "$marker"
   register_terminal "$session_id" "$tmux_name" "$pane"
-  post_json "hook" "$(python3 - "$session_id" "$PROJECT_DIR" "$transcript" <<'PY'
+  post_authed_json "hook" "$(python3 - "$session_id" "$PROJECT_DIR" "$transcript" <<'PY'
 import json, sys
 session_id, cwd, transcript = sys.argv[1:]
 print(json.dumps({
@@ -176,7 +168,7 @@ print(json.dumps({
 }))
 PY
 )"
-  post_json "hook" "$(python3 - "$session_id" "$PROJECT_DIR" "$transcript" "$kind" <<'PY'
+  post_authed_json "hook" "$(python3 - "$session_id" "$PROJECT_DIR" "$transcript" "$kind" <<'PY'
 import json, sys
 session_id, cwd, transcript, kind = sys.argv[1:]
 print(json.dumps({
@@ -219,7 +211,7 @@ start_approval() {
   require python3
   healthcheck
   local session_id="vbqa-approval"
-  post_json "hook" "$(python3 - "$session_id" "$PROJECT_DIR" <<'PY'
+  post_authed_json "hook" "$(python3 - "$session_id" "$PROJECT_DIR" <<'PY'
 import json, sys
 session_id, cwd = sys.argv[1:]
 print(json.dumps({
@@ -231,6 +223,7 @@ PY
 )"
   echo "Approval started. Tap Approve or Deny on the iPhone within 25 seconds..."
   curl -fsS -X POST "$BASE_URL/approval" \
+    -H "$(auth_header)" \
     -H 'Content-Type: application/json' \
     --data-binary "$(python3 - "$session_id" "$PROJECT_DIR" <<'PY'
 import json, sys
@@ -287,7 +280,7 @@ cleanup() {
   "$tmux" kill-session -t "$TMUX_PREFIX-option" >/dev/null 2>&1 || true
   "$tmux" kill-session -t "$TMUX_PREFIX-manual" >/dev/null 2>&1 || true
   for sid in vbqa-option vbqa-manual vbqa-approval; do
-    post_json "hook" "$(python3 - "$sid" "$PROJECT_DIR" <<'PY'
+    post_authed_json "hook" "$(python3 - "$sid" "$PROJECT_DIR" <<'PY'
 import json, sys
 sid, cwd = sys.argv[1:]
 print(json.dumps({"hook_event_name":"SessionEnd","session_id":sid,"cwd":cwd}))
