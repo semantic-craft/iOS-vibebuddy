@@ -76,7 +76,7 @@ The Mac shows a QR encoding `host:port` + a bearer token. The phone scans it onc
 A `MenuBarExtra` glance with live counts, a macOS notch glance, **jump-to-terminal** (open the right session with one click), launch-at-login, a Keychain-stored token, and Sparkle auto-update. ⏎ / ⌘F dashboard shortcuts included.
 
 ### 🔒 Local-first & private by design
-vibebuddy talks **directly** between your Mac and your phone over your own network. Session data **never** touches a server — there is no vibebuddy cloud, no account, no analytics, no tracking. Daemon routes are bearer-token gated. (Voice is the only thing that leaves your device, and only to the provider *you* chose, with *your* key, when you turn it on.)
+vibebuddy talks **directly** between your Mac and your phone over your own network. Session data **never** touches a vibebuddy server — there is no vibebuddy cloud, no account, no analytics, no tracking. Daemon routes are bearer-token gated. (The optional voice companion sends microphone audio and selected session context only to the provider *you* chose, with *your* key, when you turn it on.)
 
 ### 🌏 Bilingual + Demo mode
 Full English and Simplified-Chinese UI on both apps. Plus a **Demo mode** that loads the whole interface with sample data — explore everything with no Mac required.

@@ -56,7 +56,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Voice companion")
                 } footer: {
-                    Text("Tap the pet to talk — it holds a live voice conversation that knows your sessions and can approve / answer for you. Pick the provider whose key you've filled in below; switching applies instantly if it's already listening. The conversation uses your own key (kept in the Keychain, never uploaded or committed).")
+                    Text("Optional and off by default. When you start a voice conversation, your microphone audio and selected session context (project names, agent type, status, and summaries) are sent directly to your selected provider — Qwen (DashScope), OpenAI, or Gemini (Google) — using your own API key. The key stays in Keychain and nothing passes through a vibebuddy server.")
                 }
 
                 // Only the selected provider's credentials show — key + editable

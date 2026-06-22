@@ -21,7 +21,7 @@ vibebuddy is the phone companion for the vibebuddy Mac app. It shows the live st
 • Status buddy — an at-a-glance mood indicator for everything that's running.
 • Remote approvals — when an agent asks to run a command or edit a file, review the full command or diff on your phone and approve or deny.
 • Notifications & Live Activity — get a banner the moment a session needs you; track counts on the lock screen and Dynamic Island.
-• Voice companion (optional) — tap the robot pet to talk to your agents in real time and approve or answer by voice, using your own AI-provider key. It stays off until you add a key.
+• Voice companion (optional) — talk to your agents in real time and approve or answer by voice, using your own AI-provider key. Off by default with an in-app disclosure before first use.
 
 vibebuddy connects directly to your own Mac over your local network (paired by scanning a QR code) — your session data never goes through our servers. The Mac app is free and open source.
 
@@ -31,7 +31,7 @@ Tip: tap "查看演示 / View Demo" on the connect screen to explore the interfa
 
 **Keywords (≤100 chars):** claude code,codex,ai agent,terminal,dashboard,approve,coding,developer,remote,monitor
 
-**Support URL:** https://github.com/<you>/vibebuddy   ← replace
+**Support URL:** https://github.com/semantic-craft/iOS-vibebuddy
 **Marketing URL (optional):** same
 
 **What's New (1.0):** First release.
@@ -49,18 +49,18 @@ vibebuddy ("the app") is a companion to the vibebuddy Mac application. We design
 - **Local network:** the app connects directly to the vibebuddy Mac app running on your own Mac, over your local network, to display session status and send your approve/deny decisions. This data is exchanged only between your iPhone and your Mac.
 - **Camera:** used solely to scan the pairing QR code shown by the Mac app. No images are stored or transmitted.
 - **Push notifications:** if you enable notifications, Apple issues a device token that the app sends to your Mac app so it can notify you when a session needs attention. The token is used only for this purpose.
-- **Microphone & voice (optional):** the voice companion is **off until you add your own API key**. When you use it, your speech is streamed over an encrypted connection **directly to the AI provider you choose** — OpenAI, Google (Gemini), or Alibaba (DashScope / Qwen) — authenticated with **your own key**, which is stored only in your device Keychain. That audio is processed by the chosen provider under **their** privacy policy and your account with them; it does **not** pass through any vibebuddy server. The app is fully usable without ever enabling voice.
+- **Microphone & voice (optional):** the voice companion is **off by default**. It only starts after you choose a provider — OpenAI, Google (Gemini), or Alibaba (DashScope / Qwen) — enter your own provider API key, accept the in-app disclosure, grant microphone permission, and tap again to start a voice conversation. When you use it, your microphone audio and selected session context (project names, agent type, status, and optional summaries) are streamed over an encrypted connection **directly to the provider you choose**, authenticated with **your own key**, which is stored only in your device Keychain. That data is processed by the chosen provider under **their** privacy policy and your account with them; it does **not** pass through any vibebuddy server. The app is fully usable without ever enabling voice.
 
 **What we do NOT do**
-- We do not operate servers that receive your session data or your voice audio; there is no vibebuddy cloud account.
+- We do not operate servers that receive your voice audio or voice-companion session context; there is no vibebuddy cloud account.
 - We do not collect analytics, advertising identifiers, or location.
-- We do not sell or share your data with third parties. (The optional voice companion sends your audio to the provider you choose, using your own key, at your initiative and to your own account — we never receive or store it.)
+- We do not sell or share your data with third parties. (The optional voice companion sends your microphone audio and selected session context to the provider you choose, using your own key, at your initiative and to your own account — we never receive or store it.)
 - We do not track you across apps or websites.
 
 **Data retention**
 Pairing details (your Mac's address and access token) are stored locally on your device and removed when you disconnect.
 
-**Contact:** <your email>   ← replace
+**Contact:** https://github.com/semantic-craft/iOS-vibebuddy/issues
 
 ---
 
@@ -87,7 +87,7 @@ vibebuddy is the iOS companion to the vibebuddy macOS app (a free, open-source m
 
 Camera permission is only for scanning the pairing QR; Local Network permission is only for the direct phone↔Mac connection. Apart from the optional voice feature below, no data leaves the user's own devices; there is no backend account.
 
-**Voice companion (optional).** Tapping the robot pet starts a real-time voice conversation with the agent companion. It is entirely optional and **off until the user adds their own AI-provider API key** (OpenAI, Google, or Alibaba) in Settings — the dashboard, notifications, and approvals are fully usable without it, so the app can be evaluated end-to-end without setting up voice. When enabled, audio streams directly from the device to the user's chosen provider over an encrypted connection using the user's own key; it does not pass through any vibebuddy server. In Demo Mode you can see the voice pet and its Listening/Speaking states; actually hearing a spoken reply requires your own provider key, which is **not** needed to review the app.
+**Voice companion (optional).** Tapping the pet can start a real-time voice conversation with the agent companion. It is entirely optional and off by default. It only starts after the user selects a provider (Qwen/DashScope, OpenAI, or Gemini/Google), enters their own provider API key in Settings, accepts the in-app disclosure, grants iOS microphone permission, and taps again to start. When started, the app sends microphone audio plus selected coding-session context (project names, agent type, status, and optional summaries) directly from the device to the selected provider over an encrypted connection using the user's own key. It does not pass through any vibebuddy server. The dashboard, notifications, and approvals are fully usable without voice, so the app can be evaluated end-to-end without setting up a provider key.
 
 Demo credentials: none required (Demo mode needs no login; voice needs no key to review).
 

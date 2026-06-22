@@ -74,7 +74,7 @@
 "Voice provider" = "语音服务商";
 "Conversation language" = "对话语言";
 "Voice companion" = "语音伙伴";
-"Tap the pet to talk — it holds a live voice conversation that knows your sessions and can approve / answer for you. Pick the provider whose key you've filled in below; switching applies instantly if it's already listening. The conversation uses your own key (kept in the Keychain, never uploaded or committed)." = "点一下宠物就能说话——它会进行实时语音对话，了解你的会话，并能替你批准／回答。选择你在下方填了密钥的服务商；如果它正在聆听，切换会即时生效。对话使用你自己的密钥（存在钥匙串里，绝不上传或提交）。";
+"Optional and off by default. When you start a voice conversation, your microphone audio and selected session context (project names, agent type, status, and summaries) are sent directly to your selected provider — Qwen (DashScope), OpenAI, or Gemini (Google) — using your own API key. The key stays in Keychain and nothing passes through a vibebuddy server." = "可选，默认关闭。开始语音对话时，你的麦克风音频和所选会话上下文（项目名、agent 类型、状态和摘要）会用你自己的 API 密钥直接发送给所选服务商——Qwen（DashScope）、OpenAI 或 Gemini（Google）。密钥保存在钥匙串中，数据不经过 vibebuddy 服务器。";
 "Settings" = "设置";
 "API Key — paste your own (kept in the Keychain)" = "API 密钥——粘贴你自己的（存在钥匙串里）";
 "Get an API key" = "获取 API 密钥";
@@ -87,8 +87,10 @@
 
 /* MARK: Voice companion opt-in (consent gate) */
 "Voice companion off" = "语音伙伴已关闭";
-"Enable" = "启用";
-"Enabling opens the mic on the next tap and shares your live sessions with your selected provider, using your own key." = "启用后，下次点击会打开麦克风，并用你自己的密钥把你的实时会话分享给所选服务商。";
+"Continue" = "继续";
+"Tap the pet to talk with your selected AI provider: Qwen (DashScope), OpenAI, or Gemini (Google)." = "点一下宠物，即可与你选择的 AI 服务商通话：Qwen（DashScope）、OpenAI 或 Gemini（Google）。";
+"When you start a voice conversation, your microphone audio and selected session context (project names, agent type, status, and summaries) are sent directly to that provider using your own API key. The key stays in Keychain and nothing passes through a vibebuddy server." = "开始语音对话时，你的麦克风音频和所选会话上下文（项目名、agent 类型、状态和摘要）会用你自己的 API 密钥直接发送给该服务商。密钥保存在钥匙串中，数据不经过 vibebuddy 服务器。";
+"Continuing keeps the mic off until your next tap." = "继续后，麦克风仍会保持关闭，直到你下次点击。";
 
 /* MARK: Voice companion — scoped session context */
 "Buddy: all sessions" = "伙伴：全部会话";

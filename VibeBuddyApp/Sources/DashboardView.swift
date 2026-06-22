@@ -334,8 +334,8 @@ private struct EmptyStateView: View {
 }
 
 /// Inline consent before the voice companion's first use: you tapped to talk, so
-/// the ask is here, not buried in Settings. Enabling persists; it does not open
-/// the mic — the next tap starts the call.
+/// the ask is here, not buried in Settings. Continuing persists the opt-in; it
+/// does not open the mic — the next tap starts the call.
 private struct VoiceConsentSheet: View {
     @ObservedObject var voice: VoiceChat
     @Environment(\.dismiss) private var dismiss
@@ -343,13 +343,15 @@ private struct VoiceConsentSheet: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 16) {
-                Text("Tap the pet to talk — it holds a live voice conversation that knows your sessions and can approve / answer for you. Pick the provider whose key you've filled in below; switching applies instantly if it's already listening. The conversation uses your own key (kept in the Keychain, never uploaded or committed).")
+                Text("Tap the pet to talk with your selected AI provider: Qwen (DashScope), OpenAI, or Gemini (Google).")
                     .foregroundStyle(.secondary)
-                Text("Enabling opens the mic on the next tap and shares your live sessions with your selected provider, using your own key.")
+                Text("When you start a voice conversation, your microphone audio and selected session context (project names, agent type, status, and summaries) are sent directly to that provider using your own API key. The key stays in Keychain and nothing passes through a vibebuddy server.")
+                    .foregroundStyle(.secondary)
+                Text("Continuing keeps the mic off until your next tap.")
                     .font(.callout).foregroundStyle(.secondary)
                 Spacer()
                 Button { voice.enableCompanion(); dismiss() } label: {
-                    Text("Enable").frame(maxWidth: .infinity)
+                    Text("Continue").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
             }

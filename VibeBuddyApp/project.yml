@@ -25,12 +25,14 @@ targets:
       path: Sources/Info.plist
       properties:
         CFBundleDisplayName: vibebuddy
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         NSCameraUsageDescription: "Scan the pairing QR shown by the vibebuddy Mac app."
         NSLocalNetworkUsageDescription: "Connect to the vibebuddy Mac app on your local network to show live session status and approve actions."
-        NSMicrophoneUsageDescription: "Talk to your agents by voice. With the optional voice companion, your speech is streamed to the AI provider you choose (OpenAI, Google, or Alibaba) using your own API key — it never passes through a vibebuddy server."
+        NSMicrophoneUsageDescription: "Talk to your agents by voice. With the optional voice companion, your microphone audio and selected session context are sent directly to the AI provider you choose (OpenAI, Google, or Alibaba) using your own API key — they never pass through a vibebuddy server."
         NSSupportsLiveActivities: true
         ITSAppUsesNonExemptEncryption: false
         CFBundleURLTypes:
@@ -43,7 +45,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.app
         MARKETING_VERSION: "1.0"
-        CURRENT_PROJECT_VERSION: "1"
+        CURRENT_PROJECT_VERSION: "3"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"
         DEVELOPMENT_TEAM: LQAVR62TK2
@@ -65,13 +67,15 @@ targets:
       path: Widget/Info.plist
       properties:
         CFBundleDisplayName: vibebuddy
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.app.widget
         MARKETING_VERSION: "1.0"
-        CURRENT_PROJECT_VERSION: "1"
+        CURRENT_PROJECT_VERSION: "3"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"
         DEVELOPMENT_TEAM: LQAVR62TK2
