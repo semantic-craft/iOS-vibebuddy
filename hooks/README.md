@@ -44,7 +44,7 @@ the forwarder, which POSTs to `…/hook?agent=codex`:
 
 `~/.codex/config.toml`:
 ```toml
-notify = ["/Users/example/Projects/iOS-vibebuddy/hooks/codex-notify.sh"]
+notify = ["<path-to-iOS-vibebuddy>/hooks/codex-notify.sh"]
 ```
 Codex currently emits `agent-turn-complete`, which shows the session as **done**
 (with the last assistant message). If your Codex build also supports the richer
@@ -55,9 +55,10 @@ and they flow through the same state machine.
 notify program, so use the chaining wrapper instead — it calls your existing
 notify *and* forwards to vibebuddy:
 ```toml
-notify = ["/Users/example/Projects/iOS-vibebuddy/hooks/codex-notify-chain.sh"]
+notify = ["<path-to-iOS-vibebuddy>/hooks/codex-notify-chain.sh"]
 ```
-(Edit the `ORIG=` path inside the script to your existing notify program.)
+Set `CODEX_COMPUTER_USE_NOTIFY` to your existing notify program when you need
+the wrapper to call it first.
 
 
 ## Daemon

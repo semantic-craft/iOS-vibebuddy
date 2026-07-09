@@ -31,3 +31,5 @@ dist/*.dmg
 
 # Local agent tooling
 .antigravitycli/
+.scratch/
+.claude/

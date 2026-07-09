@@ -14,7 +14,7 @@
 
 **App build command (used to verify tasks 2–6):**
 ```bash
-cd /Users/example/Projects/iOS-vibebuddy/VibeBuddyMacApp && xcodegen generate && \
+cd <path-to-iOS-vibebuddy>/VibeBuddyMacApp && xcodegen generate && \
 xcodebuild -project VibeBuddyMacApp.xcodeproj -scheme VibeBuddyMacApp -configuration Release -derivedDataPath build build 2>&1 | grep -Ei "error:|BUILD SUCCEEDED|BUILD FAILED" | tail
 ```
 Always run `xcodegen generate` after adding a new source file (the `.xcodeproj` globs `Sources/`).

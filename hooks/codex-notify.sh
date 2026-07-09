@@ -4,7 +4,7 @@
 # tagged as codex. Fail-open: never blocks Codex.
 #
 # Wire it up in ~/.codex/config.toml:
-#     notify = ["/Users/example/Projects/iOS-vibebuddy/hooks/codex-notify.sh"]
+#     notify = ["<path-to-iOS-vibebuddy>/hooks/codex-notify.sh"]
 PAYLOAD="$1"
 [ -z "$PAYLOAD" ] && exit 0
 # /hook is bearer-token gated (daemon-security/01); read the token at runtime.
