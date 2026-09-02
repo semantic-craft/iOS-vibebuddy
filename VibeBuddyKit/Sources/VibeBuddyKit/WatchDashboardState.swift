@@ -24,13 +24,6 @@ public enum WatchRelayState: String, Codable, Sendable {
     case noData
 }
 
-/// Quality of one observed value, recomputed from the current clock.
-public enum WatchDataFreshness: String, Codable, Sendable {
-    case live
-    case stale
-    case unavailable
-}
-
 // MARK: - Counts
 
 /// The three canonical dashboard buckets, in the same vocabulary every other
@@ -107,82 +100,6 @@ public struct WatchAlert: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
-// MARK: - Quota
-
-public enum WatchQuotaProvider: String, Codable, Sendable, CaseIterable, Identifiable {
-    case codex
-    case claude
-
-    public var id: String { rawValue }
-
-    public var displayName: String {
-        switch self {
-        case .codex: return "Codex"
-        case .claude: return "Claude"
-        }
-    }
-}
-
-/// One provider's weekly allowance, always expressed as **percent remaining**.
-///
-/// A missing value stays missing: absence is rendered as unavailable, never as
-/// "0% left". The weekly window is required for a provider to count as
-/// available; the short window is optional detail.
-public struct WatchQuota: Codable, Equatable, Sendable, Identifiable {
-    /// A weekly value observed longer ago than this reads as stale.
-    public static let staleAfter: TimeInterval = 15 * 60
-
-    public var provider: WatchQuotaProvider
-    public var weeklyRemainingPercent: Int?
-    public var weeklyResetsAt: Date?
-    public var shortWindowRemainingPercent: Int?
-    public var shortWindowResetsAt: Date?
-    /// When the Mac last read a usable value from this provider's local source.
-    public var observedAt: Date?
-    /// Why the source produced nothing, when it produced nothing.
-    public var unavailableReason: String?
-
-    public var id: WatchQuotaProvider { provider }
-
-    public init(
-        provider: WatchQuotaProvider,
-        weeklyRemainingPercent: Int? = nil,
-        weeklyResetsAt: Date? = nil,
-        shortWindowRemainingPercent: Int? = nil,
-        shortWindowResetsAt: Date? = nil,
-        observedAt: Date? = nil,
-        unavailableReason: String? = nil
-    ) {
-        self.provider = provider
-        self.weeklyRemainingPercent = Self.clamped(weeklyRemainingPercent)
-        self.weeklyResetsAt = weeklyResetsAt
-        self.shortWindowRemainingPercent = Self.clamped(shortWindowRemainingPercent)
-        self.shortWindowResetsAt = shortWindowResetsAt
-        self.observedAt = observedAt
-        self.unavailableReason = unavailableReason
-    }
-
-    /// A provider whose local source produced no usable value.
-    public static func unavailable(_ provider: WatchQuotaProvider, reason: String) -> WatchQuota {
-        WatchQuota(provider: provider, unavailableReason: reason)
-    }
-
-    /// Recomputed against the caller's clock, so a restored state cannot claim
-    /// a stale number is live.
-    public func freshness(now: Date) -> WatchDataFreshness {
-        guard weeklyRemainingPercent != nil, let observedAt else { return .unavailable }
-        return now.timeIntervalSince(observedAt) >= Self.staleAfter ? .stale : .live
-    }
-
-    public func age(now: Date) -> TimeInterval? {
-        observedAt.map { max(0, now.timeIntervalSince($0)) }
-    }
-
-    private static func clamped(_ percent: Int?) -> Int? {
-        percent.map { min(100, max(0, $0)) }
-    }
-}
-
 // MARK: - State
 
 public struct WatchDashboardState: Codable, Equatable, Sendable {
@@ -197,7 +114,7 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
     /// Waiting sessions in the dashboard's own order; the first one takes over
     /// the home screen.
     public var alerts: [WatchAlert]
-    public var quotas: [WatchQuota]
+    public var quotas: [ProviderQuota]
     public var relay: WatchRelayState
     /// When the iPhone produced this state.
     public var observedAt: Date
@@ -208,7 +125,7 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
         counts: WatchSessionCounts = WatchSessionCounts(),
         presentation: TaskPresentationSummary = TaskPresentationSummary(),
         alerts: [WatchAlert] = [],
-        quotas: [WatchQuota] = [],
+        quotas: [ProviderQuota] = [],
         relay: WatchRelayState,
         observedAt: Date,
         isDemo: Bool = false
@@ -230,7 +147,7 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
     /// The session that takes over the home screen, if any.
     public var topAlert: WatchAlert? { alerts.first }
 
-    public func quota(_ provider: WatchQuotaProvider) -> WatchQuota? {
+    public func quota(_ provider: AccountUsageProvider) -> ProviderQuota? {
         quotas.first { $0.provider == provider }
     }
 
@@ -274,7 +191,7 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
 public enum WatchDashboardProjection {
     public static func make(
         snapshot: Snapshot,
-        quotas: [WatchQuota],
+        quotas: [ProviderQuota],
         relay: WatchRelayState,
         now: Date,
         isDemo: Bool = false

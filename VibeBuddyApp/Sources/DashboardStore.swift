@@ -34,6 +34,10 @@ final class DashboardStore: ObservableObject {
     /// The Mac's own clock for the last snapshot, so the relayed state says when
     /// the Mac saw the world rather than when this phone re-rendered it.
     private var lastServerTime = Date()
+    /// Account allowance as the Mac last reported it. The phone forwards it
+    /// untouched — normalization already happened where the provider's own
+    /// convention was still known.
+    private var lastProviderQuota: [ProviderQuota] = []
     private var runTask: Task<Void, Never>?
     /// Decides which sound (if any) each snapshot earns. Reset per connection so
     /// the opening backlog of an already-waiting session stays silent.
@@ -124,15 +128,16 @@ final class DashboardStore: ObservableObject {
         relayToWatch(sessions)
     }
 
-    /// Project the dashboard for the Watch. Quota is sample data in Demo Mode
-    /// and empty otherwise — no provider source exists yet, and an invented
-    /// percentage would be a lie about someone's account.
+    /// Project the dashboard for the Watch. Demo Mode supplies sample allowance;
+    /// otherwise it is whatever the Mac last reported, and nothing at all when
+    /// the Mac has reported nothing — an invented percentage would be a lie
+    /// about someone's account.
     private func relayToWatch(_ sessions: [AgentSession]) {
         guard let watchRelay else { return }
         let now = Date()
         watchRelay.publish(WatchDashboardProjection.make(
             snapshot: Snapshot(sessions: sessions, serverTime: lastServerTime),
-            quotas: isDemo ? WatchDemoScenario.normal.quotas(now: now) : [],
+            quotas: isDemo ? WatchDemoScenario.normal.quotas(now: now) : lastProviderQuota,
             relay: state == .connected ? .live : .disconnected,
             now: now,
             isDemo: isDemo))
@@ -382,6 +387,7 @@ final class DashboardStore: ObservableObject {
         }
         if !alerts.isEmpty { cuePulse += 1 }   // let the buddy react
         observationDiagnostics = snapshot.observationDiagnostics ?? []
+        lastProviderQuota = snapshot.providerQuota ?? []
         buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: snapshot.sessions)
         state = .connected
         install(snapshot.sessions, serverTime: snapshot.serverTime)

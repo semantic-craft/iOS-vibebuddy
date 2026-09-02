@@ -146,7 +146,7 @@ struct WatchQuotaStrips: View {
         }
     }
 
-    private func strip(_ quota: WatchQuota) -> some View {
+    private func strip(_ quota: ProviderQuota) -> some View {
         let freshness = quota.freshness(now: now)
         return HStack(spacing: 6) {
             Text(quota.provider.displayName)

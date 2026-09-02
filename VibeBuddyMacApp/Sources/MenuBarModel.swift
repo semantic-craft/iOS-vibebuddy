@@ -50,7 +50,9 @@ final class MenuBarModel: ObservableObject {
     @Published var idleTimeoutHours: Double = 2
     /// Account usage is intentionally separate from `sessions`; refresh errors
     /// never enter SessionStore or the progress notification pipeline.
-    @Published private(set) var usageStates: [AccountUsageProvider: AccountUsageState] = [:]
+    @Published private(set) var usageStates: [AccountUsageProvider: AccountUsageState] = [:] {
+        didSet { publishProviderQuota() }
+    }
     @Published private(set) var usageCollectionEnabled: [AccountUsageProvider: Bool] = [:]
 
     let port: Int
@@ -328,6 +330,17 @@ final class MenuBarModel: ObservableObject {
                 }
             }
         }
+    }
+
+    /// Hand the runtime snapshot owner the normalized allowance, so the phone
+    /// and the Watch read the same numbers this menu bar shows. Turning a
+    /// provider off is state too: it publishes an explicit unavailable rather
+    /// than leaving the last value to age quietly on someone's wrist.
+    private func publishProviderQuota() {
+        let quota = AccountUsageProvider.allCases.map {
+            ProviderQuota(usageStates[$0] ?? .disabled, provider: $0)
+        }
+        Task { [store] in await store.setProviderQuota(quota) }
     }
 
     func isUsageCollectionEnabled(_ provider: AccountUsageProvider) -> Bool {

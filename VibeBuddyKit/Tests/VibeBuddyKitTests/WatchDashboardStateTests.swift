@@ -27,7 +27,7 @@ struct WatchDashboardStateTests {
     }
 
     private func project(_ sessions: [AgentSession],
-                         quotas: [WatchQuota] = [],
+                         quotas: [ProviderQuota] = [],
                          relay: WatchRelayState = .live) -> WatchDashboardState {
         WatchDashboardProjection.make(
             snapshot: Snapshot(sessions: sessions, serverTime: now),
@@ -237,8 +237,8 @@ struct WatchDashboardStateTests {
 
     @Test("Weekly freshness flips exactly at 15 minutes")
     func quotaFreshnessBoundary() {
-        func quota(ageSeconds: TimeInterval) -> WatchQuota {
-            WatchQuota(provider: .codex, weeklyRemainingPercent: 68,
+        func quota(ageSeconds: TimeInterval) -> ProviderQuota {
+            ProviderQuota(provider: .codex, weeklyRemainingPercent: 68,
                        observedAt: now.addingTimeInterval(-ageSeconds))
         }
         #expect(quota(ageSeconds: 899).freshness(now: now) == .live)
@@ -248,28 +248,28 @@ struct WatchDashboardStateTests {
 
     @Test("A source that never produced a weekly value is unavailable, not zero")
     func missingWeeklyIsUnavailable() {
-        let noValue = WatchQuota(provider: .claude, observedAt: now)
-        let noObservation = WatchQuota(provider: .claude, weeklyRemainingPercent: 41)
+        let noValue = ProviderQuota(provider: .claude, observedAt: now)
+        let noObservation = ProviderQuota(provider: .claude, weeklyRemainingPercent: 41)
         #expect(noValue.freshness(now: now) == .unavailable)
         #expect(noValue.weeklyRemainingPercent == nil)
         #expect(noObservation.freshness(now: now) == .unavailable)
-        #expect(WatchQuota.unavailable(.codex, reason: "signed out").unavailableReason == "signed out")
+        #expect(ProviderQuota.unavailable(.codex, reason: "signed out").unavailableReason == "signed out")
     }
 
     @Test("Percentages are clamped; absent values stay absent")
     func percentagesAreClamped() {
-        let quota = WatchQuota(provider: .codex, weeklyRemainingPercent: 140,
+        let quota = ProviderQuota(provider: .codex, weeklyRemainingPercent: 140,
                                shortWindowRemainingPercent: -20, observedAt: now)
         #expect(quota.weeklyRemainingPercent == 100)
         #expect(quota.shortWindowRemainingPercent == 0)
-        #expect(WatchQuota(provider: .codex, observedAt: now).shortWindowRemainingPercent == nil)
+        #expect(ProviderQuota(provider: .codex, observedAt: now).shortWindowRemainingPercent == nil)
     }
 
     @Test("Providers keep independent freshness")
     func providersAreIndependent() {
         let state = project([], quotas: [
-            WatchQuota(provider: .codex, weeklyRemainingPercent: 68, observedAt: now.addingTimeInterval(-1_800)),
-            WatchQuota(provider: .claude, weeklyRemainingPercent: 41, observedAt: now),
+            ProviderQuota(provider: .codex, weeklyRemainingPercent: 68, observedAt: now.addingTimeInterval(-1_800)),
+            ProviderQuota(provider: .claude, weeklyRemainingPercent: 41, observedAt: now),
         ])
         #expect(state.quota(.codex)?.freshness(now: now) == .stale)
         #expect(state.quota(.claude)?.freshness(now: now) == .live)
@@ -334,7 +334,7 @@ struct WatchDashboardStateTests {
         #expect(!base.isEquivalent(to: project([session(id: "a", status: .working)],
                                                relay: .disconnected)))
         #expect(!base.isEquivalent(to: project([session(id: "a", status: .working)],
-                                               quotas: [WatchQuota(provider: .codex,
+                                               quotas: [ProviderQuota(provider: .codex,
                                                                    weeklyRemainingPercent: 68,
                                                                    observedAt: now)])))
         var demo = base

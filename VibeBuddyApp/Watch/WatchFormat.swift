@@ -65,7 +65,7 @@ enum WatchFormat {
     }
 }
 
-extension WatchDataFreshness {
+extension QuotaFreshness {
     var symbolName: String? {
         switch self {
         case .live: return nil
@@ -85,7 +85,7 @@ extension WatchDataFreshness {
 
 enum WatchQuotaVoice {
     /// One spoken sentence per provider, so VoiceOver never has to infer a bar.
-    static func summary(_ quota: WatchQuota, freshness: WatchDataFreshness) -> String {
+    static func summary(_ quota: ProviderQuota, freshness: QuotaFreshness) -> String {
         guard let remaining = quota.weeklyRemainingPercent else {
             guard let reason = quota.unavailableReason else { return String(localized: "Unavailable") }
             return String(localized: "Unavailable · \(reason)")

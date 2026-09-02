@@ -6,18 +6,6 @@ public enum AccountUsageWindowKind: String, Codable, Sendable {
     case primary
     case secondary
 }
-public enum AccountUsageProvider: String, Codable, CaseIterable, Sendable {
-    case codex
-    case claude
-
-    public var displayName: String {
-        switch self {
-        case .codex: "Codex"
-        case .claude: "Claude"
-        }
-    }
-}
-
 public struct AccountUsageWindow: Codable, Equatable, Sendable, Identifiable {
     public var kind: AccountUsageWindowKind
     public var usedPercent: Int

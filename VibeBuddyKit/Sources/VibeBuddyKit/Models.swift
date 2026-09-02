@@ -416,15 +416,22 @@ public struct Snapshot: Codable, Sendable, Equatable {
     /// Mac-side source diagnostics, mirrored to iOS. Optional preserves wire
     /// compatibility with snapshots emitted before observability v2.
     public var observationDiagnostics: [AgentObservationDiagnostic]?
+    /// Account allowance per provider, already normalized to percent remaining.
+    /// It rides the same authenticated channel as sessions so there is one
+    /// Mac-to-iPhone state path, but it is composed *outside* the session
+    /// reducer: quota is account state, not session progress.
+    public var providerQuota: [ProviderQuota]?
 
     public init(
         sessions: [AgentSession],
         serverTime: Date,
-        observationDiagnostics: [AgentObservationDiagnostic]? = nil
+        observationDiagnostics: [AgentObservationDiagnostic]? = nil,
+        providerQuota: [ProviderQuota]? = nil
     ) {
         self.sessions = sessions
         self.serverTime = serverTime
         self.observationDiagnostics = observationDiagnostics
+        self.providerQuota = providerQuota
     }
 }
 

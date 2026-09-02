@@ -39,7 +39,7 @@ struct WatchQuotaView: View {
 }
 
 private struct WatchQuotaDetail: View {
-    let quota: WatchQuota
+    let quota: ProviderQuota
     let now: Date
 
     var body: some View {
@@ -100,7 +100,7 @@ private struct WatchQuotaDetail: View {
 
     /// Stale keeps the last number on screen with its age; unavailable says why
     /// instead of pretending the allowance is spent.
-    private func statusText(_ freshness: WatchDataFreshness) -> String {
+    private func statusText(_ freshness: QuotaFreshness) -> String {
         switch freshness {
         case .live:
             return WatchFormat.updated(quota.age(now: now))

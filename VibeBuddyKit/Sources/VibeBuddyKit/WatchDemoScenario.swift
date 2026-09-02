@@ -116,7 +116,7 @@ public enum WatchDemoScenario: String, Codable, Sendable, CaseIterable, Identifi
     /// Sample quota for both providers. The iPhone relays these while it is in
     /// Demo Mode, so the Watch's quota page has something honest-looking to show
     /// before a real provider source exists.
-    public func quotas(now: Date) -> [WatchQuota] {
+    public func quotas(now: Date) -> [ProviderQuota] {
         switch self {
         case .staleQuota:
             return [Self.codex(observedAt: now.addingTimeInterval(-18 * 60), now: now), Self.claude(now: now)]
@@ -129,8 +129,8 @@ public enum WatchDemoScenario: String, Codable, Sendable, CaseIterable, Identifi
         }
     }
 
-    private static func codex(observedAt: Date, now: Date) -> WatchQuota {
-        WatchQuota(
+    private static func codex(observedAt: Date, now: Date) -> ProviderQuota {
+        ProviderQuota(
             provider: .codex,
             weeklyRemainingPercent: 68,
             weeklyResetsAt: now.addingTimeInterval(3 * 86_400 + 8 * 3_600),
@@ -139,8 +139,8 @@ public enum WatchDemoScenario: String, Codable, Sendable, CaseIterable, Identifi
             observedAt: observedAt)
     }
 
-    private static func claude(now: Date) -> WatchQuota {
-        WatchQuota(
+    private static func claude(now: Date) -> ProviderQuota {
+        ProviderQuota(
             provider: .claude,
             weeklyRemainingPercent: 41,
             weeklyResetsAt: now.addingTimeInterval(4 * 86_400 + 2 * 3_600),

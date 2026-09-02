@@ -7,6 +7,8 @@ import VibeBuddyKit
 public actor SessionStore {
     private static let diagnosticStaleAfter: TimeInterval = 10 * 60
     private var reducer = SessionReducer()
+    /// Account allowance, kept beside the reducer rather than inside it.
+    private var providerQuota: [ProviderQuota] = []
     private var subscribers: [UUID: AsyncStream<Snapshot>.Continuation] = [:]
     private var needsResponseHandler: (@Sendable (AgentSession) async -> Void)?
     private var staleAfter: TimeInterval
@@ -191,7 +193,26 @@ public actor SessionStore {
     }
 
     public func snapshot(now: Date) -> Snapshot {
-        reducer.snapshot(now: now, observationDiagnostics: diagnostics(now: now))
+        currentSnapshot(now: now)
+    }
+
+    /// Replace the current account allowance. It is composed into every snapshot
+    /// but never reaches the reducer: quota is account state, not session
+    /// progress, and a provider outage must not move a single session.
+    /// A change broadcasts, so the phone and the wrist see it without waiting
+    /// for the next session event.
+    public func setProviderQuota(_ quota: [ProviderQuota]) {
+        guard quota != providerQuota else { return }
+        providerQuota = quota
+        broadcast()
+    }
+
+    /// The one place a runtime snapshot is assembled: sessions and diagnostics
+    /// from the reducer, allowance from beside it.
+    private func currentSnapshot(now: Date) -> Snapshot {
+        var snapshot = reducer.snapshot(now: now, observationDiagnostics: diagnostics(now: now))
+        snapshot.providerQuota = providerQuota.isEmpty ? nil : providerQuota
+        return snapshot
     }
 
     /// The session's recent output (user prompts + assistant prose / tool activity)
@@ -223,9 +244,7 @@ public actor SessionStore {
         let stream = AsyncStream<Snapshot>(bufferingPolicy: .bufferingNewest(1)) { continuation in
             subscribers[id] = continuation
         }
-        let now = Date()
-        subscribers[id]?.yield(reducer.snapshot(
-            now: now, observationDiagnostics: diagnostics(now: now)))
+        subscribers[id]?.yield(currentSnapshot(now: Date()))
         return (id, stream)
     }
 
@@ -235,8 +254,7 @@ public actor SessionStore {
     }
 
     private func broadcast() {
-        let now = Date()
-        let snapshot = reducer.snapshot(now: now, observationDiagnostics: diagnostics(now: now))
+        let snapshot = currentSnapshot(now: Date())
         for continuation in subscribers.values {
             continuation.yield(snapshot)
         }
