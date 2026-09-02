@@ -18,16 +18,56 @@ public enum HookParser {
               let kind = mapKind(raw.hookEventName)
         else { return nil }
 
+        let message: String?
+        if raw.hookEventName == "PermissionRequest" {
+            message = raw.toolName.map { "Permission required for \($0)" } ?? "Permission required"
+        } else if raw.hookEventName == "PermissionDenied" {
+            message = raw.toolName.map { "Permission denied for \($0)" } ?? "Permission denied"
+        } else if raw.hookEventName == "StopFailure" {
+            message = raw.error ?? "Turn failed"
+        } else if raw.hookEventName == "Interrupt" {
+            message = "Turn interrupted"
+        } else if raw.hookEventName == "Elicitation" {
+            message = raw.message ?? "Waiting for your input"
+        } else {
+            message = raw.message ?? raw.error ?? raw.lastAssistantMessage
+        }
+
+        let toolName: String?
+        switch raw.hookEventName {
+        case "PreCompact", "PostCompact":
+            toolName = "Context compaction"
+        case "Elicitation", "ElicitationResult":
+            toolName = "MCP elicitation"
+        case "PostToolBatch":
+            toolName = "Tool batch"
+        default:
+            toolName = raw.toolName
+        }
+
+        let explicitToolFailure = raw.hookEventName == "PostToolUseFailure"
+            || raw.hookEventName == "PermissionDenied"
+        let child = childIdentity(raw)
+        let nestedChildID = (kind == .preToolUse || kind == .postToolUse)
+            ? Self.nonEmpty(raw.agentId).map { "subagent:\($0)" }
+            : nil
+
         return HookEvent(
             kind: kind,
             sessionID: sessionID,
             agent: agent,
-            cwd: raw.cwd,
-            toolName: raw.toolName,
-            message: raw.message,
+            cwd: raw.newCwd ?? raw.cwd,
+            toolName: toolName,
+            message: message,
             transcriptPath: raw.transcriptPath,
-            toolError: kind == .postToolUse && detectToolError(data),
-            timestamp: receivedAt
+            model: raw.toModel ?? raw.model,
+            toolError: kind == .postToolUse && (explicitToolFailure || detectToolError(data)),
+            timestamp: receivedAt,
+            childID: child.id ?? nestedChildID,
+            childKind: child.kind,
+            childName: child.name,
+            childType: child.type,
+            childAction: child.action
         )
     }
 
@@ -62,11 +102,72 @@ public enum HookParser {
         case "UserPromptSubmit": return .userPromptSubmit
         case "PreToolUse": return .preToolUse
         case "PostToolUse": return .postToolUse
-        case "Notification": return .notification
-        case "Stop": return .stop
+        case "PostToolUseFailure", "PermissionDenied", "PostToolBatch",
+             "ElicitationResult": return .postToolUse
+        case "PreCompact": return .preToolUse
+        case "PostCompact": return .postToolUse
+        case "SubagentStart", "SubagentStop", "TaskCreated", "TaskCompleted",
+             "TeammateIdle": return .childLifecycle
+        case "Notification", "PermissionRequest", "Elicitation": return .notification
+        case "Stop", "StopFailure", "Interrupt": return .stop
         case "SessionEnd": return .sessionEnd
+        case "PostModelSwitch", "CwdChanged": return .sessionMetadataChanged
         default: return nil
         }
+    }
+
+    private struct ChildIdentity {
+        var id: String? = nil
+        var kind: ChildAgentKind? = nil
+        var name: String? = nil
+        var type: String? = nil
+        var action: HookEvent.ChildLifecycleAction? = nil
+    }
+
+    private static func childIdentity(_ raw: RawHook) -> ChildIdentity {
+        switch raw.hookEventName {
+        case "SubagentStart":
+            return ChildIdentity(
+                id: nonEmpty(raw.agentId).map { "subagent:\($0)" },
+                kind: .subagent,
+                name: nonEmpty(raw.agentType),
+                type: nonEmpty(raw.agentType),
+                action: .started)
+        case "SubagentStop":
+            return ChildIdentity(
+                id: nonEmpty(raw.agentId).map { "subagent:\($0)" },
+                kind: .subagent,
+                name: nonEmpty(raw.agentType),
+                type: nonEmpty(raw.agentType),
+                action: .stopped)
+        case "TaskCreated":
+            return ChildIdentity(
+                id: nonEmpty(raw.taskId).map { "task:\($0)" },
+                kind: .task,
+                name: nonEmpty(raw.teammateName) ?? nonEmpty(raw.taskSubject),
+                type: nonEmpty(raw.teammateName),
+                action: .started)
+        case "TaskCompleted":
+            return ChildIdentity(
+                id: nonEmpty(raw.taskId).map { "task:\($0)" },
+                kind: .task,
+                name: nonEmpty(raw.teammateName) ?? nonEmpty(raw.taskSubject),
+                type: nonEmpty(raw.teammateName),
+                action: .stopped)
+        case "TeammateIdle":
+            guard let name = nonEmpty(raw.teammateName) else {
+                return ChildIdentity(kind: .teammate, type: nonEmpty(raw.teamName), action: .idled)
+            }
+            let id = nonEmpty(raw.teamName).map { "teammate:\($0)/\(name)" } ?? "teammate:\(name)"
+            return ChildIdentity(id: id, kind: .teammate, name: name, type: nonEmpty(raw.teamName), action: .idled)
+        default:
+            return ChildIdentity()
+        }
+    }
+
+    private static func nonEmpty(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+        return value
     }
 
     private struct RawHook: Decodable {
@@ -75,6 +176,17 @@ public enum HookParser {
         let cwd: String?
         let toolName: String?
         let message: String?
+        let error: String?
+        let lastAssistantMessage: String?
         let transcriptPath: String?
+        let agentId: String?
+        let agentType: String?
+        let taskId: String?
+        let taskSubject: String?
+        let teammateName: String?
+        let teamName: String?
+        let model: String?
+        let toModel: String?
+        let newCwd: String?
     }
 }

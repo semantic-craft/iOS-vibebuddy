@@ -27,15 +27,15 @@ alone closes the remote/browser/rebinding vectors — an attacker without the se
 can't post, regardless of origin.
 
 The token is accepted **either** as an `Authorization: Bearer <token>` header
-(script hooks: the forwarder, approval, capture, codex-notify, opencode plugin,
-the Claude inline curl) **or** as a `?token=<token>` query param (native-http
+(script hooks: the lifecycle forwarder, approval, capture, and opencode plugin)
+**or** as a `?token=<token>` query param (native-http
 hooks that can't set headers — Qwen). Both are checked by `hookAuthorized` in
 `VibeBuddyServer`.
 
 The secret is the existing file-based `TokenStore`
 (`~/Library/Application Support/vibebuddy/token`, 0600) — the same token the phone
-pairs with. Script hooks read it at runtime (rotating it needs no re-install);
-the two baked clients (Claude inline command, Qwen URL) read it at install time.
+pairs with. Script hooks and Claude's inline command read it at runtime (rotating
+it needs no re-install); Qwen's native-http URL reads it at install time.
 Missing token → the request 401s and every hook swallows it (fail-open: a CLI is
 never blocked).
 
@@ -46,7 +46,7 @@ never blocked).
   wrong-token 401; header and `?token=` accepted).
 - **Residual:** another process running as the *same user* can read the 0600 token
   file and still post. That's the same-user threat the issue calls out as
-  acceptable for A/B; only **C** (UDS + filesystem perms) closes it. Revisit C if
-  the multi-CLI bridge is ever moved to a socket — it wants one forwarder anyway.
-- Re-running the universal installer is needed once to re-bake the Claude inline
-  command and the Qwen URL with the token; script-based hooks pick it up live.
+acceptable for A/B; only **C** (UDS + filesystem perms) closes it. Revisit C if
+the multi-CLI bridge is ever moved to a socket.
+- Script hooks read the token at runtime, so rotation needs no reinstall. Qwen's
+  native-http URL still reads it at install time.

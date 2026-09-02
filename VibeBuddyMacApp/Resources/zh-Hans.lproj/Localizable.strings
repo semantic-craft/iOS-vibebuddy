@@ -69,6 +69,29 @@
 "Voice" = "语音";
 "Settings" = "设置";
 
+/* MARK: Settings — lifecycle diagnostics */
+"Recent lifecycle" = "近期生命周期";
+"No recent lifecycle transitions." = "暂无近期生命周期变化。";
+"Clear lifecycle timeline" = "清除生命周期时间线";
+"Could not remove the journal from disk." = "无法从磁盘删除日志。";
+"Stored locally for up to 7 days (maximum 250 transitions). Includes normalized state and source metadata only — never prompts, reasoning, message text, tool input, or tool output." = "仅在本机保存最多 7 天（上限 250 条变化）。只包含规范化状态和来源元数据——绝不保存提示词、推理、消息正文、工具输入或工具输出。";
+"Session started" = "会话已开始";
+"Turn started" = "轮次已开始";
+"Tool started" = "工具已开始";
+"Tool finished" = "工具已结束";
+"Attention requested" = "请求关注";
+"Turn stopped" = "轮次已停止";
+"Session ended" = "会话已结束";
+"Metadata changed" = "元数据已变化";
+"Approval requested" = "请求批准";
+"Approval resolved" = "批准已处理";
+"Question resolved" = "问题已处理";
+"Session reconciled" = "会话已校正";
+"Lifecycle changed" = "生命周期已变化";
+"Removed" = "已移除";
+"Needs permission" = "需要批准";
+"Needs response" = "需要回应";
+
 /* MARK: Settings — General */
 "Launch at Login" = "登录时启动";
 "Show icon in menu bar" = "在菜单栏显示图标";

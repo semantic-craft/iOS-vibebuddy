@@ -9,11 +9,25 @@ struct VibeBuddyDaemon {
         let env = ProcessInfo.processInfo.environment
         let port = env["VIBEBUDDY_PORT"].flatMap(Int.init) ?? 9876
         let token = env["VIBEBUDDY_TOKEN"] ?? "devtoken"
-
-        let pusher = APNsConfig.load().flatMap { try? APNsPusher(config: $0) }
-        let server = VibeBuddyServer(store: SessionStore(), token: token, port: port, pusher: pusher)
+        let journalURL = env["VIBEBUDDY_JOURNAL_PATH"].map {
+            URL(fileURLWithPath: $0)
+        } ?? LifecycleJournalLocation.defaultURL()
+        let deliveryURL = env["VIBEBUDDY_DELIVERY_LOG_PATH"].map {
+            URL(fileURLWithPath: $0)
+        } ?? NotificationDeliveryLogLocation.defaultURL()
+        let apnsConfig = APNsConfig.load()
+        let deliveryRecorder = NotificationDeliveryRecorder(
+            url: deliveryURL, apnsConfigured: apnsConfig != nil)
+        let pusher = apnsConfig.flatMap { try? APNsPusher(config: $0, recorder: deliveryRecorder) }
+        let server = VibeBuddyServer(
+            store: SessionStore(
+                diagnosticsHome: FileManager.default.homeDirectoryForCurrentUser,
+                journalURL: journalURL
+            ),
+            token: token, port: port, pusher: pusher,
+            codexRolloutMonitor: CodexRolloutMonitor())
         FileHandle.standardError.write(Data(
             "vibebuddyd: listening on 0.0.0.0:\(port) (apns: \(pusher != nil ? "on" : "off"))\n".utf8))
-        try await server.buildApplication().runService()
+        try await server.runService()
     }
 }

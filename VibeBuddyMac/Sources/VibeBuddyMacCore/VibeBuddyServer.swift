@@ -16,6 +16,9 @@ public struct VibeBuddyServer: Sendable {
     public let deviceTokens: DeviceTokens
     /// Live Activity push tokens registered by phones (dynamic-island/02).
     public let activityTokens: ActivityTokens
+    /// Optional local Codex Desktop progress source. Production entry points
+    /// inject it; route tests leave it nil so they never consume host state.
+    public let codexRolloutMonitor: CodexRolloutMonitor?
     public let approvalRegistry: ApprovalRegistry
     public let rules: @Sendable () -> PermissionRules
     /// vibebuddy's own "always allow" store, overlaid on the native rules (ADR 0010).
@@ -34,6 +37,7 @@ public struct VibeBuddyServer: Sendable {
                 port: Int = 9876, pusher: APNsPusher? = nil,
                 deviceTokens: DeviceTokens = DeviceTokens(),
                 activityTokens: ActivityTokens = ActivityTokens(),
+                codexRolloutMonitor: CodexRolloutMonitor? = nil,
                 approvalRegistry: ApprovalRegistry = ApprovalRegistry(),
                 rules: @escaping @Sendable () -> PermissionRules = { PermissionRules.load() },
                 allowStore: VibeBuddyAllowStore = VibeBuddyAllowStore(),
@@ -51,6 +55,7 @@ public struct VibeBuddyServer: Sendable {
         self.pusher = pusher
         self.deviceTokens = deviceTokens
         self.activityTokens = activityTokens
+        self.codexRolloutMonitor = codexRolloutMonitor
         self.approvalRegistry = approvalRegistry
         self.rules = rules
         self.allowStore = allowStore
@@ -61,6 +66,24 @@ public struct VibeBuddyServer: Sendable {
         self.onJump = onJump
         self.onAnswer = onAnswer
         self.onDevicePaired = onDevicePaired
+    }
+
+    /// Run the HTTP service and its Codex rollout source under one lifetime.
+    /// Returning or throwing from the server always cancels and joins the
+    /// monitor so no watcher descriptors, debounce tasks, or store sink survive.
+    public func runService() async throws {
+        let monitorTask = codexRolloutMonitor.map { monitor in
+            Task { await monitor.run(store: store) }
+        }
+        do {
+            try await buildApplication().runService()
+        } catch {
+            monitorTask?.cancel()
+            await monitorTask?.value
+            throw error
+        }
+        monitorTask?.cancel()
+        await monitorTask?.value
     }
 
     public func buildApplication() -> some ApplicationProtocol {
@@ -204,6 +227,44 @@ public struct VibeBuddyServer: Sendable {
             )
         }
 
+        // Privacy-minimized local diagnostics. Token-gated because stable
+        // session IDs remain local user metadata.
+        router.get("lifecycle") { request, _ -> Response in
+            guard request.headers[.authorization] == "Bearer \(token)" else {
+                throw HTTPError(.unauthorized)
+            }
+            let data = try JSONEncoder().encode(await store.recentLifecycle())
+            return Response(
+                status: .ok,
+                headers: [.contentType: "application/json"],
+                body: .init(byteBuffer: ByteBuffer(bytes: data))
+            )
+        }
+
+        router.delete("lifecycle") { request, _ -> HTTPResponse.Status in
+            guard request.headers[.authorization] == "Bearer \(token)" else {
+                throw HTTPError(.unauthorized)
+            }
+            guard await store.clearLifecycleJournal() else {
+                throw HTTPError(.internalServerError)
+            }
+            return .ok
+        }
+
+        // Explicit read acknowledgement. Merely receiving/rendering a snapshot
+        // never clears unread state; a client calls this only after selection or open.
+        router.post("acknowledge") { request, _ -> HTTPResponse.Status in
+            guard request.headers[.authorization] == "Bearer \(token)" else {
+                throw HTTPError(.unauthorized)
+            }
+            let buffer = try await request.body.collect(upTo: 4096)
+            guard let object = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
+                  let sessionID = object["sessionId"] as? String,
+                  !sessionID.isEmpty else { throw HTTPError(.badRequest) }
+            await store.acknowledgeCompletion(sessionID: sessionID)
+            return .ok
+        }
+
         // Blocking approval intake — bearer-token gated (the approval hook reads
         // the token file and sends it). Parse the PreToolUse hook payload, run the
         // permission matcher, and either decide immediately (allow/deny) or hold
@@ -314,6 +375,9 @@ public struct VibeBuddyServer: Sendable {
             let buffer = try await request.body.collect(upTo: 4096)
             guard let o = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
                   let sid = o["sessionId"] as? String else { throw HTTPError(.badRequest) }
+            // Jumping is an explicit return to the task, even if this terminal
+            // type cannot ultimately be focused.
+            await store.acknowledgeCompletion(sessionID: sid)
             // Report what actually happened so the phone can give honest feedback:
             // focused (ran), unsupported (known terminal type → no command), or none.
             let ref = await store.terminalRef(for: sid)

@@ -1,5 +1,6 @@
 @preconcurrency import ActivityKit
 import Foundation
+import VibeBuddyKit
 
 /// Starts / updates / ends the Live Activity from the app, mirroring the
 /// dashboard counts onto the lock screen and Dynamic Island. All ActivityKit
@@ -16,27 +17,36 @@ final class LiveActivityManager {
 
     /// Reflect the latest counts. Starts the activity on first non-empty state,
     /// updates it thereafter, and ends it when everything is gone.
-    func sync(needsResponse: Int, working: Int, done: Int,
-              topProject: String?, topSessionId: String?) async {
-        let total = needsResponse + working + done
-        guard total > 0 else { await end(); return }
+    func sync(sessions: [AgentSession]) async {
+        let summary = TaskPresentationSummary(sessions: sessions)
+        guard !summary.isEmpty else { await end(); return }
+        let leading = sessions.leadingPresentationSession
 
         let state = VibeBuddyActivityAttributes.ContentState(
-            needsResponse: needsResponse, working: working, done: done,
-            topProject: topProject, topSessionId: topSessionId)
+            summary: summary,
+            topProject: leading?.project,
+            topSessionId: leading?.id)
         let content = ActivityContent(state: state, staleDate: nil)
 
         if let activity {
             await activity.update(content)   // local update (foreground); push covers background
         } else {
             guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
-            // Request a push token so the Mac can update the activity in the background.
-            // Falls back to local-only updates if the request fails.
-            guard let started = try? Activity.request(
-                attributes: VibeBuddyActivityAttributes(), content: content, pushType: .token)
-            else { return }
+            // Demo/visual QA must not trigger a notification permission prompt.
+            // Its Live Activity is local-only; paired production sessions still
+            // request a push token for Mac-originated background updates.
+            let isDemo = ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1"
+            let started: Activity<VibeBuddyActivityAttributes>?
+            if isDemo {
+                started = try? Activity.request(
+                    attributes: VibeBuddyActivityAttributes(), content: content)
+            } else {
+                started = try? Activity.request(
+                    attributes: VibeBuddyActivityAttributes(), content: content, pushType: .token)
+            }
+            guard let started else { return }
             activity = started
-            observePushToken(started)
+            if !isDemo { observePushToken(started) }
         }
     }
 

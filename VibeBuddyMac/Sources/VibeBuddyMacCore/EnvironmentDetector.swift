@@ -1,12 +1,15 @@
 import Foundation
 
-/// One CLI to look for, and where its config lives.
+/// One CLI to look for, where its main config proves it is configured, and an
+/// optional separate lifecycle-hook file to inspect for VibeBuddy's marker.
 public struct CLISpec: Sendable, Equatable {
     public let name: String
     public let configPath: String
-    public init(name: String, configPath: String) {
+    public let hookPath: String?
+    public init(name: String, configPath: String, hookPath: String? = nil) {
         self.name = name
         self.configPath = configPath
+        self.hookPath = hookPath
     }
 }
 
@@ -43,7 +46,8 @@ public enum EnvironmentDetector {
     public static func defaultCLIs(home: String = NSHomeDirectory()) -> [CLISpec] {
         [
             CLISpec(name: "claude",      configPath: "\(home)/.claude/settings.json"),
-            CLISpec(name: "codex",       configPath: "\(home)/.codex/config.toml"),
+            CLISpec(name: "codex",       configPath: "\(home)/.codex/config.toml",
+                    hookPath: "\(home)/.codex/hooks.json"),
             CLISpec(name: "qwen",        configPath: "\(home)/.qwen/settings.json"),
             CLISpec(name: "grok",        configPath: "\(home)/.grok"),
             CLISpec(name: "antigravity", configPath: "\(home)/.gemini/antigravity-cli"),
@@ -55,7 +59,7 @@ public enum EnvironmentDetector {
     public static func detect(_ clis: [CLISpec], fileManager fm: FileManager = .default) -> [CLIHookStatus] {
         clis.map { spec in
             let configured = fm.fileExists(atPath: spec.configPath)
-            let injected = configured && markerPresent(at: spec.configPath, fileManager: fm)
+            let injected = configured && markerPresent(at: spec.hookPath ?? spec.configPath, fileManager: fm)
             return CLIHookStatus(name: spec.name, configPath: spec.configPath,
                                  configured: configured, hookInjected: injected)
         }

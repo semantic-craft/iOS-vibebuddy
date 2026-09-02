@@ -65,6 +65,165 @@ struct HookParserTests {
         #expect(e?.toolError == false)
     }
 
+    @Test("PostToolUseFailure is normalized as a failed tool completion")
+    func postToolUseFailure() {
+        let e = parse("""
+        {"hook_event_name":"PostToolUseFailure","session_id":"abc","tool_name":"Bash",
+         "error":"Process exited with code 1"}
+        """)
+        #expect(e?.kind == .postToolUse)
+        #expect(e?.toolError == true)
+        #expect(e?.message == "Process exited with code 1")
+    }
+
+    @Test("StopFailure is normalized as a failed completion")
+    func stopFailure() {
+        let e = parse("""
+        {"hook_event_name":"StopFailure","session_id":"abc","error":"API request failed"}
+        """)
+        #expect(e?.kind == .stop)
+        #expect(e?.message == "API request failed")
+    }
+
+    @Test("compaction lifecycle stays a parent working-state tool event")
+    func compactionLifecycle() {
+        let cases: [(String, HookEvent.Kind, String)] = [
+            (#"{"hook_event_name":"PreCompact","session_id":"abc"}"#,
+             .preToolUse, "Context compaction"),
+            (#"{"hook_event_name":"PostCompact","session_id":"abc"}"#,
+             .postToolUse, "Context compaction"),
+        ]
+        for (json, kind, tool) in cases {
+            let event = parse(json)
+            #expect(event?.kind == kind)
+            #expect(event?.toolName == tool)
+            #expect(event?.childID == nil)
+        }
+    }
+
+    @Test("SubagentStart carries a stable child identity instead of a tool label")
+    func subagentStartIdentity() {
+        let event = parse("""
+        {"hook_event_name":"SubagentStart","session_id":"abc",
+         "agent_id":"agent-abc123","agent_type":"Explore"}
+        """)
+        #expect(event?.kind == .childLifecycle)
+        #expect(event?.childAction == .started)
+        #expect(event?.childID == "subagent:agent-abc123")
+        #expect(event?.childKind == .subagent)
+        #expect(event?.childName == "Explore")
+        #expect(event?.childType == "Explore")
+    }
+
+    @Test("SubagentStop without agent_id is still a child event, not a parent tool")
+    func subagentStopMissingIdentity() {
+        let event = parse(#"{"hook_event_name":"SubagentStop","session_id":"abc","agent_type":"Explore"}"#)
+        #expect(event?.kind == .childLifecycle)
+        #expect(event?.childAction == .stopped)
+        #expect(event?.childID == nil)
+        #expect(event?.childKind == .subagent)
+    }
+
+    @Test("Elicitation becomes a user-input wait")
+    func elicitation() {
+        let e = parse("""
+        {"hook_event_name":"Elicitation","session_id":"abc","message":"Choose a deployment target"}
+        """)
+        #expect(e?.kind == .notification)
+        #expect(e?.message == "Choose a deployment target")
+    }
+
+    @Test("current Claude lifecycle continuations return to working")
+    func currentClaudeContinuationEvents() {
+        let cases: [(String, String)] = [
+            ("ElicitationResult", "MCP elicitation"),
+            ("PostToolBatch", "Tool batch"),
+        ]
+        for (name, tool) in cases {
+            let event = parse(#"{"hook_event_name":"\#(name)","session_id":"abc"}"#)
+            #expect(event?.kind == .postToolUse)
+            #expect(event?.toolName == tool)
+        }
+    }
+
+    @Test("TaskCreated and TaskCompleted are child lifecycle events")
+    func taskLifecycleIdentity() {
+        let created = parse("""
+        {"hook_event_name":"TaskCreated","session_id":"abc",
+         "task_id":"task-001","task_subject":"Implement user authentication",
+         "teammate_name":"implementer","team_name":"session-a1b2c3d4"}
+        """)
+        #expect(created?.kind == .childLifecycle)
+        #expect(created?.childAction == .started)
+        #expect(created?.childID == "task:task-001")
+        #expect(created?.childKind == .task)
+        #expect(created?.childName == "implementer")
+        #expect(created?.childType == "implementer")
+
+        let completed = parse(#"{"hook_event_name":"TaskCompleted","session_id":"abc","task_id":"task-001"}"#)
+        #expect(completed?.kind == .childLifecycle)
+        #expect(completed?.childAction == .stopped)
+        #expect(completed?.childID == "task:task-001")
+    }
+
+    @Test("TeammateIdle is a child idle event keyed by team and name")
+    func teammateIdleIdentity() {
+        let event = parse("""
+        {"hook_event_name":"TeammateIdle","session_id":"abc",
+         "teammate_name":"implementer","team_name":"session-team"}
+        """)
+        #expect(event?.kind == .childLifecycle)
+        #expect(event?.childAction == .idled)
+        #expect(event?.childID == "teammate:session-team/implementer")
+        #expect(event?.childKind == .teammate)
+        #expect(event?.childName == "implementer")
+    }
+
+    @Test("nested subagent tool events keep parent kind but carry the child id")
+    func nestedSubagentToolIdentity() {
+        let event = parse("""
+        {"hook_event_name":"PreToolUse","session_id":"abc",
+         "agent_id":"agent-a","tool_name":"Grep"}
+        """)
+        #expect(event?.kind == .preToolUse)
+        #expect(event?.toolName == "Grep")
+        #expect(event?.childID == "subagent:agent-a")
+    }
+
+    @Test("PostModelSwitch updates metadata with the canonical target model")
+    func postModelSwitch() {
+        let event = parse("""
+        {"hook_event_name":"PostModelSwitch","session_id":"abc",
+         "cwd":"/x/proj","from_model":"claude-sonnet-4-6",
+         "to_model":"claude-opus-5","source":"user"}
+        """)
+        #expect(event?.kind == .sessionMetadataChanged)
+        #expect(event?.model == "claude-opus-5")
+        #expect(event?.cwd == "/x/proj")
+    }
+
+    @Test("CwdChanged uses new_cwd rather than the previous common cwd")
+    func cwdChanged() {
+        let event = parse("""
+        {"hook_event_name":"CwdChanged","session_id":"abc",
+         "cwd":"/x/proj/src","old_cwd":"/x/proj","new_cwd":"/x/proj/src"}
+        """)
+        #expect(event?.kind == .sessionMetadataChanged)
+        #expect(event?.cwd == "/x/proj/src")
+        #expect(event?.model == nil)
+    }
+
+    @Test("Codex Interrupt is normalized as an interrupted completion")
+    func codexInterrupt() {
+        let e = HookParser.parse(
+            Data(#"{"hook_event_name":"Interrupt","session_id":"abc"}"#.utf8),
+            agent: .codex,
+            receivedAt: now
+        )
+        #expect(e?.kind == .stop)
+        #expect(e?.message == "Turn interrupted")
+    }
+
     @Test("parses a Stop payload")
     func stop() {
         let e = parse("""
@@ -87,7 +246,7 @@ struct HookParserTests {
     @Test("unknown hook_event_name → nil (ignored)")
     func unknownKind() {
         #expect(parse("""
-        {"hook_event_name":"PreCompact","session_id":"abc"}
+        {"hook_event_name":"FutureTelemetryEvent","session_id":"abc"}
         """) == nil)
     }
 

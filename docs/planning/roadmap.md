@@ -2,6 +2,8 @@
 
 **Last Updated**: 2026-06-03
 
+> **2026-09-02 起，当前进度与下一步以 [`status-and-plan-2026-09-02.md`](status-and-plan-2026-09-02.md) 为准；下面的 Status 段是 6 月的历史记录。**
+
 ## Status (2026-06-03)
 
 - ✅ **Phase A** — VibeBuddyKit shared model (committed `a997a07`)
@@ -41,7 +43,7 @@ Phased so each step ends at something runnable and verifiable. No hard dates (pe
 - `git` repo (done) + monorepo layout.
 - `VibeBuddyKit` Swift package: `AgentKind`, `SessionStatus`, `WaitKind`, `AgentSession`, `Snapshot`, `ServerEvent`, `PairingPayload`.
 - Lock the wire protocol (REST + WS frames).
-- **Skills**: `to-issues` (slice the work), `tdd-feature` + `test-generator` (decoding tests first), `concurrency` (Sendable model).
+- **Skills**: `to-tickets` (slice the work), `tdd-feature` + `test-generator` (decoding tests first), `concurrency` (Sendable model).
 - **DoD**: `swift test` green — `Snapshot` / `ServerEvent` / `PairingPayload` round-trip encode→decode.
 
 ## Phase B — VibeBuddyMac core (headless logic first)
@@ -100,4 +102,4 @@ Phased so each step ends at something runnable and verifiable. No hard dates (pe
 
 ## Skill → phase index
 
-`app-planner`(this planning) · `to-prd`/`to-issues`(spec→tasks) · `tdd-feature`/`test-generator`(A,B) · `concurrency`(A,B,D) · `logging-setup`(B,E) · `coding-best-practices`(B,C) · `ui-review`(C,E) · `networking-layer`(D) · `settings-screen`(D) · `navigation-patterns`(E) · `accessibility-generator`(E) · `run-simulator`(E) · `live-activity-generator`(F) · `background-processing`(F) · `push-notifications`/`persistence-setup`(v2).
+`app-planner`(this planning) · `to-spec`/`to-tickets`(spec→tasks) · `tdd-feature`/`test-generator`(A,B) · `concurrency`(A,B,D) · `logging-setup`(B,E) · `coding-best-practices`(B,C) · `ui-review`(C,E) · `networking-layer`(D) · `settings-screen`(D) · `navigation-patterns`(E) · `accessibility-generator`(E) · `run-simulator`(E) · `live-activity-generator`(F) · `background-processing`(F) · `push-notifications`/`persistence-setup`(v2).

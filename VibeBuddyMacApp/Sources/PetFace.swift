@@ -15,7 +15,7 @@ struct PetFace: View {
     var bare: Bool = false
     var scale: CGFloat = 1
 
-    private var accent: Color { macBuddyColor(state.accent) }
+    private var accent: Color { Color(taskStatus: state.presentationState.colorToken) }
     private var ink: Color { bare ? .white : .primary }
 
     private enum Mood { case calm, alert, worry, happy, sleep }
@@ -23,6 +23,7 @@ struct PetFace: View {
         switch state {
         case .done:                 return .happy
         case .sleeping:             return .sleep
+        case .idle:                 return .calm
         case .stuck:                return .worry
         case .approval, .question:  return .alert
         default:                    return .calm   // working, longWait

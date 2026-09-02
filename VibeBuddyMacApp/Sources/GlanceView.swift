@@ -78,8 +78,20 @@ struct GlanceView: View {
                         let canJump = sess.terminalRef != nil
                         Button { model.jump(sess) } label: {
                             HStack(spacing: 8 * s) {
-                                Circle().fill(color(sess.status)).frame(width: 8 * s, height: 8 * s)
-                                Text(sess.project).font(.system(size: 13 * s)).foregroundStyle(.white).lineLimit(1)
+                                TaskStatusIndicator(sess.presentationState, size: 8 * s)
+                                VStack(alignment: .leading, spacing: 1 * s) {
+                                    HStack(spacing: 5 * s) {
+                                        Text(sess.project).font(.system(size: 13 * s, weight: .semibold))
+                                        Text(sess.agent.displayName)
+                                            .font(.system(size: 9 * s, weight: .semibold))
+                                            .padding(.horizontal, 5 * s).padding(.vertical, 1 * s)
+                                            .background(.white.opacity(0.14), in: Capsule())
+                                    }
+                                    Text(ToolActivity.label(for: sess))
+                                        .font(.system(size: 10 * s, weight: .medium))
+                                        .foregroundStyle(.white.opacity(0.62))
+                                }
+                                .foregroundStyle(.white).lineLimit(1)
                                 if canJump {
                                     Spacer(minLength: 0)
                                     Image(systemName: "terminal")      // click the row to focus its terminal
@@ -106,9 +118,11 @@ struct GlanceView: View {
                     speaking: voice.isSpeaking, listening: voice.isListening, bare: true, scale: s)
                 .onTapGesture { voice.toggle() }   // tap the buddy to talk
             if voice.isActive { voiceBadge } else {
-                countPill(groups.needsResponse.count, .orange)
-                countPill(groups.working.count, .blue)
-                countPill(groups.done.count, .green)
+                ForEach([TaskPresentationState.error, .requiresInput, .thinking, .completeUnread, .idle], id: \.self) { state in
+                    if model.presentationSummary.count(for: state) > 0 {
+                        countPill(model.presentationSummary.count(for: state), state)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .center)
@@ -134,19 +148,16 @@ struct GlanceView: View {
         }
     }
 
-    private func countPill(_ n: Int, _ c: Color) -> some View {
-        HStack(spacing: 7 * s) {
-            Circle().fill(c).frame(width: 11 * s, height: 11 * s)
+    private func countPill(_ n: Int, _ state: TaskPresentationState) -> some View {
+        HStack(spacing: 4 * s) {
+            TaskStatusIndicator(state, size: 9 * s)
+            Image(systemName: state.symbolName)
+                .font(.system(size: 8 * s, weight: .bold))
+                .foregroundStyle(Color(taskStatus: state.colorToken))
             Text("\(n)").font(.system(size: 17 * s, weight: .semibold).monospacedDigit()).foregroundStyle(.white)
         }
-    }
-
-    private func color(_ s: SessionStatus) -> Color {
-        switch s {
-        case .needsResponse: .orange
-        case .working: .blue
-        case .done: .green
-        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(n) \(state.label)")
     }
 
     @ViewBuilder private var background: some View {
@@ -163,18 +174,5 @@ struct GlanceView: View {
 
     private var clipShape: AnyShape {
         panelShape
-    }
-}
-
-/// Mac color mapping for the shared `BuddyAccent` (kept identical to iOS).
-func macBuddyColor(_ accent: BuddyAccent) -> Color {
-    switch accent {
-    case .alert:     .orange
-    case .curious:   .blue
-    case .impatient: .pink
-    case .busy:      .blue
-    case .worry:     .red
-    case .good:      .green
-    case .calm:      .gray
     }
 }

@@ -99,4 +99,18 @@ struct SessionStoreTests {
         await store.ingest(Data(#"{"hook_event_name":"SessionStart","session_id":"s","cwd":"/x/p"}"#.utf8), receivedAt: t0)
         #expect(await store.snapshot(now: t0).sessions.first?.terminalRef?.tmuxPane == "%4")
     }
+
+    @Test("snapshot delivery is passive; only explicit acknowledgement clears unread")
+    func unreadAcknowledgementIsAuthoritative() async {
+        let store = SessionStore()
+        await store.ingest(Data(#"{"hook_event_name":"UserPromptSubmit","session_id":"s","cwd":"/x/p"}"#.utf8),
+                           receivedAt: t0)
+        await store.ingest(Data(#"{"hook_event_name":"Stop","session_id":"s","cwd":"/x/p"}"#.utf8),
+                           receivedAt: t0.addingTimeInterval(1))
+
+        #expect(await store.snapshot(now: t0).sessions.first?.hasUnreadCompletion == true)
+        #expect(await store.snapshot(now: t0.addingTimeInterval(2)).sessions.first?.hasUnreadCompletion == true)
+        #expect(await store.acknowledgeCompletion(sessionID: "s"))
+        #expect(await store.snapshot(now: t0.addingTimeInterval(3)).sessions.first?.presentationState == .idle)
+    }
 }

@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UserNotifications
 import VibeBuddyKit
 import VibeBuddyMacCore
 
@@ -23,6 +24,11 @@ struct PairedPhone: Codable, Equatable {
 @MainActor
 final class MenuBarModel: ObservableObject {
     @Published private(set) var sessions: [AgentSession] = []
+    @Published private(set) var observationDiagnostics: [AgentObservationDiagnostic] = []
+    @Published private(set) var lifecycleTimeline: [LifecycleJournalEntry] = []
+    @Published private(set) var lifecycleJournalClearFailed = false
+    @Published private(set) var notificationDeliveryHealth = NotificationDeliveryHealth()
+    @Published private(set) var recentNotificationDeliveries: [NotificationDeliveryRecord] = []
     /// Sessions the user has pointed the buddy at (in-memory, never persisted).
     /// Empty = the buddy sees all sessions; pruned to live IDs on every snapshot.
     @Published private(set) var buddySessionIDs: Set<String> = []
@@ -38,10 +44,14 @@ final class MenuBarModel: ObservableObject {
     @Published var toggleGlanceHotkey: Hotkey = .toggleGlanceDefault
     /// Idle-cleanup window in hours; 0 means never. Default 2h.
     @Published var idleTimeoutHours: Double = 2
+    /// Account usage is intentionally separate from `sessions`; refresh errors
+    /// never enter SessionStore or the progress notification pipeline.
+    @Published private(set) var usageStates: [AccountUsageProvider: AccountUsageState] = [:]
+    @Published private(set) var usageCollectionEnabled: [AccountUsageProvider: Bool] = [:]
 
     let port: Int
     private let token: String
-    private let store = SessionStore()
+    private let store: SessionStore
     private let approvalRegistry = ApprovalRegistry()
     // Always-allow / allow-this-session state, shared with the embedded server so
     // the daemon's /approval path and this in-process UI agree (ADR 0010).
@@ -53,12 +63,15 @@ final class MenuBarModel: ObservableObject {
     private var lastActivityKey: String?
     private let notifier = UserNotificationsNotifier()
     private let notificationCoordinator: NotificationCoordinator
+    private let deliveryRecorder: NotificationDeliveryRecorder
     // Phone push: the same SoundPolicy engine, run from the Mac's perspective of
     // a backgrounded phone, so the phone hears the full pack (not just needs-you).
-    private let pusher: APNsPusher? = APNsConfig.load().flatMap { try? APNsPusher(config: $0) }
+    private let pusher: APNsPusher?
     private let deviceTokens = DeviceTokens()
     private let phonePolicy = SoundPolicy()
     private let budgetMonitor = BudgetMonitor()
+    private let usageCollectors: [AccountUsageProvider: AccountUsageCollector]
+    private var usageAlertMonitor = AccountUsageAlertMonitor()
     /// The voice companion (tap the buddy to talk). Lazy so `self` is fully built.
     lazy var voiceChat = VoiceChat(
         contextProvider: { [weak self] in
@@ -67,12 +80,24 @@ final class MenuBarModel: ObservableObject {
         },
         actionHandler: { [weak self] action in self?.performVoiceAction(action) ?? "" })
     private var pollTask: Task<Void, Never>?
+    private var usageTasks: [AccountUsageProvider: Task<Void, Never>] = [:]
+    private var usageGenerations: [AccountUsageProvider: UInt64] = [:]
     private var glance: GlanceWindow?
     private static let pairedPhoneInfoKey = "pairedPhoneInfo"
     private static let legacyPairedPhoneKey = "pairedPhone"
+    private static let usageAlertedWindowsKey = "accountUsageAlertedWindows"
 
     init(runtimeEnabled: Bool = true) {
         port = ProcessInfo.processInfo.environment["VIBEBUDDY_PORT"].flatMap(Int.init) ?? 9876
+        let savedIdleTimeout = UserDefaults.standard.object(forKey: "idleTimeoutHours") as? Double ?? 2
+        idleTimeoutHours = savedIdleTimeout
+        store = SessionStore(
+            staleAfter: Self.staleInterval(forHours: savedIdleTimeout),
+            diagnosticsHome: FileManager.default.homeDirectoryForCurrentUser,
+            journalURL: ProcessInfo.processInfo.environment["VIBEBUDDY_JOURNAL_PATH"].map {
+                URL(fileURLWithPath: $0)
+            } ?? LifecycleJournalLocation.defaultURL()
+        )
         // File-based store (owner-only): no Keychain ACL, so an ad-hoc rebuild
         // never re-prompts. Shared with vibebuddyd's default store.
         token = (try? TokenStore.defaultStore().loadOrCreate()) ?? Token.generate()
@@ -83,11 +108,43 @@ final class MenuBarModel: ObservableObject {
         showGlance = Self.loadBool("showGlance", default: true)
         openDashboardHotkey = Hotkey.loadOpenDashboard()
         toggleGlanceHotkey = Hotkey.loadToggleGlance()
-        if let saved = UserDefaults.standard.object(forKey: "idleTimeoutHours") as? Double {
-            idleTimeoutHours = saved
-        }
+        let codexUsageEnabled = Self.loadBool(Self.usageEnabledKey(for: .codex), default: true)
+        let claudeUsageEnabled = Self.loadBool(Self.usageEnabledKey(for: .claude), default: true)
+        usageCollectionEnabled = [.codex: codexUsageEnabled, .claude: claudeUsageEnabled]
+        usageStates = [
+            .codex: codexUsageEnabled
+                ? .unavailable(.notYetLoaded, lastAttemptAt: nil, nextRefreshAt: nil)
+                : .disabled,
+            .claude: claudeUsageEnabled
+                ? .unavailable(.notYetLoaded, lastAttemptAt: nil, nextRefreshAt: nil)
+                : .disabled,
+        ]
+        usageCollectors = [
+            .codex: AccountUsageCollector(
+                provider: CodexAppServerUsageProvider(),
+                cache: AccountUsageFileCache(provider: .codex),
+                enabled: codexUsageEnabled
+            ),
+            .claude: AccountUsageCollector(
+                provider: ClaudeCLIUsageProvider(),
+                cache: AccountUsageFileCache(provider: .claude),
+                enabled: claudeUsageEnabled
+            ),
+        ]
+        usageAlertMonitor = AccountUsageAlertMonitor(
+            alertedWindowKeys: Self.loadUsageAlertedWindows()
+        )
         pairedPhone = Self.loadPairedPhone()
-        notificationCoordinator = NotificationCoordinator(notifier: notifier)
+        let apnsConfig = APNsConfig.load()
+        let deliveryURL = ProcessInfo.processInfo.environment["VIBEBUDDY_DELIVERY_LOG_PATH"].map {
+            URL(fileURLWithPath: $0)
+        } ?? NotificationDeliveryLogLocation.defaultURL()
+        let recorder = NotificationDeliveryRecorder(
+            url: deliveryURL, apnsConfigured: apnsConfig != nil)
+        deliveryRecorder = recorder
+        pusher = apnsConfig.flatMap { try? APNsPusher(config: $0, recorder: recorder) }
+        notificationCoordinator = NotificationCoordinator(notifier: notifier, delivery: recorder)
+        notificationDeliveryHealth = NotificationDeliveryHealth(apnsConfigured: apnsConfig != nil)
         // Screenshot / exploration instance: seed sample sessions and skip the
         // server, polling, pairing, and notifications entirely. It never binds the
         // port or pushes to a phone, so it runs harmlessly alongside a real
@@ -95,13 +152,15 @@ final class MenuBarModel: ObservableObject {
         let isDemo = ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1"
         if isDemo {
             sessions = MacDemoData.sessions()
+            observationDiagnostics = MacDemoData.observationDiagnostics()
         } else if runtimeEnabled {
             notifier.requestAuthorization()
             startServer()
             preparePairing()
             startPolling()
-            let interval = Self.staleInterval(forHours: idleTimeoutHours)
-            Task { [store] in await store.setStaleAfter(interval) }
+            for provider in AccountUsageProvider.allCases where isUsageCollectionEnabled(provider) {
+                startUsageCollection(provider)
+            }
         }
         // Create the glance on the next main-runloop tick — NOT synchronously here.
         // Hosting/displaying a SwiftUI view that observes `self` while `init` is
@@ -131,15 +190,10 @@ final class MenuBarModel: ObservableObject {
 
     /// Quiet right now if the user toggled it, or the nightly window is active.
     static func effectiveQuiet(now: Date = Date()) -> Bool {
-        if UserDefaults.standard.bool(forKey: "quietMode") { return true }
-        guard let data = UserDefaults.standard.data(forKey: "quietHours"),
-              let q = try? JSONDecoder().decode(QuietHours.self, from: data) else { return false }
-        return q.isQuiet(at: now)
+        NotificationQuietMode.isEffective(now: now)
     }
 
-    var needsResponse: Int { sessions.lazy.filter { $0.status == .needsResponse }.count }
-    var working: Int { sessions.lazy.filter { $0.status == .working }.count }
-    var done: Int { sessions.lazy.filter { $0.status == .done }.count }
+    var presentationSummary: TaskPresentationSummary { TaskPresentationSummary(sessions: sessions) }
     /// The buddy's mood, shared with the menu-bar icon and the glance so the Mac
     /// reads the same as the phone.
     var buddyState: BuddyState { BuddyState.from(SessionGroups(sessions), now: Date()) }
@@ -155,6 +209,7 @@ final class MenuBarModel: ObservableObject {
         let server = VibeBuddyServer(store: store, token: token, port: port,
                                      pusher: nil, deviceTokens: deviceTokens,
                                      activityTokens: activityTokens,
+                                     codexRolloutMonitor: CodexRolloutMonitor(),
                                      approvalRegistry: approvalRegistry,
                                      allowStore: allowStore,
                                      sessionAllow: sessionAllow,
@@ -163,7 +218,7 @@ final class MenuBarModel: ObservableObject {
                                          Task { @MainActor in self?.recordPairedDevice(device) }
                                      })
         Task.detached(priority: .utility) {
-            do { try await server.buildApplication().runService() }
+            do { try await server.runService() }
             catch { FileHandle.standardError.write(Data("server error: \(error)\n".utf8)) }
         }
     }
@@ -178,28 +233,164 @@ final class MenuBarModel: ObservableObject {
     }
 
     private func startPolling() {
-        pollTask = Task { [weak self] in
+        pollTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
                 let snapshot = await self.store.snapshot(now: Date())
                 self.sessions = snapshot.sessions
+                self.observationDiagnostics = snapshot.observationDiagnostics ?? []
+                self.lifecycleTimeline = await self.store.recentLifecycle()
                 self.buddySessionIDs = BuddyScope.pruned(self.buddySessionIDs, toLive: snapshot.sessions)
                 // Precise suppression: a finishing session stays silent when *its
                 // own* terminal is frontmost, not just when VibeBuddy is.
                 let frontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
                 let focused = ForegroundTerminal.focusedSessionIDs(
                     among: snapshot.sessions, frontmostBundleID: frontmost)
-                self.notificationCoordinator.observe(
+                await self.notificationCoordinator.observe(
                     snapshot.sessions,
                     appActive: NSApp.isActive,                 // user looking at VibeBuddy?
                     quietMode: Self.effectiveQuiet(),          // Focus mode (manual or nightly) → approvals only
                     focusedSessionIDs: focused)                // …or looking at the session's own terminal
+                await self.refreshNotificationDeliveryHealth()
                 await self.pushToPhones(snapshot.sessions)
                 await self.pushActivityUpdates(snapshot.sessions)
                 await self.checkBudget(snapshot.sessions)
                 try? await Task.sleep(for: .seconds(2))
             }
         }
+    }
+
+    private func refreshNotificationDeliveryHealth() async {
+        let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+        let authorization: NotificationAuthorization
+        switch status {
+        case .authorized, .provisional: authorization = .authorized
+        case .denied: authorization = .denied
+        case .notDetermined: authorization = .notDetermined
+        default: authorization = .unknown
+        }
+        await deliveryRecorder.updateAuthorization(authorization)
+        await deliveryRecorder.updateAPNsConfigured(pusher != nil)
+        notificationDeliveryHealth = await deliveryRecorder.health()
+        recentNotificationDeliveries = await deliveryRecorder.recent(limit: 8)
+    }
+
+    func clearLifecycleJournal() {
+        Task { [weak self, store] in
+            let removed = await store.clearLifecycleJournal()
+            let timeline = await store.recentLifecycle()
+            guard let self else { return }
+            self.lifecycleTimeline = timeline
+            self.lifecycleJournalClearFailed = !removed
+        }
+    }
+
+    /// Start the independent account-usage loop. It has its own cadence,
+    /// timeout/cache/backoff policy and never participates in the 2-second
+    /// session snapshot poll above.
+    private func startUsageCollection(_ provider: AccountUsageProvider) {
+        let generation = (usageGenerations[provider] ?? 0) &+ 1
+        usageGenerations[provider] = generation
+        let previousTask = usageTasks[provider]
+        previousTask?.cancel()
+        guard let collector = usageCollectors[provider] else { return }
+        usageTasks[provider] = Task { [weak self] in
+            await previousTask?.value
+            guard !Task.isCancelled,
+                  let self,
+                  self.usageGenerations[provider] == generation,
+                  self.isUsageCollectionEnabled(provider) else { return }
+            let initial = await collector.setEnabled(true)
+            guard !Task.isCancelled,
+                  self.usageGenerations[provider] == generation,
+                  self.isUsageCollectionEnabled(provider) else { return }
+            self.usageStates[provider] = initial
+
+            while !Task.isCancelled,
+                  self.usageGenerations[provider] == generation,
+                  self.isUsageCollectionEnabled(provider) {
+                let state = await collector.refresh()
+                guard !Task.isCancelled,
+                      self.usageGenerations[provider] == generation,
+                      self.isUsageCollectionEnabled(provider) else { return }
+                self.usageStates[provider] = state
+                self.checkUsageAlert(state)
+
+                let delay = max(1, state.nextRefreshAt?.timeIntervalSinceNow ?? 60)
+                do {
+                    try await Task.sleep(for: .seconds(delay))
+                } catch {
+                    return
+                }
+            }
+        }
+    }
+
+    func isUsageCollectionEnabled(_ provider: AccountUsageProvider) -> Bool {
+        usageCollectionEnabled[provider] == true
+    }
+
+    func usageState(for provider: AccountUsageProvider) -> AccountUsageState {
+        usageStates[provider] ?? .disabled
+    }
+
+    func setUsageCollectionEnabled(_ enabled: Bool, provider: AccountUsageProvider) {
+        guard enabled != isUsageCollectionEnabled(provider) else { return }
+        usageCollectionEnabled[provider] = enabled
+        UserDefaults.standard.set(enabled, forKey: Self.usageEnabledKey(for: provider))
+        if enabled {
+            startUsageCollection(provider)
+        } else {
+            let generation = (usageGenerations[provider] ?? 0) &+ 1
+            usageGenerations[provider] = generation
+            let previousTask = usageTasks[provider]
+            previousTask?.cancel()
+            usageStates[provider] = .disabled
+            guard let collector = usageCollectors[provider] else { return }
+            usageTasks[provider] = Task { [weak self] in
+                let disabled = await collector.setEnabled(false)
+                await previousTask?.value
+                guard !Task.isCancelled,
+                      let self,
+                      self.usageGenerations[provider] == generation,
+                      !self.isUsageCollectionEnabled(provider) else { return }
+                self.usageStates[provider] = disabled
+            }
+        }
+    }
+
+    private func checkUsageAlert(_ state: AccountUsageState) {
+        let defaults = UserDefaults.standard
+        let threshold = defaults.object(forKey: "accountUsageAlertThreshold") == nil
+            ? 90
+            : defaults.integer(forKey: "accountUsageAlertThreshold")
+        let windows = usageAlertMonitor.newlyCrossed(
+            in: state,
+            thresholdPercent: threshold,
+            notificationsSuppressed: Self.effectiveQuiet()
+        )
+        Self.saveUsageAlertedWindows(usageAlertMonitor.alertedWindowKeys)
+        guard let provider = state.snapshot?.provider else { return }
+        for window in windows {
+            notifier.notifyUsage(provider: provider, window: window, threshold: threshold)
+        }
+    }
+
+    private static func loadUsageAlertedWindows() -> Set<String> {
+        guard let data = UserDefaults.standard.data(forKey: usageAlertedWindowsKey),
+              let keys = try? JSONDecoder().decode(Set<String>.self, from: data) else {
+            return []
+        }
+        return keys
+    }
+
+    private static func saveUsageAlertedWindows(_ keys: Set<String>) {
+        guard let data = try? JSONEncoder().encode(keys) else { return }
+        UserDefaults.standard.set(data, forKey: usageAlertedWindowsKey)
+    }
+
+    private static func usageEnabledKey(for provider: AccountUsageProvider) -> String {
+        "\(provider.rawValue)UsageCollectionEnabled"
     }
 
     /// Push a Live Activity content-state update to registered phones, but only when
@@ -209,15 +400,15 @@ final class MenuBarModel: ObservableObject {
         guard let pusher else { return }
         let tokens = await activityTokens.all()
         guard !tokens.isEmpty else { return }
-        let groups = SessionGroups(sessions)
-        let nr = groups.needsResponse.count, w = groups.working.count, d = groups.done.count
-        let topProject = groups.needsResponse.first?.project
-        let topSession = groups.focusSessionId
-        let key = "\(nr)|\(w)|\(d)|\(topProject ?? "")|\(topSession ?? "")"
+        let summary = TaskPresentationSummary(sessions: sessions)
+        let leading = sessions.leadingPresentationSession
+        let topProject = leading?.project
+        let topSession = leading?.id
+        let key = "\(summary)|\(topProject ?? "")|\(topSession ?? "")"
         guard key != lastActivityKey else { return }
         lastActivityKey = key
         for t in tokens {
-            await pusher.sendActivityUpdate(needsResponse: nr, working: w, done: d,
+            await pusher.sendActivityUpdate(summary: summary,
                 topProject: topProject, topSessionId: topSession, to: t)
         }
     }
@@ -237,9 +428,11 @@ final class MenuBarModel: ObservableObject {
                 guard let deviceToken = device.token else { continue }
                 if device.quietMode == true && !alert.sound.survivesQuietMode { continue }  // night: approvals only
                 let sound = device.playSound != false ? alert.sound.fileName : ""           // mute → silent banner
-                await pusher.send(title: title, body: body, to: deviceToken, sound: sound)
+                await pusher.send(title: title, body: body, to: deviceToken, sound: sound,
+                                  sessionID: alert.sessionID, soundCategory: alert.sound.rawValue)
             }
         }
+        await refreshNotificationDeliveryHealth()
     }
 
     /// Fire a one-time budget heads-up (local + push) for sessions that just
@@ -304,8 +497,21 @@ final class MenuBarModel: ObservableObject {
     func decide(_ approvalId: String, approve: Bool) { decide(approvalId, approve ? .allow : .deny) }
 
     func jump(_ session: AgentSession) {
+        acknowledge(session.id)
         guard let ref = session.terminalRef else { return }
         TerminalJumper.jump(ref)
+    }
+
+    /// Explicitly viewing/selecting a completion clears its authoritative unread
+    /// bit. Demo sessions mirror the same transition without touching the store.
+    func acknowledge(_ sessionID: String) {
+        if ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1" {
+            guard let index = sessions.firstIndex(where: { $0.id == sessionID }),
+                  sessions[index].hasUnreadCompletion else { return }
+            sessions[index].hasUnreadCompletion = false
+            return
+        }
+        Task { [store] in await store.acknowledgeCompletion(sessionID: sessionID) }
     }
 
     /// Include/exclude a session from the buddy's context (ephemeral). Takes effect
@@ -452,5 +658,8 @@ final class MenuBarModel: ObservableObject {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    deinit { pollTask?.cancel() }
+    deinit {
+        pollTask?.cancel()
+        for task in usageTasks.values { task.cancel() }
+    }
 }

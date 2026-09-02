@@ -101,6 +101,50 @@ public struct TerminalRef: Codable, Sendable, Equatable {
     }
 }
 
+/// How a child of a parent session was observed. Raw values are stable wire strings.
+public enum ChildAgentKind: String, Codable, Sendable {
+    case subagent
+    case task
+    case teammate
+}
+
+/// Live child progress. `unknown` means identity or an end signal was insufficient.
+public enum ChildAgentStatus: String, Codable, Sendable {
+    case running
+    case idle
+    case completed
+    case unknown
+}
+
+/// One teammate, subagent, or task attached to a parent session by a stable id.
+public struct ChildAgent: Codable, Sendable, Equatable, Identifiable {
+    public let id: String
+    public var kind: ChildAgentKind
+    public var name: String?
+    public var type: String?
+    public var status: ChildAgentStatus
+    public var lastActivity: String?
+    public var updatedAt: Date
+
+    public init(
+        id: String,
+        kind: ChildAgentKind,
+        name: String? = nil,
+        type: String? = nil,
+        status: ChildAgentStatus,
+        lastActivity: String? = nil,
+        updatedAt: Date
+    ) {
+        self.id = id
+        self.kind = kind
+        self.name = name
+        self.type = type
+        self.status = status
+        self.lastActivity = lastActivity
+        self.updatedAt = updatedAt
+    }
+}
+
 /// One coding-agent session, as broadcast to the phone.
 public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     public let id: String
@@ -123,6 +167,9 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     /// or a failure-looking Stop message). Optional so older payloads decode as
     /// "unknown"; drives the `agentStuck` cue and the buddy's worried face.
     public var failed: Bool?
+    /// A clean completion result that has not yet been explicitly opened,
+    /// selected, or jumped to. The Mac reducer is authoritative for this value.
+    public var hasUnreadCompletion: Bool
     /// Cumulative tokens spent across this session's turns (input+output),
     /// accumulated by the reducer. Drives the estimated cost + budget alert.
     public var spentTokens: Int?
@@ -130,6 +177,15 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     /// PostToolUse / a new turn). Drives the Mac row's "Editing…/Searching…"
     /// activity line. Optional so older payloads decode as "unknown".
     public var activeTool: String?
+    /// Stable evidence describing how this session was observed. Optional keeps
+    /// snapshots from older Mac builds decodable by newer clients.
+    public var observations: [ObservationEvidence]?
+    /// Live teammate/subagent/task rows for this parent. Optional so older
+    /// snapshots decode as "no topology yet"; recovery leaves this empty.
+    public var childAgents: [ChildAgent]?
+    /// True when a child event arrived without a stable identity. Optional so
+    /// older payloads stay decodable and default to "not degraded".
+    public var childTopologyDegraded: Bool?
     public var statusSince: Date
     public var updatedAt: Date
 
@@ -149,8 +205,12 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         contextTokens: Int? = nil,
         contextWindow: Int? = nil,
         failed: Bool? = nil,
+        hasUnreadCompletion: Bool = false,
         spentTokens: Int? = nil,
         activeTool: String? = nil,
+        observations: [ObservationEvidence]? = nil,
+        childAgents: [ChildAgent]? = nil,
+        childTopologyDegraded: Bool? = nil,
         statusSince: Date,
         updatedAt: Date
     ) {
@@ -169,24 +229,42 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         self.contextTokens = contextTokens
         self.contextWindow = contextWindow
         self.failed = failed
+        self.hasUnreadCompletion = hasUnreadCompletion
         self.spentTokens = spentTokens
         self.activeTool = activeTool
+        self.observations = observations
+        self.childAgents = childAgents
+        self.childTopologyDegraded = childTopologyDegraded
         self.statusSince = statusSince
         self.updatedAt = updatedAt
     }
 
     /// Whether to treat this session as failed/stuck (Optional `failed` is "no").
     public var isStuck: Bool { failed == true }
+
+    public var runningChildAgents: [ChildAgent] {
+        (childAgents ?? []).filter { $0.status == .running }
+    }
+
+    public var runningChildAgentCount: Int { runningChildAgents.count }
 }
 
 /// Full state of every known session — sent on initial load and on reconnect.
 public struct Snapshot: Codable, Sendable, Equatable {
     public var sessions: [AgentSession]
     public var serverTime: Date
+    /// Mac-side source diagnostics, mirrored to iOS. Optional preserves wire
+    /// compatibility with snapshots emitted before observability v2.
+    public var observationDiagnostics: [AgentObservationDiagnostic]?
 
-    public init(sessions: [AgentSession], serverTime: Date) {
+    public init(
+        sessions: [AgentSession],
+        serverTime: Date,
+        observationDiagnostics: [AgentObservationDiagnostic]? = nil
+    ) {
         self.sessions = sessions
         self.serverTime = serverTime
+        self.observationDiagnostics = observationDiagnostics
     }
 }
 

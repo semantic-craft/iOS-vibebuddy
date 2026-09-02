@@ -1,37 +1,13 @@
 import SwiftUI
-
-/// The buddy's mood for the Live Activity, derived purely from the live counts.
-/// Kept self-contained (no VibeBuddyKit) so the widget extension stays lean.
-enum ActivityMood {
-    case needsYou   // something needs a response — alert
-    case working    // sessions running, nothing waiting — focused
-    case done       // only completed sessions — happy
-    case idle       // nothing going on — resting
-
-    static func from(needsResponse: Int, working: Int, done: Int) -> ActivityMood {
-        if needsResponse > 0 { return .needsYou }
-        if working > 0 { return .working }
-        if done > 0 { return .done }
-        return .idle
-    }
-
-    var accent: Color {
-        switch self {
-        case .needsYou: .orange
-        case .working:  .blue
-        case .done:     .green
-        case .idle:     .secondary
-        }
-    }
-}
+import VibeBuddyKit
 
 /// A static pixel black-and-white cat for the Live Activity / Dynamic Island,
 /// matching the in-app iOS `PetFace` (ADR-0007). A light body on the activity's
-/// dark surface, with the status accent in the eyes; mood shows in the ears
-/// (alert ears-up) and an idle-curl loaf. Code-drawn, dependency-free — the
-/// widget extension deliberately doesn't link VibeBuddyKit.
+/// dark surface, with the shared task status accent in the eyes; state shows in the ears
+/// (alert ears-up) and an idle-curl loaf. The extension links VibeBuddyKit so
+/// this rendering consumes the same presentation state and exact color tokens.
 struct ActivityPixelCat: View {
-    let mood: ActivityMood
+    let state: TaskPresentationState
     var size: CGFloat = 40
 
     var body: some View {
@@ -53,8 +29,11 @@ struct ActivityPixelCat: View {
     }
 
     private var rows: [String] {
-        if mood == .idle { return Self.sleeping }
-        let ears = mood == .needsYou ? Self.alertEars : Self.calmEars
+        if state == .idle || state == .unassigned { return Self.sleeping }
+        let ears: [String]
+        if state == .requiresInput { ears = Self.alertEars }
+        else if state == .error { ears = Self.worryEars }
+        else { ears = Self.calmEars }
         return ears + [
             ".###########.",
             "#############",
@@ -74,6 +53,7 @@ struct ActivityPixelCat: View {
 
     private static let calmEars  = [".##.......##.", ".###.....###."]
     private static let alertEars = ["#.#.......#.#", "#.#.......#.#"]
+    private static let worryEars = ["#...........#", "##.........##"]
     private static let sleeping = [
         ".............",
         "...#######...",
@@ -95,20 +75,14 @@ struct ActivityPixelCat: View {
     private func fill(_ char: Character) -> Color? {
         switch char {
         case "#":      return .white                 // light cat on the dark activity surface
-        case "o", "O": return mood.accent            // status colour in the eyes
+        case "o", "O": return Color(taskStatus: state.colorToken)
         case "-":      return .white.opacity(0.5)     // closed / sleeping eyes
         default:       return nil
         }
     }
 }
 
-/// Build the tap-target deep link for the widget. Kit-free mirror of
-/// `VibeBuddyDeepLink.sessionURL` in VibeBuddyKit — the exact string form is
-/// pinned by `DeepLinkTests` so the two stay in sync.
+/// Build the shared tap-target deep link for the Widget and Live Activity.
 func activitySessionURL(id: String) -> URL? {
-    var components = URLComponents()
-    components.scheme = "vibebuddy"
-    components.host = "session"
-    components.queryItems = [URLQueryItem(name: "id", value: id)]
-    return components.url
+    VibeBuddyDeepLink.sessionURL(id: id)
 }

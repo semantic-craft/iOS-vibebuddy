@@ -78,23 +78,40 @@ public actor DeviceTokens {
 }
 
 /// Sends "needs you" alerts to registered devices over APNs (HTTP/2 + cached
-/// ES256 JWT). No-op-safe: failures are swallowed so monitoring never breaks.
+/// ES256 JWT). Failures are recorded as `failed`; 2xx is `accepted` by Apple.
 public actor APNsPusher {
     private let config: APNsConfig
     private let jwt: APNsJWT
+    private let http: any APNsHTTPClient
+    private let recorder: (any NotificationDeliveryRecording)?
     private var cached: (token: String, issued: Date)?
 
-    public init(config: APNsConfig) throws {
+    public init(
+        config: APNsConfig,
+        http: any APNsHTTPClient = URLSession.shared,
+        recorder: (any NotificationDeliveryRecording)? = nil
+    ) throws {
         self.config = config
+        self.http = http
+        self.recorder = recorder
         self.jwt = try APNsJWT(teamID: config.teamID, keyID: config.keyID, p8PEM: config.p8PEM)
     }
 
     /// `sound` is a bundled CAF file name (e.g. `needs_approval.caf`) so the
     /// background alert matches the in-app sound pack; defaults to the system sound.
+    /// 2xx is `accepted` by Apple's servers — not proof the device showed a banner.
+    @discardableResult
     public func send(title: String, body: String, to deviceToken: String,
-                     sound: String = "default", now: Date = Date()) async {
+                     sound: String = "default", now: Date = Date(),
+                     sessionID: String? = nil,
+                     soundCategory: String? = nil) async -> APNsSendResult {
+        let category = soundCategory ?? sound.replacingOccurrences(of: ".caf", with: "")
         guard let url = URL(string: "https://\(config.host)/3/device/\(deviceToken)"),
-              let auth = try? providerToken(now: now) else { return }
+              let auth = try? providerToken(now: now) else {
+            return await finish(
+                APNsDelivery.classify(status: nil, error: SendFailure.unreachable),
+                status: nil, now: now, sessionID: sessionID, sound: category)
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("bearer \(auth)", forHTTPHeaderField: "authorization")
@@ -105,13 +122,45 @@ public actor APNsPusher {
         let soundField = sound.isEmpty ? "" : #","sound":"\#(Self.escape(sound))""#
         let payload = #"{"aps":{"alert":{"title":"\#(Self.escape(title))","body":"\#(Self.escape(body))"}\#(soundField)}}"#
         request.httpBody = Data(payload.utf8)
-        _ = try? await URLSession.shared.data(for: request)
+        do {
+            let (_, response) = try await http.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode
+            return await finish(
+                APNsDelivery.classify(status: status, error: nil),
+                status: status, now: now, sessionID: sessionID, sound: category)
+        } catch {
+            return await finish(
+                APNsDelivery.classify(status: nil, error: error),
+                status: nil, now: now, sessionID: sessionID, sound: category)
+        }
     }
+
+    private func finish(
+        _ classified: NotificationDeliveryClassification,
+        status: Int?,
+        now: Date,
+        sessionID: String?,
+        sound: String?
+    ) async -> APNsSendResult {
+        let result = APNsSendResult(
+            outcome: classified.outcome, status: status, failureReason: classified.failureReason)
+        await recorder?.record(NotificationDeliveryRecord(
+            channel: .apns,
+            outcome: classified.outcome,
+            sessionID: sessionID,
+            sound: sound,
+            failureReason: classified.failureReason,
+            timestamp: now
+        ))
+        return result
+    }
+
+    private enum SendFailure: Error { case unreachable }
 
     /// Push a Live Activity content-state update (`dynamic-island/02`). Unlike `send`
     /// (an `alert` push to a *device* token), this is an `apns-push-type: liveactivity`
     /// push to a per-activity push token, on the `…push-type.liveactivity` topic.
-    public func sendActivityUpdate(needsResponse: Int, working: Int, done: Int,
+    public func sendActivityUpdate(summary: TaskPresentationSummary,
                                    topProject: String?, topSessionId: String?,
                                    to activityToken: String, now: Date = Date()) async {
         guard let url = URL(string: "https://\(config.host)/3/device/\(activityToken)"),
@@ -123,7 +172,7 @@ public actor APNsPusher {
         request.setValue("liveactivity", forHTTPHeaderField: "apns-push-type")
         request.setValue("10", forHTTPHeaderField: "apns-priority")
         request.httpBody = Data(Self.activityPayload(
-            needsResponse: needsResponse, working: working, done: done,
+            summary: summary,
             topProject: topProject, topSessionId: topSessionId,
             timestamp: Int(now.timeIntervalSince1970)).utf8)
         _ = try? await URLSession.shared.data(for: request)
@@ -131,10 +180,10 @@ public actor APNsPusher {
 
     /// The `liveactivity` push body. `content-state` keys mirror
     /// `VibeBuddyActivityAttributes.ContentState`; optional strings are omitted when nil.
-    nonisolated static func activityPayload(needsResponse: Int, working: Int, done: Int,
+    nonisolated static func activityPayload(summary: TaskPresentationSummary,
                                             topProject: String?, topSessionId: String?,
                                             timestamp: Int) -> String {
-        var state = #""needsResponse":\#(needsResponse),"working":\#(working),"done":\#(done)"#
+        var state = #""summary":{"idle":\#(summary.idle),"thinking":\#(summary.thinking),"completeUnread":\#(summary.completeUnread),"requiresInput":\#(summary.requiresInput),"error":\#(summary.error)}"#
         if let p = topProject { state += #","topProject":"\#(escape(p))""# }
         if let s = topSessionId { state += #","topSessionId":"\#(escape(s))""# }
         return #"{"aps":{"timestamp":\#(timestamp),"event":"update","content-state":{\#(state)}}}"#

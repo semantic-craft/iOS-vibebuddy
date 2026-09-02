@@ -13,18 +13,20 @@ struct SettingsView: View {
         TabView {
             GeneralSettings(model: model)
                 .tabItem { Label("General", systemImage: "gearshape") }
-            SetupSettings()
+            SetupSettings(model: model)
                 .tabItem { Label("Setup", systemImage: "checklist") }
             GlanceSettings(model: model)
                 .tabItem { Label("Glance", systemImage: "menubar.rectangle") }
             DeviceSettings(model: model)
                 .tabItem { Label("Devices", systemImage: "iphone.gen3") }
-            NotificationSettings()
+            NotificationSettings(model: model)
                 .tabItem { Label("Notifications", systemImage: "bell") }
+            AccountUsageSettings(model: model)
+                .tabItem { Label("Usage", systemImage: "gauge.with.dots.needle.50percent") }
             VoiceSettingsTab(model: model)
                 .tabItem { Label("Voice", systemImage: "waveform") }
         }
-        .frame(width: 500, height: 360)
+        .frame(width: 500, height: 400)
         .onDisappear { AppActivationPolicy.leave() }
     }
 }
@@ -34,10 +36,76 @@ struct SettingsView: View {
 /// bundled, tested Python installers). The actual install touches the user's real CLI
 /// configs — so it's only ever an explicit button click here.
 private struct SetupSettings: View {
+    @ObservedObject var model: MenuBarModel
     @StateObject private var setup = HookSetup()
 
     var body: some View {
         Form {
+            Section("Observation health") {
+                if model.observationDiagnostics.isEmpty {
+                    Text("Checking Claude and Codex sources…")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(model.observationDiagnostics) { agent in
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text(agent.agent.displayName).font(.headline)
+                        ForEach(agent.sources) { source in
+                            observationRow(agent: agent.agent, source: source)
+                        }
+                    }
+                    .padding(.vertical, 3)
+                }
+            }
+
+            Section {
+                if model.lifecycleTimeline.isEmpty {
+                    Text("No recent lifecycle transitions.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(model.lifecycleTimeline.prefix(20)) { entry in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 4) {
+                                    Text(entry.agent.displayName)
+                                    Text("·")
+                                    Text(LocalizedStringKey(entry.eventDisplayName))
+                                }
+                                .fontWeight(.semibold)
+                                HStack(spacing: 4) {
+                                    Text(entry.source.displayName)
+                                    Text("·")
+                                    Text("Session …\(entry.sessionSuffix)")
+                                    Text("·")
+                                    Text(LocalizedStringKey(entry.resultDisplayName))
+                                }
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 4)
+                            Text(entry.timestamp, style: .relative)
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+                HStack {
+                    Button("Clear lifecycle timeline", role: .destructive) {
+                        model.clearLifecycleJournal()
+                    }
+                    .disabled(model.lifecycleTimeline.isEmpty && !model.lifecycleJournalClearFailed)
+                    if model.lifecycleJournalClearFailed {
+                        Text("Could not remove the journal from disk.")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                }
+            } header: {
+                Text("Recent lifecycle")
+            } footer: {
+                Text("Stored locally for up to 7 days (maximum 250 transitions). Includes normalized state and source metadata only — never prompts, reasoning, message text, tool input, or tool output.")
+                    .font(.caption)
+            }
+
             Section {
                 if setup.statuses.isEmpty {
                     Text("No agent CLIs detected yet.").foregroundStyle(.secondary)
@@ -64,6 +132,9 @@ private struct SetupSettings: View {
             Text("Wires (or removes) the vibebuddy hook in every detected CLI's config (~/.claude/settings.json …) via the bundled installer. Reversible. Re-run after installing a new CLI.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            Text("Codex Desktop is monitored automatically from its local rollout stream. Codex CLI hooks still require explicit trust: start a fresh CLI session, run /hooks, review the VibeBuddy entries, and trust them.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
             if !setup.lastOutput.isEmpty {
                 ScrollView {
@@ -77,6 +148,87 @@ private struct SetupSettings: View {
         }
         .padding(.horizontal)
         .onAppear { setup.refresh() }
+    }
+
+    @ViewBuilder
+    private func observationRow(
+        agent: AgentKind,
+        source: ObservationSourceDiagnostic
+    ) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: source.health.isHealthy
+                  ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .foregroundStyle(source.health.isHealthy ? .green : .orange)
+                .frame(width: 16)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 5) {
+                    Text(source.source.displayName).fontWeight(.semibold)
+                    Text("· \(source.health.displayName)")
+                        .foregroundStyle(.secondary)
+                }
+                Text(source.health.explanation(for: source.source))
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let last = source.lastObservedAt {
+                    Text("Last signal \(last, style: .relative)")
+                        .font(.caption2).foregroundStyle(.tertiary)
+                }
+                if !source.configuredCoverage.isEmpty || !source.observedCoverage.isEmpty {
+                    let configured = source.configuredCoverageDescription
+                    let observed = source.observedCoverageDescription
+                    Text("Coverage: configured \(configured.isEmpty ? "none" : configured); observed \(observed.isEmpty ? "none" : observed)")
+                        .font(.caption2).foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 8)
+            if source.source == .hook, source.health.needsHookRepair {
+                Button("Repair") { setup.repair(agent) }
+                    .disabled(setup.running)
+                    .help("Runs the bundled idempotent installer and preserves your other hooks.")
+            }
+        }
+    }
+}
+
+private extension LifecycleJournalEntry {
+    var sessionSuffix: String { String(sessionID.suffix(8)) }
+
+    var resultDisplayName: String {
+        guard let status else { return "Removed" }
+        switch status {
+        case .needsResponse:
+            return waitKind == .permission ? "Needs permission" : "Needs response"
+        case .working: return "Working"
+        case .done: return "Done"
+        }
+    }
+
+    var eventDisplayName: String {
+        switch event {
+        case "sessionStart": return "Session started"
+        case "userPromptSubmit": return "Turn started"
+        case "preToolUse": return "Tool started"
+        case "postToolUse": return "Tool finished"
+        case "notification": return "Attention requested"
+        case "stop": return "Turn stopped"
+        case "sessionEnd": return "Session ended"
+        case "sessionMetadataChanged": return "Metadata changed"
+        case "approvalRequested": return "Approval requested"
+        case "approvalResolved": return "Approval resolved"
+        case "questionResolved": return "Question resolved"
+        case "sessionReconciled": return "Session reconciled"
+        default: return "Lifecycle changed"
+        }
+    }
+}
+
+private extension ObservationHealth {
+    var needsHookRepair: Bool {
+        switch self {
+        case .eventsMissing, .asyncIncompatible, .sourceUnreadable, .unknownVersion: true
+        case .healthy, .temporarilySilent, .notInstalled: false
+        }
     }
 }
 
@@ -152,6 +304,7 @@ private struct GlanceSettings: View {
 }
 
 private struct NotificationSettings: View {
+    @ObservedObject var model: MenuBarModel
     @AppStorage("notifyOnNeedsResponse") private var notify = true
     @AppStorage("playNotificationSound") private var sound = true
     @AppStorage("quietMode") private var quiet = false
@@ -160,6 +313,72 @@ private struct NotificationSettings: View {
 
     var body: some View {
         Form {
+            Section {
+                LabeledContent("Local authorization") {
+                    Text(model.notificationDeliveryHealth.authorization.rawValue)
+                        .foregroundStyle(.secondary)
+                }
+                LabeledContent("APNs") {
+                    Text(model.notificationDeliveryHealth.apnsConfigured ? "configured" : "not configured")
+                        .foregroundStyle(.secondary)
+                }
+                if let last = model.notificationDeliveryHealth.lastAttempt {
+                    LabeledContent("Last attempt") {
+                        Text(last.outcome.rawValue)
+                            .foregroundStyle(last.outcome == .failed ? Color.orange : .secondary)
+                    }
+                    HStack(spacing: 4) {
+                        Text(last.channel.rawValue)
+                        if let sound = last.sound {
+                            Text("·")
+                            Text(sound)
+                        }
+                        if let session = last.sessionID {
+                            Text("·")
+                            Text("Session …\(session.suffix(8))")
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    Text(last.timestamp, style: .relative)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .monospacedDigit()
+                } else {
+                    Text("No attempts yet.")
+                        .foregroundStyle(.secondary)
+                }
+                if let failure = model.notificationDeliveryHealth.latchedFailure {
+                    Text("failed · \(failure.failureReason ?? "unknown")")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+                ForEach(model.recentNotificationDeliveries.prefix(5)) { entry in
+                    HStack(spacing: 6) {
+                        Text(entry.outcome.rawValue)
+                            .fontWeight(.semibold)
+                        Text(entry.channel.rawValue)
+                            .foregroundStyle(.secondary)
+                        if let sound = entry.sound {
+                            Text("·")
+                            Text(sound)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 4)
+                        Text(entry.timestamp, style: .relative)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .monospacedDigit()
+                    }
+                    .font(.caption)
+                }
+            } header: {
+                Text("Delivery health")
+            } footer: {
+                Text("Honest outcomes only: attempted, scheduled, accepted, failed. A local banner is scheduled; APNs 2xx is accepted by Apple's servers. Neither is proof the device showed it.")
+                    .font(.caption)
+            }
+
             Section {
                 Toggle("Show notifications", isOn: $notify)
                 Toggle("Play sound", isOn: $sound).disabled(!notify)

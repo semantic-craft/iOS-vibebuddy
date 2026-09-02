@@ -23,9 +23,13 @@ code, and tests — don't drift to synonyms.
 
 ## Mac side
 
-- **Hook** — a Claude Code `settings.json` event (Notification, Stop,
+- **Hook** — a Claude Code/Codex CLI lifecycle event (Notification, Stop,
   PostToolUse, SessionStart…) that feeds session state into the daemon.
   Fail-open.
+- **Codex rollout stream** — the append-only
+  `~/.codex/sessions/**/rollout-*.jsonl` event stream. Codex Desktop does not
+  execute user CLI hooks, so its task/tool/completion progress enters through
+  this local tailer and converges with hook events in the same reducer.
 - **Daemon** — the Mac menu-bar app's embedded HTTP + WebSocket server
   (`:9876`) that ingests hooks, runs the reducer, and broadcasts snapshots.
 - **Glance** — the Mac floating status panel at the top of the screen (notch or
@@ -54,3 +58,29 @@ code, and tests — don't drift to synonyms.
   中文); independent of the **UI language** (English).
 - **Approval / Answer** — the two remote actions on a session: approve/deny a
   pending permission, or inject a text answer.
+
+## Observability (2026-09)
+
+- **ObservationSource / ObservationHealth** — which signal currently backs a
+  session (`hook`, `rollout`, `transcript`, `restored`) plus its last-seen time
+  and a health verdict (healthy / degraded / unsupported / eventsMissing). Never
+  guessed from process existence; shown in Mac Settings and on session rows.
+- **ChildAgent / childTopologyDegraded** — a subagent, task, or teammate under a
+  parent session (`subagent:<id>` / `task:<id>` / `teammate:<team>/<name>`),
+  with `running` / `completed` / `unknown`. Missing identity sets the degraded
+  flag instead of inventing an id. Parent three-state is still driven only by
+  parent events.
+- **TaskPresentation** — the platform-neutral five-state projection used by every
+  surface (Mac, iPhone, Live Activity, Widget, Buddy): `idle`, `thinking`,
+  `completeUnread`, `requiresInput`, `error` (+ `unassigned` for empty slots),
+  priority `error > requiresInput > thinking > completeUnread > idle`, colors from
+  the Codex Micro token set. Domain state → presentation state → color token.
+- **LifecycleJournal** — the bounded (7 days / 250 entries, 0600) local log of
+  normalized state changes used for daemon-restart recovery and diagnostics; no
+  prompts, reasoning, or tool output.
+- **NotificationDelivery / NotificationDeliveryLog** — one record per local or
+  APNs send with outcome `attempted` / `scheduled` / `accepted` / `failed`. Never
+  `delivered`: an API result is not proof the device showed it.
+- **AccountUsage** — provider quota (Codex app-server RPC, Claude `/usage` CLI):
+  window, remaining, reset, freshness, `stale` / unavailable reason. Collected by
+  isolated, individually switchable adapters that can never move session state.

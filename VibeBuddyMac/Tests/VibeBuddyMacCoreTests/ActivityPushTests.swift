@@ -3,6 +3,7 @@ import Foundation
 import NIOCore
 import Hummingbird
 import HummingbirdTesting
+import VibeBuddyKit
 @testable import VibeBuddyMacCore
 
 @Suite("Live Activity push (dynamic-island/02)")
@@ -25,17 +26,19 @@ struct ActivityPushTests {
 
     @Test("payload carries an update event with the counts")
     func payloadCounts() {
-        let p = APNsPusher.activityPayload(needsResponse: 2, working: 1, done: 0,
+        let p = APNsPusher.activityPayload(summary: TaskPresentationSummary(
+                                               idle: 0, thinking: 1, completeUnread: 0,
+                                               requiresInput: 2, error: 0),
                                            topProject: nil, topSessionId: nil, timestamp: 1700)
         #expect(p.contains(#""event":"update""#))
         #expect(p.contains(#""timestamp":1700"#))
-        #expect(p.contains(#""needsResponse":2,"working":1,"done":0"#))
+        #expect(p.contains(#""summary":{"idle":0,"thinking":1,"completeUnread":0,"requiresInput":2,"error":0}"#))
         #expect(!p.contains("topProject"))   // omitted when nil
     }
 
     @Test("optional strings are included and escaped when present")
     func payloadOptionals() {
-        let p = APNsPusher.activityPayload(needsResponse: 0, working: 0, done: 1,
+        let p = APNsPusher.activityPayload(summary: TaskPresentationSummary(completeUnread: 1),
                                            topProject: #"my "proj""#, topSessionId: "s1", timestamp: 1)
         #expect(p.contains(#""topProject":"my \"proj\"""#))
         #expect(p.contains(#""topSessionId":"s1""#))

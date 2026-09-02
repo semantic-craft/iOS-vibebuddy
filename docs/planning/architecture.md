@@ -151,7 +151,7 @@ Hook command (installed into Claude Code `settings.json`), fail-open like m5:
 6. **Server library (Phase B decision).** Lean candidates: **Hummingbird 2** (small, async/await, first-class WS) or raw **Network.framework** `NWListener` (zero deps). Isolated behind the `Server` protocol so it's swappable.
 7. **Transport is config, not code.** `host:port` + token are data (delivered by QR), so LAN→Tailscale is a value swap.
 
-## Testing Seams (for TDD / to-prd)
+## Testing Seams (for TDD / to-spec)
 
 - **Reducer** (`[HookEvent] → [AgentSession]`): pure function, highest-value unit tests — feed recorded hook sequences, assert statuses. No I/O.
 - **TranscriptReader** (`Data → (model, tokens, summary)`): pure parse over fixture JSONL tails.

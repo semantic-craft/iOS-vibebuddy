@@ -88,6 +88,30 @@ struct VibeBuddyServerTests {
         }
     }
 
+    @Test("/acknowledge is token-gated and clears a clean completion unread")
+    func acknowledgeCompletion() async throws {
+        let store = SessionStore()
+        await store.ingest(Data(#"{"hook_event_name":"UserPromptSubmit","session_id":"s","cwd":"/x/demo"}"#.utf8),
+                           receivedAt: Date(timeIntervalSince1970: 1))
+        await store.ingest(Data(#"{"hook_event_name":"Stop","session_id":"s","cwd":"/x/demo"}"#.utf8),
+                           receivedAt: Date(timeIntervalSince1970: 2))
+        let server = VibeBuddyServer(store: store, token: "t0k")
+
+        try await server.buildApplication().test(.router) { client in
+            try await client.execute(uri: "/acknowledge", method: .post,
+                                     body: ByteBuffer(string: #"{"sessionId":"s"}"#)) { response in
+                #expect(response.status == .unauthorized)
+            }
+            #expect(await store.snapshot(now: .now).sessions.first?.hasUnreadCompletion == true)
+            try await client.execute(uri: "/acknowledge", method: .post,
+                                     headers: [.authorization: "Bearer t0k"],
+                                     body: ByteBuffer(string: #"{"sessionId":"s"}"#)) { response in
+                #expect(response.status == .ok)
+            }
+            #expect(await store.snapshot(now: .now).sessions.first?.presentationState == .idle)
+        }
+    }
+
     @Test("/answer injects text into the session terminal")
     func answerInjectsIntoTerminal() async throws {
         final class Box: @unchecked Sendable { var answers: [(String, String)] = [] }

@@ -63,6 +63,9 @@ targets:
     sources:
       - path: Widget
       - path: Shared
+    dependencies:
+      - package: VibeBuddyKit
+        product: VibeBuddyKit
     info:
       path: Widget/Info.plist
       properties:
@@ -80,3 +83,16 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         DEVELOPMENT_TEAM: LQAVR62TK2
         CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: Widget/VibeBuddyWidget.entitlements
+  VibeBuddyAppTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: VibeBuddyApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.app.tests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "6.0"

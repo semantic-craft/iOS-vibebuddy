@@ -19,6 +19,13 @@ struct JumpRoutesTests {
             _ = try await client.execute(uri: "/hook", method: .post,
                 headers: [.authorization: "Bearer t0k"],
                 body: ByteBuffer(string: #"{"hook_event_name":"SessionStart","session_id":"s","cwd":"/x/p"}"#)) { _ in }
+            _ = try await client.execute(uri: "/hook", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"hook_event_name":"UserPromptSubmit","session_id":"s","cwd":"/x/p"}"#)) { _ in }
+            _ = try await client.execute(uri: "/hook", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"hook_event_name":"Stop","session_id":"s","cwd":"/x/p"}"#)) { _ in }
+            #expect(await store.snapshot(now: .now).sessions.first?.hasUnreadCompletion == true)
             try await client.execute(uri: "/terminal", method: .post,
                 headers: [.authorization: "Bearer t0k"],
                 body: ByteBuffer(string: #"{"session_id":"s","term_program":"ghostty","tmux":"/tmp/x,1,0","tmux_pane":"%5"}"#)) { res in
@@ -30,6 +37,7 @@ struct JumpRoutesTests {
                 #expect(res.status == .ok)
             }
             #expect(box.jumped == ["%5"])
+            #expect(await store.snapshot(now: .now).sessions.first?.hasUnreadCompletion == false)
         }
     }
 

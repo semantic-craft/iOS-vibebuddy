@@ -42,6 +42,20 @@ struct EnvironmentDetectorTests {
         #expect(status.hookInjected)
     }
 
+    @Test("Codex lifecycle hooks are detected as injected")
+    func codexInjected() throws {
+        let dir = tempDir()
+        let cfg = dir.appendingPathComponent("config.toml")
+        let hooks = dir.appendingPathComponent("hooks.json")
+        try "model = \"gpt\"\n".write(to: cfg, atomically: true, encoding: .utf8)
+        try #"{"hooks":{"Stop":[{"hooks":[{"command":"/app/vibebuddy-forward.sh codex"}]}]}}"#
+            .write(to: hooks, atomically: true, encoding: .utf8)
+        let spec = CLISpec(name: "codex", configPath: cfg.path, hookPath: hooks.path)
+        let status = EnvironmentDetector.detect([spec]).first!
+        #expect(status.configured)
+        #expect(status.hookInjected)
+    }
+
     @Test("a plugin dir is scanned recursively for the marker")
     func dirScan() throws {
         let dir = tempDir()

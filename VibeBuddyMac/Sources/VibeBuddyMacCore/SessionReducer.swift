@@ -13,25 +13,48 @@ public struct SessionReducer: Sendable {
 
     public init() {}
 
-    public mutating func apply(_ event: HookEvent) {
+    /// Seed recent active state recovered from the privacy-minimized journal.
+    /// Recovery never re-applies events, so it cannot replay completion alerts.
+    /// Child topology is live-only: the journal restores the parent session,
+    /// then `childAgents` stay empty until a new start event arrives.
+    mutating func restore(_ recovered: [AgentSession]) {
+        for var session in recovered {
+            session.childAgents = nil
+            session.childTopologyDegraded = nil
+            sessions[session.id] = session
+        }
+    }
+
+    public mutating func apply(
+        _ event: HookEvent,
+        observationSource: ObservationSource? = nil
+    ) {
         switch event.kind {
-        case .sessionStart, .userPromptSubmit, .preToolUse, .postToolUse:
-            // Active work: a tool starting/finishing means the agent is busy,
-            // which also clears any prior "needs you" wait state.
+        case .sessionStart:
+            // Starting or resuming opens a session but does not mean a turn is
+            // running yet. Mature monitors call this free/idle; in our three
+            // buckets that is `done` until UserPromptSubmit arrives.
+            upsert(event, status: .done, waitKind: nil)
+            sessions[event.sessionID]?.failed = false
+            sessions[event.sessionID]?.activeTool = nil
+        case .userPromptSubmit:
             upsert(event, status: .working, waitKind: nil)
-            // Track the last tool outcome for the stuck cue and the current tool
-            // for the activity line: a new turn clears both, PreToolUse names the
-            // running tool, PostToolUse records its outcome and clears the tool.
-            switch event.kind {
-            case .sessionStart, .userPromptSubmit:
-                sessions[event.sessionID]?.failed = false
-                sessions[event.sessionID]?.activeTool = nil
-            case .preToolUse:
-                sessions[event.sessionID]?.activeTool = event.toolName
-            case .postToolUse:
-                sessions[event.sessionID]?.failed = event.toolError
-                sessions[event.sessionID]?.activeTool = nil
-            default: break
+            sessions[event.sessionID]?.hasUnreadCompletion = false
+            sessions[event.sessionID]?.failed = false
+            sessions[event.sessionID]?.activeTool = nil
+        case .preToolUse, .postToolUse:
+            if event.childID != nil {
+                // Nested subagent tools describe the child, not parent progress.
+                applyNestedChildTool(event)
+            } else {
+                upsert(event, status: .working, waitKind: nil)
+                sessions[event.sessionID]?.hasUnreadCompletion = false
+                if event.kind == .preToolUse {
+                    sessions[event.sessionID]?.activeTool = event.toolName
+                } else {
+                    sessions[event.sessionID]?.failed = event.toolError
+                    sessions[event.sessionID]?.activeTool = nil
+                }
             }
         case .notification:
             // The purpose-built "Claude wants your attention" signal.
@@ -39,21 +62,61 @@ public struct SessionReducer: Sendable {
                    waitKind: Self.waitKind(from: event.message),
                    summary: event.message)
             sessions[event.sessionID]?.failed = false       // waiting on you, not stuck
+            sessions[event.sessionID]?.hasUnreadCompletion = false
             sessions[event.sessionID]?.activeTool = nil      // no tool running while waiting
         case .stop:
-            // Create-if-missing so a late-observed session or a Codex
-            // turn-complete still shows as done; carry a Codex summary if present.
+            // Create-if-missing so a late-observed lifecycle still shows as done;
+            // carry the agent's final summary when present.
             upsert(event, status: .done, waitKind: nil, summary: event.message)
             sessions[event.sessionID]?.activeTool = nil
             // Carry the last tool's outcome; also treat a failure-looking stop
             // message as stuck even when no tool error was reported.
             if FailureHeuristic.looksFailed(event.message) { sessions[event.sessionID]?.failed = true }
+            // A clean result remains green until an explicit read acknowledgement.
+            // Failed endings stay red and do not manufacture a completion unread.
+            let cleanCompletion = sessions[event.sessionID]?.isStuck == false
+            sessions[event.sessionID]?.hasUnreadCompletion = cleanCompletion
         case .sessionEnd:
             // The session is over (exit / clear / logout). Drop it entirely so
             // an idle "needs you" prompt doesn't outlive the session it belonged to.
             sessions.removeValue(forKey: event.sessionID)
             lastCountedTokens[event.sessionID] = nil
+        case .sessionMetadataChanged:
+            // Model and cwd changes describe the same live session. They must
+            // not clear its tool/wait state or manufacture a progress transition.
+            updateMetadata(event)
+        case .childLifecycle:
+            applyChildLifecycle(event)
         }
+        if event.kind != .sessionEnd {
+            recordObservation(
+                sessionID: event.sessionID,
+                source: observationSource ?? event.observationSource ?? .hook,
+                at: event.timestamp,
+                health: .healthy)
+        }
+    }
+
+    /// Update one stable source entry without touching session progress.
+    public mutating func recordObservation(
+        sessionID: String,
+        source: ObservationSource,
+        at date: Date,
+        health: ObservationHealth
+    ) {
+        guard var session = sessions[sessionID] else { return }
+        var observations = session.observations ?? []
+        if let index = observations.firstIndex(where: { $0.source == source }) {
+            if date >= observations[index].lastObservedAt {
+                observations[index].lastObservedAt = date
+                observations[index].health = health
+            }
+        } else {
+            observations.append(ObservationEvidence(
+                source: source, lastObservedAt: date, health: health))
+        }
+        session.observations = observations.sorted { $0.source < $1.source }
+        sessions[sessionID] = session
     }
 
     /// Self-healing pass for sessions that are no longer genuinely waiting but
@@ -113,6 +176,7 @@ public struct SessionReducer: Sendable {
         s.waitKind = .permission
         s.pendingApproval = approval
         s.pendingQuestion = nil
+        s.hasUnreadCompletion = false
         s.updatedAt = at
         sessions[sessionID] = s
     }
@@ -123,6 +187,7 @@ public struct SessionReducer: Sendable {
         s.pendingApproval = nil
         s.waitKind = nil
         s.status = .working
+        s.hasUnreadCompletion = false
         s.statusSince = at
         s.updatedAt = at
         sessions[sessionID] = s
@@ -134,6 +199,7 @@ public struct SessionReducer: Sendable {
         s.pendingQuestion = nil
         s.waitKind = nil
         s.status = .working
+        s.hasUnreadCompletion = false
         s.statusSince = at
         s.updatedAt = at
         sessions[sessionID] = s
@@ -146,15 +212,42 @@ public struct SessionReducer: Sendable {
         sessions[sessionID] = s
     }
 
+    /// Mark a clean completion as read without changing lifecycle timestamps or
+    /// list order. Returns whether authoritative state changed.
+    @discardableResult
+    public mutating func acknowledgeCompletion(sessionID: String) -> Bool {
+        guard var session = sessions[sessionID], session.hasUnreadCompletion else { return false }
+        session.hasUnreadCompletion = false
+        sessions[sessionID] = session
+        return true
+    }
+
     /// A sorted snapshot for broadcast: most-urgent first, then most-recent.
-    public func snapshot(now: Date) -> Snapshot {
-        let sorted = sessions.values.sorted { a, b in
-            if a.status.attentionRank != b.status.attentionRank {
-                return a.status.attentionRank < b.status.attentionRank
+    public func snapshot(
+        now: Date,
+        observationStaleAfter: TimeInterval = 10 * 60,
+        observationDiagnostics: [AgentObservationDiagnostic]? = nil
+    ) -> Snapshot {
+        let aged = sessions.values.map { session -> AgentSession in
+            var session = session
+            session.observations = session.observations?.map { evidence in
+                var evidence = evidence
+                if evidence.health == .healthy,
+                   now.timeIntervalSince(evidence.lastObservedAt) > observationStaleAfter {
+                    evidence.health = .temporarilySilent
+                }
+                return evidence
+            }
+            return session
+        }
+        let sorted = aged.sorted { a, b in
+            if a.presentationState.attentionRank != b.presentationState.attentionRank {
+                return a.presentationState.attentionRank < b.presentationState.attentionRank
             }
             return a.updatedAt > b.updatedAt
         }
-        return Snapshot(sessions: sorted, serverTime: now)
+        return Snapshot(sessions: sorted, serverTime: now,
+                        observationDiagnostics: observationDiagnostics)
     }
 
     // MARK: - Helpers
@@ -182,6 +275,7 @@ public struct SessionReducer: Sendable {
                 s.pendingQuestion = nil
             }
             if let cwd = event.cwd { s.project = Self.projectName(cwd) }
+            if let model = event.model { s.model = model }
             s.updatedAt = event.timestamp
             sessions[event.sessionID] = s
         } else {
@@ -189,6 +283,7 @@ public struct SessionReducer: Sendable {
                 id: event.sessionID,
                 agent: event.agent,
                 project: event.cwd.map(Self.projectName) ?? "—",
+                model: event.model,
                 status: status,
                 waitKind: waitKind,
                 summary: summary,
@@ -196,6 +291,25 @@ public struct SessionReducer: Sendable {
                 updatedAt: event.timestamp
             )
         }
+    }
+
+    private mutating func updateMetadata(_ event: HookEvent) {
+        guard var session = sessions[event.sessionID] else {
+            sessions[event.sessionID] = AgentSession(
+                id: event.sessionID,
+                agent: event.agent,
+                project: event.cwd.map(Self.projectName) ?? "—",
+                model: event.model,
+                status: .done,
+                statusSince: event.timestamp,
+                updatedAt: event.timestamp
+            )
+            return
+        }
+        if let cwd = event.cwd { session.project = Self.projectName(cwd) }
+        if let model = event.model { session.model = model }
+        session.updatedAt = event.timestamp
+        sessions[event.sessionID] = session
     }
 
     static func projectName(_ cwd: String) -> String {
@@ -206,5 +320,105 @@ public struct SessionReducer: Sendable {
     static func waitKind(from message: String?) -> WaitKind {
         guard let m = message?.lowercased() else { return .question }
         return m.contains("permission") ? .permission : .question
+    }
+
+    /// Child events may create a parent row so topology is visible, but they
+    /// never move the parent's three-state progress.
+    private mutating func ensureParentWithoutProgress(_ event: HookEvent) {
+        if sessions[event.sessionID] == nil {
+            sessions[event.sessionID] = AgentSession(
+                id: event.sessionID,
+                agent: event.agent,
+                project: event.cwd.map(Self.projectName) ?? "—",
+                model: event.model,
+                status: .done,
+                statusSince: event.timestamp,
+                updatedAt: event.timestamp
+            )
+            return
+        }
+        if let cwd = event.cwd { sessions[event.sessionID]?.project = Self.projectName(cwd) }
+        if let model = event.model { sessions[event.sessionID]?.model = model }
+        sessions[event.sessionID]?.updatedAt = event.timestamp
+    }
+
+    private mutating func applyNestedChildTool(_ event: HookEvent) {
+        ensureParentWithoutProgress(event)
+        guard let childID = event.childID else { return }
+        updateChild(sessionID: event.sessionID, id: childID, at: event.timestamp) { child in
+            if let tool = event.toolName { child.lastActivity = tool }
+        }
+    }
+
+    private mutating func applyChildLifecycle(_ event: HookEvent) {
+        ensureParentWithoutProgress(event)
+        guard let action = event.childAction, let kind = event.childKind else {
+            sessions[event.sessionID]?.childTopologyDegraded = true
+            return
+        }
+        guard let childID = event.childID else {
+            sessions[event.sessionID]?.childTopologyDegraded = true
+            if action == .unknown {
+                markRunningChildrenUnknown(sessionID: event.sessionID, at: event.timestamp)
+            }
+            return
+        }
+
+        var children = sessions[event.sessionID]?.childAgents ?? []
+        let lastActivity = event.message ?? event.toolName
+        if let index = children.firstIndex(where: { $0.id == childID }) {
+            if event.timestamp < children[index].updatedAt { return }
+            children[index].status = status(for: action)
+            if let name = event.childName { children[index].name = name }
+            if let type = event.childType { children[index].type = type }
+            if let lastActivity { children[index].lastActivity = lastActivity }
+            children[index].updatedAt = event.timestamp
+        } else {
+            children.append(ChildAgent(
+                id: childID,
+                kind: kind,
+                name: event.childName,
+                type: event.childType,
+                status: status(for: action),
+                lastActivity: lastActivity,
+                updatedAt: event.timestamp
+            ))
+        }
+        sessions[event.sessionID]?.childAgents = children
+    }
+
+    private mutating func updateChild(
+        sessionID: String,
+        id: String,
+        at timestamp: Date,
+        mutate: (inout ChildAgent) -> Void
+    ) {
+        guard var children = sessions[sessionID]?.childAgents,
+              let index = children.firstIndex(where: { $0.id == id }) else { return }
+        if timestamp < children[index].updatedAt { return }
+        mutate(&children[index])
+        children[index].updatedAt = timestamp
+        sessions[sessionID]?.childAgents = children
+    }
+
+    private mutating func markRunningChildrenUnknown(sessionID: String, at timestamp: Date) {
+        guard var children = sessions[sessionID]?.childAgents else { return }
+        var changed = false
+        for index in children.indices where children[index].status == .running {
+            if timestamp < children[index].updatedAt { continue }
+            children[index].status = .unknown
+            children[index].updatedAt = timestamp
+            changed = true
+        }
+        if changed { sessions[sessionID]?.childAgents = children }
+    }
+
+    private func status(for action: HookEvent.ChildLifecycleAction) -> ChildAgentStatus {
+        switch action {
+        case .started: return .running
+        case .stopped: return .completed
+        case .idled: return .idle
+        case .unknown: return .unknown
+        }
     }
 }
