@@ -72,6 +72,10 @@ public struct WatchAlert: Codable, Equatable, Sendable, Identifiable {
     public var tool: String?
     /// Permission: the command or target. Question: the prompt.
     public var request: String?
+    /// Question only: the labels of any predefined answers, so the wrist can
+    /// show what is being asked. Labels only — an option's `value` is text that
+    /// would be typed into someone's terminal, and the Watch cannot send it.
+    public var options: [String]
     public var waitingSince: Date
 
     public var id: String { sessionId }
@@ -84,6 +88,7 @@ public struct WatchAlert: Codable, Equatable, Sendable, Identifiable {
         summary: String? = nil,
         tool: String? = nil,
         request: String? = nil,
+        options: [String] = [],
         waitingSince: Date
     ) {
         self.sessionId = sessionId
@@ -93,6 +98,7 @@ public struct WatchAlert: Codable, Equatable, Sendable, Identifiable {
         self.summary = summary
         self.tool = tool
         self.request = request
+        self.options = options
         self.waitingSince = waitingSince
     }
 
@@ -295,6 +301,9 @@ public enum WatchDashboardProjection {
             summary: session.summary,
             tool: session.pendingApproval?.tool,
             request: request(for: session, waitKind: waitKind),
+            options: waitKind == .question
+                ? (session.pendingQuestion?.options.map(\.label) ?? [])
+                : [],
             waitingSince: session.statusSince
         )
     }
@@ -308,7 +317,10 @@ public enum WatchDashboardProjection {
             guard let approval = session.pendingApproval else { return nil }
             return approval.command ?? approval.filePath ?? approval.commandPreview
         case .question:
-            return session.pendingQuestion?.prompt
+            // Most waiting sessions have no structured question — the agent just
+            // said what it needs. That message is the prompt, so use it rather
+            // than leaving the row blank.
+            return session.pendingQuestion?.prompt ?? session.summary
         }
     }
 }

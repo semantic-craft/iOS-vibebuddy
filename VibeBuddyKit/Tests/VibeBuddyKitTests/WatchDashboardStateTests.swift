@@ -113,7 +113,97 @@ struct WatchDashboardStateTests {
     func missingWaitKindDegradesToQuestion() {
         let state = project([session(id: "a", status: .needsResponse)])
         #expect(state.topAlert?.waitKind == .question)
-        #expect(state.topAlert?.request == nil)
+        #expect(state.topAlert?.tool == nil)
+    }
+
+    @Test("A question with no structured prompt falls back to what the agent said")
+    func questionFallsBackToTheSessionSummary() {
+        let state = project([session(id: "a", status: .needsResponse, waitKind: .question)])
+        #expect(state.topAlert?.request == "wrote section 2")
+    }
+
+    @Test("Question option labels reach the wrist; their values never do")
+    func questionOptionsAreLabelsOnly() throws {
+        let question = PendingQuestion(id: "q", prompt: "Which revision style?", options: [
+            QuestionOption(id: "t", label: "Tighten", value: "Tighten it without changing the argument."),
+            QuestionOption(id: "p", label: "Plain language", value: "Make it plainer."),
+        ])
+        let state = project([session(id: "a", status: .needsResponse, waitKind: .question, question: question)])
+        #expect(state.topAlert?.options == ["Tighten", "Plain language"])
+
+        let json = String(decoding: try JSONEncoder().encode(state), as: UTF8.self)
+        #expect(!json.contains("without changing the argument"))
+        #expect(!json.contains("Make it plainer"))
+    }
+
+    @Test("A permission carries no option labels")
+    func permissionsHaveNoOptions() {
+        let approval = PendingApproval(id: "ap", tool: "Bash", commandPreview: "ls")
+        let state = project([session(id: "a", status: .needsResponse, waitKind: .permission, approval: approval)])
+        #expect(state.topAlert?.options.isEmpty == true)
+    }
+
+    // MARK: live promotion and removal
+
+    @Test("Working and done sessions never become alerts")
+    func onlyWaitingSessionsAlert() {
+        var failed = session(id: "broken", status: .done)
+        failed.failed = true
+        let state = project([
+            session(id: "w", status: .working),
+            session(id: "d", status: .done),
+            failed,
+        ])
+        #expect(state.alerts.isEmpty)
+        #expect(state.counts.working == 1)
+        #expect(state.stuck == 1)
+    }
+
+    @Test("Resolving the top alert promotes the next one, in the same order")
+    func resolvingTheTopAlertPromotesTheNext() throws {
+        let approval = PendingApproval(id: "ap", tool: "Bash", commandPreview: "swift test")
+        let question = PendingQuestion(id: "q", prompt: "Which style?")
+        let waitingBoth = [
+            session(id: "first", status: .needsResponse, waitKind: .permission, approval: approval),
+            session(id: "second", status: .needsResponse, waitKind: .question, question: question),
+            session(id: "busy", status: .working),
+        ]
+        #expect(project(waitingBoth).topAlert?.sessionId == "first")
+
+        // The Mac resolved the permission; the same session is now working.
+        let afterDecision = [
+            session(id: "first", status: .working),
+            session(id: "second", status: .needsResponse, waitKind: .question, question: question),
+            session(id: "busy", status: .working),
+        ]
+        let promoted = project(afterDecision)
+        #expect(promoted.alerts.map(\.sessionId) == ["second"])
+        #expect(promoted.topAlert?.waitKind == .question)
+        #expect(promoted.counts.working == 2)
+    }
+
+    @Test("A removed session leaves no alert behind")
+    func removingASessionClearsItsAlert() {
+        let approval = PendingApproval(id: "ap", tool: "Bash", commandPreview: "swift test")
+        let waiting = project([session(id: "gone", status: .needsResponse, waitKind: .permission, approval: approval)])
+        #expect(waiting.alerts.count == 1)
+
+        let afterSessionEnd = project([])
+        #expect(afterSessionEnd.alerts.isEmpty)
+        #expect(afterSessionEnd.counts.isEmpty)
+    }
+
+    @Test("Several waiting sessions all reach the Alerts page in dashboard order")
+    func everyWaitingSessionIsListed() {
+        let question = PendingQuestion(id: "q", prompt: "Which style?")
+        let state = project([
+            session(id: "a", status: .needsResponse, waitKind: .question, question: question),
+            session(id: "b", status: .working),
+            session(id: "c", status: .needsResponse, waitKind: .question, question: question),
+            session(id: "d", status: .needsResponse, waitKind: .question, question: question),
+        ])
+        #expect(state.alerts.map(\.sessionId) == ["a", "c", "d"])
+        #expect(state.counts.needsResponse == 3)
     }
 
     // MARK: security boundary
