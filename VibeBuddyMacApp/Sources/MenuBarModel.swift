@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UserNotifications
 import VibeBuddyKit
 import VibeBuddyMacCore
 
@@ -26,6 +27,8 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var observationDiagnostics: [AgentObservationDiagnostic] = []
     @Published private(set) var lifecycleTimeline: [LifecycleJournalEntry] = []
     @Published private(set) var lifecycleJournalClearFailed = false
+    @Published private(set) var notificationDeliveryHealth = NotificationDeliveryHealth()
+    @Published private(set) var recentNotificationDeliveries: [NotificationDeliveryRecord] = []
     /// Sessions the user has pointed the buddy at (in-memory, never persisted).
     /// Empty = the buddy sees all sessions; pruned to live IDs on every snapshot.
     @Published private(set) var buddySessionIDs: Set<String> = []
@@ -60,9 +63,10 @@ final class MenuBarModel: ObservableObject {
     private var lastActivityKey: String?
     private let notifier = UserNotificationsNotifier()
     private let notificationCoordinator: NotificationCoordinator
+    private let deliveryRecorder: NotificationDeliveryRecorder
     // Phone push: the same SoundPolicy engine, run from the Mac's perspective of
     // a backgrounded phone, so the phone hears the full pack (not just needs-you).
-    private let pusher: APNsPusher? = APNsConfig.load().flatMap { try? APNsPusher(config: $0) }
+    private let pusher: APNsPusher?
     private let deviceTokens = DeviceTokens()
     private let phonePolicy = SoundPolicy()
     private let budgetMonitor = BudgetMonitor()
@@ -131,7 +135,16 @@ final class MenuBarModel: ObservableObject {
             alertedWindowKeys: Self.loadUsageAlertedWindows()
         )
         pairedPhone = Self.loadPairedPhone()
-        notificationCoordinator = NotificationCoordinator(notifier: notifier)
+        let apnsConfig = APNsConfig.load()
+        let deliveryURL = ProcessInfo.processInfo.environment["VIBEBUDDY_DELIVERY_LOG_PATH"].map {
+            URL(fileURLWithPath: $0)
+        } ?? NotificationDeliveryLogLocation.defaultURL()
+        let recorder = NotificationDeliveryRecorder(
+            url: deliveryURL, apnsConfigured: apnsConfig != nil)
+        deliveryRecorder = recorder
+        pusher = apnsConfig.flatMap { try? APNsPusher(config: $0, recorder: recorder) }
+        notificationCoordinator = NotificationCoordinator(notifier: notifier, delivery: recorder)
+        notificationDeliveryHealth = NotificationDeliveryHealth(apnsConfigured: apnsConfig != nil)
         // Screenshot / exploration instance: seed sample sessions and skip the
         // server, polling, pairing, and notifications entirely. It never binds the
         // port or pushes to a phone, so it runs harmlessly alongside a real
@@ -220,7 +233,7 @@ final class MenuBarModel: ObservableObject {
     }
 
     private func startPolling() {
-        pollTask = Task { [weak self] in
+        pollTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
                 let snapshot = await self.store.snapshot(now: Date())
@@ -233,17 +246,33 @@ final class MenuBarModel: ObservableObject {
                 let frontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
                 let focused = ForegroundTerminal.focusedSessionIDs(
                     among: snapshot.sessions, frontmostBundleID: frontmost)
-                self.notificationCoordinator.observe(
+                await self.notificationCoordinator.observe(
                     snapshot.sessions,
                     appActive: NSApp.isActive,                 // user looking at VibeBuddy?
                     quietMode: Self.effectiveQuiet(),          // Focus mode (manual or nightly) → approvals only
                     focusedSessionIDs: focused)                // …or looking at the session's own terminal
+                await self.refreshNotificationDeliveryHealth()
                 await self.pushToPhones(snapshot.sessions)
                 await self.pushActivityUpdates(snapshot.sessions)
                 await self.checkBudget(snapshot.sessions)
                 try? await Task.sleep(for: .seconds(2))
             }
         }
+    }
+
+    private func refreshNotificationDeliveryHealth() async {
+        let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+        let authorization: NotificationAuthorization
+        switch status {
+        case .authorized, .provisional: authorization = .authorized
+        case .denied: authorization = .denied
+        case .notDetermined: authorization = .notDetermined
+        default: authorization = .unknown
+        }
+        await deliveryRecorder.updateAuthorization(authorization)
+        await deliveryRecorder.updateAPNsConfigured(pusher != nil)
+        notificationDeliveryHealth = await deliveryRecorder.health()
+        recentNotificationDeliveries = await deliveryRecorder.recent(limit: 8)
     }
 
     func clearLifecycleJournal() {
@@ -399,9 +428,11 @@ final class MenuBarModel: ObservableObject {
                 guard let deviceToken = device.token else { continue }
                 if device.quietMode == true && !alert.sound.survivesQuietMode { continue }  // night: approvals only
                 let sound = device.playSound != false ? alert.sound.fileName : ""           // mute → silent banner
-                await pusher.send(title: title, body: body, to: deviceToken, sound: sound)
+                await pusher.send(title: title, body: body, to: deviceToken, sound: sound,
+                                  sessionID: alert.sessionID, soundCategory: alert.sound.rawValue)
             }
         }
+        await refreshNotificationDeliveryHealth()
     }
 
     /// Fire a one-time budget heads-up (local + push) for sessions that just

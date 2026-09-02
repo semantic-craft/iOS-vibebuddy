@@ -12,8 +12,13 @@ struct VibeBuddyDaemon {
         let journalURL = env["VIBEBUDDY_JOURNAL_PATH"].map {
             URL(fileURLWithPath: $0)
         } ?? LifecycleJournalLocation.defaultURL()
-
-        let pusher = APNsConfig.load().flatMap { try? APNsPusher(config: $0) }
+        let deliveryURL = env["VIBEBUDDY_DELIVERY_LOG_PATH"].map {
+            URL(fileURLWithPath: $0)
+        } ?? NotificationDeliveryLogLocation.defaultURL()
+        let apnsConfig = APNsConfig.load()
+        let deliveryRecorder = NotificationDeliveryRecorder(
+            url: deliveryURL, apnsConfigured: apnsConfig != nil)
+        let pusher = apnsConfig.flatMap { try? APNsPusher(config: $0, recorder: deliveryRecorder) }
         let server = VibeBuddyServer(
             store: SessionStore(
                 diagnosticsHome: FileManager.default.homeDirectoryForCurrentUser,

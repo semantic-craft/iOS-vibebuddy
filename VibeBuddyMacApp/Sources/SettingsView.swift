@@ -19,7 +19,7 @@ struct SettingsView: View {
                 .tabItem { Label("Glance", systemImage: "menubar.rectangle") }
             DeviceSettings(model: model)
                 .tabItem { Label("Devices", systemImage: "iphone.gen3") }
-            NotificationSettings()
+            NotificationSettings(model: model)
                 .tabItem { Label("Notifications", systemImage: "bell") }
             AccountUsageSettings(model: model)
                 .tabItem { Label("Usage", systemImage: "gauge.with.dots.needle.50percent") }
@@ -304,6 +304,7 @@ private struct GlanceSettings: View {
 }
 
 private struct NotificationSettings: View {
+    @ObservedObject var model: MenuBarModel
     @AppStorage("notifyOnNeedsResponse") private var notify = true
     @AppStorage("playNotificationSound") private var sound = true
     @AppStorage("quietMode") private var quiet = false
@@ -312,6 +313,72 @@ private struct NotificationSettings: View {
 
     var body: some View {
         Form {
+            Section {
+                LabeledContent("Local authorization") {
+                    Text(model.notificationDeliveryHealth.authorization.rawValue)
+                        .foregroundStyle(.secondary)
+                }
+                LabeledContent("APNs") {
+                    Text(model.notificationDeliveryHealth.apnsConfigured ? "configured" : "not configured")
+                        .foregroundStyle(.secondary)
+                }
+                if let last = model.notificationDeliveryHealth.lastAttempt {
+                    LabeledContent("Last attempt") {
+                        Text(last.outcome.rawValue)
+                            .foregroundStyle(last.outcome == .failed ? Color.orange : .secondary)
+                    }
+                    HStack(spacing: 4) {
+                        Text(last.channel.rawValue)
+                        if let sound = last.sound {
+                            Text("·")
+                            Text(sound)
+                        }
+                        if let session = last.sessionID {
+                            Text("·")
+                            Text("Session …\(session.suffix(8))")
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    Text(last.timestamp, style: .relative)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .monospacedDigit()
+                } else {
+                    Text("No attempts yet.")
+                        .foregroundStyle(.secondary)
+                }
+                if let failure = model.notificationDeliveryHealth.latchedFailure {
+                    Text("failed · \(failure.failureReason ?? "unknown")")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+                ForEach(model.recentNotificationDeliveries.prefix(5)) { entry in
+                    HStack(spacing: 6) {
+                        Text(entry.outcome.rawValue)
+                            .fontWeight(.semibold)
+                        Text(entry.channel.rawValue)
+                            .foregroundStyle(.secondary)
+                        if let sound = entry.sound {
+                            Text("·")
+                            Text(sound)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 4)
+                        Text(entry.timestamp, style: .relative)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .monospacedDigit()
+                    }
+                    .font(.caption)
+                }
+            } header: {
+                Text("Delivery health")
+            } footer: {
+                Text("Honest outcomes only: attempted, scheduled, accepted, failed. A local banner is scheduled; APNs 2xx is accepted by Apple's servers. Neither is proof the device showed it.")
+                    .font(.caption)
+            }
+
             Section {
                 Toggle("Show notifications", isOn: $notify)
                 Toggle("Play sound", isOn: $sound).disabled(!notify)
