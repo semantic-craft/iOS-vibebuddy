@@ -108,6 +108,11 @@ struct DashboardView: View {
                     .buttonStyle(.plain)
                 }
             }
+            if model.codexUsageCollectionEnabled {
+                Section("Codex Usage") {
+                    CodexUsageSummaryView(state: model.codexUsageState, compact: true)
+                }
+            }
         }
     }
 

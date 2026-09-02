@@ -39,6 +39,10 @@ final class MenuBarModel: ObservableObject {
     @Published var toggleGlanceHotkey: Hotkey = .toggleGlanceDefault
     /// Idle-cleanup window in hours; 0 means never. Default 2h.
     @Published var idleTimeoutHours: Double = 2
+    /// Account usage is intentionally separate from `sessions`; refresh errors
+    /// never enter SessionStore or the progress notification pipeline.
+    @Published private(set) var codexUsageState: CodexUsageState = .disabled
+    @Published private(set) var codexUsageCollectionEnabled = true
 
     let port: Int
     private let token: String
@@ -61,6 +65,8 @@ final class MenuBarModel: ObservableObject {
     private let deviceTokens = DeviceTokens()
     private let phonePolicy = SoundPolicy()
     private let budgetMonitor = BudgetMonitor()
+    private let codexUsageCollector: CodexUsageCollector
+    private var codexUsageAlertMonitor = CodexUsageAlertMonitor()
     /// The voice companion (tap the buddy to talk). Lazy so `self` is fully built.
     lazy var voiceChat = VoiceChat(
         contextProvider: { [weak self] in
@@ -69,9 +75,12 @@ final class MenuBarModel: ObservableObject {
         },
         actionHandler: { [weak self] action in self?.performVoiceAction(action) ?? "" })
     private var pollTask: Task<Void, Never>?
+    private var codexUsageTask: Task<Void, Never>?
+    private var codexUsageGeneration: UInt64 = 0
     private var glance: GlanceWindow?
     private static let pairedPhoneInfoKey = "pairedPhoneInfo"
     private static let legacyPairedPhoneKey = "pairedPhone"
+    private static let codexUsageAlertedWindowsKey = "codexUsageAlertedWindows"
 
     init(runtimeEnabled: Bool = true) {
         port = ProcessInfo.processInfo.environment["VIBEBUDDY_PORT"].flatMap(Int.init) ?? 9876
@@ -88,6 +97,16 @@ final class MenuBarModel: ObservableObject {
         if let saved = UserDefaults.standard.object(forKey: "idleTimeoutHours") as? Double {
             idleTimeoutHours = saved
         }
+        let usageEnabled = Self.loadBool("codexUsageCollectionEnabled", default: true)
+        codexUsageCollectionEnabled = usageEnabled
+        codexUsageCollector = CodexUsageCollector(
+            provider: CodexAppServerUsageProvider(),
+            cache: CodexUsageFileCache(),
+            enabled: usageEnabled
+        )
+        codexUsageAlertMonitor = CodexUsageAlertMonitor(
+            alertedWindowKeys: Self.loadCodexUsageAlertedWindows()
+        )
         pairedPhone = Self.loadPairedPhone()
         notificationCoordinator = NotificationCoordinator(notifier: notifier)
         // Screenshot / exploration instance: seed sample sessions and skip the
@@ -103,6 +122,7 @@ final class MenuBarModel: ObservableObject {
             startServer()
             preparePairing()
             startPolling()
+            if codexUsageCollectionEnabled { startCodexUsageCollection() }
             let interval = Self.staleInterval(forHours: idleTimeoutHours)
             Task { [store] in await store.setStaleAfter(interval) }
         }
@@ -134,10 +154,7 @@ final class MenuBarModel: ObservableObject {
 
     /// Quiet right now if the user toggled it, or the nightly window is active.
     static func effectiveQuiet(now: Date = Date()) -> Bool {
-        if UserDefaults.standard.bool(forKey: "quietMode") { return true }
-        guard let data = UserDefaults.standard.data(forKey: "quietHours"),
-              let q = try? JSONDecoder().decode(QuietHours.self, from: data) else { return false }
-        return q.isQuiet(at: now)
+        NotificationQuietMode.isEffective(now: now)
     }
 
     var needsResponse: Int { sessions.lazy.filter { $0.status == .needsResponse }.count }
@@ -205,6 +222,102 @@ final class MenuBarModel: ObservableObject {
                 try? await Task.sleep(for: .seconds(2))
             }
         }
+    }
+
+    /// Start the independent account-usage loop. It has its own cadence,
+    /// timeout/cache/backoff policy and never participates in the 2-second
+    /// session snapshot poll above.
+    private func startCodexUsageCollection() {
+        codexUsageGeneration &+= 1
+        let generation = codexUsageGeneration
+        let previousTask = codexUsageTask
+        previousTask?.cancel()
+        codexUsageTask = Task { [weak self] in
+            await previousTask?.value
+            guard !Task.isCancelled,
+                  let self,
+                  self.codexUsageGeneration == generation,
+                  self.codexUsageCollectionEnabled else { return }
+            let initial = await self.codexUsageCollector.setEnabled(true)
+            guard !Task.isCancelled,
+                  self.codexUsageGeneration == generation,
+                  self.codexUsageCollectionEnabled else { return }
+            self.codexUsageState = initial
+
+            while !Task.isCancelled,
+                  self.codexUsageGeneration == generation,
+                  self.codexUsageCollectionEnabled {
+                let state = await self.codexUsageCollector.refresh()
+                guard !Task.isCancelled,
+                      self.codexUsageGeneration == generation,
+                      self.codexUsageCollectionEnabled else { return }
+                self.codexUsageState = state
+                self.checkCodexUsageAlert(state)
+
+                let delay = max(1, state.nextRefreshAt?.timeIntervalSinceNow ?? 60)
+                do {
+                    try await Task.sleep(for: .seconds(delay))
+                } catch {
+                    return
+                }
+            }
+        }
+    }
+
+    func setCodexUsageCollectionEnabled(_ enabled: Bool) {
+        guard enabled != codexUsageCollectionEnabled else { return }
+        codexUsageCollectionEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: "codexUsageCollectionEnabled")
+        if enabled {
+            startCodexUsageCollection()
+        } else {
+            codexUsageGeneration &+= 1
+            let generation = codexUsageGeneration
+            let previousTask = codexUsageTask
+            previousTask?.cancel()
+            codexUsageState = .disabled
+            codexUsageTask = Task { [weak self] in
+                await previousTask?.value
+                guard !Task.isCancelled,
+                      let self,
+                      self.codexUsageGeneration == generation,
+                      !self.codexUsageCollectionEnabled else { return }
+                _ = await codexUsageCollector.setEnabled(false)
+                guard !Task.isCancelled,
+                      self.codexUsageGeneration == generation,
+                      !self.codexUsageCollectionEnabled else { return }
+                self.codexUsageState = .disabled
+            }
+        }
+    }
+
+    private func checkCodexUsageAlert(_ state: CodexUsageState) {
+        let defaults = UserDefaults.standard
+        let threshold = defaults.object(forKey: "codexUsageAlertThreshold") == nil
+            ? 90
+            : defaults.integer(forKey: "codexUsageAlertThreshold")
+        let windows = codexUsageAlertMonitor.newlyCrossed(
+            in: state,
+            thresholdPercent: threshold,
+            notificationsSuppressed: Self.effectiveQuiet()
+        )
+        Self.saveCodexUsageAlertedWindows(codexUsageAlertMonitor.alertedWindowKeys)
+        for window in windows {
+            notifier.notifyCodexUsage(window: window, threshold: threshold)
+        }
+    }
+
+    private static func loadCodexUsageAlertedWindows() -> Set<String> {
+        guard let data = UserDefaults.standard.data(forKey: codexUsageAlertedWindowsKey),
+              let keys = try? JSONDecoder().decode(Set<String>.self, from: data) else {
+            return []
+        }
+        return keys
+    }
+
+    private static func saveCodexUsageAlertedWindows(_ keys: Set<String>) {
+        guard let data = try? JSONEncoder().encode(keys) else { return }
+        UserDefaults.standard.set(data, forKey: codexUsageAlertedWindowsKey)
     }
 
     /// Push a Live Activity content-state update to registered phones, but only when
@@ -457,5 +570,8 @@ final class MenuBarModel: ObservableObject {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    deinit { pollTask?.cancel() }
+    deinit {
+        pollTask?.cancel()
+        codexUsageTask?.cancel()
+    }
 }

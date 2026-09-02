@@ -42,6 +42,23 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
              sound: .longWaitNudge, id: "budget-\(project)")
     }
 
+    /// Account quota alert. This is separate from session-state sounds and is
+    /// only called for a fresh, non-stale threshold crossing.
+    func notifyCodexUsage(window: CodexUsageWindow, threshold: Int) {
+        guard Self.flag("notifyOnNeedsResponse"),
+              !NotificationQuietMode.isEffective() else { return }
+        let duration = window.windowDurationMinutes.map(Self.durationText) ?? String(localized: "quota")
+        let reset = window.resetsAt.map {
+            String(localized: " Resets \($0.formatted(date: .abbreviated, time: .shortened)).")
+        } ?? ""
+        post(
+            title: String(localized: "Codex usage reached \(threshold)%"),
+            body: String(localized: "\(window.usedPercent)% used in the \(duration) window.\(reset)"),
+            sound: .longWaitNudge,
+            id: "codex-usage-\(window.kind.rawValue)-\(window.resetsAt?.timeIntervalSince1970 ?? 0)"
+        )
+    }
+
     private func post(title: String, body: String, sound: NotificationSound, id: String) {
         let content = UNMutableNotificationContent()
         content.title = title
@@ -63,6 +80,13 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
     /// A Bool default that treats an absent key as `true` (on by default).
     private static func flag(_ key: String) -> Bool {
         UserDefaults.standard.object(forKey: key) == nil ? true : UserDefaults.standard.bool(forKey: key)
+    }
+
+    private static func durationText(_ minutes: Int) -> String {
+        if minutes % 10_080 == 0 { return String(localized: "\(minutes / 10_080) week") }
+        if minutes % 1_440 == 0 { return String(localized: "\(minutes / 1_440) day") }
+        if minutes % 60 == 0 { return String(localized: "\(minutes / 60) hour") }
+        return String(localized: "\(minutes) minute")
     }
 
     /// Banner copy per cue, drawing on the session's own detail where it helps.
