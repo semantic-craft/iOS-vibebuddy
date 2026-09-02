@@ -40,3 +40,5 @@ dist/*.dmg
 /.claude/skills/to-spec
 /.claude/skills/to-tickets
 # <<< matt-pocock skills <<<
+.scratch/
+.claude/
