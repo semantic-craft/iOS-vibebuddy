@@ -55,4 +55,40 @@ public enum ToolActivity {
             return nil
         }
     }
+
+    /// Compact parent-row copy: running count, available names/types, and an
+    /// unknown/degraded mark. Returns nil when there is no child topology.
+    public static func childSummary(for session: AgentSession) -> String? {
+        let children = session.childAgents ?? []
+        let degraded = session.childTopologyDegraded == true
+        if children.isEmpty {
+            return degraded ? "Subagents unknown" : nil
+        }
+
+        let running = children.filter { $0.status == .running }
+        var parts: [String] = []
+        if degraded { parts.append("Unknown") }
+        if !running.isEmpty {
+            parts.append("\(running.count) active")
+            let names = running.compactMap { $0.name ?? $0.type }.filter { !$0.isEmpty }
+            var seen = Set<String>()
+            let unique = names.filter { seen.insert($0).inserted }
+            if !unique.isEmpty { parts.append(unique.joined(separator: ", ")) }
+            if let activity = running.max(by: { $0.updatedAt < $1.updatedAt })?.lastActivity {
+                if let phrase = phrase(for: activity) {
+                    parts.append(phrase)
+                } else if activity.count <= 40 {
+                    parts.append(activity)
+                }
+            }
+        } else if let last = children.max(by: { $0.updatedAt < $1.updatedAt }) {
+            let label = last.name ?? last.type ?? "Subagent"
+            switch last.status {
+            case .idle: parts.append("\(label) idle")
+            case .unknown: parts.append("\(label) unknown")
+            default: parts.append("\(label) finished")
+            }
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
 }

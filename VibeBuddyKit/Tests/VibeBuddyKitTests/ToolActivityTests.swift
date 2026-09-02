@@ -49,4 +49,26 @@ struct ToolActivityTests {
         #expect(ToolActivity.label(for: session(.done, failed: true)) == "Stopped with an issue")
         #expect(ToolActivity.label(for: session(.done)) == "Ready")
     }
+
+    @Test("child summary reports active count, names, and unknown without guessing")
+    func childSummary() {
+        var withChildren = session(.working)
+        withChildren.childAgents = [
+            ChildAgent(id: "subagent:a", kind: .subagent, name: "Explore",
+                       status: .running, lastActivity: "Grep",
+                       updatedAt: .distantPast),
+            ChildAgent(id: "task:1", kind: .task, name: "implementer",
+                       status: .running, updatedAt: .distantPast),
+        ]
+        let summary = ToolActivity.childSummary(for: withChildren)
+        #expect(summary?.contains("2") == true)
+        #expect(summary?.contains("Explore") == true)
+        #expect(summary?.contains("implementer") == true)
+
+        var unknown = session(.working)
+        unknown.childTopologyDegraded = true
+        #expect(ToolActivity.childSummary(for: unknown) == "Subagents unknown")
+
+        #expect(ToolActivity.childSummary(for: session(.working)) == nil)
+    }
 }

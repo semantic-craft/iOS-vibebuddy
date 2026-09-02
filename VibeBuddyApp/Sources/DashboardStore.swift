@@ -221,6 +221,20 @@ final class DashboardStore: ObservableObject {
                 tokens: 1500, contextTokens: 64_000, contextWindow: 200_000,
                 statusSince: now.addingTimeInterval(-8), updatedAt: now.addingTimeInterval(-8)),
             AgentSession(
+                id: "demo-subagents", agent: .claudeCode, project: "web-dashboard", branch: "feat/auth",
+                model: "claude-opus-4-8", status: .working, summary: "Refactoring the auth middleware…",
+                tokens: 6300, contextTokens: 151_000, contextWindow: 200_000,
+                activeTool: "Edit",
+                childAgents: [
+                    ChildAgent(id: "subagent:demo-explore", kind: .subagent, name: "Explore",
+                               status: .running, lastActivity: "Grep",
+                               updatedAt: now.addingTimeInterval(-12)),
+                    ChildAgent(id: "task:demo-auth", kind: .task, name: "implementer",
+                               type: "implementer", status: .running,
+                               updatedAt: now.addingTimeInterval(-9)),
+                ],
+                statusSince: now.addingTimeInterval(-15), updatedAt: now.addingTimeInterval(-15)),
+            AgentSession(
                 id: "demo-question", agent: .claudeCode, project: "docs-review",
                 model: "claude-sonnet-4-5", status: .needsResponse, waitKind: .question,
                 pendingQuestion: PendingQuestion(

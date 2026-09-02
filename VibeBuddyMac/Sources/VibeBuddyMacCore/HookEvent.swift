@@ -16,6 +16,15 @@ public struct HookEvent: Sendable, Equatable {
         /// Session metadata changed without implying any progress transition.
         /// Claude emits this for model and working-directory changes.
         case sessionMetadataChanged
+        /// Teammate / subagent / task start, stop, or idle. Must not move the
+        /// parent session's three-state progress.
+        case childLifecycle
+    }
+
+    public enum ChildLifecycleAction: String, Sendable, Equatable {
+        case started
+        case stopped
+        case idled
     }
 
     public let kind: Kind
@@ -33,6 +42,13 @@ public struct HookEvent: Sendable, Equatable {
     /// or interruption). Drives the session's `failed`/stuck signal.
     public let toolError: Bool
     public let timestamp: Date
+    /// Stable child identity (`subagent:<agent_id>`, `task:<task_id>`,
+    /// `teammate:<team>/<name>`). Nil when the payload lacked an identity.
+    public let childID: String?
+    public let childKind: ChildAgentKind?
+    public let childName: String?
+    public let childType: String?
+    public let childAction: ChildLifecycleAction?
 
     public init(
         kind: Kind,
@@ -45,7 +61,12 @@ public struct HookEvent: Sendable, Equatable {
         model: String? = nil,
         observationSource: ObservationSource? = nil,
         toolError: Bool = false,
-        timestamp: Date
+        timestamp: Date,
+        childID: String? = nil,
+        childKind: ChildAgentKind? = nil,
+        childName: String? = nil,
+        childType: String? = nil,
+        childAction: ChildLifecycleAction? = nil
     ) {
         self.kind = kind
         self.sessionID = sessionID
@@ -58,5 +79,10 @@ public struct HookEvent: Sendable, Equatable {
         self.observationSource = observationSource
         self.toolError = toolError
         self.timestamp = timestamp
+        self.childID = childID
+        self.childKind = childKind
+        self.childName = childName
+        self.childType = childType
+        self.childAction = childAction
     }
 }

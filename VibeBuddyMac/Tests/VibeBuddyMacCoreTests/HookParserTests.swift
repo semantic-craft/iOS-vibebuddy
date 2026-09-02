@@ -85,13 +85,9 @@ struct HookParserTests {
         #expect(e?.message == "API request failed")
     }
 
-    @Test("subagent and compaction lifecycle stay in the working state")
-    func subagentAndCompaction() {
+    @Test("compaction lifecycle stays a parent working-state tool event")
+    func compactionLifecycle() {
         let cases: [(String, HookEvent.Kind, String)] = [
-            (#"{"hook_event_name":"SubagentStart","session_id":"abc","agent_type":"Explore"}"#,
-             .preToolUse, "Subagent: Explore"),
-            (#"{"hook_event_name":"SubagentStop","session_id":"abc","agent_type":"Explore"}"#,
-             .postToolUse, "Subagent: Explore"),
             (#"{"hook_event_name":"PreCompact","session_id":"abc"}"#,
              .preToolUse, "Context compaction"),
             (#"{"hook_event_name":"PostCompact","session_id":"abc"}"#,
@@ -101,7 +97,31 @@ struct HookParserTests {
             let event = parse(json)
             #expect(event?.kind == kind)
             #expect(event?.toolName == tool)
+            #expect(event?.childID == nil)
         }
+    }
+
+    @Test("SubagentStart carries a stable child identity instead of a tool label")
+    func subagentStartIdentity() {
+        let event = parse("""
+        {"hook_event_name":"SubagentStart","session_id":"abc",
+         "agent_id":"agent-abc123","agent_type":"Explore"}
+        """)
+        #expect(event?.kind == .childLifecycle)
+        #expect(event?.childAction == .started)
+        #expect(event?.childID == "subagent:agent-abc123")
+        #expect(event?.childKind == .subagent)
+        #expect(event?.childName == "Explore")
+        #expect(event?.childType == "Explore")
+    }
+
+    @Test("SubagentStop without agent_id is still a child event, not a parent tool")
+    func subagentStopMissingIdentity() {
+        let event = parse(#"{"hook_event_name":"SubagentStop","session_id":"abc","agent_type":"Explore"}"#)
+        #expect(event?.kind == .childLifecycle)
+        #expect(event?.childAction == .stopped)
+        #expect(event?.childID == nil)
+        #expect(event?.childKind == .subagent)
     }
 
     @Test("Elicitation becomes a user-input wait")
@@ -118,7 +138,6 @@ struct HookParserTests {
         let cases: [(String, String)] = [
             ("ElicitationResult", "MCP elicitation"),
             ("PostToolBatch", "Tool batch"),
-            ("TaskCompleted", "Task"),
         ]
         for (name, tool) in cases {
             let event = parse(#"{"hook_event_name":"\#(name)","session_id":"abc"}"#)
@@ -127,11 +146,48 @@ struct HookParserTests {
         }
     }
 
-    @Test("TaskCreated is visible as active delegation")
-    func taskCreated() {
-        let event = parse(#"{"hook_event_name":"TaskCreated","session_id":"abc"}"#)
+    @Test("TaskCreated and TaskCompleted are child lifecycle events")
+    func taskLifecycleIdentity() {
+        let created = parse("""
+        {"hook_event_name":"TaskCreated","session_id":"abc",
+         "task_id":"task-001","task_subject":"Implement user authentication",
+         "teammate_name":"implementer","team_name":"session-a1b2c3d4"}
+        """)
+        #expect(created?.kind == .childLifecycle)
+        #expect(created?.childAction == .started)
+        #expect(created?.childID == "task:task-001")
+        #expect(created?.childKind == .task)
+        #expect(created?.childName == "implementer")
+        #expect(created?.childType == "implementer")
+
+        let completed = parse(#"{"hook_event_name":"TaskCompleted","session_id":"abc","task_id":"task-001"}"#)
+        #expect(completed?.kind == .childLifecycle)
+        #expect(completed?.childAction == .stopped)
+        #expect(completed?.childID == "task:task-001")
+    }
+
+    @Test("TeammateIdle is a child idle event keyed by team and name")
+    func teammateIdleIdentity() {
+        let event = parse("""
+        {"hook_event_name":"TeammateIdle","session_id":"abc",
+         "teammate_name":"implementer","team_name":"session-team"}
+        """)
+        #expect(event?.kind == .childLifecycle)
+        #expect(event?.childAction == .idled)
+        #expect(event?.childID == "teammate:session-team/implementer")
+        #expect(event?.childKind == .teammate)
+        #expect(event?.childName == "implementer")
+    }
+
+    @Test("nested subagent tool events keep parent kind but carry the child id")
+    func nestedSubagentToolIdentity() {
+        let event = parse("""
+        {"hook_event_name":"PreToolUse","session_id":"abc",
+         "agent_id":"agent-a","tool_name":"Grep"}
+        """)
         #expect(event?.kind == .preToolUse)
-        #expect(event?.toolName == "Task")
+        #expect(event?.toolName == "Grep")
+        #expect(event?.childID == "subagent:agent-a")
     }
 
     @Test("PostModelSwitch updates metadata with the canonical target model")

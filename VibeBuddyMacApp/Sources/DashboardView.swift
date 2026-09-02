@@ -300,6 +300,13 @@ private struct SessionRowView: View {
                 }
             }
             .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            if let child = ToolActivity.childSummary(for: session) {
+                Text(child)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .lineLimit(1)
+            }
             HStack(spacing: 6) {
                 Text(session.updatedAt, style: .relative).monospacedDigit()
                 if let cost = session.estimatedCostUSD {

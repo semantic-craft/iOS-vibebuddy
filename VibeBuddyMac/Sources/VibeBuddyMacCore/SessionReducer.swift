@@ -15,8 +15,14 @@ public struct SessionReducer: Sendable {
 
     /// Seed recent active state recovered from the privacy-minimized journal.
     /// Recovery never re-applies events, so it cannot replay completion alerts.
+    /// Child topology is live-only: the journal restores the parent session,
+    /// then `childAgents` stay empty until a new start event arrives.
     mutating func restore(_ recovered: [AgentSession]) {
-        for session in recovered { sessions[session.id] = session }
+        for var session in recovered {
+            session.childAgents = nil
+            session.childTopologyDegraded = nil
+            sessions[session.id] = session
+        }
     }
 
     public mutating func apply(
@@ -31,24 +37,24 @@ public struct SessionReducer: Sendable {
             upsert(event, status: .done, waitKind: nil)
             sessions[event.sessionID]?.failed = false
             sessions[event.sessionID]?.activeTool = nil
-        case .userPromptSubmit, .preToolUse, .postToolUse:
-            // Active work: a tool starting/finishing means the agent is busy,
-            // which also clears any prior "needs you" wait state.
+        case .userPromptSubmit:
             upsert(event, status: .working, waitKind: nil)
             sessions[event.sessionID]?.hasUnreadCompletion = false
-            // Track the last tool outcome for the stuck cue and the current tool
-            // for the activity line: a new turn clears both, PreToolUse names the
-            // running tool, PostToolUse records its outcome and clears the tool.
-            switch event.kind {
-            case .userPromptSubmit:
-                sessions[event.sessionID]?.failed = false
-                sessions[event.sessionID]?.activeTool = nil
-            case .preToolUse:
-                sessions[event.sessionID]?.activeTool = event.toolName
-            case .postToolUse:
-                sessions[event.sessionID]?.failed = event.toolError
-                sessions[event.sessionID]?.activeTool = nil
-            default: break
+            sessions[event.sessionID]?.failed = false
+            sessions[event.sessionID]?.activeTool = nil
+        case .preToolUse, .postToolUse:
+            if event.childID != nil {
+                // Nested subagent tools describe the child, not parent progress.
+                applyNestedChildTool(event)
+            } else {
+                upsert(event, status: .working, waitKind: nil)
+                sessions[event.sessionID]?.hasUnreadCompletion = false
+                if event.kind == .preToolUse {
+                    sessions[event.sessionID]?.activeTool = event.toolName
+                } else {
+                    sessions[event.sessionID]?.failed = event.toolError
+                    sessions[event.sessionID]?.activeTool = nil
+                }
             }
         case .notification:
             // The purpose-built "Claude wants your attention" signal.
@@ -79,6 +85,8 @@ public struct SessionReducer: Sendable {
             // Model and cwd changes describe the same live session. They must
             // not clear its tool/wait state or manufacture a progress transition.
             updateMetadata(event)
+        case .childLifecycle:
+            applyChildLifecycle(event)
         }
         if event.kind != .sessionEnd {
             recordObservation(
@@ -312,5 +320,89 @@ public struct SessionReducer: Sendable {
     static func waitKind(from message: String?) -> WaitKind {
         guard let m = message?.lowercased() else { return .question }
         return m.contains("permission") ? .permission : .question
+    }
+
+    /// Child events may create a parent row so topology is visible, but they
+    /// never move the parent's three-state progress.
+    private mutating func ensureParentWithoutProgress(_ event: HookEvent) {
+        if sessions[event.sessionID] == nil {
+            sessions[event.sessionID] = AgentSession(
+                id: event.sessionID,
+                agent: event.agent,
+                project: event.cwd.map(Self.projectName) ?? "—",
+                model: event.model,
+                status: .done,
+                statusSince: event.timestamp,
+                updatedAt: event.timestamp
+            )
+            return
+        }
+        if let cwd = event.cwd { sessions[event.sessionID]?.project = Self.projectName(cwd) }
+        if let model = event.model { sessions[event.sessionID]?.model = model }
+        sessions[event.sessionID]?.updatedAt = event.timestamp
+    }
+
+    private mutating func applyNestedChildTool(_ event: HookEvent) {
+        ensureParentWithoutProgress(event)
+        guard let childID = event.childID else { return }
+        updateChild(sessionID: event.sessionID, id: childID, at: event.timestamp) { child in
+            if let tool = event.toolName { child.lastActivity = tool }
+        }
+    }
+
+    private mutating func applyChildLifecycle(_ event: HookEvent) {
+        ensureParentWithoutProgress(event)
+        guard let action = event.childAction, let kind = event.childKind else {
+            sessions[event.sessionID]?.childTopologyDegraded = true
+            return
+        }
+        guard let childID = event.childID else {
+            sessions[event.sessionID]?.childTopologyDegraded = true
+            return
+        }
+
+        var children = sessions[event.sessionID]?.childAgents ?? []
+        let lastActivity = event.message ?? event.toolName
+        if let index = children.firstIndex(where: { $0.id == childID }) {
+            if event.timestamp < children[index].updatedAt { return }
+            children[index].status = status(for: action)
+            if let name = event.childName { children[index].name = name }
+            if let type = event.childType { children[index].type = type }
+            if let lastActivity { children[index].lastActivity = lastActivity }
+            children[index].updatedAt = event.timestamp
+        } else {
+            children.append(ChildAgent(
+                id: childID,
+                kind: kind,
+                name: event.childName,
+                type: event.childType,
+                status: status(for: action),
+                lastActivity: lastActivity,
+                updatedAt: event.timestamp
+            ))
+        }
+        sessions[event.sessionID]?.childAgents = children
+    }
+
+    private mutating func updateChild(
+        sessionID: String,
+        id: String,
+        at timestamp: Date,
+        mutate: (inout ChildAgent) -> Void
+    ) {
+        guard var children = sessions[sessionID]?.childAgents,
+              let index = children.firstIndex(where: { $0.id == id }) else { return }
+        if timestamp < children[index].updatedAt { return }
+        mutate(&children[index])
+        children[index].updatedAt = timestamp
+        sessions[sessionID]?.childAgents = children
+    }
+
+    private func status(for action: HookEvent.ChildLifecycleAction) -> ChildAgentStatus {
+        switch action {
+        case .started: return .running
+        case .stopped: return .completed
+        case .idled: return .idle
+        }
     }
 }

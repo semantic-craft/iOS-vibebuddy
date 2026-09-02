@@ -236,6 +236,14 @@ private struct SessionRow: View {
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
 
+                if let child = ToolActivity.childSummary(for: session) {
+                    Text(child)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                }
+
                 if let observation = session.observationDescription {
                     HStack(spacing: 5) {
                         Label(observation, systemImage: "waveform.path.ecg")
