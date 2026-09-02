@@ -78,6 +78,24 @@ struct WatchAlertCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            // What the agent offered as answers. Shown so the question makes
+            // sense, not offered as a choice: sending one means typing into
+            // someone's terminal, which this slice does not do.
+            if !alert.options.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(alert.options, id: \.self) { option in
+                        HStack(alignment: .firstTextBaseline, spacing: 4) {
+                            Image(systemName: "circle")
+                                .font(.system(size: 6))
+                            Text(option)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
+
             Text(alert.waitKind == .permission
                  ? "Approve or deny on your iPhone."
                  : "Answer on your iPhone.")
