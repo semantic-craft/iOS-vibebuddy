@@ -1,4 +1,6 @@
 import Foundation
+import Dispatch
+import Darwin
 import VibeBuddyKit
 
 /// Pure, incremental decoder for Codex rollout JSONL. Codex Desktop writes this
@@ -216,14 +218,74 @@ public struct CodexRolloutParser: Sendable {
     }
 }
 
+private final class RolloutFileWatcher: @unchecked Sendable {
+    private let source: DispatchSourceFileSystemObject
+    private let cancelled = DispatchGroup()
+
+    init?(
+        file: URL,
+        queue: DispatchQueue,
+        onEvent: @escaping @Sendable (UInt) -> Void,
+        onCancel: @escaping @Sendable () -> Void
+    ) {
+        let descriptor = Darwin.open(file.path, O_EVTONLY)
+        guard descriptor >= 0 else { return nil }
+        source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: descriptor,
+            eventMask: [.write, .extend, .delete, .rename, .revoke],
+            queue: queue
+        )
+        cancelled.enter()
+        source.setEventHandler { [source] in onEvent(source.data.rawValue) }
+        source.setCancelHandler { [cancelled] in
+            Darwin.close(descriptor)
+            onCancel()
+            cancelled.leave()
+        }
+        source.resume()
+    }
+
+    func cancelAndWait() {
+        source.cancel()
+        cancelled.wait()
+    }
+}
+
+/// Runtime evidence for the monitor's low-power and resource-lifecycle contract.
+public struct CodexRolloutMonitorDiagnostics: Equatable, Sendable {
+    public let isRunning: Bool
+    public let recoveryTaskRunning: Bool
+    public let deliveryTaskRunning: Bool
+    public let discoveryPassCount: Int
+    public let watcherEventCount: Int
+    public let debouncedRefreshCount: Int
+    public let watcherRecoveryCount: Int
+    public let watchedFileCount: Int
+    public let pendingDebounceCount: Int
+    public let queuedEventCount: Int
+}
+
 /// Watches today's and yesterday's Codex rollout files and emits only appended
-/// desktop lifecycle events. First discovery restores a currently active turn
-/// without replaying old completions, preventing a dashboard full of stale work.
+/// desktop lifecycle events. File events provide live progress, while a slow
+/// discovery pass only finds new rollouts and repairs lost watchers. First
+/// discovery restores a currently active turn without replaying old completions.
 public actor CodexRolloutMonitor {
+    private struct FileIdentity: Equatable, Sendable {
+        let volume: UInt64
+        let inode: UInt64
+    }
+
+    private struct FileState: Sendable {
+        let identity: FileIdentity
+        let size: UInt64
+    }
+
     private struct Cursor: Sendable {
         var offset: UInt64 = 0
         var remainder = Data()
         var parser = CodexRolloutParser()
+        var identity: FileIdentity?
+        var checkpoint = Data()
 
         mutating func consume(_ data: Data, receivedAt: Date) -> [HookEvent] {
             remainder.append(data)
@@ -245,66 +307,289 @@ public actor CodexRolloutMonitor {
         }
     }
 
+    private struct WatchRegistration: Sendable {
+        let id: UUID
+        let identity: FileIdentity
+        let watcher: RolloutFileWatcher
+    }
+
+    private struct DebounceRegistration: Sendable {
+        let id: UUID
+        let task: Task<Void, Never>
+    }
+
+    private typealias EventSink = @Sendable (HookEvent) async -> Void
+
     private let root: URL
-    private let pollInterval: Duration
+    private let discoveryInterval: Duration
+    private let debounceInterval: Duration
     private let recoveryWindow: TimeInterval
+    private let watcherQueue = DispatchQueue(
+        label: "com.vibebuddy.codex-rollout-watchers",
+        qos: .utility
+    )
     private var cursors: [String: Cursor] = [:]
+    private var watchers: [String: WatchRegistration] = [:]
+    private var debounceTasks: [String: DebounceRegistration] = [:]
+    private var recoveryTask: Task<Void, Never>?
+    private var deliveryTask: Task<Void, Never>?
+    private var eventQueue: [HookEvent] = []
+    private var eventQueueHead = 0
+    private var recoveryGateForTesting: (@Sendable () async -> Void)?
+    private var sink: EventSink?
+    private var isRunning = false
+    private var discoveryPassCount = 0
+    private var watcherEventCount = 0
+    private var debouncedRefreshCount = 0
+    private var watcherRecoveryCount = 0
 
     public init(
         root: URL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".codex/sessions", isDirectory: true),
-        pollInterval: Duration = .seconds(1),
+        discoveryInterval: Duration = .seconds(30),
+        debounceInterval: Duration = .milliseconds(100),
         recoveryWindow: TimeInterval = 30 * 60
     ) {
         self.root = root
-        self.pollInterval = pollInterval
+        self.discoveryInterval = discoveryInterval
+        self.debounceInterval = debounceInterval
         self.recoveryWindow = recoveryWindow
     }
 
     public func run(store: SessionStore) async {
-        while !Task.isCancelled {
-            for event in poll(now: Date()) {
-                await store.ingest(event)
-            }
-            do { try await Task.sleep(for: pollInterval) }
-            catch { return }
-        }
+        await run { event in await store.ingest(event) }
     }
 
-    /// One deterministic polling pass, public so the file-tail contract can be
-    /// tested without timers or a running HTTP server.
+    func run(_ onEvent: @escaping @Sendable (HookEvent) async -> Void) async {
+        guard !isRunning else { return }
+        isRunning = true
+        sink = onEvent
+        enqueue(scan(now: Date(), installWatchers: true))
+
+        let interval = discoveryInterval
+        recoveryTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: interval) }
+                catch { return }
+                guard let self else { return }
+                await self.discoverAndRecover(now: Date())
+            }
+        }
+
+        while !Task.isCancelled {
+            do { try await Task.sleep(for: .seconds(3_600)) }
+            catch { break }
+        }
+        await stop()
+    }
+
+    /// One deterministic discovery/recovery pass, public so the file-tail
+    /// contract can be tested without timers or a running HTTP server.
     public func poll(now: Date) -> [HookEvent] {
+        scan(now: now, installWatchers: isRunning)
+    }
+
+    public func diagnostics() -> CodexRolloutMonitorDiagnostics {
+        CodexRolloutMonitorDiagnostics(
+            isRunning: isRunning,
+            recoveryTaskRunning: recoveryTask != nil,
+            deliveryTaskRunning: deliveryTask != nil,
+            discoveryPassCount: discoveryPassCount,
+            watcherEventCount: watcherEventCount,
+            debouncedRefreshCount: debouncedRefreshCount,
+            watcherRecoveryCount: watcherRecoveryCount,
+            watchedFileCount: watchers.count,
+            pendingDebounceCount: debounceTasks.count,
+            queuedEventCount: eventQueue.count - eventQueueHead
+        )
+    }
+
+    func invalidateWatcherForTesting(at file: URL) {
+        let path = file.path
+        watcherRecoveryCount += 1
+        watchers.removeValue(forKey: path)?.watcher.cancelAndWait()
+        scheduleDebouncedRefresh(path: path)
+    }
+
+    func setRecoveryGateForTesting(_ gate: @escaping @Sendable () async -> Void) {
+        recoveryGateForTesting = gate
+    }
+
+    private func discoverAndRecover(now: Date) async {
+        guard isRunning, !Task.isCancelled else { return }
+        if let recoveryGateForTesting { await recoveryGateForTesting() }
+        guard isRunning, !Task.isCancelled else { return }
+        enqueue(scan(now: now, installWatchers: true))
+    }
+
+    private func scan(now: Date, installWatchers: Bool) -> [HookEvent] {
+        discoveryPassCount += 1
         let files = candidateFiles(now: now)
         let livePaths = Set(files.map(\.path))
-        cursors = cursors.filter { livePaths.contains($0.key) }
+        for path in Array(cursors.keys) where !livePaths.contains(path) {
+            removeTracking(path: path)
+        }
         var emitted: [HookEvent] = []
 
         for file in files {
-            let path = file.path
-            let size = Self.fileSize(file)
-            if var cursor = cursors[path] {
-                if size < cursor.offset { cursor = Cursor() }
-                guard size > cursor.offset,
-                      let appended = Self.read(file, from: cursor.offset) else {
-                    cursors[path] = cursor
-                    continue
-                }
-                cursor.offset += UInt64(appended.count)
-                emitted.append(contentsOf: cursor.consume(appended, receivedAt: now))
-                cursors[path] = cursor
-            } else {
-                var cursor = Cursor()
-                guard let contents = try? Data(contentsOf: file) else { continue }
-                cursor.offset = UInt64(contents.count)
-                let history = cursor.consume(contents, receivedAt: now)
-                if cursor.parser.isDesktopSession, cursor.parser.turnActive,
-                   let latest = history.last(where: { $0.kind != .stop && $0.kind != .sessionEnd }) {
-                    emitted.append(latest)
-                }
-                cursors[path] = cursor
-            }
+            emitted.append(contentsOf: refresh(file: file, now: now, installWatcher: installWatchers))
         }
         return emitted
+    }
+
+    private func refresh(file: URL, now: Date, installWatcher: Bool) -> [HookEvent] {
+        let path = file.path
+        guard let state = Self.fileState(file) else {
+            removeTracking(path: path)
+            return []
+        }
+
+        var emitted: [HookEvent] = []
+        if var cursor = cursors[path] {
+            let mustReset = cursor.identity != state.identity
+                || state.size < cursor.offset
+                || !Self.checkpointMatches(cursor, file: file)
+            if mustReset {
+                if let bootstrapped = Self.bootstrap(file: file, state: state, receivedAt: now) {
+                    cursor = bootstrapped.cursor
+                    emitted = bootstrapped.events
+                } else {
+                    removeTracking(path: path)
+                    return []
+                }
+            } else if state.size > cursor.offset,
+                      let appended = Self.read(file, from: cursor.offset) {
+                cursor.offset += UInt64(appended.count)
+                emitted = cursor.consume(appended, receivedAt: now)
+                cursor.checkpoint = Self.checkpoint(file: file, endingAt: cursor.offset)
+            }
+            cursor.identity = state.identity
+            cursors[path] = cursor
+        } else if let bootstrapped = Self.bootstrap(file: file, state: state, receivedAt: now) {
+            cursors[path] = bootstrapped.cursor
+            emitted = bootstrapped.events
+        }
+
+        if installWatcher { ensureWatcher(for: file, identity: state.identity) }
+        return emitted
+    }
+
+    private func ensureWatcher(for file: URL, identity: FileIdentity) {
+        let path = file.path
+        if let existing = watchers[path], existing.identity == identity { return }
+        if let old = watchers.removeValue(forKey: path) {
+            old.watcher.cancelAndWait()
+        }
+
+        let id = UUID()
+        guard let watcher = RolloutFileWatcher(
+            file: file,
+            queue: watcherQueue,
+            onEvent: { [weak self] rawEvents in
+                Task { await self?.watcherDidSignal(path: path, id: id, rawEvents: rawEvents) }
+            },
+            onCancel: { [weak self] in
+                Task { await self?.watcherDidCancel(path: path, id: id) }
+            }
+        ) else { return }
+        watchers[path] = WatchRegistration(id: id, identity: identity, watcher: watcher)
+    }
+
+    private func watcherDidSignal(
+        path: String,
+        id: UUID,
+        rawEvents: UInt
+    ) {
+        guard isRunning, watchers[path]?.id == id else { return }
+        watcherEventCount += 1
+        let events = DispatchSource.FileSystemEvent(rawValue: rawEvents)
+        if !events.intersection([.delete, .rename, .revoke]).isEmpty,
+           let registration = watchers.removeValue(forKey: path) {
+            watcherRecoveryCount += 1
+            registration.watcher.cancelAndWait()
+        }
+        scheduleDebouncedRefresh(path: path)
+    }
+
+    private func watcherDidCancel(path: String, id: UUID) {
+        guard isRunning, watchers[path]?.id == id else { return }
+        watchers[path] = nil
+        watcherRecoveryCount += 1
+        scheduleDebouncedRefresh(path: path)
+    }
+
+    private func scheduleDebouncedRefresh(path: String) {
+        debounceTasks[path]?.task.cancel()
+        let id = UUID()
+        let interval = debounceInterval
+        let task = Task { [weak self] in
+            do { try await Task.sleep(for: interval) }
+            catch { return }
+            await self?.performDebouncedRefresh(path: path, id: id)
+        }
+        debounceTasks[path] = DebounceRegistration(id: id, task: task)
+    }
+
+    private func performDebouncedRefresh(path: String, id: UUID) async {
+        guard isRunning, debounceTasks[path]?.id == id else { return }
+        debounceTasks[path] = nil
+        debouncedRefreshCount += 1
+        let file = URL(fileURLWithPath: path)
+        enqueue(refresh(file: file, now: Date(), installWatcher: true))
+    }
+
+    private func enqueue(_ events: [HookEvent]) {
+        guard isRunning, !events.isEmpty else { return }
+        eventQueue.append(contentsOf: events)
+        guard deliveryTask == nil else { return }
+        deliveryTask = Task { [weak self] in
+            await self?.drainEventQueue()
+        }
+    }
+
+    private func drainEventQueue() async {
+        while !Task.isCancelled, isRunning, eventQueueHead < eventQueue.count, let sink {
+            let event = eventQueue[eventQueueHead]
+            eventQueueHead += 1
+            await sink(event)
+        }
+        eventQueue.removeAll(keepingCapacity: isRunning)
+        eventQueueHead = 0
+        deliveryTask = nil
+    }
+
+    private func removeTracking(path: String) {
+        cursors[path] = nil
+        debounceTasks.removeValue(forKey: path)?.task.cancel()
+        if let registration = watchers.removeValue(forKey: path) {
+            registration.watcher.cancelAndWait()
+        }
+    }
+
+    private func stop() async {
+        isRunning = false
+        let recovery = recoveryTask
+        let debounces = debounceTasks.values.map(\.task)
+        let delivery = deliveryTask
+        recovery?.cancel()
+        for task in debounces { task.cancel() }
+        delivery?.cancel()
+
+        await recovery?.value
+        for task in debounces { await task.value }
+        await delivery?.value
+
+        recoveryTask = nil
+        debounceTasks.removeAll()
+        deliveryTask = nil
+        let registrations = Array(watchers.values)
+        watchers.removeAll()
+        for registration in registrations { registration.watcher.cancelAndWait() }
+        eventQueue.removeAll()
+        eventQueueHead = 0
+        cursors.removeAll()
+        recoveryGateForTesting = nil
+        sink = nil
     }
 
     private func candidateFiles(now: Date) -> [URL] {
@@ -333,18 +618,22 @@ public actor CodexRolloutMonitor {
                 return now.timeIntervalSince(modified) <= recoveryWindow
             })
         }
-        // Once tracked, retain a rollout even after the recovery window so a
-        // long-running quiet turn is not dropped between polls.
-        for path in cursors.keys where fm.fileExists(atPath: path) {
+        // Retain only active rollouts beyond the recency window. Completed or
+        // abandoned files age out, bounding watcher descriptors over time.
+        for (path, cursor) in cursors where cursor.parser.turnActive && fm.fileExists(atPath: path) {
             let url = URL(fileURLWithPath: path)
             if !files.contains(url) { files.append(url) }
         }
         return files.sorted { $0.path < $1.path }
     }
 
-    private static func fileSize(_ file: URL) -> UInt64 {
-        let attributes = try? FileManager.default.attributesOfItem(atPath: file.path)
-        return (attributes?[.size] as? NSNumber)?.uint64Value ?? 0
+    private static func fileState(_ file: URL) -> FileState? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: file.path),
+              let size = (attributes[.size] as? NSNumber)?.uint64Value,
+              let volume = (attributes[.systemNumber] as? NSNumber)?.uint64Value,
+              let inode = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value
+        else { return nil }
+        return FileState(identity: FileIdentity(volume: volume, inode: inode), size: size)
     }
 
     private static func read(_ file: URL, from offset: UInt64) -> Data? {
@@ -355,6 +644,50 @@ public actor CodexRolloutMonitor {
             return try handle.readToEnd() ?? Data()
         } catch {
             return nil
+        }
+    }
+
+    private static func bootstrap(
+        file: URL,
+        state: FileState,
+        receivedAt: Date
+    ) -> (cursor: Cursor, events: [HookEvent])? {
+        guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
+        defer { try? handle.close() }
+        var cursor = Cursor(identity: state.identity)
+        var latestRestorable: HookEvent?
+        do {
+            while let chunk = try handle.read(upToCount: 64 * 1_024), !chunk.isEmpty {
+                cursor.offset += UInt64(chunk.count)
+                for event in cursor.consume(chunk, receivedAt: receivedAt)
+                where event.kind != .stop && event.kind != .sessionEnd {
+                    latestRestorable = event
+                }
+            }
+        } catch {
+            return nil
+        }
+        cursor.checkpoint = checkpoint(file: file, endingAt: cursor.offset)
+        let events = cursor.parser.isDesktopSession && cursor.parser.turnActive
+            ? latestRestorable.map { [$0] } ?? []
+            : []
+        return (cursor, events)
+    }
+
+    private static func checkpointMatches(_ cursor: Cursor, file: URL) -> Bool {
+        guard !cursor.checkpoint.isEmpty else { return true }
+        return checkpoint(file: file, endingAt: cursor.offset) == cursor.checkpoint
+    }
+
+    private static func checkpoint(file: URL, endingAt offset: UInt64) -> Data {
+        let count = min(UInt64(128), offset)
+        guard count > 0, let handle = try? FileHandle(forReadingFrom: file) else { return Data() }
+        defer { try? handle.close() }
+        do {
+            try handle.seek(toOffset: offset - count)
+            return try handle.read(upToCount: Int(count)) ?? Data()
+        } catch {
+            return Data()
         }
     }
 }

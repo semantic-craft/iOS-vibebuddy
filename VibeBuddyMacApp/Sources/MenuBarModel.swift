@@ -164,7 +164,7 @@ final class MenuBarModel: ObservableObject {
                                          Task { @MainActor in self?.recordPairedDevice(device) }
                                      })
         Task.detached(priority: .utility) {
-            do { try await server.buildApplication().runService() }
+            do { try await server.runService() }
             catch { FileHandle.standardError.write(Data("server error: \(error)\n".utf8)) }
         }
     }

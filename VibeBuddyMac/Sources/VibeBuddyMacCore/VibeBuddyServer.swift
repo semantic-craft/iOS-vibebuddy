@@ -68,6 +68,24 @@ public struct VibeBuddyServer: Sendable {
         self.onDevicePaired = onDevicePaired
     }
 
+    /// Run the HTTP service and its Codex rollout source under one lifetime.
+    /// Returning or throwing from the server always cancels and joins the
+    /// monitor so no watcher descriptors, debounce tasks, or store sink survive.
+    public func runService() async throws {
+        let monitorTask = codexRolloutMonitor.map { monitor in
+            Task { await monitor.run(store: store) }
+        }
+        do {
+            try await buildApplication().runService()
+        } catch {
+            monitorTask?.cancel()
+            await monitorTask?.value
+            throw error
+        }
+        monitorTask?.cancel()
+        await monitorTask?.value
+    }
+
     public func buildApplication() -> some ApplicationProtocol {
         let store = self.store
         let token = self.token
@@ -101,13 +119,6 @@ public struct VibeBuddyServer: Sendable {
                 try? await Task.sleep(for: .seconds(60))
                 await sweepStore.sweep(now: Date())
             }
-        }
-
-        // Codex Desktop does not execute the user's CLI hooks. Its local rollout
-        // JSONL is the reliable live progress stream; tail it alongside hooks so
-        // desktop and terminal sessions converge in the same reducer.
-        if let rolloutMonitor = self.codexRolloutMonitor {
-            Task { await rolloutMonitor.run(store: store) }
         }
 
         // APNs: push a "needs you" alert to registered devices on each fresh

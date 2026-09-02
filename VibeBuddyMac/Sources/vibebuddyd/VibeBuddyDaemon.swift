@@ -16,6 +16,6 @@ struct VibeBuddyDaemon {
                                      codexRolloutMonitor: CodexRolloutMonitor())
         FileHandle.standardError.write(Data(
             "vibebuddyd: listening on 0.0.0.0:\(port) (apns: \(pusher != nil ? "on" : "off"))\n".utf8))
-        try await server.buildApplication().runService()
+        try await server.runService()
     }
 }
