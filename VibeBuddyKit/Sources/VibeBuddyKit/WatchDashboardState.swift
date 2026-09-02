@@ -180,7 +180,14 @@ public struct WatchQuota: Codable, Equatable, Sendable, Identifiable {
 // MARK: - State
 
 public struct WatchDashboardState: Codable, Equatable, Sendable {
+    /// The three buckets the Watch renders. The wrist has room for three lines,
+    /// and this is the split the prototype validated.
     public var counts: WatchSessionCounts
+    /// The app's five-state aggregate, shared with the Mac, the iPhone list,
+    /// the Live Activity and the widget. It is a different partition, not a
+    /// finer one: a failed session reads as `error` whatever bucket it is in,
+    /// which is the one signal the three buckets cannot express.
+    public var presentation: TaskPresentationSummary
     /// Waiting sessions in the dashboard's own order; the first one takes over
     /// the home screen.
     public var alerts: [WatchAlert]
@@ -193,6 +200,7 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
 
     public init(
         counts: WatchSessionCounts = WatchSessionCounts(),
+        presentation: TaskPresentationSummary = TaskPresentationSummary(),
         alerts: [WatchAlert] = [],
         quotas: [WatchQuota] = [],
         relay: WatchRelayState,
@@ -200,6 +208,7 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
         isDemo: Bool = false
     ) {
         self.counts = counts
+        self.presentation = presentation
         self.alerts = alerts
         self.quotas = quotas
         self.relay = relay
@@ -223,6 +232,21 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
         max(0, now.timeIntervalSince(observedAt))
     }
 
+    /// Sessions whose last turn ended badly. The three buckets hide this; the
+    /// wrist should not.
+    public var stuck: Int { presentation.error }
+
+    /// Whether two projections say the same thing about the world.
+    ///
+    /// Only the observation time may differ: the Watch derives every age and
+    /// freshness from its own clock, so re-sending an identical payload one
+    /// second later would cost radio and change nothing on screen.
+    public func isEquivalent(to other: WatchDashboardState) -> Bool {
+        var mine = self
+        mine.observedAt = other.observedAt
+        return mine == other
+    }
+
     /// The companion's mood, from what the Watch actually knows. It deliberately
     /// never claims `.done`: unread-completion truth stays on the Mac and does
     /// not reach the wrist.
@@ -237,20 +261,22 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
 
 // MARK: - Projection
 
-/// The one pure seam every Watch-visible behavior is tested through: sessions,
-/// normalized quota, relay state and a clock in; exactly what the Watch renders
-/// out. No I/O, no platform frameworks, no hidden clock.
+/// The one pure seam every Watch-visible behavior is tested through: the Mac's
+/// snapshot, normalized quota, the iPhone's connection state and a clock in;
+/// exactly what the Watch renders out. No I/O, no platform frameworks, no
+/// hidden clock.
 public enum WatchDashboardProjection {
     public static func make(
-        sessions: [AgentSession],
+        snapshot: Snapshot,
         quotas: [WatchQuota],
         relay: WatchRelayState,
         now: Date,
         isDemo: Bool = false
     ) -> WatchDashboardState {
-        let groups = SessionGroups(sessions)
+        let groups = SessionGroups(snapshot.sessions)
         return WatchDashboardState(
             counts: WatchSessionCounts(groups),
+            presentation: TaskPresentationSummary(sessions: snapshot.sessions),
             alerts: groups.needsResponse.map(alert(for:)),
             quotas: quotas,
             relay: relay,

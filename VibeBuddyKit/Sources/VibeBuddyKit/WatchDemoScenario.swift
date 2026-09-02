@@ -26,7 +26,7 @@ public enum WatchDemoScenario: String, Codable, Sendable, CaseIterable, Identifi
     public func state(now: Date) -> WatchDashboardState {
         guard self != .noData else { return .noData(observedAt: now) }
         return WatchDashboardProjection.make(
-            sessions: sessions(now: now),
+            snapshot: Snapshot(sessions: sessions(now: now), serverTime: now),
             quotas: quotas(now: now),
             relay: .live,
             now: now,
@@ -113,7 +113,10 @@ public enum WatchDemoScenario: String, Codable, Sendable, CaseIterable, Identifi
 
     // MARK: quota
 
-    private func quotas(now: Date) -> [WatchQuota] {
+    /// Sample quota for both providers. The iPhone relays these while it is in
+    /// Demo Mode, so the Watch's quota page has something honest-looking to show
+    /// before a real provider source exists.
+    public func quotas(now: Date) -> [WatchQuota] {
         switch self {
         case .staleQuota:
             return [Self.codex(observedAt: now.addingTimeInterval(-18 * 60), now: now), Self.claude(now: now)]

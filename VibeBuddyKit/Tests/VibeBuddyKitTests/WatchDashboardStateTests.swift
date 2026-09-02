@@ -29,7 +29,9 @@ struct WatchDashboardStateTests {
     private func project(_ sessions: [AgentSession],
                          quotas: [WatchQuota] = [],
                          relay: WatchRelayState = .live) -> WatchDashboardState {
-        WatchDashboardProjection.make(sessions: sessions, quotas: quotas, relay: relay, now: now)
+        WatchDashboardProjection.make(
+            snapshot: Snapshot(sessions: sessions, serverTime: now),
+            quotas: quotas, relay: relay, now: now)
     }
 
     // MARK: counts + ordering
@@ -191,6 +193,67 @@ struct WatchDashboardStateTests {
         #expect(state.relay == .disconnected)
         #expect(state.counts.working == 1)
         #expect(state.age(now: now.addingTimeInterval(120)) == 120)
+    }
+
+    // MARK: five-state parity
+
+    @Test("The Watch carries the same five-state aggregate as every other surface")
+    func presentationMatchesTheSharedSummary() {
+        let sessions = [
+            session(id: "a", status: .needsResponse, waitKind: .permission),
+            session(id: "b", status: .working),
+            session(id: "c", status: .done),
+        ]
+        let state = project(sessions)
+        #expect(state.presentation == TaskPresentationSummary(sessions: sessions))
+        #expect(state.presentation.requiresInput == 1)
+        #expect(state.presentation.thinking == 1)
+        #expect(state.presentation.idle == 1)
+    }
+
+    @Test("A failed session is the signal the three buckets cannot carry")
+    func stuckSurvivesTheThreeBuckets() {
+        var failed = session(id: "a", status: .working)
+        failed.failed = true
+        let state = project([failed, session(id: "b", status: .working)])
+        #expect(state.counts.working == 2)          // the bucket still says working
+        #expect(state.stuck == 1)                   // the five-state view says why it matters
+        #expect(state.presentation.thinking == 1)
+    }
+
+    // MARK: coalescing
+
+    @Test("Only the observation time may differ for two states to be equivalent")
+    func equivalenceIgnoresObservationTimeAlone() {
+        let sessions = [session(id: "a", status: .working)]
+        let first = project(sessions)
+        var later = first
+        later.observedAt = now.addingTimeInterval(600)
+        #expect(first.isEquivalent(to: later))
+        #expect(first != later)
+    }
+
+    @Test("Every meaningful change breaks equivalence")
+    func meaningfulChangesBreakEquivalence() {
+        let base = project([session(id: "a", status: .working)])
+
+        #expect(!base.isEquivalent(to: project([session(id: "a", status: .working),
+                                                session(id: "b", status: .working)])))
+        #expect(!base.isEquivalent(to: project([session(id: "a", status: .needsResponse,
+                                                        waitKind: .question)])))
+        #expect(!base.isEquivalent(to: project([session(id: "a", status: .working)],
+                                               relay: .disconnected)))
+        #expect(!base.isEquivalent(to: project([session(id: "a", status: .working)],
+                                               quotas: [WatchQuota(provider: .codex,
+                                                                   weeklyRemainingPercent: 68,
+                                                                   observedAt: now)])))
+        var demo = base
+        demo.isDemo = true
+        #expect(!base.isEquivalent(to: demo))
+
+        var stuck = base
+        stuck.presentation.error = 1
+        #expect(!base.isEquivalent(to: stuck))
     }
 
     // MARK: buddy mood
