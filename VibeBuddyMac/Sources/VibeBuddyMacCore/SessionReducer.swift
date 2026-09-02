@@ -15,7 +15,14 @@ public struct SessionReducer: Sendable {
 
     public mutating func apply(_ event: HookEvent) {
         switch event.kind {
-        case .sessionStart, .userPromptSubmit, .preToolUse, .postToolUse:
+        case .sessionStart:
+            // Starting or resuming opens a session but does not mean a turn is
+            // running yet. Mature monitors call this free/idle; in our three
+            // buckets that is `done` until UserPromptSubmit arrives.
+            upsert(event, status: .done, waitKind: nil)
+            sessions[event.sessionID]?.failed = false
+            sessions[event.sessionID]?.activeTool = nil
+        case .userPromptSubmit, .preToolUse, .postToolUse:
             // Active work: a tool starting/finishing means the agent is busy,
             // which also clears any prior "needs you" wait state.
             upsert(event, status: .working, waitKind: nil)
@@ -23,7 +30,7 @@ public struct SessionReducer: Sendable {
             // for the activity line: a new turn clears both, PreToolUse names the
             // running tool, PostToolUse records its outcome and clears the tool.
             switch event.kind {
-            case .sessionStart, .userPromptSubmit:
+            case .userPromptSubmit:
                 sessions[event.sessionID]?.failed = false
                 sessions[event.sessionID]?.activeTool = nil
             case .preToolUse:
@@ -41,8 +48,8 @@ public struct SessionReducer: Sendable {
             sessions[event.sessionID]?.failed = false       // waiting on you, not stuck
             sessions[event.sessionID]?.activeTool = nil      // no tool running while waiting
         case .stop:
-            // Create-if-missing so a late-observed session or a Codex
-            // turn-complete still shows as done; carry a Codex summary if present.
+            // Create-if-missing so a late-observed lifecycle still shows as done;
+            // carry the agent's final summary when present.
             upsert(event, status: .done, waitKind: nil, summary: event.message)
             sessions[event.sessionID]?.activeTool = nil
             // Carry the last tool's outcome; also treat a failure-looking stop
@@ -53,6 +60,10 @@ public struct SessionReducer: Sendable {
             // an idle "needs you" prompt doesn't outlive the session it belonged to.
             sessions.removeValue(forKey: event.sessionID)
             lastCountedTokens[event.sessionID] = nil
+        case .sessionMetadataChanged:
+            // Model and cwd changes describe the same live session. They must
+            // not clear its tool/wait state or manufacture a progress transition.
+            updateMetadata(event)
         }
     }
 
@@ -182,6 +193,7 @@ public struct SessionReducer: Sendable {
                 s.pendingQuestion = nil
             }
             if let cwd = event.cwd { s.project = Self.projectName(cwd) }
+            if let model = event.model { s.model = model }
             s.updatedAt = event.timestamp
             sessions[event.sessionID] = s
         } else {
@@ -189,6 +201,7 @@ public struct SessionReducer: Sendable {
                 id: event.sessionID,
                 agent: event.agent,
                 project: event.cwd.map(Self.projectName) ?? "—",
+                model: event.model,
                 status: status,
                 waitKind: waitKind,
                 summary: summary,
@@ -196,6 +209,25 @@ public struct SessionReducer: Sendable {
                 updatedAt: event.timestamp
             )
         }
+    }
+
+    private mutating func updateMetadata(_ event: HookEvent) {
+        guard var session = sessions[event.sessionID] else {
+            sessions[event.sessionID] = AgentSession(
+                id: event.sessionID,
+                agent: event.agent,
+                project: event.cwd.map(Self.projectName) ?? "—",
+                model: event.model,
+                status: .done,
+                statusSince: event.timestamp,
+                updatedAt: event.timestamp
+            )
+            return
+        }
+        if let cwd = event.cwd { session.project = Self.projectName(cwd) }
+        if let model = event.model { session.model = model }
+        session.updatedAt = event.timestamp
+        sessions[event.sessionID] = session
     }
 
     static func projectName(_ cwd: String) -> String {

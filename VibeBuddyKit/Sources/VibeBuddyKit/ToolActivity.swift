@@ -8,14 +8,31 @@ import Foundation
 /// Code, Codex, Qwen, …) by what the user actually cares about — editing,
 /// reading, running, searching, browsing, delegating, planning.
 public enum ToolActivity {
+    /// One consistent, glanceable state line for every surface that lists a
+    /// session. Unlike a prose transcript summary, this always tells the user
+    /// whether the agent is active, blocked, or ready.
+    public static func label(for session: AgentSession) -> String {
+        switch session.status {
+        case .needsResponse:
+            return session.waitKind == .permission ? "Needs approval" : "Needs input"
+        case .working:
+            return phrase(for: session.activeTool).map { $0 + "…" } ?? "Working"
+        case .done:
+            return session.isStuck ? "Stopped with an issue" : "Ready"
+        }
+    }
+
     public static func phrase(for toolName: String?) -> String? {
         guard let raw = toolName?.trimmingCharacters(in: .whitespacesAndNewlines),
               !raw.isEmpty else { return nil }
-        switch raw.lowercased() {
+        let normalized = raw.lowercased()
+        let leaf = normalized.split(separator: "/").last.map(String.init) ?? normalized
+        switch leaf {
         case "edit", "write", "multiedit", "notebookedit", "str_replace_editor",
              "apply_patch", "applypatch", "update_file", "create_file", "edit_file":
             return "Editing"
-        case "read", "read_file", "readfile", "view", "open", "cat", "notebookread":
+        case "read", "read_file", "readfile", "view", "open", "cat", "notebookread",
+             "view_image":
             return "Reading"
         case "bash", "shell", "run", "run_command", "runcommand", "execute",
              "exec", "terminal", "run_terminal_cmd":
@@ -29,6 +46,11 @@ public enum ToolActivity {
             return "Delegating"
         case "todowrite", "todo", "update_plan", "updateplan", "plan":
             return "Planning"
+        case "spawn_agent", "followup_task", "send_message", "list_agents",
+             "interrupt_agent":
+            return "Coordinating"
+        case "wait", "wait_agent", "wait_threads":
+            return "Waiting"
         default:
             return nil
         }

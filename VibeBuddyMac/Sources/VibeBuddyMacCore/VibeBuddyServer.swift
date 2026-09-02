@@ -16,6 +16,9 @@ public struct VibeBuddyServer: Sendable {
     public let deviceTokens: DeviceTokens
     /// Live Activity push tokens registered by phones (dynamic-island/02).
     public let activityTokens: ActivityTokens
+    /// Optional local Codex Desktop progress source. Production entry points
+    /// inject it; route tests leave it nil so they never consume host state.
+    public let codexRolloutMonitor: CodexRolloutMonitor?
     public let approvalRegistry: ApprovalRegistry
     public let rules: @Sendable () -> PermissionRules
     /// vibebuddy's own "always allow" store, overlaid on the native rules (ADR 0010).
@@ -34,6 +37,7 @@ public struct VibeBuddyServer: Sendable {
                 port: Int = 9876, pusher: APNsPusher? = nil,
                 deviceTokens: DeviceTokens = DeviceTokens(),
                 activityTokens: ActivityTokens = ActivityTokens(),
+                codexRolloutMonitor: CodexRolloutMonitor? = nil,
                 approvalRegistry: ApprovalRegistry = ApprovalRegistry(),
                 rules: @escaping @Sendable () -> PermissionRules = { PermissionRules.load() },
                 allowStore: VibeBuddyAllowStore = VibeBuddyAllowStore(),
@@ -51,6 +55,7 @@ public struct VibeBuddyServer: Sendable {
         self.pusher = pusher
         self.deviceTokens = deviceTokens
         self.activityTokens = activityTokens
+        self.codexRolloutMonitor = codexRolloutMonitor
         self.approvalRegistry = approvalRegistry
         self.rules = rules
         self.allowStore = allowStore
@@ -96,6 +101,13 @@ public struct VibeBuddyServer: Sendable {
                 try? await Task.sleep(for: .seconds(60))
                 await sweepStore.sweep(now: Date())
             }
+        }
+
+        // Codex Desktop does not execute the user's CLI hooks. Its local rollout
+        // JSONL is the reliable live progress stream; tail it alongside hooks so
+        // desktop and terminal sessions converge in the same reducer.
+        if let rolloutMonitor = self.codexRolloutMonitor {
+            Task { await rolloutMonitor.run(store: store) }
         }
 
         // APNs: push a "needs you" alert to registered devices on each fresh

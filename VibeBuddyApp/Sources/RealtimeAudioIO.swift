@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import os
+import VibeBuddyKit
 
 private let rtAudioLog = Logger(subsystem: "com.vibebuddy.app", category: "realtime-audio")
 
@@ -137,3 +138,5 @@ final class RealtimeAudioIO: @unchecked Sendable {
         onAudioFrame(data)
     }
 }
+
+extension RealtimeAudioIO: VoiceCallAudio {}

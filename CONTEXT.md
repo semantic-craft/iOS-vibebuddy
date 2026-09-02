@@ -23,9 +23,13 @@ code, and tests — don't drift to synonyms.
 
 ## Mac side
 
-- **Hook** — a Claude Code `settings.json` event (Notification, Stop,
+- **Hook** — a Claude Code/Codex CLI lifecycle event (Notification, Stop,
   PostToolUse, SessionStart…) that feeds session state into the daemon.
   Fail-open.
+- **Codex rollout stream** — the append-only
+  `~/.codex/sessions/**/rollout-*.jsonl` event stream. Codex Desktop does not
+  execute user CLI hooks, so its task/tool/completion progress enters through
+  this local tailer and converges with hook events in the same reducer.
 - **Daemon** — the Mac menu-bar app's embedded HTTP + WebSocket server
   (`:9876`) that ingests hooks, runs the reducer, and broadcasts snapshots.
 - **Glance** — the Mac floating status panel at the top of the screen (notch or

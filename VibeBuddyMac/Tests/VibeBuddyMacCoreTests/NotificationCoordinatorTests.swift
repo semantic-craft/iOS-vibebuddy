@@ -16,10 +16,26 @@ struct NotificationCoordinatorTests {
         func notify(_ alert: SoundAlert) { played.append((alert.sessionID, alert.sound)) }
     }
 
-    private func session(_ id: String, _ status: SessionStatus, wait: WaitKind? = nil) -> AgentSession {
+    private func session(_ id: String, _ status: SessionStatus, wait: WaitKind? = nil,
+                         agent: AgentKind = .claudeCode) -> AgentSession {
         let t0 = Date(timeIntervalSince1970: 0)
-        return AgentSession(id: id, agent: .claudeCode, project: "p",
+        return AgentSession(id: id, agent: agent, project: "p",
                             status: status, waitKind: wait, statusSince: t0, updatedAt: t0)
+    }
+
+    @Test("Claude and Codex transitions share the notification pipeline")
+    func bothAgentsNotify() {
+        let spy = SpyNotifier()
+        let c = NotificationCoordinator(notifier: spy)
+        c.observe([session("claude", .working),
+                   session("codex", .working, agent: .codex)],
+                  appActive: false, quietMode: false)
+        c.observe([session("claude", .needsResponse, wait: .permission),
+                   session("codex", .done, agent: .codex)],
+                  appActive: false, quietMode: false)
+        #expect(Set(spy.played.map { "\($0.id):\($0.sound.rawValue)" }) == [
+            "claude:needs_approval", "codex:agent_done",
+        ])
     }
 
     @Test("forwards a fresh question transition as needs_answer")

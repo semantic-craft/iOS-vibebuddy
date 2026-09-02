@@ -18,15 +18,50 @@ public enum HookParser {
               let kind = mapKind(raw.hookEventName)
         else { return nil }
 
+        let message: String?
+        if raw.hookEventName == "PermissionRequest" {
+            message = raw.toolName.map { "Permission required for \($0)" } ?? "Permission required"
+        } else if raw.hookEventName == "PermissionDenied" {
+            message = raw.toolName.map { "Permission denied for \($0)" } ?? "Permission denied"
+        } else if raw.hookEventName == "StopFailure" {
+            message = raw.error ?? "Turn failed"
+        } else if raw.hookEventName == "Interrupt" {
+            message = "Turn interrupted"
+        } else if raw.hookEventName == "Elicitation" {
+            message = raw.message ?? "Waiting for your input"
+        } else {
+            message = raw.message ?? raw.error ?? raw.lastAssistantMessage
+        }
+
+        let toolName: String?
+        switch raw.hookEventName {
+        case "SubagentStart", "SubagentStop":
+            toolName = raw.agentType.map { "Subagent: \($0)" } ?? "Subagent"
+        case "PreCompact", "PostCompact":
+            toolName = "Context compaction"
+        case "Elicitation", "ElicitationResult":
+            toolName = "MCP elicitation"
+        case "PostToolBatch":
+            toolName = "Tool batch"
+        case "TaskCreated", "TaskCompleted":
+            toolName = "Task"
+        default:
+            toolName = raw.toolName
+        }
+
+        let explicitToolFailure = raw.hookEventName == "PostToolUseFailure"
+            || raw.hookEventName == "PermissionDenied"
+
         return HookEvent(
             kind: kind,
             sessionID: sessionID,
             agent: agent,
-            cwd: raw.cwd,
-            toolName: raw.toolName,
-            message: raw.message,
+            cwd: raw.newCwd ?? raw.cwd,
+            toolName: toolName,
+            message: message,
             transcriptPath: raw.transcriptPath,
-            toolError: kind == .postToolUse && detectToolError(data),
+            model: raw.toModel ?? raw.model,
+            toolError: kind == .postToolUse && (explicitToolFailure || detectToolError(data)),
             timestamp: receivedAt
         )
     }
@@ -62,9 +97,14 @@ public enum HookParser {
         case "UserPromptSubmit": return .userPromptSubmit
         case "PreToolUse": return .preToolUse
         case "PostToolUse": return .postToolUse
-        case "Notification": return .notification
-        case "Stop": return .stop
+        case "PostToolUseFailure", "PermissionDenied", "PostToolBatch",
+             "ElicitationResult", "TaskCompleted": return .postToolUse
+        case "SubagentStart", "PreCompact", "TaskCreated": return .preToolUse
+        case "SubagentStop", "PostCompact": return .postToolUse
+        case "Notification", "PermissionRequest", "Elicitation": return .notification
+        case "Stop", "StopFailure", "Interrupt": return .stop
         case "SessionEnd": return .sessionEnd
+        case "PostModelSwitch", "CwdChanged": return .sessionMetadataChanged
         default: return nil
         }
     }
@@ -75,6 +115,12 @@ public enum HookParser {
         let cwd: String?
         let toolName: String?
         let message: String?
+        let error: String?
+        let lastAssistantMessage: String?
         let transcriptPath: String?
+        let agentType: String?
+        let model: String?
+        let toModel: String?
+        let newCwd: String?
     }
 }

@@ -300,10 +300,12 @@ struct MenuContent: View {
             Divider()
 
             if model.sessions.isEmpty {
-                Text("No active sessions")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 2)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("No sessions reporting").font(.caption.weight(.medium))
+                    Text("Start a turn or repair hooks in Settings.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 2)
             } else {
                 VStack(spacing: 9) {
                     ForEach(model.sessions) { row($0) }
@@ -369,13 +371,17 @@ struct MenuContent: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 5) {
                     Text(session.project).font(.callout.weight(.semibold))
+                    AgentSourceBadge(agent: session.agent)
                     if let branch = session.branch {
                         Text(branch).font(.caption2.monospaced()).foregroundStyle(.secondary)
                     }
                 }
-                if let summary = session.summary {
-                    Text(summary).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                HStack(spacing: 5) {
+                    Text(ToolActivity.label(for: session)).fontWeight(.medium)
+                    Text("·").foregroundStyle(.tertiary)
+                    Text(session.updatedAt, style: .relative).monospacedDigit()
                 }
+                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 0)
         }

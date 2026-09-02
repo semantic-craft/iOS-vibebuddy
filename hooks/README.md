@@ -12,53 +12,67 @@ python3 hooks/install-agent-hooks.py --uninstall  # revert every detected CLI
 ```
 
 Detects which CLIs are configured (by their config dir/file — no PATH scanning)
-and delegates to the per-CLI installer for each: **Claude, Qwen, Grok,
+and delegates to the per-CLI installer for each: **Claude, Codex, Qwen, Grok,
 Antigravity, Kimi, OpenCode**. Idempotent (re-run = no-op), reversible (removes
 exactly what it added; pre-existing user hooks untouched), each per-CLI installer
-backs up before writing. **Codex** is detected but not auto-managed (its single
-`notify` slot is user-owned — see below). The per-CLI installers below are still
-available if you want to wire one CLI at a time.
+backs up before writing. Codex uses its first-class lifecycle hooks in
+`~/.codex/hooks.json`; the separate `notify` command is never changed, so Codex
+Computer Use or another notifier keeps working. The per-CLI installers below
+remain available if you want to wire one CLI at a time.
 
 Claude-shape CLIs (Claude, Qwen, Kimi) need no daemon decoder; Codex / Grok /
 Antigravity are decoded per-source inside the daemon. (Note: Antigravity `agy`
 1.0.5 *loads* its hooks but does not yet *execute* them — an agy-side bug; the
 wiring is ready for when an agy update fixes it.)
 
-## Claude Code
+## Claude Code and Claude Desktop
 
 ```bash
 python3 hooks/install-claude-hooks.py --dry-run    # preview
 python3 hooks/install-claude-hooks.py --install    # back up + install
 python3 hooks/install-claude-hooks.py --uninstall  # revert
 ```
-Installs the 7 lifecycle hooks (SessionStart / UserPromptSubmit / PreToolUse /
-PostToolUse / Notification / Stop / SessionEnd) into `~/.claude/settings.json`.
-Gives the full needsResponse / working / done state machine, and `SessionEnd`
-removes a session from the dashboard when you exit / `/clear` / log out — so an
-idle "needs you" prompt never outlives the session.
+Installs the current high-signal lifecycle set into `~/.claude/settings.json`:
+session/turn start and end, permission and elicitation waits, successful and
+failed tools, subagents, compaction, normal stop, stop failure, model switches,
+and working-directory changes. Claude Code uses the same hooks in the terminal,
+IDE, and Desktop app. Status handlers use Claude's exec-form command plus
+`async: true`; they never enter the agent's critical path. `PostModelSwitch`
+updates the displayed model, `CwdChanged.new_cwd` updates the displayed project
+without changing progress state, and `SessionEnd` removes the session when it
+really closes.
 
 ## Codex
 
-Codex calls a `notify` program with the event JSON as an argument. Point it at
-the forwarder, which POSTs to `…/hook?agent=codex`:
+Codex sends lifecycle event JSON on stdin to commands registered in
+`~/.codex/hooks.json`. The universal installer safely appends VibeBuddy groups
+for all 12 events supported by the current Codex hook schema: SessionStart,
+UserPromptSubmit, PreToolUse, PostToolUse, PermissionRequest, PreCompact,
+PostCompact, SubagentStart, SubagentStop, Stop, Interrupt, and SessionEnd.
+Existing hook groups are retained.
 
-`~/.codex/config.toml`:
-```toml
-notify = ["<path-to-iOS-vibebuddy>/hooks/codex-notify.sh"]
-```
-Codex currently emits `agent-turn-complete`, which shows the session as **done**
-(with the last assistant message). If your Codex build also supports the richer
-hook events (SessionStart/Stop/…), install them pointing at `…/hook?agent=codex`
-and they flow through the same state machine.
+Released Codex builds currently skip command hooks carrying `async: true`, even
+though the rolling documentation describes asynchronous handlers. VibeBuddy
+therefore installs synchronous handlers with a three-second hook limit; the
+forwarder uses a one-second local HTTP cap so a missing daemon cannot materially
+delay the agent. `SessionEnd` is synchronous by design.
 
-**Already have a Codex `notify`** (e.g. Codex Computer Use)? Codex allows only one
-notify program, so use the chaining wrapper instead — it calls your existing
-notify *and* forwards to vibebuddy:
-```toml
-notify = ["<path-to-iOS-vibebuddy>/hooks/codex-notify-chain.sh"]
+```bash
+python3 hooks/install-codex-hooks.py --install
 ```
-Set `CODEX_COMPUTER_USE_NOTIFY` to your existing notify program when you need
-the wrapper to call it first.
+
+Codex requires explicit trust after `hooks.json` changes. Start a fresh Codex
+session, run `/hooks`, review the VibeBuddy entries, and trust them. The installer
+does not read or forge Codex's trust state.
+
+### Codex Desktop
+
+Codex Desktop does not execute the user's CLI `hooks.json`. VibeBuddy therefore
+tails the local `~/.codex/sessions/**/rollout-*.jsonl` stream in addition to the
+CLI hooks. `task_started`, tool records, `task_complete`, and `turn_aborted` feed
+the same reducer, so desktop work appears without `/hooks` trust. On startup only
+currently active desktop turns are restored; old completed rollouts are not
+replayed into the dashboard.
 
 
 ## Daemon

@@ -53,10 +53,17 @@ public actor SessionStore {
     /// the new snapshot to every subscriber. Returns false if it wasn't a hook.
     @discardableResult
     public func ingest(_ data: Data, agent: AgentKind = .claudeCode, receivedAt: Date) -> Bool {
-        // Source-aware decode: the `?agent=` value selects the per-source decoder
-        // (Claude-shape passthrough by default; Codex/Grok have their own).
+        // Source-aware decode: the `?agent=` value tags Claude-shaped lifecycle
+        // hooks directly and selects a translator only for different envelopes.
         guard let event = HookDecoder.decode(data, agent: agent, receivedAt: receivedAt)
         else { return false }
+        ingest(event)
+        return true
+    }
+
+    /// Apply an already-normalized event from a local monitor such as the Codex
+    /// Desktop rollout tailer. Hook payload parsing remains in the Data overload.
+    public func ingest(_ event: HookEvent) {
         let wasWaiting = reducer.sessions[event.sessionID]?.status == .needsResponse
         if let path = event.transcriptPath { transcriptPaths[event.sessionID] = path }
         reducer.apply(event)
@@ -78,7 +85,6 @@ public actor SessionStore {
            session.status == .needsResponse, let handler = needsResponseHandler {
             Task { await handler(session) }
         }
-        return true
     }
 
     public func beginApproval(sessionID: String, _ approval: PendingApproval, at: Date) {
@@ -116,9 +122,8 @@ public actor SessionStore {
     }
 
     /// The session's recent output (user prompts + assistant prose / tool activity)
-    /// for the detail pane. Empty when the session has no known transcript — e.g.
-    /// an agent that doesn't report a `transcriptPath` (Codex) — so the UI can show
-    /// a graceful "no transcript" state.
+    /// for the detail pane. Empty when the session has no known transcript, so
+    /// the UI can show a graceful "no transcript" state.
     public func recentTranscript(sessionID: String, limit: Int = 12) -> [TranscriptEntry] {
         guard let path = transcriptPaths[sessionID] else { return [] }
         return TranscriptReader.recentEntries(path: path, limit: limit) ?? []

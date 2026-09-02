@@ -16,7 +16,7 @@ struct EnrichmentTests {
         #expect(e?.transcriptPath == "/tmp/x.jsonl")
     }
 
-    @Test("reducer.enrich sets model, tokens, and (when working) summary")
+    @Test("reducer.enrich sets model, tokens, and a summary when not waiting")
     func enrichSetsFields() {
         var r = SessionReducer()
         r.apply(HookEvent(kind: .sessionStart, sessionID: "s", cwd: "/x/p", timestamp: t0))
@@ -58,7 +58,7 @@ struct EnrichmentTests {
         await store.ingest(Data(payload.utf8), receivedAt: t0)
 
         let s = await store.snapshot(now: t0).sessions.first
-        #expect(s?.status == .working)
+        #expect(s?.status == .done)
         #expect(s?.model == "claude-opus-4-8")
         #expect(s?.tokens == 1000)
         #expect(s?.summary == "finished refactor")

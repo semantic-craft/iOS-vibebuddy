@@ -5,10 +5,9 @@ import VibeBuddyKit
 /// `AgentKind` at the route) selects which decoder turns the raw hook payload
 /// into a normalized `HookEvent`.
 ///
-/// Claude-shape CLIs (Claude Code and its forks — qwen, kimi, …) are the
+/// Claude-shape lifecycle hooks (Claude Code, Codex, qwen, kimi, …) are the
 /// default/passthrough and need no translation. CLIs with a different wire shape
-/// get their own pure decoder dispatched here. **Adding a source is one `case` +
-/// one decoder + one test** (see `GrokParser` / `GrokParserTests` for the pattern).
+/// get their own pure decoder dispatched here.
 public enum HookDecoder {
     public static func decode(
         _ data: Data,
@@ -17,8 +16,7 @@ public enum HookDecoder {
     ) -> HookEvent? {
         switch agent {
         case .codex:
-            // Codex emits its own `notify` envelope, not a Claude-shape hook.
-            return CodexParser.parse(data, receivedAt: receivedAt)
+            return HookParser.parse(data, agent: .codex, receivedAt: receivedAt)
         case .grok:
             // Grok's envelope is camelCase keys with snake_case event values.
             return GrokParser.parse(data, receivedAt: receivedAt)
@@ -27,10 +25,7 @@ public enum HookDecoder {
             // (BeforeTool/AfterAgent/…), plus the Antigravity-2.0 spelling.
             return AntigravityParser.parse(data, receivedAt: receivedAt)
         default:
-            // Claude-shape passthrough, with Codex notify kept as a defensive
-            // fallback so existing flows are byte-for-byte unchanged.
             return HookParser.parse(data, agent: agent, receivedAt: receivedAt)
-                ?? CodexParser.parse(data, receivedAt: receivedAt)
         }
     }
 }

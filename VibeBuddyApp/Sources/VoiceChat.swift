@@ -39,10 +39,7 @@ final class VoiceChat: ObservableObject {
     private var realtime: (any RealtimeVoiceProvider)?
     private var audioIO: RealtimeAudioIO?
     private var eventTask: Task<Void, Never>?
-    private var assistantBuffer = ""
-    /// Keeps the mic muted for the whole model turn (un-mutes only when the turn
-    /// is complete AND playback drained) so the model never hears its own echo.
-    private var gate = HalfDuplexGate()
+    private var coordinator: VoiceCallCoordinator?
 
     init(contextProvider: @escaping () -> [AgentSession],
          actionHandler: @escaping (VoiceAction) -> String) {
@@ -119,11 +116,19 @@ final class VoiceChat: ObservableObject {
         let io = RealtimeAudioIO(inputSampleRate: provider.inputSampleRate)
         realtime = session
         audioIO = io
+        let coordinator = VoiceCallCoordinator(
+            audio: io,
+            actionHandler: actionHandler,
+            sendToolResult: { callID, name, result in
+                Task { await session.sendToolResult(callID: callID, name: name, result: result) }
+            },
+            closeSession: { [weak self] in self?.closeRealtimeSession() }
+        )
+        self.coordinator = coordinator
         activeProvider = provider
-        assistantBuffer = ""
         lastUserText = ""; lastReply = ""
-        gate = HalfDuplexGate()
-        phase = .listening
+        coordinator.handle(.connected)
+        syncFromCoordinator(coordinator)
 
         eventTask = Task { [weak self] in
             let stream = await session.start(instructions: instructions, voice: voice, tools: VoiceTools.all)
@@ -134,10 +139,9 @@ final class VoiceChat: ObservableObject {
         io.onAudioFrame = { @Sendable data in Task { await session.appendAudio(data) } }
         io.onPlaybackDrained = { [weak self] in
             Task { @MainActor in
-                guard let self, let io = self.audioIO else { return }
-                self.gate.playbackDrained()    // only re-opens if the turn is also complete
-                io.micMuted = self.gate.micMuted
-                if !self.gate.micMuted, self.phase == .speaking { self.phase = .listening }
+                guard let self, let coordinator = self.coordinator else { return }
+                coordinator.playbackDrained()
+                self.syncFromCoordinator(coordinator)
             }
         }
         do {
@@ -153,24 +157,16 @@ final class VoiceChat: ObservableObject {
         // Ignore events that arrive after teardown (e.g. the model's farewell audio
         // still streaming in when a close phrase ended the call) — otherwise a late
         // .audioDelta re-sets phase=.speaking with audioIO already gone → stuck.
-        guard realtime != nil else { return }
+        guard realtime != nil, let coordinator else { return }
         switch event {
         case .connected:
             voiceLog.info("realtime connected")
         case .userTranscript(let text, _):
-            lastUserText = text
             if VoiceCloseIntent.shouldClose(text) {     // "再见 / 关闭 / bye" → hang up hands-free
                 voiceLog.info("voice close phrase heard — ending call")
-                stopRealtime()
             }
-        case .assistantTranscript(let text, let final):
-            if final { lastReply = text; assistantBuffer = "" }
-            else { assistantBuffer += text; lastReply = assistantBuffer }
-        case .audioDelta(let pcm):
-            gate.modelAudioReceived()       // half-duplex: mute for the whole turn
-            audioIO?.micMuted = gate.micMuted
-            phase = .speaking
-            audioIO?.enqueue(pcm)
+        case .assistantTranscript, .audioDelta:
+            break
         case .speechStarted:                // server detected real user speech
             break
         case .toolCall(let name, let arguments, let callID):
@@ -179,32 +175,54 @@ final class VoiceChat: ObservableObject {
             // command. Decode strictly; on garbage `action` is `.none` and we run
             // nothing. Feed the confirmation back so the model can speak it.
             let action = VoiceTools.action(name: name, arguments: arguments)
-            let result = action == .none ? "Sorry, I couldn't do that." : actionHandler(action)
             voiceLog.info("voice tool=\(name, privacy: .public) resolved=\(action != .none, privacy: .public)")
-            if action != .none { lastReply = result }
-            let session = realtime
-            Task { await session?.sendToolResult(callID: callID, name: name, result: result) }
+            _ = callID
         case .responseDone:
-            gate.turnDidComplete()          // un-mutes once playback also drains
-            audioIO?.micMuted = gate.micMuted
-            if !gate.micMuted { phase = .listening }
+            break
         case .failed(let message):
             voiceLog.error("realtime failed: \(message, privacy: .public)")
-            errorText = message
-            stopRealtime()                  // tear down cleanly so the next tap starts fresh
         case .closed:
             break
         }
+        coordinator.handle(event)
+        syncFromCoordinator(coordinator)
+        if coordinator.phase == .idle { self.coordinator = nil }
     }
 
     private func stopRealtime() {
+        if let coordinator {
+            self.coordinator = nil
+            coordinator.stop()
+        } else {
+            audioIO?.stop()
+            closeRealtimeSession()
+        }
+        phase = .idle
+    }
+
+    private func closeRealtimeSession() {
         eventTask?.cancel(); eventTask = nil
-        audioIO?.stop(); audioIO = nil
+        audioIO = nil
         let session = realtime
         realtime = nil
         Task { await session?.close() }
         activeProvider = nil
-        phase = .idle
+    }
+
+    private func syncFromCoordinator(_ coordinator: VoiceCallCoordinator) {
+        phase = Self.phase(from: coordinator.phase)
+        lastUserText = coordinator.lastUserText
+        lastReply = coordinator.lastReply
+        errorText = coordinator.errorText
+    }
+
+    private static func phase(from coordinatorPhase: VoiceCallPhase) -> Phase {
+        switch coordinatorPhase {
+        case .idle: .idle
+        case .listening: .listening
+        case .thinking: .thinking
+        case .speaking: .speaking
+        }
     }
 
     /// Called when the provider (or its model/voice) changes in Settings: if a

@@ -64,6 +64,9 @@ private struct SetupSettings: View {
             Text("Wires (or removes) the vibebuddy hook in every detected CLI's config (~/.claude/settings.json …) via the bundled installer. Reversible. Re-run after installing a new CLI.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            Text("Codex Desktop is monitored automatically from its local rollout stream. Codex CLI hooks still require explicit trust: start a fresh CLI session, run /hooks, review the VibeBuddy entries, and trust them.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
             if !setup.lastOutput.isEmpty {
                 ScrollView {

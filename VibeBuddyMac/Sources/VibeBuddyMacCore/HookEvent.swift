@@ -13,6 +13,9 @@ public struct HookEvent: Sendable, Equatable {
         case notification
         case stop
         case sessionEnd
+        /// Session metadata changed without implying any progress transition.
+        /// Claude emits this for model and working-directory changes.
+        case sessionMetadataChanged
     }
 
     public let kind: Kind
@@ -22,6 +25,7 @@ public struct HookEvent: Sendable, Equatable {
     public let toolName: String?
     public let message: String?
     public let transcriptPath: String?
+    public let model: String?
     /// A `PostToolUse` whose tool reported an error (non-zero exit, `is_error`,
     /// or interruption). Drives the session's `failed`/stuck signal.
     public let toolError: Bool
@@ -35,6 +39,7 @@ public struct HookEvent: Sendable, Equatable {
         toolName: String? = nil,
         message: String? = nil,
         transcriptPath: String? = nil,
+        model: String? = nil,
         toolError: Bool = false,
         timestamp: Date
     ) {
@@ -45,6 +50,7 @@ public struct HookEvent: Sendable, Equatable {
         self.toolName = toolName
         self.message = message
         self.transcriptPath = transcriptPath
+        self.model = model
         self.toolError = toolError
         self.timestamp = timestamp
     }

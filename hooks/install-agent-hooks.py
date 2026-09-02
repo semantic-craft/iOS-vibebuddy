@@ -12,11 +12,8 @@ rather than duplicated.
   --uninstall  remove vibebuddy hooks from every detected CLI
 
 Idempotent: every per-CLI installer is idempotent, so a re-run is a no-op.
-Fail-open: hooks are fire-and-forget; a down daemon never blocks any CLI.
-
-Codex is detected but NOT auto-managed: it exposes a single `notify` slot that is
-usually already occupied (e.g. chained through another tool), so clobbering it is
-unsafe. See hooks/README.md to wire `codex-notify-chain.sh` by hand.
+Fail-open: hooks are fire-and-forget; a down daemon never blocks any CLI. Codex
+uses first-class lifecycle hooks, leaving its separate notify command untouched.
 """
 import os
 import subprocess
@@ -27,14 +24,13 @@ HOOKS_DIR = os.path.dirname(os.path.abspath(__file__))
 # (name, detect-path, per-CLI installer). Detection is config presence only.
 CLIS = [
     ("claude",      "~/.claude/settings.json",   "install-claude-hooks.py"),
+    ("codex",       "~/.codex/config.toml",      "install-codex-hooks.py"),
     ("qwen",        "~/.qwen/settings.json",     "install-qwen-hooks.py"),
     ("grok",        "~/.grok",                   "install-grok-hooks.py"),
     ("antigravity", "~/.gemini/antigravity-cli", "install-antigravity-hooks.py"),
     ("kimi",        "~/.kimi-code/config.toml",  "install-kimi-hooks.py"),
     ("opencode",    "~/.config/opencode",        "install-opencode-hooks.py"),
 ]
-# Detected-but-manual (single-slot `notify`, user-owned).
-CODEX = ("codex", "~/.codex/config.toml")
 
 
 def present(path):
@@ -71,10 +67,6 @@ def main():
             print(f"  ! {n} installer exited {r.returncode}: {err or '(no stderr)'}")
         elif err:
             print(err)
-
-    if present(CODEX[1]):
-        print("\n=== codex  (manual — single notify slot, user-owned) ===")
-        print("not auto-managed; see hooks/README.md to wire codex-notify-chain.sh.")
 
     print(f"\ndone: {len(found)} CLI(s) processed, {failures} failure(s).")
     sys.exit(1 if failures else 0)

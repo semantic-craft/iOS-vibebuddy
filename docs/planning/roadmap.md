@@ -41,7 +41,7 @@ Phased so each step ends at something runnable and verifiable. No hard dates (pe
 - `git` repo (done) + monorepo layout.
 - `VibeBuddyKit` Swift package: `AgentKind`, `SessionStatus`, `WaitKind`, `AgentSession`, `Snapshot`, `ServerEvent`, `PairingPayload`.
 - Lock the wire protocol (REST + WS frames).
-- **Skills**: `to-issues` (slice the work), `tdd-feature` + `test-generator` (decoding tests first), `concurrency` (Sendable model).
+- **Skills**: `to-tickets` (slice the work), `tdd-feature` + `test-generator` (decoding tests first), `concurrency` (Sendable model).
 - **DoD**: `swift test` green — `Snapshot` / `ServerEvent` / `PairingPayload` round-trip encode→decode.
 
 ## Phase B — VibeBuddyMac core (headless logic first)
@@ -100,4 +100,4 @@ Phased so each step ends at something runnable and verifiable. No hard dates (pe
 
 ## Skill → phase index
 
-`app-planner`(this planning) · `to-prd`/`to-issues`(spec→tasks) · `tdd-feature`/`test-generator`(A,B) · `concurrency`(A,B,D) · `logging-setup`(B,E) · `coding-best-practices`(B,C) · `ui-review`(C,E) · `networking-layer`(D) · `settings-screen`(D) · `navigation-patterns`(E) · `accessibility-generator`(E) · `run-simulator`(E) · `live-activity-generator`(F) · `background-processing`(F) · `push-notifications`/`persistence-setup`(v2).
+`app-planner`(this planning) · `to-spec`/`to-tickets`(spec→tasks) · `tdd-feature`/`test-generator`(A,B) · `concurrency`(A,B,D) · `logging-setup`(B,E) · `coding-best-practices`(B,C) · `ui-review`(C,E) · `networking-layer`(D) · `settings-screen`(D) · `navigation-patterns`(E) · `accessibility-generator`(E) · `run-simulator`(E) · `live-activity-generator`(F) · `background-processing`(F) · `push-notifications`/`persistence-setup`(v2).

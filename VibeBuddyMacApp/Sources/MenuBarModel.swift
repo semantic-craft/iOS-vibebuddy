@@ -155,6 +155,7 @@ final class MenuBarModel: ObservableObject {
         let server = VibeBuddyServer(store: store, token: token, port: port,
                                      pusher: nil, deviceTokens: deviceTokens,
                                      activityTokens: activityTokens,
+                                     codexRolloutMonitor: CodexRolloutMonitor(),
                                      approvalRegistry: approvalRegistry,
                                      allowStore: allowStore,
                                      sessionAllow: sessionAllow,

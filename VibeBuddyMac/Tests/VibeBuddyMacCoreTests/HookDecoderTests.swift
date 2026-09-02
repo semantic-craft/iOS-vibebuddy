@@ -4,9 +4,8 @@ import VibeBuddyKit
 @testable import VibeBuddyMacCore
 
 /// The source-aware seam: the `?agent=` value selects a per-source decoder.
-/// Claude-shape is the default/passthrough; specific wire shapes (Codex, Grok)
-/// get their own pure decoder. Adding a source = one `case` + one decoder + one
-/// test — this suite is the pattern #04/#05 copy.
+/// Claude-shape lifecycle hooks are the default/passthrough; sources such as
+/// Grok with a different wire shape get their own pure decoder.
 @Suite("HookDecoder — source-aware dispatch")
 struct HookDecoderTests {
 
@@ -31,24 +30,34 @@ struct HookDecoderTests {
         #expect(e?.agent == .qwen)
     }
 
-    @Test("codex source routes to the Codex notify decoder, tagged codex")
+    @Test("codex source decodes first-class lifecycle hooks, tagged codex")
     func codexRoute() {
         let e = HookDecoder.decode(
-            Data(#"{"type":"agent-turn-complete","thread-id":"t1","last-assistant-message":"done"}"#.utf8),
+            Data(#"{"hook_event_name":"PreToolUse","session_id":"t1","cwd":"/x/proj","tool_name":"Bash"}"#.utf8),
             agent: .codex, receivedAt: now)
-        #expect(e?.kind == .stop)
+        #expect(e?.kind == .preToolUse)
         #expect(e?.agent == .codex)
         #expect(e?.sessionID == "t1")
+        #expect(e?.toolName == "Bash")
     }
 
-    @Test("a Codex notify still decodes under a claude-shape source (defensive fallback, unchanged)")
-    func codexFallbackUnderDefault() {
-        // Preserves today's cascade: claude-shape parse first, Codex notify as fallback.
+    @Test("Codex PermissionRequest becomes a permission wait")
+    func codexPermissionRequest() {
         let e = HookDecoder.decode(
-            Data(#"{"type":"agent-turn-complete","thread-id":"t9"}"#.utf8),
-            agent: .claudeCode, receivedAt: now)
-        #expect(e?.kind == .stop)
+            Data(#"{"hook_event_name":"PermissionRequest","session_id":"t9","cwd":"/x/proj","tool_name":"Bash"}"#.utf8),
+            agent: .codex, receivedAt: now)
+        #expect(e?.kind == .notification)
         #expect(e?.sessionID == "t9")
+        #expect(e?.message == "Permission required for Bash")
+    }
+
+    @Test("Codex Stop carries the last assistant message")
+    func codexStopSummary() {
+        let e = HookDecoder.decode(
+            Data(#"{"hook_event_name":"Stop","session_id":"t10","cwd":"/x/proj","last_assistant_message":"All tests pass."}"#.utf8),
+            agent: .codex, receivedAt: now)
+        #expect(e?.kind == .stop)
+        #expect(e?.message == "All tests pass.")
     }
 
     @Test("grok source routes to the Grok decoder, tagged grok")

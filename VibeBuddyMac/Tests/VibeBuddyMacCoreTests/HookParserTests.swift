@@ -65,6 +65,109 @@ struct HookParserTests {
         #expect(e?.toolError == false)
     }
 
+    @Test("PostToolUseFailure is normalized as a failed tool completion")
+    func postToolUseFailure() {
+        let e = parse("""
+        {"hook_event_name":"PostToolUseFailure","session_id":"abc","tool_name":"Bash",
+         "error":"Process exited with code 1"}
+        """)
+        #expect(e?.kind == .postToolUse)
+        #expect(e?.toolError == true)
+        #expect(e?.message == "Process exited with code 1")
+    }
+
+    @Test("StopFailure is normalized as a failed completion")
+    func stopFailure() {
+        let e = parse("""
+        {"hook_event_name":"StopFailure","session_id":"abc","error":"API request failed"}
+        """)
+        #expect(e?.kind == .stop)
+        #expect(e?.message == "API request failed")
+    }
+
+    @Test("subagent and compaction lifecycle stay in the working state")
+    func subagentAndCompaction() {
+        let cases: [(String, HookEvent.Kind, String)] = [
+            (#"{"hook_event_name":"SubagentStart","session_id":"abc","agent_type":"Explore"}"#,
+             .preToolUse, "Subagent: Explore"),
+            (#"{"hook_event_name":"SubagentStop","session_id":"abc","agent_type":"Explore"}"#,
+             .postToolUse, "Subagent: Explore"),
+            (#"{"hook_event_name":"PreCompact","session_id":"abc"}"#,
+             .preToolUse, "Context compaction"),
+            (#"{"hook_event_name":"PostCompact","session_id":"abc"}"#,
+             .postToolUse, "Context compaction"),
+        ]
+        for (json, kind, tool) in cases {
+            let event = parse(json)
+            #expect(event?.kind == kind)
+            #expect(event?.toolName == tool)
+        }
+    }
+
+    @Test("Elicitation becomes a user-input wait")
+    func elicitation() {
+        let e = parse("""
+        {"hook_event_name":"Elicitation","session_id":"abc","message":"Choose a deployment target"}
+        """)
+        #expect(e?.kind == .notification)
+        #expect(e?.message == "Choose a deployment target")
+    }
+
+    @Test("current Claude lifecycle continuations return to working")
+    func currentClaudeContinuationEvents() {
+        let cases: [(String, String)] = [
+            ("ElicitationResult", "MCP elicitation"),
+            ("PostToolBatch", "Tool batch"),
+            ("TaskCompleted", "Task"),
+        ]
+        for (name, tool) in cases {
+            let event = parse(#"{"hook_event_name":"\#(name)","session_id":"abc"}"#)
+            #expect(event?.kind == .postToolUse)
+            #expect(event?.toolName == tool)
+        }
+    }
+
+    @Test("TaskCreated is visible as active delegation")
+    func taskCreated() {
+        let event = parse(#"{"hook_event_name":"TaskCreated","session_id":"abc"}"#)
+        #expect(event?.kind == .preToolUse)
+        #expect(event?.toolName == "Task")
+    }
+
+    @Test("PostModelSwitch updates metadata with the canonical target model")
+    func postModelSwitch() {
+        let event = parse("""
+        {"hook_event_name":"PostModelSwitch","session_id":"abc",
+         "cwd":"/x/proj","from_model":"claude-sonnet-4-6",
+         "to_model":"claude-opus-5","source":"user"}
+        """)
+        #expect(event?.kind == .sessionMetadataChanged)
+        #expect(event?.model == "claude-opus-5")
+        #expect(event?.cwd == "/x/proj")
+    }
+
+    @Test("CwdChanged uses new_cwd rather than the previous common cwd")
+    func cwdChanged() {
+        let event = parse("""
+        {"hook_event_name":"CwdChanged","session_id":"abc",
+         "cwd":"/x/proj/src","old_cwd":"/x/proj","new_cwd":"/x/proj/src"}
+        """)
+        #expect(event?.kind == .sessionMetadataChanged)
+        #expect(event?.cwd == "/x/proj/src")
+        #expect(event?.model == nil)
+    }
+
+    @Test("Codex Interrupt is normalized as an interrupted completion")
+    func codexInterrupt() {
+        let e = HookParser.parse(
+            Data(#"{"hook_event_name":"Interrupt","session_id":"abc"}"#.utf8),
+            agent: .codex,
+            receivedAt: now
+        )
+        #expect(e?.kind == .stop)
+        #expect(e?.message == "Turn interrupted")
+    }
+
     @Test("parses a Stop payload")
     func stop() {
         let e = parse("""
@@ -87,7 +190,7 @@ struct HookParserTests {
     @Test("unknown hook_event_name → nil (ignored)")
     func unknownKind() {
         #expect(parse("""
-        {"hook_event_name":"PreCompact","session_id":"abc"}
+        {"hook_event_name":"FutureTelemetryEvent","session_id":"abc"}
         """) == nil)
     }
 

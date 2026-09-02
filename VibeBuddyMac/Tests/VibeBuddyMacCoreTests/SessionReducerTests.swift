@@ -14,11 +14,13 @@ struct SessionReducerTests {
         cwd: String? = "/Users/me/projects/vibebuddy",
         tool: String? = nil,
         message: String? = nil,
+        model: String? = nil,
         toolError: Bool = false,
         at: TimeInterval = 0
     ) -> HookEvent {
         HookEvent(kind: kind, sessionID: sid, agent: .claudeCode,
                   cwd: cwd, toolName: tool, message: message,
+                  model: model,
                   toolError: toolError, timestamp: t0.addingTimeInterval(at))
     }
 
@@ -94,14 +96,17 @@ struct SessionReducerTests {
         #expect(r.sessions["s1"]?.isStuck == false)
     }
 
-    @Test("SessionStart creates a working session with project from cwd")
+    @Test("SessionStart creates an idle done session until the first prompt")
     func startCreates() {
         var r = SessionReducer()
         r.apply(ev(.sessionStart))
         let s = r.sessions["s1"]
-        #expect(s?.status == .working)
+        #expect(s?.status == .done)
         #expect(s?.project == "vibebuddy")
         #expect(s?.agent == .claudeCode)
+
+        r.apply(ev(.userPromptSubmit, at: 1))
+        #expect(r.sessions["s1"]?.status == .working)
     }
 
     @Test("Notification about permission → needsResponse/permission with summary")
@@ -146,8 +151,9 @@ struct SessionReducerTests {
     func statusSinceStable() {
         var r = SessionReducer()
         r.apply(ev(.sessionStart, at: 0))
+        r.apply(ev(.userPromptSubmit, at: 1))
         r.apply(ev(.preToolUse, tool: "Read", at: 3))   // still working
-        #expect(r.sessions["s1"]?.statusSince == t0)
+        #expect(r.sessions["s1"]?.statusSince == t0.addingTimeInterval(1))
     }
 
     @Test("statusSince moves on a real transition")
@@ -156,6 +162,25 @@ struct SessionReducerTests {
         r.apply(ev(.sessionStart, at: 0))
         r.apply(ev(.notification, message: "permission", at: 4))
         #expect(r.sessions["s1"]?.statusSince == t0.addingTimeInterval(4))
+    }
+
+    @Test("metadata events update model and project without changing progress state")
+    func metadataUpdatePreservesProgress() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart, cwd: "/x/old", at: 0))
+        r.apply(ev(.userPromptSubmit, cwd: "/x/old", at: 1))
+        r.apply(ev(.preToolUse, cwd: "/x/old", tool: "Edit", at: 2))
+        let statusSince = r.sessions["s1"]?.statusSince
+
+        r.apply(ev(.sessionMetadataChanged, cwd: "/x/new", model: "claude-opus-5", at: 3))
+
+        let session = r.sessions["s1"]
+        #expect(session?.status == .working)
+        #expect(session?.statusSince == statusSince)
+        #expect(session?.activeTool == "Edit")
+        #expect(session?.project == "new")
+        #expect(session?.model == "claude-opus-5")
+        #expect(session?.updatedAt == t0.addingTimeInterval(3))
     }
 
     @Test("two sessions are tracked independently")
@@ -169,7 +194,7 @@ struct SessionReducerTests {
         #expect(r.sessions["b"]?.status == .done)
     }
 
-    @Test("Stop on an unknown session creates it as done (late start / Codex notify)")
+    @Test("Stop on an unknown session creates it as done after a missed start")
     func stopCreatesDone() {
         var r = SessionReducer()
         r.apply(ev(.stop, "ghost", cwd: "/x/proj", at: 0))
@@ -177,7 +202,7 @@ struct SessionReducerTests {
         #expect(r.sessions["ghost"]?.project == "proj")
     }
 
-    @Test("Stop carries a summary and agent when provided (Codex turn-complete)")
+    @Test("Stop carries a final summary and agent when provided")
     func stopSummary() {
         var r = SessionReducer()
         r.apply(HookEvent(kind: .stop, sessionID: "c", agent: .codex,
@@ -193,6 +218,7 @@ struct SessionReducerTests {
         r.apply(ev(.sessionStart, "done1", at: 0))
         r.apply(ev(.stop, "done1", at: 1))
         r.apply(ev(.sessionStart, "work1", at: 2))
+        r.apply(ev(.userPromptSubmit, "work1", at: 2.5))
         r.apply(ev(.sessionStart, "need1", at: 3))
         r.apply(ev(.notification, "need1", message: "permission", at: 4))
         let snap = r.snapshot(now: t0.addingTimeInterval(10))
@@ -269,6 +295,7 @@ struct SessionReducerTests {
     func reconcileScopedToWaiting() {
         var r = SessionReducer()
         r.apply(ev(.sessionStart, "w", at: 0))
+        r.apply(ev(.userPromptSubmit, "w", at: 0.5))
         r.apply(ev(.sessionStart, "d", at: 0))
         r.apply(ev(.stop, "d", at: 1))
         r.reconcile(now: t0.addingTimeInterval(100_000), lastActivity: [:], staleAfter: 60)
@@ -353,7 +380,7 @@ struct SessionReducerTests {
         r.apply(ev(.sessionStart))
         r.setTerminalRef(sessionID: "s1", TerminalRef(termProgram: "ghostty", tmux: "/tmp/x,1,0", tmuxPane: "%2"))
         #expect(r.sessions["s1"]?.terminalRef?.tmuxPane == "%2")
-        #expect(r.sessions["s1"]?.status == .working)
+        #expect(r.sessions["s1"]?.status == .done)
     }
 
     // MARK: - Context usage enrichment

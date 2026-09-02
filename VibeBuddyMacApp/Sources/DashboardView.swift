@@ -5,7 +5,7 @@ import VibeBuddyMacCore
 struct DashboardView: View {
     @ObservedObject var model: MenuBarModel
     @Environment(\.openSettings) private var openSettings
-    @State private var statusFilter: SessionStatus? = .needsResponse
+    @State private var statusFilter: SessionStatus? = nil
     @State private var agentFilter: AgentKind? = nil
     @State private var query: String = ""
     // Demo instance pre-selects the approval session so the detail pane (diff +
@@ -39,6 +39,17 @@ struct DashboardView: View {
             .searchable(text: $query, prompt: "Search sessions")
             .searchFocusedCompat($searchFocused)
             .navigationTitle("vibebuddy")
+            .overlay {
+                if filtered.isEmpty {
+                    ContentUnavailableView(
+                        model.sessions.isEmpty ? "No sessions reporting" : "No matching sessions",
+                        systemImage: "waveform.path.ecg",
+                        description: Text(model.sessions.isEmpty
+                            ? "Start a Claude Code or Codex turn. If nothing appears, repair hooks in Settings."
+                            : "Clear a filter or try another search.")
+                    )
+                }
+            }
             .safeAreaInset(edge: .top, spacing: 0) {
                 MacBuddyBar(model: model, voice: model.voiceChat)
             }
@@ -60,6 +71,7 @@ struct DashboardView: View {
                 Button("") { statusFilter = .needsResponse }.keyboardShortcut("1", modifiers: .command)
                 Button("") { statusFilter = .working }.keyboardShortcut("2", modifiers: .command)
                 Button("") { statusFilter = .done }.keyboardShortcut("3", modifiers: .command)
+                Button("") { statusFilter = nil }.keyboardShortcut("0", modifiers: .command)
                 // ⌘F focuses the sessions search field.
                 Button("") { searchFocused = true }.keyboardShortcut("f", modifiers: .command)
                 // ⏎ jumps to the selected session's terminal (no-op without a
@@ -77,6 +89,7 @@ struct DashboardView: View {
     private var sidebar: some View {
         List {
             Section("Status") {
+                allSessionsItem
                 statusItem(.needsResponse, "Needs Response", .orange)
                 statusItem(.working, "Working", .blue)
                 statusItem(.done, "Done", .green)
@@ -96,6 +109,22 @@ struct DashboardView: View {
                 }
             }
         }
+    }
+
+    private var allSessionsItem: some View {
+        Button { statusFilter = nil } label: {
+            HStack {
+                Image(systemName: "rectangle.stack")
+                    .frame(width: 9)
+                    .foregroundStyle(.secondary)
+                Text("All Sessions")
+                Spacer()
+                if statusFilter == nil { Image(systemName: "checkmark").font(.caption) }
+                Text("\(model.sessions.count)").foregroundStyle(.secondary).monospacedDigit()
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func statusItem(_ status: SessionStatus, _ label: LocalizedStringKey, _ color: Color) -> some View {
@@ -225,6 +254,7 @@ private struct SessionRowView: View {
             HStack(spacing: 8) {
                 Circle().fill(statusColor).frame(width: 8, height: 8)
                 Text(session.project).font(.headline)   // row subject = .headline (matches iOS)
+                AgentSourceBadge(agent: session.agent)
                 if session.isStuck {
                     Label("Stuck", systemImage: "exclamationmark.triangle.fill")
                         .font(.caption2.weight(.semibold))
@@ -240,15 +270,16 @@ private struct SessionRowView: View {
                     .help(included ? "In the buddy's context" : "Add to the buddy's context")
                 }
             }
-            // While a tool is running, say what it's doing ("Editing…/Searching…");
-            // otherwise fall back to the prose summary.
-            if session.status == .working, let activity = ToolActivity.phrase(for: session.activeTool) {
-                Text(LocalizedStringKey(activity + "…")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            } else if let s = session.summary {
-                Text(s).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            HStack(spacing: 5) {
+                Text(ToolActivity.label(for: session)).fontWeight(.medium)
+                if let summary = session.summary, !summary.isEmpty {
+                    Text("·").foregroundStyle(.tertiary)
+                    Text(summary).lineLimit(1)
+                }
             }
+            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             HStack(spacing: 6) {
-                Text(session.agent.displayName)
+                Text(session.updatedAt, style: .relative).monospacedDigit()
                 if let cost = session.estimatedCostUSD {
                     Text("≈ $\(cost, specifier: "%.2f")").monospacedDigit()
                 }
@@ -263,6 +294,19 @@ private struct SessionRowView: View {
         case .working: return .blue
         case .done: return .green
         }
+    }
+}
+
+struct AgentSourceBadge: View {
+    let agent: AgentKind
+
+    var body: some View {
+        Text(agent.displayName)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .background(.quaternary, in: Capsule())
     }
 }
 

@@ -17,6 +17,14 @@ SOURCE="${1:-claude}"
 [ "$SOURCE" = "--source" ] && SOURCE="${2:-claude}"
 
 PORT="${VIBEBUDDY_PORT:-9876}"
+MAX_TIME=3
+CONNECT_TIME=1
+if [ "$SOURCE" = "codex" ]; then
+    # Codex currently runs command hooks synchronously. Local delivery should
+    # normally take milliseconds; bound a missing/wedged daemon to one second.
+    MAX_TIME=1
+    CONNECT_TIME=0.25
+fi
 
 # /hook is bearer-token gated (daemon-security/01). Read the daemon's token file
 # at runtime so rotating the token never needs a hook re-install; no token →
@@ -27,6 +35,7 @@ AUTH=(); [ -n "$TOKEN" ] && AUTH=(-H "Authorization: Bearer $TOKEN")
 
 # Fire-and-forget: discard the response body (-o /dev/null) so a blocking hook
 # (e.g. Grok PreToolUse) never mistakes our stdout for an allow/deny decision.
-curl -sS --max-time 3 -o /dev/null "${AUTH[@]}" -X POST --data-binary @- \
+curl -sS --connect-timeout "$CONNECT_TIME" --max-time "$MAX_TIME" -o /dev/null \
+  "${AUTH[@]}" -X POST --data-binary @- \
   "http://127.0.0.1:${PORT}/hook?agent=${SOURCE}" 2>/dev/null || true
 exit 0

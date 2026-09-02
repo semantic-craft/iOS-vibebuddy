@@ -79,7 +79,19 @@ struct GlanceView: View {
                         Button { model.jump(sess) } label: {
                             HStack(spacing: 8 * s) {
                                 Circle().fill(color(sess.status)).frame(width: 8 * s, height: 8 * s)
-                                Text(sess.project).font(.system(size: 13 * s)).foregroundStyle(.white).lineLimit(1)
+                                VStack(alignment: .leading, spacing: 1 * s) {
+                                    HStack(spacing: 5 * s) {
+                                        Text(sess.project).font(.system(size: 13 * s, weight: .semibold))
+                                        Text(sess.agent.displayName)
+                                            .font(.system(size: 9 * s, weight: .semibold))
+                                            .padding(.horizontal, 5 * s).padding(.vertical, 1 * s)
+                                            .background(.white.opacity(0.14), in: Capsule())
+                                    }
+                                    Text(ToolActivity.label(for: sess))
+                                        .font(.system(size: 10 * s, weight: .medium))
+                                        .foregroundStyle(.white.opacity(0.62))
+                                }
+                                .foregroundStyle(.white).lineLimit(1)
                                 if canJump {
                                     Spacer(minLength: 0)
                                     Image(systemName: "terminal")      // click the row to focus its terminal
