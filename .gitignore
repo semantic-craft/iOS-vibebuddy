@@ -40,5 +40,8 @@ dist/*.dmg
 /.claude/skills/to-spec
 /.claude/skills/to-tickets
 # <<< matt-pocock skills <<<
-.scratch/
+.scratch
 .claude/
+
+# Local lint / audit artifacts
+.brooks-lint-history.json
