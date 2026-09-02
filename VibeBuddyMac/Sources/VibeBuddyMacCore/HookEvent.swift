@@ -25,6 +25,9 @@ public struct HookEvent: Sendable, Equatable {
         case started
         case stopped
         case idled
+        /// Identity exists but running/done cannot be claimed, or an
+        /// unattributed wait/end arrived. Must not be inferred from time.
+        case unknown
     }
 
     public let kind: Kind

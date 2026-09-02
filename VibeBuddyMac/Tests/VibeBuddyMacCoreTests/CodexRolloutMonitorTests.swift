@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import VibeBuddyKit
 @testable import VibeBuddyMacCore
 
 @Suite("Codex desktop rollout monitoring")
@@ -52,9 +53,9 @@ struct CodexRolloutMonitorTests {
         _ = parser.parseLine(Data(#"{"type":"session_meta","payload":{"id":"thread-1","cwd":"/x/project","originator":"Codex Desktop"}}"#.utf8), receivedAt: now)
         _ = parser.parseLine(Data(#"{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}"#.utf8), receivedAt: now)
 
-        let call = parser.parseLine(Data(#"{"type":"response_item","payload":{"type":"function_call","namespace":"collaboration","name":"followup_task","call_id":"c1"}}"#.utf8), receivedAt: now)
+        let call = parser.parseLine(Data(#"{"type":"response_item","payload":{"type":"function_call","namespace":"docs","name":"search","call_id":"c1"}}"#.utf8), receivedAt: now)
         #expect(call?.kind == .preToolUse)
-        #expect(call?.toolName == "collaboration/followup_task")
+        #expect(call?.toolName == "docs/search")
 
         let output = parser.parseLine(Data(#"{"type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"ok"}}"#.utf8), receivedAt: now)
         #expect(output?.kind == .postToolUse)
@@ -373,6 +374,129 @@ struct CodexRolloutMonitorTests {
         #expect(diagnostics.queuedEventCount == 0)
     }
 
+    @Test("reliable spawn/send/wait/stop attach named children to the parent task")
+    func collaborationReliableIdentity() {
+        var parser = CodexRolloutParser()
+        var reducer = SessionReducer()
+        apply([
+            sessionMeta(id: "thread-1"),
+            taskStarted(id: "turn-1"),
+            collabCall(name: "spawn_agent", callID: "c-a", arguments: #"{"task_name":"reviewer","agent_type":"worker"}"#),
+            collabOutput(callID: "c-a", output: #"{"task_name":"/root/reviewer"}"#),
+            collabCall(name: "spawn_agent", callID: "c-b", arguments: #"{"task_name":"explorer","agent_type":"researcher"}"#),
+            collabCall(name: "send_message", callID: "c-send", arguments: #"{"target":"reviewer"}"#),
+            collabItem(tool: "wait", status: "completed", callID: "c-wait-named",
+                       receiverAgents: ["explorer"]),
+            collabCall(name: "interrupt_agent", callID: "c-stop", arguments: #"{"target":"reviewer"}"#),
+        ], parser: &parser, reducer: &reducer)
+
+        let session = reducer.sessions["thread-1"]
+        #expect(session?.status == .working)
+        #expect(session?.agent == .codex)
+        let ids = Set(session?.childAgents?.map(\.id) ?? [])
+        #expect(ids == ["task:reviewer", "task:explorer"])
+        #expect(session?.childAgents?.contains { $0.id.contains("project") } != true)
+        let reviewer = session?.childAgents?.first { $0.id == "task:reviewer" }
+        let explorer = session?.childAgents?.first { $0.id == "task:explorer" }
+        #expect(reviewer?.kind == .task)
+        #expect(reviewer?.name == "reviewer")
+        #expect(reviewer?.type == "worker")
+        #expect(reviewer?.status == .completed)
+        #expect(explorer?.status == .completed)
+        #expect(explorer?.name == "explorer")
+        #expect(session?.runningChildAgentCount == 0)
+        #expect(session?.childTopologyDegraded != true)
+        #expect(ToolActivity.childSummary(for: session!)?.contains("reviewer") == true
+                || ToolActivity.childSummary(for: session!)?.contains("explorer") == true
+                || ToolActivity.childSummary(for: session!)?.contains("finished") == true)
+    }
+
+    @Test("missing identity or wait-any end signal is unknown/degraded, never guessed running or done")
+    func collaborationUnknownAndDegraded() {
+        var parser = CodexRolloutParser()
+        var reducer = SessionReducer()
+        apply([
+            sessionMeta(id: "thread-1", cwd: "/x/secret-project"),
+            taskStarted(id: "turn-1"),
+            collabCall(name: "spawn_agent", callID: "c-anon", arguments: #"{"agent_type":"default"}"#),
+            collabOutput(callID: "c-anon", output: #"{"ok":true}"#),
+        ], parser: &parser, reducer: &reducer)
+
+        let afterAnon = reducer.sessions["thread-1"]
+        #expect(afterAnon?.childTopologyDegraded == true)
+        #expect(afterAnon?.childAgents?.isEmpty != false || afterAnon?.childAgents == nil)
+        #expect(afterAnon?.childAgents?.contains { $0.id.contains("secret-project") } != true)
+        #expect(afterAnon?.runningChildAgentCount == 0)
+
+        var named = SessionReducer()
+        var namedParser = CodexRolloutParser()
+        apply([
+            sessionMeta(id: "thread-1"),
+            taskStarted(id: "turn-1"),
+            collabCall(name: "spawn_agent", callID: "c-a", arguments: #"{"task_name":"alpha"}"#),
+            collabCall(name: "spawn_agent", callID: "c-b", arguments: #"{"task_name":"beta"}"#),
+            collabCall(name: "wait_agent", callID: "c-wait", arguments: #"{"timeout_ms":120000}"#),
+            collabItem(tool: "wait", status: "completed", callID: "c-wait",
+                       receiverAgents: []),
+            collabOutput(callID: "c-wait", output: #"{"message":"Wait completed.","timed_out":false}"#),
+        ], parser: &namedParser, reducer: &named)
+
+        let session = named.sessions["thread-1"]
+        #expect(session?.childTopologyDegraded == true)
+        #expect(Set(session?.childAgents?.map(\.id) ?? []) == ["task:alpha", "task:beta"])
+        #expect(session?.childAgents?.allSatisfy { $0.status == .unknown } == true)
+        #expect(session?.runningChildAgentCount == 0)
+        #expect(session?.childAgents?.contains { $0.status == .completed } != true)
+        #expect(ToolActivity.childSummary(for: session!)?.contains("Unknown") == true
+                || ToolActivity.childSummary(for: session!)?.contains("unknown") == true)
+    }
+
+    @Test("parent turn ending first does not invent child completion")
+    func collaborationParentTurnEndsFirst() {
+        var parser = CodexRolloutParser()
+        var reducer = SessionReducer()
+        apply([
+            sessionMeta(id: "thread-1"),
+            taskStarted(id: "turn-1"),
+            collabCall(name: "spawn_agent", callID: "c-a", arguments: #"{"task_name":"alpha"}"#),
+            collabCall(name: "spawn_agent", callID: "c-b", arguments: #"{"task_name":"beta"}"#),
+            taskComplete(id: "turn-1"),
+        ], parser: &parser, reducer: &reducer)
+
+        let session = reducer.sessions["thread-1"]
+        #expect(session?.status == .done)
+        #expect(session?.activeTool == nil)
+        #expect(Set(session?.childAgents?.map(\.id) ?? []) == ["task:alpha", "task:beta"])
+        #expect(session?.childAgents?.allSatisfy { $0.status == .running } == true)
+        #expect(session?.runningChildAgentCount == 2)
+    }
+
+    @Test("daemon mid-start restores running collab children even after the parent turn ended")
+    func collaborationBootstrapMidStart() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        _ = try fixture.write(
+            named: "rollout-collab.jsonl",
+            lines: [
+                sessionMeta(id: "desktop-collab"),
+                taskStarted(id: "turn-1"),
+                collabCall(name: "spawn_agent", callID: "c-a", arguments: #"{"task_name":"alpha"}"#),
+                collabCall(name: "spawn_agent", callID: "c-b", arguments: #"{"task_name":"beta"}"#),
+                taskComplete(id: "turn-1"),
+            ]
+        )
+
+        let monitor = CodexRolloutMonitor(root: fixture.root)
+        var reducer = SessionReducer()
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+
+        let session = reducer.sessions["desktop-collab"]
+        #expect(session?.status == .done)
+        #expect(Set(session?.childAgents?.map(\.id) ?? []) == ["task:alpha", "task:beta"])
+        #expect(session?.childAgents?.allSatisfy { $0.status == .running } == true)
+        #expect(session?.runningChildAgentCount == 2)
+    }
+
     @Test("server shutdown joins the rollout monitor")
     func serverShutdownReleasesMonitor() async throws {
         let fixture = try RolloutFixture(now: now)
@@ -508,6 +632,40 @@ private struct RolloutFixture {
     func remove() {
         try? FileManager.default.removeItem(at: root)
     }
+}
+
+private func apply(
+    _ lines: [String],
+    parser: inout CodexRolloutParser,
+    reducer: inout SessionReducer
+) {
+    for line in lines {
+        for event in parser.parseEvents(Data(line.utf8), receivedAt: Date(timeIntervalSince1970: 1_788_314_400)) {
+            reducer.apply(event)
+        }
+    }
+}
+
+private func collabCall(name: String, callID: String, arguments: String) -> String {
+    let escaped = arguments.replacingOccurrences(of: "\\", with: "\\\\")
+        .replacingOccurrences(of: "\"", with: "\\\"")
+    return #"{"type":"response_item","payload":{"type":"function_call","namespace":"collaboration","name":"\#(name)","call_id":"\#(callID)","arguments":"\#(escaped)"}}"#
+}
+
+private func collabOutput(callID: String, output: String) -> String {
+    let escaped = output.replacingOccurrences(of: "\\", with: "\\\\")
+        .replacingOccurrences(of: "\"", with: "\\\"")
+    return #"{"type":"response_item","payload":{"type":"function_call_output","call_id":"\#(callID)","output":"\#(escaped)"}}"#
+}
+
+private func collabItem(
+    tool: String,
+    status: String,
+    callID: String,
+    receiverAgents: [String]
+) -> String {
+    let agents = receiverAgents.map { "\"\($0)\"" }.joined(separator: ",")
+    return #"{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"CollabAgentToolCall","id":"\#(callID)","tool":"\#(tool)","status":"\#(status)","sender_thread_id":"thread-1","receiver_thread_ids":[],"receiver_agents":[\#(agents)],"agents_states":{}}}}"#
 }
 
 private func sessionMeta(id: String, cwd: String = "/x/project") -> String {

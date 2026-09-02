@@ -13,15 +13,23 @@ public struct CodexRolloutParser: Sendable {
     public private(set) var turnActive = false
     private var activeTurnIDs: Set<String> = []
     private var anonymousTurnCount = 0
+    private var pendingCollab: [String: PendingCollab] = [:]
+    private var attributedCollabCalls: Set<String> = []
+    private var collabChildren: [String: CollabChild] = [:]
+    private var collabTopologyDegraded = false
 
     public init() {}
 
     public mutating func parseLine(_ data: Data, receivedAt: Date) -> HookEvent? {
-        guard Self.mightAffectProgress(data) else { return nil }
+        parseEvents(data, receivedAt: receivedAt).first
+    }
+
+    public mutating func parseEvents(_ data: Data, receivedAt: Date) -> [HookEvent] {
+        guard Self.mightAffectProgress(data) else { return [] }
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let recordType = root["type"] as? String,
               let payload = root["payload"] as? [String: Any]
-        else { return nil }
+        else { return [] }
 
         let timestamp = Self.timestamp(root["timestamp"] as? String) ?? receivedAt
 
@@ -31,70 +39,84 @@ public struct CodexRolloutParser: Sendable {
             let originator = (payload["originator"] as? String)?.lowercased()
             let source = (payload["source"] as? String)?.lowercased()
             isDesktopSession = originator == "codex desktop" || source == "vscode"
-            return nil
+            return []
         }
 
-        guard let sessionID, isDesktopSession else { return nil }
+        guard let sessionID, isDesktopSession else { return [] }
 
         if recordType == "event_msg", let eventType = payload["type"] as? String {
             switch eventType {
             case "task_started":
                 startTurn(payload["turn_id"] as? String)
-                return event(.userPromptSubmit, sessionID: sessionID, timestamp: timestamp)
+                return [event(.userPromptSubmit, sessionID: sessionID, timestamp: timestamp)]
             case "task_complete":
                 finishTurn(payload["turn_id"] as? String)
-                guard !turnActive else { return nil }
-                return event(.stop, sessionID: sessionID,
-                             message: payload["last_agent_message"] as? String,
-                             timestamp: timestamp)
+                guard !turnActive else { return [] }
+                return [event(.stop, sessionID: sessionID,
+                              message: payload["last_agent_message"] as? String,
+                              timestamp: timestamp)]
             case "turn_aborted":
                 finishTurn(payload["turn_id"] as? String)
-                guard !turnActive else { return nil }
-                return event(.stop, sessionID: sessionID,
-                             message: "Turn aborted", timestamp: timestamp)
+                guard !turnActive else { return [] }
+                return [event(.stop, sessionID: sessionID,
+                              message: "Turn aborted", timestamp: timestamp)]
             case "exec_approval_request":
-                return event(.notification, sessionID: sessionID, toolName: "Shell",
-                             message: "Permission required for Shell", timestamp: timestamp)
+                return [event(.notification, sessionID: sessionID, toolName: "Shell",
+                              message: "Permission required for Shell", timestamp: timestamp)]
             case "apply_patch_approval_request":
-                return event(.notification, sessionID: sessionID, toolName: "File change",
-                             message: "Permission required for file change", timestamp: timestamp)
+                return [event(.notification, sessionID: sessionID, toolName: "File change",
+                              message: "Permission required for file change", timestamp: timestamp)]
             case "request_user_input", "elicitation_request":
-                return event(.notification, sessionID: sessionID,
-                             message: "Waiting for your input", timestamp: timestamp)
+                return [event(.notification, sessionID: sessionID,
+                              message: "Waiting for your input", timestamp: timestamp)]
             case "item_completed":
-                guard let item = payload["item"] as? [String: Any],
-                      let toolName = Self.completedToolName(item) else { return nil }
-                return event(.postToolUse, sessionID: sessionID,
-                             toolName: toolName,
-                             toolError: Self.itemFailed(item),
-                             timestamp: timestamp)
+                guard let item = payload["item"] as? [String: Any] else { return [] }
+                return eventsForCompletedItem(item, sessionID: sessionID, timestamp: timestamp)
             default:
-                return nil
+                return []
             }
         }
 
         if recordType == "response_item", let itemType = payload["type"] as? String {
             if Self.toolCallTypes.contains(itemType) {
-                let name = Self.startedToolName(payload, itemType: itemType)
-                if name.split(separator: "/").last?.lowercased() == "request_user_input" {
-                    return event(.notification, sessionID: sessionID, toolName: name,
-                                 message: "Waiting for your input", timestamp: timestamp)
-                }
-                return event(.preToolUse, sessionID: sessionID,
-                             toolName: name, timestamp: timestamp)
+                return eventsForToolCall(payload, sessionID: sessionID, timestamp: timestamp)
             }
             if Self.toolOutputTypes.contains(itemType) {
-                return event(.postToolUse, sessionID: sessionID,
-                             toolName: "Tool", timestamp: timestamp)
+                return eventsForToolOutput(payload, sessionID: sessionID, timestamp: timestamp)
             }
             if itemType == "message", payload["phase"] as? String == "final_answer" {
                 finishUnknownTurn()
-                guard !turnActive else { return nil }
-                return event(.stop, sessionID: sessionID, timestamp: timestamp)
+                guard !turnActive else { return [] }
+                return [event(.stop, sessionID: sessionID, timestamp: timestamp)]
             }
         }
 
-        return nil
+        return []
+    }
+
+    func restorableChildEvents(timestamp: Date) -> [HookEvent] {
+        guard let sessionID else { return [] }
+        var events: [HookEvent] = []
+        if collabTopologyDegraded {
+            events.append(event(
+                .childLifecycle, sessionID: sessionID, timestamp: timestamp,
+                childKind: .task, childAction: .unknown))
+        }
+        for child in collabChildren.values {
+            let action: HookEvent.ChildLifecycleAction
+            switch child.status {
+            case .running: action = .started
+            case .unknown: action = .unknown
+            default: continue
+            }
+            events.append(event(
+                .childLifecycle, sessionID: sessionID,
+                toolName: child.lastActivity, timestamp: timestamp,
+                childID: child.id, childKind: .task,
+                childName: child.name, childType: child.type,
+                childAction: action))
+        }
+        return events
     }
 
     private func event(
@@ -103,11 +125,365 @@ public struct CodexRolloutParser: Sendable {
         toolName: String? = nil,
         message: String? = nil,
         toolError: Bool = false,
-        timestamp: Date
+        timestamp: Date,
+        childID: String? = nil,
+        childKind: ChildAgentKind? = nil,
+        childName: String? = nil,
+        childType: String? = nil,
+        childAction: HookEvent.ChildLifecycleAction? = nil
     ) -> HookEvent {
         HookEvent(kind: kind, sessionID: sessionID, agent: .codex,
                   cwd: cwd, toolName: toolName, message: message,
-                  toolError: toolError, timestamp: timestamp)
+                  toolError: toolError, timestamp: timestamp,
+                  childID: childID, childKind: childKind, childName: childName,
+                  childType: childType, childAction: childAction)
+    }
+
+    private struct PendingCollab {
+        var name: String
+        var taskName: String?
+        var target: String?
+        var agentType: String?
+    }
+
+    private struct CollabChild {
+        var id: String
+        var name: String?
+        var type: String?
+        var status: ChildAgentStatus
+        var lastActivity: String?
+    }
+
+    private mutating func eventsForToolCall(
+        _ payload: [String: Any],
+        sessionID: String,
+        timestamp: Date
+    ) -> [HookEvent] {
+        let itemType = payload["type"] as? String ?? "function_call"
+        let name = Self.startedToolName(payload, itemType: itemType)
+        if name.split(separator: "/").last?.lowercased() == "request_user_input" {
+            return [event(.notification, sessionID: sessionID, toolName: name,
+                          message: "Waiting for your input", timestamp: timestamp)]
+        }
+        let namespace = (payload["namespace"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if namespace?.lowercased() == "collaboration" {
+            return eventsForCollabCall(payload, toolName: name, sessionID: sessionID, timestamp: timestamp)
+        }
+        return [event(.preToolUse, sessionID: sessionID, toolName: name, timestamp: timestamp)]
+    }
+
+    private mutating func eventsForCollabCall(
+        _ payload: [String: Any],
+        toolName: String,
+        sessionID: String,
+        timestamp: Date
+    ) -> [HookEvent] {
+        let leaf = (payload["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let args = Self.jsonObject(payload["arguments"]) ?? [:]
+        let callID = Self.nonEmpty(payload["call_id"] as? String)
+        let taskName = args["task_name"] as? String
+        let target = args["target"] as? String
+        let agentType = args["agent_type"] as? String
+        if let callID {
+            pendingCollab[callID] = PendingCollab(
+                name: leaf, taskName: taskName, target: target, agentType: agentType)
+        }
+
+        switch leaf {
+        case "spawn_agent":
+            return startCollab(
+                rawID: taskName, type: agentType, activity: leaf,
+                sessionID: sessionID, timestamp: timestamp)
+        case "followup_task", "send_message":
+            return startCollab(
+                rawID: target, type: nil, activity: leaf,
+                sessionID: sessionID, timestamp: timestamp)
+        case "interrupt_agent":
+            return stopCollab(
+                rawID: target, activity: leaf, failed: false,
+                sessionID: sessionID, timestamp: timestamp)
+        case "wait_agent", "wait", "list_agents":
+            return [event(.preToolUse, sessionID: sessionID, toolName: toolName, timestamp: timestamp)]
+        default:
+            return [event(.preToolUse, sessionID: sessionID, toolName: toolName, timestamp: timestamp)]
+        }
+    }
+
+    private mutating func eventsForToolOutput(
+        _ payload: [String: Any],
+        sessionID: String,
+        timestamp: Date
+    ) -> [HookEvent] {
+        let callID = Self.nonEmpty(payload["call_id"] as? String)
+        guard let callID, let pending = pendingCollab.removeValue(forKey: callID) else {
+            return [event(.postToolUse, sessionID: sessionID, toolName: "Tool", timestamp: timestamp)]
+        }
+        let output = Self.jsonObject(payload["output"])
+
+        switch pending.name {
+        case "spawn_agent":
+            let raw = (output?["task_name"] as? String) ?? pending.taskName
+            return startCollab(
+                rawID: raw, type: pending.agentType, activity: pending.name,
+                sessionID: sessionID, timestamp: timestamp)
+        case "followup_task", "send_message":
+            let raw = (output?["target"] as? String) ?? pending.target
+            return startCollab(
+                rawID: raw, type: pending.agentType, activity: pending.name,
+                sessionID: sessionID, timestamp: timestamp)
+        case "interrupt_agent":
+            return stopCollab(
+                rawID: pending.target, activity: pending.name, failed: false,
+                sessionID: sessionID, timestamp: timestamp)
+        case "wait_agent", "wait":
+            var events: [HookEvent] = []
+            let timedOut = Self.bool(output?["timed_out"])
+            if attributedCollabCalls.contains(callID) {
+                // Named receivers already applied; do not guess the rest.
+            } else if timedOut != true {
+                markTrackedRunningUnknown()
+                collabTopologyDegraded = true
+                events.append(event(
+                    .childLifecycle, sessionID: sessionID, timestamp: timestamp,
+                    childKind: .task, childAction: .unknown))
+            }
+            events.append(event(
+                .postToolUse, sessionID: sessionID,
+                toolName: "collaboration/\(pending.name)", timestamp: timestamp))
+            return events
+        case "list_agents":
+            var events = eventsForListAgents(output, sessionID: sessionID, timestamp: timestamp)
+            events.append(event(
+                .postToolUse, sessionID: sessionID,
+                toolName: "collaboration/list_agents", timestamp: timestamp))
+            return events
+        default:
+            return [event(
+                .postToolUse, sessionID: sessionID,
+                toolName: "collaboration/\(pending.name)", timestamp: timestamp)]
+        }
+    }
+
+    private mutating func eventsForCompletedItem(
+        _ item: [String: Any],
+        sessionID: String,
+        timestamp: Date
+    ) -> [HookEvent] {
+        if item["type"] as? String == "CollabAgentToolCall" {
+            return eventsForCollabItem(item, sessionID: sessionID, timestamp: timestamp)
+        }
+        guard let toolName = Self.completedToolName(item) else { return [] }
+        return [event(.postToolUse, sessionID: sessionID, toolName: toolName,
+                      toolError: Self.itemFailed(item), timestamp: timestamp)]
+    }
+
+    private mutating func eventsForCollabItem(
+        _ item: [String: Any],
+        sessionID: String,
+        timestamp: Date
+    ) -> [HookEvent] {
+        let tool = Self.nonEmpty(item["tool"] as? String) ?? "Collaboration"
+        let failed = Self.itemFailed(item)
+        let receivers = (item["receiver_agents"] as? [String]) ?? []
+        let named = receivers.compactMap(Self.collabTaskID)
+        if let callID = Self.nonEmpty(item["id"] as? String), !named.isEmpty {
+            attributedCollabCalls.insert(callID)
+        }
+        if !named.isEmpty {
+            return named.map { id in
+                stopTracked(id: id, activity: failed ? "failed" : tool, failed: failed)
+                let child = collabChildren[id]
+                return event(
+                    .childLifecycle, sessionID: sessionID, toolName: failed ? "failed" : tool,
+                    toolError: failed, timestamp: timestamp,
+                    childID: id, childKind: .task,
+                    childName: child?.name, childType: child?.type,
+                    childAction: .stopped)
+            }
+        }
+        return [event(.postToolUse, sessionID: sessionID,
+                      toolName: tool == "Collaboration" ? tool : "collaboration/\(tool)",
+                      toolError: failed, timestamp: timestamp)]
+    }
+
+    private mutating func eventsForListAgents(
+        _ output: [String: Any]?,
+        sessionID: String,
+        timestamp: Date
+    ) -> [HookEvent] {
+        guard let agents = output?["agents"] as? [[String: Any]] else { return [] }
+        var events: [HookEvent] = []
+        for agent in agents {
+            guard let id = Self.collabTaskID(agent["agent_name"] as? String),
+                  let name = Self.collabTaskName(agent["agent_name"] as? String)
+            else { continue }
+            let action = Self.listAgentAction(agent["agent_status"])
+            let activity = "list_agents"
+            switch action {
+            case .started:
+                remember(CollabChild(id: id, name: name, status: .running, lastActivity: activity))
+            case .stopped:
+                stopTracked(id: id, activity: activity, failed: false)
+            case .unknown:
+                if var existing = collabChildren[id] {
+                    existing.status = .unknown
+                    existing.lastActivity = activity
+                    collabChildren[id] = existing
+                } else {
+                    collabChildren[id] = CollabChild(
+                        id: id, name: name, status: .unknown, lastActivity: activity)
+                }
+            case .idled:
+                break
+            }
+            let child = collabChildren[id]
+            events.append(event(
+                .childLifecycle, sessionID: sessionID, toolName: activity,
+                timestamp: timestamp, childID: id, childKind: .task,
+                childName: child?.name ?? name, childType: child?.type,
+                childAction: action))
+        }
+        return events
+    }
+
+    private static func listAgentAction(_ status: Any?) -> HookEvent.ChildLifecycleAction {
+        if let text = (status as? String)?.lowercased() {
+            if text == "running" { return .started }
+            if ["completed", "interrupted", "failed", "error", "cancelled", "canceled"].contains(text) {
+                return .stopped
+            }
+            return .unknown
+        }
+        if let object = status as? [String: Any] {
+            let keys = Set(object.keys.map { $0.lowercased() })
+            if keys.contains("completed") || keys.contains("interrupted") { return .stopped }
+            if keys.contains("failed") || keys.contains("error") { return .stopped }
+            if keys.contains("running") { return .started }
+        }
+        return .unknown
+    }
+
+    private mutating func startCollab(
+        rawID: String?,
+        type: String?,
+        activity: String,
+        sessionID: String,
+        timestamp: Date
+    ) -> [HookEvent] {
+        guard let id = Self.collabTaskID(rawID), let name = Self.collabTaskName(rawID) else {
+            collabTopologyDegraded = true
+            return [event(
+                .childLifecycle, sessionID: sessionID, toolName: activity, timestamp: timestamp,
+                childKind: .task, childAction: .started)]
+        }
+        remember(CollabChild(id: id, name: name, type: Self.nonEmpty(type),
+                             status: .running, lastActivity: activity))
+        return [event(
+            .childLifecycle, sessionID: sessionID, toolName: activity, timestamp: timestamp,
+            childID: id, childKind: .task, childName: name, childType: Self.nonEmpty(type),
+            childAction: .started)]
+    }
+
+    private mutating func stopCollab(
+        rawID: String?,
+        activity: String,
+        failed: Bool,
+        sessionID: String,
+        timestamp: Date
+    ) -> [HookEvent] {
+        guard let id = Self.collabTaskID(rawID) else {
+            collabTopologyDegraded = true
+            return [event(
+                .childLifecycle, sessionID: sessionID, toolName: activity, timestamp: timestamp,
+                childKind: .task, childAction: .stopped)]
+        }
+        stopTracked(id: id, activity: activity, failed: failed)
+        let child = collabChildren[id]
+        return [event(
+            .childLifecycle, sessionID: sessionID, toolName: activity,
+            toolError: failed, timestamp: timestamp,
+            childID: id, childKind: .task,
+            childName: child?.name ?? Self.collabTaskName(rawID),
+            childType: child?.type, childAction: .stopped)]
+    }
+
+    private mutating func remember(_ child: CollabChild) {
+        if var existing = collabChildren[child.id] {
+            existing.status = child.status
+            if let name = child.name { existing.name = name }
+            if let type = child.type { existing.type = type }
+            if let lastActivity = child.lastActivity { existing.lastActivity = lastActivity }
+            collabChildren[child.id] = existing
+        } else {
+            collabChildren[child.id] = child
+        }
+    }
+
+    private mutating func stopTracked(id: String, activity: String, failed: Bool) {
+        if var existing = collabChildren[id] {
+            existing.status = .completed
+            existing.lastActivity = failed ? "failed" : activity
+            collabChildren[id] = existing
+        } else {
+            collabChildren[id] = CollabChild(
+                id: id, name: Self.collabTaskName(id), status: .completed,
+                lastActivity: failed ? "failed" : activity)
+        }
+    }
+
+    private mutating func markTrackedRunningUnknown() {
+        for id in Array(collabChildren.keys) {
+            guard var child = collabChildren[id], child.status == .running else { continue }
+            child.status = .unknown
+            collabChildren[id] = child
+        }
+    }
+
+    private static func collabTaskID(_ raw: String?) -> String? {
+        collabTaskName(raw).map { "task:\($0)" }
+    }
+
+    private static func collabTaskName(_ raw: String?) -> String? {
+        guard var value = nonEmpty(raw) else { return nil }
+        if value.hasPrefix("task:") { value.removeFirst(5) }
+        if value == "/root" || value == "root" { return nil }
+        if value.hasPrefix("/root/") { value.removeFirst(6) }
+        while value.hasPrefix("/") { value.removeFirst() }
+        guard !value.isEmpty, value != "root" else { return nil }
+        return value
+    }
+
+    private static func nonEmpty(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+
+    private static func jsonObject(_ value: Any?) -> [String: Any]? {
+        if let dict = value as? [String: Any] { return dict }
+        if let data = (value as? String)?.data(using: .utf8),
+           let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            return dict
+        }
+        if let items = value as? [Any] {
+            let text = items.compactMap { ($0 as? [String: Any])?["text"] as? String }.joined()
+            if let data = text.data(using: .utf8),
+               let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                return dict
+            }
+        }
+        return nil
+    }
+
+    private static func bool(_ value: Any?) -> Bool? {
+        if let flag = value as? Bool { return flag }
+        if let number = value as? NSNumber { return number.boolValue }
+        if let text = (value as? String)?.lowercased() {
+            if text == "true" { return true }
+            if text == "false" { return false }
+        }
+        return nil
     }
 
     private static let toolCallTypes: Set<String> = [
@@ -294,9 +670,7 @@ public actor CodexRolloutMonitor {
             while let newline = remainder[lineStart...].firstIndex(of: 0x0A) {
                 if newline > lineStart {
                     let line = Data(remainder[lineStart..<newline])
-                    if let event = parser.parseLine(line, receivedAt: receivedAt) {
-                        events.append(event)
-                    }
+                    events.append(contentsOf: parser.parseEvents(line, receivedAt: receivedAt))
                 }
                 lineStart = remainder.index(after: newline)
                 if lineStart == remainder.endIndex { break }
@@ -655,22 +1029,27 @@ public actor CodexRolloutMonitor {
         guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
         defer { try? handle.close() }
         var cursor = Cursor(identity: state.identity)
-        var latestRestorable: HookEvent?
+        var latestParent: HookEvent?
         do {
             while let chunk = try handle.read(upToCount: 64 * 1_024), !chunk.isEmpty {
                 cursor.offset += UInt64(chunk.count)
-                for event in cursor.consume(chunk, receivedAt: receivedAt)
-                where event.kind != .stop && event.kind != .sessionEnd {
-                    latestRestorable = event
+                for event in cursor.consume(chunk, receivedAt: receivedAt) {
+                    if event.kind == .childLifecycle { continue }
+                    if event.kind != .stop && event.kind != .sessionEnd {
+                        latestParent = event
+                    }
                 }
             }
         } catch {
             return nil
         }
         cursor.checkpoint = checkpoint(file: file, endingAt: cursor.offset)
-        let events = cursor.parser.isDesktopSession && cursor.parser.turnActive
-            ? latestRestorable.map { [$0] } ?? []
-            : []
+        guard cursor.parser.isDesktopSession else { return (cursor, []) }
+        var events: [HookEvent] = []
+        if cursor.parser.turnActive, let latestParent {
+            events.append(latestParent)
+        }
+        events.append(contentsOf: cursor.parser.restorableChildEvents(timestamp: receivedAt))
         return (cursor, events)
     }
 

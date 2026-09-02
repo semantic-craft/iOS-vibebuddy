@@ -358,6 +358,9 @@ public struct SessionReducer: Sendable {
         }
         guard let childID = event.childID else {
             sessions[event.sessionID]?.childTopologyDegraded = true
+            if action == .unknown {
+                markRunningChildrenUnknown(sessionID: event.sessionID, at: event.timestamp)
+            }
             return
         }
 
@@ -398,11 +401,24 @@ public struct SessionReducer: Sendable {
         sessions[sessionID]?.childAgents = children
     }
 
+    private mutating func markRunningChildrenUnknown(sessionID: String, at timestamp: Date) {
+        guard var children = sessions[sessionID]?.childAgents else { return }
+        var changed = false
+        for index in children.indices where children[index].status == .running {
+            if timestamp < children[index].updatedAt { continue }
+            children[index].status = .unknown
+            children[index].updatedAt = timestamp
+            changed = true
+        }
+        if changed { sessions[sessionID]?.childAgents = children }
+    }
+
     private func status(for action: HookEvent.ChildLifecycleAction) -> ChildAgentStatus {
         switch action {
         case .started: return .running
         case .stopped: return .completed
         case .idled: return .idle
+        case .unknown: return .unknown
         }
     }
 }
