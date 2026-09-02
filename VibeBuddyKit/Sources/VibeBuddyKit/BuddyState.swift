@@ -1,17 +1,5 @@
 import Foundation
 
-/// A semantic accent role, mapped to a concrete color by each platform's view
-/// so the buddy reads the same on iOS and Mac.
-public enum BuddyAccent: String, Sendable, Equatable {
-    case alert       // a security approval is waiting
-    case curious     // a question is waiting
-    case impatient   // a wait has dragged on
-    case busy        // actively running
-    case worry       // a run failed / got stuck
-    case good        // everything finished cleanly
-    case calm        // idle
-}
-
 /// The ambient "mood" of the whole dashboard, shown as the status buddy on both
 /// platforms. Derived from the aggregate of all sessions, by urgency. Mirrors
 /// the sound pack's granularity so the buddy's face matches the cue you hear.
@@ -21,23 +9,26 @@ public enum BuddyState: String, Sendable, Equatable, CaseIterable {
     case longWait    // ⏰ a wait has dragged on
     case working     // ⚙️ actively running
     case stuck       // ⚠️ a run failed / got stuck
-    case done        // ✅ everything finished
+    case done        // ✅ at least one clean completion is unread
+    case idle        // ○ sessions exist, with no unread completion
     case sleeping    // 😴 no sessions
 
     /// Pick the most urgent mood. Pass `now` to surface impatience after a long
     /// wait; without it, a long wait simply reads as approval/question.
     public static func from(_ groups: SessionGroups, now: Date? = nil,
                             longWaitThreshold: TimeInterval = 180) -> BuddyState {
-        let waiting = groups.needsResponse
+        let sessions = groups.needsResponse + groups.working + groups.done
+        if sessions.contains(where: { $0.presentationState == .error }) { return .stuck }
+        let waiting = sessions.filter { $0.presentationState == .requiresInput }
         if !waiting.isEmpty {
             if let now, waiting.contains(where: { now.timeIntervalSince($0.statusSince) >= longWaitThreshold }) {
                 return .longWait
             }
             return waiting.contains { $0.waitKind == .permission } ? .approval : .question
         }
-        if !groups.working.isEmpty { return .working }
-        if groups.done.contains(where: { $0.isStuck }) { return .stuck }
-        if !groups.done.isEmpty { return .done }
+        if sessions.contains(where: { $0.presentationState == .thinking }) { return .working }
+        if sessions.contains(where: { $0.presentationState == .completeUnread }) { return .done }
+        if !sessions.isEmpty { return .idle }
         return .sleeping
     }
 
@@ -50,19 +41,21 @@ public enum BuddyState: String, Sendable, Equatable, CaseIterable {
         case .working:  return "gearshape.fill"
         case .stuck:    return "exclamationmark.triangle.fill"
         case .done:     return "checkmark"
+        case .idle:     return "circle"
         case .sleeping: return "moon.fill"
         }
     }
 
-    public var accent: BuddyAccent {
+    /// Buddy eyes/emphasis use the same shared task state and color token as
+    /// every other surface. Business moods still keep distinct face/symbol copy.
+    public var presentationState: TaskPresentationState {
         switch self {
-        case .approval: return .alert
-        case .question: return .curious
-        case .longWait: return .impatient
-        case .working:  return .busy
-        case .stuck:    return .worry
-        case .done:     return .good
-        case .sleeping: return .calm
+        case .approval, .question, .longWait: return .requiresInput
+        case .working: return .thinking
+        case .stuck: return .error
+        case .done: return .completeUnread
+        case .idle: return .idle
+        case .sleeping: return .unassigned
         }
     }
 }

@@ -56,6 +56,8 @@ struct SessionReducerTests {
         r.apply(ev(.stop, at: 2))
         #expect(r.sessions["s1"]?.status == .done)
         #expect(r.sessions["s1"]?.isStuck == true)
+        #expect(r.sessions["s1"]?.hasUnreadCompletion == false)
+        #expect(r.sessions["s1"]?.presentationState == .error)
     }
 
     @Test("a clean turn ends not-failed")
@@ -66,6 +68,36 @@ struct SessionReducerTests {
         r.apply(ev(.postToolUse, tool: "Bash", toolError: false, at: 2))  // …then recovered
         r.apply(ev(.stop, at: 3))
         #expect(r.sessions["s1"]?.isStuck == false)
+        #expect(r.sessions["s1"]?.hasUnreadCompletion == true)
+        #expect(r.sessions["s1"]?.presentationState == .completeUnread)
+    }
+
+    @Test("explicit acknowledgement clears unread without changing lifecycle timestamps")
+    func acknowledgeCompletion() {
+        var r = SessionReducer()
+        r.apply(ev(.userPromptSubmit, at: 0))
+        r.apply(ev(.stop, message: "Finished", at: 2))
+        let before = r.sessions["s1"]
+
+        let firstAcknowledgement = r.acknowledgeCompletion(sessionID: "s1")
+        #expect(firstAcknowledgement)
+        #expect(r.sessions["s1"]?.presentationState == .idle)
+        #expect(r.sessions["s1"]?.statusSince == before?.statusSince)
+        #expect(r.sessions["s1"]?.updatedAt == before?.updatedAt)
+        let secondAcknowledgement = r.acknowledgeCompletion(sessionID: "s1")
+        #expect(!secondAcknowledgement)
+    }
+
+    @Test("new work clears an unread completion")
+    func newRoundClearsUnread() {
+        var r = SessionReducer()
+        r.apply(ev(.userPromptSubmit, at: 0))
+        r.apply(ev(.stop, at: 1))
+        #expect(r.sessions["s1"]?.hasUnreadCompletion == true)
+
+        r.apply(ev(.userPromptSubmit, at: 2))
+        #expect(r.sessions["s1"]?.hasUnreadCompletion == false)
+        #expect(r.sessions["s1"]?.presentationState == .thinking)
     }
 
     @Test("a failure-looking Stop message marks failed even without a tool error")
@@ -74,6 +106,7 @@ struct SessionReducerTests {
         r.apply(ev(.sessionStart))
         r.apply(ev(.stop, message: "Build failed: 3 errors", at: 1))
         #expect(r.sessions["s1"]?.isStuck == true)
+        #expect(r.sessions["s1"]?.hasUnreadCompletion == false)
     }
 
     @Test("spentTokens accumulates distinct per-turn readings, ignoring re-reads")

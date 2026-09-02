@@ -2,6 +2,9 @@ import SwiftUI
 import VibeBuddyKit
 
 struct DashboardView: View {
+    private let presentationStates: [TaskPresentationState] = [
+        .error, .requiresInput, .thinking, .completeUnread, .idle,
+    ]
     @EnvironmentObject private var connection: ConnectionStore
     @EnvironmentObject private var dashboard: DashboardStore
     @EnvironmentObject private var voice: VoiceChat
@@ -12,9 +15,9 @@ struct DashboardView: View {
     var body: some View {
         ScrollViewReader { proxy in
         List {
-            section("Needs response", sessions: dashboard.groups.needsResponse, accent: .orange)
-            section("Working", sessions: dashboard.groups.working, accent: .blue)
-            section("Done", sessions: dashboard.groups.done, accent: .green)
+            ForEach(presentationStates, id: \.self) { state in
+                section(state, sessions: dashboard.allSessions.filter { $0.presentationState == state })
+            }
         }
         .listStyle(.plain)
         .onChange(of: dashboard.focusedSessionId) { _, _ in focus(proxy) }
@@ -100,11 +103,12 @@ struct DashboardView: View {
     }
 
     @ViewBuilder
-    private func section(_ title: LocalizedStringKey, sessions: [AgentSession], accent: Color) -> some View {
+    private func section(_ state: TaskPresentationState, sessions: [AgentSession]) -> some View {
+        let accent = Color(taskStatus: state.colorToken)
         if !sessions.isEmpty {
             Section {
                 ForEach(sessions) { session in
-                    SessionRow(session: session, accent: accent)
+                    SessionRow(session: session, isSelected: highlightId == session.id)
                         .id(session.id)
                         .listRowInsets(.init(top: 6, leading: 0, bottom: 6, trailing: 16))
                         .listRowBackground(highlightId == session.id
@@ -112,7 +116,8 @@ struct DashboardView: View {
                 }
             } header: {
                 HStack(spacing: 6) {
-                    Text(title)
+                    Image(systemName: state.symbolName)
+                    Text(state.label)
                     Text("\(sessions.count)").monospacedDigit().opacity(0.7)
                 }
                 .font(.footnote.weight(.semibold))
@@ -166,17 +171,17 @@ private struct PairedMacStrip: View {
 
 private struct SessionRow: View {
     let session: AgentSession
-    let accent: Color
+    let isSelected: Bool
     @EnvironmentObject private var dashboard: DashboardStore
     @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
 
     private var included: Bool { dashboard.buddySessionIDs.contains(session.id) }
+    private var accent: Color { Color(taskStatus: session.presentationState.colorToken) }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            RoundedRectangle(cornerRadius: 2)
-                .fill(accent)
-                .frame(width: 3)
+            TaskStatusIndicator(session.presentationState, isSelected: isSelected, size: 10)
+                .padding(.top, 5)
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
@@ -189,7 +194,7 @@ private struct SessionRow: View {
                     if session.isStuck {
                         Label("Stuck", systemImage: "exclamationmark.triangle.fill")
                             .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.red)
+                            .foregroundStyle(Color(taskStatus: TaskPresentationState.error.colorToken))
                             .labelStyle(.titleAndIcon)
                     }
                     if companionEnabled {

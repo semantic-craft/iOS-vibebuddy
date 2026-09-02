@@ -178,6 +178,15 @@ public actor SessionStore {
         reducer.sessions[sessionID]?.terminalRef
     }
 
+    /// Authoritative read acknowledgement. Snapshot delivery and passive list
+    /// visibility never call this; only explicit selection/open/jump actions do.
+    @discardableResult
+    public func acknowledgeCompletion(sessionID: String) -> Bool {
+        let changed = reducer.acknowledgeCompletion(sessionID: sessionID)
+        if changed { broadcast() }
+        return changed
+    }
+
     public func snapshot(now: Date) -> Snapshot {
         reducer.snapshot(now: now, observationDiagnostics: diagnostics(now: now))
     }

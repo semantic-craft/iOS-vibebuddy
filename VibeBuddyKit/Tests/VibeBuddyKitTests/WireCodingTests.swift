@@ -75,6 +75,7 @@ struct WireCodingTests {
         #expect(SessionStatus.needsResponse.rawValue == "needsResponse")
         #expect(SessionStatus.working.rawValue == "working")
         #expect(SessionStatus.done.rawValue == "done")
+        #expect(TaskPresentationState.completeUnread.rawValue == "completeUnread")
         #expect(WaitKind.permission.rawValue == "permission")
         #expect(WaitKind.question.rawValue == "question")
         #expect(AgentKind.claudeCode.rawValue == "claudeCode")
@@ -87,6 +88,7 @@ struct WireCodingTests {
         let json = """
         {"id":"x","agent":"codex","project":"p","branch":null,"model":null,
          "status":"needsResponse","waitKind":"permission","summary":null,"tokens":null,
+         "hasUnreadCompletion":false,
          "statusSince":0,"updatedAt":0}
         """.data(using: .utf8)!
         let s = try JSONDecoder().decode(AgentSession.self, from: json)
@@ -95,6 +97,7 @@ struct WireCodingTests {
         #expect(s.waitKind == .permission)
         #expect(s.branch == nil)
         #expect(s.tokens == nil)
+        #expect(!s.hasUnreadCompletion)
     }
 
     // 7. Behavior — attention ordering for the dashboard
@@ -119,6 +122,15 @@ struct WireCodingTests {
     func pendingApprovalDefaultsNil() {
         let s = sampleSession(status: .working)
         #expect(s.pendingApproval == nil)
+    }
+
+    @Test("completion unread is carried on the authoritative session wire model")
+    func completionUnreadRoundTrips() throws {
+        var session = sampleSession(status: .done)
+        session.hasUnreadCompletion = true
+        let decoded = try roundTrip(session)
+        #expect(decoded.hasUnreadCompletion)
+        #expect(decoded.presentationState == .completeUnread)
     }
 
     @Test("AgentSession round-trips a pendingQuestion with options")

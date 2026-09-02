@@ -57,6 +57,7 @@ struct BuddyView: View {
         case .working:  "Working…"
         case .stuck:    "Stuck"
         case .done:     "All done"
+        case .idle:     "Idle"
         case .sleeping: "Napping…"
         }
     }
@@ -68,23 +69,13 @@ struct BuddyView: View {
 
     private var subtitle: String {
         if groups.isEmpty { return String(localized: "No active sessions") }
+        let sessions = groups.needsResponse + groups.working + groups.done
+        let summary = TaskPresentationSummary(sessions: sessions)
         var parts: [String] = []
-        if !groups.needsResponse.isEmpty { parts.append(String(localized: "\(groups.needsResponse.count) waiting")) }
-        if !groups.working.isEmpty { parts.append(String(localized: "\(groups.working.count) working")) }
-        if !groups.done.isEmpty { parts.append(String(localized: "\(groups.done.count) done")) }
+        for state in [TaskPresentationState.error, .requiresInput, .thinking, .completeUnread, .idle] {
+            let count = summary.count(for: state)
+            if count > 0 { parts.append("\(count) \(state.label.lowercased())") }
+        }
         return parts.joined(separator: " · ")
-    }
-}
-
-/// Maps a shared `BuddyAccent` to a concrete color (kept identical on Mac).
-func buddyColor(_ accent: BuddyAccent) -> Color {
-    switch accent {
-    case .alert:     .orange
-    case .curious:   .blue
-    case .impatient: .pink
-    case .busy:      .blue
-    case .worry:     .red
-    case .good:      .green
-    case .calm:      .secondary
     }
 }

@@ -123,6 +123,9 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     /// or a failure-looking Stop message). Optional so older payloads decode as
     /// "unknown"; drives the `agentStuck` cue and the buddy's worried face.
     public var failed: Bool?
+    /// A clean completion result that has not yet been explicitly opened,
+    /// selected, or jumped to. The Mac reducer is authoritative for this value.
+    public var hasUnreadCompletion: Bool
     /// Cumulative tokens spent across this session's turns (input+output),
     /// accumulated by the reducer. Drives the estimated cost + budget alert.
     public var spentTokens: Int?
@@ -152,6 +155,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         contextTokens: Int? = nil,
         contextWindow: Int? = nil,
         failed: Bool? = nil,
+        hasUnreadCompletion: Bool = false,
         spentTokens: Int? = nil,
         activeTool: String? = nil,
         observations: [ObservationEvidence]? = nil,
@@ -173,6 +177,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         self.contextTokens = contextTokens
         self.contextWindow = contextWindow
         self.failed = failed
+        self.hasUnreadCompletion = hasUnreadCompletion
         self.spentTokens = spentTokens
         self.activeTool = activeTool
         self.observations = observations

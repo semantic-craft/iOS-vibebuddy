@@ -16,10 +16,4 @@ public struct SessionGroups: Equatable, Sendable {
     public var isEmpty: Bool {
         needsResponse.isEmpty && working.isEmpty && done.isEmpty
     }
-
-    /// The session a "needs you" tap (Live Activity / notification) should open:
-    /// the top needs-response session, falling back to working, then done.
-    public var focusSessionId: String? {
-        needsResponse.first?.id ?? working.first?.id ?? done.first?.id
-    }
 }

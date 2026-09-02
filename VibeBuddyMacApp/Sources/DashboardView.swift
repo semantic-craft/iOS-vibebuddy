@@ -5,7 +5,7 @@ import VibeBuddyMacCore
 struct DashboardView: View {
     @ObservedObject var model: MenuBarModel
     @Environment(\.openSettings) private var openSettings
-    @State private var statusFilter: SessionStatus? = nil
+    @State private var statusFilter: TaskPresentationState? = nil
     @State private var agentFilter: AgentKind? = nil
     @State private var query: String = ""
     // Demo instance pre-selects the approval session so the detail pane (diff +
@@ -16,10 +16,11 @@ struct DashboardView: View {
     @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
 
     private var filtered: [AgentSession] {
-        SessionFilter.apply(model.sessions, status: statusFilter, agent: agentFilter, query: query)
+        SessionFilter.apply(model.sessions, status: nil, agent: agentFilter, query: query)
+            .filter { statusFilter == nil || $0.presentationState == statusFilter }
             .sorted {
-                $0.status.attentionRank != $1.status.attentionRank
-                    ? $0.status.attentionRank < $1.status.attentionRank
+                $0.presentationState.attentionRank != $1.presentationState.attentionRank
+                    ? $0.presentationState.attentionRank < $1.presentationState.attentionRank
                     : $0.updatedAt > $1.updatedAt
             }
     }
@@ -31,6 +32,7 @@ struct DashboardView: View {
         } content: {
             List(filtered, selection: $selection) { s in
                 SessionRowView(session: s,
+                               isSelected: selection == s.id,
                                included: model.buddySessionIDs.contains(s.id),
                                showInclude: companionEnabled,
                                onToggleInclude: { model.toggleBuddy(s.id) })
@@ -68,9 +70,11 @@ struct DashboardView: View {
         }
         .background {
             Group {
-                Button("") { statusFilter = .needsResponse }.keyboardShortcut("1", modifiers: .command)
-                Button("") { statusFilter = .working }.keyboardShortcut("2", modifiers: .command)
-                Button("") { statusFilter = .done }.keyboardShortcut("3", modifiers: .command)
+                Button("") { statusFilter = .error }.keyboardShortcut("1", modifiers: .command)
+                Button("") { statusFilter = .requiresInput }.keyboardShortcut("2", modifiers: .command)
+                Button("") { statusFilter = .thinking }.keyboardShortcut("3", modifiers: .command)
+                Button("") { statusFilter = .completeUnread }.keyboardShortcut("4", modifiers: .command)
+                Button("") { statusFilter = .idle }.keyboardShortcut("5", modifiers: .command)
                 Button("") { statusFilter = nil }.keyboardShortcut("0", modifiers: .command)
                 // ⌘F focuses the sessions search field.
                 Button("") { searchFocused = true }.keyboardShortcut("f", modifiers: .command)
@@ -83,6 +87,9 @@ struct DashboardView: View {
             .opacity(0)
         }
         .onAppear { AppActivationPolicy.activateFront() }
+        .onChange(of: selection) { _, id in
+            if let id { model.acknowledge(id) }
+        }
         .onDisappear { AppActivationPolicy.leave() }
     }
 
@@ -90,9 +97,11 @@ struct DashboardView: View {
         List {
             Section("Status") {
                 allSessionsItem
-                statusItem(.needsResponse, "Needs Response", .orange)
-                statusItem(.working, "Working", .blue)
-                statusItem(.done, "Done", .green)
+                statusItem(.error)
+                statusItem(.requiresInput)
+                statusItem(.thinking)
+                statusItem(.completeUnread)
+                statusItem(.idle)
             }
             Section("Agent") {
                 ForEach(SessionFilter.presentAgents(model.sessions), id: \.self) { a in
@@ -138,15 +147,16 @@ struct DashboardView: View {
         .buttonStyle(.plain)
     }
 
-    private func statusItem(_ status: SessionStatus, _ label: LocalizedStringKey, _ color: Color) -> some View {
-        let count = model.sessions.filter { $0.status == status }.count
+    private func statusItem(_ status: TaskPresentationState) -> some View {
+        let count = model.sessions.filter { $0.presentationState == status }.count
         let selected = statusFilter == status
         return Button {
             statusFilter = selected ? nil : status   // click again to clear the filter
         } label: {
             HStack {
-                Circle().fill(color).frame(width: 9, height: 9)
-                Text(label)
+                TaskStatusIndicator(status, size: 9)
+                Image(systemName: status.symbolName).font(.caption)
+                Text(status.label)
                 Spacer()
                 if selected { Image(systemName: "checkmark").font(.caption) }
                 Text("\(count)").foregroundStyle(.secondary).monospacedDigit()
@@ -257,19 +267,20 @@ private struct VoiceConsentSheet: View {
 
 private struct SessionRowView: View {
     let session: AgentSession
+    var isSelected: Bool = false
     var included: Bool = false           // in the buddy's scoped context
     var showInclude: Bool = false        // only when the voice companion is on
     var onToggleInclude: () -> Void = {}
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
-                Circle().fill(statusColor).frame(width: 8, height: 8)
+                TaskStatusIndicator(session.presentationState, isSelected: isSelected, size: 9)
                 Text(session.project).font(.headline)   // row subject = .headline (matches iOS)
                 AgentSourceBadge(agent: session.agent)
                 if session.isStuck {
                     Label("Stuck", systemImage: "exclamationmark.triangle.fill")
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Color(taskStatus: TaskPresentationState.error.colorToken))
                 }
                 if showInclude {
                     Spacer(minLength: 8)
@@ -340,6 +351,9 @@ private struct DetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 Text(session.project).font(.title2.bold())
+                Label(session.presentationState.label, systemImage: session.presentationState.symbolName)
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(Color(taskStatus: session.presentationState.colorToken))
                 if let approval = session.pendingApproval {
                     Text("Claude wants to run this — approve?").font(.headline)
                     Text(approval.commandPreview)

@@ -81,12 +81,19 @@ enum MacDemoData {
                 id: "demo-done-1", agent: .codex, project: "payments-api", branch: "main",
                 model: "gpt-5-codex", status: .done, summary: "All tests green — 142 passed.",
                 tokens: 5400, contextTokens: 78_000, contextWindow: 200_000,
+                hasUnreadCompletion: true,
                 statusSince: now.addingTimeInterval(-180), updatedAt: now.addingTimeInterval(-180)),
             AgentSession(
                 id: "demo-done-2", agent: .claudeCode, project: "docs-site", branch: "main",
-                model: "claude-haiku-4-5", status: .done, summary: "Deployed to production.",
+                model: "claude-haiku-4-5", status: .done, summary: "Idle — no unread updates.",
                 tokens: 900, contextTokens: 20_000, contextWindow: 200_000,
                 statusSince: now.addingTimeInterval(-320), updatedAt: now.addingTimeInterval(-320)),
+            AgentSession(
+                id: "demo-error", agent: .codex, project: "release-check", branch: "main",
+                model: "gpt-5-codex", status: .done, summary: "Build failed with two signing errors.",
+                tokens: 3100, contextTokens: 48_000, contextWindow: 200_000,
+                failed: true,
+                statusSince: now.addingTimeInterval(-120), updatedAt: now.addingTimeInterval(-120)),
         ]
     }
 }

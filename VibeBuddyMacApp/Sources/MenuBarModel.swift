@@ -180,9 +180,7 @@ final class MenuBarModel: ObservableObject {
         NotificationQuietMode.isEffective(now: now)
     }
 
-    var needsResponse: Int { sessions.lazy.filter { $0.status == .needsResponse }.count }
-    var working: Int { sessions.lazy.filter { $0.status == .working }.count }
-    var done: Int { sessions.lazy.filter { $0.status == .done }.count }
+    var presentationSummary: TaskPresentationSummary { TaskPresentationSummary(sessions: sessions) }
     /// The buddy's mood, shared with the menu-bar icon and the glance so the Mac
     /// reads the same as the phone.
     var buddyState: BuddyState { BuddyState.from(SessionGroups(sessions), now: Date()) }
@@ -373,15 +371,15 @@ final class MenuBarModel: ObservableObject {
         guard let pusher else { return }
         let tokens = await activityTokens.all()
         guard !tokens.isEmpty else { return }
-        let groups = SessionGroups(sessions)
-        let nr = groups.needsResponse.count, w = groups.working.count, d = groups.done.count
-        let topProject = groups.needsResponse.first?.project
-        let topSession = groups.focusSessionId
-        let key = "\(nr)|\(w)|\(d)|\(topProject ?? "")|\(topSession ?? "")"
+        let summary = TaskPresentationSummary(sessions: sessions)
+        let leading = sessions.leadingPresentationSession
+        let topProject = leading?.project
+        let topSession = leading?.id
+        let key = "\(summary)|\(topProject ?? "")|\(topSession ?? "")"
         guard key != lastActivityKey else { return }
         lastActivityKey = key
         for t in tokens {
-            await pusher.sendActivityUpdate(needsResponse: nr, working: w, done: d,
+            await pusher.sendActivityUpdate(summary: summary,
                 topProject: topProject, topSessionId: topSession, to: t)
         }
     }
@@ -468,8 +466,21 @@ final class MenuBarModel: ObservableObject {
     func decide(_ approvalId: String, approve: Bool) { decide(approvalId, approve ? .allow : .deny) }
 
     func jump(_ session: AgentSession) {
+        acknowledge(session.id)
         guard let ref = session.terminalRef else { return }
         TerminalJumper.jump(ref)
+    }
+
+    /// Explicitly viewing/selecting a completion clears its authoritative unread
+    /// bit. Demo sessions mirror the same transition without touching the store.
+    func acknowledge(_ sessionID: String) {
+        if ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1" {
+            guard let index = sessions.firstIndex(where: { $0.id == sessionID }),
+                  sessions[index].hasUnreadCompletion else { return }
+            sessions[index].hasUnreadCompletion = false
+            return
+        }
+        Task { [store] in await store.acknowledgeCompletion(sessionID: sessionID) }
     }
 
     /// Include/exclude a session from the buddy's context (ephemeral). Takes effect

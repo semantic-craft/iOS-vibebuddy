@@ -13,13 +13,14 @@ struct PetFace: View {
     var speaking: Bool = false
     var listening: Bool = false
 
-    private var accent: Color { buddyColor(state.accent) }
+    private var accent: Color { Color(taskStatus: state.presentationState.colorToken) }
 
     private enum Mood { case calm, alert, worry, happy, sleep }
     private var mood: Mood {
         switch state {
         case .done:                       return .happy
         case .sleeping:                   return .sleep
+        case .idle:                       return .calm
         case .stuck:                      return .worry
         case .approval, .question:        return .alert
         default:                          return .calm   // working, longWait

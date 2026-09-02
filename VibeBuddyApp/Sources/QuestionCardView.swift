@@ -10,7 +10,7 @@ struct QuestionCardView: View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Question", systemImage: "questionmark.bubble")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.orange)
+                .foregroundStyle(Color(taskStatus: TaskPresentationState.requiresInput.colorToken))
             Text(question.prompt)
                 .font(.subheadline)
                 .foregroundStyle(.primary)

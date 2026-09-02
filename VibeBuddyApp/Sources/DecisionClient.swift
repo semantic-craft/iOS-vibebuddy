@@ -8,9 +8,20 @@ protocol DecisionClient: Sendable {
     func answer(_ pairing: PairingPayload, sessionId: String, answer: String) async
     /// Returns what the Mac reported, or `nil` if it couldn't be reached.
     func jump(_ pairing: PairingPayload, sessionId: String) async -> JumpOutcome?
+    func acknowledge(_ pairing: PairingPayload, sessionId: String) async
 }
 
 struct HTTPDecisionClient: DecisionClient {
+    func acknowledge(_ pairing: PairingPayload, sessionId: String) async {
+        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/acknowledge") else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["sessionId": sessionId])
+        _ = try? await URLSession.shared.data(for: req)
+    }
+
     func decide(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async {
         guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/decision") else { return }
         var req = URLRequest(url: url)

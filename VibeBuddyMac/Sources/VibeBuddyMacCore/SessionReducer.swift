@@ -35,6 +35,7 @@ public struct SessionReducer: Sendable {
             // Active work: a tool starting/finishing means the agent is busy,
             // which also clears any prior "needs you" wait state.
             upsert(event, status: .working, waitKind: nil)
+            sessions[event.sessionID]?.hasUnreadCompletion = false
             // Track the last tool outcome for the stuck cue and the current tool
             // for the activity line: a new turn clears both, PreToolUse names the
             // running tool, PostToolUse records its outcome and clears the tool.
@@ -55,6 +56,7 @@ public struct SessionReducer: Sendable {
                    waitKind: Self.waitKind(from: event.message),
                    summary: event.message)
             sessions[event.sessionID]?.failed = false       // waiting on you, not stuck
+            sessions[event.sessionID]?.hasUnreadCompletion = false
             sessions[event.sessionID]?.activeTool = nil      // no tool running while waiting
         case .stop:
             // Create-if-missing so a late-observed lifecycle still shows as done;
@@ -64,6 +66,10 @@ public struct SessionReducer: Sendable {
             // Carry the last tool's outcome; also treat a failure-looking stop
             // message as stuck even when no tool error was reported.
             if FailureHeuristic.looksFailed(event.message) { sessions[event.sessionID]?.failed = true }
+            // A clean result remains green until an explicit read acknowledgement.
+            // Failed endings stay red and do not manufacture a completion unread.
+            let cleanCompletion = sessions[event.sessionID]?.isStuck == false
+            sessions[event.sessionID]?.hasUnreadCompletion = cleanCompletion
         case .sessionEnd:
             // The session is over (exit / clear / logout). Drop it entirely so
             // an idle "needs you" prompt doesn't outlive the session it belonged to.
@@ -162,6 +168,7 @@ public struct SessionReducer: Sendable {
         s.waitKind = .permission
         s.pendingApproval = approval
         s.pendingQuestion = nil
+        s.hasUnreadCompletion = false
         s.updatedAt = at
         sessions[sessionID] = s
     }
@@ -172,6 +179,7 @@ public struct SessionReducer: Sendable {
         s.pendingApproval = nil
         s.waitKind = nil
         s.status = .working
+        s.hasUnreadCompletion = false
         s.statusSince = at
         s.updatedAt = at
         sessions[sessionID] = s
@@ -183,6 +191,7 @@ public struct SessionReducer: Sendable {
         s.pendingQuestion = nil
         s.waitKind = nil
         s.status = .working
+        s.hasUnreadCompletion = false
         s.statusSince = at
         s.updatedAt = at
         sessions[sessionID] = s
@@ -193,6 +202,16 @@ public struct SessionReducer: Sendable {
         guard var s = sessions[sessionID] else { return }
         s.terminalRef = ref
         sessions[sessionID] = s
+    }
+
+    /// Mark a clean completion as read without changing lifecycle timestamps or
+    /// list order. Returns whether authoritative state changed.
+    @discardableResult
+    public mutating func acknowledgeCompletion(sessionID: String) -> Bool {
+        guard var session = sessions[sessionID], session.hasUnreadCompletion else { return false }
+        session.hasUnreadCompletion = false
+        sessions[sessionID] = session
+        return true
     }
 
     /// A sorted snapshot for broadcast: most-urgent first, then most-recent.
@@ -214,8 +233,8 @@ public struct SessionReducer: Sendable {
             return session
         }
         let sorted = aged.sorted { a, b in
-            if a.status.attentionRank != b.status.attentionRank {
-                return a.status.attentionRank < b.status.attentionRank
+            if a.presentationState.attentionRank != b.presentationState.attentionRank {
+                return a.presentationState.attentionRank < b.presentationState.attentionRank
             }
             return a.updatedAt > b.updatedAt
         }

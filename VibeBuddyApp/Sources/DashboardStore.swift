@@ -34,6 +34,9 @@ final class DashboardStore: ObservableObject {
     private var policy = SoundPolicy()
     private var pairing: PairingPayload?
     private var isDemo = false
+    /// Deep links can arrive before `start(_:)` installs the pairing on a cold
+    /// launch. Keep those explicit reads until they can reach the Mac authority.
+    private var pendingAcknowledgementIDs: Set<String> = []
 
     init(streamer: SnapshotStreaming = WebSocketSnapshotClient(),
          notifier: AttentionNotifier = LocalNotifier(),
@@ -65,6 +68,11 @@ final class DashboardStore: ObservableObject {
         stop()
         isDemo = false
         self.pairing = pairing
+        let pendingAcknowledgements = pendingAcknowledgementIDs
+        pendingAcknowledgementIDs.removeAll()
+        for sessionId in pendingAcknowledgements {
+            Task { await decisionClient.acknowledge(pairing, sessionId: sessionId) }
+        }
         let phoneName = UIDevice.current.name        // tell the Mac which phone paired
         Task { await Self.sendDeviceName(pairing, name: phoneName) }
         state = .connecting
@@ -142,6 +150,16 @@ final class DashboardStore: ObservableObject {
         let demo = Self.demoSessions()
         groups = SessionGroups(demo)
         buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: demo)
+        WidgetSnapshotStore.save(sessions: demo)
+        let pendingAcknowledgements = pendingAcknowledgementIDs
+        pendingAcknowledgementIDs.removeAll()
+        for sessionId in pendingAcknowledgements { acknowledge(sessionId) }
+        // Live Activities trigger a system authorization sheet on a fresh
+        // simulator. Keep dashboard/demo acceptance deterministic and opt in
+        // explicitly when the Live Activity itself is under review.
+        if ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO_LIVE_ACTIVITY"] == "1" {
+            Task { await liveActivity.sync(sessions: demo) }
+        }
     }
 
     func decide(_ approvalId: String, _ decision: ApprovalDecision) {
@@ -153,6 +171,7 @@ final class DashboardStore: ObservableObject {
                 return s
             }
             groups = SessionGroups(resolved)
+            WidgetSnapshotStore.save(sessions: resolved)
             return
         }
         guard let pairing else { return }
@@ -175,6 +194,7 @@ final class DashboardStore: ObservableObject {
                 return s
             }
             groups = SessionGroups(resolved)
+            WidgetSnapshotStore.save(sessions: resolved)
             return
         }
         guard let pairing else { return }
@@ -217,7 +237,19 @@ final class DashboardStore: ObservableObject {
                 id: "demo-done", agent: .claudeCode, project: "docs-site",
                 model: "claude-haiku-4-5", status: .done, summary: "Deployed to production.",
                 tokens: 900, contextTokens: 20_000, contextWindow: 200_000,
+                hasUnreadCompletion: true,
                 statusSince: now.addingTimeInterval(-300), updatedAt: now.addingTimeInterval(-300)),
+            AgentSession(
+                id: "demo-error", agent: .codex, project: "release-check",
+                model: "gpt-5-codex", status: .done, summary: "Build failed with two signing errors.",
+                tokens: 3100, contextTokens: 48_000, contextWindow: 200_000,
+                failed: true,
+                statusSince: now.addingTimeInterval(-180), updatedAt: now.addingTimeInterval(-180)),
+            AgentSession(
+                id: "demo-idle", agent: .claudeCode, project: "api-notes",
+                model: "claude-sonnet-4-5", status: .done, summary: "No unread updates.",
+                tokens: 700, contextTokens: 12_000, contextWindow: 200_000,
+                statusSince: now.addingTimeInterval(-420), updatedAt: now.addingTimeInterval(-420)),
         ]
     }
 
@@ -231,6 +263,28 @@ final class DashboardStore: ObservableObject {
             let outcome = await decisionClient.jump(pairing, sessionId: sessionId)
             showToast(Self.jumpMessage(outcome))
         }
+    }
+
+    /// A user explicitly opened/selected this task. The Mac remains the source
+    /// of truth; demo mode mirrors the same transition locally.
+    func acknowledge(_ sessionId: String) {
+        if isDemo {
+            let sessions = allSessions.map { session -> AgentSession in
+                guard session.id == sessionId else { return session }
+                var session = session
+                session.hasUnreadCompletion = false
+                return session
+            }
+            groups = SessionGroups(sessions)
+            WidgetSnapshotStore.save(sessions: sessions)
+            return
+        }
+        guard let pairing else {
+            pendingAcknowledgementIDs.insert(sessionId)
+            return
+        }
+        pendingAcknowledgementIDs.remove(sessionId)
+        Task { await decisionClient.acknowledge(pairing, sessionId: sessionId) }
     }
 
     /// Honest feedback for a jump — success lands on the Mac, so the phone has to
@@ -286,18 +340,15 @@ final class DashboardStore: ObservableObject {
         observationDiagnostics = snapshot.observationDiagnostics ?? []
         buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: snapshot.sessions)
         state = .connected
-        await liveActivity.sync(
-            needsResponse: groups.needsResponse.count,
-            working: groups.working.count,
-            done: groups.done.count,
-            topProject: groups.needsResponse.first?.project,
-            topSessionId: groups.focusSessionId)
+        WidgetSnapshotStore.save(sessions: snapshot.sessions)
+        await liveActivity.sync(sessions: snapshot.sessions)
     }
 
     /// Handle a `vibebuddy://session?id=…` deep link from the Live Activity.
     func open(_ url: URL) {
         guard let id = VibeBuddyDeepLink.sessionId(from: url) else { return }
         focusedSessionId = id
+        acknowledge(id)
     }
 
     func clearFocus() { focusedSessionId = nil }

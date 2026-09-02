@@ -111,7 +111,7 @@ public actor APNsPusher {
     /// Push a Live Activity content-state update (`dynamic-island/02`). Unlike `send`
     /// (an `alert` push to a *device* token), this is an `apns-push-type: liveactivity`
     /// push to a per-activity push token, on the `…push-type.liveactivity` topic.
-    public func sendActivityUpdate(needsResponse: Int, working: Int, done: Int,
+    public func sendActivityUpdate(summary: TaskPresentationSummary,
                                    topProject: String?, topSessionId: String?,
                                    to activityToken: String, now: Date = Date()) async {
         guard let url = URL(string: "https://\(config.host)/3/device/\(activityToken)"),
@@ -123,7 +123,7 @@ public actor APNsPusher {
         request.setValue("liveactivity", forHTTPHeaderField: "apns-push-type")
         request.setValue("10", forHTTPHeaderField: "apns-priority")
         request.httpBody = Data(Self.activityPayload(
-            needsResponse: needsResponse, working: working, done: done,
+            summary: summary,
             topProject: topProject, topSessionId: topSessionId,
             timestamp: Int(now.timeIntervalSince1970)).utf8)
         _ = try? await URLSession.shared.data(for: request)
@@ -131,10 +131,10 @@ public actor APNsPusher {
 
     /// The `liveactivity` push body. `content-state` keys mirror
     /// `VibeBuddyActivityAttributes.ContentState`; optional strings are omitted when nil.
-    nonisolated static func activityPayload(needsResponse: Int, working: Int, done: Int,
+    nonisolated static func activityPayload(summary: TaskPresentationSummary,
                                             topProject: String?, topSessionId: String?,
                                             timestamp: Int) -> String {
-        var state = #""needsResponse":\#(needsResponse),"working":\#(working),"done":\#(done)"#
+        var state = #""summary":{"idle":\#(summary.idle),"thinking":\#(summary.thinking),"completeUnread":\#(summary.completeUnread),"requiresInput":\#(summary.requiresInput),"error":\#(summary.error)}"#
         if let p = topProject { state += #","topProject":"\#(escape(p))""# }
         if let s = topSessionId { state += #","topSessionId":"\#(escape(s))""# }
         return #"{"aps":{"timestamp":\#(timestamp),"event":"update","content-state":{\#(state)}}}"#

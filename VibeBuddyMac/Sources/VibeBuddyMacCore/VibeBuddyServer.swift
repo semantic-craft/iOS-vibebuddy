@@ -251,6 +251,20 @@ public struct VibeBuddyServer: Sendable {
             return .ok
         }
 
+        // Explicit read acknowledgement. Merely receiving/rendering a snapshot
+        // never clears unread state; a client calls this only after selection or open.
+        router.post("acknowledge") { request, _ -> HTTPResponse.Status in
+            guard request.headers[.authorization] == "Bearer \(token)" else {
+                throw HTTPError(.unauthorized)
+            }
+            let buffer = try await request.body.collect(upTo: 4096)
+            guard let object = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
+                  let sessionID = object["sessionId"] as? String,
+                  !sessionID.isEmpty else { throw HTTPError(.badRequest) }
+            await store.acknowledgeCompletion(sessionID: sessionID)
+            return .ok
+        }
+
         // Blocking approval intake — bearer-token gated (the approval hook reads
         // the token file and sends it). Parse the PreToolUse hook payload, run the
         // permission matcher, and either decide immediately (allow/deny) or hold
@@ -361,6 +375,9 @@ public struct VibeBuddyServer: Sendable {
             let buffer = try await request.body.collect(upTo: 4096)
             guard let o = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
                   let sid = o["sessionId"] as? String else { throw HTTPError(.badRequest) }
+            // Jumping is an explicit return to the task, even if this terminal
+            // type cannot ultimately be focused.
+            await store.acknowledgeCompletion(sessionID: sid)
             // Report what actually happened so the phone can give honest feedback:
             // focused (ran), unsupported (known terminal type → no command), or none.
             let ref = await store.terminalRef(for: sid)

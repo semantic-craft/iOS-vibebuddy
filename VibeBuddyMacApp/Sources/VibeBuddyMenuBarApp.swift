@@ -187,6 +187,8 @@ struct MenuBarLabel: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
+        let state = model.presentationSummary.primaryState
+        let count = model.presentationSummary.count(for: state)
         HStack(spacing: 3) {
             // A stable cat-head mark (matches the pet + app icon), monochrome so
             // the system tints it for light/dark. State shows as a badge + count,
@@ -194,15 +196,15 @@ struct MenuBarLabel: View {
             CatHeadIcon()
                 .frame(width: 17, height: 17)
                 .overlay(alignment: .topTrailing) {
-                    if model.needsResponse > 0 {
-                        Circle().fill(.orange)
-                            .frame(width: 5, height: 5)
+                    if state != .unassigned {
+                        TaskStatusIndicator(state, size: 6)
                             .offset(x: 1.5, y: -0.5)
                     }
                 }
-            if model.needsResponse > 0 {
-                Text("\(model.needsResponse)")
+            if state == .error || state == .requiresInput {
+                Text("\(count)")
                     .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                    .accessibilityLabel("\(count) \(state.label)")
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .openDashboard)) { _ in
@@ -211,6 +213,14 @@ struct MenuBarLabel: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleGlance)) { _ in
             model.setShowGlance(!model.showGlance)
+        }
+        .task {
+            // Screenshot/exploration mode is intentionally self-contained: open
+            // the dashboard without depending on a global hotkey or menu click.
+            if ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1" {
+                AppActivationPolicy.enter()
+                openWindow(id: "dashboard")
+            }
         }
     }
 }
@@ -291,10 +301,10 @@ struct MenuContent: View {
             }
             .font(.caption)
 
-            HStack(spacing: 16) {
-                counter(model.needsResponse, "exclamationmark.circle.fill", .orange)
-                counter(model.working, "hourglass", .blue)
-                counter(model.done, "checkmark.circle.fill", .green)
+            HStack(spacing: 12) {
+                ForEach([TaskPresentationState.error, .requiresInput, .thinking, .completeUnread, .idle], id: \.self) { state in
+                    counter(model.presentationSummary.count(for: state), state)
+                }
             }
 
             Divider()
@@ -354,20 +364,24 @@ struct MenuContent: View {
         .frame(width: 300)
     }
 
-    private func counter(_ value: Int, _ symbol: String, _ color: Color) -> some View {
+    private func counter(_ value: Int, _ state: TaskPresentationState) -> some View {
         HStack(spacing: 5) {
-            Image(systemName: symbol)
+            TaskStatusIndicator(state, size: 8)
+            Image(systemName: state.symbolName)
             Text("\(value)").monospacedDigit()
         }
         .font(.callout.weight(.medium))
-        .foregroundStyle(value > 0 ? AnyShapeStyle(color) : AnyShapeStyle(.secondary))
+        .foregroundStyle(value > 0
+                         ? AnyShapeStyle(Color(taskStatus: state.colorToken))
+                         : AnyShapeStyle(.secondary))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(value) \(state.label)")
     }
 
     private func row(_ session: AgentSession) -> some View {
         HStack(alignment: .top, spacing: 9) {
-            RoundedRectangle(cornerRadius: 2)
-                .fill(color(for: session.status))
-                .frame(width: 3)
+            TaskStatusIndicator(session.presentationState, size: 9)
+                .padding(.top, 3)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 5) {
                     Text(session.project).font(.callout.weight(.semibold))
@@ -388,11 +402,4 @@ struct MenuContent: View {
         .fixedSize(horizontal: false, vertical: true)
     }
 
-    private func color(for status: SessionStatus) -> Color {
-        switch status {
-        case .needsResponse: .orange
-        case .working: .blue
-        case .done: .green
-        }
-    }
 }

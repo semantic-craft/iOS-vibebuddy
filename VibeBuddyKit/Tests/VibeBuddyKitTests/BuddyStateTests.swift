@@ -7,9 +7,10 @@ struct BuddyStateTests {
 
     private func session(_ id: String, _ status: SessionStatus,
                          wait: WaitKind? = nil, failed: Bool? = nil,
+                         unread: Bool = false,
                          since: TimeInterval = 0) -> AgentSession {
         AgentSession(id: id, agent: .claudeCode, project: id, status: status,
-                     waitKind: wait, failed: failed,
+                     waitKind: wait, failed: failed, hasUnreadCompletion: unread,
                      statusSince: Date(timeIntervalSince1970: since),
                      updatedAt: Date(timeIntervalSince1970: since))
     }
@@ -48,8 +49,24 @@ struct BuddyStateTests {
         #expect(BuddyState.from(groups(session("a", .done, failed: true))) == .stuck)
     }
 
-    @Test("done when only clean finished sessions remain")
+    @Test("done only while a clean completion is unread")
     func done() {
-        #expect(BuddyState.from(groups(session("a", .done))) == .done)
+        #expect(BuddyState.from(groups(session("a", .done, unread: true))) == .done)
+        #expect(BuddyState.from(groups(session("a", .done))) == .idle)
+    }
+
+    @Test("error beats a simultaneous input wait")
+    func errorWins() {
+        #expect(BuddyState.from(groups(
+            session("waiting", .needsResponse, wait: .permission),
+            session("failed", .done, failed: true)
+        )) == .stuck)
+    }
+
+    @Test("approval, question, and long wait share the amber task state")
+    func inputMoodsSharePresentation() {
+        #expect(BuddyState.approval.presentationState == .requiresInput)
+        #expect(BuddyState.question.presentationState == .requiresInput)
+        #expect(BuddyState.longWait.presentationState == .requiresInput)
     }
 }
