@@ -1,0 +1,19 @@
+# gitleaks configuration for vibebuddy.
+#
+# Keep this file tiny. Every entry must name a value that is *published on
+# purpose*; anything that is merely inconvenient belongs in the fix, not here.
+
+title = "vibebuddy"
+
+[extend]
+useDefault = true
+
+[allowlist]
+# Sparkle's update-verification public key. The default generic-api-key rule sees
+# the base64 blob as high-entropy and blocks it, but it is public by design: it is
+# compiled into every shipped copy of the app so installed copies can verify update
+# signatures. The matching PRIVATE key exists only in the login Keychain (service
+# https://sparkle-project.org) and must never reach this repo — docs/sparkle-setup.md.
+description = "Sparkle EdDSA public key (SUPublicEDKey)"
+regexTarget = "line"
+regexes = ['''SUPublicEDKey''']
