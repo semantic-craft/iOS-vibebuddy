@@ -4,7 +4,7 @@
 
 **Blocked by:** 05: 增加隐私受控的生命周期事件日志.
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
 - [x] Mac 设置显示本地通知授权状态以及 APNs 配置/最近尝试结果，并使用 attempted、scheduled、accepted、failed 等诚实措辞，不声称无法证明的 delivered。
 - [x] Claude 与 Codex 的 approval、answer、done、stuck 通知都生成带会话和声音类别的发送记录，同时保持现有安静模式、前台抑制和防重复规则。
@@ -19,4 +19,4 @@
 - 正式 `/Applications` VibeBuddy 与 9876（PID 1013）全程未停。隔离 daemon（临时 HOME / 非 9876 端口 / 临时 journal + delivery log）用 dummy device token 打到已配置的 sandbox APNs：记录 `failed` / `apnsHTTP400` / `needs_answer`，日志中无 `delivered`。同一失败原因连续两次都写入 log，健康去抖只锁一次诊断。
 - 隔离本地 helper（独立 bundle `com.vibebuddy.e2e06`）授权为 `notDetermined`，记录 `failed` / `permissionDenied`，无 `delivered`。未对正式 App 弹权限窗，也未替换已安装 App。
 - **缺口：** 隔离实例没有已注册的真实 iPhone token，因此没有 APNs `accepted` 实机记录（dummy token 只能证明 `failed`）。隔离 helper 也没有 TCC 授权，本地 `scheduled` 横幅未在隔离 bundle 上弹出；该路径由授权状态下的 `UNUserNotificationCenter.add` + 单元测试覆盖。daemon 经 `VibeBuddyServer` 的 APNs 发送未带 session id（该文件本票禁止改动）；Mac App 的 `pushToPhones` 会带 session 与声音类别。
-- Status 保持 `ready-for-agent`，等待独立审查 PASS 后再改为 `ready-for-human`。
+- Independent reviews PASS. Status → `ready-for-human`. Remaining gaps (no APNs `accepted` on a real device token; isolated helper had no TCC so no live `scheduled` banner) stay documented. Local commit `87005c5` is on `codex/agent-observability-v2`.

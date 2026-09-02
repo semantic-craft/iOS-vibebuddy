@@ -4,7 +4,7 @@
 
 **Blocked by:** 02: 显示观察来源与兼容性健康状态.
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
 - [x] Claude 的子代理/任务事件以稳定身份关联到正确父会话，重复、乱序和缺失的 start/stop 事件不会产生幽灵子代理。
 - [x] Mac 与 iOS 会话展示至少包含活动子代理数量、可用的名称/类型和最近活动；父会话三态仍由父级语义事件决定。
@@ -13,7 +13,7 @@
 
 ## Implementation notes
 
-Local worktree commit pending independent review. Do not treat this as `ready-for-human` until that review PASSes.
+Integrated on `codex/agent-observability-v2` as `fb8c2a2` (cherry-pick of `d467d60` onto `87005c5`). Independent reviews PASS; remaining E2E gaps (second Mac GUI, iOS child-line visual, live TeammateIdle, live daemon-restore) stay documented and unchecked on the last box.
 
 ### Reduction
 
