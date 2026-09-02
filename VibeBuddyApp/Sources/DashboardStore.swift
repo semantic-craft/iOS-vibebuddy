@@ -13,6 +13,7 @@ final class DashboardStore: ObservableObject {
     }
 
     @Published private(set) var groups = SessionGroups([])
+    @Published private(set) var observationDiagnostics: [AgentObservationDiagnostic] = []
     /// Sessions the user has pointed the buddy at (in-memory, never persisted).
     /// Empty = the buddy sees all sessions; pruned to live IDs on every snapshot.
     @Published private(set) var buddySessionIDs: Set<String> = []
@@ -282,6 +283,7 @@ final class DashboardStore: ObservableObject {
         }
         if !alerts.isEmpty { cuePulse += 1 }   // let the buddy react
         groups = SessionGroups(snapshot.sessions)
+        observationDiagnostics = snapshot.observationDiagnostics ?? []
         buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: snapshot.sessions)
         state = .connected
         await liveActivity.sync(

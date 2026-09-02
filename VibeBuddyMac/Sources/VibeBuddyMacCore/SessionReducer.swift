@@ -13,7 +13,10 @@ public struct SessionReducer: Sendable {
 
     public init() {}
 
-    public mutating func apply(_ event: HookEvent) {
+    public mutating func apply(
+        _ event: HookEvent,
+        observationSource: ObservationSource? = nil
+    ) {
         switch event.kind {
         case .sessionStart:
             // Starting or resuming opens a session but does not mean a turn is
@@ -65,6 +68,35 @@ public struct SessionReducer: Sendable {
             // not clear its tool/wait state or manufacture a progress transition.
             updateMetadata(event)
         }
+        if event.kind != .sessionEnd {
+            recordObservation(
+                sessionID: event.sessionID,
+                source: observationSource ?? event.observationSource ?? .hook,
+                at: event.timestamp,
+                health: .healthy)
+        }
+    }
+
+    /// Update one stable source entry without touching session progress.
+    public mutating func recordObservation(
+        sessionID: String,
+        source: ObservationSource,
+        at date: Date,
+        health: ObservationHealth
+    ) {
+        guard var session = sessions[sessionID] else { return }
+        var observations = session.observations ?? []
+        if let index = observations.firstIndex(where: { $0.source == source }) {
+            if date >= observations[index].lastObservedAt {
+                observations[index].lastObservedAt = date
+                observations[index].health = health
+            }
+        } else {
+            observations.append(ObservationEvidence(
+                source: source, lastObservedAt: date, health: health))
+        }
+        session.observations = observations.sorted { $0.source < $1.source }
+        sessions[sessionID] = session
     }
 
     /// Self-healing pass for sessions that are no longer genuinely waiting but
@@ -158,14 +190,31 @@ public struct SessionReducer: Sendable {
     }
 
     /// A sorted snapshot for broadcast: most-urgent first, then most-recent.
-    public func snapshot(now: Date) -> Snapshot {
-        let sorted = sessions.values.sorted { a, b in
+    public func snapshot(
+        now: Date,
+        observationStaleAfter: TimeInterval = 10 * 60,
+        observationDiagnostics: [AgentObservationDiagnostic]? = nil
+    ) -> Snapshot {
+        let aged = sessions.values.map { session -> AgentSession in
+            var session = session
+            session.observations = session.observations?.map { evidence in
+                var evidence = evidence
+                if evidence.health == .healthy,
+                   now.timeIntervalSince(evidence.lastObservedAt) > observationStaleAfter {
+                    evidence.health = .temporarilySilent
+                }
+                return evidence
+            }
+            return session
+        }
+        let sorted = aged.sorted { a, b in
             if a.status.attentionRank != b.status.attentionRank {
                 return a.status.attentionRank < b.status.attentionRank
             }
             return a.updatedAt > b.updatedAt
         }
-        return Snapshot(sessions: sorted, serverTime: now)
+        return Snapshot(sessions: sorted, serverTime: now,
+                        observationDiagnostics: observationDiagnostics)
     }
 
     // MARK: - Helpers

@@ -8,6 +8,7 @@ import VibeBuddyKit
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var voice: VoiceChat
+    @EnvironmentObject private var dashboard: DashboardStore
     @AppStorage(SoundPrefs.playSoundKey) private var playSound = true
     @AppStorage(SoundPrefs.quietModeKey) private var quiet = false
     @State private var quietHours = SoundPrefs.quietHours
@@ -18,6 +19,45 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    if dashboard.observationDiagnostics.isEmpty {
+                        Text("No observation diagnostics received from the Mac yet.")
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(dashboard.observationDiagnostics) { agent in
+                        VStack(alignment: .leading, spacing: 7) {
+                            Text(agent.agent.displayName).font(.headline)
+                            ForEach(agent.sources) { source in
+                                HStack(alignment: .top, spacing: 8) {
+                                    Image(systemName: source.health.isHealthy
+                                          ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                                        .foregroundStyle(source.health.isHealthy ? .green : .orange)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("\(source.source.displayName) · \(source.health.displayName)")
+                                            .fontWeight(.semibold)
+                                        Text(source.health.explanation(for: source.source))
+                                            .font(.caption).foregroundStyle(.secondary)
+                                        if let last = source.lastObservedAt {
+                                            Text("Last signal \(last, style: .relative)")
+                                                .font(.caption2).foregroundStyle(.tertiary)
+                                        }
+                                        if !source.configuredCoverage.isEmpty || !source.observedCoverage.isEmpty {
+                                            let configured = source.configuredCoverageDescription
+                                            let observed = source.observedCoverageDescription
+                                            Text("Coverage: configured \(configured.isEmpty ? "none" : configured); observed \(observed.isEmpty ? "none" : observed)")
+                                                .font(.caption2).foregroundStyle(.tertiary)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Observation health")
+                } footer: {
+                    Text("Repairs are only available on the Mac and run only after you press Repair there.")
+                }
+
                 Section {
                     Toggle("Sound", isOn: $playSound)
                     Toggle("Focus mode (only permission cues)", isOn: $quiet).disabled(!playSound)

@@ -26,6 +26,9 @@ public struct HookEvent: Sendable, Equatable {
     public let message: String?
     public let transcriptPath: String?
     public let model: String?
+    /// Nil means the caller has not classified transport yet. Raw hook intake
+    /// supplies `.hook`; the normalized Codex monitor path supplies `.rollout`.
+    public let observationSource: ObservationSource?
     /// A `PostToolUse` whose tool reported an error (non-zero exit, `is_error`,
     /// or interruption). Drives the session's `failed`/stuck signal.
     public let toolError: Bool
@@ -40,6 +43,7 @@ public struct HookEvent: Sendable, Equatable {
         message: String? = nil,
         transcriptPath: String? = nil,
         model: String? = nil,
+        observationSource: ObservationSource? = nil,
         toolError: Bool = false,
         timestamp: Date
     ) {
@@ -51,6 +55,7 @@ public struct HookEvent: Sendable, Equatable {
         self.message = message
         self.transcriptPath = transcriptPath
         self.model = model
+        self.observationSource = observationSource
         self.toolError = toolError
         self.timestamp = timestamp
     }

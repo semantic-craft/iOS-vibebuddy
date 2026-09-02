@@ -5,6 +5,31 @@ import VibeBuddyKit
 /// A demo instance seeds these and skips the server/polling entirely, so it never
 /// binds the port, pushes to a phone, or touches real session data (privacy-safe).
 enum MacDemoData {
+    static func observationDiagnostics(now: Date = Date()) -> [AgentObservationDiagnostic] {
+        [
+            AgentObservationDiagnostic(agent: .claudeCode, sources: [
+                ObservationSourceDiagnostic(
+                    source: .hook, health: .healthy,
+                    lastObservedAt: now.addingTimeInterval(-8),
+                    configuredCoverage: ObservationEventCoverage.allCases,
+                    observedCoverage: [.lifecycle, .turn, .tool, .attention]),
+                ObservationSourceDiagnostic(
+                    source: .transcript, health: .healthy,
+                    lastObservedAt: now.addingTimeInterval(-8),
+                    observedCoverage: [.turn]),
+            ]),
+            AgentObservationDiagnostic(agent: .codex, sources: [
+                ObservationSourceDiagnostic(
+                    source: .hook, health: .eventsMissing,
+                    configuredCoverage: [.lifecycle, .turn]),
+                ObservationSourceDiagnostic(
+                    source: .rollout, health: .temporarilySilent,
+                    lastObservedAt: now.addingTimeInterval(-12 * 60),
+                    observedCoverage: [.turn, .tool]),
+            ]),
+        ]
+    }
+
     static func sessions(now: Date = Date()) -> [AgentSession] {
         [
             // ── Needs response ──────────────────────────────────────────────
@@ -18,6 +43,8 @@ enum MacDemoData {
                     newText: "todos.sort((a, b) => a.dueDate - b.dueDate)"),
                 summary: "Sort reminders by due date",
                 tokens: 4200, contextTokens: 128_000, contextWindow: 200_000,
+                observations: [ObservationEvidence(
+                    source: .hook, lastObservedAt: now.addingTimeInterval(-44), health: .healthy)],
                 statusSince: now.addingTimeInterval(-44), updatedAt: now.addingTimeInterval(-44)),
             AgentSession(
                 id: "demo-question", agent: .claudeCode, project: "docs-review", branch: "main",
@@ -39,6 +66,8 @@ enum MacDemoData {
                 model: "gpt-5-codex", status: .working, summary: "Running the test suite…",
                 tokens: 1500, contextTokens: 64_000, contextWindow: 200_000,
                 activeTool: "Bash",
+                observations: [ObservationEvidence(
+                    source: .rollout, lastObservedAt: now.addingTimeInterval(-9), health: .healthy)],
                 statusSince: now.addingTimeInterval(-9), updatedAt: now.addingTimeInterval(-9)),
             AgentSession(
                 id: "demo-work-2", agent: .claudeCode, project: "web-dashboard", branch: "feat/auth",

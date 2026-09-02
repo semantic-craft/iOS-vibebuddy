@@ -130,6 +130,9 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     /// PostToolUse / a new turn). Drives the Mac row's "Editing…/Searching…"
     /// activity line. Optional so older payloads decode as "unknown".
     public var activeTool: String?
+    /// Stable evidence describing how this session was observed. Optional keeps
+    /// snapshots from older Mac builds decodable by newer clients.
+    public var observations: [ObservationEvidence]?
     public var statusSince: Date
     public var updatedAt: Date
 
@@ -151,6 +154,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         failed: Bool? = nil,
         spentTokens: Int? = nil,
         activeTool: String? = nil,
+        observations: [ObservationEvidence]? = nil,
         statusSince: Date,
         updatedAt: Date
     ) {
@@ -171,6 +175,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         self.failed = failed
         self.spentTokens = spentTokens
         self.activeTool = activeTool
+        self.observations = observations
         self.statusSince = statusSince
         self.updatedAt = updatedAt
     }
@@ -183,10 +188,18 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
 public struct Snapshot: Codable, Sendable, Equatable {
     public var sessions: [AgentSession]
     public var serverTime: Date
+    /// Mac-side source diagnostics, mirrored to iOS. Optional preserves wire
+    /// compatibility with snapshots emitted before observability v2.
+    public var observationDiagnostics: [AgentObservationDiagnostic]?
 
-    public init(sessions: [AgentSession], serverTime: Date) {
+    public init(
+        sessions: [AgentSession],
+        serverTime: Date,
+        observationDiagnostics: [AgentObservationDiagnostic]? = nil
+    ) {
         self.sessions = sessions
         self.serverTime = serverTime
+        self.observationDiagnostics = observationDiagnostics
     }
 }
 

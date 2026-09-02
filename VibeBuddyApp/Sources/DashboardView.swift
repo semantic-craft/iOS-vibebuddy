@@ -58,7 +58,9 @@ struct DashboardView: View {
         .sheet(isPresented: $showSettings) {
             // A sheet doesn't inherit the presenter's environment objects, so
             // re-inject `voice` — Settings restarts a live session on change.
-            SettingsView().environmentObject(voice)
+            SettingsView()
+                .environmentObject(voice)
+                .environmentObject(dashboard)
         }
         .sheet(isPresented: $voice.showConsent) { VoiceConsentSheet(voice: voice) }
         .overlay(alignment: .bottom) {
@@ -228,6 +230,17 @@ private struct SessionRow: View {
                 }
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
+
+                if let observation = session.observationDescription {
+                    HStack(spacing: 5) {
+                        Label(observation, systemImage: "waveform.path.ecg")
+                        if let last = session.lastObservedAt {
+                            Text("· \(last, style: .relative)")
+                        }
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                }
 
                 if let used = session.contextTokens, let window = session.contextWindow, window > 0 {
                     ContextBar(used: used, window: window)

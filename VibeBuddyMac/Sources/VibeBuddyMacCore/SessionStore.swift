@@ -5,6 +5,7 @@ import VibeBuddyKit
 /// reads/subscriptions happen concurrently, so the mutable reducer lives behind
 /// an actor. WebSocket clients subscribe for a live snapshot stream.
 public actor SessionStore {
+    private static let diagnosticStaleAfter: TimeInterval = 10 * 60
     private var reducer = SessionReducer()
     private var subscribers: [UUID: AsyncStream<Snapshot>.Continuation] = [:]
     private var needsResponseHandler: (@Sendable (AgentSession) async -> Void)?
@@ -15,9 +16,16 @@ public actor SessionStore {
     /// Terminal refs remembered by session id, so a `/terminal` POST that races
     /// ahead of the session-creating `SessionStart` still lands once it exists.
     private var pendingTerminalRefs: [String: TerminalRef] = [:]
+    private let diagnosticsHome: URL?
+    private var runtimeSignals: [AgentKind: [ObservationSource: ObservationRuntimeSignal]] = [:]
+    private var diagnosticCache: (at: Date, value: [AgentObservationDiagnostic])?
 
-    public init(staleAfter: TimeInterval = 2 * 60 * 60) {
+    public init(
+        staleAfter: TimeInterval = 2 * 60 * 60,
+        diagnosticsHome: URL? = nil
+    ) {
         self.staleAfter = staleAfter
+        self.diagnosticsHome = diagnosticsHome
     }
 
     /// Change the idle-cleanup window at runtime (from Settings).
@@ -56,24 +64,43 @@ public actor SessionStore {
         // Source-aware decode: the `?agent=` value tags Claude-shaped lifecycle
         // hooks directly and selects a translator only for different envelopes.
         guard let event = HookDecoder.decode(data, agent: agent, receivedAt: receivedAt)
-        else { return false }
-        ingest(event)
+        else {
+            recordSignal(agent: agent, source: .hook, at: receivedAt,
+                         health: .unknownVersion, coverage: nil)
+            broadcast()
+            return false
+        }
+        ingest(event, observationSource: .hook)
         return true
     }
 
     /// Apply an already-normalized event from a local monitor such as the Codex
     /// Desktop rollout tailer. Hook payload parsing remains in the Data overload.
     public func ingest(_ event: HookEvent) {
+        let inferredSource = event.observationSource ?? (event.agent == .codex ? .rollout : .hook)
+        ingest(event, observationSource: inferredSource)
+    }
+
+    private func ingest(_ event: HookEvent, observationSource: ObservationSource) {
         let wasWaiting = reducer.sessions[event.sessionID]?.status == .needsResponse
         if let path = event.transcriptPath { transcriptPaths[event.sessionID] = path }
-        reducer.apply(event)
+        reducer.apply(event, observationSource: observationSource)
+        recordSignal(agent: event.agent, source: observationSource, at: event.timestamp,
+                     health: .healthy, coverage: Self.coverage(for: event.kind))
         if reducer.sessions[event.sessionID] == nil {
             // Session was removed (e.g. SessionEnd) — forget its side data.
             transcriptPaths[event.sessionID] = nil
             pendingTerminalRefs[event.sessionID] = nil
         } else {
-            if let path = event.transcriptPath, let info = TranscriptReader.read(path: path) {
-                reducer.enrich(sessionID: event.sessionID, with: info)
+            if let path = event.transcriptPath {
+                let transcriptHealth = Self.sourceHealth(at: path)
+                reducer.recordObservation(sessionID: event.sessionID, source: .transcript,
+                                          at: event.timestamp, health: transcriptHealth)
+                recordSignal(agent: event.agent, source: .transcript, at: event.timestamp,
+                             health: transcriptHealth, coverage: .turn)
+                if let info = TranscriptReader.read(path: path) {
+                    reducer.enrich(sessionID: event.sessionID, with: info)
+                }
             }
             // Apply a terminal ref that arrived before this session existed.
             if let ref = pendingTerminalRefs[event.sessionID] {
@@ -118,7 +145,7 @@ public actor SessionStore {
     }
 
     public func snapshot(now: Date) -> Snapshot {
-        reducer.snapshot(now: now)
+        reducer.snapshot(now: now, observationDiagnostics: diagnostics(now: now))
     }
 
     /// The session's recent output (user prompts + assistant prose / tool activity)
@@ -135,7 +162,9 @@ public actor SessionStore {
         let stream = AsyncStream<Snapshot>(bufferingPolicy: .bufferingNewest(1)) { continuation in
             subscribers[id] = continuation
         }
-        subscribers[id]?.yield(reducer.snapshot(now: Date()))
+        let now = Date()
+        subscribers[id]?.yield(reducer.snapshot(
+            now: now, observationDiagnostics: diagnostics(now: now)))
         return (id, stream)
     }
 
@@ -145,9 +174,96 @@ public actor SessionStore {
     }
 
     private func broadcast() {
-        let snapshot = reducer.snapshot(now: Date())
+        let now = Date()
+        let snapshot = reducer.snapshot(now: now, observationDiagnostics: diagnostics(now: now))
         for continuation in subscribers.values {
             continuation.yield(snapshot)
         }
+    }
+
+    private func diagnostics(now: Date) -> [AgentObservationDiagnostic]? {
+        let signals = runtimeSignals.values.flatMap { $0.values }
+        guard diagnosticsHome != nil || !signals.isEmpty else { return nil }
+        if let cache = diagnosticCache, now.timeIntervalSince(cache.at) < 30 {
+            return cache.value
+        }
+        let value = ObservationHealthDetector.detect(
+            home: diagnosticsHome, signals: signals, now: now,
+            staleAfter: Self.diagnosticStaleAfter)
+        diagnosticCache = (now, value)
+        return value
+    }
+
+    private func recordSignal(
+        agent: AgentKind,
+        source: ObservationSource,
+        at date: Date,
+        health: ObservationHealth,
+        coverage: ObservationEventCoverage?
+    ) {
+        var perSource = runtimeSignals[agent] ?? [:]
+        let previous = perSource[source]
+        var signal = previous ?? ObservationRuntimeSignal(
+            agent: agent, source: source, lastObservedAt: date, health: health)
+        if date >= signal.lastObservedAt {
+            signal.lastObservedAt = date
+            signal.health = health
+        }
+        if let coverage {
+            signal.observedCoverage = Array(Set(signal.observedCoverage).union([coverage])).sorted()
+        }
+        perSource[source] = signal
+        runtimeSignals[agent] = perSource
+        let patchedCache = patchDiagnosticCache(with: signal)
+        // Static compatibility evidence is comparatively expensive to inspect.
+        // Rebuild it when a source first appears or its state/coverage changes;
+        // ordinary timestamp advances can use the bounded 30-second cache.
+        if !patchedCache && (previous == nil
+            || previous?.health != signal.health
+            || previous?.observedCoverage != signal.observedCoverage) {
+            diagnosticCache = nil
+        }
+    }
+
+    /// Patch freshness-only rows in memory. Static compatibility failures still
+    /// invalidate once when the runtime signal materially changes.
+    private func patchDiagnosticCache(with signal: ObservationRuntimeSignal) -> Bool {
+        guard var cache = diagnosticCache,
+              let agentIndex = cache.value.firstIndex(where: { $0.agent == signal.agent }),
+              let sourceIndex = cache.value[agentIndex].sources
+                .firstIndex(where: { $0.source == signal.source }) else { return false }
+        var row = cache.value[agentIndex].sources[sourceIndex]
+        guard row.health == .healthy || row.health == .temporarilySilent else { return false }
+
+        row.lastObservedAt = max(row.lastObservedAt ?? signal.lastObservedAt,
+                                 signal.lastObservedAt)
+        row.observedCoverage = Array(
+            Set(row.observedCoverage).union(signal.observedCoverage)).sorted()
+        if signal.health != .healthy {
+            row.health = signal.health
+        } else {
+            row.health = cache.at.timeIntervalSince(signal.lastObservedAt)
+                > Self.diagnosticStaleAfter ? .temporarilySilent : .healthy
+        }
+        cache.value[agentIndex].sources[sourceIndex] = row
+        diagnosticCache = cache
+        return true
+    }
+
+    private static func coverage(for kind: HookEvent.Kind) -> ObservationEventCoverage {
+        if kind == .userPromptSubmit || kind == .stop { return .turn }
+        if kind == .preToolUse || kind == .postToolUse { return .tool }
+        if kind == .notification { return .attention }
+        return .lifecycle
+    }
+
+    private static func sourceHealth(at path: String) -> ObservationHealth {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: path),
+              fm.isReadableFile(atPath: path),
+              let attributes = try? fm.attributesOfItem(atPath: path),
+              ((attributes[.posixPermissions] as? NSNumber)?.intValue ?? 0) & 0o444 != 0
+        else { return .sourceUnreadable }
+        return .healthy
     }
 }

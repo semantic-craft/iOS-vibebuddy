@@ -13,7 +13,7 @@ struct SettingsView: View {
         TabView {
             GeneralSettings(model: model)
                 .tabItem { Label("General", systemImage: "gearshape") }
-            SetupSettings()
+            SetupSettings(model: model)
                 .tabItem { Label("Setup", systemImage: "checklist") }
             GlanceSettings(model: model)
                 .tabItem { Label("Glance", systemImage: "menubar.rectangle") }
@@ -34,10 +34,27 @@ struct SettingsView: View {
 /// bundled, tested Python installers). The actual install touches the user's real CLI
 /// configs — so it's only ever an explicit button click here.
 private struct SetupSettings: View {
+    @ObservedObject var model: MenuBarModel
     @StateObject private var setup = HookSetup()
 
     var body: some View {
         Form {
+            Section("Observation health") {
+                if model.observationDiagnostics.isEmpty {
+                    Text("Checking Claude and Codex sources…")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(model.observationDiagnostics) { agent in
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text(agent.agent.displayName).font(.headline)
+                        ForEach(agent.sources) { source in
+                            observationRow(agent: agent.agent, source: source)
+                        }
+                    }
+                    .padding(.vertical, 3)
+                }
+            }
+
             Section {
                 if setup.statuses.isEmpty {
                     Text("No agent CLIs detected yet.").foregroundStyle(.secondary)
@@ -80,6 +97,55 @@ private struct SetupSettings: View {
         }
         .padding(.horizontal)
         .onAppear { setup.refresh() }
+    }
+
+    @ViewBuilder
+    private func observationRow(
+        agent: AgentKind,
+        source: ObservationSourceDiagnostic
+    ) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: source.health.isHealthy
+                  ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .foregroundStyle(source.health.isHealthy ? .green : .orange)
+                .frame(width: 16)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 5) {
+                    Text(source.source.displayName).fontWeight(.semibold)
+                    Text("· \(source.health.displayName)")
+                        .foregroundStyle(.secondary)
+                }
+                Text(source.health.explanation(for: source.source))
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let last = source.lastObservedAt {
+                    Text("Last signal \(last, style: .relative)")
+                        .font(.caption2).foregroundStyle(.tertiary)
+                }
+                if !source.configuredCoverage.isEmpty || !source.observedCoverage.isEmpty {
+                    let configured = source.configuredCoverageDescription
+                    let observed = source.observedCoverageDescription
+                    Text("Coverage: configured \(configured.isEmpty ? "none" : configured); observed \(observed.isEmpty ? "none" : observed)")
+                        .font(.caption2).foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 8)
+            if source.source == .hook, source.health.needsHookRepair {
+                Button("Repair") { setup.repair(agent) }
+                    .disabled(setup.running)
+                    .help("Runs the bundled idempotent installer and preserves your other hooks.")
+            }
+        }
+    }
+}
+
+private extension ObservationHealth {
+    var needsHookRepair: Bool {
+        switch self {
+        case .eventsMissing, .asyncIncompatible, .sourceUnreadable, .unknownVersion: true
+        case .healthy, .temporarilySilent, .notInstalled: false
+        }
     }
 }
 

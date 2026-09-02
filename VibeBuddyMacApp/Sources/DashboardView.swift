@@ -285,6 +285,17 @@ private struct SessionRowView: View {
                 }
             }
             .font(.caption2).foregroundStyle(.tertiary)
+            if let observation = session.observationDescription {
+                HStack(spacing: 5) {
+                    Label(observation, systemImage: "waveform.path.ecg")
+                    if let last = session.lastObservedAt {
+                        Text("· \(last, style: .relative)")
+                    }
+                }
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+            }
         }
         .padding(.vertical, 2)
     }

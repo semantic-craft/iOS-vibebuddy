@@ -1,4 +1,5 @@
 import Foundation
+import VibeBuddyKit
 import VibeBuddyMacCore
 
 /// Onboarding / setup model (issues 05 + 06): reports which agent CLIs are
@@ -23,13 +24,23 @@ final class HookSetup: ObservableObject {
     func install() { run("--install") }
     func uninstall() { run("--uninstall") }
 
-    /// Locate the installer bundled at `Contents/Resources/hooks/`.
-    private static func scriptURL() -> URL? {
-        Bundle.main.resourceURL?.appendingPathComponent("hooks/install-agent-hooks.py")
+    /// Targeted repair is only reached from an explicit per-agent Settings
+    /// button. Both installers are idempotent and preserve foreign hook entries.
+    func repair(_ agent: AgentKind) {
+        switch agent {
+        case .claudeCode: run("--install", scriptName: "install-claude-hooks.py")
+        case .codex: run("--install", scriptName: "install-codex-hooks.py")
+        default: break
+        }
     }
 
-    private func run(_ mode: String) {
-        guard !running, let script = Self.scriptURL(),
+    /// Locate the installer bundled at `Contents/Resources/hooks/`.
+    private static func scriptURL(named name: String) -> URL? {
+        Bundle.main.resourceURL?.appendingPathComponent("hooks/\(name)")
+    }
+
+    private func run(_ mode: String, scriptName: String = "install-agent-hooks.py") {
+        guard !running, let script = Self.scriptURL(named: scriptName),
               FileManager.default.fileExists(atPath: script.path) else {
             lastOutput = "Installer not found in the app bundle."
             return

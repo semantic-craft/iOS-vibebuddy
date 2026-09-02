@@ -23,6 +23,7 @@ struct PairedPhone: Codable, Equatable {
 @MainActor
 final class MenuBarModel: ObservableObject {
     @Published private(set) var sessions: [AgentSession] = []
+    @Published private(set) var observationDiagnostics: [AgentObservationDiagnostic] = []
     /// Sessions the user has pointed the buddy at (in-memory, never persisted).
     /// Empty = the buddy sees all sessions; pruned to live IDs on every snapshot.
     @Published private(set) var buddySessionIDs: Set<String> = []
@@ -41,7 +42,8 @@ final class MenuBarModel: ObservableObject {
 
     let port: Int
     private let token: String
-    private let store = SessionStore()
+    private let store = SessionStore(
+        diagnosticsHome: FileManager.default.homeDirectoryForCurrentUser)
     private let approvalRegistry = ApprovalRegistry()
     // Always-allow / allow-this-session state, shared with the embedded server so
     // the daemon's /approval path and this in-process UI agree (ADR 0010).
@@ -95,6 +97,7 @@ final class MenuBarModel: ObservableObject {
         let isDemo = ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1"
         if isDemo {
             sessions = MacDemoData.sessions()
+            observationDiagnostics = MacDemoData.observationDiagnostics()
         } else if runtimeEnabled {
             notifier.requestAuthorization()
             startServer()
@@ -184,6 +187,7 @@ final class MenuBarModel: ObservableObject {
                 guard let self else { return }
                 let snapshot = await self.store.snapshot(now: Date())
                 self.sessions = snapshot.sessions
+                self.observationDiagnostics = snapshot.observationDiagnostics ?? []
                 self.buddySessionIDs = BuddyScope.pruned(self.buddySessionIDs, toLive: snapshot.sessions)
                 // Precise suppression: a finishing session stays silent when *its
                 // own* terminal is frontmost, not just when VibeBuddy is.
