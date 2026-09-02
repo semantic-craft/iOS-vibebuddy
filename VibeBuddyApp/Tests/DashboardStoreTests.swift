@@ -14,18 +14,6 @@ private actor DecisionRecorder: DecisionClient {
     func jump(_ pairing: PairingPayload, sessionId: String) async -> JumpOutcome? { nil }
 }
 
-private struct EmptyStreamer: SnapshotStreaming {
-    func stream(_ pairing: PairingPayload) -> AsyncStream<Snapshot> {
-        AsyncStream { $0.finish() }
-    }
-}
-
-private struct SilentNotifier: AttentionNotifier {
-    func requestAuthorization() {}
-    func notify(_ alert: SoundAlert) {}
-    func confirmPairing() {}
-}
-
 @MainActor
 final class DashboardStoreTests: XCTestCase {
     func testColdStartDeepLinkReplaysAcknowledgementAfterPairingStarts() async throws {

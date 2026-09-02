@@ -2,25 +2,39 @@ import SwiftUI
 import VibeBuddyKit
 
 struct WatchRootView: View {
-    let launch: WatchLaunch
+    @ObservedObject var store: WatchStateStore
     @State private var page: WatchPage
 
-    init(launch: WatchLaunch) {
-        self.launch = launch
-        _page = State(initialValue: launch.initialPage)
+    init(store: WatchStateStore) {
+        self.store = store
+        _page = State(initialValue: store.initialPage)
     }
 
     var body: some View {
-        if launch.state.relay == .noData {
-            WatchNoDataView()
+        // Demo Mode reads a frozen clock so a given launch input always produces
+        // the same screen. Live state ages against the real one, which is the
+        // whole point of showing how old it is.
+        if store.isDemo {
+            pages(now: store.launchedAt)
         } else {
+            TimelineView(.periodic(from: store.launchedAt, by: 5)) { context in
+                pages(now: context.date)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func pages(now: Date) -> some View {
+        if let state = store.state, state.relay != .noData {
             TabView(selection: $page) {
-                WatchHomeView(state: launch.state, now: launch.now)
+                WatchHomeView(state: state, now: now)
                     .tag(WatchPage.home)
-                WatchQuotaView(state: launch.state, now: launch.now)
+                WatchQuotaView(state: state, now: now)
                     .tag(WatchPage.quota)
             }
             .tabViewStyle(.page)
+        } else {
+            WatchNoDataView()
         }
     }
 }
@@ -45,6 +59,28 @@ struct WatchNoDataView: View {
             }
             .navigationTitle("vibebuddy")
         }
+    }
+}
+
+/// The iPhone cannot reach the Mac. This leads the page, because every number
+/// below it is a memory rather than a reading.
+struct WatchDisconnectedBanner: View {
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "iphone.gen3.slash")
+                .font(.system(size: 10))
+            Text("Can't reach your Mac")
+                .font(.caption2)
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -78,14 +114,11 @@ struct WatchFooter: View {
         .padding(.top, 2)
     }
 
+    /// How old this is, always. The banner above says *why* it is old; repeating
+    /// that here would spend a line of a 40mm screen saying nothing new.
     private var relayText: String {
-        switch state.relay {
-        case .live:
-            return WatchFormat.updated(state.age(now: now))
-        case .disconnected:
-            return String(localized: "Disconnected · \(WatchFormat.duration(state.age(now: now))) old")
-        case .noData:
-            return String(localized: "No data")
-        }
+        state.relay == .noData
+            ? String(localized: "No data")
+            : WatchFormat.updated(state.age(now: now))
     }
 }

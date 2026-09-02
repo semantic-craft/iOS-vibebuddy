@@ -28,6 +28,12 @@ final class DashboardStore: ObservableObject {
     private let notifier: AttentionNotifier
     private let decisionClient: DecisionClient
     private let liveActivity = LiveActivityManager()
+    /// The only door to the wrist. Optional so tests and Simulator runs without
+    /// a paired Watch behave exactly as they did before the companion existed.
+    private let watchRelay: WatchRelay?
+    /// The Mac's own clock for the last snapshot, so the relayed state says when
+    /// the Mac saw the world rather than when this phone re-rendered it.
+    private var lastServerTime = Date()
     private var runTask: Task<Void, Never>?
     /// Decides which sound (if any) each snapshot earns. Reset per connection so
     /// the opening backlog of an already-waiting session stays silent.
@@ -40,10 +46,12 @@ final class DashboardStore: ObservableObject {
 
     init(streamer: SnapshotStreaming = WebSocketSnapshotClient(),
          notifier: AttentionNotifier = LocalNotifier(),
-         decisionClient: DecisionClient = HTTPDecisionClient()) {
+         decisionClient: DecisionClient = HTTPDecisionClient(),
+         watchRelay: WatchRelay? = WatchRelay(transport: WatchConnectivityTransport())) {
         self.streamer = streamer
         self.notifier = notifier
         self.decisionClient = decisionClient
+        self.watchRelay = watchRelay
         if ProcessInfo.processInfo.environment["VIBEBUDDY_SKIP_NOTIFICATIONS"] != "1" {
             notifier.requestAuthorization()
         }
@@ -86,6 +94,7 @@ final class DashboardStore: ObservableObject {
                 }
                 if Task.isCancelled { return }
                 self.state = .failed(String(localized: "Disconnected — reconnecting…"))
+                self.relayToWatch(self.allSessions)
                 try? await Task.sleep(for: .seconds(2))
             }
         }
@@ -105,6 +114,29 @@ final class DashboardStore: ObservableObject {
 
     /// A flat list of all known sessions, for the voice companion's context.
     var allSessions: [AgentSession] { groups.needsResponse + groups.working + groups.done }
+
+    /// The one place that records a new set of sessions: it groups them, feeds
+    /// the widget, and hands the wrist its own compact projection.
+    private func install(_ sessions: [AgentSession], serverTime: Date? = nil) {
+        if let serverTime { lastServerTime = serverTime }
+        groups = SessionGroups(sessions)
+        WidgetSnapshotStore.save(sessions: sessions)
+        relayToWatch(sessions)
+    }
+
+    /// Project the dashboard for the Watch. Quota is sample data in Demo Mode
+    /// and empty otherwise — no provider source exists yet, and an invented
+    /// percentage would be a lie about someone's account.
+    private func relayToWatch(_ sessions: [AgentSession]) {
+        guard let watchRelay else { return }
+        let now = Date()
+        watchRelay.publish(WatchDashboardProjection.make(
+            snapshot: Snapshot(sessions: sessions, serverTime: lastServerTime),
+            quotas: isDemo ? WatchDemoScenario.normal.quotas(now: now) : [],
+            relay: state == .connected ? .live : .disconnected,
+            now: now,
+            isDemo: isDemo))
+    }
 
     /// The sessions the buddy is actually grounded in, honouring the scope toggles
     /// (empty selection = all). Read by `VoiceChat`'s contextProvider at call start.
@@ -148,9 +180,8 @@ final class DashboardStore: ObservableObject {
         pairing = nil
         state = .connected
         let demo = Self.demoSessions()
-        groups = SessionGroups(demo)
         buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: demo)
-        WidgetSnapshotStore.save(sessions: demo)
+        install(demo, serverTime: Date())
         let pendingAcknowledgements = pendingAcknowledgementIDs
         pendingAcknowledgementIDs.removeAll()
         for sessionId in pendingAcknowledgements { acknowledge(sessionId) }
@@ -170,8 +201,7 @@ final class DashboardStore: ObservableObject {
                 var s = s; s.pendingApproval = nil; s.waitKind = nil; s.status = .working
                 return s
             }
-            groups = SessionGroups(resolved)
-            WidgetSnapshotStore.save(sessions: resolved)
+            install(resolved)
             return
         }
         guard let pairing else { return }
@@ -193,8 +223,7 @@ final class DashboardStore: ObservableObject {
                 s.summary = "Answered from phone: \(answer)"
                 return s
             }
-            groups = SessionGroups(resolved)
-            WidgetSnapshotStore.save(sessions: resolved)
+            install(resolved)
             return
         }
         guard let pairing else { return }
@@ -289,8 +318,7 @@ final class DashboardStore: ObservableObject {
                 session.hasUnreadCompletion = false
                 return session
             }
-            groups = SessionGroups(sessions)
-            WidgetSnapshotStore.save(sessions: sessions)
+            install(sessions)
             return
         }
         guard let pairing else {
@@ -353,11 +381,10 @@ final class DashboardStore: ObservableObject {
             Haptics.play(for: alert.sound)   // a tasteful tap to go with the cue
         }
         if !alerts.isEmpty { cuePulse += 1 }   // let the buddy react
-        groups = SessionGroups(snapshot.sessions)
         observationDiagnostics = snapshot.observationDiagnostics ?? []
         buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: snapshot.sessions)
         state = .connected
-        WidgetSnapshotStore.save(sessions: snapshot.sessions)
+        install(snapshot.sessions, serverTime: snapshot.serverTime)
         await liveActivity.sync(sessions: snapshot.sessions)
     }
 

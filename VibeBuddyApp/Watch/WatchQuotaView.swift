@@ -13,6 +13,9 @@ struct WatchQuotaView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 10) {
+                    if state.relay == .disconnected {
+                        WatchDisconnectedBanner()
+                    }
                     if state.quotas.isEmpty {
                         Text("No quota sources")
                             .font(.headline)

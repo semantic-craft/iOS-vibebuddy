@@ -9,7 +9,7 @@
 
 /* MARK: Freshness footer */
 "Sample data" = "示例数据";
-"Disconnected · %@ old" = "已断开 · %@ 前的数据";
+"Can't reach your Mac" = "连不上你的 Mac";
 "No data" = "没有数据";
 "Never updated" = "从未更新";
 "Just updated" = "刚刚更新";
@@ -22,11 +22,14 @@
 "Needs response" = "需回应";
 "Working" = "进行中";
 "Done" = "完成";
+"Stuck" = "卡住";
 "Nobody's waiting" = "没人在等你";
 "All quiet" = "一切安静";
 "%lld working" = "%lld 个进行中";
 "No sessions" = "没有会话";
 "Start a session on your Mac and it shows up here." = "在 Mac 上启动一个会话，它就会出现在这里。";
+"No recent update" = "没有最新数据";
+"Your iPhone can't reach your Mac, so this is the last thing it knew." = "你的 iPhone 连不上 Mac，这是它最后知道的情况。";
 
 /* MARK: Urgent takeover */
 "Needs approval" = "需要批准";
