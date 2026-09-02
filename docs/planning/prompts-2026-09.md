@@ -31,19 +31,28 @@ P0 收口仓库 ── 唯一前置，串行，主工作区（当前会话直接
 
 ## 启动方式（最少复制粘贴）
 
-主工作区任务（P1、P2、MERGE）直接在 `~/Projects/iOS-vibebuddy` 起会话：
+**Claude Code 桌面版（默认）：** 在项目文件夹 `~/Projects/iOS-vibebuddy` 上开一个新会话，粘一行，其它什么都不用做：
 
-```bash
-claude "按 docs/planning/prompts-2026-09.md 只执行 P1"
+```
+按 docs/planning/prompts-2026-09.md 只执行 P1
 ```
 
-分支任务（W*、R*、FIX）先建 worktree 再起会话，一行搞定（把 `claude` 换成 `codex` 一样用）：
-
-```bash
-cd "$(tools/agent-worktree.sh watch-01)" && claude "按 docs/planning/prompts-2026-09.md 只执行 W1"
+```
+按 docs/planning/prompts-2026-09.md 只执行 W1
 ```
 
-Grok：
+```
+按 docs/planning/prompts-2026-09.md 只执行 R1
+```
+
+分支任务（W*、R*、FIX）由 agent 自己建 worktree 并切进去（见通用约束第 2 条）；主工作区任务（P1、P2、MERGE）留在项目文件夹。
+几个会话可以同时开，错开几秒即可。
+
+**终端 / Codex / Grok（可选）：** 先建 worktree 再起会话：
+
+```bash
+cd "$(tools/agent-worktree.sh watch-01)" && codex "按 docs/planning/prompts-2026-09.md 只执行 W1"
+```
 
 ```bash
 ~/.grok/bin/grok --cwd "$(tools/agent-worktree.sh watch-01)" "按 docs/planning/prompts-2026-09.md 只执行 W1"
@@ -51,12 +60,13 @@ Grok：
 
 worktree 名字对照：`watch-01` … `watch-08`、`release-mac`、`release-ios`、`fix-<slug>`。
 `tools/agent-worktree.sh` 会把 `.scratch/`（ticket）和 `.claude/skills` 软链到主工作区，所以 ticket 状态改动直接落地，不用合并。
-它在 P0 完成前会拒绝运行。
 
 ## 通用约束（每个任务都先读）
 
 1. 只做被点名的那个任务 ID；不碰其它任务的文件；只改自己 ticket 的 Status。
-2. 在指定分支 / worktree 工作。`.scratch/` 和 `.claude/skills` 是软链，直接改即可。
+2. **分支任务先把自己放进 worktree：** 运行 `tools/agent-worktree.sh <name>`（name 见任务标题），它会在 `.claude/worktrees/<name>` 建分支 `feat/<name>` 并打印路径；
+   Claude Code 随后用 EnterWorktree（`path` = 打印出的路径）切换进去，Codex / Grok 则 `cd` 进去。之后所有读写、构建、测试、提交都在那里。
+   主工作区任务（P1、P2、MERGE、R3）不建 worktree。`.scratch/` 和 `.claude/skills` 是软链，直接改即可。
 3. 不 push、不 merge main、不建 Release、不改远端。集成由主工作区的 MERGE 任务做。
 4. 不中断已安装的 `/Applications/VibeBuddyMacApp.app` 和 `:9876`。端到端验证用隔离端口 +
    临时 `HOME` + 临时日志路径（例：`VIBEBUDDY_PORT=18765 VIBEBUDDY_TOKEN=e2e ./.build/debug/vibebuddyd`）。
