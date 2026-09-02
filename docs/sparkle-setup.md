@@ -18,7 +18,7 @@ and prints the exact command for whichever one is missing.
 |---|---|---|
 | Developer ID Application certificate | login Keychain | `security find-identity -p codesigning -v` |
 | Sparkle EdDSA private key | login Keychain, service `https://sparkle-project.org`, account `ed25519` | `security find-generic-password -s https://sparkle-project.org -a ed25519` |
-| notarytool credentials | login Keychain, profile `vibebuddy-notary` | `xcrun notarytool history --keychain-profile vibebuddy-notary` |
+| notarytool credentials | login Keychain, profile `xw-notary` | `xcrun notarytool history --keychain-profile xw-notary` |
 
 **Certificate.** Xcode ▸ Settings ▸ Accounts ▸ your Apple ID ▸ Manage Certificates
 ▸ **+** ▸ *Developer ID Application*. Needs a paid Apple Developer Program membership.
@@ -36,14 +36,19 @@ The release script verifies that the key in your Keychain matches the `SUPublicE
 compiled into the app, and stops if they diverge — signing an update with the wrong
 key ships an update no installed copy can verify.
 
-**Notary credentials.** Create an App Store Connect API key (Users and Access ▸
-Integrations ▸ Team Keys, role *Developer*), download the `.p8`, and store it once.
-Type the key yourself; it must not pass through an agent.
+**Notary credentials.** Run the helper — it collects the App Store Connect API key
+in macOS dialogs (a file picker for the `.p8`, then Key ID and Issuer ID) and hands
+them to Apple's own tool. The key is passed by *path*: never read by the script,
+never echoed, never in the process list. If you have no key yet, the first dialog
+offers to open App Store Connect at the right page (Users and Access ▸ Integrations
+▸ Team Keys ▸ **+**, role *Developer* or above — the `.p8` downloads exactly once).
 
 ```bash
-xcrun notarytool store-credentials vibebuddy-notary \
-    --key /path/to/AuthKey_XXXXXXXXXX.p8 --key-id XXXXXXXXXX --issuer <issuer-uuid>
+tools/store-notary-credentials.sh
 ```
+
+It verifies the stored profile against Apple before reporting success, so a typo in
+the Key ID surfaces immediately rather than halfway through a release.
 
 ## What the script does
 

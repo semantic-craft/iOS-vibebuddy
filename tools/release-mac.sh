@@ -21,7 +21,7 @@ BUILT_APP="$DERIVED/Build/Products/Release/VibeBuddyMacApp.app"
 ENTITLEMENTS="$REPO/tools/vibebuddy-mac.entitlements"
 OUT_DIR="$REPO/dist"
 
-NOTARY_PROFILE="vibebuddy-notary"
+NOTARY_PROFILE="xw-notary"
 SPARKLE_ACCOUNT="ed25519"          # keychain account holding the EdDSA private key
 IDENTITY=""                        # default: the Developer ID Application cert in the keychain
 SKIP_NOTARIZE=0
@@ -48,7 +48,7 @@ usage() {
   cat <<'USAGE'
 Options:
   --identity <name|sha1>   Developer ID Application identity (default: the one in your keychain)
-  --notary-profile <name>  notarytool keychain profile (default: vibebuddy-notary)
+  --notary-profile <name>  notarytool keychain profile (default: xw-notary)
   --sparkle-account <name> Keychain account for the Sparkle EdDSA key (default: ed25519)
   --download-url-prefix <url>
                            Where the DMG will be downloadable from; becomes the appcast
@@ -122,16 +122,13 @@ note "sparkle key: $EXPECTED_PUBKEY (keychain account \"$SPARKLE_ACCOUNT\")"
 if (( ! SKIP_NOTARIZE )); then
   if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
     needs_you "No notarytool keychain profile named \"$NOTARY_PROFILE\"." \
-      "Create an App Store Connect API key (Users and Access ▸ Integrations ▸ Team Keys," \
-      "role Developer), download the .p8, then run this yourself and type the key in —" \
-      "I must not handle it:" \
+      "Run this — it asks for the App Store Connect API key in macOS dialogs (a file" \
+      "picker for the .p8, then Key ID and Issuer ID) and hands them straight to Apple." \
+      "The key stays yours: it is passed by path, never read, never echoed." \
       "" \
-      "  xcrun notarytool store-credentials $NOTARY_PROFILE \\" \
-      "      --key /path/to/AuthKey_XXXXXXXXXX.p8 --key-id XXXXXXXXXX --issuer <issuer-uuid>" \
+      "  tools/store-notary-credentials.sh $NOTARY_PROFILE" \
       "" \
-      "Or, with an app-specific password instead of an API key:" \
-      "  xcrun notarytool store-credentials $NOTARY_PROFILE \\" \
-      "      --apple-id <your-apple-id> --team-id $TEAM_ID --password <app-specific-password>"
+      "No API key yet? The first dialog offers to open App Store Connect at the right page."
   fi
   note "notary profile: $NOTARY_PROFILE"
 else
