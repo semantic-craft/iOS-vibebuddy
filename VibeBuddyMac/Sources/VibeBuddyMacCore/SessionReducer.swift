@@ -13,6 +13,12 @@ public struct SessionReducer: Sendable {
 
     public init() {}
 
+    /// Seed recent active state recovered from the privacy-minimized journal.
+    /// Recovery never re-applies events, so it cannot replay completion alerts.
+    mutating func restore(_ recovered: [AgentSession]) {
+        for session in recovered { sessions[session.id] = session }
+    }
+
     public mutating func apply(
         _ event: HookEvent,
         observationSource: ObservationSource? = nil

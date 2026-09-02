@@ -19,13 +19,21 @@ public actor SessionStore {
     private let diagnosticsHome: URL?
     private var runtimeSignals: [AgentKind: [ObservationSource: ObservationRuntimeSignal]] = [:]
     private var diagnosticCache: (at: Date, value: [AgentObservationDiagnostic])?
+    private var lifecycleJournal: LifecycleJournal?
 
     public init(
         staleAfter: TimeInterval = 2 * 60 * 60,
-        diagnosticsHome: URL? = nil
+        diagnosticsHome: URL? = nil,
+        journalURL: URL? = nil,
+        now: Date = Date()
     ) {
         self.staleAfter = staleAfter
         self.diagnosticsHome = diagnosticsHome
+        if let journalURL {
+            let journal = LifecycleJournal(url: journalURL, now: now)
+            self.lifecycleJournal = journal
+            reducer.restore(journal.restorableSessions(now: now, meaningfulFor: staleAfter))
+        }
     }
 
     /// Change the idle-cleanup window at runtime (from Settings).
@@ -41,10 +49,17 @@ public actor SessionStore {
                 lastActivity[id] = mtime
             }
         }
-        let before = Set(reducer.sessions.keys)
+        let before = reducer.sessions
         reducer.reconcile(now: now, lastActivity: lastActivity, staleAfter: staleAfter)
-        let removed = before.subtracting(reducer.sessions.keys)
+        let removed = Set(before.keys).subtracting(reducer.sessions.keys)
         for id in removed { transcriptPaths[id] = nil }
+        for id in removed {
+            guard let session = before[id] else { continue }
+            appendJournal(
+                sessionID: id, agent: session.agent, event: "sessionReconciled",
+                source: .recovery, at: now
+            )
+        }
         if !removed.isEmpty { broadcast() }
     }
 
@@ -107,6 +122,13 @@ public actor SessionStore {
                 reducer.setTerminalRef(sessionID: event.sessionID, ref)
             }
         }
+        appendJournal(
+            sessionID: event.sessionID,
+            agent: event.agent,
+            event: event.kind.rawValue,
+            source: observationSource,
+            at: event.timestamp
+        )
         broadcast()
         if !wasWaiting, let session = reducer.sessions[event.sessionID],
            session.status == .needsResponse, let handler = needsResponseHandler {
@@ -116,6 +138,10 @@ public actor SessionStore {
 
     public func beginApproval(sessionID: String, _ approval: PendingApproval, at: Date) {
         reducer.setPendingApproval(sessionID: sessionID, approval, at: at)
+        if let session = reducer.sessions[sessionID] {
+            appendJournal(sessionID: sessionID, agent: session.agent,
+                          event: "approvalRequested", source: .hook, at: at)
+        }
         broadcast()
         if let session = reducer.sessions[sessionID], let handler = needsResponseHandler {
             Task { await handler(session) }
@@ -124,11 +150,19 @@ public actor SessionStore {
 
     public func endApproval(sessionID: String, at: Date) {
         reducer.clearPendingApproval(sessionID: sessionID, at: at)
+        if let session = reducer.sessions[sessionID] {
+            appendJournal(sessionID: sessionID, agent: session.agent,
+                          event: "approvalResolved", source: .hook, at: at)
+        }
         broadcast()
     }
 
     public func endQuestion(sessionID: String, at: Date) {
         reducer.clearPendingQuestion(sessionID: sessionID, at: at)
+        if let session = reducer.sessions[sessionID] {
+            appendJournal(sessionID: sessionID, agent: session.agent,
+                          event: "questionResolved", source: .hook, at: at)
+        }
         broadcast()
     }
 
@@ -156,6 +190,21 @@ public actor SessionStore {
         return TranscriptReader.recentEntries(path: path, limit: limit) ?? []
     }
 
+    /// Privacy-minimized lifecycle diagnostics, newest first.
+    public func recentLifecycle(limit: Int = 40) -> [LifecycleJournalEntry] {
+        lifecycleJournal?.recent(limit: limit) ?? []
+    }
+
+    /// Explicitly erase the lifecycle journal. Returns false and retains the
+    /// in-memory timeline when on-disk data could not be removed, allowing retry.
+    @discardableResult
+    public func clearLifecycleJournal() -> Bool {
+        guard var journal = lifecycleJournal else { return true }
+        let removed = journal.clear()
+        lifecycleJournal = journal
+        return removed
+    }
+
     /// Subscribe to live snapshots. The current snapshot is delivered immediately.
     public func subscribe() -> (id: UUID, stream: AsyncStream<Snapshot>) {
         let id = UUID()
@@ -179,6 +228,30 @@ public actor SessionStore {
         for continuation in subscribers.values {
             continuation.yield(snapshot)
         }
+    }
+
+    private func appendJournal(
+        sessionID: String,
+        agent: AgentKind,
+        event: String,
+        source: ObservationSource,
+        at timestamp: Date
+    ) {
+        // Session IDs are normally UUID-sized. Refuse an untrusted oversized ID
+        // so the record-count limit also remains a practical byte-size bound.
+        guard sessionID.utf8.count <= 256 else { return }
+        guard var journal = lifecycleJournal else { return }
+        let result = reducer.sessions[sessionID]
+        journal.append(LifecycleJournalEntry(
+            sessionID: sessionID,
+            agent: agent,
+            event: event,
+            source: source,
+            timestamp: timestamp,
+            status: result?.status,
+            waitKind: result?.waitKind
+        ), now: timestamp)
+        lifecycleJournal = journal
     }
 
     private func diagnostics(now: Date) -> [AgentObservationDiagnostic]? {

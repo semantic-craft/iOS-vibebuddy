@@ -24,6 +24,8 @@ struct PairedPhone: Codable, Equatable {
 final class MenuBarModel: ObservableObject {
     @Published private(set) var sessions: [AgentSession] = []
     @Published private(set) var observationDiagnostics: [AgentObservationDiagnostic] = []
+    @Published private(set) var lifecycleTimeline: [LifecycleJournalEntry] = []
+    @Published private(set) var lifecycleJournalClearFailed = false
     /// Sessions the user has pointed the buddy at (in-memory, never persisted).
     /// Empty = the buddy sees all sessions; pruned to live IDs on every snapshot.
     @Published private(set) var buddySessionIDs: Set<String> = []
@@ -46,8 +48,7 @@ final class MenuBarModel: ObservableObject {
 
     let port: Int
     private let token: String
-    private let store = SessionStore(
-        diagnosticsHome: FileManager.default.homeDirectoryForCurrentUser)
+    private let store: SessionStore
     private let approvalRegistry = ApprovalRegistry()
     // Always-allow / allow-this-session state, shared with the embedded server so
     // the daemon's /approval path and this in-process UI agree (ADR 0010).
@@ -84,6 +85,15 @@ final class MenuBarModel: ObservableObject {
 
     init(runtimeEnabled: Bool = true) {
         port = ProcessInfo.processInfo.environment["VIBEBUDDY_PORT"].flatMap(Int.init) ?? 9876
+        let savedIdleTimeout = UserDefaults.standard.object(forKey: "idleTimeoutHours") as? Double ?? 2
+        idleTimeoutHours = savedIdleTimeout
+        store = SessionStore(
+            staleAfter: Self.staleInterval(forHours: savedIdleTimeout),
+            diagnosticsHome: FileManager.default.homeDirectoryForCurrentUser,
+            journalURL: ProcessInfo.processInfo.environment["VIBEBUDDY_JOURNAL_PATH"].map {
+                URL(fileURLWithPath: $0)
+            } ?? LifecycleJournalLocation.defaultURL()
+        )
         // File-based store (owner-only): no Keychain ACL, so an ad-hoc rebuild
         // never re-prompts. Shared with vibebuddyd's default store.
         token = (try? TokenStore.defaultStore().loadOrCreate()) ?? Token.generate()
@@ -94,9 +104,6 @@ final class MenuBarModel: ObservableObject {
         showGlance = Self.loadBool("showGlance", default: true)
         openDashboardHotkey = Hotkey.loadOpenDashboard()
         toggleGlanceHotkey = Hotkey.loadToggleGlance()
-        if let saved = UserDefaults.standard.object(forKey: "idleTimeoutHours") as? Double {
-            idleTimeoutHours = saved
-        }
         let usageEnabled = Self.loadBool("codexUsageCollectionEnabled", default: true)
         codexUsageCollectionEnabled = usageEnabled
         codexUsageCollector = CodexUsageCollector(
@@ -123,8 +130,6 @@ final class MenuBarModel: ObservableObject {
             preparePairing()
             startPolling()
             if codexUsageCollectionEnabled { startCodexUsageCollection() }
-            let interval = Self.staleInterval(forHours: idleTimeoutHours)
-            Task { [store] in await store.setStaleAfter(interval) }
         }
         // Create the glance on the next main-runloop tick — NOT synchronously here.
         // Hosting/displaying a SwiftUI view that observes `self` while `init` is
@@ -205,6 +210,7 @@ final class MenuBarModel: ObservableObject {
                 let snapshot = await self.store.snapshot(now: Date())
                 self.sessions = snapshot.sessions
                 self.observationDiagnostics = snapshot.observationDiagnostics ?? []
+                self.lifecycleTimeline = await self.store.recentLifecycle()
                 self.buddySessionIDs = BuddyScope.pruned(self.buddySessionIDs, toLive: snapshot.sessions)
                 // Precise suppression: a finishing session stays silent when *its
                 // own* terminal is frontmost, not just when VibeBuddy is.
@@ -221,6 +227,16 @@ final class MenuBarModel: ObservableObject {
                 await self.checkBudget(snapshot.sessions)
                 try? await Task.sleep(for: .seconds(2))
             }
+        }
+    }
+
+    func clearLifecycleJournal() {
+        Task { [weak self, store] in
+            let removed = await store.clearLifecycleJournal()
+            let timeline = await store.recentLifecycle()
+            guard let self else { return }
+            self.lifecycleTimeline = timeline
+            self.lifecycleJournalClearFailed = !removed
         }
     }
 

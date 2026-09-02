@@ -58,6 +58,55 @@ private struct SetupSettings: View {
             }
 
             Section {
+                if model.lifecycleTimeline.isEmpty {
+                    Text("No recent lifecycle transitions.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(model.lifecycleTimeline.prefix(20)) { entry in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 4) {
+                                    Text(entry.agent.displayName)
+                                    Text("·")
+                                    Text(LocalizedStringKey(entry.eventDisplayName))
+                                }
+                                .fontWeight(.semibold)
+                                HStack(spacing: 4) {
+                                    Text(entry.source.displayName)
+                                    Text("·")
+                                    Text("Session …\(entry.sessionSuffix)")
+                                    Text("·")
+                                    Text(LocalizedStringKey(entry.resultDisplayName))
+                                }
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 4)
+                            Text(entry.timestamp, style: .relative)
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+                HStack {
+                    Button("Clear lifecycle timeline", role: .destructive) {
+                        model.clearLifecycleJournal()
+                    }
+                    .disabled(model.lifecycleTimeline.isEmpty && !model.lifecycleJournalClearFailed)
+                    if model.lifecycleJournalClearFailed {
+                        Text("Could not remove the journal from disk.")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                }
+            } header: {
+                Text("Recent lifecycle")
+            } footer: {
+                Text("Stored locally for up to 7 days (maximum 250 transitions). Includes normalized state and source metadata only — never prompts, reasoning, message text, tool input, or tool output.")
+                    .font(.caption)
+            }
+
+            Section {
                 if setup.statuses.isEmpty {
                     Text("No agent CLIs detected yet.").foregroundStyle(.secondary)
                 }
@@ -138,6 +187,38 @@ private struct SetupSettings: View {
                     .disabled(setup.running)
                     .help("Runs the bundled idempotent installer and preserves your other hooks.")
             }
+        }
+    }
+}
+
+private extension LifecycleJournalEntry {
+    var sessionSuffix: String { String(sessionID.suffix(8)) }
+
+    var resultDisplayName: String {
+        guard let status else { return "Removed" }
+        switch status {
+        case .needsResponse:
+            return waitKind == .permission ? "Needs permission" : "Needs response"
+        case .working: return "Working"
+        case .done: return "Done"
+        }
+    }
+
+    var eventDisplayName: String {
+        switch event {
+        case "sessionStart": return "Session started"
+        case "userPromptSubmit": return "Turn started"
+        case "preToolUse": return "Tool started"
+        case "postToolUse": return "Tool finished"
+        case "notification": return "Attention requested"
+        case "stop": return "Turn stopped"
+        case "sessionEnd": return "Session ended"
+        case "sessionMetadataChanged": return "Metadata changed"
+        case "approvalRequested": return "Approval requested"
+        case "approvalResolved": return "Approval resolved"
+        case "questionResolved": return "Question resolved"
+        case "sessionReconciled": return "Session reconciled"
+        default: return "Lifecycle changed"
         }
     }
 }

@@ -227,6 +227,30 @@ public struct VibeBuddyServer: Sendable {
             )
         }
 
+        // Privacy-minimized local diagnostics. Token-gated because stable
+        // session IDs remain local user metadata.
+        router.get("lifecycle") { request, _ -> Response in
+            guard request.headers[.authorization] == "Bearer \(token)" else {
+                throw HTTPError(.unauthorized)
+            }
+            let data = try JSONEncoder().encode(await store.recentLifecycle())
+            return Response(
+                status: .ok,
+                headers: [.contentType: "application/json"],
+                body: .init(byteBuffer: ByteBuffer(bytes: data))
+            )
+        }
+
+        router.delete("lifecycle") { request, _ -> HTTPResponse.Status in
+            guard request.headers[.authorization] == "Bearer \(token)" else {
+                throw HTTPError(.unauthorized)
+            }
+            guard await store.clearLifecycleJournal() else {
+                throw HTTPError(.internalServerError)
+            }
+            return .ok
+        }
+
         // Blocking approval intake — bearer-token gated (the approval hook reads
         // the token file and sends it). Parse the PreToolUse hook payload, run the
         // permission matcher, and either decide immediately (allow/deny) or hold
