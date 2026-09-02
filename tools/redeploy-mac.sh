@@ -38,9 +38,18 @@ echo "▸ regenerating + building Release…"
 
 # Prefer a Developer ID, else any Apple Development cert; fall back to ad-hoc.
 pick_identity() {
-  security find-identity -p codesigning -v 2>/dev/null \
-    | grep -Eo '[0-9A-F]{40} "(Developer ID Application|Apple Development)[^"]*"' \
-    | sort -r | head -1 | awk '{print $1}'
+  local identities type hash
+  identities="$(security find-identity -p codesigning -v 2>/dev/null || true)"
+  for type in "Developer ID Application" "Apple Development"; do
+    hash="$(printf '%s\n' "$identities" \
+      | grep -Eo "[0-9A-F]{40} \"${type}[^\"]*\"" \
+      | head -1 | awk '{print $1}')" || hash=""
+    if [[ -n "$hash" ]]; then
+      printf '%s\n' "$hash"
+      return 0
+    fi
+  done
+  return 0
 }
 IDENTITY="$(pick_identity || true)"
 
