@@ -21,7 +21,7 @@ struct SettingsView: View {
                 .tabItem { Label("Devices", systemImage: "iphone.gen3") }
             NotificationSettings()
                 .tabItem { Label("Notifications", systemImage: "bell") }
-            CodexUsageSettings(model: model)
+            AccountUsageSettings(model: model)
                 .tabItem { Label("Usage", systemImage: "gauge.with.dots.needle.50percent") }
             VoiceSettingsTab(model: model)
                 .tabItem { Label("Voice", systemImage: "waveform") }

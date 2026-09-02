@@ -6,36 +6,37 @@ public enum CodexUsageResponseDecoder {
         rateLimitsResponse: Data,
         usageResponse: Data,
         fetchedAt: Date
-    ) throws -> CodexUsageSnapshot {
+    ) throws -> AccountUsageSnapshot {
         do {
             let rateEnvelope = try JSONDecoder().decode(RateLimitsEnvelope.self, from: rateLimitsResponse)
-            if let error = rateEnvelope.error { throw CodexUsageError.classify(message: error.message) }
-            guard let result = rateEnvelope.result else { throw CodexUsageError.incompatibleFormat }
+            if let error = rateEnvelope.error { throw AccountUsageError.classify(message: error.message) }
+            guard let result = rateEnvelope.result else { throw AccountUsageError.incompatibleFormat }
 
             let usageEnvelope = try JSONDecoder().decode(UsageEnvelope.self, from: usageResponse)
-            if let error = usageEnvelope.error { throw CodexUsageError.classify(message: error.message) }
-            guard let usage = usageEnvelope.result else { throw CodexUsageError.incompatibleFormat }
+            if let error = usageEnvelope.error { throw AccountUsageError.classify(message: error.message) }
+            guard let usage = usageEnvelope.result else { throw AccountUsageError.incompatibleFormat }
 
             let limits = result.rateLimitsByLimitId?["codex"]
                 ?? result.rateLimitsByLimitId?.values.first(where: { $0.primary != nil || $0.secondary != nil })
                 ?? result.rateLimits
-            return CodexUsageSnapshot(
+            return AccountUsageSnapshot(
+                provider: .codex,
                 planType: limits.planType,
-                primary: limits.primary?.model(kind: .primary),
-                secondary: limits.secondary?.model(kind: .secondary),
+                primary: try limits.primary.map { try $0.model(kind: .primary) },
+                secondary: try limits.secondary.map { try $0.model(kind: .secondary) },
                 lifetimeTokens: usage.summary.lifetimeTokens,
                 latestDailyTokens: usage.dailyUsageBuckets?.max(by: { $0.startDate < $1.startDate })?.tokens,
                 fetchedAt: fetchedAt
             )
-        } catch let error as CodexUsageError {
+        } catch let error as AccountUsageError {
             throw error
         } catch {
-            throw CodexUsageError.incompatibleFormat
+            throw AccountUsageError.incompatibleFormat
         }
     }
 }
 
-public final class CodexAppServerUsageProvider: CodexUsageProviding, @unchecked Sendable {
+public final class CodexAppServerUsageProvider: AccountUsageProviding, @unchecked Sendable {
     private let executableURL: URL?
     private let arguments: [String]
     private let timeout: TimeInterval
@@ -68,9 +69,9 @@ public final class CodexAppServerUsageProvider: CodexUsageProviding, @unchecked 
         self.signalProcess = signalProcess
     }
 
-    public func fetch() async throws -> CodexUsageSnapshot {
+    public func fetch() async throws -> AccountUsageSnapshot {
         try Task.checkCancellation()
-        guard let executableURL else { throw CodexUsageError.codexUnavailable }
+        guard let executableURL else { throw AccountUsageError.providerUnavailable }
         let arguments = arguments
         let timeout = timeout
         let afterProcessInstall = afterProcessInstall
@@ -120,8 +121,8 @@ public final class CodexAppServerUsageProvider: CodexUsageProviding, @unchecked 
         timeout: TimeInterval,
         lifecycle: CodexAppServerProcessLifecycle,
         afterProcessInstall: (@Sendable () -> Void)?
-    ) throws -> CodexUsageSnapshot {
-        guard timeout > 0 else { throw CodexUsageError.timedOut }
+    ) throws -> AccountUsageSnapshot {
+        guard timeout > 0 else { throw AccountUsageError.timedOut }
         let child = try spawn(executableURL: executableURL, arguments: arguments)
         let shouldContinue = lifecycle.install(
             processID: child.processID,
@@ -168,11 +169,11 @@ public final class CodexAppServerUsageProvider: CodexUsageProviding, @unchecked 
     private static func spawn(executableURL: URL, arguments: [String]) throws -> SpawnedCodexProcess {
         var stdinDescriptors = [Int32](repeating: -1, count: 2)
         var stdoutDescriptors = [Int32](repeating: -1, count: 2)
-        guard Darwin.pipe(&stdinDescriptors) == 0 else { throw CodexUsageError.codexUnavailable }
+        guard Darwin.pipe(&stdinDescriptors) == 0 else { throw AccountUsageError.providerUnavailable }
         guard Darwin.pipe(&stdoutDescriptors) == 0 else {
             closeIfOpen(stdinDescriptors[0])
             closeIfOpen(stdinDescriptors[1])
-            throw CodexUsageError.codexUnavailable
+            throw AccountUsageError.providerUnavailable
         }
         let nullDescriptor = Darwin.open("/dev/null", O_WRONLY)
         guard nullDescriptor >= 0 else {
@@ -180,7 +181,7 @@ public final class CodexAppServerUsageProvider: CodexUsageProviding, @unchecked 
             closeIfOpen(stdinDescriptors[1])
             closeIfOpen(stdoutDescriptors[0])
             closeIfOpen(stdoutDescriptors[1])
-            throw CodexUsageError.codexUnavailable
+            throw AccountUsageError.providerUnavailable
         }
 
         var actions: posix_spawn_file_actions_t? = nil
@@ -190,7 +191,7 @@ public final class CodexAppServerUsageProvider: CodexUsageProviding, @unchecked 
             closeIfOpen(stdoutDescriptors[0])
             closeIfOpen(stdoutDescriptors[1])
             closeIfOpen(nullDescriptor)
-            throw CodexUsageError.codexUnavailable
+            throw AccountUsageError.providerUnavailable
         }
         defer { posix_spawn_file_actions_destroy(&actions) }
 
@@ -201,7 +202,7 @@ public final class CodexAppServerUsageProvider: CodexUsageProviding, @unchecked 
             closeIfOpen(stdoutDescriptors[0])
             closeIfOpen(stdoutDescriptors[1])
             closeIfOpen(nullDescriptor)
-            throw CodexUsageError.codexUnavailable
+            throw AccountUsageError.providerUnavailable
         }
         defer { posix_spawnattr_destroy(&attributes) }
 
@@ -227,7 +228,7 @@ public final class CodexAppServerUsageProvider: CodexUsageProviding, @unchecked 
             closeIfOpen(stdoutDescriptors[0])
             closeIfOpen(stdoutDescriptors[1])
             closeIfOpen(nullDescriptor)
-            throw CodexUsageError.codexUnavailable
+            throw AccountUsageError.providerUnavailable
         }
 
         let actionResults = [
@@ -246,7 +247,7 @@ public final class CodexAppServerUsageProvider: CodexUsageProviding, @unchecked 
             closeIfOpen(stdoutDescriptors[0])
             closeIfOpen(stdoutDescriptors[1])
             closeIfOpen(nullDescriptor)
-            throw CodexUsageError.codexUnavailable
+            throw AccountUsageError.providerUnavailable
         }
 
         let argumentStrings = [executableURL.path] + arguments
@@ -276,7 +277,7 @@ public final class CodexAppServerUsageProvider: CodexUsageProviding, @unchecked 
         guard spawnResult == 0 else {
             closeIfOpen(stdinDescriptors[1])
             closeIfOpen(stdoutDescriptors[0])
-            throw CodexUsageError.codexUnavailable
+            throw AccountUsageError.providerUnavailable
         }
 
         _ = Darwin.fcntl(stdinDescriptors[1], F_SETNOSIGPIPE, 1)
@@ -297,7 +298,7 @@ public final class CodexAppServerUsageProvider: CodexUsageProviding, @unchecked 
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let error = object["error"] as? [String: Any] else { return }
         let message = error["message"] as? String ?? "unknown"
-        throw CodexUsageError.classify(message: message)
+        throw AccountUsageError.classify(message: message)
     }
 }
 
@@ -501,7 +502,7 @@ private final class LineRPCClient {
 
     private func readMore() throws {
         let remaining = deadline.timeIntervalSinceNow
-        guard remaining > 0 else { throw CodexUsageError.timedOut }
+        guard remaining > 0 else { throw AccountUsageError.timedOut }
         var descriptors = [
             pollfd(fd: output.fileDescriptor, events: Int16(POLLIN | POLLHUP), revents: 0),
             pollfd(fd: cancellationDescriptor, events: Int16(POLLIN | POLLHUP), revents: 0),
@@ -510,16 +511,16 @@ private final class LineRPCClient {
         let pollResult = descriptors.withUnsafeMutableBufferPointer {
             Darwin.poll($0.baseAddress, nfds_t($0.count), max(1, milliseconds))
         }
-        if pollResult == 0 { throw CodexUsageError.timedOut }
+        if pollResult == 0 { throw AccountUsageError.timedOut }
         if pollResult < 0 {
             if errno == EINTR { return }
-            throw CodexUsageError.unknown
+            throw AccountUsageError.unknown
         }
         if descriptors[1].revents != 0 { throw CancellationError() }
 
         var bytes = [UInt8](repeating: 0, count: 8_192)
         let count = Darwin.read(output.fileDescriptor, &bytes, bytes.count)
-        guard count > 0 else { throw CodexUsageError.codexUnavailable }
+        guard count > 0 else { throw AccountUsageError.providerUnavailable }
         buffer.append(bytes, count: count)
     }
 }
@@ -549,8 +550,11 @@ private struct RateLimitWindowDTO: Decodable {
     var windowDurationMins: Int?
     var resetsAt: Int?
 
-    func model(kind: CodexUsageWindowKind) -> CodexUsageWindow {
-        CodexUsageWindow(
+    func model(kind: AccountUsageWindowKind) throws -> AccountUsageWindow {
+        guard (0...100).contains(usedPercent) else {
+            throw AccountUsageError.incompatibleFormat
+        }
+        return AccountUsageWindow(
             kind: kind,
             usedPercent: usedPercent,
             windowDurationMinutes: windowDurationMins,

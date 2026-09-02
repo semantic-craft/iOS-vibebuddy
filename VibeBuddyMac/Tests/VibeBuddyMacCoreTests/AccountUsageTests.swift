@@ -4,8 +4,8 @@ import Testing
 import VibeBuddyKit
 @testable import VibeBuddyMacCore
 
-@Suite("Codex usage adapter")
-struct CodexUsageTests {
+@Suite("Account usage adapters")
+struct AccountUsageTests {
     private let now = Date(timeIntervalSince1970: 1_788_314_400)
 
     @Test("official app-server responses map quota windows and token usage")
@@ -50,12 +50,177 @@ struct CodexUsageTests {
         #expect(snapshot.fetchedAt == now)
     }
 
+    @Test("official Claude usage output maps session and weekly windows")
+    func claudeResponseDecoding() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "Asia/Shanghai"))
+        let fetchedAt = try #require(calendar.date(from: DateComponents(
+            year: 2026, month: 9, day: 2, hour: 12
+        )))
+        let output = """
+        You are currently using your subscription to power your Claude Code usage
+
+        Current session: 9% used · resets Sep 2 at 6:39pm (Asia/Shanghai)
+        Current week (all models): 15% used · resets Sep 5 at 7:59pm (Asia/Shanghai)
+        Current week (Fable): 18% used · resets Sep 5 at 7:59pm (Asia/Shanghai)
+
+        What's contributing to your limits usage?
+        """
+        let data = try JSONSerialization.data(withJSONObject: [
+            "is_error": false,
+            "result": output,
+        ])
+
+        let snapshot = try ClaudeUsageResponseDecoder.decode(
+            data,
+            fetchedAt: fetchedAt,
+            calendar: calendar
+        )
+
+        #expect(snapshot.provider == .claude)
+        #expect(snapshot.primary?.usedPercent == 9)
+        #expect(snapshot.primary?.windowDurationMinutes == 300)
+        #expect(snapshot.secondary?.usedPercent == 15)
+        #expect(snapshot.secondary?.windowDurationMinutes == 10_080)
+        #expect(snapshot.primary?.resetsAt == calendar.date(from: DateComponents(
+            year: 2026, month: 9, day: 2, hour: 18, minute: 39
+        )))
+        #expect(snapshot.secondary?.resetsAt == calendar.date(from: DateComponents(
+            year: 2026, month: 9, day: 5, hour: 19, minute: 59
+        )))
+    }
+
+    @Test("provider percentages outside zero through one hundred are rejected")
+    func percentageBounds() throws {
+        let output = """
+        Current session: 101% used · resets Sep 2 at 6:39pm (Asia/Shanghai)
+        Current week (all models): 15% used · resets Sep 5 at 7:59pm (Asia/Shanghai)
+        """
+        let claudeData = try JSONSerialization.data(withJSONObject: [
+            "is_error": false,
+            "result": output,
+        ])
+        #expect(throws: AccountUsageError.incompatibleFormat) {
+            try ClaudeUsageResponseDecoder.decode(claudeData, fetchedAt: now)
+        }
+
+        let codexLimits = Data(#"{"jsonrpc":"2.0","id":2,"result":{"rateLimits":{"primary":{"usedPercent":-1,"windowDurationMins":300}}}}"#.utf8)
+        let codexUsage = Data(#"{"jsonrpc":"2.0","id":3,"result":{"summary":{}}}"#.utf8)
+        #expect(throws: AccountUsageError.incompatibleFormat) {
+            try CodexUsageResponseDecoder.decode(
+                rateLimitsResponse: codexLimits,
+                usageResponse: codexUsage,
+                fetchedAt: now
+            )
+        }
+    }
+
+    @Test("Claude CLI timeout and cancellation reap their child process")
+    func claudeProcessCleanup() async {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vibebuddy-claude-process-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let timeoutPIDFile = directory.appendingPathComponent("timeout.pid")
+        let timeoutProvider = claudeSleepingProvider(pidFile: timeoutPIDFile, timeout: 0.1)
+        do {
+            _ = try await timeoutProvider.fetch()
+            Issue.record("Expected a timeout")
+        } catch let error as AccountUsageError {
+            #expect(error == .timedOut)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+        await expectProcessExited(pidFile: timeoutPIDFile)
+
+        let cancellationPIDFile = directory.appendingPathComponent("cancellation.pid")
+        let cancellationProvider = claudeSleepingProvider(pidFile: cancellationPIDFile, timeout: 5)
+        let fetch = Task { try await cancellationProvider.fetch() }
+        #expect(await waitForPID(in: cancellationPIDFile) != nil)
+        fetch.cancel()
+        do {
+            _ = try await fetch.value
+            Issue.record("Expected cancellation")
+        } catch {
+            #expect(error is CancellationError)
+        }
+        await expectProcessExited(pidFile: cancellationPIDFile)
+
+        let overflowPIDFile = directory.appendingPathComponent("overflow.pid")
+        let overflowProvider = ClaudeCLIUsageProvider(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: [
+                "-c", "echo $$ > \"$1\"; (yes o | head -c 700000) & (yes e | head -c 700000 >&2) & wait; exec sleep 5",
+                "vibebuddy-test", overflowPIDFile.path,
+            ],
+            timeout: 2
+        )
+        let overflowStarted = ContinuousClock.now
+        do {
+            _ = try await overflowProvider.fetch()
+            Issue.record("Expected the output limit to be enforced")
+        } catch let error as AccountUsageError {
+            #expect(error == .incompatibleFormat)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+        #expect(ContinuousClock.now - overflowStarted < .seconds(2))
+        await expectProcessExited(pidFile: overflowPIDFile)
+
+        let descendantPIDFile = directory.appendingPathComponent("descendant.pid")
+        let liveOutput = """
+        Current session: 10% used · resets Sep 2 at 6:39pm (Asia/Shanghai)
+        Current week (all models): 15% used · resets Sep 5 at 7:59pm (Asia/Shanghai)
+        """
+        let liveEnvelope = try? JSONSerialization.data(withJSONObject: [
+            "is_error": false,
+            "result": liveOutput,
+        ])
+        let inheritedWriterProvider = ClaudeCLIUsageProvider(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: [
+                "-c", "(trap '' TERM; exec sleep 5) & echo $! > \"$1\"; exec /usr/bin/printf '%s' \"$2\"",
+                "vibebuddy-test", descendantPIDFile.path,
+                liveEnvelope.map { String(decoding: $0, as: UTF8.self) } ?? "",
+            ],
+            timeout: 1
+        )
+        let inheritedWriterStarted = ContinuousClock.now
+        do {
+            let snapshot = try await inheritedWriterProvider.fetch()
+            #expect(snapshot.primary?.usedPercent == 10)
+        } catch {
+            Issue.record("Inherited writer should be cleaned up after valid output: \(error)")
+        }
+        #expect(ContinuousClock.now - inheritedWriterStarted < .seconds(1))
+        await expectProcessExited(pidFile: descendantPIDFile)
+
+        let detachedPIDFile = directory.appendingPathComponent("detached-descendant.pid")
+        let detachedProvider = ClaudeCLIUsageProvider(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: [
+                "-c", "(trap '' TERM; exec sleep 5 </dev/null >/dev/null 2>&1) & echo $! > \"$1\"; exec /usr/bin/printf '%s' \"$2\"",
+                "vibebuddy-test", detachedPIDFile.path,
+                liveEnvelope.map { String(decoding: $0, as: UTF8.self) } ?? "",
+            ],
+            timeout: 1
+        )
+        do {
+            let snapshot = try await detachedProvider.fetch()
+            #expect(snapshot.primary?.usedPercent == 10)
+        } catch {
+            Issue.record("Detached descendant should be cleaned up after valid output: \(error)")
+        }
+        await expectProcessExited(pidFile: detachedPIDFile)
+    }
+
     @Test("a changed response shape is unavailable instead of becoming zero usage")
     func formatChange() {
         let malformed = Data(#"{"jsonrpc":"2.0","id":2,"result":{"rateLimits":{"primary":{"windowDurationMins":300}}}}"#.utf8)
         let usage = Data(#"{"jsonrpc":"2.0","id":3,"result":{"summary":{}}}"#.utf8)
 
-        #expect(throws: CodexUsageError.incompatibleFormat) {
+        #expect(throws: AccountUsageError.incompatibleFormat) {
             try CodexUsageResponseDecoder.decode(
                 rateLimitsResponse: malformed,
                 usageResponse: usage,
@@ -69,7 +234,7 @@ struct CodexUsageTests {
         let snapshot = sampleSnapshot(percent: 55)
         let provider = ScriptedUsageProvider([.success(snapshot)])
         let cache = MemoryUsageCache()
-        let collector = CodexUsageCollector(
+        let collector = AccountUsageCollector(
             provider: provider,
             cache: cache,
             refreshInterval: 600,
@@ -91,7 +256,7 @@ struct CodexUsageTests {
     func lastKnownGoodOnFailure() async {
         let cache = MemoryUsageCache(sampleSnapshot(percent: 61))
         let provider = ScriptedUsageProvider([.failure(.offline)])
-        let collector = CodexUsageCollector(
+        let collector = AccountUsageCollector(
             provider: provider,
             cache: cache,
             refreshInterval: 600,
@@ -115,7 +280,7 @@ struct CodexUsageTests {
     func disabledDoesNoWork() async {
         let provider = ScriptedUsageProvider([.success(sampleSnapshot(percent: 80))])
         let cache = MemoryUsageCache(sampleSnapshot(percent: 61))
-        let collector = CodexUsageCollector(provider: provider, cache: cache, enabled: false)
+        let collector = AccountUsageCollector(provider: provider, cache: cache, enabled: false)
 
         let bootstrapped = await collector.bootstrap(now: now)
         let refreshed = await collector.refresh(now: now)
@@ -127,6 +292,38 @@ struct CodexUsageTests {
         #expect(await cache.loadCount() == 0)
     }
 
+    @Test("one provider can fail or be disabled without changing the other")
+    func providerIsolation() async {
+        let codexProvider = ScriptedUsageProvider([.success(sampleSnapshot(percent: 44))])
+        let claudeProvider = ScriptedUsageProvider([.failure(.rateLimited)])
+        let codex = AccountUsageCollector(
+            provider: codexProvider,
+            cache: MemoryUsageCache(),
+            enabled: true
+        )
+        let claude = AccountUsageCollector(
+            provider: claudeProvider,
+            cache: MemoryUsageCache(sampleSnapshot(provider: .claude, percent: 12)),
+            enabled: true
+        )
+
+        let codexState = await codex.refresh(now: now)
+        let claudeState = await claude.refresh(now: now)
+        _ = await claude.setEnabled(false, now: now)
+        let disabledClaude = await claude.refresh(now: now)
+
+        #expect(codexState.snapshot?.provider == .codex)
+        #expect(codexState.snapshot?.primary?.usedPercent == 44)
+        #expect(!codexState.isStale)
+        #expect(claudeState.snapshot?.provider == .claude)
+        #expect(claudeState.snapshot?.primary?.usedPercent == 12)
+        #expect(claudeState.isStale)
+        #expect(claudeState.unavailableReason == .rateLimited)
+        #expect(!disabledClaude.collectionEnabled)
+        #expect(await codexProvider.callCount() == 1)
+        #expect(await claudeProvider.callCount() == 1)
+    }
+
     @Test("a stale refresh cannot overwrite a rapid off-on cycle")
     func staleRefreshCannotOverwriteReenabledCollector() async {
         let provider = RacingUsageProvider(
@@ -134,7 +331,7 @@ struct CodexUsageTests {
             immediate: sampleSnapshot(percent: 22)
         )
         let cache = MemoryUsageCache()
-        let collector = CodexUsageCollector(
+        let collector = AccountUsageCollector(
             provider: provider,
             cache: cache,
             refreshInterval: 600,
@@ -156,6 +353,31 @@ struct CodexUsageTests {
         #expect(current.snapshot?.primary?.usedPercent == 22)
         #expect(final.snapshot?.primary?.usedPercent == 22)
         #expect(await cache.value()?.primary?.usedPercent == 22)
+        #expect(await cache.saveCount() == 1)
+    }
+
+    @Test("a cache save already in flight cannot commit across disable and enable")
+    func gatedCacheCommitAcrossRapidToggle() async {
+        let staleSnapshot = sampleSnapshot(percent: 99)
+        let cache = GatedUsageCache()
+        let collector = AccountUsageCollector(
+            provider: ScriptedUsageProvider([.success(staleSnapshot)]),
+            cache: cache,
+            enabled: true
+        )
+
+        let refresh = Task { await collector.refresh(now: now) }
+        await cache.waitUntilSaveEntered()
+        let disabled = await collector.setEnabled(false, now: now)
+        let reenabled = await collector.setEnabled(true, now: now.addingTimeInterval(1))
+        await cache.releaseSave()
+        _ = await refresh.value
+
+        #expect(!disabled.collectionEnabled)
+        #expect(reenabled.collectionEnabled)
+        #expect(reenabled.snapshot == nil)
+        #expect(await cache.value() == nil)
+        #expect(await cache.commitCount() == 0)
     }
 
     @Test("exponential backoff suppresses refresh work until the retry date")
@@ -165,7 +387,7 @@ struct CodexUsageTests {
             .failure(.rateLimited),
             .success(sampleSnapshot(percent: 33)),
         ])
-        let collector = CodexUsageCollector(
+        let collector = AccountUsageCollector(
             provider: provider,
             cache: MemoryUsageCache(),
             refreshInterval: 600,
@@ -200,7 +422,7 @@ struct CodexUsageTests {
         do {
             _ = try await timeoutProvider.fetch()
             Issue.record("Expected a timeout")
-        } catch let error as CodexUsageError {
+        } catch let error as AccountUsageError {
             #expect(error == .timedOut)
         } catch {
             Issue.record("Unexpected error: \(error)")
@@ -262,7 +484,7 @@ struct CodexUsageTests {
         do {
             _ = try await ignoredProvider.fetch()
             Issue.record("Expected a timeout")
-        } catch let error as CodexUsageError {
+        } catch let error as AccountUsageError {
             #expect(error == .timedOut)
         } catch {
             Issue.record("Unexpected error: \(error)")
@@ -274,10 +496,10 @@ struct CodexUsageTests {
 
     @Test("alerts persist per window and quiet mode consumes a crossing")
     func thresholdAlerts() {
-        var monitor = CodexUsageAlertMonitor()
-        let below = CodexUsageState.available(sampleSnapshot(percent: 89), nextRefreshAt: nil)
-        let fresh = CodexUsageState.available(sampleSnapshot(percent: 90), nextRefreshAt: nil)
-        let stale = CodexUsageState.stale(
+        var monitor = AccountUsageAlertMonitor()
+        let below = AccountUsageState.available(sampleSnapshot(percent: 89), nextRefreshAt: nil)
+        let fresh = AccountUsageState.available(sampleSnapshot(percent: 90), nextRefreshAt: nil)
+        let stale = AccountUsageState.stale(
             sampleSnapshot(percent: 96),
             reason: .offline,
             lastAttemptAt: now,
@@ -291,15 +513,15 @@ struct CodexUsageTests {
         #expect(monitor.newlyCrossed(in: below, thresholdPercent: 90).isEmpty)
         #expect(monitor.newlyCrossed(in: fresh, thresholdPercent: 90).isEmpty)
 
-        var restarted = CodexUsageAlertMonitor(alertedWindowKeys: monitor.alertedWindowKeys)
+        var restarted = AccountUsageAlertMonitor(alertedWindowKeys: monitor.alertedWindowKeys)
         #expect(restarted.newlyCrossed(in: fresh, thresholdPercent: 90).isEmpty)
 
         var resetSnapshot = sampleSnapshot(percent: 89)
         resetSnapshot.primary?.resetsAt = now.addingTimeInterval(7200)
-        let reset = CodexUsageState.available(resetSnapshot, nextRefreshAt: nil)
+        let reset = AccountUsageState.available(resetSnapshot, nextRefreshAt: nil)
         #expect(restarted.newlyCrossed(in: reset, thresholdPercent: 90).isEmpty)
         resetSnapshot.primary?.usedPercent = 91
-        let crossedDuringQuiet = CodexUsageState.available(resetSnapshot, nextRefreshAt: nil)
+        let crossedDuringQuiet = AccountUsageState.available(resetSnapshot, nextRefreshAt: nil)
         #expect(restarted.newlyCrossed(
             in: crossedDuringQuiet,
             thresholdPercent: 90,
@@ -336,9 +558,14 @@ struct CodexUsageTests {
             .appendingPathComponent("vibebuddy-codex-cache-\(UUID().uuidString)", isDirectory: true)
         let file = directory.appendingPathComponent("usage.json")
         defer { try? FileManager.default.removeItem(at: directory) }
-        let cache = CodexUsageFileCache(fileURL: file)
+        let cache = AccountUsageFileCache(fileURL: file)
+        let collector = AccountUsageCollector(
+            provider: ScriptedUsageProvider([.success(sampleSnapshot(percent: 40))]),
+            cache: cache,
+            enabled: true
+        )
 
-        try await cache.save(sampleSnapshot(percent: 40))
+        _ = await collector.refresh(now: now)
 
         let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
         let permissions = try #require(attributes[.posixPermissions] as? NSNumber)
@@ -356,7 +583,7 @@ struct CodexUsageTests {
             timestamp: now
         ))
         let before = reducer.sessions["working"]
-        let collector = CodexUsageCollector(
+        let collector = AccountUsageCollector(
             provider: ScriptedUsageProvider([.failure(.notLoggedIn)]),
             cache: MemoryUsageCache(),
             enabled: true
@@ -368,10 +595,14 @@ struct CodexUsageTests {
         #expect(reducer.sessions["working"]?.status == .working)
     }
 
-    private func sampleSnapshot(percent: Int) -> CodexUsageSnapshot {
-        CodexUsageSnapshot(
+    private func sampleSnapshot(
+        provider: AccountUsageProvider = .codex,
+        percent: Int
+    ) -> AccountUsageSnapshot {
+        AccountUsageSnapshot(
+            provider: provider,
             planType: "pro",
-            primary: CodexUsageWindow(
+            primary: AccountUsageWindow(
                 kind: .primary,
                 usedPercent: percent,
                 windowDurationMinutes: 300,
@@ -388,6 +619,17 @@ struct CodexUsageTests {
         CodexAppServerUsageProvider(
             executableURL: URL(fileURLWithPath: "/bin/sh"),
             arguments: ["-c", "echo $$ > \"$1\"; exec sleep 5", "vibebuddy-test", pidFile.path],
+            timeout: timeout
+        )
+    }
+
+    private func claudeSleepingProvider(pidFile: URL, timeout: TimeInterval) -> ClaudeCLIUsageProvider {
+        ClaudeCLIUsageProvider(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: [
+                "-c", "echo $$ > \"$1\"; trap '' TERM; exec sleep 5",
+                "vibebuddy-test", pidFile.path,
+            ],
             timeout: timeout
         )
     }
@@ -414,35 +656,35 @@ struct CodexUsageTests {
     }
 }
 
-private actor ScriptedUsageProvider: CodexUsageProviding {
-    private var results: [Result<CodexUsageSnapshot, CodexUsageError>]
+private actor ScriptedUsageProvider: AccountUsageProviding {
+    private var results: [Result<AccountUsageSnapshot, AccountUsageError>]
     private var calls = 0
 
-    init(_ results: [Result<CodexUsageSnapshot, CodexUsageError>]) {
+    init(_ results: [Result<AccountUsageSnapshot, AccountUsageError>]) {
         self.results = results
     }
 
-    func fetch() async throws -> CodexUsageSnapshot {
+    func fetch() async throws -> AccountUsageSnapshot {
         calls += 1
-        guard !results.isEmpty else { throw CodexUsageError.unknown }
+        guard !results.isEmpty else { throw AccountUsageError.unknown }
         return try results.removeFirst().get()
     }
 
     func callCount() -> Int { calls }
 }
 
-private actor RacingUsageProvider: CodexUsageProviding {
-    private let delayed: CodexUsageSnapshot
-    private let immediate: CodexUsageSnapshot
+private actor RacingUsageProvider: AccountUsageProviding {
+    private let delayed: AccountUsageSnapshot
+    private let immediate: AccountUsageSnapshot
     private var calls = 0
-    private var delayedContinuation: CheckedContinuation<CodexUsageSnapshot, Never>?
+    private var delayedContinuation: CheckedContinuation<AccountUsageSnapshot, Never>?
 
-    init(delayed: CodexUsageSnapshot, immediate: CodexUsageSnapshot) {
+    init(delayed: AccountUsageSnapshot, immediate: AccountUsageSnapshot) {
         self.delayed = delayed
         self.immediate = immediate
     }
 
-    func fetch() async throws -> CodexUsageSnapshot {
+    func fetch() async throws -> AccountUsageSnapshot {
         calls += 1
         guard calls == 1 else { return immediate }
         return await withCheckedContinuation { continuation in
@@ -533,23 +775,74 @@ private final class ProcessSignalGate: @unchecked Sendable {
     }
 }
 
-private actor MemoryUsageCache: CodexUsageCaching {
-    private var snapshot: CodexUsageSnapshot?
+private actor MemoryUsageCache: AccountUsageCaching {
+    private var snapshot: AccountUsageSnapshot?
     private var loads = 0
+    private var saves = 0
 
-    init(_ snapshot: CodexUsageSnapshot? = nil) {
+    init(_ snapshot: AccountUsageSnapshot? = nil) {
         self.snapshot = snapshot
     }
 
-    func load() async -> CodexUsageSnapshot? {
+    func load() async -> AccountUsageSnapshot? {
         loads += 1
         return snapshot
     }
 
-    func save(_ snapshot: CodexUsageSnapshot) async throws {
-        self.snapshot = snapshot
+    func save(
+        _ snapshot: AccountUsageSnapshot,
+        permit: AccountUsageCacheCommitPermit
+    ) async throws {
+        permit.commit {
+            saves += 1
+            self.snapshot = snapshot
+        }
     }
 
-    func value() -> CodexUsageSnapshot? { snapshot }
+    func value() -> AccountUsageSnapshot? { snapshot }
     func loadCount() -> Int { loads }
+    func saveCount() -> Int { saves }
+}
+
+private actor GatedUsageCache: AccountUsageCaching {
+    private var entered = false
+    private var enteredWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+    private var committedSnapshot: AccountUsageSnapshot?
+    private var commits = 0
+
+    func load() async -> AccountUsageSnapshot? {
+        committedSnapshot
+    }
+
+    func save(
+        _ snapshot: AccountUsageSnapshot,
+        permit: AccountUsageCacheCommitPermit
+    ) async throws {
+        entered = true
+        for waiter in enteredWaiters { waiter.resume() }
+        enteredWaiters.removeAll()
+        await withCheckedContinuation { continuation in
+            releaseContinuation = continuation
+        }
+        permit.commit {
+            committedSnapshot = snapshot
+            commits += 1
+        }
+    }
+
+    func waitUntilSaveEntered() async {
+        if entered { return }
+        await withCheckedContinuation { continuation in
+            enteredWaiters.append(continuation)
+        }
+    }
+
+    func releaseSave() {
+        releaseContinuation?.resume()
+        releaseContinuation = nil
+    }
+
+    func value() -> AccountUsageSnapshot? { committedSnapshot }
+    func commitCount() -> Int { commits }
 }

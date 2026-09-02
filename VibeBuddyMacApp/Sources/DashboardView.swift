@@ -108,9 +108,15 @@ struct DashboardView: View {
                     .buttonStyle(.plain)
                 }
             }
-            if model.codexUsageCollectionEnabled {
-                Section("Codex Usage") {
-                    CodexUsageSummaryView(state: model.codexUsageState, compact: true)
+            ForEach(AccountUsageProvider.allCases, id: \.self) { provider in
+                if model.isUsageCollectionEnabled(provider) {
+                    Section("\(provider.displayName) Usage") {
+                        AccountUsageSummaryView(
+                            provider: provider,
+                            state: model.usageState(for: provider),
+                            compact: true
+                        )
+                    }
                 }
             }
         }

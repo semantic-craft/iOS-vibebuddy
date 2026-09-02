@@ -43,8 +43,8 @@ final class MenuBarModel: ObservableObject {
     @Published var idleTimeoutHours: Double = 2
     /// Account usage is intentionally separate from `sessions`; refresh errors
     /// never enter SessionStore or the progress notification pipeline.
-    @Published private(set) var codexUsageState: CodexUsageState = .disabled
-    @Published private(set) var codexUsageCollectionEnabled = true
+    @Published private(set) var usageStates: [AccountUsageProvider: AccountUsageState] = [:]
+    @Published private(set) var usageCollectionEnabled: [AccountUsageProvider: Bool] = [:]
 
     let port: Int
     private let token: String
@@ -66,8 +66,8 @@ final class MenuBarModel: ObservableObject {
     private let deviceTokens = DeviceTokens()
     private let phonePolicy = SoundPolicy()
     private let budgetMonitor = BudgetMonitor()
-    private let codexUsageCollector: CodexUsageCollector
-    private var codexUsageAlertMonitor = CodexUsageAlertMonitor()
+    private let usageCollectors: [AccountUsageProvider: AccountUsageCollector]
+    private var usageAlertMonitor = AccountUsageAlertMonitor()
     /// The voice companion (tap the buddy to talk). Lazy so `self` is fully built.
     lazy var voiceChat = VoiceChat(
         contextProvider: { [weak self] in
@@ -76,12 +76,12 @@ final class MenuBarModel: ObservableObject {
         },
         actionHandler: { [weak self] action in self?.performVoiceAction(action) ?? "" })
     private var pollTask: Task<Void, Never>?
-    private var codexUsageTask: Task<Void, Never>?
-    private var codexUsageGeneration: UInt64 = 0
+    private var usageTasks: [AccountUsageProvider: Task<Void, Never>] = [:]
+    private var usageGenerations: [AccountUsageProvider: UInt64] = [:]
     private var glance: GlanceWindow?
     private static let pairedPhoneInfoKey = "pairedPhoneInfo"
     private static let legacyPairedPhoneKey = "pairedPhone"
-    private static let codexUsageAlertedWindowsKey = "codexUsageAlertedWindows"
+    private static let usageAlertedWindowsKey = "accountUsageAlertedWindows"
 
     init(runtimeEnabled: Bool = true) {
         port = ProcessInfo.processInfo.environment["VIBEBUDDY_PORT"].flatMap(Int.init) ?? 9876
@@ -104,15 +104,31 @@ final class MenuBarModel: ObservableObject {
         showGlance = Self.loadBool("showGlance", default: true)
         openDashboardHotkey = Hotkey.loadOpenDashboard()
         toggleGlanceHotkey = Hotkey.loadToggleGlance()
-        let usageEnabled = Self.loadBool("codexUsageCollectionEnabled", default: true)
-        codexUsageCollectionEnabled = usageEnabled
-        codexUsageCollector = CodexUsageCollector(
-            provider: CodexAppServerUsageProvider(),
-            cache: CodexUsageFileCache(),
-            enabled: usageEnabled
-        )
-        codexUsageAlertMonitor = CodexUsageAlertMonitor(
-            alertedWindowKeys: Self.loadCodexUsageAlertedWindows()
+        let codexUsageEnabled = Self.loadBool(Self.usageEnabledKey(for: .codex), default: true)
+        let claudeUsageEnabled = Self.loadBool(Self.usageEnabledKey(for: .claude), default: true)
+        usageCollectionEnabled = [.codex: codexUsageEnabled, .claude: claudeUsageEnabled]
+        usageStates = [
+            .codex: codexUsageEnabled
+                ? .unavailable(.notYetLoaded, lastAttemptAt: nil, nextRefreshAt: nil)
+                : .disabled,
+            .claude: claudeUsageEnabled
+                ? .unavailable(.notYetLoaded, lastAttemptAt: nil, nextRefreshAt: nil)
+                : .disabled,
+        ]
+        usageCollectors = [
+            .codex: AccountUsageCollector(
+                provider: CodexAppServerUsageProvider(),
+                cache: AccountUsageFileCache(provider: .codex),
+                enabled: codexUsageEnabled
+            ),
+            .claude: AccountUsageCollector(
+                provider: ClaudeCLIUsageProvider(),
+                cache: AccountUsageFileCache(provider: .claude),
+                enabled: claudeUsageEnabled
+            ),
+        ]
+        usageAlertMonitor = AccountUsageAlertMonitor(
+            alertedWindowKeys: Self.loadUsageAlertedWindows()
         )
         pairedPhone = Self.loadPairedPhone()
         notificationCoordinator = NotificationCoordinator(notifier: notifier)
@@ -129,7 +145,9 @@ final class MenuBarModel: ObservableObject {
             startServer()
             preparePairing()
             startPolling()
-            if codexUsageCollectionEnabled { startCodexUsageCollection() }
+            for provider in AccountUsageProvider.allCases where isUsageCollectionEnabled(provider) {
+                startUsageCollection(provider)
+            }
         }
         // Create the glance on the next main-runloop tick — NOT synchronously here.
         // Hosting/displaying a SwiftUI view that observes `self` while `init` is
@@ -243,32 +261,33 @@ final class MenuBarModel: ObservableObject {
     /// Start the independent account-usage loop. It has its own cadence,
     /// timeout/cache/backoff policy and never participates in the 2-second
     /// session snapshot poll above.
-    private func startCodexUsageCollection() {
-        codexUsageGeneration &+= 1
-        let generation = codexUsageGeneration
-        let previousTask = codexUsageTask
+    private func startUsageCollection(_ provider: AccountUsageProvider) {
+        let generation = (usageGenerations[provider] ?? 0) &+ 1
+        usageGenerations[provider] = generation
+        let previousTask = usageTasks[provider]
         previousTask?.cancel()
-        codexUsageTask = Task { [weak self] in
+        guard let collector = usageCollectors[provider] else { return }
+        usageTasks[provider] = Task { [weak self] in
             await previousTask?.value
             guard !Task.isCancelled,
                   let self,
-                  self.codexUsageGeneration == generation,
-                  self.codexUsageCollectionEnabled else { return }
-            let initial = await self.codexUsageCollector.setEnabled(true)
+                  self.usageGenerations[provider] == generation,
+                  self.isUsageCollectionEnabled(provider) else { return }
+            let initial = await collector.setEnabled(true)
             guard !Task.isCancelled,
-                  self.codexUsageGeneration == generation,
-                  self.codexUsageCollectionEnabled else { return }
-            self.codexUsageState = initial
+                  self.usageGenerations[provider] == generation,
+                  self.isUsageCollectionEnabled(provider) else { return }
+            self.usageStates[provider] = initial
 
             while !Task.isCancelled,
-                  self.codexUsageGeneration == generation,
-                  self.codexUsageCollectionEnabled {
-                let state = await self.codexUsageCollector.refresh()
+                  self.usageGenerations[provider] == generation,
+                  self.isUsageCollectionEnabled(provider) {
+                let state = await collector.refresh()
                 guard !Task.isCancelled,
-                      self.codexUsageGeneration == generation,
-                      self.codexUsageCollectionEnabled else { return }
-                self.codexUsageState = state
-                self.checkCodexUsageAlert(state)
+                      self.usageGenerations[provider] == generation,
+                      self.isUsageCollectionEnabled(provider) else { return }
+                self.usageStates[provider] = state
+                self.checkUsageAlert(state)
 
                 let delay = max(1, state.nextRefreshAt?.timeIntervalSinceNow ?? 60)
                 do {
@@ -280,60 +299,71 @@ final class MenuBarModel: ObservableObject {
         }
     }
 
-    func setCodexUsageCollectionEnabled(_ enabled: Bool) {
-        guard enabled != codexUsageCollectionEnabled else { return }
-        codexUsageCollectionEnabled = enabled
-        UserDefaults.standard.set(enabled, forKey: "codexUsageCollectionEnabled")
+    func isUsageCollectionEnabled(_ provider: AccountUsageProvider) -> Bool {
+        usageCollectionEnabled[provider] == true
+    }
+
+    func usageState(for provider: AccountUsageProvider) -> AccountUsageState {
+        usageStates[provider] ?? .disabled
+    }
+
+    func setUsageCollectionEnabled(_ enabled: Bool, provider: AccountUsageProvider) {
+        guard enabled != isUsageCollectionEnabled(provider) else { return }
+        usageCollectionEnabled[provider] = enabled
+        UserDefaults.standard.set(enabled, forKey: Self.usageEnabledKey(for: provider))
         if enabled {
-            startCodexUsageCollection()
+            startUsageCollection(provider)
         } else {
-            codexUsageGeneration &+= 1
-            let generation = codexUsageGeneration
-            let previousTask = codexUsageTask
+            let generation = (usageGenerations[provider] ?? 0) &+ 1
+            usageGenerations[provider] = generation
+            let previousTask = usageTasks[provider]
             previousTask?.cancel()
-            codexUsageState = .disabled
-            codexUsageTask = Task { [weak self] in
+            usageStates[provider] = .disabled
+            guard let collector = usageCollectors[provider] else { return }
+            usageTasks[provider] = Task { [weak self] in
+                let disabled = await collector.setEnabled(false)
                 await previousTask?.value
                 guard !Task.isCancelled,
                       let self,
-                      self.codexUsageGeneration == generation,
-                      !self.codexUsageCollectionEnabled else { return }
-                _ = await codexUsageCollector.setEnabled(false)
-                guard !Task.isCancelled,
-                      self.codexUsageGeneration == generation,
-                      !self.codexUsageCollectionEnabled else { return }
-                self.codexUsageState = .disabled
+                      self.usageGenerations[provider] == generation,
+                      !self.isUsageCollectionEnabled(provider) else { return }
+                self.usageStates[provider] = disabled
             }
         }
     }
 
-    private func checkCodexUsageAlert(_ state: CodexUsageState) {
+    private func checkUsageAlert(_ state: AccountUsageState) {
         let defaults = UserDefaults.standard
-        let threshold = defaults.object(forKey: "codexUsageAlertThreshold") == nil
+        let threshold = defaults.object(forKey: "accountUsageAlertThreshold") == nil
             ? 90
-            : defaults.integer(forKey: "codexUsageAlertThreshold")
-        let windows = codexUsageAlertMonitor.newlyCrossed(
+            : defaults.integer(forKey: "accountUsageAlertThreshold")
+        let windows = usageAlertMonitor.newlyCrossed(
             in: state,
             thresholdPercent: threshold,
             notificationsSuppressed: Self.effectiveQuiet()
         )
-        Self.saveCodexUsageAlertedWindows(codexUsageAlertMonitor.alertedWindowKeys)
+        Self.saveUsageAlertedWindows(usageAlertMonitor.alertedWindowKeys)
+        guard let provider = state.snapshot?.provider else { return }
         for window in windows {
-            notifier.notifyCodexUsage(window: window, threshold: threshold)
+            notifier.notifyUsage(provider: provider, window: window, threshold: threshold)
         }
     }
 
-    private static func loadCodexUsageAlertedWindows() -> Set<String> {
-        guard let data = UserDefaults.standard.data(forKey: codexUsageAlertedWindowsKey),
+    private static func loadUsageAlertedWindows() -> Set<String> {
+        guard let data = UserDefaults.standard.data(forKey: usageAlertedWindowsKey),
               let keys = try? JSONDecoder().decode(Set<String>.self, from: data) else {
             return []
         }
         return keys
     }
 
-    private static func saveCodexUsageAlertedWindows(_ keys: Set<String>) {
+    private static func saveUsageAlertedWindows(_ keys: Set<String>) {
         guard let data = try? JSONEncoder().encode(keys) else { return }
-        UserDefaults.standard.set(data, forKey: codexUsageAlertedWindowsKey)
+        UserDefaults.standard.set(data, forKey: usageAlertedWindowsKey)
+    }
+
+    private static func usageEnabledKey(for provider: AccountUsageProvider) -> String {
+        "\(provider.rawValue)UsageCollectionEnabled"
     }
 
     /// Push a Live Activity content-state update to registered phones, but only when
@@ -588,6 +618,6 @@ final class MenuBarModel: ObservableObject {
 
     deinit {
         pollTask?.cancel()
-        codexUsageTask?.cancel()
+        for task in usageTasks.values { task.cancel() }
     }
 }

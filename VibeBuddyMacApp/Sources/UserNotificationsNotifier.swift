@@ -44,7 +44,11 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
 
     /// Account quota alert. This is separate from session-state sounds and is
     /// only called for a fresh, non-stale threshold crossing.
-    func notifyCodexUsage(window: CodexUsageWindow, threshold: Int) {
+    func notifyUsage(
+        provider: AccountUsageProvider,
+        window: AccountUsageWindow,
+        threshold: Int
+    ) {
         guard Self.flag("notifyOnNeedsResponse"),
               !NotificationQuietMode.isEffective() else { return }
         let duration = window.windowDurationMinutes.map(Self.durationText) ?? String(localized: "quota")
@@ -52,10 +56,10 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
             String(localized: " Resets \($0.formatted(date: .abbreviated, time: .shortened)).")
         } ?? ""
         post(
-            title: String(localized: "Codex usage reached \(threshold)%"),
+            title: String(localized: "\(provider.displayName) usage reached \(threshold)%"),
             body: String(localized: "\(window.usedPercent)% used in the \(duration) window.\(reset)"),
             sound: .longWaitNudge,
-            id: "codex-usage-\(window.kind.rawValue)-\(window.resetsAt?.timeIntervalSince1970 ?? 0)"
+            id: "\(provider.rawValue)-usage-\(window.kind.rawValue)-\(window.resetsAt?.timeIntervalSince1970 ?? 0)"
         )
     }
 

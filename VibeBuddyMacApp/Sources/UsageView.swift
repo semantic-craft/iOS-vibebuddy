@@ -1,8 +1,9 @@
 import SwiftUI
 import VibeBuddyMacCore
 
-struct CodexUsageSummaryView: View {
-    let state: CodexUsageState
+struct AccountUsageSummaryView: View {
+    let provider: AccountUsageProvider
+    let state: AccountUsageState
     var compact = false
 
     var body: some View {
@@ -43,7 +44,7 @@ struct CodexUsageSummaryView: View {
             }
 
             if let reason = state.unavailableReason {
-                Label(reason.displayText, systemImage: reasonIcon(reason))
+                Label(reason.displayText(provider: provider), systemImage: reasonIcon(reason))
                     .font(.caption)
                     .foregroundStyle(reason == .collectionDisabled ? Color.secondary : Color.orange)
                     .fixedSize(horizontal: false, vertical: true)
@@ -57,7 +58,7 @@ struct CodexUsageSummaryView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func windowRow(_ window: CodexUsageWindow) -> some View {
+    private func windowRow(_ window: AccountUsageWindow) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(windowTitle(window)).font(.caption.weight(.semibold))
@@ -79,7 +80,7 @@ struct CodexUsageSummaryView: View {
         }
     }
 
-    private func windowTitle(_ window: CodexUsageWindow) -> String {
+    private func windowTitle(_ window: AccountUsageWindow) -> String {
         guard let minutes = window.windowDurationMinutes else {
             return window.kind == .primary ? "Primary window" : "Secondary window"
         }
@@ -89,7 +90,7 @@ struct CodexUsageSummaryView: View {
         return "\(minutes)-minute window"
     }
 
-    private func reasonIcon(_ reason: CodexUsageUnavailableReason) -> String {
+    private func reasonIcon(_ reason: AccountUsageUnavailableReason) -> String {
         switch reason {
         case .collectionDisabled: "pause.circle"
         case .notLoggedIn: "person.crop.circle.badge.exclamationmark"
@@ -97,40 +98,57 @@ struct CodexUsageSummaryView: View {
         case .rateLimited: "hourglass"
         case .timedOut: "clock.badge.exclamationmark"
         case .incompatibleFormat: "questionmark.app.dashed"
-        case .codexUnavailable: "terminal"
+        case .providerUnavailable: "terminal"
         case .cachedData, .notYetLoaded: "arrow.clockwise"
         case .unknown: "exclamationmark.triangle"
         }
     }
 }
-
-struct CodexUsageSettings: View {
+struct AccountUsageSettings: View {
     @ObservedObject var model: MenuBarModel
-    @AppStorage("codexUsageAlertThreshold") private var alertThreshold = 90
+    @AppStorage("accountUsageAlertThreshold") private var alertThreshold = 90
 
     var body: some View {
         Form {
             Section {
-                Toggle("Collect Codex usage", isOn: Binding(
-                    get: { model.codexUsageCollectionEnabled },
-                    set: { model.setCodexUsageCollectionEnabled($0) }
-                ))
+                ForEach(AccountUsageProvider.allCases, id: \.self) { provider in
+                    Toggle("Collect \(provider.displayName) usage", isOn: Binding(
+                        get: { model.isUsageCollectionEnabled(provider) },
+                        set: { model.setUsageCollectionEnabled($0, provider: provider) }
+                    ))
+                }
+            } header: {
+                Text("Providers")
+            } footer: {
+                Text("Codex reads its official local app-server. Claude runs the official read-only /usage command without session persistence or hooks. No credentials, account IDs, or raw responses are stored or logged. Turning either source off leaves session monitoring and notifications running.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Section("Quota alert") {
                 Picker("Quota alert", selection: $alertThreshold) {
                     Text("Off").tag(0)
                     Text("80%").tag(80)
                     Text("90%").tag(90)
                     Text("95%").tag(95)
                 }
-                .disabled(!model.codexUsageCollectionEnabled)
-            } footer: {
-                Text("Reads account usage through Codex's official local app-server. No credential files are read or logged. Turning this off stops usage work; session monitoring and its notifications keep running.")
+                Text("One threshold applies to both providers. Alerts identify the provider, respect quiet mode and quiet hours, and are not repeated after restart.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Section("Current usage") {
-                CodexUsageSummaryView(state: model.codexUsageState)
+                ForEach(AccountUsageProvider.allCases, id: \.self) { provider in
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(provider.displayName).font(.headline)
+                        AccountUsageSummaryView(
+                            provider: provider,
+                            state: model.usageState(for: provider)
+                        )
+                    }
+                    .padding(.vertical, 3)
+                }
             }
         }
         .formStyle(.grouped)

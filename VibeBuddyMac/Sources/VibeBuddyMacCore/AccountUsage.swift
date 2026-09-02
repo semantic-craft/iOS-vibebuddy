@@ -2,21 +2,32 @@ import Darwin
 import Foundation
 import VibeBuddyKit
 
-public enum CodexUsageWindowKind: String, Codable, Sendable {
+public enum AccountUsageWindowKind: String, Codable, Sendable {
     case primary
     case secondary
 }
+public enum AccountUsageProvider: String, Codable, CaseIterable, Sendable {
+    case codex
+    case claude
 
-public struct CodexUsageWindow: Codable, Equatable, Sendable, Identifiable {
-    public var kind: CodexUsageWindowKind
+    public var displayName: String {
+        switch self {
+        case .codex: "Codex"
+        case .claude: "Claude"
+        }
+    }
+}
+
+public struct AccountUsageWindow: Codable, Equatable, Sendable, Identifiable {
+    public var kind: AccountUsageWindowKind
     public var usedPercent: Int
     public var windowDurationMinutes: Int?
     public var resetsAt: Date?
 
-    public var id: CodexUsageWindowKind { kind }
+    public var id: AccountUsageWindowKind { kind }
 
     public init(
-        kind: CodexUsageWindowKind,
+        kind: AccountUsageWindowKind,
         usedPercent: Int,
         windowDurationMinutes: Int?,
         resetsAt: Date?
@@ -28,28 +39,31 @@ public struct CodexUsageWindow: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
-/// Account-level Codex usage. It deliberately contains no session identifier or
-/// progress state, so quota collection cannot feed the session reducer.
-public struct CodexUsageSnapshot: Codable, Equatable, Sendable {
+/// Account-level provider usage. It deliberately contains no session identifier
+/// or progress state, so quota collection cannot feed the session reducer.
+public struct AccountUsageSnapshot: Codable, Equatable, Sendable {
+    public var provider: AccountUsageProvider
     public var planType: String?
-    public var primary: CodexUsageWindow?
-    public var secondary: CodexUsageWindow?
+    public var primary: AccountUsageWindow?
+    public var secondary: AccountUsageWindow?
     public var lifetimeTokens: Int?
     public var latestDailyTokens: Int?
     public var fetchedAt: Date
 
-    public var windows: [CodexUsageWindow] {
+    public var windows: [AccountUsageWindow] {
         [primary, secondary].compactMap { $0 }
     }
 
     public init(
+        provider: AccountUsageProvider,
         planType: String?,
-        primary: CodexUsageWindow?,
-        secondary: CodexUsageWindow?,
+        primary: AccountUsageWindow?,
+        secondary: AccountUsageWindow?,
         lifetimeTokens: Int?,
         latestDailyTokens: Int?,
         fetchedAt: Date
     ) {
+        self.provider = provider
         self.planType = planType
         self.primary = primary
         self.secondary = secondary
@@ -58,18 +72,18 @@ public struct CodexUsageSnapshot: Codable, Equatable, Sendable {
         self.fetchedAt = fetchedAt
     }
 
-    func fetched(at date: Date) -> CodexUsageSnapshot {
+    func fetched(at date: Date) -> AccountUsageSnapshot {
         var copy = self
         copy.fetchedAt = date
         return copy
     }
 }
 
-public enum CodexUsageUnavailableReason: String, Codable, Equatable, Sendable {
+public enum AccountUsageUnavailableReason: String, Codable, Equatable, Sendable {
     case collectionDisabled
     case cachedData
     case notYetLoaded
-    case codexUnavailable
+    case providerUnavailable
     case notLoggedIn
     case offline
     case rateLimited
@@ -77,24 +91,24 @@ public enum CodexUsageUnavailableReason: String, Codable, Equatable, Sendable {
     case incompatibleFormat
     case unknown
 
-    public var displayText: String {
+    public func displayText(provider: AccountUsageProvider) -> String {
         switch self {
         case .collectionDisabled: return "Collection is turned off"
         case .cachedData: return "Showing cached data while refreshing"
         case .notYetLoaded: return "Waiting for the first refresh"
-        case .codexUnavailable: return "Codex CLI is unavailable"
-        case .notLoggedIn: return "Codex is not signed in"
+        case .providerUnavailable: return "\(provider.displayName) CLI is unavailable"
+        case .notLoggedIn: return "\(provider.displayName) is not signed in"
         case .offline: return "Offline"
         case .rateLimited: return "Usage service is rate limited"
         case .timedOut: return "Usage refresh timed out"
-        case .incompatibleFormat: return "Codex returned an unsupported format"
+        case .incompatibleFormat: return "\(provider.displayName) returned an unsupported format"
         case .unknown: return "Usage is temporarily unavailable"
         }
     }
 }
 
-public enum CodexUsageError: Error, Equatable, Sendable {
-    case codexUnavailable
+public enum AccountUsageError: Error, Equatable, Sendable {
+    case providerUnavailable
     case notLoggedIn
     case offline
     case rateLimited
@@ -102,9 +116,9 @@ public enum CodexUsageError: Error, Equatable, Sendable {
     case incompatibleFormat
     case unknown
 
-    public var unavailableReason: CodexUsageUnavailableReason {
+    public var unavailableReason: AccountUsageUnavailableReason {
         switch self {
-        case .codexUnavailable: return .codexUnavailable
+        case .providerUnavailable: return .providerUnavailable
         case .notLoggedIn: return .notLoggedIn
         case .offline: return .offline
         case .rateLimited: return .rateLimited
@@ -114,7 +128,7 @@ public enum CodexUsageError: Error, Equatable, Sendable {
         }
     }
 
-    static func classify(message: String) -> CodexUsageError {
+    static func classify(message: String) -> AccountUsageError {
         let value = message.lowercased()
         if value.contains("not logged in") || value.contains("not signed in") || value.contains("unauthorized") {
             return .notLoggedIn
@@ -129,15 +143,15 @@ public enum CodexUsageError: Error, Equatable, Sendable {
     }
 }
 
-public struct CodexUsageState: Equatable, Sendable {
+public struct AccountUsageState: Equatable, Sendable {
     public var collectionEnabled: Bool
-    public var snapshot: CodexUsageSnapshot?
+    public var snapshot: AccountUsageSnapshot?
     public var isStale: Bool
-    public var unavailableReason: CodexUsageUnavailableReason?
+    public var unavailableReason: AccountUsageUnavailableReason?
     public var lastAttemptAt: Date?
     public var nextRefreshAt: Date?
 
-    public static let disabled = CodexUsageState(
+    public static let disabled = AccountUsageState(
         collectionEnabled: false,
         snapshot: nil,
         isStale: false,
@@ -147,10 +161,10 @@ public struct CodexUsageState: Equatable, Sendable {
     )
 
     public static func available(
-        _ snapshot: CodexUsageSnapshot,
+        _ snapshot: AccountUsageSnapshot,
         nextRefreshAt: Date?
-    ) -> CodexUsageState {
-        CodexUsageState(
+    ) -> AccountUsageState {
+        AccountUsageState(
             collectionEnabled: true,
             snapshot: snapshot,
             isStale: false,
@@ -161,12 +175,12 @@ public struct CodexUsageState: Equatable, Sendable {
     }
 
     public static func stale(
-        _ snapshot: CodexUsageSnapshot,
-        reason: CodexUsageUnavailableReason,
+        _ snapshot: AccountUsageSnapshot,
+        reason: AccountUsageUnavailableReason,
         lastAttemptAt: Date?,
         nextRefreshAt: Date?
-    ) -> CodexUsageState {
-        CodexUsageState(
+    ) -> AccountUsageState {
+        AccountUsageState(
             collectionEnabled: true,
             snapshot: snapshot,
             isStale: true,
@@ -177,11 +191,11 @@ public struct CodexUsageState: Equatable, Sendable {
     }
 
     public static func unavailable(
-        _ reason: CodexUsageUnavailableReason,
+        _ reason: AccountUsageUnavailableReason,
         lastAttemptAt: Date?,
         nextRefreshAt: Date?
-    ) -> CodexUsageState {
-        CodexUsageState(
+    ) -> AccountUsageState {
+        AccountUsageState(
             collectionEnabled: true,
             snapshot: nil,
             isStale: false,
@@ -192,50 +206,129 @@ public struct CodexUsageState: Equatable, Sendable {
     }
 }
 
-public protocol CodexUsageProviding: Sendable {
-    func fetch() async throws -> CodexUsageSnapshot
+public protocol AccountUsageProviding: Sendable {
+    func fetch() async throws -> AccountUsageSnapshot
 }
 
-public protocol CodexUsageCaching: Sendable {
-    func load() async -> CodexUsageSnapshot?
-    func save(_ snapshot: CodexUsageSnapshot) async throws
+/// A cache write can prepare data asynchronously, but its final mutation must
+/// pass through this permit. The generation check and final commit share one
+/// lock with enable/disable changes, making the result linearizable.
+public final class AccountUsageCacheCommitPermit: @unchecked Sendable {
+    private let gate: AccountUsageCacheCommitGate
+    private let generation: UInt64
+
+    fileprivate init(gate: AccountUsageCacheCommitGate, generation: UInt64) {
+        self.gate = gate
+        self.generation = generation
+    }
+
+    @discardableResult
+    public func commit(_ operation: () throws -> Void) rethrows -> Bool {
+        try gate.commit(generation: generation, operation)
+    }
 }
 
-public actor CodexUsageFileCache: CodexUsageCaching {
+public protocol AccountUsageCaching: Sendable {
+    func load() async -> AccountUsageSnapshot?
+    func save(
+        _ snapshot: AccountUsageSnapshot,
+        permit: AccountUsageCacheCommitPermit
+    ) async throws
+}
+
+private final class AccountUsageCacheCommitGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var generation: UInt64
+    private var enabled: Bool
+
+    init(generation: UInt64, enabled: Bool) {
+        self.generation = generation
+        self.enabled = enabled
+    }
+
+    func update(generation: UInt64, enabled: Bool) {
+        lock.withLock {
+            self.generation = generation
+            self.enabled = enabled
+        }
+    }
+
+    func permit(generation: UInt64) -> AccountUsageCacheCommitPermit {
+        AccountUsageCacheCommitPermit(gate: self, generation: generation)
+    }
+
+    func commit(
+        generation: UInt64,
+        _ operation: () throws -> Void
+    ) rethrows -> Bool {
+        try lock.withLock {
+            guard enabled, self.generation == generation else { return false }
+            try operation()
+            return true
+        }
+    }
+}
+
+public actor AccountUsageFileCache: AccountUsageCaching {
     private let fileURL: URL
     private let fileManager: FileManager
 
-    public init(fileURL: URL = CodexUsageFileCache.defaultFileURL(), fileManager: FileManager = .default) {
+    public init(provider: AccountUsageProvider, fileManager: FileManager = .default) {
+        self.fileURL = Self.defaultFileURL(provider: provider)
+        self.fileManager = fileManager
+    }
+
+    public init(fileURL: URL, fileManager: FileManager = .default) {
         self.fileURL = fileURL
         self.fileManager = fileManager
     }
 
-    public func load() -> CodexUsageSnapshot? {
+    public func load() -> AccountUsageSnapshot? {
         guard let data = try? Data(contentsOf: fileURL) else { return nil }
-        return try? JSONDecoder().decode(CodexUsageSnapshot.self, from: data)
+        return try? JSONDecoder().decode(AccountUsageSnapshot.self, from: data)
     }
 
-    public func save(_ snapshot: CodexUsageSnapshot) throws {
+    public func save(
+        _ snapshot: AccountUsageSnapshot,
+        permit: AccountUsageCacheCommitPermit
+    ) throws {
         let directory = fileURL.deletingLastPathComponent()
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         let data = try JSONEncoder().encode(snapshot)
-        try Self.writeOwnerOnly(data, to: fileURL)
+        let temporary = try Self.writeOwnerOnlyTemporary(data, beside: fileURL)
+        var shouldRemoveTemporary = true
+        defer {
+            if shouldRemoveTemporary { _ = Darwin.unlink(temporary.path) }
+        }
+        let committed = try permit.commit {
+            guard Darwin.rename(temporary.path, fileURL.path) == 0 else {
+                throw Self.posixError()
+            }
+        }
+        guard committed else { return }
+        shouldRemoveTemporary = false
         let attributes = try fileManager.attributesOfItem(atPath: fileURL.path)
         guard (attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600 else {
             throw CocoaError(.fileWriteNoPermission)
         }
     }
 
-    public nonisolated static func defaultFileURL(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
-        home.appendingPathComponent("Library/Application Support/VibeBuddy/codex-usage.json")
+    public nonisolated static func defaultFileURL(
+        provider: AccountUsageProvider,
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> URL {
+        home.appendingPathComponent("Library/Application Support/VibeBuddy/\(provider.rawValue)-usage.json")
     }
 
     /// Build a 0600 temporary file and atomically rename it into place. The
     /// cached account data is therefore never visible with a permissive mode,
     /// even during its first creation.
-    private nonisolated static func writeOwnerOnly(_ data: Data, to destination: URL) throws {
+    private nonisolated static func writeOwnerOnlyTemporary(
+        _ data: Data,
+        beside destination: URL
+    ) throws -> URL {
         let temporary = destination.deletingLastPathComponent()
-            .appendingPathComponent(".codex-usage-\(UUID().uuidString).tmp")
+            .appendingPathComponent(".account-usage-\(UUID().uuidString).tmp")
         var descriptor = Darwin.open(
             temporary.path,
             O_WRONLY | O_CREAT | O_EXCL,
@@ -267,10 +360,8 @@ public actor CodexUsageFileCache: CodexUsageCaching {
         guard Darwin.fsync(descriptor) == 0 else { throw posixError() }
         guard Darwin.close(descriptor) == 0 else { throw posixError() }
         descriptor = -1
-        guard Darwin.rename(temporary.path, destination.path) == 0 else {
-            throw posixError()
-        }
         shouldRemoveTemporary = false
+        return temporary
     }
 
     private nonisolated static func posixError() -> NSError {
@@ -279,23 +370,24 @@ public actor CodexUsageFileCache: CodexUsageCaching {
 }
 
 /// Refresh/cache policy for account usage. This actor has no reference to
-/// SessionStore or SessionReducer; failures only change `CodexUsageState`.
-public actor CodexUsageCollector {
-    private let provider: any CodexUsageProviding
-    private let cache: any CodexUsageCaching
+/// SessionStore or SessionReducer; failures only change `AccountUsageState`.
+public actor AccountUsageCollector {
+    private let provider: any AccountUsageProviding
+    private let cache: any AccountUsageCaching
     private let refreshInterval: TimeInterval
     private let baseBackoff: TimeInterval
     private let maxBackoff: TimeInterval
+    private let cacheCommitGate: AccountUsageCacheCommitGate
 
     private var isEnabled: Bool
     private var generation: UInt64 = 0
     private var didBootstrap = false
     private var failureCount = 0
-    private var state: CodexUsageState
+    private var state: AccountUsageState
 
     public init(
-        provider: any CodexUsageProviding,
-        cache: any CodexUsageCaching,
+        provider: any AccountUsageProviding,
+        cache: any AccountUsageCaching,
         refreshInterval: TimeInterval = 15 * 60,
         baseBackoff: TimeInterval = 60,
         maxBackoff: TimeInterval = 15 * 60,
@@ -306,11 +398,12 @@ public actor CodexUsageCollector {
         self.refreshInterval = refreshInterval
         self.baseBackoff = baseBackoff
         self.maxBackoff = maxBackoff
+        cacheCommitGate = AccountUsageCacheCommitGate(generation: 0, enabled: enabled)
         isEnabled = enabled
         state = enabled ? .unavailable(.notYetLoaded, lastAttemptAt: nil, nextRefreshAt: nil) : .disabled
     }
 
-    public func bootstrap(now: Date = Date()) async -> CodexUsageState {
+    public func bootstrap(now: Date = Date()) async -> AccountUsageState {
         guard isEnabled else { return .disabled }
         guard !didBootstrap else { return state }
         let currentGeneration = generation
@@ -325,7 +418,7 @@ public actor CodexUsageCollector {
         return state
     }
 
-    public func refresh(now: Date = Date(), ignoringBackoff: Bool = false) async -> CodexUsageState {
+    public func refresh(now: Date = Date(), ignoringBackoff: Bool = false) async -> AccountUsageState {
         guard isEnabled else { return .disabled }
         if !didBootstrap { _ = await bootstrap(now: now) }
         guard isEnabled else { return state }
@@ -333,6 +426,7 @@ public actor CodexUsageCollector {
             return state
         }
         let currentGeneration = generation
+        let cachePermit = cacheCommitGate.permit(generation: currentGeneration)
 
         do {
             let snapshot = try await provider.fetch().fetched(at: now)
@@ -340,7 +434,7 @@ public actor CodexUsageCollector {
             failureCount = 0
             state = .available(snapshot, nextRefreshAt: now.addingTimeInterval(refreshInterval))
             do {
-                try await cache.save(snapshot)
+                try await cache.save(snapshot, permit: cachePermit)
                 guard isEnabled, generation == currentGeneration else { return state }
             } catch {
                 // A cache write failure must not discard a fresh, trustworthy read.
@@ -348,7 +442,7 @@ public actor CodexUsageCollector {
         } catch {
             guard isEnabled, generation == currentGeneration else { return state }
             failureCount += 1
-            let reason = (error as? CodexUsageError)?.unavailableReason ?? .unknown
+            let reason = (error as? AccountUsageError)?.unavailableReason ?? .unknown
             let exponent = min(failureCount - 1, 20)
             let delay = min(baseBackoff * pow(2, Double(exponent)), maxBackoff)
             let retryAt = now.addingTimeInterval(delay)
@@ -361,9 +455,10 @@ public actor CodexUsageCollector {
         return state
     }
 
-    public func setEnabled(_ enabled: Bool, now: Date = Date()) async -> CodexUsageState {
+    public func setEnabled(_ enabled: Bool, now: Date = Date()) async -> AccountUsageState {
         generation &+= 1
         isEnabled = enabled
+        cacheCommitGate.update(generation: generation, enabled: enabled)
         failureCount = 0
         didBootstrap = false
         guard enabled else {
@@ -378,7 +473,7 @@ public actor CodexUsageCollector {
 /// One alert per quota-window identity. The first fresh snapshot is a baseline,
 /// not a crossing; stale data never alerts. Alerted identities are exportable so
 /// a restart cannot re-notify the same reset window.
-public struct CodexUsageAlertMonitor: Sendable {
+public struct AccountUsageAlertMonitor: Sendable {
     public private(set) var alertedWindowKeys: Set<String>
     private var observedWindowKeys: Set<String> = []
     private var didObserveFreshSnapshot = false
@@ -388,16 +483,18 @@ public struct CodexUsageAlertMonitor: Sendable {
     }
 
     public mutating func newlyCrossed(
-        in state: CodexUsageState,
+        in state: AccountUsageState,
         thresholdPercent: Int,
         notificationsSuppressed: Bool = false
-    ) -> [CodexUsageWindow] {
+    ) -> [AccountUsageWindow] {
         guard thresholdPercent > 0 else { return [] }
         guard state.collectionEnabled, !state.isStale, let snapshot = state.snapshot else { return [] }
 
-        let currentKeys = Dictionary(uniqueKeysWithValues: snapshot.windows.map { ($0.kind, Self.key(for: $0)) })
+        let currentKeys = Dictionary(uniqueKeysWithValues: snapshot.windows.map {
+            ($0.kind, Self.key(provider: snapshot.provider, window: $0))
+        })
         for (kind, currentKey) in currentKeys {
-            let prefix = kind.rawValue + "|"
+            let prefix = snapshot.provider.rawValue + "|" + kind.rawValue + "|"
             alertedWindowKeys = alertedWindowKeys.filter {
                 !$0.hasPrefix(prefix) || $0 == currentKey
             }
@@ -409,7 +506,7 @@ public struct CodexUsageAlertMonitor: Sendable {
         if !didObserveFreshSnapshot {
             didObserveFreshSnapshot = true
             for window in snapshot.windows {
-                let key = Self.key(for: window)
+                let key = Self.key(provider: snapshot.provider, window: window)
                 observedWindowKeys.insert(key)
                 if window.usedPercent >= thresholdPercent {
                     alertedWindowKeys.insert(key)
@@ -418,9 +515,9 @@ public struct CodexUsageAlertMonitor: Sendable {
             return []
         }
 
-        var alerts: [CodexUsageWindow] = []
+        var alerts: [AccountUsageWindow] = []
         for window in snapshot.windows {
-            let key = Self.key(for: window)
+            let key = Self.key(provider: snapshot.provider, window: window)
             guard observedWindowKeys.contains(key) else {
                 observedWindowKeys.insert(key)
                 if window.usedPercent >= thresholdPercent {
@@ -436,12 +533,12 @@ public struct CodexUsageAlertMonitor: Sendable {
         return alerts
     }
 
-    private static func key(for window: CodexUsageWindow) -> String {
+    private static func key(provider: AccountUsageProvider, window: AccountUsageWindow) -> String {
         let reset = window.resetsAt
             .map { String(Int64($0.timeIntervalSince1970.rounded())) }
             ?? "none"
         let duration = window.windowDurationMinutes.map(String.init) ?? "none"
-        return "\(window.kind.rawValue)|\(reset)|\(duration)"
+        return "\(provider.rawValue)|\(window.kind.rawValue)|\(reset)|\(duration)"
     }
 }
 
