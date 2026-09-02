@@ -13,6 +13,7 @@ DerivedData/
 VibeBuddyApp/VibeBuddyApp.xcodeproj/
 VibeBuddyApp/Sources/Info.plist
 VibeBuddyApp/Widget/Info.plist
+VibeBuddyApp/Watch/Info.plist
 VibeBuddyMacApp/VibeBuddyMacApp.xcodeproj/
 VibeBuddyMacApp/Sources/Info.plist
 
