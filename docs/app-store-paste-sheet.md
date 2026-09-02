@@ -60,7 +60,19 @@ Watch your AI coding agents
 | Field | Value |
 |---|---|
 | Price | Free |
-| Availability | All countries and regions |
+| Availability | **United States** only |
+
+> **Why not "all countries and regions".** Offering the app in the China mainland
+> storefront requires an ICP filing number, and App Store Connect blocks the
+> submission without one. Decision of 2026-09-03: US store only, so there is no
+> filing obligation and none of what it drags along — no MIIT name matching, so the
+> name above keeps its subtitle and stays free to change later.
+> `docs/icp-app-filing-checklist.md` is marked not-applicable and holds the detail
+> should that ever change.
+>
+> If you meant "anywhere except China" rather than literally the US, select all
+> countries and regions and clear **China mainland** — same filing outcome, far
+> wider reach. It is one checkbox either way, and changeable after release.
 
 ---
 
