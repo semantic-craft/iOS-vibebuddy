@@ -63,7 +63,7 @@ code, and tests — don't drift to synonyms.
 ## Observability (2026-09)
 
 - **ObservationSource / ObservationHealth** — which signal currently backs a
-  session (`hook`, `rollout`, `transcript`, `restored`) plus its last-seen time
+  session (`hook`, `rollout`, `transcript`, `recovery`) plus its last-seen time
   and a health verdict (healthy / degraded / unsupported / eventsMissing). Never
   guessed from process existence; shown in Mac Settings and on session rows.
   One bounded exception: a ChatGPT.app-bundled `codex app-server` probe (and a

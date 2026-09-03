@@ -423,6 +423,31 @@ struct CodexRolloutMonitorTests {
         #expect(reducer.sessions["desktop-ownerless"]?.failed != true)
     }
 
+    @Test("a missing lock directory does not abandon a live Desktop writer")
+    func missingLockDirectoryKeepsWorking() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        _ = try fixture.write(
+            named: "rollout-nolockdir.jsonl",
+            lines: [sessionMeta(id: "desktop-nolockdir"), taskStarted(id: "t1")]
+        )
+        let siblingLocks = fixture.root.deletingLastPathComponent()
+            .appendingPathComponent("thread-writer-locks", isDirectory: true)
+        #expect(!FileManager.default.fileExists(atPath: siblingLocks.path))
+
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            isDesktopAppServerAlive: { true }
+        )
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-nolockdir"]?.status == .working)
+
+        for event in await monitor.poll(now: now.addingTimeInterval(60)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-nolockdir"]?.status == .working)
+        #expect(reducer.sessions["desktop-nolockdir"]?.summary != "Abandoned")
+    }
+
     @Test("a thread resumed from an older date directory is discovered")
     func resumedOldThreadDiscovery() async throws {
         let fixture = try RolloutFixture(now: now)

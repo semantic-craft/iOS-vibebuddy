@@ -840,8 +840,6 @@ public actor CodexRolloutMonitor {
         debounceInterval: Duration = .milliseconds(100),
         recoveryWindow: TimeInterval = 30 * 60,
         ownerlessAfter: TimeInterval = 60,
-        lockRoot: URL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".codex/thread-writer-locks", isDirectory: true),
         isDesktopAppServerAlive: (@Sendable () -> Bool)? = nil,
         hasWriterLock: (@Sendable (String) -> Bool)? = nil
     ) {
@@ -851,8 +849,16 @@ public actor CodexRolloutMonitor {
         self.recoveryWindow = recoveryWindow
         self.ownerlessAfter = ownerlessAfter
         self.isDesktopAppServerAlive = isDesktopAppServerAlive ?? { CodexDesktopAppServer.isAlive() }
+        // Production `root` is ~/.codex/sessions; CODEX_HOME and test fixtures
+        // follow the same sibling. A missing lock directory is not "no locks".
+        let lockRoot = root.deletingLastPathComponent()
+            .appendingPathComponent("thread-writer-locks", isDirectory: true)
         self.hasWriterLock = hasWriterLock ?? { id in
-            FileManager.default.fileExists(
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: lockRoot.path, isDirectory: &isDirectory),
+                  isDirectory.boolValue
+            else { return true }
+            return FileManager.default.fileExists(
                 atPath: lockRoot.appendingPathComponent("\(id).lock").path)
         }
     }
@@ -944,9 +950,10 @@ public actor CodexRolloutMonitor {
     /// cadence (default 30s), not a new one-second poll.
     ///
     /// Lock files persist after turns and their mtime does not follow writes, so
-    /// a lock's *presence* is not proof of a writer. A missing lock, or a dead
-    /// ChatGPT.app-bundled `codex app-server`, is enough to call the thread
-    /// ownerless. Leftover locks are ignored once that process is already gone.
+    /// a lock's *presence* is not proof of a writer. A missing lock (only when
+    /// the lock directory itself exists), or a dead ChatGPT.app-bundled
+    /// `codex app-server`, is enough to call the thread ownerless. Leftover
+    /// locks are ignored once that process is already gone.
     private func retireOwnerless(now: Date) -> [HookEvent] {
         var events: [HookEvent] = []
         let appServerAlive = isDesktopAppServerAlive()
