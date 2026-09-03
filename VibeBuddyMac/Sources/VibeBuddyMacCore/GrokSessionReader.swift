@@ -82,8 +82,10 @@ public enum GrokSessionReader {
         info.branch = string(summary, "head_branch")
 
         // The newest `turn_completed` is one turn's cost, which the reducer
-        // accumulates exactly like Claude's per-turn readings.
+        // accumulates exactly like Claude's per-turn readings — keyed by the
+        // turn's own id, so two turns that cost the same both count.
         info.tokens = facts.turnTokens
+        info.tokensTurnID = facts.turnTokensID
 
         info.contextTokens = facts.contextTokens ?? int(signals, "contextTokensUsed")
         info.contextWindow = int(signals, "contextWindowTokens")
@@ -154,6 +156,10 @@ public enum GrokSessionReader {
         /// cumulative: readings on a real four-turn session rise and fall, and
         /// each carries its own `numTurns` count of model calls.
         var turnTokens: Int?
+        /// Which turn `turnTokens` was read off: `turn_completed.prompt_id`,
+        /// falling back to the record's `_meta` identity. Without it the reducer
+        /// cannot tell a re-read from a second turn of identical cost.
+        var turnTokensID: String?
         var contextTokens: Int?
         var runningTool: String?
         var spawned: [(id: String, type: String?, detail: String?)] = []
@@ -175,8 +181,9 @@ public enum GrokSessionReader {
                   let type = update["sessionUpdate"] as? String
             else { continue }
 
+            let meta = params["_meta"] as? [String: Any]
             // The live context size rides on every turn-scoped record.
-            if let total = int(params["_meta"] as? [String: Any], "totalTokens") {
+            if let total = int(meta, "totalTokens") {
                 facts.contextTokens = total
             }
 
@@ -203,6 +210,12 @@ public enum GrokSessionReader {
                 if let usage = update["usage"] as? [String: Any] {
                     facts.turnTokens = (int(usage, "inputTokens") ?? 0)
                         + (int(usage, "outputTokens") ?? 0)
+                    // `prompt_id` names the turn; `_meta` is the backstop for a
+                    // record written without one (its `eventId` is per-record,
+                    // and one `turn_completed` is one turn either way).
+                    facts.turnTokensID = string(update, "prompt_id")
+                        ?? string(meta, "promptId")
+                        ?? string(meta, "eventId")
                 }
                 openCalls.removeAll()
             case "subagent_spawned":

@@ -6,12 +6,33 @@ import VibeBuddyKit
 @Suite("Claude, Codex and Grok observation health diagnostics")
 struct ObservationHealthDetectorTests {
     let now = Date(timeIntervalSince1970: 1_700_000_000)
+    /// A `$GROK_HOME` that never exists, so a Claude or Codex test cannot reach
+    /// the developer's real `~/.grok`.
+    let absentGrokHome = URL(fileURLWithPath: "/nonexistent/vb-grok-absent")
 
     private func tempHome() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("vb-health-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    /// A directory path that does not exist yet; `write` creates it on demand.
+    private func unwrittenDirectory() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("vb-grok-\(UUID().uuidString)", isDirectory: true)
+    }
+
+    /// Every call goes through here so grok's home is always explicit.
+    private func detect(
+        home: URL?,
+        grokHome: URL? = nil,
+        signals: [ObservationRuntimeSignal] = [],
+        staleAfter: TimeInterval = 10 * 60
+    ) -> [AgentObservationDiagnostic] {
+        ObservationHealthDetector.detect(
+            home: home, signals: signals, now: now, staleAfter: staleAfter,
+            grokHome: grokHome ?? absentGrokHome)
     }
 
     private func write(_ text: String, to url: URL) throws {
@@ -24,12 +45,12 @@ struct ObservationHealthDetectorTests {
     func missingInstallationAndEvents() throws {
         let home = try tempHome()
         defer { try? FileManager.default.removeItem(at: home) }
-        let absent = ObservationHealthDetector.detect(home: home, signals: [], now: now)
+        let absent = detect(home: home)
         #expect(absent.health(agent: .claudeCode, source: .hook) == .notInstalled)
 
         try write(#"{"hooks":{"Stop":[{"hooks":[{"command":"echo user"}]}]}}"#,
                   to: home.appendingPathComponent(".claude/settings.json"))
-        let missingEvents = ObservationHealthDetector.detect(home: home, signals: [], now: now)
+        let missingEvents = detect(home: home)
         #expect(missingEvents.health(agent: .claudeCode, source: .hook) == .eventsMissing)
     }
 
@@ -41,7 +62,7 @@ struct ObservationHealthDetectorTests {
         try write(#"{"hooks":{"SessionStart":[{"hooks":[{"command":"/app/vibebuddy-forward.sh codex","async":true}]}]}}"#,
                   to: home.appendingPathComponent(".codex/hooks.json"))
 
-        let result = ObservationHealthDetector.detect(home: home, signals: [], now: now)
+        let result = detect(home: home)
         #expect(result.health(agent: .codex, source: .hook) == .asyncIncompatible)
     }
 
@@ -54,7 +75,7 @@ struct ObservationHealthDetectorTests {
         try write(#"{"type":"session_meta","payload":{"cli_version":"1.2.3"}}"#, to: rollout)
         try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: rollout.path)
 
-        let result = ObservationHealthDetector.detect(home: home, signals: [], now: now)
+        let result = detect(home: home)
         #expect(result.health(agent: .codex, source: .rollout) == .sourceUnreadable)
     }
 
@@ -66,15 +87,13 @@ struct ObservationHealthDetectorTests {
         let old = ObservationRuntimeSignal(agent: .codex, source: .rollout,
                                            lastObservedAt: now.addingTimeInterval(-601),
                                            observedCoverage: [.turn])
-        let stale = ObservationHealthDetector.detect(home: home, signals: [old], now: now,
-                                                     staleAfter: 600)
+        let stale = detect(home: home, signals: [old], staleAfter: 600)
         #expect(stale.health(agent: .codex, source: .rollout) == .temporarilySilent)
 
         let fresh = ObservationRuntimeSignal(agent: .codex, source: .rollout,
                                              lastObservedAt: now,
                                              observedCoverage: [.turn, .tool])
-        let healthy = ObservationHealthDetector.detect(home: home, signals: [fresh], now: now,
-                                                       staleAfter: 600)
+        let healthy = detect(home: home, signals: [fresh], staleAfter: 600)
         #expect(healthy.health(agent: .codex, source: .rollout) == .healthy)
         #expect(healthy.diagnostic(agent: .codex, source: .rollout)?.observedCoverage == [.turn, .tool])
     }
@@ -89,8 +108,7 @@ struct ObservationHealthDetectorTests {
             #"{"type":"session_meta","payload":{"cli_version":"0.999.0"}}"# + "\n" +
             #"{"type":"event_msg","payload":{"type":"task_started"}}"#,
             to: future)
-        let futureResult = ObservationHealthDetector.detect(
-            home: futureHome, signals: [], now: now)
+        let futureResult = detect(home: futureHome)
         #expect(futureResult.health(agent: .codex, source: .rollout) == .unknownVersion)
 
         let metadataHome = try tempHome()
@@ -99,16 +117,14 @@ struct ObservationHealthDetectorTests {
         let metadata = metadataHome.appendingPathComponent(".codex/sessions/2023/11/14/rollout-metadata.jsonl")
         try write(#"{"type":"session_meta","payload":{"cli_version":"0.151.0-alpha.7.2"}}"#,
                   to: metadata)
-        let metadataResult = ObservationHealthDetector.detect(
-            home: metadataHome, signals: [], now: now)
+        let metadataResult = detect(home: metadataHome)
         #expect(metadataResult.health(agent: .codex, source: .rollout) == .eventsMissing)
 
         try write(
             #"{"type":"session_meta","payload":{"cli_version":"0.151.0-alpha.7.2"}}"# + "\n" +
             #"{"type":"event_msg","payload":{"type":"task_started"}}"#,
             to: metadata)
-        let supportedResult = ObservationHealthDetector.detect(
-            home: metadataHome, signals: [], now: now)
+        let supportedResult = detect(home: metadataHome)
         #expect(supportedResult.health(agent: .codex, source: .rollout) == .healthy)
     }
 
@@ -123,7 +139,7 @@ struct ObservationHealthDetectorTests {
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700],
                                                         ofItemAtPath: directory.path) }
 
-        let result = ObservationHealthDetector.detect(home: home, signals: [], now: now)
+        let result = detect(home: home)
         #expect(result.health(agent: .codex, source: .rollout) == .sourceUnreadable)
     }
 
@@ -147,19 +163,19 @@ struct ObservationHealthDetectorTests {
     func grokHookEvidence() throws {
         let home = try tempHome()
         defer { try? FileManager.default.removeItem(at: home) }
-        #expect(ObservationHealthDetector.detect(home: home, signals: [], now: now)
+        let grokHome = unwrittenDirectory()
+        defer { try? FileManager.default.removeItem(at: grokHome) }
+        #expect(detect(home: home, grokHome: grokHome)
             .health(agent: .grok, source: .hook) == .notInstalled)
 
-        try FileManager.default.createDirectory(
-            at: home.appendingPathComponent(".grok", isDirectory: true),
-            withIntermediateDirectories: true)
-        #expect(ObservationHealthDetector.detect(home: home, signals: [], now: now)
+        try FileManager.default.createDirectory(at: grokHome, withIntermediateDirectories: true)
+        #expect(detect(home: home, grokHome: grokHome)
             .health(agent: .grok, source: .hook) == .eventsMissing)
 
         try write(grokHooks(grokInstalledEvents),
-                  to: home.appendingPathComponent(".grok/hooks/vibebuddy.json"))
+                  to: grokHome.appendingPathComponent("hooks/vibebuddy.json"))
         let signal = ObservationRuntimeSignal(agent: .grok, source: .hook, lastObservedAt: now)
-        let result = ObservationHealthDetector.detect(home: home, signals: [signal], now: now)
+        let result = detect(home: home, grokHome: grokHome, signals: [signal])
         #expect(result.health(agent: .grok, source: .hook) == .healthy)
         #expect(result.diagnostic(agent: .grok, source: .hook)?.configuredCoverage
             == ObservationEventCoverage.allCases)
@@ -167,15 +183,12 @@ struct ObservationHealthDetectorTests {
 
     @Test("grok without Notification loses attention coverage even with fresh events")
     func grokAttentionCoverageRequired() throws {
-        let home = try tempHome()
-        defer { try? FileManager.default.removeItem(at: home) }
-        try FileManager.default.createDirectory(
-            at: home.appendingPathComponent(".grok", isDirectory: true),
-            withIntermediateDirectories: true)
+        let grokHome = unwrittenDirectory()
+        defer { try? FileManager.default.removeItem(at: grokHome) }
         try write(grokHooks(grokInstalledEvents.filter { $0 != "Notification" }),
-                  to: home.appendingPathComponent(".grok/hooks/vibebuddy.json"))
+                  to: grokHome.appendingPathComponent("hooks/vibebuddy.json"))
         let signal = ObservationRuntimeSignal(agent: .grok, source: .hook, lastObservedAt: now)
-        let result = ObservationHealthDetector.detect(home: home, signals: [signal], now: now)
+        let result = detect(home: nil, grokHome: grokHome, signals: [signal])
         #expect(result.health(agent: .grok, source: .hook) == .eventsMissing)
         #expect(result.diagnostic(agent: .grok, source: .hook)?
             .configuredCoverage.contains(.attention) == false)
@@ -183,17 +196,45 @@ struct ObservationHealthDetectorTests {
 
     @Test("grok's session transcripts are a declared passive source")
     func grokPassiveSource() throws {
-        let home = try tempHome()
-        defer { try? FileManager.default.removeItem(at: home) }
-        #expect(ObservationHealthDetector.detect(home: home, signals: [], now: now)
+        let grokHome = unwrittenDirectory()
+        defer { try? FileManager.default.removeItem(at: grokHome) }
+        #expect(detect(home: nil, grokHome: grokHome)
             .health(agent: .grok, source: .transcript) == .notInstalled)
 
         try FileManager.default.createDirectory(
-            at: home.appendingPathComponent(".grok/sessions", isDirectory: true),
+            at: grokHome.appendingPathComponent("sessions", isDirectory: true),
             withIntermediateDirectories: true)
         let signal = ObservationRuntimeSignal(agent: .grok, source: .transcript, lastObservedAt: now)
-        #expect(ObservationHealthDetector.detect(home: home, signals: [signal], now: now)
+        #expect(detect(home: nil, grokHome: grokHome, signals: [signal])
             .health(agent: .grok, source: .transcript) == .healthy)
+    }
+
+    @Test("grok diagnostics follow the resolved grok home, not the user's ~/.grok")
+    func grokHomeRedirects() throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let grokHome = unwrittenDirectory()
+        defer { try? FileManager.default.removeItem(at: grokHome) }
+
+        // A complete install sitting at `~/.grok` is the wrong profile when
+        // `$GROK_HOME` points elsewhere, and must not be reported as evidence.
+        try write(grokHooks(grokInstalledEvents),
+                  to: home.appendingPathComponent(".grok/hooks/vibebuddy.json"))
+        try FileManager.default.createDirectory(
+            at: home.appendingPathComponent(".grok/sessions", isDirectory: true),
+            withIntermediateDirectories: true)
+        let ignored = detect(home: home, grokHome: grokHome)
+        #expect(ignored.health(agent: .grok, source: .hook) == .notInstalled)
+        #expect(ignored.health(agent: .grok, source: .transcript) == .notInstalled)
+
+        // The same files under the redirected home are what gets inspected.
+        try write(grokHooks(grokInstalledEvents),
+                  to: grokHome.appendingPathComponent("hooks/vibebuddy.json"))
+        let signal = ObservationRuntimeSignal(agent: .grok, source: .hook, lastObservedAt: now)
+        let found = detect(home: home, grokHome: grokHome, signals: [signal])
+        #expect(found.health(agent: .grok, source: .hook) == .healthy)
+        #expect(found.diagnostic(agent: .grok, source: .hook)?.configuredCoverage
+            == ObservationEventCoverage.allCases)
     }
 }
 

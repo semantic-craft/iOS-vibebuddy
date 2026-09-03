@@ -113,6 +113,7 @@ struct SessionReducerTests {
     func spentAccumulates() {
         var r = SessionReducer()
         r.apply(ev(.sessionStart))
+        // Claude's transcript names no turn, so the reading itself is the identity.
         r.enrich(sessionID: "s1", with: TranscriptInfo(tokens: 1000))   // turn 1
         r.enrich(sessionID: "s1", with: TranscriptInfo(tokens: 1000))   // same turn re-read → not double-counted
         r.enrich(sessionID: "s1", with: TranscriptInfo(tokens: 1500))   // turn 2
