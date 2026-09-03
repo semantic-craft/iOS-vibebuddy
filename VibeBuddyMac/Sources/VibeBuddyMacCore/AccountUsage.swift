@@ -6,6 +6,7 @@ public enum AccountUsageWindowKind: String, Codable, Sendable {
     case primary
     case secondary
 }
+
 public struct AccountUsageWindow: Codable, Equatable, Sendable, Identifiable {
     public var kind: AccountUsageWindowKind
     public var usedPercent: Int

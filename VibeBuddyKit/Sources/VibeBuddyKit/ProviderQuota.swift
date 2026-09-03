@@ -7,6 +7,7 @@ import Foundation
 public enum AccountUsageProvider: String, Codable, CaseIterable, Sendable, Identifiable {
     case codex
     case claude
+    case grok
 
     public var id: String { rawValue }
 
@@ -14,6 +15,7 @@ public enum AccountUsageProvider: String, Codable, CaseIterable, Sendable, Ident
         switch self {
         case .codex: return "Codex"
         case .claude: return "Claude"
+        case .grok: return "Grok"
         }
     }
 }

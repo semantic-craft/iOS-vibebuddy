@@ -456,4 +456,61 @@ struct SessionReducerTests {
         #expect(r.sessions["s1"]?.contextWindow == 200_000)
         #expect(r.sessions["s1"]?.tokens == 1200)
     }
+
+    // MARK: - Turn ordering
+
+    private func turn(
+        _ kind: HookEvent.Kind,
+        turnID: String?,
+        message: String? = nil,
+        at: TimeInterval
+    ) -> HookEvent {
+        HookEvent(kind: kind, sessionID: "s1", agent: .grok,
+                  cwd: "/Users/me/projects/vibebuddy", message: message,
+                  timestamp: t0.addingTimeInterval(at), turnID: turnID)
+    }
+
+    @Test("a settle report for a superseded turn does not fake an idle session")
+    func staleTurnSettleIgnored() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart))
+        r.apply(turn(.userPromptSubmit, turnID: "p1", at: 1))
+        r.apply(turn(.userPromptSubmit, turnID: "p2", at: 2))
+        r.apply(turn(.stop, turnID: "p1", message: "cancelled", at: 3))
+        #expect(r.sessions["s1"]?.status == .working)
+
+        r.apply(turn(.stop, turnID: "p2", message: "done", at: 4))
+        #expect(r.sessions["s1"]?.status == .done)
+        #expect(r.sessions["s1"]?.summary == "done")
+    }
+
+    @Test("a stop with no turn identity always settles")
+    func untaggedStopSettles() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart))
+        r.apply(turn(.userPromptSubmit, turnID: "p1", at: 1))
+        r.apply(turn(.userPromptSubmit, turnID: "p2", at: 2))
+        // Grok's idle_prompt backstop (and every Claude/Codex stop) carries none.
+        r.apply(turn(.stop, turnID: nil, at: 3))
+        #expect(r.sessions["s1"]?.status == .done)
+    }
+
+    @Test("a turn identity from a session with no recorded turn still settles")
+    func stopWithoutRecordedTurnSettles() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart))
+        r.apply(turn(.stop, turnID: "p9", at: 1))
+        #expect(r.sessions["s1"]?.status == .done)
+    }
+
+    @Test("turn identity does not survive the session it belonged to")
+    func turnIdentityClearedOnSessionEnd() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart))
+        r.apply(turn(.userPromptSubmit, turnID: "p1", at: 1))
+        r.apply(ev(.sessionEnd, at: 2))
+        r.apply(ev(.sessionStart, at: 3))
+        r.apply(turn(.stop, turnID: "p1", at: 4))
+        #expect(r.sessions["s1"]?.status == .done)
+    }
 }

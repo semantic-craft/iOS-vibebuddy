@@ -105,6 +105,14 @@ enum MacDemoData {
                                updatedAt: now.addingTimeInterval(-9)),
                 ],
                 statusSince: now.addingTimeInterval(-15), updatedAt: now.addingTimeInterval(-15)),
+            AgentSession(
+                id: "demo-work-3", agent: .grok, project: "glaux-book", branch: "main",
+                model: "grok-4.6", status: .working, summary: "Running the build script…",
+                tokens: 2800, contextTokens: 96_000, contextWindow: 500_000,
+                activeTool: "run_terminal_command",
+                observations: [ObservationEvidence(
+                    source: .hook, lastObservedAt: now.addingTimeInterval(-6), health: .healthy)],
+                statusSince: now.addingTimeInterval(-6), updatedAt: now.addingTimeInterval(-6)),
 
             // ── Done ────────────────────────────────────────────────────────
             AgentSession(

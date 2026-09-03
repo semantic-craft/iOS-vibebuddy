@@ -18,6 +18,13 @@ public actor SessionStore {
     /// Terminal refs remembered by session id, so a `/terminal` POST that races
     /// ahead of the session-creating `SessionStart` still lands once it exists.
     private var pendingTerminalRefs: [String: TerminalRef] = [:]
+    /// Resolved `~/.grok/sessions/<cwd>/<id>` directories. Grok's hook envelope
+    /// names no transcript on every event, and the fallback is a directory
+    /// scan, so the answer is remembered for the life of the session.
+    private var grokDirectories: [String: URL] = [:]
+    /// Grok's own data directory (`$GROK_HOME`, else `~/.grok`), not the user's
+    /// home: the session store is rooted at `<grok home>/sessions`.
+    private let grokHome: URL
     private let diagnosticsHome: URL?
     private var runtimeSignals: [AgentKind: [ObservationSource: ObservationRuntimeSignal]] = [:]
     private var diagnosticCache: (at: Date, value: [AgentObservationDiagnostic])?
@@ -27,10 +34,12 @@ public actor SessionStore {
         staleAfter: TimeInterval = 2 * 60 * 60,
         diagnosticsHome: URL? = nil,
         journalURL: URL? = nil,
+        grokHome: URL? = nil,
         now: Date = Date()
     ) {
         self.staleAfter = staleAfter
         self.diagnosticsHome = diagnosticsHome
+        self.grokHome = grokHome ?? GrokHome.url
         if let journalURL {
             let journal = LifecycleJournal(url: journalURL, now: now)
             self.lifecycleJournal = journal
@@ -54,7 +63,10 @@ public actor SessionStore {
         let before = reducer.sessions
         reducer.reconcile(now: now, lastActivity: lastActivity, staleAfter: staleAfter)
         let removed = Set(before.keys).subtracting(reducer.sessions.keys)
-        for id in removed { transcriptPaths[id] = nil }
+        for id in removed {
+            transcriptPaths[id] = nil
+            grokDirectories[id] = nil
+        }
         for id in removed {
             guard let session = before[id] else { continue }
             appendJournal(
@@ -80,15 +92,25 @@ public actor SessionStore {
     public func ingest(_ data: Data, agent: AgentKind = .claudeCode, receivedAt: Date) -> Bool {
         // Source-aware decode: the `?agent=` value tags Claude-shaped lifecycle
         // hooks directly and selects a translator only for different envelopes.
-        guard let event = HookDecoder.decode(data, agent: agent, receivedAt: receivedAt)
-        else {
+        switch HookDecoder.decode(data, agent: agent, receivedAt: receivedAt) {
+        case let .event(event):
+            ingest(event, observationSource: .hook)
+            return true
+        case .ignored:
+            // Understood, but carries no progress (grok fires several such events
+            // per session). The hook source is demonstrably alive and speaking a
+            // shape we know, so record it as healthy rather than as an unknown
+            // version — but claim no event-family coverage for it.
+            recordSignal(agent: agent, source: .hook, at: receivedAt,
+                         health: .healthy, coverage: nil)
+            broadcast()
+            return false
+        case .undecodable:
             recordSignal(agent: agent, source: .hook, at: receivedAt,
                          health: .unknownVersion, coverage: nil)
             broadcast()
             return false
         }
-        ingest(event, observationSource: .hook)
-        return true
     }
 
     /// Apply an already-normalized event from a local monitor such as the Codex
@@ -108,8 +130,13 @@ public actor SessionStore {
             // Session was removed (e.g. SessionEnd) — forget its side data.
             transcriptPaths[event.sessionID] = nil
             pendingTerminalRefs[event.sessionID] = nil
+            grokDirectories[event.sessionID] = nil
         } else {
-            if let path = event.transcriptPath {
+            // Grok keeps a session's facts in a directory of files rather than
+            // one transcript, so it enriches from that directory instead.
+            if event.agent == .grok {
+                enrichFromGrokSession(event)
+            } else if let path = event.transcriptPath {
                 let transcriptHealth = Self.sourceHealth(at: path)
                 reducer.recordObservation(sessionID: event.sessionID, source: .transcript,
                                           at: event.timestamp, health: transcriptHealth)
@@ -136,6 +163,65 @@ public actor SessionStore {
            session.status == .needsResponse, let handler = needsResponseHandler {
             Task { await handler(session) }
         }
+    }
+
+    /// Layer a Grok session directory's facts onto the session, and fold the
+    /// subagents the parent recorded into the same child topology the hook path
+    /// builds. The directory is the only source that names the children a
+    /// parent owns: `subagent_stop` fires inside the child's own session.
+    private func enrichFromGrokSession(_ event: HookEvent) {
+        guard let directory = grokSessionDirectory(for: event) else { return }
+        let health = Self.sourceHealth(
+            at: directory.appendingPathComponent("updates.jsonl").path)
+        reducer.recordObservation(sessionID: event.sessionID, source: .transcript,
+                                  at: event.timestamp, health: health)
+        recordSignal(agent: .grok, source: .transcript, at: event.timestamp,
+                     health: health, coverage: .turn)
+        guard let snapshot = GrokSessionReader.read(directory: directory) else { return }
+        reducer.enrich(sessionID: event.sessionID, with: snapshot.info)
+
+        // The hook path is authoritative on a child's *state*: `SubagentStop`
+        // fires before the child's teardown rewrites `meta.json`, so the
+        // directory still says "running" for a child we already know finished.
+        // The directory may therefore only introduce children the hooks missed,
+        // and stop children — never move one back to running.
+        let known = Set(reducer.sessions[event.sessionID]?.childAgents?.map(\.id) ?? [])
+        for child in snapshot.subagents {
+            let childID = "subagent:\(child.id)"       // same identity GrokParser mints
+            guard child.finished || !known.contains(childID) else { continue }
+            // Stamped with the observing event, not the child's own start time:
+            // the reducer drops child updates older than what it already holds,
+            // and a long-finished subagent must not rewind the parent's clock.
+            reducer.apply(HookEvent(
+                kind: .childLifecycle,
+                sessionID: event.sessionID,
+                agent: .grok,
+                message: child.detail,
+                observationSource: .transcript,
+                timestamp: event.timestamp,
+                childID: childID,
+                childKind: .subagent,
+                childName: child.type,
+                childType: child.type,
+                childAction: child.finished ? .stopped : .started
+            ), observationSource: .transcript)
+        }
+    }
+
+    /// The session directory for a Grok event: the parent of the hook's
+    /// `transcriptPath` (it names `updates.jsonl`) when there is one, else the
+    /// locator over the session's cwd. Cached once resolved.
+    private func grokSessionDirectory(for event: HookEvent) -> URL? {
+        if let cached = grokDirectories[event.sessionID] { return cached }
+        let resolved = event.transcriptPath.flatMap(GrokSessionLocator.directory(forTranscriptPath:))
+            ?? GrokSessionLocator.locate(sessionID: event.sessionID, cwd: event.cwd,
+                                         grokHome: grokHome)
+        guard let resolved else { return nil }
+        grokDirectories[event.sessionID] = resolved
+        // `sweep` measures "did the session advance" from this path's mtime.
+        transcriptPaths[event.sessionID] = resolved
+            .appendingPathComponent("updates.jsonl").path
+        return resolved
     }
 
     public func beginApproval(sessionID: String, _ approval: PendingApproval, at: Date) {
@@ -219,6 +305,9 @@ public actor SessionStore {
     /// for the detail pane. Empty when the session has no known transcript, so
     /// the UI can show a graceful "no transcript" state.
     public func recentTranscript(sessionID: String, limit: Int = 12) -> [TranscriptEntry] {
+        if let directory = grokDirectories[sessionID] {
+            return GrokSessionReader.recentEntries(directory: directory, limit: limit)
+        }
         guard let path = transcriptPaths[sessionID] else { return [] }
         return TranscriptReader.recentEntries(path: path, limit: limit) ?? []
     }

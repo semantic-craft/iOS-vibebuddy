@@ -39,6 +39,79 @@ struct EnrichmentTests {
         #expect(r.sessions["s"]?.tokens == 10)
     }
 
+    @Test("a source's own context window overrides the model table")
+    func enrichHonoursReportedContextWindow() {
+        var r = SessionReducer()
+        r.apply(HookEvent(kind: .sessionStart, sessionID: "s", agent: .grok, timestamp: t0))
+        r.enrich(sessionID: "s", with: TranscriptInfo(
+            model: "grok-4.6", contextTokens: 184_960, contextWindow: 500_000))
+        #expect(r.sessions["s"]?.contextWindow == 500_000)
+        #expect(r.sessions["s"]?.contextTokens == 184_960)
+    }
+
+    @Test("without a reported window the model table answers, 500k for grok")
+    func contextWindowByModel() {
+        #expect(SessionReducer.contextWindow(for: "claude-opus-4-8") == 200_000)
+        #expect(SessionReducer.contextWindow(for: nil) == 200_000)
+        #expect(SessionReducer.contextWindow(for: "grok-4.6") == 500_000)
+
+        var r = SessionReducer()
+        r.apply(HookEvent(kind: .sessionStart, sessionID: "s", agent: .grok, timestamp: t0))
+        r.enrich(sessionID: "s", with: TranscriptInfo(model: "grok-4.6", contextTokens: 1_000))
+        #expect(r.sessions["s"]?.contextWindow == 500_000)
+    }
+
+    @Test("enrich carries a branch, and a running tool only into a working gap")
+    func enrichBranchAndTool() {
+        var r = SessionReducer()
+        r.apply(HookEvent(kind: .sessionStart, sessionID: "s", agent: .grok, timestamp: t0))
+        r.apply(HookEvent(kind: .userPromptSubmit, sessionID: "s", agent: .grok,
+                          timestamp: t0.addingTimeInterval(1)))
+        r.enrich(sessionID: "s", with: TranscriptInfo(
+            branch: "feature/fixture", activeTool: "run_terminal_command"))
+        #expect(r.sessions["s"]?.branch == "feature/fixture")
+        #expect(r.sessions["s"]?.activeTool == "run_terminal_command")
+
+        // nil is "no opinion": clearing stays with the PostToolUse hook, so a
+        // read that races the log write cannot blank a live tool.
+        r.enrich(sessionID: "s", with: TranscriptInfo(summary: "still going"))
+        #expect(r.sessions["s"]?.activeTool == "run_terminal_command")
+
+        // Nor may it rename the tool the hooks are reporting.
+        r.enrich(sessionID: "s", with: TranscriptInfo(activeTool: "read_file"))
+        #expect(r.sessions["s"]?.activeTool == "run_terminal_command")
+    }
+
+    @Test("a settled or waiting session never takes a running tool from the source")
+    func enrichNeverToolsASettledSession() {
+        // The log lags the hooks: `stop` fires before `turn_completed` is
+        // written, so a finished turn's tail still shows an open tool call.
+        for kind in [HookEvent.Kind.stop, .notification] {
+            var r = SessionReducer()
+            r.apply(HookEvent(kind: .sessionStart, sessionID: "s", agent: .grok, timestamp: t0))
+            r.apply(HookEvent(kind: .userPromptSubmit, sessionID: "s", agent: .grok,
+                              timestamp: t0.addingTimeInterval(1)))
+            r.apply(HookEvent(kind: kind, sessionID: "s", agent: .grok,
+                              message: "Permission required",
+                              timestamp: t0.addingTimeInterval(2)))
+            r.enrich(sessionID: "s", with: TranscriptInfo(activeTool: "run_terminal_command"))
+            #expect(r.sessions["s"]?.activeTool == nil)
+        }
+    }
+
+    @Test("a waiting session names the tool its own permission prompt is blocked on")
+    func enrichNamesPendingPermission() {
+        var r = SessionReducer()
+        r.apply(HookEvent(kind: .sessionStart, sessionID: "s", agent: .grok, timestamp: t0))
+        r.apply(HookEvent(kind: .notification, sessionID: "s", agent: .grok,
+                          message: "Permission required", timestamp: t0.addingTimeInterval(1)))
+        r.enrich(sessionID: "s", with: TranscriptInfo(
+            summary: "prose that must not clobber the prompt",
+            pendingPermissionTool: "run_terminal_command"))
+        #expect(r.sessions["s"]?.waitKind == .permission)
+        #expect(r.sessions["s"]?.summary == "Permission required: run_terminal_command")
+    }
+
     @Test("enrich on an unknown session is ignored")
     func enrichUnknown() {
         var r = SessionReducer()

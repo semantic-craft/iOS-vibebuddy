@@ -572,6 +572,43 @@ struct AccountUsageTests {
         #expect(permissions.intValue == 0o600)
     }
 
+    @Test("Grok is a first-class usage provider with its own cache and labels")
+    func grokProviderRegistration() {
+        #expect(AccountUsageProvider.allCases.contains(.grok))
+        #expect(AccountUsageProvider.grok.displayName == "Grok")
+        #expect(AccountUsageProvider.grok.rawValue == "grok")
+
+        let home = URL(fileURLWithPath: "/Users/example")
+        let cacheURL = AccountUsageFileCache.defaultFileURL(provider: .grok, home: home)
+        #expect(cacheURL.lastPathComponent == "grok-usage.json")
+        #expect(cacheURL != AccountUsageFileCache.defaultFileURL(provider: .codex, home: home))
+
+        #expect(
+            AccountUsageUnavailableReason.notLoggedIn.displayText(provider: .grok)
+                == "Grok is not signed in"
+        )
+    }
+
+    @Test("a Grok crossing alerts independently of the other providers")
+    func grokAlertsAreIndependent() {
+        var monitor = AccountUsageAlertMonitor()
+        _ = monitor.newlyCrossed(
+            in: .available(sampleSnapshot(provider: .grok, percent: 40), nextRefreshAt: nil),
+            thresholdPercent: 90
+        )
+        _ = monitor.newlyCrossed(
+            in: .available(sampleSnapshot(provider: .codex, percent: 95), nextRefreshAt: nil),
+            thresholdPercent: 90
+        )
+
+        let alerts = monitor.newlyCrossed(
+            in: .available(sampleSnapshot(provider: .grok, percent: 95), nextRefreshAt: nil),
+            thresholdPercent: 90
+        )
+        #expect(alerts.count == 1)
+        #expect(alerts.first?.kind == .primary)
+    }
+
     @Test("usage failures cannot mutate session progress")
     func progressIsolation() async {
         var reducer = SessionReducer()

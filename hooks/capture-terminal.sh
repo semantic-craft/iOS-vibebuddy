@@ -132,8 +132,12 @@ json_str() {  # json_str <key>  — first string value of "key" in $INPUT
 }
 
 # Claude/Codex/Qwen/Kimi/OpenCode send `session_id`; the Grok CLI sends `sessionId`.
+# $GROK_SESSION_ID is only the last resort, because grok exports it to every
+# process it spawns: a Claude session started from a shell inside grok would
+# otherwise report its terminal under grok's session id.
 SID=$(json_str session_id)
 [ -z "$SID" ] && SID=$(json_str sessionId)
+[ -z "$SID" ] && SID="${GROK_SESSION_ID:-}"
 EVENT=$(json_str hook_event_name)
 CWD=$(json_str cwd)
 [ -z "$CWD" ] && CWD="$PWD"

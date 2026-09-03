@@ -116,12 +116,20 @@ final class MenuBarModel: ObservableObject {
         toggleGlanceHotkey = Hotkey.loadToggleGlance()
         let codexUsageEnabled = Self.loadBool(Self.usageEnabledKey(for: .codex), default: true)
         let claudeUsageEnabled = Self.loadBool(Self.usageEnabledKey(for: .claude), default: true)
-        usageCollectionEnabled = [.codex: codexUsageEnabled, .claude: claudeUsageEnabled]
+        let grokUsageEnabled = Self.loadBool(Self.usageEnabledKey(for: .grok), default: true)
+        usageCollectionEnabled = [
+            .codex: codexUsageEnabled,
+            .claude: claudeUsageEnabled,
+            .grok: grokUsageEnabled,
+        ]
         usageStates = [
             .codex: codexUsageEnabled
                 ? .unavailable(.notYetLoaded, lastAttemptAt: nil, nextRefreshAt: nil)
                 : .disabled,
             .claude: claudeUsageEnabled
+                ? .unavailable(.notYetLoaded, lastAttemptAt: nil, nextRefreshAt: nil)
+                : .disabled,
+            .grok: grokUsageEnabled
                 ? .unavailable(.notYetLoaded, lastAttemptAt: nil, nextRefreshAt: nil)
                 : .disabled,
         ]
@@ -135,6 +143,11 @@ final class MenuBarModel: ObservableObject {
                 provider: ClaudeCLIUsageProvider(),
                 cache: AccountUsageFileCache(provider: .claude),
                 enabled: claudeUsageEnabled
+            ),
+            .grok: AccountUsageCollector(
+                provider: GrokUsageProvider(),
+                cache: AccountUsageFileCache(provider: .grok),
+                enabled: grokUsageEnabled
             ),
         ]
         usageAlertMonitor = AccountUsageAlertMonitor(

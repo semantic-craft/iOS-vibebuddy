@@ -52,6 +52,10 @@ public struct HookEvent: Sendable, Equatable {
     public let childName: String?
     public let childType: String?
     public let childAction: ChildLifecycleAction?
+    /// Per-turn identity when the CLI supplies one (Grok's `promptId`). Lets the
+    /// reducer drop a settle report that belongs to an already-superseded turn.
+    /// Nil for CLIs that do not label turns — those settle unconditionally.
+    public let turnID: String?
 
     public init(
         kind: Kind,
@@ -69,7 +73,8 @@ public struct HookEvent: Sendable, Equatable {
         childKind: ChildAgentKind? = nil,
         childName: String? = nil,
         childType: String? = nil,
-        childAction: ChildLifecycleAction? = nil
+        childAction: ChildLifecycleAction? = nil,
+        turnID: String? = nil
     ) {
         self.kind = kind
         self.sessionID = sessionID
@@ -87,5 +92,6 @@ public struct HookEvent: Sendable, Equatable {
         self.childName = childName
         self.childType = childType
         self.childAction = childAction
+        self.turnID = turnID
     }
 }

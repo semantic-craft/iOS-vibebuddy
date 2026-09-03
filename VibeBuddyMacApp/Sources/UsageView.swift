@@ -121,7 +121,7 @@ struct AccountUsageSettings: View {
             } header: {
                 Text("Providers")
             } footer: {
-                Text("Codex reads its official local app-server. Claude runs the official read-only /usage command without session persistence or hooks. No credentials, account IDs, or raw responses are stored or logged. Turning either source off leaves session monitoring and notifications running.")
+                Text("Codex reads its official local app-server. Claude runs the official read-only /usage command without session persistence or hooks. Grok asks its own agent process for the billing summary and never reads the stored token. No credentials, account IDs, or raw responses are stored or logged. Turning a source off leaves session monitoring and notifications running.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -134,7 +134,7 @@ struct AccountUsageSettings: View {
                     Text("90%").tag(90)
                     Text("95%").tag(95)
                 }
-                Text("One threshold applies to both providers. Alerts identify the provider, respect quiet mode and quiet hours, and are not repeated after restart.")
+                Text("One threshold applies to every provider. Alerts identify the provider, respect quiet mode and quiet hours, and are not repeated after restart.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
