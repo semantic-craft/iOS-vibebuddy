@@ -4,7 +4,14 @@
 # back to reading TMUX/TMUX_PANE/TERM_PROGRAM from an ancestor process (the shell
 # or `claude` running in the pane) via `ps eww`.
 INPUT=$(cat)
-SID=$(printf '%s' "$INPUT" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+# Session id, in order of trust: the payload describes *this* event — grok's own
+# envelope spells it camelCase, Claude-shape CLIs snake_case. $GROK_SESSION_ID is
+# only the last resort, because it is inherited by every process grok spawned:
+# a Claude session started from a shell inside grok would otherwise report its
+# terminal under grok's session id.
+SID=$(printf '%s' "$INPUT" | sed -n 's/.*"sessionId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+[ -z "$SID" ] && SID=$(printf '%s' "$INPUT" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+[ -z "$SID" ] && SID="${GROK_SESSION_ID:-}"
 [ -z "$SID" ] && exit 0
 
 # Read $1 from this process's env, else walk up ancestors and read theirs.

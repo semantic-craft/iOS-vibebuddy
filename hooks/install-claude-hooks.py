@@ -85,7 +85,12 @@ def install(data):
         added.append(ev)
     for ev in CAPTURE_EVENTS:
         arr = hooks.setdefault(ev, [])
-        expected = {"hooks": [{"type": "command", "command": f'"{CAPTURE_HOOK}"',
+        # The inert `claude` argument is there for Grok's `[compat.claude]`
+        # bridge, which imports these hooks and resolves a quoted, argument-less
+        # command as a literal path (`~/.claude/"/…/capture-terminal.sh"`,
+        # command not found). With an argument the command is shell-parsed by
+        # both CLIs; `capture-terminal.sh` reads stdin and the env, never `$1`.
+        expected = {"hooks": [{"type": "command", "command": f'"{CAPTURE_HOOK}" claude',
                                 "timeout": 5, "async": True}]}
         owned = [g for g in arr if has_marker(g, CAPTURE_MARKER)]
         if owned != [expected]:

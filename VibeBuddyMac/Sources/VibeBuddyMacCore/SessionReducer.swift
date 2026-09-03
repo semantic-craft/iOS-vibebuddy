@@ -10,6 +10,10 @@ public struct SessionReducer: Sendable {
     /// The last per-turn token reading we added to a session's cumulative spend,
     /// so the same turn (re-read on every mid-turn event) is counted only once.
     private var lastCountedTokens: [String: Int] = [:]
+    /// The turn a session is currently on, for CLIs that label turns
+    /// (`HookEvent.turnID`). Grok dispatches a cancelled turn's report off the
+    /// command loop, so it can land after the next turn already started.
+    private var currentTurnID: [String: String] = [:]
 
     public init() {}
 
@@ -38,6 +42,7 @@ public struct SessionReducer: Sendable {
             sessions[event.sessionID]?.failed = false
             sessions[event.sessionID]?.activeTool = nil
         case .userPromptSubmit:
+            if let turnID = event.turnID { currentTurnID[event.sessionID] = turnID }
             upsert(event, status: .working, waitKind: nil)
             sessions[event.sessionID]?.hasUnreadCompletion = false
             sessions[event.sessionID]?.failed = false
@@ -65,6 +70,15 @@ public struct SessionReducer: Sendable {
             sessions[event.sessionID]?.hasUnreadCompletion = false
             sessions[event.sessionID]?.activeTool = nil      // no tool running while waiting
         case .stop:
+            // A settle report for a turn the session has already moved past is
+            // stale news, not idleness: ignore it rather than showing a false
+            // done while the newer turn is still running. A stop with no turn
+            // identity (every CLI but grok, plus grok's idle backstop) settles
+            // unconditionally.
+            if let turnID = event.turnID,
+               let current = currentTurnID[event.sessionID], current != turnID {
+                break
+            }
             // Create-if-missing so a late-observed lifecycle still shows as done;
             // carry the agent's final summary when present.
             upsert(event, status: .done, waitKind: nil, summary: event.message)
@@ -81,6 +95,7 @@ public struct SessionReducer: Sendable {
             // an idle "needs you" prompt doesn't outlive the session it belonged to.
             sessions.removeValue(forKey: event.sessionID)
             lastCountedTokens[event.sessionID] = nil
+            currentTurnID[event.sessionID] = nil
         case .sessionMetadataChanged:
             // Model and cwd changes describe the same live session. They must
             // not clear its tool/wait state or manufacture a progress transition.
@@ -133,7 +148,13 @@ public struct SessionReducer: Sendable {
             let abandoned = now.timeIntervalSince(s.updatedAt) > staleAfter
             return answered || abandoned
         }.map(\.id)
-        for id in stale { sessions.removeValue(forKey: id) }
+        for id in stale {
+            sessions.removeValue(forKey: id)
+            // The per-session side tables outlive nothing: a session id that
+            // comes back (grok resumes one) must start its accounting fresh.
+            currentTurnID[id] = nil
+            lastCountedTokens[id] = nil
+        }
     }
 
     /// Layer transcript-derived metadata onto an existing session. Model and
@@ -142,6 +163,7 @@ public struct SessionReducer: Sendable {
     public mutating func enrich(sessionID: String, with info: TranscriptInfo) {
         guard var s = sessions[sessionID] else { return }
         if let model = info.model { s.model = model }
+        if let branch = info.branch { s.branch = branch }
         if let tokens = info.tokens {
             s.tokens = tokens
             // Accumulate cumulative spend, counting each fresh turn reading once.
@@ -152,21 +174,45 @@ public struct SessionReducer: Sendable {
         }
         if let contextTokens = info.contextTokens {
             s.contextTokens = contextTokens
-            s.contextWindow = Self.contextWindow(for: info.model ?? s.model)
+            // A source that records the real window (Grok's `signals.json`)
+            // wins over the model table, which only knows published defaults.
+            s.contextWindow = info.contextWindow
+                ?? Self.contextWindow(for: info.model ?? s.model)
+        }
+        // Only ever *names* a tool the hooks have not named. `PostToolUse` clears
+        // `activeTool` before the log records the matching `tool_call_update`,
+        // and a `stop` gate fires before `turn_completed` is written, so a
+        // transcript read may only fill a gap on a session that is still working.
+        if let activeTool = info.activeTool, s.activeTool == nil, s.status == .working {
+            s.activeTool = activeTool
         }
         if s.status == .needsResponse, let pendingQuestion = info.pendingQuestion {
             s.pendingQuestion = pendingQuestion
             s.pendingApproval = nil
             s.waitKind = .question
             s.summary = pendingQuestion.prompt
+        } else if s.status == .needsResponse, s.pendingApproval == nil, s.pendingQuestion == nil,
+                  let tool = info.pendingPermissionTool {
+            // The agent's own permission prompt is waiting in its terminal. We
+            // cannot answer it remotely, but the phone can at least say what for.
+            s.waitKind = .permission
+            s.summary = "Permission required: \(tool)"
         }
+        // Deliberately last, and deliberately overriding the hook's own
+        // `lastAssistantMessage`: the transcript holds the newest prose, and for
+        // grok the `stop` envelope's copy is truncated at 32 KiB and stale by
+        // the time a later turn's chunks land.
         if let summary = info.summary, s.status != .needsResponse { s.summary = summary }
         sessions[sessionID] = s
     }
 
-    /// Context-window size by model. Current Claude (Opus/Sonnet/Haiku 4.x) and
-    /// Codex models are 200k; default to that until a model needs a different value.
-    static func contextWindow(for model: String?) -> Int { 200_000 }
+    /// Context-window size by model, used only when the source records no real
+    /// window of its own. Current Claude (Opus/Sonnet/Haiku 4.x) and Codex
+    /// models are 200k; Grok's are 500k.
+    static func contextWindow(for model: String?) -> Int {
+        guard let model = model?.lowercased() else { return 200_000 }
+        return model.hasPrefix("grok") ? 500_000 : 200_000
+    }
 
     /// Mark a known session as blocked on a remote approval.
     public mutating func setPendingApproval(sessionID: String, _ approval: PendingApproval, at: Date) {
@@ -324,10 +370,10 @@ public struct SessionReducer: Sendable {
 
     /// Child events may create a parent row so topology is visible, but they
     /// never move the parent's three-state progress.
-    private mutating func ensureParentWithoutProgress(_ event: HookEvent) {
-        if sessions[event.sessionID] == nil {
-            sessions[event.sessionID] = AgentSession(
-                id: event.sessionID,
+    private mutating func ensureParentWithoutProgress(_ event: HookEvent, sessionID: String) {
+        if sessions[sessionID] == nil {
+            sessions[sessionID] = AgentSession(
+                id: sessionID,
                 agent: event.agent,
                 project: event.cwd.map(Self.projectName) ?? "—",
                 model: event.model,
@@ -337,13 +383,32 @@ public struct SessionReducer: Sendable {
             )
             return
         }
-        if let cwd = event.cwd { sessions[event.sessionID]?.project = Self.projectName(cwd) }
-        if let model = event.model { sessions[event.sessionID]?.model = model }
-        sessions[event.sessionID]?.updatedAt = event.timestamp
+        // A re-targeted child report describes the child's own working copy, so
+        // it must not relabel the parent's project or model.
+        if sessionID == event.sessionID {
+            if let cwd = event.cwd { sessions[sessionID]?.project = Self.projectName(cwd) }
+            if let model = event.model { sessions[sessionID]?.model = model }
+        }
+        sessions[sessionID]?.updatedAt = event.timestamp
+    }
+
+    /// Which session a child report belongs to. Claude reports a child from its
+    /// parent, but grok fires `subagent_stop` inside the child's *own* session
+    /// (same `subagentId`), which we never track as a session. Re-attach it to
+    /// the parent that already owns that child so the row completes instead of
+    /// spawning a phantom session.
+    private func childLifecycleTarget(_ event: HookEvent) -> String {
+        if sessions[event.sessionID] != nil { return event.sessionID }
+        guard let childID = event.childID,
+              let owner = sessions.values.first(where: {
+                  $0.childAgents?.contains { $0.id == childID } == true
+              })
+        else { return event.sessionID }
+        return owner.id
     }
 
     private mutating func applyNestedChildTool(_ event: HookEvent) {
-        ensureParentWithoutProgress(event)
+        ensureParentWithoutProgress(event, sessionID: event.sessionID)
         guard let childID = event.childID else { return }
         updateChild(sessionID: event.sessionID, id: childID, at: event.timestamp) { child in
             if let tool = event.toolName { child.lastActivity = tool }
@@ -351,20 +416,26 @@ public struct SessionReducer: Sendable {
     }
 
     private mutating func applyChildLifecycle(_ event: HookEvent) {
-        ensureParentWithoutProgress(event)
+        let sessionID = childLifecycleTarget(event)
+        // A child's *end* reported from a session we have never seen, for a child
+        // no session claims, has no topology to add — inventing a row for it would
+        // publish grok's child session as if it were a session of its own. A start
+        // still creates the parent so live topology stays visible.
+        if sessions[sessionID] == nil, event.childAction != .started { return }
+        ensureParentWithoutProgress(event, sessionID: sessionID)
         guard let action = event.childAction, let kind = event.childKind else {
-            sessions[event.sessionID]?.childTopologyDegraded = true
+            sessions[sessionID]?.childTopologyDegraded = true
             return
         }
         guard let childID = event.childID else {
-            sessions[event.sessionID]?.childTopologyDegraded = true
+            sessions[sessionID]?.childTopologyDegraded = true
             if action == .unknown {
-                markRunningChildrenUnknown(sessionID: event.sessionID, at: event.timestamp)
+                markRunningChildrenUnknown(sessionID: sessionID, at: event.timestamp)
             }
             return
         }
 
-        var children = sessions[event.sessionID]?.childAgents ?? []
+        var children = sessions[sessionID]?.childAgents ?? []
         let lastActivity = event.message ?? event.toolName
         if let index = children.firstIndex(where: { $0.id == childID }) {
             if event.timestamp < children[index].updatedAt { return }
@@ -384,7 +455,7 @@ public struct SessionReducer: Sendable {
                 updatedAt: event.timestamp
             ))
         }
-        sessions[event.sessionID]?.childAgents = children
+        sessions[sessionID]?.childAgents = children
     }
 
     private mutating func updateChild(

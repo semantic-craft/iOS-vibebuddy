@@ -3,7 +3,7 @@ import Foundation
 import VibeBuddyKit
 @testable import VibeBuddyMacCore
 
-@Suite("Claude parent/subagent topology")
+@Suite("Parent/subagent topology (Claude and Grok)")
 struct SubagentTopologyTests {
 
     let t0 = Date(timeIntervalSince1970: 1_700_000_000)
@@ -155,5 +155,56 @@ struct SubagentTopologyTests {
         #expect(working.sessions["parent"]?.status == .done)
         #expect(working.sessions["parent"]?.runningChildAgentCount == 1)
         #expect(working.sessions["parent"]?.activeTool == nil)
+    }
+
+    // MARK: - Grok
+
+    private func grok(_ json: String, at offset: TimeInterval = 0) -> HookEvent? {
+        GrokParser.parse(Data(json.utf8), receivedAt: t0.addingTimeInterval(offset)).event
+    }
+
+    @Test("Grok subagents produce the same ChildAgent rows as Claude's")
+    func grokChildRows() {
+        var reducer = SessionReducer()
+        for (json, offset) in [
+            (#"{"hookEventName":"session_start","sessionId":"parent","cwd":"/x/proj"}"#, 0.0),
+            (#"{"hookEventName":"user_prompt_submit","sessionId":"parent","promptId":"p1"}"#, 1.0),
+            (#"{"hookEventName":"subagent_start","sessionId":"parent","subagentId":"child-a","subagentType":"explore","description":"Survey"}"#, 2.0),
+            (#"{"hookEventName":"subagent_start","sessionId":"parent","subagentId":"child-b","subagentType":"code-reviewer","description":"Review"}"#, 3.0),
+        ] {
+            if let e = grok(json, at: offset) { reducer.apply(e) }
+        }
+        let session = reducer.sessions["parent"]
+        #expect(session?.status == .working)
+        #expect(session?.runningChildAgentCount == 2)
+        #expect(Set(session?.childAgents?.map(\.id) ?? []) == ["subagent:child-a", "subagent:child-b"])
+        #expect(session?.childAgents?.allSatisfy { $0.kind == .subagent } == true)
+        #expect(ToolActivity.childSummary(for: session!)?.contains("2") == true)
+
+        // Each child's stop arrives from the child's own session id.
+        for (json, offset) in [
+            (#"{"hookEventName":"subagent_stop","sessionId":"child-a","subagentId":"child-a","subagentType":"explore","phase":"gate"}"#, 4.0),
+            (#"{"hookEventName":"subagent_stop","sessionId":"child-b","subagentId":"child-b","subagentType":"code-reviewer","phase":"gate"}"#, 5.0),
+        ] {
+            if let e = grok(json, at: offset) { reducer.apply(e) }
+        }
+        #expect(reducer.sessions.keys.sorted() == ["parent"])
+        #expect(reducer.sessions["parent"]?.runningChildAgentCount == 0)
+        #expect(reducer.sessions["parent"]?.status == .working)
+    }
+
+    @Test("a duplicate SubagentStop phase does not resurrect or duplicate the child")
+    func grokDuplicateStopPhases() {
+        var reducer = SessionReducer()
+        for (json, offset) in [
+            (#"{"hookEventName":"session_start","sessionId":"parent","cwd":"/x/proj"}"#, 0.0),
+            (#"{"hookEventName":"subagent_start","sessionId":"parent","subagentId":"child-a","subagentType":"explore"}"#, 1.0),
+            (#"{"hookEventName":"subagent_stop","sessionId":"child-a","subagentId":"child-a","subagentType":"explore","phase":"gate"}"#, 2.0),
+            (#"{"hookEventName":"subagent_stop","sessionId":"child-a","subagentId":"child-a","subagentType":"explore","phase":"observe"}"#, 3.0),
+        ] {
+            if let e = grok(json, at: offset) { reducer.apply(e) }
+        }
+        #expect(reducer.sessions["parent"]?.childAgents?.count == 1)
+        #expect(reducer.sessions["parent"]?.runningChildAgentCount == 0)
     }
 }

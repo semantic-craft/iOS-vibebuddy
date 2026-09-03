@@ -35,7 +35,7 @@ The CLI pipes its event JSON on stdin. VibeBuddy reads `hook_event_name`,
 | Qwen Code | `qwen` | `~/.qwen/` | Claude-compatible hooks | ⚠️ template |
 | Kimi | `kimi` | `~/.kimi/config.toml` | TOML hooks | ⚠️ template |
 | Antigravity (Gemini) | `antigravity` | `~/.gemini/antigravity-cli/hooks.json` | JSON `command` hooks | blocked: `agy` 1.0.5 loads but skips execution |
-| Grok | `grok` | per-CLI hooks | Claude-compatible hooks | ⚠️ template |
+| Grok Build | `grok` | `~/.grok/hooks/vibebuddy.json` | JSON `command` hooks (camelCase envelope) | ✅ tested (1.0.13) |
 | GitHub Copilot | `copilot` | — | observe mode (no hooks) | ⚠️ partial |
 
 ✅ = wired and exercised. ⚠️ template = the source routing + display are done in
@@ -61,20 +61,78 @@ workspace.
 }
 ```
 
-Other hook-compatible CLIs (OpenCode, Qwen, Grok) follow the same shape with
+Other hook-compatible CLIs (OpenCode, Qwen) follow the same shape with
 `agent=<their source>`. Kimi/Codex use their TOML hook tables; Antigravity uses
 a Gemini plugin that shells out to the same curl. Copilot has no hook surface
 yet — it appears once a future watcher observes it.
+
+### Grok Build (`~/.grok/hooks/vibebuddy.json`)
+
+```bash
+python3 hooks/install-grok-hooks.py --dry-run     # preview
+python3 hooks/install-grok-hooks.py --install     # write ~/.grok/hooks/vibebuddy.json
+python3 hooks/install-grok-hooks.py --approval    # + the blocking phone-approval gate
+python3 hooks/install-grok-hooks.py --uninstall   # revert
+```
+
+Grok loads every `~/.grok/hooks/*.json` file, so vibebuddy owns its own file and
+never edits the user's. Reload without restarting: `/hooks` → `r`. Grok's `http`
+hooks refuse loopback (SSRF guard), so these are `command` hooks piping the event
+JSON into `hooks/vibebuddy-forward.sh grok`.
+
+Installed events (grok's config keys; the wire values are snake_case):
+
+| Family | Events | What vibebuddy does with them |
+|--------|--------|-------------------------------|
+| lifecycle | `SessionStart`, `SessionEnd` | open the session (with `modelId` and `transcriptPath`), then drop it |
+| turn | `UserPromptSubmit`, `Stop`, `StopFailure`, `StopCancelled` | working → done; `StopFailure` shows the session as stuck |
+| tool | `PreToolUse`, `PostToolUse`, `PostToolUseFailure` | active tool and the stuck cue |
+| attention | `Notification` | `permission_prompt` → needs-you; `idle_prompt` → the idle backstop |
+| topology | `SubagentStart`, `SubagentStop` | child-agent rows under the parent session |
+
+Grok-specific decoding rules (`GrokParser`):
+
+- `Stop` fires a second time at teardown with `reason` `channel_closed`/`shutdown`.
+  Only `end_turn` (or a missing reason) settles a turn; `SessionEnd` reports the rest.
+- `StopCancelled` is dispatched off the command loop, so it can land *after* the
+  next turn's `UserPromptSubmit`. Every event carries `promptId`, which the reducer
+  keeps as `HookEvent.turnID` and uses to drop a report for a superseded turn.
+- `Notification`'s `task_complete` means a **background** task finished, which can
+  happen mid-turn, so it is not a turn end and is ignored.
+- Everything that can fire inside a subagent's own session carries `subagentType`
+  there and omits it in the main session; those events are dropped so a child never
+  moves the parent's status. `SubagentStart` fires in the parent and `SubagentStop`
+  in the child, both keyed by the same `subagentId`, so the child's row still completes.
+- Grok also imports `~/.claude/settings.json` hooks via `[compat.claude]`. Those
+  entries deliver the Claude shape without `?agent=grok` and currently fail fail-open
+  with `required env var(s) not set: ${PPID}` — harmless noise, never relied on.
+
+#### Remote approval (`--approval`)
+
+`--approval` replaces the fire-and-forget `PreToolUse` group with a blocking
+`hooks/approval-hook.sh grok` (`timeout: 30`, no matcher = every tool), which posts
+to `/approval?agent=grok` and answers grok's gate.
+
+**A phone decision is authoritative only when grok runs with
+`[ui] permission_mode = "always-approve"`** (`permissionMode` reads
+`bypassPermissions` on the wire). In grok's `default` mode a hook `allow` only means
+"not blocked" — grok still shows its own TUI prompt afterwards, and that prompt has
+no external answer channel. In that mode vibebuddy can still surface the wait (the
+`permission_prompt` notification) and *deny*, but the approval must be tapped on the
+Mac.
 
 ### Terminal capture (for jump-to-terminal)
 
 Jump-to-terminal needs to know which terminal each session runs in. A second hook,
 `hooks/capture-terminal.sh`, POSTs `{session_id, term_program, tty, tmux, tmux_pane}`
-to `/terminal`. `install-claude-hooks.py` wires it to **both `SessionStart` and
-`UserPromptSubmit`**: SessionStart catches new sessions, and UserPromptSubmit
+to `/terminal`. `install-claude-hooks.py` and `install-grok-hooks.py` wire it to
+**both `SessionStart` and `UserPromptSubmit`**: SessionStart catches new sessions, and UserPromptSubmit
 re-captures so a session that missed SessionStart — e.g. the hook was added while
 the session was already open — **self-heals on its next prompt** (writing the same
-ref is idempotent). A session with no captured terminal can't be jumped to (the iOS
+ref is idempotent). The script reads the session id from the payload first —
+`sessionId` (grok's envelope), then `session_id` (the Claude shape) — and only
+falls back to `$GROK_SESSION_ID`, which every process grok spawned inherits and
+would otherwise mis-attribute a Claude session started from a shell inside grok. A session with no captured terminal can't be jumped to (the iOS
 button hides; the Mac button disables; a phone jump reports "no terminal").
 
 ### Reversibility

@@ -6,17 +6,39 @@ public struct TranscriptInfo: Equatable, Sendable {
     public var model: String?
     public var tokens: Int?           // turn cost: input + output
     public var contextTokens: Int?    // prompt sent: input + cache_read + cache_creation
+    /// The model's real context window, when the source records it (Grok writes
+    /// `contextWindowTokens` into `signals.json`). nil keeps the reducer's
+    /// model-table default.
+    public var contextWindow: Int?
     public var summary: String?
+    /// The checked-out branch, when the source records it (Grok's
+    /// `summary.json.head_branch`).
+    public var branch: String?
     public var pendingQuestion: PendingQuestion?
+    /// A tool whose permission prompt is waiting for an answer in the agent's
+    /// own UI (Grok's unmatched `events.jsonl` `permission_requested`).
+    public var pendingPermissionTool: String?
+    /// A tool the source saw still running. Only ever *adds* a tool to a working
+    /// session that has none: the `PreToolUse`/`PostToolUse` hooks own both
+    /// setting and clearing it, and a transcript read that races ahead of (or
+    /// behind) the log write must not blank a live tool or revive a finished one.
+    public var activeTool: String?
 
     public init(model: String? = nil, tokens: Int? = nil,
-                contextTokens: Int? = nil, summary: String? = nil,
-                pendingQuestion: PendingQuestion? = nil) {
+                contextTokens: Int? = nil, contextWindow: Int? = nil,
+                summary: String? = nil, branch: String? = nil,
+                pendingQuestion: PendingQuestion? = nil,
+                pendingPermissionTool: String? = nil,
+                activeTool: String? = nil) {
         self.model = model
         self.tokens = tokens
         self.contextTokens = contextTokens
+        self.contextWindow = contextWindow
         self.summary = summary
+        self.branch = branch
         self.pendingQuestion = pendingQuestion
+        self.pendingPermissionTool = pendingPermissionTool
+        self.activeTool = activeTool
     }
 }
 

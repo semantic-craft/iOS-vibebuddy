@@ -9,11 +9,13 @@ public enum AccountUsageWindowKind: String, Codable, Sendable {
 public enum AccountUsageProvider: String, Codable, CaseIterable, Sendable {
     case codex
     case claude
+    case grok
 
     public var displayName: String {
         switch self {
         case .codex: "Codex"
         case .claude: "Claude"
+        case .grok: "Grok"
         }
     }
 }
