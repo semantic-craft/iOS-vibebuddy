@@ -1,7 +1,7 @@
 # vibebuddy iOS — App Store 提交逐步清单
 
 图例:🧑 = 只能你做(登录/付费/网页/截图) · 🤖 = 我能帮你做(代码/配置/文案)
-现状:本机仍需付费 Apple Developer Program / App Store Connect 人工动作；代码侧已切好 iOS Release/Archive `aps-environment=production`、Debug `development`、version 1.0、build 1、`ITSAppUsesNonExemptEncryption=NO`; 有 1024 图标 ✓。
+现状:本机仍需付费 Apple Developer Program / App Store Connect 人工动作；代码侧已切好 iOS Release/Archive `aps-environment=production`、Debug `development`、version 1.0、build 3、`ITSAppUsesNonExemptEncryption=NO`; 有 1024 图标 ✓;Watch app(`VibeBuddyWatch`,WatchConnectivity-only,不用 App Group)已随 iOS app 自动内嵌;`tools/archive-ios.sh` 打包时会自动核对以上配置以及 Widget / Watch 是否正确内嵌与签名。
 
 ## Phase A — 前置(🧑)
 - [ ] A1. 注册 **Apple Developer Program**($99/年,developer.apple.com → Enroll)。免费证书不够上架。
@@ -11,9 +11,9 @@
 ## Phase B — App 配置(🤖 我改 + 🧑 你在 Xcode 确认)
 - [x] B1. 🤖 **`aps-environment` 改 production**(VibeBuddyApp.entitlements)—— App Store/TestFlight 必须。
 - [ ] B2. 🤖 **Mac 端发 production 推送**:运行守护进程时 `APNS_SANDBOX=0`(或 config `sandbox:false`),否则 production token 收不到推送。
-- [ ] B3. 🧑 在 Developer portal 注册 App ID `com.vibebuddy.app` 和 `com.vibebuddy.app.widget`,勾 **Push Notifications**(用 Automatic 签名时 Xcode 会代办)。
-- [x] B4. 🤖 核 `VibeBuddyApp.entitlements`:Push ✓;当前 Widget/Live Activity 未共享主 app 数据,暂不需要 App Group。
-- [x] B5. 🤖 版本号 `MARKETING_VERSION` 0.1 → **1.0**(首发),build = 1。
+- [ ] B3. 🧑 在 Developer portal 注册 App ID `com.vibebuddy.app`、`com.vibebuddy.app.widget` 和 `com.vibebuddy.app.watchkitapp`(Watch app,`project.yml` 里的 `VibeBuddyWatch` target),勾 **Push Notifications**(用 Automatic 签名时 Xcode 会代办)。
+- [x] B4. 🤖 核 `VibeBuddyApp.entitlements`:Push ✓;**需要 App Group** `group.com.vibebuddy.app`——app 与 Widget(`VibeBuddyWidget.entitlements`)都声明了同一个 group,Widget 靠它读主 app 写入的共享状态。Watch app(`VibeBuddyWatch`)不在此列:它只走 WatchConnectivity,不声明任何 entitlements,不用 App Group。
+- [x] B5. 🤖 版本号 `MARKETING_VERSION` 0.1 → **1.0**(首发),build = 3(`project.yml` 的 `CURRENT_PROJECT_VERSION`,三个 target 保持一致)。
 - [x] B6. 🤖 加 `ITSAppUsesNonExemptEncryption = NO`(只用标准 HTTPS),省得每次问 export compliance。
 - [x] B7. 图标:1024 marketing icon 已有 ✓(无需补)。
 
@@ -26,8 +26,8 @@
 - [ ] C6. 描述 / 关键词 / What's New / Support URL。🤖 我起草英文。
 
 ## Phase D — 归档上传(🧑 Xcode,🤖 可先帮你跑通 archive)
-- [ ] D1. scheme 目标选 **Any iOS Device (arm64)** → Product → **Archive**。
-- [ ] D2. Organizer → Distribute App → App Store Connect → **Upload**(Automatic 签名,需付费 Team)。
+- [ ] D1. `tools/archive-ios.sh`(用 Xcode 里登录的 Apple ID 签名;也支持 `--api-key`)——先核对 Phase B 的配置,再 archive、导出、验证 `.ipa` 里 app / Widget / Watch app 都正确内嵌与签名,最后打印上传命令。等价的纯手工路径:scheme 目标选 **Any iOS Device (arm64)** → Product → **Archive**。
+- [ ] D2. 脚本从不上传 —— Organizer → Distribute App → App Store Connect → **Upload**(或脚本打印的 `xcrun altool` 命令),Automatic 签名需付费 Team。
 - [ ] D3. 等几分钟,build 出现在 App Store Connect 的 **TestFlight** 标签。
 
 ## Phase E — 提交审核(🧑)

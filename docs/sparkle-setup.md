@@ -52,23 +52,50 @@ the Key ID surfaces immediately rather than halfway through a release.
 
 ## What the script does
 
-1. `xcodegen generate`, then a Release build **signed during the build** with your
-   Developer ID, the Hardened Runtime, a secure timestamp, and
+Preflight runs first (see above): it checks the certificate, the Sparkle key, and
+the notary profile in that order, and the moment one is missing it calls
+`needs_you()` — prints the exact command to fix it and the exact `tools/release-mac.sh`
+invocation to re-run afterward, then exits (status 2) before any build happens. With
+`--skip-notarize` the notary-profile check is skipped entirely (there is nothing to
+verify), so a machine with only a Developer ID certificate and a Sparkle key can still
+run the dry run below.
+
+1. `xcodegen generate`, then a Release build with
+   `CODE_SIGNING_ALLOWED=NO` — Xcode produces an **unsigned** `.app`. It is left
+   unsigned on purpose: Xcode's own build-time signing signs `Sparkle.framework`
+   but *not* the `Updater.app`, `Autoupdate`, and XPC services nested inside it —
+   those stay ad-hoc from Sparkle's own binary artifact, and notarization rejects
+   an ad-hoc signature outright.
+2. Signs everything itself, by hand, **inside out**, because signing a nested
+   bundle invalidates the seal of everything that contains it: every `.xpc` and
+   `.app` inside `Sparkle.framework`'s versioned directory, then `Autoupdate`,
+   then `Sparkle.framework` itself, then any other `.dylib` in `Contents/Frameworks`,
+   and only last the app bundle — `VibeBuddyMacApp.app`, with the Hardened Runtime,
+   a secure timestamp, your Developer ID identity, and
    `tools/vibebuddy-mac.entitlements` (microphone only — the app is not sandboxed).
-   Letting Xcode sign means Sparkle's nested `Updater.app` and XPC services are
-   signed in the right inside-out order.
-2. Verifies the result: `codesign --verify --deep --strict`, plus a check that
-   *every* nested Mach-O carries the runtime flag. Notarization rejects the whole
-   submission over one un-hardened binary, and catching it locally is faster.
-3. Notarizes and staples the **`.app`**, then builds the DMG, then notarizes and
-   staples the **DMG**. Both, on purpose: the stapled DMG covers the download, and
-   the stapled app inside it lets a first launch succeed with no network.
-4. `spctl --assess` and `stapler validate` as the acceptance check.
-5. Runs Sparkle's `generate_appcast` over `dist/`, which signs each archive with the
-   Keychain private key and writes `dist/appcast.xml`. Signatures and lengths are
-   never hand-written. `docs/release-notes-<version>.md` is copied next to the DMG
-   under the same basename, and the feed links to it as the update's release notes —
-   so that `.md` is published to `gh-pages` alongside `appcast.xml`.
+3. Verifies the result: `codesign --verify --deep --strict`, plus a check that
+   *every* nested Mach-O carries the runtime flag, a Developer ID authority, and a
+   secure timestamp. Notarization rejects the whole submission over one un-hardened
+   or ad-hoc-signed binary, and catching it locally is faster.
+4. Notarizes and staples the **`.app`**, then builds and codesigns the DMG, then
+   notarizes and staples the **DMG**. Both app and DMG get stapled, on purpose: the
+   stapled DMG covers the download, and the stapled app inside it lets a first launch
+   succeed with no network. With `--skip-notarize` both notarize/staple round trips
+   are skipped outright (the app and DMG stay Developer-ID signed but un-notarized
+   and un-stapled) — only this step is conditional on the flag.
+5. Gatekeeper assessment: on a real run, `stapler validate` and `spctl --assess`
+   against both the app and the DMG. On `--skip-notarize`, `spctl --assess` is run
+   against the app anyway and its rejection is printed as *expected* — Developer-ID
+   signed but not notarized is exactly what Gatekeeper is supposed to reject.
+6. Runs Sparkle's `generate_appcast` over `dist/` regardless of `--skip-notarize` —
+   it signs each archive with the Keychain private key and writes `dist/appcast.xml`.
+   Signatures and lengths are never hand-written. `docs/release-notes-<version>.md`
+   is copied next to the DMG under the same basename, and the feed links to it as the
+   update's release notes — so that `.md` is published to `gh-pages` alongside
+   `appcast.xml`.
+7. Summary. On `--skip-notarize` the script prints a "dry run — do NOT publish this
+   DMG" warning and exits; a full run instead prints the exact `gh release create`
+   and `gh-pages` commands for you to run by hand — publishing stays manual either way.
 
 ## Hosting
 
