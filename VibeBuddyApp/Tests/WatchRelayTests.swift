@@ -8,15 +8,24 @@ private final class FakeWatchTransport: WatchStateTransport {
     var onReady: (() -> Void)?
     var onApprovalRequest: ((WatchApprovalRequest) async -> WatchApprovalResult)?
     var failNextSends = false
+    /// Everything the transport accepted, in order.
     private(set) var sent: [Data] = []
+    /// What the mailbox is holding for a Watch that has not read it yet. A send
+    /// replaces it, the way writing the application context does.
+    private(set) var queued: [Data] = []
 
     func send(_ payload: Data) throws {
         if failNextSends { throw WatchRelayError.unsupported }
         sent.append(payload)
+        queued = [payload]
     }
 
     var states: [WatchDashboardState] {
         sent.compactMap { try? JSONDecoder().decode(WatchDashboardState.self, from: $0) }
+    }
+
+    var queuedStates: [WatchDashboardState] {
+        queued.compactMap { try? JSONDecoder().decode(WatchDashboardState.self, from: $0) }
     }
 
     /// A tap on the wrist, delivered the way WatchConnectivity delivers one.
@@ -113,6 +122,33 @@ final class WatchRelayTests: XCTestCase {
         transport.becomeAvailable()
         // The Watch went away holding "2"; it must not be left on "1".
         XCTAssertEqual(transport.states.map(\.counts.working), [1, 2])
+    }
+
+    func testOnlyTheNewestStateIsLeftWaitingForABackgroundedWatch() {
+        let transport = FakeWatchTransport()
+        let relay = WatchRelay(transport: transport)
+
+        relay.publish(state(working: 1))
+        relay.publish(state(working: 2))
+        relay.publish(state(working: 3))
+
+        // Three states were handed over, but a Watch that reads the mailbox now
+        // draws the third one once instead of replaying two obsolete screens.
+        XCTAssertEqual(transport.states.map(\.counts.working), [1, 2, 3])
+        XCTAssertEqual(transport.queuedStates.map(\.counts.working), [3])
+    }
+
+    func testDeliveriesArrivingOutOfOrderLeaveTheNewestOnScreen() {
+        let transport = FakeWatchTransport()
+        let relay = WatchRelay(transport: transport)
+
+        relay.publish(state(working: 1))
+        relay.publish(state(working: 2, at: 30))
+
+        var inbox = WatchStateInbox()
+        for payload in transport.sent.reversed() { inbox.accept(payload) }
+
+        XCTAssertEqual(inbox.state?.counts.working, 2)
     }
 
     func testDemoModeRelaysSampleStateWithQuota() {

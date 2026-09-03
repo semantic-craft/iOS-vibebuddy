@@ -25,15 +25,18 @@ struct WatchRootView: View {
 
     @ViewBuilder
     private func pages(now: Date) -> some View {
-        if let state = store.state, state.relay != .noData {
+        // One verdict per render, derived once from the clock this pass is
+        // drawing with, so every page agrees about which link is down.
+        let connection = store.state?.connection(now: now, phoneReachable: store.isPhoneReachable) ?? .noData
+        if let state = store.state, connection != .noData {
             TabView(selection: $page) {
-                WatchHomeView(store: store, state: state, now: now)
+                WatchHomeView(store: store, state: state, connection: connection, now: now)
                     .tag(WatchPage.home)
                 if state.alerts.count > 1 {
-                    WatchAlertsView(state: state, now: now)
+                    WatchAlertsView(state: state, connection: connection, now: now)
                         .tag(WatchPage.alerts)
                 }
-                WatchQuotaView(state: state, now: now)
+                WatchQuotaView(state: state, connection: connection, now: now)
                     .tag(WatchPage.quota)
             }
             .tabViewStyle(.page)
@@ -70,25 +73,30 @@ struct WatchNoDataView: View {
     }
 }
 
-/// The iPhone cannot reach the Mac. This leads the page, because every number
-/// below it is a memory rather than a reading.
-struct WatchDisconnectedBanner: View {
+/// Which link is down, when one is. This leads the page, because every number
+/// below it is a memory rather than a reading — and because the three failures
+/// ask for three different things from the person wearing it.
+struct WatchConnectionBanner: View {
+    let connection: WatchConnection
+
     var body: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "iphone.gen3.slash")
-                .font(.system(size: 10))
-            Text("Can't reach your Mac")
-                .font(.caption2)
-                .lineLimit(2)
-                .minimumScaleFactor(0.8)
-            Spacer(minLength: 0)
+        if let title = connection.bannerTitle {
+            HStack(spacing: 5) {
+                Image(systemName: connection.symbolName)
+                    .font(.system(size: 10))
+                Text(title)
+                    .font(.caption2)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .accessibilityElement(children: .combine)
         }
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 4)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-        .accessibilityElement(children: .combine)
     }
 }
 
@@ -96,12 +104,13 @@ struct WatchDisconnectedBanner: View {
 /// whether any of it is real.
 struct WatchFooter: View {
     let state: WatchDashboardState
+    let connection: WatchConnection
     let now: Date
 
     var body: some View {
         VStack(spacing: 3) {
             HStack(spacing: 4) {
-                Image(systemName: state.relay == .live ? "iphone.gen3" : "iphone.gen3.slash")
+                Image(systemName: connection.symbolName)
                     .font(.system(size: 9))
                 Text(relayText)
                     .monospacedDigit()
@@ -122,11 +131,16 @@ struct WatchFooter: View {
         .padding(.top, 2)
     }
 
-    /// How old this is, always. The banner above says *why* it is old; repeating
-    /// that here would spend a line of a 40mm screen saying nothing new.
+    /// How old this is, always — and the word "Stale" once it is old enough that
+    /// the age alone could still be read as a live reading. The banner above says
+    /// *why* it is old; repeating that here would spend a line of a 40mm screen
+    /// saying nothing new.
     private var relayText: String {
-        state.relay == .noData
-            ? String(localized: "No data")
-            : WatchFormat.updated(state.age(now: now))
+        let age = WatchFormat.updated(state.age(now: now))
+        switch connection {
+        case .noData: return String(localized: "No data")
+        case .live, .macDisconnected: return age
+        case .phoneDisconnected, .watchUnreachable: return String(localized: "Stale · \(age)")
+        }
     }
 }

@@ -7,15 +7,14 @@ import VibeBuddyKit
 /// freshness, so a healthy source never covers for a broken one.
 struct WatchQuotaView: View {
     let state: WatchDashboardState
+    let connection: WatchConnection
     let now: Date
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 10) {
-                    if state.relay == .disconnected {
-                        WatchDisconnectedBanner()
-                    }
+                    WatchConnectionBanner(connection: connection)
                     if state.quotas.isEmpty {
                         Text("No quota sources")
                             .font(.headline)
@@ -28,7 +27,7 @@ struct WatchQuotaView: View {
                             WatchQuotaDetail(quota: quota, now: now)
                         }
                     }
-                    WatchFooter(state: state, now: now)
+                    WatchFooter(state: state, connection: connection, now: now)
                 }
                 .padding(.top, 2)
                 .padding(.bottom, 14)

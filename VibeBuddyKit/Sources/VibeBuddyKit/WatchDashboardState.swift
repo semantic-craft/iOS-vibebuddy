@@ -15,6 +15,10 @@ import Foundation
 // MARK: - Relay
 
 /// How the Watch's copy of the state relates to the live world.
+///
+/// This is the *relayed* field: what the iPhone knew about the Mac at the moment
+/// it sent. It says nothing about whether the iPhone still reaches this Watch —
+/// that is `WatchConnection`, which the Watch derives for itself.
 public enum WatchRelayState: String, Codable, Sendable {
     /// The iPhone is connected to the Mac; this state is current.
     case live
@@ -22,6 +26,36 @@ public enum WatchRelayState: String, Codable, Sendable {
     case disconnected
     /// The Watch has never received a state from the iPhone.
     case noData
+}
+
+/// Which link in the chain is broken, as the Watch can honestly tell it.
+///
+/// Three things can go wrong between an agent on the Mac and a number on a
+/// wrist, and they need different answers from the person wearing it:
+/// restart the daemon, open the phone app, or walk back to the phone. So the
+/// Watch never says a flat "disconnected". It combines what the iPhone last
+/// told it (`WatchRelayState`) with how old that is and whether the phone is
+/// reachable *now*, and names the innermost link it can actually prove is down.
+///
+/// Derived, never relayed: a verdict computed on the iPhone would itself go
+/// stale in the payload.
+public enum WatchConnection: String, Sendable, Equatable, CaseIterable {
+    /// The iPhone reached the Mac, and this Watch heard it recently.
+    case live
+    /// A recent relay, but the iPhone has lost the Mac daemon. Everything below
+    /// the banner is the last thing the Mac said.
+    case macDisconnected
+    /// The iPhone is in range, yet nothing has arrived for `staleAfter`. The
+    /// phone app is not relaying — closed, or unable to run.
+    case phoneDisconnected
+    /// The Watch cannot see the iPhone at all, and what is on screen has aged
+    /// out. Out of range, or the phone is off.
+    case watchUnreachable
+    /// Nothing has ever arrived.
+    case noData
+
+    /// Whether the numbers on screen are a live reading rather than a memory.
+    public var isCurrent: Bool { self == .live }
 }
 
 // MARK: - Counts
@@ -113,6 +147,12 @@ public struct WatchAlert: Codable, Equatable, Sendable, Identifiable {
 // MARK: - State
 
 public struct WatchDashboardState: Codable, Equatable, Sendable {
+    /// A relayed state older than this stops being evidence about the live
+    /// world: the iPhone relays on every snapshot, so a quarter of an hour of
+    /// silence means the relay itself is down, not that nothing happened. Same
+    /// boundary as `ProviderQuota.staleAfter`, so one number ages everything.
+    public static let staleAfter: TimeInterval = ProviderQuota.staleAfter
+
     /// The three buckets the Watch renders. The wrist has room for three lines,
     /// and this is the split the prototype validated.
     public var counts: WatchSessionCounts
@@ -163,6 +203,29 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
 
     public func age(now: Date) -> TimeInterval {
         max(0, now.timeIntervalSince(observedAt))
+    }
+
+    /// Whether what is on screen has aged past the point of being a reading.
+    /// Recomputed from the current clock every time, so a state restored from
+    /// disk crosses the boundary on its own without a new message arriving.
+    public func isStale(now: Date) -> Bool {
+        age(now: now) >= Self.staleAfter
+    }
+
+    /// The innermost broken link the Watch can prove, given its own clock and
+    /// its own view of the phone.
+    ///
+    /// Age is checked before the relayed verdict: once nothing has arrived for
+    /// `staleAfter`, "the iPhone was talking to the Mac" is a claim about a
+    /// quarter of an hour ago, and the honest answer is that the relay is down.
+    /// A fresh state with the phone momentarily out of range is still a
+    /// reading, so the link is only named once the data has actually aged.
+    public func connection(now: Date, phoneReachable: Bool) -> WatchConnection {
+        if relay == .noData { return .noData }
+        if isStale(now: now) {
+            return phoneReachable ? .phoneDisconnected : .watchUnreachable
+        }
+        return relay == .disconnected ? .macDisconnected : .live
     }
 
     /// Sessions whose last turn ended badly. The three buckets hide this; the

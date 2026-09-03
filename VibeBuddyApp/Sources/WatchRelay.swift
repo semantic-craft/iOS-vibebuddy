@@ -16,7 +16,8 @@ protocol WatchStateTransport: AnyObject {
     /// happened, and the transport hands that straight back to the wrist — the
     /// Watch never assumes a tap landed.
     var onApprovalRequest: ((WatchApprovalRequest) async -> WatchApprovalResult)? { get set }
-    /// Latest-value delivery. Throws when the session cannot take it right now.
+    /// Hand over the newest state, replacing any earlier one the Watch has not
+    /// picked up yet. Throws when the session cannot take it right now.
     func send(_ payload: Data) throws
 }
 
@@ -84,9 +85,21 @@ final class WatchRelay {
     }
 }
 
-/// The real transport: one WatchConnectivity session, latest-value application
-/// context. It never sends a message the Watch did not ask to render, and it
-/// carries no pairing payload of its own.
+/// The real transport: one WatchConnectivity session, one latest-value
+/// background transfer. It never sends a message the Watch did not ask to
+/// render, and it carries no pairing payload of its own.
+///
+/// The application context, not `transferUserInfo`. Both are background
+/// transfers — the system keeps carrying them after the app is backgrounded,
+/// the screen locks and the process is suspended, and the counterpart is handed
+/// the payload on its next launch — but only the application context is a
+/// *mailbox*: writing it replaces whatever the Watch has not picked up yet.
+/// That is exactly the de-duplication a dashboard wants. `transferUserInfo` is
+/// a FIFO queue, so the same behaviour needs every superseded transfer
+/// cancelled by hand, and its delivery is not observable in the watchOS
+/// Simulator at all — measured on 2026-09-03: the phone reports
+/// `didFinish error: nil` and the Watch's `didReceiveUserInfo` never fires,
+/// while the same payload through the application context arrives every time.
 @MainActor
 final class WatchConnectivityTransport: NSObject, WatchStateTransport {
     var onReady: (() -> Void)?
@@ -101,7 +114,7 @@ final class WatchConnectivityTransport: NSObject, WatchStateTransport {
         session?.activate()
     }
 
-    /// Activation is the only real precondition: application context is a
+    /// Activation is the only real precondition: the application context is a
     /// latest-value mailbox, so handing it a value before a Watch is reachable
     /// is exactly how it is meant to be used. `isWatchAppInstalled` is
     /// deliberately not consulted — it stays false in the Simulator when the
@@ -111,6 +124,9 @@ final class WatchConnectivityTransport: NSObject, WatchStateTransport {
         session?.activationState == .activated
     }
 
+    /// Replace whatever the Watch has not picked up yet. A refused write leaves
+    /// the state owed: the relay keeps it and hands it over on the next
+    /// readiness change.
     func send(_ payload: Data) throws {
         guard let session else { throw WatchRelayError.unsupported }
         try session.updateApplicationContext([WatchStateInbox.contextKey: payload])

@@ -9,16 +9,18 @@ import VibeBuddyKit
 /// position that says nothing.
 struct WatchAlertsView: View {
     let state: WatchDashboardState
+    let connection: WatchConnection
     let now: Date
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 8) {
+                    WatchConnectionBanner(connection: connection)
                     ForEach(Array(state.alerts.enumerated()), id: \.element.id) { index, alert in
                         row(alert, isTop: index == 0)
                     }
-                    WatchFooter(state: state, now: now)
+                    WatchFooter(state: state, connection: connection, now: now)
                 }
                 .padding(.top, 2)
                 .padding(.bottom, 14)

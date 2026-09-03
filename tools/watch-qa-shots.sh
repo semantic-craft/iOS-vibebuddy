@@ -22,6 +22,9 @@ shots=(
   "staleQuota:quota:06-quota-stale"
   "unavailableQuota:quota:07-quota-unavailable"
   "noData:home:08-no-data"
+  "macDisconnected:home:15-mac-disconnected"
+  "phoneDisconnected:home:16-phone-disconnected"
+  "watchUnreachable:home:17-watch-unreachable"
 )
 
 echo "→ building VibeBuddyWatch"

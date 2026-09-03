@@ -16,10 +16,12 @@ final class WatchStateStore: NSObject, ObservableObject {
     @Published private(set) var state: WatchDashboardState?
     /// The one decision in flight, and everything the wrist may claim about it.
     @Published private(set) var approval = WatchApprovalActionState()
-    /// Whether the iPhone can take a message *right now*. Application context is
-    /// a mailbox and arrives whenever; a decision is a live request and needs the
-    /// phone awake, so this gates the buttons rather than the state.
-    @Published private(set) var isReachable = false
+    /// Whether the iPhone is in range right now. It is the only way the Watch
+    /// can tell "the phone stopped relaying" from "the phone is gone", and it is
+    /// read live rather than relayed — a reachability flag inside a payload
+    /// would be describing the moment the payload was sent. A decision is a live
+    /// request and needs the phone awake, so it also gates the buttons.
+    @Published private(set) var isPhoneReachable = false
 
     /// Sample data driven entirely by launch inputs; no relay is opened.
     let isDemo: Bool
@@ -47,6 +49,7 @@ final class WatchStateStore: NSObject, ObservableObject {
             let scenario = environment["VIBEBUDDY_WATCH_SCENARIO"]
                 .flatMap(WatchDemoScenario.init(rawValue:)) ?? .normal
             state = scenario.state(now: now)
+            isPhoneReachable = scenario.phoneReachable
         } else {
             // A cold launch shows the last state the iPhone managed to deliver.
             // Its age is recomputed from the current clock, never restored as a
@@ -59,7 +62,7 @@ final class WatchStateStore: NSObject, ObservableObject {
 
     /// Whether a decision could be sent at all. Demo Mode resolves its samples
     /// locally, so it needs no phone.
-    var canReachPhone: Bool { isDemo || isReachable }
+    var canReachPhone: Bool { isDemo || isPhoneReachable }
 
     /// Ask the iPhone to resolve this approval. A second tap while one is in
     /// flight does nothing — `WatchApprovalActionState` refuses to start a new
@@ -128,6 +131,10 @@ final class WatchStateStore: NSObject, ObservableObject {
         session.activate()
     }
 
+    fileprivate func linkChanged(reachable: Bool) {
+        isPhoneReachable = reachable
+    }
+
     /// Take a payload from the relay. A payload that cannot be decoded leaves
     /// the last known good state on screen rather than blanking the Watch.
     fileprivate func receive(_ payload: Data?) {
@@ -148,19 +155,22 @@ extension WatchStateStore: WCSessionDelegate {
         let payload = session.receivedApplicationContext[WatchStateInbox.contextKey] as? Data
         let reachable = session.isReachable
         Task { @MainActor [weak self] in
-            self?.isReachable = reachable
+            self?.linkChanged(reachable: reachable)
             self?.receive(payload)
         }
     }
 
-    nonisolated func sessionReachabilityDidChange(_ session: WCSession) {
-        let reachable = session.isReachable
-        Task { @MainActor [weak self] in self?.isReachable = reachable }
-    }
-
+    /// The iPhone's newest state. It arrives whether the phone wrote it from the
+    /// foreground, from behind a locked screen, or just before it was suspended:
+    /// the system carries the context on after the sending app exits.
     nonisolated func session(_ session: WCSession,
                              didReceiveApplicationContext applicationContext: [String: Any]) {
         let payload = applicationContext[WatchStateInbox.contextKey] as? Data
         Task { @MainActor [weak self] in self?.receive(payload) }
+    }
+
+    nonisolated func sessionReachabilityDidChange(_ session: WCSession) {
+        let reachable = session.isReachable
+        Task { @MainActor [weak self] in self?.linkChanged(reachable: reachable) }
     }
 }

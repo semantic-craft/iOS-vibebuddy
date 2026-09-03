@@ -7,24 +7,23 @@ import VibeBuddyKit
 struct WatchHomeView: View {
     @ObservedObject var store: WatchStateStore
     let state: WatchDashboardState
+    let connection: WatchConnection
     let now: Date
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 12) {
-                    if state.relay == .disconnected {
-                        WatchDisconnectedBanner()
-                    }
+                    WatchConnectionBanner(connection: connection)
                     if let alert = state.topAlert {
                         WatchAlertCard(store: store, alert: alert, now: now,
                                        alsoWaiting: state.alerts.count - 1)
                     } else {
-                        WatchCalmHeader(state: state)
+                        WatchCalmHeader(state: state, connection: connection)
                     }
                     WatchCountsRow(counts: state.counts, stuck: state.stuck)
                     WatchQuotaStrips(state: state, now: now)
-                    WatchFooter(state: state, now: now)
+                    WatchFooter(state: state, connection: connection, now: now)
                 }
                 .padding(.top, 2)
                 // Clear the page indicator, so the last line is never half-hidden.
@@ -37,6 +36,7 @@ struct WatchHomeView: View {
 
 private struct WatchCalmHeader: View {
     let state: WatchDashboardState
+    let connection: WatchConnection
 
     var body: some View {
         // With sessions running, the cat sits beside the headline so the three
@@ -47,12 +47,10 @@ private struct WatchCalmHeader: View {
             // Nothing known is not the same as nothing running: say which.
             VStack(spacing: 6) {
                 WatchPixelCat(state: state.buddyState)
-                Text(state.relay == .disconnected ? "No recent update" : "No sessions")
+                Text(connection.isCurrent ? "No sessions" : "No recent update")
                     .font(.headline)
                     .multilineTextAlignment(.center)
-                Text(state.relay == .disconnected
-                     ? "Your iPhone can't reach your Mac, so this is the last thing it knew."
-                     : "Start a session on your Mac and it shows up here.")
+                Text(connection.advice ?? "Start a session on your Mac and it shows up here.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)

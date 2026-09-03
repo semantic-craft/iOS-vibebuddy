@@ -18,6 +18,13 @@ public enum WatchDemoScenario: String, Codable, Sendable, CaseIterable, Identifi
     case staleQuota
     /// The Codex source produced nothing usable.
     case unavailableQuota
+    /// The iPhone is relaying, but it has lost the Mac daemon.
+    case macDisconnected
+    /// The iPhone is in range and has stopped relaying: the last state has aged
+    /// past the stale boundary.
+    case phoneDisconnected
+    /// The Watch has lost the iPhone entirely and the last state has aged out.
+    case watchUnreachable
     /// The iPhone has never delivered a state.
     case noData
 
@@ -28,17 +35,32 @@ public enum WatchDemoScenario: String, Codable, Sendable, CaseIterable, Identifi
         return WatchDashboardProjection.make(
             snapshot: Snapshot(sessions: sessions(now: now), serverTime: now),
             quotas: quotas(now: now),
-            relay: .live,
-            now: now,
+            relay: self == .macDisconnected ? .disconnected : .live,
+            now: now.addingTimeInterval(-observedAgo),
             isDemo: true
         )
     }
+
+    /// How long ago the iPhone is pretending to have sent this. The two relay
+    /// failures are only visible once the state has aged, and nobody is going
+    /// to sit in front of a simulator for a quarter of an hour to see it.
+    private var observedAgo: TimeInterval {
+        switch self {
+        case .phoneDisconnected, .watchUnreachable: return WatchDashboardState.staleAfter + 3 * 60
+        default: return 0
+        }
+    }
+
+    /// Whether the Watch can see the phone in this scenario. Only the last link
+    /// distinguishes "the phone stopped talking" from "the phone is gone".
+    public var phoneReachable: Bool { self != .watchUnreachable }
 
     // MARK: sessions
 
     private func sessions(now: Date) -> [AgentSession] {
         switch self {
-        case .normal, .staleQuota, .unavailableQuota:
+        case .normal, .staleQuota, .unavailableQuota,
+             .macDisconnected, .phoneDisconnected, .watchUnreachable:
             return Self.workingAndDone(now: now)
         case .permission:
             return [Self.permissionSession(now: now), Self.questionSession(now: now)]
@@ -119,13 +141,22 @@ public enum WatchDemoScenario: String, Codable, Sendable, CaseIterable, Identifi
     public func quotas(now: Date) -> [ProviderQuota] {
         switch self {
         case .staleQuota:
-            return [Self.codex(observedAt: now.addingTimeInterval(-18 * 60), now: now), Self.claude(now: now)]
+            return [Self.codex(observedAt: now.addingTimeInterval(-18 * 60), now: now),
+                    Self.claude(observedAt: now.addingTimeInterval(-70), now: now)]
         case .unavailableQuota:
-            return [.unavailable(.codex, reason: "Codex is signed out"), Self.claude(now: now)]
+            return [.unavailable(.codex, reason: "Codex is signed out"),
+                    Self.claude(observedAt: now.addingTimeInterval(-70), now: now)]
         case .noData:
             return []
-        case .normal, .permission, .question, .empty:
-            return [Self.codex(observedAt: now.addingTimeInterval(-42), now: now), Self.claude(now: now)]
+        case .phoneDisconnected, .watchUnreachable:
+            // The whole relay stopped, so both readings aged with it. A live
+            // quota next to a stale dashboard would be a contradiction.
+            let observed = now.addingTimeInterval(-observedAgo)
+            return [Self.codex(observedAt: observed, now: now),
+                    Self.claude(observedAt: observed, now: now)]
+        case .normal, .permission, .question, .empty, .macDisconnected:
+            return [Self.codex(observedAt: now.addingTimeInterval(-42), now: now),
+                    Self.claude(observedAt: now.addingTimeInterval(-70), now: now)]
         }
     }
 
@@ -139,13 +170,13 @@ public enum WatchDemoScenario: String, Codable, Sendable, CaseIterable, Identifi
             observedAt: observedAt)
     }
 
-    private static func claude(now: Date) -> ProviderQuota {
+    private static func claude(observedAt: Date, now: Date) -> ProviderQuota {
         ProviderQuota(
             provider: .claude,
             weeklyRemainingPercent: 41,
             weeklyResetsAt: now.addingTimeInterval(4 * 86_400 + 2 * 3_600),
             shortWindowRemainingPercent: 72,
             shortWindowResetsAt: now.addingTimeInterval(3_600 + 25 * 60),
-            observedAt: now.addingTimeInterval(-70))
+            observedAt: observedAt)
     }
 }

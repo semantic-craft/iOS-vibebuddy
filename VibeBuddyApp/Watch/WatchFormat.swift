@@ -65,6 +65,44 @@ enum WatchFormat {
     }
 }
 
+extension WatchConnection {
+    /// A different symbol per broken link, so the footer says which one at a
+    /// glance without reading the words.
+    var symbolName: String {
+        switch self {
+        case .live: return "iphone.gen3"
+        case .macDisconnected: return "desktopcomputer.trianglebadge.exclamationmark"
+        case .phoneDisconnected: return "iphone.gen3.slash"
+        case .watchUnreachable: return "antenna.radiowaves.left.and.right.slash"
+        case .noData: return "iphone.gen3.slash"
+        }
+    }
+
+    /// The banner above the numbers. Nothing is shown while the state is a live
+    /// reading, and the no-data screen explains itself.
+    var bannerTitle: LocalizedStringResource? {
+        switch self {
+        case .live, .noData: return nil
+        case .macDisconnected: return "Can't reach your Mac"
+        case .phoneDisconnected: return "iPhone stopped updating"
+        case .watchUnreachable: return "Out of range of your iPhone"
+        }
+    }
+
+    /// What to do about it, for the screen with room to say so.
+    var advice: LocalizedStringResource? {
+        switch self {
+        case .live, .noData: return nil
+        case .macDisconnected:
+            return "Your iPhone can't reach your Mac, so this is the last thing it knew."
+        case .phoneDisconnected:
+            return "Your iPhone is nearby but hasn't sent anything in a while. Open vibebuddy on your iPhone."
+        case .watchUnreachable:
+            return "Your Watch has lost your iPhone, so this is the last thing it knew."
+        }
+    }
+}
+
 extension QuotaFreshness {
     var symbolName: String? {
         switch self {
