@@ -295,10 +295,13 @@ private struct SessionRow: View {
                     .padding(.top, 2)
                 }
 
-                if session.terminalRef != nil {
-                    Button("Jump to terminal") { dashboard.jump(session.id) }
-                        .buttonStyle(.bordered).font(.subheadline)
-                        .padding(.top, 4)
+                if session.canJump {
+                    Button(session.jumpsToDesktopThread
+                           ? "Open thread in ChatGPT" : "Jump to terminal") {
+                        dashboard.jump(session.id)
+                    }
+                    .buttonStyle(.bordered).font(.subheadline)
+                    .padding(.top, 4)
                 }
             }
         }

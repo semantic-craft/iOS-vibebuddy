@@ -178,6 +178,47 @@ struct JumpRoutesTests {
         }
     }
 
+    /// A Codex Desktop session is observed from its rollout, never from a hook,
+    /// so `/terminal` is never called for it and the terminal jumper has nothing
+    /// to work with. The route has to resolve its thread instead — that is the
+    /// whole difference between a live jump button and a hidden one.
+    @Test("/jump opens the thread for a Codex Desktop session that has no terminal ref")
+    func jumpsToDesktopThread() async throws {
+        final class Box: @unchecked Sendable {
+            var threads: [String] = []
+            var terminalJumps = 0
+        }
+        let box = Box()
+        let store = SessionStore()
+        let thread = "01a06114-dcc2-7402-8146-169c43e0cd2c"
+        let server = VibeBuddyServer(
+            store: store, token: "t0k",
+            onJump: { _ in box.terminalJumps += 1; return .focused },
+            onJumpToDesktopThread: { box.threads.append($0); return .focused })
+        // The rollout tailer's own path into the store, thread id and all.
+        await store.ingest(HookEvent(kind: .userPromptSubmit, sessionID: thread,
+                                     agent: .codex, cwd: "/x/p",
+                                     observationSource: .rollout,
+                                     timestamp: Date(timeIntervalSince1970: 1_700_000_000),
+                                     desktopThreadID: thread))
+        try await server.buildApplication().test(.router) { client in
+            #expect(await store.terminalRef(for: thread) == nil)
+            try await client.execute(uri: "/jump", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"sessionId":"\#(thread)"}"#)) { res in
+                #expect(res.status == .ok)
+                #expect(self.outcome(res.body) == "focused")
+            }
+        }
+        #expect(box.threads == [thread])
+        #expect(box.terminalJumps == 0)
+        // The phone gates its button on this, so it has to survive to the wire.
+        let session = try #require(await store.snapshot(now: .now).sessions.first)
+        #expect(session.desktopThreadID == thread)
+        #expect(session.canJump)
+        #expect(session.jumpsToDesktopThread)
+    }
+
     @Test("a session with no terminal ref reports noTerminal and never runs the jumper")
     func reportsNoTerminal() async throws {
         final class Box: @unchecked Sendable { var jumped = 0 }

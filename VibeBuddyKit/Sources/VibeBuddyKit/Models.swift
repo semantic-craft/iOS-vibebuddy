@@ -326,6 +326,13 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     public var pendingApproval: PendingApproval?
     public var pendingQuestion: PendingQuestion?
     public var terminalRef: TerminalRef?
+    /// The Codex Desktop thread this session *is*, when it was observed from a
+    /// rollout rather than a terminal. Codex Desktop runs no CLI hook, so such a
+    /// session never gets a `terminalRef` and there is no window to script —
+    /// but the thread id (which is the session id) addresses the conversation
+    /// itself, and ChatGPT.app opens it from `codex://threads/<id>`. Optional so
+    /// payloads from older Macs decode as "not a Desktop session".
+    public var desktopThreadID: String?
     public var summary: String?
     public var tokens: Int?
     /// Context consumed on the last turn (input + cache_read + cache_creation)
@@ -369,6 +376,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         pendingApproval: PendingApproval? = nil,
         pendingQuestion: PendingQuestion? = nil,
         terminalRef: TerminalRef? = nil,
+        desktopThreadID: String? = nil,
         summary: String? = nil,
         tokens: Int? = nil,
         contextTokens: Int? = nil,
@@ -393,6 +401,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         self.pendingApproval = pendingApproval
         self.pendingQuestion = pendingQuestion
         self.terminalRef = terminalRef
+        self.desktopThreadID = desktopThreadID
         self.summary = summary
         self.tokens = tokens
         self.contextTokens = contextTokens
@@ -407,6 +416,16 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         self.statusSince = statusSince
         self.updatedAt = updatedAt
     }
+
+    /// Whether a jump has anywhere to land: a terminal to raise, or a Codex
+    /// Desktop thread to open. The one thing every jump control is gated on, so
+    /// a Desktop session's button is live for the same reason a terminal
+    /// session's is — there is a real target behind it.
+    public var canJump: Bool { terminalRef != nil || desktopThreadID != nil }
+
+    /// A jump to this session lands in ChatGPT.app's thread view, not a
+    /// terminal. Drives the wording and the symbol of every jump control.
+    public var jumpsToDesktopThread: Bool { terminalRef == nil && desktopThreadID != nil }
 
     /// Whether to treat this session as failed/stuck (Optional `failed` is "no").
     public var isStuck: Bool { failed == true }

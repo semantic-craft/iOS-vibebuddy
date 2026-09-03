@@ -272,6 +272,12 @@ public actor SessionStore {
         reducer.sessions[sessionID]?.terminalRef
     }
 
+    /// The Codex Desktop thread a session is, when it is one. The rollout tailer
+    /// is the only writer, through the events it already sends.
+    public func desktopThreadID(for sessionID: String) -> String? {
+        reducer.sessions[sessionID]?.desktopThreadID
+    }
+
     /// Authoritative read acknowledgement. Snapshot delivery and passive list
     /// visibility never call this; only explicit selection/open/jump actions do.
     @discardableResult

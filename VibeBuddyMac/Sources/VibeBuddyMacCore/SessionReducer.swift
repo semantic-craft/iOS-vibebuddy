@@ -108,6 +108,13 @@ public struct SessionReducer: Sendable {
             applyChildLifecycle(event)
         }
         if event.kind != .sessionEnd {
+            // A Desktop thread id is a durable fact about the session, not about
+            // this event: carry it onto the session so `/jump` can resolve a
+            // target for a source that never runs a hook and so never has a
+            // `terminalRef`.
+            if let thread = event.desktopThreadID {
+                sessions[event.sessionID]?.desktopThreadID = thread
+            }
             recordObservation(
                 sessionID: event.sessionID,
                 source: observationSource ?? event.observationSource ?? .hook,

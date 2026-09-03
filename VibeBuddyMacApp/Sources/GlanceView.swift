@@ -86,13 +86,13 @@ struct GlanceView: View {
                             .tint(.white).buttonStyle(.bordered).controlSize(.regular)
                             .help("Always allow this exact command in future")
                         Button { model.jump(p) } label: {
-                            Label("Jump", systemImage: "terminal")
+                            Label("Jump", systemImage: p.jumpsToDesktopThread ? "bubble.left" : "terminal")
                         }
                         .tint(.white).buttonStyle(.bordered).controlSize(.regular)
-                        .help("Jump to terminal")
+                        .help(p.jumpsToDesktopThread ? "Open this thread in ChatGPT" : "Jump to terminal")
                     }
                     if let outcome = model.jumpFeedback[p.id] {
-                        Text(outcome.macMessage(for: p.terminalRef))
+                        Text(outcome.macMessage(for: p))
                             .font(.system(size: 10 * s, weight: .medium))
                             .foregroundStyle(.white.opacity(0.68))
                     }
@@ -198,22 +198,25 @@ private struct GlanceSessionRow: View {
     private var s: CGFloat { scale }
 
     /// How precisely this row's click can land, told at a glance:
-    /// `terminal` = its own pane/tab, `macwindow` = only the app around it,
-    /// nothing = no terminal was ever recorded. Quiet on purpose — the status
-    /// dot owns the row's colour.
+    /// `terminal` = its own pane/tab, `bubble.left` = its Codex Desktop thread,
+    /// `macwindow` = only the app around it, nothing = no target was ever
+    /// recorded. Quiet on purpose — the status dot owns the row's colour.
     private var targetSymbol: String? {
-        guard let ref = session.terminalRef else { return nil }
+        guard let ref = session.terminalRef else {
+            return session.desktopThreadID != nil ? "bubble.left" : nil
+        }
         if ref.hasExactTarget { return "terminal" }
         return (ref.hostBundleId ?? ref.termProgram) != nil ? "macwindow" : nil
     }
 
     private var subtitle: String {
-        feedback?.macMessage(for: session.terminalRef) ?? ToolActivity.label(for: session)
+        feedback?.macMessage(for: session) ?? ToolActivity.label(for: session)
     }
 
     private var helpText: String {
         switch targetSymbol {
         case "terminal": return "Jump to this session's terminal"
+        case "bubble.left": return "Open this thread in ChatGPT"
         case "macwindow": return "Bring this session's app to the front"
         default: return "No terminal recorded for this session"
         }
