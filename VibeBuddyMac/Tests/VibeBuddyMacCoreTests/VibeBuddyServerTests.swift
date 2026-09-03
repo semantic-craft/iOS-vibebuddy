@@ -281,4 +281,26 @@ struct VibeBuddyServerTests {
             }
         }
     }
+
+    @Test("/snapshot does not accept the token as a ?token= query param")
+    func snapshotRejectsQueryToken() async throws {
+        try await server(token: "t0k").buildApplication().test(.router) { client in
+            try await client.execute(uri: "/snapshot?token=t0k", method: .get) { res in
+                #expect(res.status == .unauthorized)
+            }
+        }
+    }
+
+    @Test("an empty configured token fails closed on both auth surfaces")
+    func emptyTokenFailsClosed() async throws {
+        try await server(token: "").buildApplication().test(.router) { client in
+            try await client.execute(uri: "/snapshot", method: .get,
+                                     headers: [.authorization: "Bearer "]) { res in
+                #expect(res.status == .unauthorized)
+            }
+            try await client.execute(uri: "/hook?token=", method: .post) { res in
+                #expect(res.status == .unauthorized)
+            }
+        }
+    }
 }

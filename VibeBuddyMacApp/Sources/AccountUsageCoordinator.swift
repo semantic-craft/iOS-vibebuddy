@@ -27,9 +27,9 @@ final class AccountUsageCoordinator: ObservableObject {
     init(store: SessionStore, notifier: UserNotificationsNotifier) {
         self.store = store
         self.notifier = notifier
-        let codexEnabled = Self.loadBool(Self.enabledKey(for: .codex), default: true)
-        let claudeEnabled = Self.loadBool(Self.enabledKey(for: .claude), default: true)
-        let grokEnabled = Self.loadBool(Self.enabledKey(for: .grok), default: true)
+        let codexEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey(for: .codex), default: true)
+        let claudeEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey(for: .claude), default: true)
+        let grokEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey(for: .grok), default: true)
         collectionEnabled = [
             .codex: codexEnabled,
             .claude: claudeEnabled,
@@ -179,13 +179,6 @@ final class AccountUsageCoordinator: ObservableObject {
         for window in windows {
             notifier.notifyUsage(provider: provider, window: window, threshold: threshold)
         }
-    }
-
-    /// A Bool default that treats an absent key as `default` (so first launch is on).
-    private static func loadBool(_ key: String, default fallback: Bool) -> Bool {
-        UserDefaults.standard.object(forKey: key) == nil
-            ? fallback
-            : UserDefaults.standard.bool(forKey: key)
     }
 
     private static func loadAlertedWindows() -> Set<String> {

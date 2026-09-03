@@ -547,3 +547,11 @@ public enum NotificationQuietMode {
         return quietHours.isQuiet(at: now, calendar: calendar)
     }
 }
+
+extension UserDefaults {
+    /// A Bool default that treats an absent key as `fallback` (so first launch
+    /// reads as on/off per the caller's choice, not always `false`).
+    public func bool(forKey key: String, default fallback: Bool) -> Bool {
+        object(forKey: key) == nil ? fallback : bool(forKey: key)
+    }
+}
