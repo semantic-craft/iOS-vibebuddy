@@ -31,6 +31,16 @@ FORWARDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vibebuddy-
 COMMAND = f'"{FORWARDER}" grok'
 MARKER = "vibebuddy-forward.sh"
 
+# Terminal capture (jump-to-terminal) rides along as a second hook group on
+# SessionStart and UserPromptSubmit — see capture-terminal.sh. Grok's payload
+# uses camelCase `sessionId`; the script already handles that key. The
+# UserPromptSubmit re-capture reports less than the first one (no Ghostty probe),
+# so the Mac merges refs field by field rather than replacing them.
+CAPTURE_HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "capture-terminal.sh")
+CAPTURE_COMMAND = f'"{CAPTURE_HOOK}"'
+CAPTURE_MARKER = "capture-terminal.sh"
+CAPTURE_EVENTS = ["SessionStart", "UserPromptSubmit"]
+
 # Passive events report status; tool events (omitted matcher → match every tool)
 # carry the working / stuck cues. PostToolUseFailure → the grok decoder flags it.
 # NB: no `Notification` — grok's notification event is hook-execution telemetry
@@ -44,8 +54,14 @@ def group():
     return {"hooks": [{"type": "command", "command": COMMAND, "timeout": 5}]}
 
 
+def capture_group():
+    return {"hooks": [{"type": "command", "command": CAPTURE_COMMAND, "timeout": 5}]}
+
+
 def build():
     hooks = {ev: [group()] for ev in PASSIVE_EVENTS + TOOL_EVENTS}
+    for ev in CAPTURE_EVENTS:
+        hooks[ev].append(capture_group())
     return {"hooks": hooks}
 
 

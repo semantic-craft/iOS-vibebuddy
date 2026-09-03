@@ -30,6 +30,17 @@ EVENTS = [
     "Interrupt",
     "SessionEnd",
 ]
+# Terminal capture (jump-to-terminal) runs as a second, independent hook group on
+# SessionStart (catch new sessions) and UserPromptSubmit (self-heal a session that
+# missed SessionStart) — see capture-terminal.sh and install-claude-hooks.py's
+# CAPTURE_EVENTS for the matching Claude wiring. The re-capture is *not*
+# idempotent: it skips the Ghostty AppleScript probe, which is only correct while
+# the surface is focused. The Mac therefore merges each ref into the stored one
+# field by field, so a later capture can add and update but never erase.
+CAPTURE_HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "capture-terminal.sh")
+CAPTURE_MARKER = "capture-terminal.sh"
+CAPTURE_COMMAND = f'"{CAPTURE_HOOK}"'
+CAPTURE_EVENTS = ["SessionStart", "UserPromptSubmit"]
 
 
 def load():
@@ -53,7 +64,7 @@ def load():
     return value
 
 
-def is_vibebuddy(hook):
+def is_forwarder(hook):
     if not isinstance(hook, dict) or not isinstance(hook.get("command"), str):
         return False
     try:
@@ -62,6 +73,20 @@ def is_vibebuddy(hook):
         return False
     return (len(argv) == 2 and os.path.basename(argv[0]) == "vibebuddy-forward.sh"
             and argv[1] == "codex")
+
+
+def is_capture(hook):
+    if not isinstance(hook, dict) or not isinstance(hook.get("command"), str):
+        return False
+    try:
+        argv = shlex.split(hook["command"])
+    except ValueError:
+        return False
+    return len(argv) == 1 and os.path.basename(argv[0]) == CAPTURE_MARKER
+
+
+def is_vibebuddy(hook):
+    return is_forwarder(hook) or is_capture(hook)
 
 
 def without_vibebuddy(groups):
@@ -92,6 +117,14 @@ def install(root):
         # handlers synchronous and bounded, while the forwarder caps its local
         # HTTP request at one second.
         hooks.setdefault(event, []).append({"hooks": [command]})
+    for event in CAPTURE_EVENTS:
+        capture = {
+            "type": "command",
+            "command": CAPTURE_COMMAND,
+            "timeout": 5,
+        }
+        # Same released-Codex constraint as above: no `async: true`.
+        hooks.setdefault(event, []).append({"hooks": [capture]})
     root["hooks"] = hooks
     return root
 
