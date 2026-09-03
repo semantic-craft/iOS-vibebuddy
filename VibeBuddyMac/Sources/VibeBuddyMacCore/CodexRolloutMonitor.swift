@@ -11,6 +11,12 @@ public struct CodexRolloutParser: Sendable {
     public private(set) var cwd: String?
     public private(set) var isDesktopSession = false
     public private(set) var turnActive = false
+    /// Latest model named by `turn_context` / `thread_settings_applied`.
+    public private(set) var model: String?
+    private var tokenRecordCount = 0
+    private var cumulativeTokens: Int?
+    private var contextTokens: Int?
+    private var contextWindow: Int?
     private var activeTurnIDs: Set<String> = []
     private var anonymousTurnCount = 0
     private var pendingCollab: [String: PendingCollab] = [:]
@@ -37,15 +43,33 @@ public struct CodexRolloutParser: Sendable {
             sessionID = payload["id"] as? String
             cwd = payload["cwd"] as? String
             let originator = (payload["originator"] as? String)?.lowercased()
-            let source = (payload["source"] as? String)?.lowercased()
-            isDesktopSession = originator == "codex desktop" || source == "vscode"
+            let source = payload["source"]
+            // Desktop stamps `originator`; its `source` is the `vscode` enum
+            // default. A spawned subagent thread carries the same originator and
+            // is only told apart by `thread_source` / `source.subagent`. The
+            // parent's collaboration records already own that child, so its own
+            // rollout must not surface as a second session.
+            let isSubagent = (payload["thread_source"] as? String)?.lowercased() == "subagent"
+                || (source as? [String: Any])?["subagent"] != nil
+            isDesktopSession = !isSubagent
+                && (originator == "codex desktop" || (source as? String)?.lowercased() == "vscode")
             return []
         }
 
         guard let sessionID, isDesktopSession else { return [] }
 
+        if recordType == "turn_context" {
+            return modelEvents(payload["model"] as? String, sessionID: sessionID, timestamp: timestamp)
+        }
+
         if recordType == "event_msg", let eventType = payload["type"] as? String {
             switch eventType {
+            case "thread_settings_applied":
+                let settings = payload["thread_settings"] as? [String: Any]
+                return modelEvents(settings?["model"] as? String, sessionID: sessionID, timestamp: timestamp)
+            case "token_count":
+                guard let info = payload["info"] as? [String: Any] else { return [] }
+                return usageEvents(info, sessionID: sessionID, timestamp: timestamp)
             case "task_started":
                 startTurn(payload["turn_id"] as? String)
                 return [event(.userPromptSubmit, sessionID: sessionID, timestamp: timestamp)]
@@ -94,6 +118,50 @@ public struct CodexRolloutParser: Sendable {
         return []
     }
 
+    /// One metadata event carrying the latest model and the cumulative token
+    /// spend, for a session restored from an already-active rollout.
+    func restorableMetadataEvent(timestamp: Date) -> HookEvent? {
+        guard let sessionID, model != nil || cumulativeTokens != nil || contextWindow != nil else {
+            return nil
+        }
+        let enrichment = TranscriptInfo(
+            tokens: cumulativeTokens,
+            tokensTurnID: "token_count:bootstrap:\(tokenRecordCount)",
+            contextTokens: contextTokens,
+            contextWindow: contextWindow)
+        return event(.sessionMetadataChanged, sessionID: sessionID, model: model,
+                     timestamp: timestamp, enrichment: enrichment)
+    }
+
+    private mutating func modelEvents(_ raw: String?, sessionID: String, timestamp: Date) -> [HookEvent] {
+        guard let name = Self.nonEmpty(raw), name != model else { return [] }
+        model = name
+        return [event(.sessionMetadataChanged, sessionID: sessionID, model: name, timestamp: timestamp)]
+    }
+
+    /// `token_count` is bookkeeping, not activity: it feeds the model, context
+    /// and spend columns through the enrichment path and never moves progress.
+    private mutating func usageEvents(_ info: [String: Any], sessionID: String, timestamp: Date) -> [HookEvent] {
+        let last = info["last_token_usage"] as? [String: Any]
+        let total = info["total_token_usage"] as? [String: Any]
+        let lastTotal = Self.int(last?["total_tokens"])
+        // Codex measures context occupancy without the reasoning tokens.
+        let inContext = lastTotal.map { $0 - (Self.int(last?["reasoning_output_tokens"]) ?? 0) }
+        let window = Self.int(info["model_context_window"])
+        guard lastTotal != nil || window != nil else { return [] }
+        tokenRecordCount += 1
+        cumulativeTokens = Self.int(total?["total_tokens"]) ?? cumulativeTokens
+        contextTokens = inContext ?? contextTokens
+        contextWindow = window ?? contextWindow
+        let enrichment = TranscriptInfo(
+            tokens: lastTotal,
+            tokensTurnID: "token_count:\(tokenRecordCount)",
+            contextTokens: inContext,
+            contextWindow: window)
+        return [event(.sessionMetadataChanged, sessionID: sessionID, timestamp: timestamp,
+                      enrichment: enrichment)]
+    }
+
     func restorableChildEvents(timestamp: Date) -> [HookEvent] {
         guard let sessionID else { return [] }
         var events: [HookEvent] = []
@@ -124,19 +192,22 @@ public struct CodexRolloutParser: Sendable {
         sessionID: String,
         toolName: String? = nil,
         message: String? = nil,
+        model: String? = nil,
         toolError: Bool = false,
         timestamp: Date,
         childID: String? = nil,
         childKind: ChildAgentKind? = nil,
         childName: String? = nil,
         childType: String? = nil,
-        childAction: HookEvent.ChildLifecycleAction? = nil
+        childAction: HookEvent.ChildLifecycleAction? = nil,
+        enrichment: TranscriptInfo? = nil
     ) -> HookEvent {
         HookEvent(kind: kind, sessionID: sessionID, agent: .codex,
-                  cwd: cwd, toolName: toolName, message: message,
+                  cwd: cwd, toolName: toolName, message: message, model: model,
                   toolError: toolError, timestamp: timestamp,
                   childID: childID, childKind: childKind, childName: childName,
-                  childType: childType, childAction: childAction)
+                  childType: childType, childAction: childAction,
+                  enrichment: enrichment)
     }
 
     private struct PendingCollab {
@@ -476,6 +547,12 @@ public struct CodexRolloutParser: Sendable {
         return nil
     }
 
+    private static func int(_ value: Any?) -> Int? {
+        if let number = value as? NSNumber { return number.intValue }
+        if let text = value as? String { return Int(text) }
+        return nil
+    }
+
     private static func bool(_ value: Any?) -> Bool? {
         if let flag = value as? Bool { return flag }
         if let number = value as? NSNumber { return number.boolValue }
@@ -502,6 +579,9 @@ public struct CodexRolloutParser: Sendable {
 
     private static let progressMarkers: [Data] = [
             #""type":"session_meta""#,
+            #""type":"turn_context""#,
+            #""type":"thread_settings_applied""#,
+            #""type":"token_count""#,
             #""type":"task_started""#,
             #""type":"task_complete""#,
             #""type":"turn_aborted""#,
@@ -662,6 +742,10 @@ public actor CodexRolloutMonitor {
         var parser = CodexRolloutParser()
         var identity: FileIdentity?
         var checkpoint = Data()
+        /// True once a progress event for this rollout has been delivered.
+        /// Metadata (model, `token_count`) is only forwarded for a surfaced
+        /// session: an idle thread's bookkeeping must not conjure a row.
+        var surfaced = false
 
         mutating func consume(_ data: Data, receivedAt: Date) -> [HookEvent] {
             remainder.append(data)
@@ -670,7 +754,17 @@ public actor CodexRolloutMonitor {
             while let newline = remainder[lineStart...].firstIndex(of: 0x0A) {
                 if newline > lineStart {
                     let line = Data(remainder[lineStart..<newline])
-                    events.append(contentsOf: parser.parseEvents(line, receivedAt: receivedAt))
+                    for event in parser.parseEvents(line, receivedAt: receivedAt) {
+                        switch event.kind {
+                        case .sessionMetadataChanged:
+                            if surfaced { events.append(event) }
+                        case .childLifecycle:
+                            events.append(event)
+                        default:
+                            surfaced = true
+                            events.append(event)
+                        }
+                    }
                 }
                 lineStart = remainder.index(after: newline)
                 if lineStart == remainder.endIndex { break }
@@ -800,10 +894,11 @@ public actor CodexRolloutMonitor {
         discoveryPassCount += 1
         let files = candidateFiles(now: now)
         let livePaths = Set(files.map(\.path))
+        var emitted: [HookEvent] = []
         for path in Array(cursors.keys) where !livePaths.contains(path) {
+            emitted.append(contentsOf: endedEvents(path: path, now: now))
             removeTracking(path: path)
         }
-        var emitted: [HookEvent] = []
 
         for file in files {
             emitted.append(contentsOf: refresh(file: file, now: now, installWatcher: installWatchers))
@@ -814,8 +909,9 @@ public actor CodexRolloutMonitor {
     private func refresh(file: URL, now: Date, installWatcher: Bool) -> [HookEvent] {
         let path = file.path
         guard let state = Self.fileState(file) else {
+            let ended = endedEvents(path: path, now: now)
             removeTracking(path: path)
-            return []
+            return ended
         }
 
         var emitted: [HookEvent] = []
@@ -846,6 +942,18 @@ public actor CodexRolloutMonitor {
 
         if installWatcher { ensureWatcher(for: file, identity: state.identity) }
         return emitted
+    }
+
+    /// A rollout that vanished — Codex moves it to `archived_sessions/` when the
+    /// thread is archived — ends the session it surfaced. A rollout that merely
+    /// aged out of the recency window still exists and is only untracked.
+    private func endedEvents(path: String, now: Date) -> [HookEvent] {
+        guard let cursor = cursors[path], cursor.surfaced,
+              let sessionID = cursor.parser.sessionID,
+              !FileManager.default.fileExists(atPath: path)
+        else { return [] }
+        return [HookEvent(kind: .sessionEnd, sessionID: sessionID, agent: .codex,
+                          cwd: cursor.parser.cwd, timestamp: now)]
     }
 
     private func ensureWatcher(for file: URL, identity: FileIdentity) {
@@ -966,31 +1074,26 @@ public actor CodexRolloutMonitor {
         sink = nil
     }
 
+    /// Rollouts live under their *start* date, and a resumed thread keeps
+    /// appending to that old file, so discovery walks every date directory and
+    /// keeps whatever was written inside the recency window.
     private func candidateFiles(now: Date) -> [URL] {
         let fm = FileManager.default
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = .current
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .contentModificationDateKey]
         var files: [URL] = []
 
-        for daysAgo in 0...1 {
-            guard let day = calendar.date(byAdding: .day, value: -daysAgo, to: now) else { continue }
-            let parts = calendar.dateComponents([.year, .month, .day], from: day)
-            guard let year = parts.year, let month = parts.month, let dayNumber = parts.day else { continue }
-            let directory = root
-                .appendingPathComponent(String(format: "%04d", year), isDirectory: true)
-                .appendingPathComponent(String(format: "%02d", month), isDirectory: true)
-                .appendingPathComponent(String(format: "%02d", dayNumber), isDirectory: true)
-            guard let entries = try? fm.contentsOfDirectory(
-                at: directory,
-                includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
-                options: [.skipsHiddenFiles]
-            ) else { continue }
-            files.append(contentsOf: entries.filter {
-                guard $0.lastPathComponent.hasPrefix("rollout-"), $0.pathExtension == "jsonl",
-                      let values = try? $0.resourceValues(forKeys: [.contentModificationDateKey]),
-                      let modified = values.contentModificationDate else { return false }
-                return now.timeIntervalSince(modified) <= recoveryWindow
-            })
+        if let enumerator = fm.enumerator(
+            at: root, includingPropertiesForKeys: Array(keys), options: [.skipsHiddenFiles]
+        ) {
+            for case let url as URL in enumerator {
+                guard url.lastPathComponent.hasPrefix("rollout-"), url.pathExtension == "jsonl",
+                      let values = try? url.resourceValues(forKeys: keys),
+                      values.isRegularFile == true,
+                      let modified = values.contentModificationDate,
+                      now.timeIntervalSince(modified) <= recoveryWindow
+                else { continue }
+                files.append(url)
+            }
         }
         // Retain only active rollouts beyond the recency window. Completed or
         // abandoned files age out, bounding watcher descriptors over time.
@@ -1034,7 +1137,7 @@ public actor CodexRolloutMonitor {
             while let chunk = try handle.read(upToCount: 64 * 1_024), !chunk.isEmpty {
                 cursor.offset += UInt64(chunk.count)
                 for event in cursor.consume(chunk, receivedAt: receivedAt) {
-                    if event.kind == .childLifecycle { continue }
+                    if event.kind == .childLifecycle || event.kind == .sessionMetadataChanged { continue }
                     if event.kind != .stop && event.kind != .sessionEnd {
                         latestParent = event
                     }
@@ -1044,10 +1147,15 @@ public actor CodexRolloutMonitor {
             return nil
         }
         cursor.checkpoint = checkpoint(file: file, endingAt: cursor.offset)
+        cursor.surfaced = false
         guard cursor.parser.isDesktopSession else { return (cursor, []) }
         var events: [HookEvent] = []
         if cursor.parser.turnActive, let latestParent {
+            cursor.surfaced = true
             events.append(latestParent)
+            if let metadata = cursor.parser.restorableMetadataEvent(timestamp: receivedAt) {
+                events.append(metadata)
+            }
         }
         events.append(contentsOf: cursor.parser.restorableChildEvents(timestamp: receivedAt))
         return (cursor, events)

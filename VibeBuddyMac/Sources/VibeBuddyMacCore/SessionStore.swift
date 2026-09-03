@@ -124,6 +124,9 @@ public actor SessionStore {
         let wasWaiting = reducer.sessions[event.sessionID]?.status == .needsResponse
         if let path = event.transcriptPath { transcriptPaths[event.sessionID] = path }
         reducer.apply(event, observationSource: observationSource)
+        if let enrichment = event.enrichment {
+            reducer.enrich(sessionID: event.sessionID, with: enrichment)
+        }
         recordSignal(agent: event.agent, source: observationSource, at: event.timestamp,
                      health: .healthy, coverage: Self.coverage(for: event.kind))
         if reducer.sessions[event.sessionID] == nil {
