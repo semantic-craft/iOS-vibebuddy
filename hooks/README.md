@@ -191,5 +191,13 @@ bash hooks/tests/capture-terminal-parsing.sh
 
 Because the capture hook rides inside each CLI's own hook config, it needs the
 same reload/trust step as any other change there: Codex requires re-running
-`/hooks` in a fresh session to trust the new group; Grok requires reloading
-hooks (`/hooks` → 'r', or restart the session).
+`/hooks` in a fresh session to trust the new group; Grok requires reloading hooks
+(`/hooks` → `r`, or a new session).
+
+Grok resolves a quoted, argument-less `command` as a literal *path* (verified on
+1.0.13): `"…/capture-terminal.sh"` becomes `<grok home>/hooks/"…"` and fails with
+`command not found`. A command with an argument is shell-parsed instead, so both
+the Grok installer and the Claude one (whose hooks Grok imports through
+`[compat.claude]`) install the capture hook with an inert agent name argument —
+`"…/capture-terminal.sh" grok` / `… claude`. The script reads stdin and the
+environment, never `$1`.

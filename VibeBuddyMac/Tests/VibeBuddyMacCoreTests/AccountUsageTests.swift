@@ -717,14 +717,19 @@ struct AccountUsageTests {
         return nil
     }
 
+    /// A killed child (and any descendant that inherited the process group) dies
+    /// asynchronously, so poll for its reaping rather than sampling once — under a
+    /// loaded parallel test run the signal has often not landed yet.
     private func expectProcessExited(pidFile: URL) async {
         let pid = await waitForPID(in: pidFile)
         #expect(pid != nil)
-        if let pid {
+        guard let pid else { return }
+        for _ in 0..<500 {
             errno = 0
-            #expect(Darwin.kill(pid, 0) == -1)
-            #expect(errno == ESRCH)
+            if Darwin.kill(pid, 0) == -1, errno == ESRCH { return }
+            try? await Task.sleep(for: .milliseconds(10))
         }
+        Issue.record("process \(pid) was never reaped")
     }
 }
 

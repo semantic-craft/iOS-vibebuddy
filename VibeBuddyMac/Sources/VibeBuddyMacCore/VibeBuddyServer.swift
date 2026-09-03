@@ -314,15 +314,17 @@ public struct VibeBuddyServer: Sendable {
             case .ask:
                 let id = makeID()
                 let d = ApprovalDetails.from(tool: tool, input: input)
+                // Record what an "always allow" / "allow this session" would act
+                // on *before* the pending card is broadcast — a decision can only
+                // follow the card, so the context is always there when it lands.
+                await approvalContext.set(id: id, sessionID: sessionID,
+                                          rule: AllowRule.forApproval(tool: tool, input: input))
                 await store.beginApproval(sessionID: sessionID,
                     PendingApproval(id: id, tool: tool,
                                     commandPreview: d.commandPreview.isEmpty ? tool : d.commandPreview,
                                     command: d.command, filePath: d.filePath,
                                     oldText: d.oldText, newText: d.newText,
                                     permissionMode: call.permissionMode), at: Date())
-                // Record what an "always allow" / "allow this session" would act on.
-                await approvalContext.set(id: id, sessionID: sessionID,
-                                          rule: AllowRule.forApproval(tool: tool, input: input))
                 let outcome = await registry.wait(id: id, timeout: timeout)
                 await store.endApproval(sessionID: sessionID, at: Date())
                 switch outcome {

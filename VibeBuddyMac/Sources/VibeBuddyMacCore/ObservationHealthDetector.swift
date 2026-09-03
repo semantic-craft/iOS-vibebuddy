@@ -56,6 +56,7 @@ public enum ObservationHealthDetector {
         signals: [ObservationRuntimeSignal],
         now: Date,
         staleAfter: TimeInterval = 10 * 60,
+        grokHome: URL = GrokHome.url,
         fileManager fm: FileManager = .default
     ) -> [AgentObservationDiagnostic] {
         let claude = agentDiagnostic(
@@ -102,24 +103,26 @@ public enum ObservationHealthDetector {
                 staleAfter: staleAfter,
                 fileManager: fm))
 
-        // Grok keeps standalone hook files under `~/.grok/hooks/*.json`; ours is
-        // `vibebuddy.json`. The install marker is the config dir itself — grok
-        // 1.0.13 has no single settings file we can rely on.
+        // Grok keeps standalone hook files under `<grok home>/hooks/*.json`;
+        // ours is `vibebuddy.json`. The install marker is the config dir itself
+        // — grok 1.0.13 has no single settings file we can rely on. Everything
+        // here hangs off the *resolved* grok home (`$GROK_HOME`, else `~/.grok`)
+        // so an isolated profile is inspected where its hooks were installed.
         let grok = agentDiagnostic(
             agent: .grok,
             hook: hookEvidence(
-                config: home?.appendingPathComponent(".grok/hooks/vibebuddy.json"),
-                installMarker: home?.appendingPathComponent(".grok", isDirectory: true),
+                config: grokHome.appendingPathComponent("hooks/vibebuddy.json"),
+                installMarker: grokHome,
                 agent: .grok,
                 signals: signals,
                 now: now,
                 staleAfter: staleAfter,
                 fileManager: fm),
             passive: passiveEvidence(
-                root: home?.appendingPathComponent(".grok/sessions", isDirectory: true),
+                root: GrokSessionLocator.sessionsRoot(grokHome: grokHome),
                 source: .transcript,
                 agent: .grok,
-                installed: home.map { fm.fileExists(atPath: $0.appendingPathComponent(".grok").path) },
+                installed: fm.fileExists(atPath: grokHome.path),
                 signals: signals,
                 now: now,
                 staleAfter: staleAfter,

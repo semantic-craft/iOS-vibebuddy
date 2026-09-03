@@ -17,6 +17,10 @@ Event set (grok's own names; the decoder maps them to the shared HookEvent):
 `Stop` and `SubagentStop` are gates, so their handler must exit 0 fast; the
 forwarder caps its local POST well inside the 5 s timeout we set.
 
+`SessionStart` and `UserPromptSubmit` carry a second group running
+`hooks/capture-terminal.sh`, which tells the Mac which terminal the session lives
+in so **Jump to terminal** works for grok too.
+
 `--approval` additionally routes PreToolUse through the blocking
 `hooks/approval-hook.sh grok`, which asks the phone and answers grok's
 permission gate. It replaces (not joins) the fire-and-forget PreToolUse group,

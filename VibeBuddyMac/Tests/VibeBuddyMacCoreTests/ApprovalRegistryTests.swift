@@ -20,9 +20,12 @@ struct ApprovalRegistryTests {
         #expect(outcome == .pass)
     }
 
-    @Test("resolving an unknown id is a harmless no-op")
-    func unknownResolve() async {
+    @Test("a decision that beats its request is held for it")
+    func resolveBeforeWait() async {
         let reg = ApprovalRegistry()
-        await reg.resolve(id: "ghost", with: .deny)   // must not crash
+        await reg.resolve(id: "a", with: .allow)
+        #expect(await reg.wait(id: "a", timeout: .seconds(5)) == .allow)
+        // Spent: the next hold on the same id waits on its own decision.
+        #expect(await reg.wait(id: "a", timeout: .milliseconds(50)) == .pass)
     }
 }

@@ -99,12 +99,16 @@ struct GrokFixture {
         update(#"{"sessionUpdate":"tool_call_update","toolCallId":"\#(id)","kind":"execute","locations":[],"rawInput":{}}"#)
     }
 
-    static func turnCompleted(input: Int, output: Int) -> String {
-        update("""
-            {"sessionUpdate":"turn_completed","prompt_id":"p1","stop_reason":"end_turn",\
+    /// `promptID: nil` writes the record without a `prompt_id`, leaving `_meta`
+    /// as the only turn identity — the shape the reader has to fall back to.
+    static func turnCompleted(input: Int, output: Int, promptID: String? = "p1",
+                              eventID: String? = nil) -> String {
+        let prompt = promptID.map { #""prompt_id":"\#($0)","# } ?? ""
+        return update("""
+            {"sessionUpdate":"turn_completed",\(prompt)"stop_reason":"end_turn",\
             "usage":{"inputTokens":\(input),"outputTokens":\(output),\
             "totalTokens":\(input + output),"cachedReadTokens":0,"numTurns":1}}
-            """, method: "_x.ai/session/update")
+            """, meta: eventID.map { #"{"eventId":"\#($0)"}"# }, method: "_x.ai/session/update")
     }
 
     static func subagentSpawned(id: String, type: String, detail: String) -> String {

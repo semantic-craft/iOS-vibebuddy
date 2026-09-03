@@ -381,7 +381,7 @@ public actor SessionStore {
         }
         let value = ObservationHealthDetector.detect(
             home: diagnosticsHome, signals: signals, now: now,
-            staleAfter: Self.diagnosticStaleAfter)
+            staleAfter: Self.diagnosticStaleAfter, grokHome: grokHome)
         diagnosticCache = (now, value)
         return value
     }
