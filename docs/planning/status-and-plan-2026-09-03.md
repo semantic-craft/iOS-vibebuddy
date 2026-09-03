@@ -7,6 +7,11 @@
 VibeBuddyKit `swift test` 142/142、VibeBuddyMac 296/296、VibeBuddyApp iOS 模拟器构建 + 1 个测试、
 VibeBuddyMacApp macOS 构建，全绿。仓库没有 CI（无 `.github/workflows`），也没有 Makefile。
 
+**2026-09-03 收尾更新：** main 基线已推进到 `3b52cf1`（PR #6 已合并，`origin/main` 同步）。
+第四节的阶段 A（MERGE）、阶段 B（小修）、阶段 E（Watch 续做的代码部分）已全部完成并入 main；
+第六、七节取代第四节里这三段的内容——阶段 C（装机验收）和阶段 D（发布）仍然有效，但已经
+收窄成第七节列出的、全部需要你本人在场的剩余步骤。
+
 ## 一、实际进度总表
 
 | ID | 状态 | 分支 / 位置 | 验证证据 | 缺口 |
@@ -133,3 +138,72 @@ R2 的签名身份与 TestFlight、W8 的真机验收。其余全部 agent 可�
 4. **不中断已装的 `/Applications/VibeBuddyMacApp.app` 和 `:9876`**；端到端验证用隔离端口 + 临时 `HOME`。
 5. **装机验收（installed app + 真实 agent + 真机）是 `done` 的唯一标准。** 自动测试通过只写"自动测试通过"；
    模拟器通过 ≠ 真机通过。`*.xcodeproj` 是 xcodegen 生成物，不提交。
+
+## 六、2026-09-03 集成结果（本节取代第四节的阶段 A/B/E）
+
+main `3b52cf1` = `origin/main`。通过 PR #6（28 个提交）合并，PR #6 之前先合了 PR #4
+（Grok parity，由另一个会话在 GitHub 上合并）和 PR #5（grokHome / turn-token 与 approval 顺序修复）。
+本地 ff-merge 顺序：watch-03 → r1-execution → release-ios → watch-05-quota → grok parity
+（rebase 到 `5737d41`）→ handover 计划 → ICP checklist → fix-mac-setup-scroll → watch-06 →
+watch-04 → release-docs-and-watch-archive → 合并 `origin/main`（`e5a2fd2`）→ watch-07。
+
+PR #6 头部 `6c7675f` 上的最终验收：VibeBuddyKit 218 个测试 / 26 个套件；VibeBuddyMac 459 / 44
+（Approval 路由连跑两次都稳定）；VibeBuddyAppTests 21 个；macOS / iOS / watchOS 模拟器构建全绿；
+`hooks/test_install_agent_hooks.py` 与 `hooks/tests/capture-terminal-parsing.sh` 通过。
+
+**ticket 结果：**
+
+- watch 01 / 02 / 03：`done`（模拟器验证；真机验收留给 W8）。
+- watch 04：`merged-pending-device-acceptance`（单元测试 + 构建通过；配对模拟器上的中继被一个
+  模拟器 IDS/iCloud 故障挡住——`identityservicesd` 报 `NSURLError -1002`）。
+- watch 05：`merged-pending-device-acceptance`。
+- watch 06：`merged-pending-device-acceptance`（真实 Claude 账号只读验证走的是一个隔离 daemon：
+  周配额剩余 38%；Codex 被强制标记为不可用，不影响它）。
+- watch 07：`merged-pending-device-acceptance`（配对模拟器上用真实 daemon（`:18766`）验证了 4 层
+  连接中的 3 层；"手机关机" 与 "手机 App 状态陈旧" 两种情况在模拟器里区分不出来——`WCSession.isReachable`
+  一直是 true；这两个标签要不要合并留给 W8 判断）。
+- watch 08：`ready-for-agent`，但需要你本人。
+- acceptance 01（Setup 标签页）与 02（RealtimeAudioIO 竞态）：`merged`。
+- mac-power-features 07（Sparkle）：`ready-for-human`。
+
+**关键技术发现：**
+
+(a) `transferUserInfo` 在模拟器里从不投递到 Watch（iPhone 报告 `didFinish`，Watch 唤醒，但
+`didReceiveUserInfo` 从不触发），所以中继继续用 `updateApplicationContext`（latest-wins 邮箱）
+配合 `WatchStateInbox` 的顺序保护。
+(b) Setup 标签页的 bug 不是滚动锚定问题：那个标签页根本缺了 `.formStyle(.grouped)`，所以压根没有
+滚动视图。
+(c) `claude -p /usage` 在整点重置时打印的文本不带分钟数，这曾经导致整个 Claude 读取失败。
+(d) `archive-ios.sh --skip-export` 在 Xcode 自动签名下真跑通了，Watch app 内嵌在
+`Watch/VibeBuddyWatch.app`——只有 `-exportArchive` / 上传还需要 Apple Distribution 身份。
+(e) xcodegen 会自动内嵌 watchOS app 依赖，`project.yml` 不用改。
+(f) `VibeBuddyAppTests` 从 `5737d41`（三次真实 demo 会话录制）之后就一直是红的——在 `2b544ef`
+修复。
+
+**今天完成的清理：** worktree `watch-03` / `watch-05` / `watch-04` / `watch-06` / `watch-07`、
+`r1-execution`、`release-ios`、`handover-cleanup-plan`、`fix-mac-setup-scroll`、
+`release-docs-and-watch-archive`、`prompt-audit-redundancies` 连同各自分支已删除；4 个空的
+`claude/*` 分支已删除；7 个已结束的 CCD 会话已归档。剩余：`grok-build-status-monitoring-9445e6`
+（正从 `3b52cf1` 部署）、`doctor-command-fcbb7a`（一个 flaky-test 修复会话，分支
+`claude/amazing-golick-21a788`，尚无提交）、本次的编排 worktree。`main-private-2026-09-02` 与
+`prototype-2026-09-02` 保留不动。仓库根目录有一个未跟踪的 `vibebuddy.json`——合并前手工复制的
+Grok hook 配置，没有 gitignore——需要删除或加进 `.gitignore`。
+
+**仍然打开的已知 flaky 测试：** "Claude CLI timeout and cancellation reap their child process"
+（`AccountUsageTests`，固定时长的 sleep）；Approval 路由的 flake 已由 PR #5 的 `c3cde35` 修复。
+
+## 七、剩余工作（全部需要你本人）
+
+1. **R1 Mac 上线：** 建 `gh-pages` 分支并在 GitHub 开启 Pages（否则 `SUFeedURL` 404），发布 v1.1
+   GitHub Release，附带 DMG 和 `tools/release-mac.sh` 生成的 appcast（具体步骤见
+   `docs/sparkle-setup.md`），然后在一台真机上走一次应用内 Sparkle 更新。完成后 ticket
+   `mac-power-features` 07 → `done`。
+2. **R2 iOS/Watch TestFlight：** 用 Team `LQAVR62TK2` 在 Xcode 里登录（或配一个 ASC API key），
+   这样 `tools/archive-ios.sh` 才能导出；只有你明确决定上传时才上传。`docs/app-store-paste-sheet.md`
+   有商店文案（只上美区）。
+3. **P2 装机验收（Mac + iPhone）：** observability ticket 03 / 04 / 06、6 月遗留人工清单、
+   iPhone 三项目视检查、Setup 标签页目视检查（acceptance 01）。
+4. **W5 / W6 设备验收，以及 W8 真 Apple Watch 对 W1–W7 的验收**，包括"手机关机"与"手机 App 状态
+   陈旧"这两个标签要不要合并的决定，以及通知镜像的验收。
+5. **可选：** 修掉剩下的 `AccountUsageTests` flake；做一遍 Watch 全局的 zh-Hans 检查（bundle 里
+   确实带了 `zh-Hans.lproj`，按 ticket 07 所记，但要先在真机上验证）。
