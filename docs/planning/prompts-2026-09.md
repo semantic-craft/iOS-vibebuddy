@@ -1,5 +1,7 @@
 # vibebuddy — 后续任务提示词包（2026-09）
 
+> **任务集已全部完成或改写。** 当前的任务与提示词见 [`plan-remaining-work.html`](plan-remaining-work.html)。下面的「通用约束」一节仍然有效并被引用，所以本文保留、不要删。
+
 配套 `status-and-plan-2026-09-03.md`（它取代了 09-02 版）。每个任务一段提示词，Claude Code / Codex / Grok 通用。
 **状态标记（2026-09-03 核对）：** ✅ 已完成 · 🔀 代码完成待合并 · ⛔ 不适用 · ⬜ 未开始。
 **给 agent 的用法：** 你收到的一句话是 `按 docs/planning/prompts-2026-09.md 只执行 <ID>`，

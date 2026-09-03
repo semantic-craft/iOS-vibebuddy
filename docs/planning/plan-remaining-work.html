@@ -178,7 +178,7 @@ C2 加 <code>BearerAuth</code> 的 init 在 462 行附近、改 104 行的 <code
     <p class="meta"><b>工作目录</b> 仓库根目录（不建 worktree） · <b>前置</b> 无 · <b>产出</b> PR #13 与 PR #8 进 main，仓库卫生，之后按序收 C2 → C1 → C3 → B</p>
   </header>
   <div class="body">
-    <p>先把这份计划的 PR（#13）和 PR #8 合掉，再做仓库卫生，然后这个会话保持开着，C1/C2/C3/B 的 PR 出来后由它一条一条收。</p>
+    <p>先把这份计划的 PR（#13）和 PR #8 合掉，再做仓库卫生，然后这个会话保持开着，C1/C2/C3/B 的 PR 出来后由它一条一条收。实际结果：PR #13 已合为 7182457，PR #8 已合为 f28da09；随后收了 C2 #14（dd943a0）和 C1 #15（fbe199a）。C3 尚未出 PR。</p>
     <button class="btn copy" data-target="p-m">复制提示词</button>
     <details><summary>展开看提示词全文</summary><pre class="prompt" id="p-m">你是 vibebuddy 仓库的集成 agent。本次任务代号 M：先合并这份计划的 PR（#13）和 PR #8、做仓库卫生、然后按序收其它会话的 PR。
 
@@ -301,7 +301,7 @@ B 的 PR 只改 docs/，合并流程一样，第 4 步可以只跑 Kit + Mac 的
     <p class="meta"><b>工作目录</b> <code>.claude/worktrees/codex-desktop-jump</code>（已存在）· <b>前置</b> 无，但 rebase 要等 M 合完 PR #8 · <b>产出</b> 一个 PR</p>
   </header>
   <div class="body">
-    <p>那个 worktree 里有一份<b>已经写完、注释和测试都齐、但从未提交</b>的实现。这个会话的工作是收尾和验证，不是重写。最大的风险是 agent 一上来就 <code>git checkout .</code> 把它清掉。</p>
+    <p>那个 worktree 里有一份<b>已经写完、注释和测试都齐、但从未提交</b>的实现。这个会话的工作是收尾和验证，不是重写。最大的风险是 agent 一上来就 <code>git checkout .</code> 把它清掉。实际结果：PR #15 已合并为 fbe199a。</p>
     <button class="btn copy" data-target="p-c1">复制提示词</button>
     <details><summary>展开看提示词全文</summary><pre class="prompt" id="p-c1">你是 vibebuddy 仓库的开发 agent。本次任务代号 C1：把一份已经写完但从未提交的实现收尾、验证、提交、开 PR。
 
@@ -445,7 +445,7 @@ rebase 时解掉的冲突逐条说明、真实跳转验证的结果、未验证�
     <p class="meta"><b>工作目录</b> <code>.claude/worktrees/auth-and-defaults-followup</code>（已存在）· <b>前置</b> 无 · <b>产出</b> 一个 PR（M 会最先合它）</p>
   </header>
   <div class="body">
-    <p>同样是未提交的成品，比 C1 小得多。里面有<b>一个真需要判断的地方</b>：那个 <code>precondition</code> 可能在启动路径上把菜单栏 App 打崩。</p>
+    <p>同样是未提交的成品，比 C1 小得多。里面有<b>一个真需要判断的地方</b>：那个 <code>precondition</code> 可能在启动路径上把菜单栏 App 打崩。实际结果：PR #14 已合并为 dd943a0。</p>
     <button class="btn copy" data-target="p-c2">复制提示词</button>
     <details><summary>展开看提示词全文</summary><pre class="prompt" id="p-c2">你是 vibebuddy 仓库的开发 agent。本次任务代号 C2：把一份已经写完但从未提交的小硬化收尾，顺带修一个已知的 flaky 测试。
 
@@ -574,7 +574,7 @@ precondition 那处的判断依据和最终选择、flaky 测试的处理方式�
     <p class="meta"><b>工作目录</b> 自建 worktree <code>codex-observation-trust</code> · <b>前置</b> PR #8 与 C1 都已进 main · <b>产出</b> 一个 PR、两个提交</p>
   </header>
   <div class="body">
-    <p>唯一还要写新代码的任务。两票在同一批文件里，所以一个会话串行做完。提示词里带了我在本机实测出来的两个陷阱：<b>锁文件会残留</b>（所以"锁存在"可能根本不是活性信号），以及<b>本机有三个 <code>codex app-server</code> 进程</b>（不限定路径就会永远看起来活着）。</p>
+    <p>唯一还要写新代码的任务。两票在同一批文件里，所以一个会话串行做完。提示词里带了我在本机实测出来的两个陷阱：<b>锁文件会残留</b>（所以"锁存在"可能根本不是活性信号），以及<b>本机有三个 <code>codex app-server</code> 进程</b>（不限定路径就会永远看起来活着）。实际结果：进行中（06 本地提交 9232729；02 有未提交改动；无 PR）。</p>
     <button class="btn copy" data-target="p-c3">复制提示词</button>
     <details><summary>展开看提示词全文</summary><pre class="prompt" id="p-c3">你是 vibebuddy 仓库的开发 agent。本次任务代号 C3：让 Codex Desktop 的观察结果可信——先修健康诊断与发现逻辑不一致（ticket 06），再让无主线程一分钟内收敛（ticket 02）。
 
@@ -759,7 +759,7 @@ working（进入 done，并标注成"被放弃"），而不是等两小时的 st
     <p class="meta"><b>工作目录</b> 自建 worktree <code>bookkeeping</code> · <b>前置</b> C1 / C2 已合，C3 有结论 · <b>产出</b> 一个 PR（只改 docs）+ ticket 直接落地</p>
   </header>
   <div class="body">
-    <p>这个项目的记忆是 markdown，<b>追踪器说谎的代价由之后每一个会话承担</b>。验收标准是"文档里每个路径、行号、commit 都实际存在"，不是"文档写得漂亮"。想省注意力可以放到最后、等 M 全部收完再开。</p>
+    <p>这个项目的记忆是 markdown，<b>追踪器说谎的代价由之后每一个会话承担</b>。验收标准是"文档里每个路径、行号、commit 都实际存在"，不是"文档写得漂亮"。想省注意力可以放到最后、等 M 全部收完再开。实际结果：进行中（本分支 feat/bookkeeping）。</p>
     <button class="btn copy" data-target="p-b">复制提示词</button>
     <details><summary>展开看提示词全文</summary><pre class="prompt" id="p-b">你是 vibebuddy 仓库的文档 agent。本次任务代号 B：把追踪器和规划文档同步到代码的真实状态。这一票【不改任何代码】。
 
