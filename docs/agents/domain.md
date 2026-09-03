@@ -22,7 +22,11 @@ If any of these files don't exist, **proceed silently**. Don't flag their absenc
 │   ├── 0003-free-no-iap-no-tracking.md
 │   ├── 0004-half-duplex-mic-gating-not-aec.md
 │   ├── 0005-shared-kit-sessions-platform-audio.md
-│   └── 0006-code-drawn-pet-and-menu-icon.md
+│   ├── 0006-code-drawn-pet-and-menu-icon.md
+│   ├── 0007-ios-pixel-cat-mac-robot.md
+│   ├── 0008-voice-actions-via-function-calling.md
+│   ├── 0009-daemon-hook-auth.md
+│   └── 0010-always-allow-in-vibebuddy-store.md
 └── (app sources)
 ```
 

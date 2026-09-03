@@ -44,7 +44,7 @@ public enum VoiceLanguage: String, CaseIterable, Sendable {
     case english = "en"
     case chinese = "zh"
 
-    /// BCP-47 locale for `SFSpeechRecognizer` and `AVSpeechSynthesisVoice`.
+    /// BCP-47 locale string for the realtime voice session's language.
     public var bcp47: String {
         switch self {
         case .english: return "en-US"
