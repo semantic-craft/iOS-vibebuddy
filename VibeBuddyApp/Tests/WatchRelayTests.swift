@@ -117,7 +117,7 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertEqual(relayed?.isDemo, true)
         XCTAssertEqual(relayed?.relay, .live)
         XCTAssertEqual(relayed?.counts.needsResponse, 2)
-        XCTAssertEqual(relayed?.counts.working, 2)
+        XCTAssertEqual(relayed?.counts.working, 3)
         XCTAssertEqual(relayed?.counts.done, 3)
         XCTAssertEqual(relayed?.stuck, 1)
         XCTAssertEqual(relayed?.quotas.count, 2)
