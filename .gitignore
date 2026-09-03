@@ -37,14 +37,6 @@ dist/*
 # Local agent tooling
 .antigravitycli/
 
-# >>> matt-pocock skills (warehouse symlinks — machine-local, do not commit) >>>
-# 原件在 xw-skills/mattpocock-skills；各机重新挂链，勿提交绝对路径。
-/.claude/skills/codebase-design
-/.claude/skills/improve-codebase-architecture
-/.claude/skills/prototype
-/.claude/skills/to-spec
-/.claude/skills/to-tickets
-# <<< matt-pocock skills <<<
 .scratch
 .claude/
 
