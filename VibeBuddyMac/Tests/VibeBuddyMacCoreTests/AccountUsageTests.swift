@@ -157,10 +157,20 @@ struct AccountUsageTests {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
 
+        // Outcomes below are decided by the thrown error / decoded snapshot, never
+        // by elapsed wall-clock time: a regression that waits for pipe EOF or the
+        // full timeout surfaces as `.timedOut` instead of the expected result.
+        // Timeouts are long enough that a loaded test host cannot hit them on the
+        // success path, leaked sleeps outlive the timeout so a leak cannot look
+        // like success, and the child's exit is polled (bounded) in expectProcessExited.
         let timeoutPIDFile = directory.appendingPathComponent("timeout.pid")
-        let timeoutProvider = claudeSleepingProvider(pidFile: timeoutPIDFile, timeout: 0.1)
+        let timeoutProvider = claudeSleepingProvider(pidFile: timeoutPIDFile, timeout: 1)
+        let timeoutFetch = Task { try await timeoutProvider.fetch() }
+        // The child must have written its pid before the timeout kills it, or
+        // there is nothing to check for reaping.
+        #expect(await waitForPID(in: timeoutPIDFile) != nil)
         do {
-            _ = try await timeoutProvider.fetch()
+            _ = try await timeoutFetch.value
             Issue.record("Expected a timeout")
         } catch let error as AccountUsageError {
             #expect(error == .timedOut)
@@ -186,12 +196,11 @@ struct AccountUsageTests {
         let overflowProvider = ClaudeCLIUsageProvider(
             executableURL: URL(fileURLWithPath: "/bin/sh"),
             arguments: [
-                "-c", "echo $$ > \"$1\"; (yes o | head -c 700000) & (yes e | head -c 700000 >&2) & wait; exec sleep 5",
+                "-c", "echo $$ > \"$1\"; (yes o | head -c 700000) & (yes e | head -c 700000 >&2) & wait; exec sleep 30",
                 "vibebuddy-test", overflowPIDFile.path,
             ],
-            timeout: 2
+            timeout: 5
         )
-        let overflowStarted = ContinuousClock.now
         do {
             _ = try await overflowProvider.fetch()
             Issue.record("Expected the output limit to be enforced")
@@ -200,7 +209,6 @@ struct AccountUsageTests {
         } catch {
             Issue.record("Unexpected error: \(error)")
         }
-        #expect(ContinuousClock.now - overflowStarted < .seconds(2))
         await expectProcessExited(pidFile: overflowPIDFile)
 
         let descendantPIDFile = directory.appendingPathComponent("descendant.pid")
@@ -215,31 +223,29 @@ struct AccountUsageTests {
         let inheritedWriterProvider = ClaudeCLIUsageProvider(
             executableURL: URL(fileURLWithPath: "/bin/sh"),
             arguments: [
-                "-c", "(trap '' TERM; exec sleep 5) & echo $! > \"$1\"; exec /usr/bin/printf '%s' \"$2\"",
+                "-c", "(trap '' TERM; exec sleep 30) & echo $! > \"$1\"; exec /usr/bin/printf '%s' \"$2\"",
                 "vibebuddy-test", descendantPIDFile.path,
                 liveEnvelope.map { String(decoding: $0, as: UTF8.self) } ?? "",
             ],
-            timeout: 1
+            timeout: 5
         )
-        let inheritedWriterStarted = ContinuousClock.now
         do {
             let snapshot = try await inheritedWriterProvider.fetch()
             #expect(snapshot.primary?.usedPercent == 10)
         } catch {
             Issue.record("Inherited writer should be cleaned up after valid output: \(error)")
         }
-        #expect(ContinuousClock.now - inheritedWriterStarted < .seconds(1))
         await expectProcessExited(pidFile: descendantPIDFile)
 
         let detachedPIDFile = directory.appendingPathComponent("detached-descendant.pid")
         let detachedProvider = ClaudeCLIUsageProvider(
             executableURL: URL(fileURLWithPath: "/bin/sh"),
             arguments: [
-                "-c", "(trap '' TERM; exec sleep 5 </dev/null >/dev/null 2>&1) & echo $! > \"$1\"; exec /usr/bin/printf '%s' \"$2\"",
+                "-c", "(trap '' TERM; exec sleep 30 </dev/null >/dev/null 2>&1) & echo $! > \"$1\"; exec /usr/bin/printf '%s' \"$2\"",
                 "vibebuddy-test", detachedPIDFile.path,
                 liveEnvelope.map { String(decoding: $0, as: UTF8.self) } ?? "",
             ],
-            timeout: 1
+            timeout: 5
         )
         do {
             let snapshot = try await detachedProvider.fetch()
