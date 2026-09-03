@@ -20,7 +20,9 @@ public struct VibeBuddyServer: Sendable {
     /// inject it; route tests leave it nil so they never consume host state.
     public let codexRolloutMonitor: CodexRolloutMonitor?
     public let approvalRegistry: ApprovalRegistry
-    public let rules: @Sendable () -> PermissionRules
+    /// The native allow/deny rules for one agent — the sources differ per CLI
+    /// (Grok also reads its own `config.toml`), so the lookup is agent-keyed.
+    public let rules: @Sendable (AgentKind) -> PermissionRules
     /// vibebuddy's own "always allow" store, overlaid on the native rules (ADR 0010).
     public let allowStore: VibeBuddyAllowStore
     /// Sessions the user chose to allow wholesale for their lifetime (in-memory).
@@ -39,7 +41,7 @@ public struct VibeBuddyServer: Sendable {
                 activityTokens: ActivityTokens = ActivityTokens(),
                 codexRolloutMonitor: CodexRolloutMonitor? = nil,
                 approvalRegistry: ApprovalRegistry = ApprovalRegistry(),
-                rules: @escaping @Sendable () -> PermissionRules = { PermissionRules.load() },
+                rules: @escaping @Sendable (AgentKind) -> PermissionRules = { PermissionRules.load(for: $0) },
                 allowStore: VibeBuddyAllowStore = VibeBuddyAllowStore(),
                 sessionAllow: SessionAllowList = SessionAllowList(),
                 approvalContext: ApprovalContextStore = ApprovalContextStore(),
@@ -269,6 +271,8 @@ public struct VibeBuddyServer: Sendable {
         // the token file and sends it). Parse the PreToolUse hook payload, run the
         // permission matcher, and either decide immediately (allow/deny) or hold
         // until the phone responds via `/decision` or the timeout fires.
+        // `?agent=<source>` selects the envelope shape to decode and the decision
+        // contract to answer in; no parameter means Claude Code, as before.
         let registry = self.approvalRegistry
         let rules = self.rules
         let allowStore = self.allowStore
@@ -278,17 +282,21 @@ public struct VibeBuddyServer: Sendable {
         let makeID = self.approvalID
         router.post("approval") { request, _ -> Response in
             guard Self.hookAuthorized(request, token: token) else { throw HTTPError(.unauthorized) }
+            let agent = AgentKind.fromSource(request.uri.queryParameters["agent"].map(String.init))
             let buffer = try await request.body.collect(upTo: 1 << 20)
             let data = Data(buffer: buffer)
             let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
-            let tool = obj["tool_name"] as? String ?? ""
-            let input = obj["tool_input"] as? [String: Any] ?? [:]
-            let sessionID = obj["session_id"] as? String ?? ""
-            let r = rules()
-            await store.ingest(data, receivedAt: Date())
+            let call = ApprovalPayload.decode(obj, agent: agent)
+            let tool = call.tool
+            let input = call.input
+            let sessionID = call.sessionID
+            let r = rules(agent)
+            // The blocking hook is also this agent's PreToolUse signal — ingesting
+            // it is what moves the session to `working` in the dashboard.
+            await store.ingest(data, agent: agent, receivedAt: Date())
             // Native deny always wins, over every vibebuddy overlay (ADR 0010).
             if PermissionMatcher.decide(tool: tool, input: input, allow: [], deny: r.deny) == .deny {
-                return Self.permissionResponse("deny")
+                return Self.permissionResponse("deny", agent: agent)
             }
             // vibebuddy overlay: a session-wide allow, or an exact always-allow rule the
             // user set — both bypass the matcher's pattern heuristics since the user
@@ -297,12 +305,12 @@ public struct VibeBuddyServer: Sendable {
             let storeRules = await allowStore.all()   // [String] is Sendable; match locally
             let storeAllowed = storeRules.contains { AllowRule.matchesExactly($0, tool: tool, input: input) }
             if sessionAllowed || storeAllowed {
-                return Self.permissionResponse("allow")
+                return Self.permissionResponse("allow", agent: agent)
             }
             // Otherwise the native allow/ask matching (composition-guarded).
             switch PermissionMatcher.decide(tool: tool, input: input, allow: r.allow, deny: r.deny) {
-            case .allow: return Self.permissionResponse("allow")
-            case .deny:  return Self.permissionResponse("deny")
+            case .allow: return Self.permissionResponse("allow", agent: agent)
+            case .deny:  return Self.permissionResponse("deny", agent: agent)
             case .ask:
                 let id = makeID()
                 let d = ApprovalDetails.from(tool: tool, input: input)
@@ -310,15 +318,16 @@ public struct VibeBuddyServer: Sendable {
                     PendingApproval(id: id, tool: tool,
                                     commandPreview: d.commandPreview.isEmpty ? tool : d.commandPreview,
                                     command: d.command, filePath: d.filePath,
-                                    oldText: d.oldText, newText: d.newText), at: Date())
+                                    oldText: d.oldText, newText: d.newText,
+                                    permissionMode: call.permissionMode), at: Date())
                 // Record what an "always allow" / "allow this session" would act on.
                 await approvalContext.set(id: id, sessionID: sessionID,
                                           rule: AllowRule.forApproval(tool: tool, input: input))
                 let outcome = await registry.wait(id: id, timeout: timeout)
                 await store.endApproval(sessionID: sessionID, at: Date())
                 switch outcome {
-                case .allow: return Self.permissionResponse("allow")
-                case .deny:  return Self.permissionResponse("deny")
+                case .allow: return Self.permissionResponse("allow", agent: agent)
+                case .deny:  return Self.permissionResponse("deny", agent: agent)
                 case .pass:  return Response(status: .ok)
                 }
             }
@@ -433,8 +442,22 @@ public struct VibeBuddyServer: Sendable {
         return false
     }
 
-    static func permissionResponse(_ decision: String) -> Response {
-        let json = #"{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"\#(decision)","permissionDecisionReason":"vibebuddy"}}"#
+    /// The PreToolUse decision, in the shape the calling agent parses.
+    ///
+    /// Claude Code reads `hookSpecificOutput.permissionDecision`. Grok Build
+    /// accepts that form too, but its own documented contract is the flat
+    /// `{"decision":…,"reason":…}` — that is what we emit for it, so the wire is
+    /// unambiguous when read from a Grok transcript. Either way a timeout still
+    /// answers with an empty 200 body, which both CLIs read as "no opinion".
+    static func permissionResponse(_ decision: String, agent: AgentKind = .claudeCode) -> Response {
+        let json: String
+        if agent == .grok {
+            json = decision == "deny"
+                ? #"{"decision":"deny","reason":"vibebuddy"}"#
+                : #"{"decision":"\#(decision)"}"#
+        } else {
+            json = #"{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"\#(decision)","permissionDecisionReason":"vibebuddy"}}"#
+        }
         return Response(status: .ok,
                         headers: [.contentType: "application/json"],
                         body: .init(byteBuffer: ByteBuffer(string: json)))

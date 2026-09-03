@@ -101,7 +101,30 @@ public enum ObservationHealthDetector {
                 now: now,
                 staleAfter: staleAfter,
                 fileManager: fm))
-        return [claude, codex]
+
+        // Grok keeps standalone hook files under `~/.grok/hooks/*.json`; ours is
+        // `vibebuddy.json`. The install marker is the config dir itself — grok
+        // 1.0.13 has no single settings file we can rely on.
+        let grok = agentDiagnostic(
+            agent: .grok,
+            hook: hookEvidence(
+                config: home?.appendingPathComponent(".grok/hooks/vibebuddy.json"),
+                installMarker: home?.appendingPathComponent(".grok", isDirectory: true),
+                agent: .grok,
+                signals: signals,
+                now: now,
+                staleAfter: staleAfter,
+                fileManager: fm),
+            passive: passiveEvidence(
+                root: home?.appendingPathComponent(".grok/sessions", isDirectory: true),
+                source: .transcript,
+                agent: .grok,
+                installed: home.map { fm.fileExists(atPath: $0.appendingPathComponent(".grok").path) },
+                signals: signals,
+                now: now,
+                staleAfter: staleAfter,
+                fileManager: fm))
+        return [claude, codex, grok]
     }
 
     private static func agentDiagnostic(
@@ -161,14 +184,10 @@ public enum ObservationHealthDetector {
         }
         let configurationIncomplete = !hasManagedHook
             || !requiredHookCoverage.isSubset(of: coverage)
-        let fallback: ObservationHealth
-        if agent == .codex, hasAsyncManagedHook {
-            fallback = .asyncIncompatible
-        } else if configurationIncomplete {
-            fallback = .eventsMissing
-        } else {
-            fallback = .eventsMissing
-        }
+        // Codex runs `async` hooks detached and drops their output, so an async
+        // managed hook is a configuration error rather than a missing event.
+        let fallback: ObservationHealth =
+            (agent == .codex && hasAsyncManagedHook) ? .asyncIncompatible : .eventsMissing
         return diagnostic(source: .hook, signal: signal, fallback: fallback,
                           configuredCoverage: Array(coverage), now: now,
                           staleAfter: staleAfter,
@@ -283,10 +302,13 @@ public enum ObservationHealthDetector {
             .max { $0.lastObservedAt < $1.lastObservedAt }
     }
 
+    /// Config keys are PascalCase across every CLI we install into (grok accepts
+    /// the same spelling as Claude), so one table covers them all.
     private static func eventFamily(_ event: String) -> ObservationEventCoverage? {
         switch event {
-        case "SessionStart", "SessionEnd", "PostModelSwitch", "CwdChanged": .lifecycle
-        case "UserPromptSubmit", "Stop", "StopFailure", "Interrupt": .turn
+        case "SessionStart", "SessionEnd", "PostModelSwitch", "CwdChanged",
+             "SubagentStart", "SubagentStop": .lifecycle
+        case "UserPromptSubmit", "Stop", "StopFailure", "StopCancelled", "Interrupt": .turn
         case "PreToolUse", "PostToolUse", "PostToolUseFailure", "PostToolBatch": .tool
         case "PermissionRequest", "PermissionDenied", "Notification", "Elicitation": .attention
         default: nil

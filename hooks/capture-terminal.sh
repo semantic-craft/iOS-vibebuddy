@@ -131,10 +131,19 @@ json_str() {  # json_str <key>  — first string value of "key" in $INPUT
     | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -1
 }
 
-# Claude/Codex/Qwen/Kimi/OpenCode send `session_id`; the Grok CLI sends `sessionId`.
-SID=$(json_str session_id)
-[ -z "$SID" ] && SID=$(json_str sessionId)
+# Session id, in order of trust: the payload describes *this* event — the Grok CLI
+# spells it camelCase, Claude-shape CLIs (Claude/Codex/Qwen/Kimi/OpenCode)
+# snake_case. $GROK_SESSION_ID is only the last resort, because grok exports it to
+# every process it spawns: a Claude session started from a shell inside grok would
+# otherwise report its terminal under grok's session id.
+SID=$(json_str sessionId)
+[ -z "$SID" ] && SID=$(json_str session_id)
+[ -z "$SID" ] && SID="${GROK_SESSION_ID:-}"
+# Event name: Claude-shape CLIs send `hook_event_name` with PascalCase values;
+# grok sends `hookEventName` with snake_case ones. Both spellings of SessionStart
+# are matched below, where the Ghostty probe is gated on it.
 EVENT=$(json_str hook_event_name)
+[ -z "$EVENT" ] && EVENT=$(json_str hookEventName)
 CWD=$(json_str cwd)
 [ -z "$CWD" ] && CWD="$PWD"
 if [ -z "$SID" ] && [ "$DRY_RUN" = "0" ]; then exit 0; fi
@@ -258,7 +267,8 @@ run_with_timeout() {  # run_with_timeout <seconds> <command...>
 
 GHOSTTY_TERMINAL_ID=""
 if [ "$TERM_PROGRAM_V" = "ghostty" ] && [ "${VIBEBUDDY_GHOSTTY_PROBE:-1}" != "0" ] \
-   && { [ "$EVENT" = "SessionStart" ] || [ "$DRY_RUN" = "1" ]; }; then
+   && { [ "$EVENT" = "SessionStart" ] || [ "$EVENT" = "session_start" ] \
+        || [ "$DRY_RUN" = "1" ]; }; then
   # Dictionary shape (verified against `sdef /Applications/Ghostty.app`):
   # application → `front window` (window) → `selected tab` (tab) →
   # `focused terminal` (terminal) → `id` (text). Addressed by bundle id so the

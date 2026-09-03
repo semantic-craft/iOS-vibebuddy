@@ -8,6 +8,7 @@ fails instantly and never affects the agent.
 ```bash
 python3 hooks/install-agent-hooks.py --dry-run    # detect + preview
 python3 hooks/install-agent-hooks.py --install    # wire every detected CLI
+python3 hooks/install-agent-hooks.py --approval   # + the phone-approval gate where supported
 python3 hooks/install-agent-hooks.py --uninstall  # revert every detected CLI
 ```
 
@@ -19,6 +20,9 @@ backs up before writing. Codex uses its first-class lifecycle hooks in
 `~/.codex/hooks.json`; the separate `notify` command is never changed, so Codex
 Computer Use or another notifier keeps working. The per-CLI installers below
 remain available if you want to wire one CLI at a time.
+
+`--approval` installs the blocking phone-approval gate for the CLIs that have one
+(Claude and Grok); every other detected CLI gets a plain `--install`.
 
 Claude-shape CLIs (Claude, Qwen, Kimi) need no daemon decoder; Codex / Grok /
 Antigravity are decoded per-source inside the daemon. (Note: Antigravity `agy`
@@ -78,6 +82,47 @@ currently active desktop turns are restored; old completed rollouts are not
 replayed into the dashboard.
 
 
+## Grok Build
+
+```bash
+python3 hooks/install-grok-hooks.py --dry-run     # preview
+python3 hooks/install-grok-hooks.py --install     # write ~/.grok/hooks/vibebuddy.json
+python3 hooks/install-grok-hooks.py --approval    # + the blocking approval gate
+python3 hooks/install-grok-hooks.py --uninstall   # revert
+```
+
+Grok loads every `~/.grok/hooks/*.json`, so vibebuddy writes its own file and never
+touches yours. Reload in the TUI with `/hooks` → `r`. Installed events:
+`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`,
+`PostToolUseFailure`, `Stop`, `StopFailure`, `StopCancelled`, `Notification`,
+`SubagentStart`, `SubagentStop`, `SessionEnd` — one forwarder handler each
+(`timeout: 5`), plus `capture-terminal.sh` on `SessionStart`/`UserPromptSubmit`.
+`Stop` and `SubagentStop` are stop *gates*, so their handler exits 0 immediately;
+a timeout or crash fails open and grok stops anyway.
+
+Grok's own `Notification` event is the attention signal: `permission_prompt` shows
+the session as waiting on you, and `idle_prompt` (about a minute after any turn
+end) is the idle backstop for the turns that report no stop at all.
+`task_complete` reports a *background* task and is ignored — it can fire mid-turn.
+
+Grok also imports `~/.claude/settings.json` hooks through `[compat.claude]`. Those
+copies arrive in the Claude shape without `?agent=grok`, so nothing depends on
+them — but grok resolves an argument-less quoted `command` as a literal path
+(`~/.claude/"/…/capture-terminal.sh"`, command not found), which is why the
+Claude capture hook is installed as `"…/capture-terminal.sh" claude`: with an
+argument both CLIs shell-parse it, and the script ignores `$1`.
+
+### Grok remote approval
+
+`--approval` swaps the fire-and-forget `PreToolUse` group for the blocking
+`approval-hook.sh grok` (`timeout: 30`, every tool). A later plain `--install`
+(including the Mac app's Repair button) keeps the gate; only `--uninstall`
+removes it. **The phone's answer is
+authoritative only when grok runs with `[ui] permission_mode = "always-approve"` in
+`~/.grok/config.toml`.** In grok's `default` mode a hook `allow` only means "not
+blocked": grok still raises its own TUI prompt afterwards and no external client can
+answer it, so vibebuddy can surface the wait and deny, but not approve on your behalf.
+
 ## Daemon
 
 The hooks target `http://127.0.0.1:9876/hook` (override with `VIBEBUDDY_PORT`).
@@ -104,8 +149,9 @@ self-heals on its next prompt. The re-capture reports less than the first one �
 it skips the Ghostty AppleScript probe, which is only valid while the surface is
 focused — so the Mac *merges* each ref into the stored one field by field: a
 later capture updates what it saw and never erases what it didn't. On each
-event it POSTs the session's `session_id` (or Grok's camelCase `sessionId`) plus
-everything it can learn about where the session lives, to
+event it POSTs the session's id — Grok's camelCase `sessionId`, else `session_id`,
+else `$GROK_SESSION_ID` as a last resort — plus everything it can learn about
+where the session lives, to
 `http://127.0.0.1:${VIBEBUDDY_PORT:-9876}/terminal`:
 
 | level | fields | what it buys |
@@ -144,5 +190,13 @@ bash hooks/tests/capture-terminal-parsing.sh
 
 Because the capture hook rides inside each CLI's own hook config, it needs the
 same reload/trust step as any other change there: Codex requires re-running
-`/hooks` in a fresh session to trust the new group; Grok requires reloading
-hooks (Ctrl+L → Hooks tab → 'l', or restart the session).
+`/hooks` in a fresh session to trust the new group; Grok requires reloading hooks
+(`/hooks` → `r`, or a new session).
+
+Grok resolves a quoted, argument-less `command` as a literal *path* (verified on
+1.0.13): `"…/capture-terminal.sh"` becomes `<grok home>/hooks/"…"` and fails with
+`command not found`. A command with an argument is shell-parsed instead, so both
+the Grok installer and the Claude one (whose hooks Grok imports through
+`[compat.claude]`) install the capture hook with an inert agent name argument —
+`"…/capture-terminal.sh" grok` / `… claude`. The script reads stdin and the
+environment, never `$1`.

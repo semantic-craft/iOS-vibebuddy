@@ -48,10 +48,18 @@ public struct PendingApproval: Codable, Sendable, Equatable {
     public let filePath: String?     // Edit/Write/Read target
     public let oldText: String?      // Edit: pre-image (for a diff)
     public let newText: String?      // Edit/Write: post-image / new content
+    /// The agent's permission mode when it asked, when it reports one — Grok
+    /// Build sends `default | auto | plan | bypassPermissions`. Only
+    /// `bypassPermissions` makes a remote *allow* final: in the other modes Grok
+    /// raises its own local prompt after the hook passes, and that prompt has no
+    /// remote answer channel. A remote *deny* is authoritative in every mode.
+    /// Nil for agents that don't report a mode (Claude Code and friends).
+    public let permissionMode: String?
 
     public init(id: String, tool: String, commandPreview: String,
                 command: String? = nil, filePath: String? = nil,
-                oldText: String? = nil, newText: String? = nil) {
+                oldText: String? = nil, newText: String? = nil,
+                permissionMode: String? = nil) {
         self.id = id
         self.tool = tool
         self.commandPreview = commandPreview
@@ -59,6 +67,7 @@ public struct PendingApproval: Codable, Sendable, Equatable {
         self.filePath = filePath
         self.oldText = oldText
         self.newText = newText
+        self.permissionMode = permissionMode
     }
 }
 

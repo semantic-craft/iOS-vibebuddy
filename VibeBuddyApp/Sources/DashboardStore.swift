@@ -235,6 +235,12 @@ final class DashboardStore: ObservableObject {
                 ],
                 statusSince: now.addingTimeInterval(-15), updatedAt: now.addingTimeInterval(-15)),
             AgentSession(
+                id: "demo-grok", agent: .grok, project: "glaux-book", branch: "main",
+                model: "grok-4.6", status: .working, summary: "Running the build script…",
+                tokens: 2800, contextTokens: 96_000, contextWindow: 500_000,
+                activeTool: "run_terminal_command",
+                statusSince: now.addingTimeInterval(-6), updatedAt: now.addingTimeInterval(-6)),
+            AgentSession(
                 id: "demo-question", agent: .claudeCode, project: "docs-review",
                 model: "claude-sonnet-4-5", status: .needsResponse, waitKind: .question,
                 pendingQuestion: PendingQuestion(

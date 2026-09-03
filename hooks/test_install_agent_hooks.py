@@ -37,6 +37,12 @@ USER_CLAUDE_HOOK = "echo i-am-a-user-hook"
 USER_CODEX_NOTIFY = ["/Applications/Existing Notifier.app/Contents/MacOS/notifier", "turn-ended"]
 USER_CODEX_HOOK = "echo i-am-a-user-codex-hook"
 USER_KIMI_HOOK = "/Users/nobody/my-own-hook --source kimi"
+# The grok 1.0.13 event set install-grok-hooks.py registers.
+GROK_EVENTS = [
+    "SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
+    "PostToolUseFailure", "Stop", "StopFailure", "StopCancelled",
+    "Notification", "SubagentStart", "SubagentStop", "SessionEnd",
+]
 
 
 def seed_home(home):
@@ -65,8 +71,41 @@ def seed_home(home):
 
 def run(mode, home):
     env = {**os.environ, "HOME": home}
+    # An ambient $GROK_HOME would redirect the grok installer away from the
+    # throwaway $HOME this pass asserts against.
+    env.pop("GROK_HOME", None)
     return subprocess.run([sys.executable, UNIVERSAL, mode], env=env,
                           capture_output=True, text=True)
+
+
+def check_grok_home(fails):
+    """install-grok-hooks.py writes under $GROK_HOME, not just ~/.grok."""
+    installer = os.path.join(HOOKS, "install-grok-hooks.py")
+    with tempfile.TemporaryDirectory() as home, tempfile.TemporaryDirectory() as grok_home:
+        env = {**os.environ, "HOME": home, "GROK_HOME": grok_home}
+        r = subprocess.run([sys.executable, installer, "--install"], env=env,
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            fails.append(f"GROK_HOME install exited {r.returncode}: {r.stderr}")
+        target = os.path.join(grok_home, "hooks/vibebuddy.json")
+        if not os.path.exists(target):
+            fails.append("install-grok-hooks.py ignored $GROK_HOME")
+            return
+        if os.path.exists(os.path.join(home, ".grok/hooks/vibebuddy.json")):
+            fails.append("$GROK_HOME install also wrote to ~/.grok")
+        hooks = json.loads(open(target).read())["hooks"]
+        for event in GROK_EVENTS:
+            commands = [hook.get("command", "") for group in hooks.get(event, [])
+                        for hook in group.get("hooks", [])]
+            if not any('vibebuddy-forward.sh" grok' in command for command in commands):
+                fails.append(f"$GROK_HOME install missed the {event} hook")
+        # uninstall must clean the same redirected location
+        ru = subprocess.run([sys.executable, installer, "--uninstall"], env=env,
+                            capture_output=True, text=True)
+        if ru.returncode != 0:
+            fails.append(f"GROK_HOME uninstall exited {ru.returncode}: {ru.stderr}")
+        if os.path.exists(target):
+            fails.append("uninstall left vibebuddy.json under $GROK_HOME")
 
 
 def snapshot(home):
@@ -159,6 +198,91 @@ def main():
         if USER_KIMI_HOOK not in kimi or "vibebuddy-forward.sh kimi" not in kimi:
             fails.append("install broke kimi user hook or missed vibebuddy hook")
 
+        # grok: the full 1.0.13 event set through the forwarder, plus terminal
+        # capture on the two events the Claude installer uses.
+        grok_hooks = json.loads(open(os.path.join(home, ".grok/hooks/vibebuddy.json")).read())["hooks"]
+        for event in GROK_EVENTS:
+            commands = [hook.get("command", "") for group in grok_hooks.get(event, [])
+                        for hook in group.get("hooks", [])]
+            if not any('vibebuddy-forward.sh" grok' in command for command in commands):
+                fails.append(f"install missed the vibebuddy grok {event} hook")
+        for event in ["SessionStart", "UserPromptSubmit"]:
+            commands = [hook.get("command", "") for group in grok_hooks.get(event, [])
+                        for hook in group.get("hooks", [])]
+            capture = [c for c in commands if "capture-terminal.sh" in c]
+            if not capture:
+                fails.append(f"install missed the grok {event} terminal capture")
+            # Grok resolves an argument-less command as a literal path relative to
+            # the hooks dir, quotes included, so a bare `"…/capture-terminal.sh"`
+            # never runs. It must carry an argument to be shell-parsed.
+            elif capture[0].strip().endswith('"'):
+                fails.append(f"grok {event} capture is a bare quoted path (grok "
+                             "resolves it relative to the hooks dir and it never runs)")
+        approval_commands = [hook.get("command", "") for group in grok_hooks.get("PreToolUse", [])
+                             for hook in group.get("hooks", [])]
+        if any("approval-hook.sh" in command for command in approval_commands):
+            fails.append("plain --install must not add the grok approval gate")
+
+        # --approval: the blocking gate replaces the fire-and-forget PreToolUse
+        # group for the CLIs that support it, and leaves the rest installed.
+        ra = run("--approval", home)
+        if ra.returncode != 0:
+            fails.append(f"--approval exited {ra.returncode}: {ra.stderr}")
+        grok_hooks = json.loads(open(os.path.join(home, ".grok/hooks/vibebuddy.json")).read())["hooks"]
+        pre_tool = [hook for group in grok_hooks.get("PreToolUse", [])
+                    for hook in group.get("hooks", [])]
+        if not any("approval-hook.sh" in hook.get("command", "") for hook in pre_tool):
+            fails.append("--approval did not add the grok approval gate")
+        if any("vibebuddy-forward.sh" in hook.get("command", "") for hook in pre_tool):
+            fails.append("--approval left the fire-and-forget grok PreToolUse group")
+        if not all(hook.get("timeout") == 30 for hook in pre_tool):
+            fails.append("grok approval gate must allow 30s for the phone round trip")
+        if not any(hook.get("command", "").endswith('" grok') for hook in pre_tool):
+            fails.append("grok approval gate must pass the grok source argument")
+        claude_pre_tool = [hook for group in json.loads(
+                               open(os.path.join(home, ".claude/settings.json")).read()
+                           ).get("hooks", {}).get("PreToolUse", [])
+                           for hook in group.get("hooks", [])]
+        if not any("approval-hook.sh" in hook.get("command", "") for hook in claude_pre_tool):
+            fails.append("--approval did not add the claude approval gate")
+        if "Stop" not in grok_hooks:
+            fails.append("--approval dropped the grok status hooks")
+
+        # A plain re-install (the Mac app's Repair button) rewrites the grok file
+        # wholesale; it must not silently drop the gate the user opted into.
+        rr = run("--install", home)
+        if rr.returncode != 0:
+            fails.append(f"re-install after --approval exited {rr.returncode}: {rr.stderr}")
+        grok_hooks = json.loads(open(os.path.join(home, ".grok/hooks/vibebuddy.json")).read())["hooks"]
+        pre_tool = [hook for group in grok_hooks.get("PreToolUse", [])
+                    for hook in group.get("hooks", [])]
+        if not any("approval-hook.sh" in hook.get("command", "") for hook in pre_tool):
+            fails.append("plain --install dropped the existing grok approval gate")
+        if "Stop" not in grok_hooks:
+            fails.append("re-install after --approval dropped the grok status hooks")
+        claude_pre_tool = [hook for group in json.loads(
+                               open(os.path.join(home, ".claude/settings.json")).read()
+                           ).get("hooks", {}).get("PreToolUse", [])
+                           for hook in group.get("hooks", [])]
+        if not any("approval-hook.sh" in hook.get("command", "") for hook in claude_pre_tool):
+            fails.append("plain --install dropped the existing claude approval gate")
+
+        # Grok imports ~/.claude/settings.json hooks and resolves a quoted,
+        # argument-less command as a literal path, so the Claude capture hook
+        # carries an inert argument too.
+        claude_capture = [hook.get("command", "")
+                          for event in ["SessionStart", "UserPromptSubmit"]
+                          for group in json.loads(
+                              open(os.path.join(home, ".claude/settings.json")).read()
+                          ).get("hooks", {}).get(event, [])
+                          for hook in group.get("hooks", [])
+                          if "capture-terminal.sh" in hook.get("command", "")]
+        if len(claude_capture) != 2:
+            fails.append("claude capture hook missing on SessionStart/UserPromptSubmit")
+        if any(command.strip().endswith('"') for command in claude_capture):
+            fails.append("claude capture is a bare quoted path (grok's compat "
+                         "bridge resolves it as a literal path and it never runs)")
+
         # 2 + 3b. uninstall: clean of vibebuddy, user content preserved
         ru = run("--uninstall", home)
         if ru.returncode != 0:
@@ -192,12 +316,15 @@ def main():
         if os.path.exists(os.path.join(home, ".config/opencode/plugins/vibebuddy.js")):
             fails.append("uninstall left opencode plugin")
 
+    check_grok_home(fails)
+
     if fails:
         print("FAIL:")
         for f in fails:
             print("  -", f)
         sys.exit(1)
-    print("PASS: install idempotent, uninstall clean, user hooks preserved (7 CLIs)")
+    print("PASS: install idempotent, approval gates wired, uninstall clean, "
+          "user hooks preserved (7 CLIs)")
 
 
 if __name__ == "__main__":

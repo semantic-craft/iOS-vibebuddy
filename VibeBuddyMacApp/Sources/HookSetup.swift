@@ -30,6 +30,7 @@ final class HookSetup: ObservableObject {
         switch agent {
         case .claudeCode: run("--install", scriptName: "install-claude-hooks.py")
         case .codex: run("--install", scriptName: "install-codex-hooks.py")
+        case .grok: run("--install", scriptName: "install-grok-hooks.py")
         default: break
         }
     }

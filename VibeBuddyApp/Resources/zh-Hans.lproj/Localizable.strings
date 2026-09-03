@@ -61,6 +61,7 @@
 "Question" = "问题";
 "Answer" = "回答";
 "… (truncated)" = "…（已截断）";
+"Grok will still ask in the terminal after Allow (permission mode: %@). Set permission_mode = \"always-approve\" to approve from here." = "批准后，Grok 仍会在终端里再确认一次（权限模式：%@）。设置 permission_mode = \"always-approve\" 才能直接在这里批准。";
 
 /* MARK: Settings */
 "Sound" = "声音";

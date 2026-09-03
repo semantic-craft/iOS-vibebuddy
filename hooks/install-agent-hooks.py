@@ -9,6 +9,8 @@ rather than duplicated.
 
   --dry-run    list detected CLIs and what each would do
   --install    install vibebuddy hooks into every detected CLI
+  --approval   install, and add the blocking phone-approval gate where the CLI
+               supports one (Claude, Grok); every other CLI gets --install
   --uninstall  remove vibebuddy hooks from every detected CLI
 
 Idempotent: every per-CLI installer is idempotent, so a re-run is a no-op.
@@ -33,6 +35,11 @@ CLIS = [
 ]
 
 
+# CLIs whose installer understands `--approval` (a blocking PreToolUse gate that
+# asks the phone). Everything else is installed status-only.
+APPROVAL_CAPABLE = {"claude", "grok"}
+
+
 def present(path):
     return os.path.exists(os.path.expanduser(path))
 
@@ -45,7 +52,8 @@ def run(script, mode):
 
 
 def main():
-    mode = next((a for a in sys.argv[1:] if a in {"--dry-run", "--install", "--uninstall"}), "--dry-run")
+    mode = next((a for a in sys.argv[1:]
+                 if a in {"--dry-run", "--install", "--uninstall", "--approval"}), "--dry-run")
     found = [(n, p, s) for (n, p, s) in CLIS if present(p)]
     skipped = [n for (n, p, s) in CLIS if not present(p)]
 
@@ -57,7 +65,10 @@ def main():
     failures = 0
     for (n, p, s) in found:
         print(f"\n=== {n}  ({s}) ===")
-        r = run(s, mode)
+        cli_mode = mode
+        if mode == "--approval" and n not in APPROVAL_CAPABLE:
+            cli_mode = "--install"
+        r = run(s, cli_mode)
         out = (r.stdout or "").strip()
         err = (r.stderr or "").strip()
         if out:

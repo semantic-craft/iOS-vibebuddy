@@ -67,4 +67,20 @@ struct TranscriptRecentTests {
         #expect(TranscriptReader.recentEntries(path: tmp)?.map(\.text) == ["hi", "hello"])
         #expect(TranscriptReader.recentEntries(path: "/no/such/file.jsonl") == nil)
     }
+
+    @Test("grok's own log produces the same entry shapes")
+    func grokEntriesMatchTheClaudeShape() {
+        let entries = GrokSessionReader.recentEntries(updatesTail: Data([
+            GrokFixture.userChunk("do the thing"),
+            GrokFixture.toolCall(id: "call-1", title: "search_replace"),
+            GrokFixture.agentChunk("done the thing"),
+        ].joined(separator: "\n").utf8))
+        #expect(entries.map(\.role) == ["user", "assistant", "assistant"])
+        #expect(entries.map(\.text) == ["do the thing", "⚙ search_replace", "done the thing"])
+    }
+
+    @Test("a grok log with no messages at all yields no entries")
+    func grokEmpty() {
+        #expect(GrokSessionReader.recentEntries(updatesTail: Data()).isEmpty)
+    }
 }
