@@ -39,8 +39,9 @@ code, and tests — don't drift to synonyms.
 
 ## Buddy / pet
 
-- **Buddy / Pet** — the companion character (a code-drawn **robot**) that
-  reflects overall status and hosts the voice companion. Zero third-party art.
+- **Buddy / Pet** — the companion character (a code-drawn **pixel cat**, unified
+  across iOS and macOS per ADR-0007's amendment) that reflects overall status
+  and hosts the voice companion. Zero third-party art.
 - **BuddyState** — the mood enum driving the pet's face and the sound pack:
   `approval`, `question`, `longWait`, `working`, `stuck`, `done`, `sleeping`.
 
