@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Combine
 import UserNotifications
 import VibeBuddyKit
 import VibeBuddyMacCore
@@ -48,13 +49,6 @@ final class MenuBarModel: ObservableObject {
     @Published var toggleGlanceHotkey: Hotkey = .toggleGlanceDefault
     /// Idle-cleanup window in hours; 0 means never. Default 2h.
     @Published var idleTimeoutHours: Double = 2
-    /// Account usage is intentionally separate from `sessions`; refresh errors
-    /// never enter SessionStore or the progress notification pipeline.
-    @Published private(set) var usageStates: [AccountUsageProvider: AccountUsageState] = [:] {
-        didSet { publishProviderQuota() }
-    }
-    @Published private(set) var usageCollectionEnabled: [AccountUsageProvider: Bool] = [:]
-
     let port: Int
     private let token: String
     private let store: SessionStore
@@ -76,8 +70,10 @@ final class MenuBarModel: ObservableObject {
     private let deviceTokens = DeviceTokens()
     private let phonePolicy = SoundPolicy()
     private let budgetMonitor = BudgetMonitor()
-    private let usageCollectors: [AccountUsageProvider: AccountUsageCollector]
-    private var usageAlertMonitor = AccountUsageAlertMonitor()
+    /// Account usage is intentionally separate from `sessions`; refresh errors
+    /// never enter SessionStore or the progress notification pipeline.
+    private let usage: AccountUsageCoordinator
+    private var usageObserver: AnyCancellable?
     /// The voice companion (tap the buddy to talk). Lazy so `self` is fully built.
     lazy var voiceChat = VoiceChat(
         contextProvider: { [weak self] in
@@ -86,12 +82,9 @@ final class MenuBarModel: ObservableObject {
         },
         actionHandler: { [weak self] action in self?.performVoiceAction(action) ?? "" })
     private var pollTask: Task<Void, Never>?
-    private var usageTasks: [AccountUsageProvider: Task<Void, Never>] = [:]
-    private var usageGenerations: [AccountUsageProvider: UInt64] = [:]
     private var glance: GlanceWindow?
     private static let pairedPhoneInfoKey = "pairedPhoneInfo"
     private static let legacyPairedPhoneKey = "pairedPhone"
-    private static let usageAlertedWindowsKey = "accountUsageAlertedWindows"
 
     init(runtimeEnabled: Bool = true) {
         port = ProcessInfo.processInfo.environment["VIBEBUDDY_PORT"].flatMap(Int.init) ?? 9876
@@ -114,45 +107,7 @@ final class MenuBarModel: ObservableObject {
         showGlance = Self.loadBool("showGlance", default: true)
         openDashboardHotkey = Hotkey.loadOpenDashboard()
         toggleGlanceHotkey = Hotkey.loadToggleGlance()
-        let codexUsageEnabled = Self.loadBool(Self.usageEnabledKey(for: .codex), default: true)
-        let claudeUsageEnabled = Self.loadBool(Self.usageEnabledKey(for: .claude), default: true)
-        let grokUsageEnabled = Self.loadBool(Self.usageEnabledKey(for: .grok), default: true)
-        usageCollectionEnabled = [
-            .codex: codexUsageEnabled,
-            .claude: claudeUsageEnabled,
-            .grok: grokUsageEnabled,
-        ]
-        usageStates = [
-            .codex: codexUsageEnabled
-                ? .unavailable(.notYetLoaded, lastAttemptAt: nil, nextRefreshAt: nil)
-                : .disabled,
-            .claude: claudeUsageEnabled
-                ? .unavailable(.notYetLoaded, lastAttemptAt: nil, nextRefreshAt: nil)
-                : .disabled,
-            .grok: grokUsageEnabled
-                ? .unavailable(.notYetLoaded, lastAttemptAt: nil, nextRefreshAt: nil)
-                : .disabled,
-        ]
-        usageCollectors = [
-            .codex: AccountUsageCollector(
-                provider: CodexAppServerUsageProvider(),
-                cache: AccountUsageFileCache(provider: .codex),
-                enabled: codexUsageEnabled
-            ),
-            .claude: AccountUsageCollector(
-                provider: ClaudeCLIUsageProvider(),
-                cache: AccountUsageFileCache(provider: .claude),
-                enabled: claudeUsageEnabled
-            ),
-            .grok: AccountUsageCollector(
-                provider: GrokUsageProvider(),
-                cache: AccountUsageFileCache(provider: .grok),
-                enabled: grokUsageEnabled
-            ),
-        ]
-        usageAlertMonitor = AccountUsageAlertMonitor(
-            alertedWindowKeys: Self.loadUsageAlertedWindows()
-        )
+        usage = AccountUsageCoordinator(store: store, notifier: notifier)
         pairedPhone = Self.loadPairedPhone()
         let apnsConfig = APNsConfig.load()
         let deliveryURL = ProcessInfo.processInfo.environment["VIBEBUDDY_DELIVERY_LOG_PATH"].map {
@@ -164,6 +119,12 @@ final class MenuBarModel: ObservableObject {
         pusher = apnsConfig.flatMap { try? APNsPusher(config: $0, recorder: recorder) }
         notificationCoordinator = NotificationCoordinator(notifier: notifier, delivery: recorder)
         notificationDeliveryHealth = NotificationDeliveryHealth(apnsConfigured: apnsConfig != nil)
+        // The views read usage through this model's facades, so the coordinator's
+        // changes have to reach the same `objectWillChange` they observe. Set up
+        // after every stored property is initialized: the capture needs `self`.
+        usageObserver = usage.objectWillChange.sink { [weak self] in
+            self?.objectWillChange.send()
+        }
         // Screenshot / exploration instance: seed sample sessions and skip the
         // server, polling, pairing, and notifications entirely. It never binds the
         // port or pushes to a phone, so it runs harmlessly alongside a real
@@ -177,15 +138,8 @@ final class MenuBarModel: ObservableObject {
             startServer()
             preparePairing()
             startPolling()
-            for provider in AccountUsageProvider.allCases where isUsageCollectionEnabled(provider) {
-                startUsageCollection(provider)
-            }
+            usage.start()
         }
-        // `didSet` does not fire for the assignment inside `init`, and a provider
-        // that is switched off never changes state again. Publish once here so
-        // both providers reach the snapshot from launch, saying "waiting" or
-        // "turned off" rather than being absent.
-        publishProviderQuota()
         // Create the glance on the next main-runloop tick — NOT synchronously here.
         // Hosting/displaying a SwiftUI view that observes `self` while `init` is
         // still running trips an AttributeGraph precondition (NSHostingView.layout
@@ -309,121 +263,16 @@ final class MenuBarModel: ObservableObject {
         }
     }
 
-    /// Start the independent account-usage loop. It has its own cadence,
-    /// timeout/cache/backoff policy and never participates in the 2-second
-    /// session snapshot poll above.
-    private func startUsageCollection(_ provider: AccountUsageProvider) {
-        let generation = (usageGenerations[provider] ?? 0) &+ 1
-        usageGenerations[provider] = generation
-        let previousTask = usageTasks[provider]
-        previousTask?.cancel()
-        guard let collector = usageCollectors[provider] else { return }
-        usageTasks[provider] = Task { [weak self] in
-            await previousTask?.value
-            guard !Task.isCancelled,
-                  let self,
-                  self.usageGenerations[provider] == generation,
-                  self.isUsageCollectionEnabled(provider) else { return }
-            let initial = await collector.setEnabled(true)
-            guard !Task.isCancelled,
-                  self.usageGenerations[provider] == generation,
-                  self.isUsageCollectionEnabled(provider) else { return }
-            self.usageStates[provider] = initial
-
-            while !Task.isCancelled,
-                  self.usageGenerations[provider] == generation,
-                  self.isUsageCollectionEnabled(provider) {
-                let state = await collector.refresh()
-                guard !Task.isCancelled,
-                      self.usageGenerations[provider] == generation,
-                      self.isUsageCollectionEnabled(provider) else { return }
-                self.usageStates[provider] = state
-                self.checkUsageAlert(state)
-
-                let delay = max(1, state.nextRefreshAt?.timeIntervalSinceNow ?? 60)
-                do {
-                    try await Task.sleep(for: .seconds(delay))
-                } catch {
-                    return
-                }
-            }
-        }
-    }
-
-    /// Hand the runtime snapshot owner the normalized allowance, so the phone
-    /// and the Watch read the same numbers this menu bar shows. Turning a
-    /// provider off is state too: it publishes an explicit unavailable rather
-    /// than leaving the last value to age quietly on someone's wrist.
-    private func publishProviderQuota() {
-        let quota = ProviderQuota.all(from: usageStates)
-        Task { [store] in await store.setProviderQuota(quota) }
-    }
-
     func isUsageCollectionEnabled(_ provider: AccountUsageProvider) -> Bool {
-        usageCollectionEnabled[provider] == true
+        usage.isCollectionEnabled(provider)
     }
 
     func usageState(for provider: AccountUsageProvider) -> AccountUsageState {
-        usageStates[provider] ?? .disabled
+        usage.state(for: provider)
     }
 
     func setUsageCollectionEnabled(_ enabled: Bool, provider: AccountUsageProvider) {
-        guard enabled != isUsageCollectionEnabled(provider) else { return }
-        usageCollectionEnabled[provider] = enabled
-        UserDefaults.standard.set(enabled, forKey: Self.usageEnabledKey(for: provider))
-        if enabled {
-            startUsageCollection(provider)
-        } else {
-            let generation = (usageGenerations[provider] ?? 0) &+ 1
-            usageGenerations[provider] = generation
-            let previousTask = usageTasks[provider]
-            previousTask?.cancel()
-            usageStates[provider] = .disabled
-            guard let collector = usageCollectors[provider] else { return }
-            usageTasks[provider] = Task { [weak self] in
-                let disabled = await collector.setEnabled(false)
-                await previousTask?.value
-                guard !Task.isCancelled,
-                      let self,
-                      self.usageGenerations[provider] == generation,
-                      !self.isUsageCollectionEnabled(provider) else { return }
-                self.usageStates[provider] = disabled
-            }
-        }
-    }
-
-    private func checkUsageAlert(_ state: AccountUsageState) {
-        let defaults = UserDefaults.standard
-        let threshold = defaults.object(forKey: "accountUsageAlertThreshold") == nil
-            ? 90
-            : defaults.integer(forKey: "accountUsageAlertThreshold")
-        let windows = usageAlertMonitor.newlyCrossed(
-            in: state,
-            thresholdPercent: threshold,
-            notificationsSuppressed: Self.effectiveQuiet()
-        )
-        Self.saveUsageAlertedWindows(usageAlertMonitor.alertedWindowKeys)
-        guard let provider = state.snapshot?.provider else { return }
-        for window in windows {
-            notifier.notifyUsage(provider: provider, window: window, threshold: threshold)
-        }
-    }
-
-    private static func loadUsageAlertedWindows() -> Set<String> {
-        guard let data = UserDefaults.standard.data(forKey: usageAlertedWindowsKey),
-              let keys = try? JSONDecoder().decode(Set<String>.self, from: data) else {
-            return []
-        }
-        return keys
-    }
-
-    private static func saveUsageAlertedWindows(_ keys: Set<String>) {
-        guard let data = try? JSONEncoder().encode(keys) else { return }
-        UserDefaults.standard.set(data, forKey: usageAlertedWindowsKey)
-    }
-
-    private static func usageEnabledKey(for provider: AccountUsageProvider) -> String {
-        "\(provider.rawValue)UsageCollectionEnabled"
+        usage.setCollectionEnabled(enabled, provider: provider)
     }
 
     /// Push a Live Activity content-state update to registered phones, but only when
@@ -719,6 +568,5 @@ final class MenuBarModel: ObservableObject {
 
     deinit {
         pollTask?.cancel()
-        for task in usageTasks.values { task.cancel() }
     }
 }
