@@ -3,6 +3,65 @@
 **Last Updated**: 2026-09-02
 **Method**: every GitHub project below was verified live with `gh` (existence, stars, license, last push). App Store apps are closed-source and were not code-verifiable. Claims I could not verify are marked as such — per the project rule to separate verified facts from candidates.
 
+## 2026-09-03 Codex Desktop survey
+
+Question: can VibeBuddy monitor Codex Desktop sessions, and what do mature
+projects do differently? Twelve projects were inspected at default-branch HEAD
+with `gh`, together with the openai/codex `main` sources and this Mac's own
+`~/.codex` (no transcript content read).
+
+**Ground truth (openai/codex, verified locally).** Codex Desktop is now the
+Codex Framework inside `ChatGPT.app`; it spawns `codex app-server` over stdio
+with no `--listen`, so no other process can attach to its live threads
+(`app-server-control.sock` belongs to the CLI daemon, `ipc/ipc.sock` is an
+IDE-context router). openai/codex issue #25914 documents that a second
+app-server sees Desktop threads only as `notLoaded`. Rollouts persist only
+`task_started`, `task_complete`, `turn_aborted`, `item_completed`,
+`token_count`, `thread_settings_applied` and a few `*End` records
+(`codex-rs/rollout/src/policy.rs`); approval and `request_user_input` prompts
+are explicitly not persisted. Desktop rollouts carry
+`originator: "Codex Desktop"` with `source: "vscode"` (the enum default), and
+subagent threads reuse the same originator with `thread_source: "subagent"`.
+The core `threads` table lives in `~/.codex/state_5.sqlite`;
+`~/.codex/sqlite/codex-dev.db` is the Electron app's private catalog.
+
+| Project | Desktop support | Signal | States | Model / tokens | Remote actions |
+|---|---|---|---|---|---|
+| [CodexBar](https://github.com/steipete/CodexBar) (20k+) | label only, via originator + ChatGPT app-server process | process table + today/yesterday rollouts + `state_5.sqlite` | active/idle (120 s mtime) | model from sqlite, cost from `token_count` | none |
+| [Agent Signal Bar](https://github.com/guan-ops/Agent-Signal-Bar) | yes, hook-free desktop monitor | recursive rollout tail with ctime/offset cursors | thinking/working/tool_done/done/permission/attention | `token_count`, tool from `function_call` | none |
+| [open-vibe-island](https://github.com/Octane0411/open-vibe-island) (2k) | partial | incremental rollout fold + own app-server (own threads only) + `archived_sessions/` | running/approval/question/completed | usage module | none |
+| [agentsview](https://github.com/kenn-io/agentsview) (5k+) | ingests, no discrimination | FSEvents + byte cursors + `history.jsonl` hot list | awaiting_user / tool_call_pending + recency | `turn_context.model`, `last_token_usage` | `codex resume` in a terminal |
+| [notchi](https://github.com/sk-ruban/notchi) (1k) | no (hook ingress) | hooks, then rollout `DispatchSource`, `state_*.sqlite` | hook-driven | `turn_context` + `token_count` | none |
+| [codestatus](https://github.com/henriquegpb/codestatus) | no, by design | hooks only | working/free/approval/answer | none | none |
+| [parallex](https://github.com/Jiply/parallex) | yes | `lsof` on open rollouts + backward tail scan | active/inactive | — | none |
+| [pocket-codex](https://github.com/acking-you/pocket-codex) | observe + destructive takeover | own app-server + rollout tail + `lsof` | owned/resumable 2×2 | `tokenUsage / modelContextWindow` | own threads only |
+| MioIsland, CodexLens, ccpocket | none / label only | — | — | — | own threads only |
+
+**Consensus.** Every project observes Desktop through the rollout JSONL and
+none can act on a Desktop thread; approval waits are inferred (pending tool
+call plus a quiet file) and admitted to be heuristic; liveness needs a second
+signal beyond mtime (`lsof`, the ChatGPT app-server process, or the
+`archived_sessions/` move); `token_count` is bookkeeping, never activity.
+
+**Where VibeBuddy stood.** `CodexRolloutMonitor` already had the strongest
+turn model in the sample (concurrent `turn_id`s, event-driven watchers,
+bootstrap of only active turns, collaboration topology). Four gaps were real:
+discovery only looked at today's and yesterday's date directories although
+resumed threads append under their start date (10 such files in the last week
+on this Mac); Desktop rows had no model, context or spend; subagent rollouts
+surfaced as extra top-level sessions; an archived rollout was untracked
+silently.
+
+**Adopted on 2026-09-03.** Recursive discovery bounded by the recency window;
+`turn_context` / `thread_settings_applied` → model, `token_count` → context
+and spend through the reducer's enrichment path, gated so an idle thread's
+bookkeeping never creates a row; `thread_source`/`source.subagent` filter;
+`sessionEnd` when a surfaced rollout vanishes. Not adopted: `lsof` liveness
+(process-table cost for a signal the 2 h stale reconcile already
+approximates), approval inference from a quiet file (false "needs you" is
+worse than none), and any app-server attachment (impossible on macOS without
+patching ChatGPT.app).
+
 ## 2026-09-02 activity-monitoring refresh
 
 The current mature implementations converge on a **hybrid event model**, not

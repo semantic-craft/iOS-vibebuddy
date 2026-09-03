@@ -56,6 +56,10 @@ public struct HookEvent: Sendable, Equatable {
     /// reducer drop a settle report that belongs to an already-superseded turn.
     /// Nil for CLIs that do not label turns — those settle unconditionally.
     public let turnID: String?
+    /// Model, token, and context facts a local source read alongside the event
+    /// (the Codex rollout's `token_count`). Applied through the reducer's
+    /// enrichment path, never as a progress transition.
+    public let enrichment: TranscriptInfo?
 
     public init(
         kind: Kind,
@@ -74,7 +78,8 @@ public struct HookEvent: Sendable, Equatable {
         childName: String? = nil,
         childType: String? = nil,
         childAction: ChildLifecycleAction? = nil,
-        turnID: String? = nil
+        turnID: String? = nil,
+        enrichment: TranscriptInfo? = nil
     ) {
         self.kind = kind
         self.sessionID = sessionID
@@ -93,5 +98,6 @@ public struct HookEvent: Sendable, Equatable {
         self.childType = childType
         self.childAction = childAction
         self.turnID = turnID
+        self.enrichment = enrichment
     }
 }

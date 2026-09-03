@@ -74,12 +74,33 @@ does not read or forge Codex's trust state.
 
 ### Codex Desktop
 
-Codex Desktop does not execute the user's CLI `hooks.json`. VibeBuddy therefore
-tails the local `~/.codex/sessions/**/rollout-*.jsonl` stream in addition to the
-CLI hooks. `task_started`, tool records, `task_complete`, and `turn_aborted` feed
-the same reducer, so desktop work appears without `/hooks` trust. On startup only
+Codex Desktop (the Codex GUI inside ChatGPT.app, running `codex app-server`
+over stdio) does not execute the user's CLI `hooks.json`, and its app-server
+exposes no socket another process could attach to. VibeBuddy therefore tails the
+local `~/.codex/sessions/**/rollout-*.jsonl` stream in addition to the CLI hooks.
+`task_started`, tool records, `task_complete`, and `turn_aborted` feed the same
+reducer, so desktop work appears without `/hooks` trust. On startup only
 currently active desktop turns are restored; old completed rollouts are not
 replayed into the dashboard.
+
+What the rollout does and does not tell us:
+
+- A Desktop thread is recognised by `session_meta.originator == "Codex Desktop"`
+  (`source` is the `vscode` enum default and cannot be used). A spawned subagent
+  thread carries the same originator and is skipped by `thread_source ==
+  "subagent"` / `source.subagent`; the parent's collaboration records own it.
+- Rollouts sit under their *start* date and a resumed thread keeps appending to
+  that old file, so discovery walks every date directory and keeps files written
+  within the last 30 minutes.
+- `turn_context.model` / `thread_settings_applied` fill the model column;
+  `token_count` fills context usage (`last_token_usage` minus reasoning tokens
+  over `model_context_window`) and spend. Both are metadata only and never
+  surface an idle thread.
+- Archiving a thread moves its rollout to `~/.codex/archived_sessions/`; the
+  vanished file ends the session.
+- Codex does **not** persist approval or `request_user_input` prompts in the
+  rollout, so a Desktop approval wait is invisible and cannot be answered from
+  the phone. Only the `request_user_input` tool call itself is visible.
 
 
 ## Grok Build

@@ -302,6 +302,139 @@ struct CodexRolloutMonitorTests {
         #expect(ids == ["desktop-today", "desktop-yesterday"])
     }
 
+    @Test("a spawned subagent thread is folded, never surfaced as its own session")
+    func subagentRolloutIsSkipped() {
+        var parser = CodexRolloutParser()
+        let meta = #"{"type":"session_meta","payload":{"id":"child-1","cwd":"/x/project","originator":"Codex Desktop","parent_thread_id":"thread-1","thread_source":"subagent","source":{"subagent":{"thread_spawn":{"parent_thread_id":"thread-1","agent_path":"/root/research"}}}}}"#
+        #expect(parser.parseEvents(Data(meta.utf8), receivedAt: now).isEmpty)
+        #expect(!parser.isDesktopSession)
+        #expect(parser.parseEvents(Data(taskStarted(id: "turn-1").utf8), receivedAt: now).isEmpty)
+    }
+
+    @Test("turn_context and token_count enrich model and context without moving progress")
+    func usageEnrichment() {
+        var parser = CodexRolloutParser()
+        var reducer = SessionReducer()
+        let lines = [
+            sessionMeta(id: "thread-1"),
+            taskStarted(id: "turn-1"),
+            turnContext(model: "gpt-5.6-sol"),
+            tokenCount(lastTotal: 170_674, reasoning: 4_385, cumulative: 500_000, window: 258_400),
+        ]
+        var events: [HookEvent] = []
+        for line in lines {
+            for event in parser.parseEvents(Data(line.utf8), receivedAt: now) {
+                events.append(event)
+                reducer.apply(event)
+                if let enrichment = event.enrichment {
+                    reducer.enrich(sessionID: event.sessionID, with: enrichment)
+                }
+            }
+        }
+        #expect(events.map(\.kind) == [.userPromptSubmit, .sessionMetadataChanged, .sessionMetadataChanged])
+        #expect(events[1].model == "gpt-5.6-sol")
+        #expect(events[2].enrichment?.tokens == 170_674)
+        #expect(events[2].enrichment?.contextTokens == 166_289)
+        #expect(events[2].enrichment?.contextWindow == 258_400)
+        let session = reducer.sessions["thread-1"]
+        #expect(session?.status == .working)
+        #expect(session?.model == "gpt-5.6-sol")
+        #expect(session?.contextTokens == 166_289)
+        #expect(session?.contextWindow == 258_400)
+        #expect(session?.spentTokens == 170_674)
+
+        // The same model again is not news; a switch is.
+        #expect(parser.parseEvents(Data(turnContext(model: "gpt-5.6-sol").utf8), receivedAt: now).isEmpty)
+        #expect(parser.parseEvents(Data(turnContext(model: "gpt-5.6-mini").utf8), receivedAt: now).first?.model == "gpt-5.6-mini")
+    }
+
+    @Test("usage bookkeeping never surfaces an idle desktop thread")
+    func usageDoesNotSurfaceIdleThreads() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        let idle = try fixture.write(
+            named: "rollout-idle.jsonl",
+            lines: [sessionMeta(id: "desktop-idle"), taskStarted(id: "t1"), taskComplete(id: "t1")]
+        )
+        let working = try fixture.write(
+            named: "rollout-working.jsonl",
+            lines: [sessionMeta(id: "desktop-working"), taskStarted(id: "t1")]
+        )
+        let monitor = CodexRolloutMonitor(root: fixture.root)
+        #expect(await monitor.poll(now: now).map(\.sessionID) == ["desktop-working"])
+
+        try append(tokenCount(lastTotal: 10, reasoning: 0, cumulative: 10, window: 100), to: idle)
+        try append(tokenCount(lastTotal: 20, reasoning: 0, cumulative: 20, window: 100), to: working)
+        let events = await monitor.poll(now: now)
+        #expect(events.map(\.sessionID) == ["desktop-working"])
+        #expect(events.first?.kind == .sessionMetadataChanged)
+        #expect(events.first?.enrichment?.tokens == 20)
+    }
+
+    @Test("bootstrap restores the model and cumulative spend of an active turn")
+    func bootstrapRestoresUsage() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        _ = try fixture.write(
+            named: "rollout-active.jsonl",
+            lines: [
+                sessionMeta(id: "desktop-active"),
+                turnContext(model: "gpt-5.6-sol"),
+                taskStarted(id: "t1"),
+                tokenCount(lastTotal: 100, reasoning: 10, cumulative: 100, window: 1_000),
+                taskComplete(id: "t1"),
+                taskStarted(id: "t2"),
+                tokenCount(lastTotal: 300, reasoning: 0, cumulative: 400, window: 1_000),
+            ]
+        )
+        let monitor = CodexRolloutMonitor(root: fixture.root)
+        let events = await monitor.poll(now: now)
+        #expect(events.map(\.kind) == [.userPromptSubmit, .sessionMetadataChanged])
+        #expect(events.last?.model == "gpt-5.6-sol")
+        #expect(events.last?.enrichment?.tokens == 400)
+        #expect(events.last?.enrichment?.contextTokens == 300)
+        #expect(events.last?.enrichment?.contextWindow == 1_000)
+    }
+
+    @Test("a thread resumed from an older date directory is discovered")
+    func resumedOldThreadDiscovery() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        _ = try fixture.write(
+            named: "rollout-old.jsonl",
+            lines: [sessionMeta(id: "desktop-old"), taskStarted(id: "old")],
+            daysAgo: 12
+        )
+        let stale = try fixture.write(
+            named: "rollout-stale.jsonl",
+            lines: [sessionMeta(id: "desktop-stale"), taskStarted(id: "stale")],
+            daysAgo: 12
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: now.addingTimeInterval(-3 * 60 * 60)], ofItemAtPath: stale.path)
+
+        let monitor = CodexRolloutMonitor(root: fixture.root)
+        #expect(await monitor.poll(now: now).map(\.sessionID) == ["desktop-old"])
+    }
+
+    @Test("archiving a rollout ends the session it surfaced")
+    func archivedRolloutEndsSession() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        let active = try fixture.write(
+            named: "rollout-active.jsonl",
+            lines: [sessionMeta(id: "desktop-active"), taskStarted(id: "t1")]
+        )
+        let monitor = CodexRolloutMonitor(root: fixture.root)
+        #expect(await monitor.poll(now: now).map(\.kind) == [.userPromptSubmit])
+
+        try FileManager.default.removeItem(at: active)
+        let ended = await monitor.poll(now: now)
+        #expect(ended.map(\.kind) == [.sessionEnd])
+        #expect(ended.first?.sessionID == "desktop-active")
+        #expect(await monitor.poll(now: now).isEmpty)
+    }
+
     @Test("daemon restart bootstraps an already-active rollout")
     func daemonRestart() async throws {
         let fixture = try RolloutFixture(now: now)
@@ -674,6 +807,14 @@ private func sessionMeta(id: String, cwd: String = "/x/project") -> String {
 
 private func taskStarted(id: String) -> String {
     #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"\#(id)"}}"#
+}
+
+private func turnContext(model: String) -> String {
+    #"{"type":"turn_context","payload":{"turn_id":"t","cwd":"/x/project","model":"\#(model)","approval_policy":"never"}}"#
+}
+
+private func tokenCount(lastTotal: Int, reasoning: Int, cumulative: Int, window: Int) -> String {
+    #"{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"total_tokens":\#(cumulative)},"last_token_usage":{"input_tokens":1,"output_tokens":1,"reasoning_output_tokens":\#(reasoning),"total_tokens":\#(lastTotal)},"model_context_window":\#(window)},"rate_limits":null}}"#
 }
 
 private func taskComplete(id: String) -> String {
