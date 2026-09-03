@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 import Darwin
+#else
+import Glibc
+#endif
 import Foundation
 
 /// Pure mapping from Grok Build's billing payloads onto `AccountUsageSnapshot`.

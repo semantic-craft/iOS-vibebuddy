@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 import Darwin
+#else
+import Glibc
+#endif
 import Foundation
 import VibeBuddyKit
 
@@ -287,10 +291,10 @@ public actor AccountUsageFileCache: AccountUsageCaching {
         let temporary = try Self.writeOwnerOnlyTemporary(data, beside: fileURL)
         var shouldRemoveTemporary = true
         defer {
-            if shouldRemoveTemporary { _ = Darwin.unlink(temporary.path) }
+            if shouldRemoveTemporary { _ = unlink(temporary.path) }
         }
         let committed = try permit.commit {
-            guard Darwin.rename(temporary.path, fileURL.path) == 0 else {
+            guard rename(temporary.path, fileURL.path) == 0 else {
                 throw Self.posixError()
             }
         }
@@ -318,7 +322,7 @@ public actor AccountUsageFileCache: AccountUsageCaching {
     ) throws -> URL {
         let temporary = destination.deletingLastPathComponent()
             .appendingPathComponent(".account-usage-\(UUID().uuidString).tmp")
-        var descriptor = Darwin.open(
+        var descriptor = open(
             temporary.path,
             O_WRONLY | O_CREAT | O_EXCL,
             mode_t(S_IRUSR | S_IWUSR)
@@ -326,15 +330,15 @@ public actor AccountUsageFileCache: AccountUsageCaching {
         guard descriptor >= 0 else { throw posixError() }
         var shouldRemoveTemporary = true
         defer {
-            if descriptor >= 0 { _ = Darwin.close(descriptor) }
-            if shouldRemoveTemporary { _ = Darwin.unlink(temporary.path) }
+            if descriptor >= 0 { _ = close(descriptor) }
+            if shouldRemoveTemporary { _ = unlink(temporary.path) }
         }
 
         try data.withUnsafeBytes { bytes in
             guard let baseAddress = bytes.baseAddress else { return }
             var written = 0
             while written < bytes.count {
-                let count = Darwin.write(
+                let count = write(
                     descriptor,
                     baseAddress.advanced(by: written),
                     bytes.count - written
@@ -343,11 +347,11 @@ public actor AccountUsageFileCache: AccountUsageCaching {
                 written += count
             }
         }
-        guard Darwin.fchmod(descriptor, mode_t(S_IRUSR | S_IWUSR)) == 0 else {
+        guard fchmod(descriptor, mode_t(S_IRUSR | S_IWUSR)) == 0 else {
             throw posixError()
         }
-        guard Darwin.fsync(descriptor) == 0 else { throw posixError() }
-        guard Darwin.close(descriptor) == 0 else { throw posixError() }
+        guard fsync(descriptor) == 0 else { throw posixError() }
+        guard close(descriptor) == 0 else { throw posixError() }
         descriptor = -1
         shouldRemoveTemporary = false
         return temporary

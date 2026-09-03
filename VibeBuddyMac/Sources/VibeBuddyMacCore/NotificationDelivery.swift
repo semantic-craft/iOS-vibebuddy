@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Honest send outcomes. API success is never a device receipt — that would
 /// claim the banner was shown, which this process cannot know.
@@ -114,7 +117,28 @@ public protocol APNsHTTPClient: Sendable {
     func data(for request: URLRequest) async throws -> (Data, URLResponse)
 }
 
+#if canImport(FoundationNetworking)
+// swift-corelibs-foundation on Linux lacks the async `data(for:)` overload, so
+// bridge the completion-handler API into the async requirement.
+extension URLSession: APNsHTTPClient {
+    public func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        try await withCheckedThrowingContinuation { continuation in
+            let task = dataTask(with: request) { data, response, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else if let data, let response {
+                    continuation.resume(returning: (data, response))
+                } else {
+                    continuation.resume(throwing: URLError(.badServerResponse))
+                }
+            }
+            task.resume()
+        }
+    }
+}
+#else
 extension URLSession: APNsHTTPClient {}
+#endif
 
 /// Latches one diagnostic per failure reason. Recovery (`scheduled` / `accepted`)
 /// clears health. This never posts a notification of its own.

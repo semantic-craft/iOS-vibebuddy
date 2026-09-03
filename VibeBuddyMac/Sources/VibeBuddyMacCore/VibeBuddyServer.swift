@@ -47,7 +47,14 @@ public struct VibeBuddyServer: Sendable {
                 approvalContext: ApprovalContextStore = ApprovalContextStore(),
                 approvalTimeout: Duration = .seconds(25),
                 approvalID: @escaping @Sendable () -> String = { UUID().uuidString },
-                onJump: @escaping @Sendable (TerminalRef) async -> JumpOutcome = { await TerminalJumper.jump($0) },
+                onJump: @escaping @Sendable (TerminalRef) async -> JumpOutcome = {
+                    #if canImport(AppKit)
+                    await TerminalJumper.jump($0)
+                    #else
+                    _ = $0
+                    return .unsupported
+                    #endif
+                },
                 onAnswer: @escaping @Sendable (TerminalRef, String) -> Void = { ref, answer in TerminalInjector.inject(answer, into: ref) },
                 onDevicePaired: @escaping @Sendable (DeviceRegistrationPayload) -> Void = { _ in }) {
         self.store = store

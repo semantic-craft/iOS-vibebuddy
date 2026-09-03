@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 import Darwin
+#else
+import Glibc
+#endif
 import Foundation
 
 public enum CodexUsageResponseDecoder {
@@ -52,7 +56,7 @@ public final class CodexAppServerUsageProvider: AccountUsageProviding, @unchecke
         self.arguments = arguments
         self.timeout = timeout
         afterProcessInstall = nil
-        signalProcess = { Darwin.kill($0, $1) }
+        signalProcess = { kill($0, $1) }
     }
 
     init(
@@ -60,7 +64,7 @@ public final class CodexAppServerUsageProvider: AccountUsageProviding, @unchecke
         arguments: [String],
         timeout: TimeInterval,
         afterProcessInstall: @escaping @Sendable () -> Void,
-        signalProcess: @escaping @Sendable (pid_t, Int32) -> Int32 = { Darwin.kill($0, $1) }
+        signalProcess: @escaping @Sendable (pid_t, Int32) -> Int32 = { kill($0, $1) }
     ) {
         self.executableURL = executableURL
         self.arguments = arguments
@@ -169,13 +173,13 @@ public final class CodexAppServerUsageProvider: AccountUsageProviding, @unchecke
     private static func spawn(executableURL: URL, arguments: [String]) throws -> SpawnedCodexProcess {
         var stdinDescriptors = [Int32](repeating: -1, count: 2)
         var stdoutDescriptors = [Int32](repeating: -1, count: 2)
-        guard Darwin.pipe(&stdinDescriptors) == 0 else { throw AccountUsageError.providerUnavailable }
-        guard Darwin.pipe(&stdoutDescriptors) == 0 else {
+        guard pipe(&stdinDescriptors) == 0 else { throw AccountUsageError.providerUnavailable }
+        guard pipe(&stdoutDescriptors) == 0 else {
             closeIfOpen(stdinDescriptors[0])
             closeIfOpen(stdinDescriptors[1])
             throw AccountUsageError.providerUnavailable
         }
-        let nullDescriptor = Darwin.open("/dev/null", O_WRONLY)
+        let nullDescriptor = open("/dev/null", O_WRONLY)
         guard nullDescriptor >= 0 else {
             closeIfOpen(stdinDescriptors[0])
             closeIfOpen(stdinDescriptors[1])
@@ -184,7 +188,11 @@ public final class CodexAppServerUsageProvider: AccountUsageProviding, @unchecke
             throw AccountUsageError.providerUnavailable
         }
 
+        #if canImport(Darwin)
         var actions: posix_spawn_file_actions_t? = nil
+        #else
+        var actions = posix_spawn_file_actions_t()
+        #endif
         guard posix_spawn_file_actions_init(&actions) == 0 else {
             closeIfOpen(stdinDescriptors[0])
             closeIfOpen(stdinDescriptors[1])
@@ -195,7 +203,11 @@ public final class CodexAppServerUsageProvider: AccountUsageProviding, @unchecke
         }
         defer { posix_spawn_file_actions_destroy(&actions) }
 
+        #if canImport(Darwin)
         var attributes: posix_spawnattr_t? = nil
+        #else
+        var attributes = posix_spawnattr_t()
+        #endif
         guard posix_spawnattr_init(&attributes) == 0 else {
             closeIfOpen(stdinDescriptors[0])
             closeIfOpen(stdinDescriptors[1])
@@ -266,7 +278,7 @@ public final class CodexAppServerUsageProvider: AccountUsageProviding, @unchecke
                 executableURL.path,
                 &actions,
                 &attributes,
-                buffer.baseAddress,
+                buffer.baseAddress!,
                 environ
             )
         }
@@ -280,9 +292,11 @@ public final class CodexAppServerUsageProvider: AccountUsageProviding, @unchecke
             throw AccountUsageError.providerUnavailable
         }
 
-        _ = Darwin.fcntl(stdinDescriptors[1], F_SETNOSIGPIPE, 1)
-        _ = Darwin.fcntl(stdinDescriptors[1], F_SETFD, FD_CLOEXEC)
-        _ = Darwin.fcntl(stdoutDescriptors[0], F_SETFD, FD_CLOEXEC)
+        #if canImport(Darwin)
+        _ = fcntl(stdinDescriptors[1], F_SETNOSIGPIPE, 1)
+        #endif
+        _ = fcntl(stdinDescriptors[1], F_SETFD, FD_CLOEXEC)
+        _ = fcntl(stdoutDescriptors[0], F_SETFD, FD_CLOEXEC)
         return SpawnedCodexProcess(
             processID: processID,
             input: FileHandle(fileDescriptor: stdinDescriptors[1], closeOnDealloc: true),
@@ -291,7 +305,7 @@ public final class CodexAppServerUsageProvider: AccountUsageProviding, @unchecke
     }
 
     private static func closeIfOpen(_ descriptor: Int32) {
-        if descriptor >= 0 { _ = Darwin.close(descriptor) }
+        if descriptor >= 0 { _ = close(descriptor) }
     }
 
     private static func throwRPCErrorIfPresent(in data: Data) throws {
@@ -325,8 +339,8 @@ private final class CodexAppServerProcessLifecycle: @unchecked Sendable {
 
     init(signalProcess: @escaping @Sendable (pid_t, Int32) -> Int32) {
         self.signalProcess = signalProcess
-        _ = Darwin.fcntl(cancellationPipe.fileHandleForReading.fileDescriptor, F_SETFD, FD_CLOEXEC)
-        _ = Darwin.fcntl(cancellationPipe.fileHandleForWriting.fileDescriptor, F_SETFD, FD_CLOEXEC)
+        _ = fcntl(cancellationPipe.fileHandleForReading.fileDescriptor, F_SETFD, FD_CLOEXEC)
+        _ = fcntl(cancellationPipe.fileHandleForWriting.fileDescriptor, F_SETFD, FD_CLOEXEC)
     }
 
     var cancellationDescriptor: Int32 {
@@ -389,7 +403,7 @@ private final class CodexAppServerProcessLifecycle: @unchecked Sendable {
             let exited = reapIfExitedLocked(processID: processID)
             lock.unlock()
             if exited { return }
-            Darwin.usleep(10_000)
+            usleep(10_000)
         }
 
         lock.lock()
@@ -420,7 +434,7 @@ private final class CodexAppServerProcessLifecycle: @unchecked Sendable {
     private func reapIfExitedLocked(processID: pid_t) -> Bool {
         var status: Int32 = 0
         while true {
-            let result = Darwin.waitpid(processID, &status, WNOHANG)
+            let result = waitpid(processID, &status, WNOHANG)
             if result == processID {
                 markReapedLocked()
                 return true
@@ -441,7 +455,7 @@ private final class CodexAppServerProcessLifecycle: @unchecked Sendable {
     private func reapBlocking(processID: pid_t) {
         var status: Int32 = 0
         while true {
-            let result = Darwin.waitpid(processID, &status, 0)
+            let result = waitpid(processID, &status, 0)
             if result == processID || (result == -1 && errno == ECHILD) {
                 lock.lock()
                 markReapedLocked()
@@ -509,7 +523,7 @@ private final class LineRPCClient {
         ]
         let milliseconds = Int32(min(remaining * 1_000, Double(Int32.max)))
         let pollResult = descriptors.withUnsafeMutableBufferPointer {
-            Darwin.poll($0.baseAddress, nfds_t($0.count), max(1, milliseconds))
+            poll($0.baseAddress, nfds_t($0.count), max(1, milliseconds))
         }
         if pollResult == 0 { throw AccountUsageError.timedOut }
         if pollResult < 0 {
@@ -519,7 +533,7 @@ private final class LineRPCClient {
         if descriptors[1].revents != 0 { throw CancellationError() }
 
         var bytes = [UInt8](repeating: 0, count: 8_192)
-        let count = Darwin.read(output.fileDescriptor, &bytes, bytes.count)
+        let count = read(output.fileDescriptor, &bytes, bytes.count)
         guard count > 0 else { throw AccountUsageError.providerUnavailable }
         buffer.append(bytes, count: count)
     }

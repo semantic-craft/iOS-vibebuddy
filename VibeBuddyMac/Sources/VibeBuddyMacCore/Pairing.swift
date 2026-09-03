@@ -1,6 +1,8 @@
 import Foundation
+#if canImport(CoreImage)
 import CoreImage
 import CoreGraphics
+#endif
 import VibeBuddyKit
 
 /// Builds the pairing payload and its QR image. The phone scans the QR, decodes
@@ -17,6 +19,7 @@ public enum Pairing {
         return String(decoding: data, as: UTF8.self)
     }
 
+#if canImport(CoreImage)
     /// Render a string into a QR CGImage (10x scaled, black-on-white).
     /// CIQRCodeGenerator outputs black modules on a *transparent* background, so
     /// we composite over opaque white — otherwise it's invisible/unscannable on
@@ -31,4 +34,5 @@ public enum Pairing {
         let scaled = onWhite.transformed(by: CGAffineTransform(scaleX: 10, y: 10))
         return CIContext().createCGImage(scaled, from: scaled.extent)
     }
+#endif
 }

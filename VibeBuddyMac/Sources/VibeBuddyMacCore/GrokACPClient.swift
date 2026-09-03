@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 import Darwin
+#else
+import Glibc
+#endif
 import Foundation
 
 /// One newline-delimited JSON-RPC exchange with `grok agent --no-leader stdio`.
@@ -86,7 +90,9 @@ final class GrokACPClient: @unchecked Sendable {
         if cancelledBeforeInstall { throw CancellationError() }
 
         let inputDescriptor = input.fileHandleForWriting.fileDescriptor
-        _ = Darwin.fcntl(inputDescriptor, F_SETNOSIGPIPE, 1)
+        #if canImport(Darwin)
+        _ = fcntl(inputDescriptor, F_SETNOSIGPIPE, 1)
+        #endif
         for request in requests {
             try write(request, to: inputDescriptor)
         }
@@ -103,7 +109,11 @@ final class GrokACPClient: @unchecked Sendable {
             guard let baseAddress = bytes.baseAddress else { return }
             var written = 0
             while written < bytes.count {
+                #if canImport(Darwin)
                 let count = Darwin.write(descriptor, baseAddress.advanced(by: written), bytes.count - written)
+                #else
+                let count = Glibc.write(descriptor, baseAddress.advanced(by: written), bytes.count - written)
+                #endif
                 if count > 0 {
                     written += count
                     continue
@@ -133,14 +143,14 @@ final class GrokACPClient: @unchecked Sendable {
             var descriptors = [pollfd(fd: descriptor, events: Int16(POLLIN | POLLHUP), revents: 0)]
             let milliseconds = Int32(min(remaining * 1_000, Double(Int32.max)))
             let pollResult = descriptors.withUnsafeMutableBufferPointer {
-                Darwin.poll($0.baseAddress, nfds_t($0.count), max(1, milliseconds))
+                poll($0.baseAddress, nfds_t($0.count), max(1, milliseconds))
             }
             if pollResult == 0 { throw AccountUsageError.timedOut }
             if pollResult < 0 {
                 if errno == EINTR { continue }
                 throw AccountUsageError.unknown
             }
-            let count = Darwin.read(descriptor, &bytes, bytes.count)
+            let count = read(descriptor, &bytes, bytes.count)
             if count < 0, errno == EINTR { continue }
             guard count > 0 else {
                 if cancellationRequested { throw CancellationError() }
@@ -157,15 +167,15 @@ final class GrokACPClient: @unchecked Sendable {
         try? output.fileHandleForReading.close()
         let graceDeadline = ContinuousClock.now + .milliseconds(200)
         while process.isRunning, ContinuousClock.now < graceDeadline {
-            Darwin.usleep(5_000)
+            usleep(5_000)
         }
         if process.isRunning { process.terminate() }
         let terminationDeadline = ContinuousClock.now + .milliseconds(200)
         while process.isRunning, ContinuousClock.now < terminationDeadline {
-            Darwin.usleep(5_000)
+            usleep(5_000)
         }
         if process.isRunning {
-            _ = Darwin.kill(process.processIdentifier, SIGKILL)
+            _ = kill(process.processIdentifier, SIGKILL)
         }
         process.waitUntilExit()
         lock.lock()

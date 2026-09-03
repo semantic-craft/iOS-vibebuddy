@@ -1,6 +1,8 @@
 import Foundation
 #if canImport(Darwin)
 import Darwin
+#else
+import Glibc
 #endif
 
 /// Finds the Mac's LAN IPv4 to put in the pairing QR.
@@ -27,11 +29,17 @@ public enum LANAddress {
             defer { cursor = ptr.pointee.ifa_next }
             guard let addr = ptr.pointee.ifa_addr,
                   addr.pointee.sa_family == sa_family_t(AF_INET),
-                  (Int32(ptr.pointee.ifa_flags) & IFF_UP) == IFF_UP
+                  (Int32(ptr.pointee.ifa_flags) & Int32(IFF_UP)) == Int32(IFF_UP)
             else { continue }
 
+            #if canImport(Darwin)
+            let addrLen = socklen_t(addr.pointee.sa_len)
+            #else
+            // Linux `sockaddr` has no `sa_len`; the family is AF_INET here.
+            let addrLen = socklen_t(MemoryLayout<sockaddr_in>.size)
+            #endif
             var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-            if getnameinfo(addr, socklen_t(addr.pointee.sa_len),
+            if getnameinfo(addr, addrLen,
                            &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST) == 0 {
                 candidates.append((String(cString: ptr.pointee.ifa_name), Self.string(from: host)))
             }

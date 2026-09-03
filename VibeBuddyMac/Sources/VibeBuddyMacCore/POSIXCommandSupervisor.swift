@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 import Darwin
+#else
+import Glibc
+#endif
 import Foundation
 
 enum POSIXCommandError: Error {
@@ -26,7 +30,7 @@ final class POSIXCommandSupervisor: @unchecked Sendable {
     private var cancellationDescriptors = [Int32](repeating: -1, count: 2)
 
     init() throws {
-        guard Darwin.pipe(&cancellationDescriptors) == 0 else {
+        guard pipe(&cancellationDescriptors) == 0 else {
             throw POSIXCommandError.spawnFailed
         }
         do {
@@ -43,7 +47,7 @@ final class POSIXCommandSupervisor: @unchecked Sendable {
 
     deinit {
         for descriptor in cancellationDescriptors where descriptor >= 0 {
-            _ = Darwin.close(descriptor)
+            _ = close(descriptor)
         }
     }
 
@@ -56,7 +60,7 @@ final class POSIXCommandSupervisor: @unchecked Sendable {
         }
         guard shouldWake else { return }
         var byte: UInt8 = 1
-        _ = Darwin.write(cancellationDescriptors[1], &byte, 1)
+        _ = write(cancellationDescriptors[1], &byte, 1)
     }
 
     func run(
@@ -209,7 +213,7 @@ final class POSIXCommandSupervisor: @unchecked Sendable {
         let remaining = max(0, deadline.timeIntervalSinceNow)
         let milliseconds = Int32(max(1, min(50, remaining * 1_000)))
         let result = descriptors.withUnsafeMutableBufferPointer {
-            Darwin.poll($0.baseAddress, nfds_t($0.count), milliseconds)
+            poll($0.baseAddress, nfds_t($0.count), milliseconds)
         }
         if result < 0, errno != EINTR { throw POSIXCommandError.waitFailed }
     }
@@ -221,8 +225,8 @@ final class POSIXCommandSupervisor: @unchecked Sendable {
     ) throws -> SpawnedCommand {
         var stdoutDescriptors = [Int32](repeating: -1, count: 2)
         var stderrDescriptors = [Int32](repeating: -1, count: 2)
-        guard Darwin.pipe(&stdoutDescriptors) == 0 else { throw POSIXCommandError.spawnFailed }
-        guard Darwin.pipe(&stderrDescriptors) == 0 else {
+        guard pipe(&stdoutDescriptors) == 0 else { throw POSIXCommandError.spawnFailed }
+        guard pipe(&stderrDescriptors) == 0 else {
             closeIfOpen(&stdoutDescriptors[0])
             closeIfOpen(&stdoutDescriptors[1])
             throw POSIXCommandError.spawnFailed
@@ -237,7 +241,7 @@ final class POSIXCommandSupervisor: @unchecked Sendable {
             closeIfOpen(&stderrDescriptors[1])
             throw error
         }
-        var nullDescriptor = Darwin.open("/dev/null", O_RDONLY)
+        var nullDescriptor = open("/dev/null", O_RDONLY)
         guard nullDescriptor >= 0 else {
             closeIfOpen(&stdoutDescriptors[0])
             closeIfOpen(&stdoutDescriptors[1])
@@ -246,7 +250,11 @@ final class POSIXCommandSupervisor: @unchecked Sendable {
             throw POSIXCommandError.spawnFailed
         }
 
+        #if canImport(Darwin)
         var actions: posix_spawn_file_actions_t? = nil
+        #else
+        var actions = posix_spawn_file_actions_t()
+        #endif
         guard posix_spawn_file_actions_init(&actions) == 0 else {
             closeIfOpen(&stdoutDescriptors[0])
             closeIfOpen(&stdoutDescriptors[1])
@@ -257,7 +265,11 @@ final class POSIXCommandSupervisor: @unchecked Sendable {
         }
         defer { posix_spawn_file_actions_destroy(&actions) }
 
+        #if canImport(Darwin)
         var attributes: posix_spawnattr_t? = nil
+        #else
+        var attributes = posix_spawnattr_t()
+        #endif
         guard posix_spawnattr_init(&attributes) == 0 else {
             closeIfOpen(&stdoutDescriptors[0])
             closeIfOpen(&stdoutDescriptors[1])
@@ -324,8 +336,8 @@ final class POSIXCommandSupervisor: @unchecked Sendable {
                     executableURL.path,
                     &actions,
                     &attributes,
-                    argumentsBuffer.baseAddress,
-                    environmentBuffer.baseAddress
+                    argumentsBuffer.baseAddress!,
+                    environmentBuffer.baseAddress!
                 )
             }
         }
@@ -348,8 +360,15 @@ final class POSIXCommandSupervisor: @unchecked Sendable {
     private static func childHasExited(_ processID: pid_t) throws -> Bool {
         var info = siginfo_t()
         while true {
-            let result = Darwin.waitid(P_PID, id_t(processID), &info, WEXITED | WNOHANG | WNOWAIT)
+            let result = waitid(P_PID, id_t(processID), &info, WEXITED | WNOHANG | WNOWAIT)
+            #if canImport(Darwin)
             if result == 0 { return info.si_pid == processID }
+            #else
+            // Linux `siginfo_t` keeps `si_pid` in an anonymous union Swift does not
+            // surface; a peeked exit for our P_PID target sets `si_signo` to SIGCHLD,
+            // while WNOHANG with no state change zeroes it.
+            if result == 0 { return info.si_signo == SIGCHLD }
+            #endif
             if errno == EINTR { continue }
             throw POSIXCommandError.waitFailed
         }
@@ -364,7 +383,7 @@ final class POSIXCommandSupervisor: @unchecked Sendable {
         guard descriptor >= 0, !reachedEOF else { return }
         var bytes = [UInt8](repeating: 0, count: 8_192)
         while true {
-            let count = Darwin.read(descriptor, &bytes, bytes.count)
+            let count = read(descriptor, &bytes, bytes.count)
             if count > 0 {
                 guard count <= remainingOutputBytes else {
                     throw POSIXCommandError.outputLimitExceeded
@@ -395,7 +414,7 @@ final class POSIXCommandSupervisor: @unchecked Sendable {
         remainingOutputBytes: inout Int,
         deadline: Date
     ) {
-        _ = Darwin.kill(-processID, SIGTERM)
+        _ = kill(-processID, SIGTERM)
         let graceDeadline = min(deadline, Date().addingTimeInterval(0.2))
         while Date() < graceDeadline {
             var stdoutEOF = stdoutDescriptor < 0
@@ -412,9 +431,9 @@ final class POSIXCommandSupervisor: @unchecked Sendable {
                 reachedEOF: &stderrEOF,
                 remainingOutputBytes: &remainingOutputBytes
             )
-            Darwin.usleep(10_000)
+            usleep(10_000)
         }
-        _ = Darwin.kill(-processID, SIGKILL)
+        _ = kill(-processID, SIGKILL)
     }
 
     private static func terminateAndReap(
@@ -441,7 +460,7 @@ final class POSIXCommandSupervisor: @unchecked Sendable {
     private static func reap(_ processID: pid_t) throws -> Int32 {
         var status: Int32 = 0
         while true {
-            let result = Darwin.waitpid(processID, &status, 0)
+            let result = waitpid(processID, &status, 0)
             if result == processID { return status }
             if result == -1, errno == EINTR { continue }
             throw POSIXCommandError.waitFailed
@@ -450,18 +469,18 @@ final class POSIXCommandSupervisor: @unchecked Sendable {
 
     private static func closeIfOpen(_ descriptor: inout Int32) {
         if descriptor >= 0 {
-            _ = Darwin.close(descriptor)
+            _ = close(descriptor)
             descriptor = -1
         }
     }
 
     private static func configureNonBlocking(_ descriptor: Int32) throws {
-        guard Darwin.fcntl(descriptor, F_SETFD, FD_CLOEXEC) == 0 else {
+        guard fcntl(descriptor, F_SETFD, FD_CLOEXEC) == 0 else {
             throw POSIXCommandError.spawnFailed
         }
-        let flags = Darwin.fcntl(descriptor, F_GETFL)
+        let flags = fcntl(descriptor, F_GETFL)
         guard flags >= 0,
-              Darwin.fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) == 0 else {
+              fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) == 0 else {
             throw POSIXCommandError.spawnFailed
         }
     }

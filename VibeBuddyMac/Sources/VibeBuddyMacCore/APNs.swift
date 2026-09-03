@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import VibeBuddyKit
 
 /// APNs provider config. Filled from env once the user has a paid account +

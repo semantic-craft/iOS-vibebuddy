@@ -1,6 +1,10 @@
 import Foundation
 import Dispatch
+#if canImport(Darwin)
 import Darwin
+#else
+import Glibc
+#endif
 import VibeBuddyKit
 
 /// Pure, incremental decoder for Codex rollout JSONL. Codex Desktop writes this
@@ -594,6 +598,7 @@ public struct CodexRolloutParser: Sendable {
     }
 }
 
+#if canImport(Darwin)
 private final class RolloutFileWatcher: @unchecked Sendable {
     private let source: DispatchSourceFileSystemObject
     private let cancelled = DispatchGroup()
@@ -604,7 +609,7 @@ private final class RolloutFileWatcher: @unchecked Sendable {
         onEvent: @escaping @Sendable (UInt) -> Void,
         onCancel: @escaping @Sendable () -> Void
     ) {
-        let descriptor = Darwin.open(file.path, O_EVTONLY)
+        let descriptor = open(file.path, O_EVTONLY)
         guard descriptor >= 0 else { return nil }
         source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: descriptor,
@@ -614,7 +619,7 @@ private final class RolloutFileWatcher: @unchecked Sendable {
         cancelled.enter()
         source.setEventHandler { [source] in onEvent(source.data.rawValue) }
         source.setCancelHandler { [cancelled] in
-            Darwin.close(descriptor)
+            close(descriptor)
             onCancel()
             cancelled.leave()
         }
@@ -626,6 +631,23 @@ private final class RolloutFileWatcher: @unchecked Sendable {
         cancelled.wait()
     }
 }
+#else
+/// Linux has no `DispatchSource` kqueue file-system watcher. The initializer
+/// returns nil so `ensureWatcher` degrades to the monitor's polling/recovery
+/// task, which already exists as the slow-path backstop on macOS.
+private final class RolloutFileWatcher: @unchecked Sendable {
+    init?(
+        file: URL,
+        queue: DispatchQueue,
+        onEvent: @escaping @Sendable (UInt) -> Void,
+        onCancel: @escaping @Sendable () -> Void
+    ) {
+        return nil
+    }
+
+    func cancelAndWait() {}
+}
+#endif
 
 /// Runtime evidence for the monitor's low-power and resource-lifecycle contract.
 public struct CodexRolloutMonitorDiagnostics: Equatable, Sendable {
@@ -876,12 +898,14 @@ public actor CodexRolloutMonitor {
     ) {
         guard isRunning, watchers[path]?.id == id else { return }
         watcherEventCount += 1
+        #if canImport(Darwin)
         let events = DispatchSource.FileSystemEvent(rawValue: rawEvents)
         if !events.intersection([.delete, .rename, .revoke]).isEmpty,
            let registration = watchers.removeValue(forKey: path) {
             watcherRecoveryCount += 1
             registration.watcher.cancelAndWait()
         }
+        #endif
         scheduleDebouncedRefresh(path: path)
     }
 

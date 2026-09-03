@@ -1,5 +1,9 @@
 import Foundation
+#if canImport(Darwin)
 import Darwin
+#else
+import Glibc
+#endif
 import VibeBuddyKit
 
 /// One privacy-minimized lifecycle transition. The journal deliberately stores
@@ -177,7 +181,7 @@ struct LifecycleJournal {
         let stagingURL = directory.appendingPathComponent(
             ".\(url.lastPathComponent).\(UUID().uuidString).tmp"
         )
-        let descriptor = Darwin.open(
+        let descriptor = open(
             stagingURL.path,
             O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
             mode_t(0o600)
@@ -187,24 +191,24 @@ struct LifecycleJournal {
         var isOpen = true
         var stagingExists = true
         defer {
-            if isOpen { _ = Darwin.close(descriptor) }
-            if stagingExists { _ = stagingURL.path.withCString(Darwin.unlink) }
+            if isOpen { _ = close(descriptor) }
+            if stagingExists { _ = stagingURL.path.withCString(unlink) }
         }
 
-        guard Darwin.fchmod(descriptor, mode_t(0o600)) == 0 else {
+        guard fchmod(descriptor, mode_t(0o600)) == 0 else {
             throw Self.currentPOSIXError()
         }
         try Self.requireOwnerOnly(descriptor)
         try Self.writeAll(data, to: descriptor)
-        guard Darwin.fsync(descriptor) == 0 else { throw Self.currentPOSIXError() }
+        guard fsync(descriptor) == 0 else { throw Self.currentPOSIXError() }
         try Self.requireOwnerOnly(descriptor)
-        let closeResult = Darwin.close(descriptor)
+        let closeResult = close(descriptor)
         isOpen = false
         guard closeResult == 0 else { throw Self.currentPOSIXError() }
 
         guard stagingURL.path.withCString({ stagingPath in
             url.path.withCString { destinationPath in
-                Darwin.rename(stagingPath, destinationPath)
+                rename(stagingPath, destinationPath)
             }
         }) == 0 else {
             throw Self.currentPOSIXError()
@@ -217,7 +221,7 @@ struct LifecycleJournal {
             guard var cursor = buffer.baseAddress else { return }
             var remaining = buffer.count
             while remaining > 0 {
-                let written = Darwin.write(descriptor, cursor, remaining)
+                let written = write(descriptor, cursor, remaining)
                 if written < 0, errno == EINTR { continue }
                 guard written > 0 else { throw currentPOSIXError() }
                 cursor = cursor.advanced(by: written)
@@ -228,7 +232,7 @@ struct LifecycleJournal {
 
     private static func requireOwnerOnly(_ descriptor: Int32) throws {
         var status = stat()
-        guard Darwin.fstat(descriptor, &status) == 0 else { throw currentPOSIXError() }
+        guard fstat(descriptor, &status) == 0 else { throw currentPOSIXError() }
         guard status.st_mode & mode_t(0o777) == mode_t(0o600) else {
             throw NSError(domain: NSPOSIXErrorDomain, code: Int(EPERM))
         }

@@ -1,3 +1,6 @@
+// TerminalJumper raises macOS terminal windows via AppKit/NSWorkspace and is
+// excluded from the Linux build; the daemon falls back to a no-op jump there.
+#if canImport(AppKit)
 import AppKit
 import Foundation
 import VibeBuddyKit
@@ -391,3 +394,5 @@ public enum TerminalJumper {
             .first?.activate(options: [.activateAllWindows]) ?? false
     }
 }
+
+#endif
