@@ -27,7 +27,7 @@ struct WatchRootView: View {
     private func pages(now: Date) -> some View {
         if let state = store.state, state.relay != .noData {
             TabView(selection: $page) {
-                WatchHomeView(state: state, now: now)
+                WatchHomeView(store: store, state: state, now: now)
                     .tag(WatchPage.home)
                 if state.alerts.count > 1 {
                     WatchAlertsView(state: state, now: now)

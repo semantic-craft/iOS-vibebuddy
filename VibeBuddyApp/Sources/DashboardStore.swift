@@ -47,6 +47,10 @@ final class DashboardStore: ObservableObject {
     /// Deep links can arrive before `start(_:)` installs the pairing on a cold
     /// launch. Keep those explicit reads until they can reach the Mac authority.
     private var pendingAcknowledgementIDs: Set<String> = []
+    /// Judges taps that arrive from the wrist against the sessions this phone
+    /// actually holds. The Watch's screen is a memory of a snapshot; this is the
+    /// only copy that was ever authenticated.
+    private var watchApprovals = WatchApprovalGate()
 
     init(streamer: SnapshotStreaming = WebSocketSnapshotClient(),
          notifier: AttentionNotifier = LocalNotifier(),
@@ -62,6 +66,45 @@ final class DashboardStore: ObservableObject {
         // Report the Live Activity's push token to the Mac so it can update the
         // activity in the background (dynamic-island/02).
         liveActivity.onPushToken = { [weak self] hex in self?.uploadActivityToken(hex) }
+        // The wrist's only way to act. It asks; this decides.
+        watchRelay?.onApprovalRequest = { [weak self] request in
+            guard let self else {
+                return WatchApprovalResult(attemptId: request.attemptId, outcome: .failed)
+            }
+            return await self.decideFromWatch(request)
+        }
+    }
+
+    /// Act on a one-shot decision the Watch asked for, and say what happened.
+    ///
+    /// Everything the Watch sent is re-checked here: the session must still be
+    /// waiting, the approval id must still be the pending one, and the detail
+    /// must still be the kind a wrist may decide on. The Watch cannot express
+    /// `alwaysAllow` or `allowSession` at all — `WatchApprovalChoice` has two
+    /// cases — so no payload from the wrist can persist a permission rule
+    /// (ADR-0010).
+    func decideFromWatch(_ request: WatchApprovalRequest) async -> WatchApprovalResult {
+        func result(_ outcome: WatchApprovalOutcome) -> WatchApprovalResult {
+            WatchApprovalResult(attemptId: request.attemptId, outcome: outcome)
+        }
+        switch watchApprovals.admit(request, sessions: allSessions) {
+        case .duplicate:
+            // The same tap, twice. It already landed; do not send it again.
+            return result(.accepted)
+        case .refused:
+            return result(.refused)
+        case .send(let approvalId, let decision):
+            if isDemo {
+                decide(approvalId, decision)
+                watchApprovals.commit(request.attemptId)
+                return result(.accepted)
+            }
+            guard let pairing else { return result(.failed) }
+            guard await decisionClient.decide(pairing, approvalId: approvalId, decision: decision)
+            else { return result(.failed) }
+            watchApprovals.commit(request.attemptId)
+            return result(.accepted)
+        }
     }
 
     /// Register this Live Activity's APNs push token with the Mac. Best-effort.
@@ -213,6 +256,7 @@ final class DashboardStore: ObservableObject {
         Task { await decisionClient.decide(pairing, approvalId: approvalId, decision: decision) }
     }
 
+
     /// Back-compat for the voice companion's approve/deny intents.
     func decide(_ approvalId: String, approve: Bool) { decide(approvalId, approve ? .allow : .deny) }
 
@@ -249,6 +293,19 @@ final class DashboardStore: ObservableObject {
                 summary: "Sort reminders by due date",
                 tokens: 4200, contextTokens: 128_000, contextWindow: 200_000,
                 statusSince: now.addingTimeInterval(-40), updatedAt: now.addingTimeInterval(-40)),
+            // A permission whose exact command travelled in full: the one shape
+            // the Watch may resolve one-shot. The Edit above deliberately stays
+            // display-only there — its diff never leaves the phone.
+            AgentSession(
+                id: "demo-build", agent: .codex, project: "search-indexer", branch: "main",
+                model: "gpt-5-codex", status: .needsResponse, waitKind: .permission,
+                pendingApproval: PendingApproval(
+                    id: "demo-ap-build", tool: "Bash",
+                    commandPreview: "swift test --filter Index…",
+                    command: "swift test --filter IndexWriterTests"),
+                summary: "Run the index writer tests",
+                tokens: 900, contextTokens: 22_000, contextWindow: 200_000,
+                statusSince: now.addingTimeInterval(-18), updatedAt: now.addingTimeInterval(-18)),
             AgentSession(
                 id: "demo-work", agent: .codex, project: "ios-vibebuddy", branch: "main",
                 model: "gpt-5-codex", status: .working, summary: "Running the test suite…",

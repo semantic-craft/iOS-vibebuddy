@@ -9,7 +9,7 @@ private actor DecisionRecorder: DecisionClient {
         acknowledgedSessionIDs.append(sessionId)
     }
 
-    func decide(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async {}
+    func decide(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> Bool { true }
     func answer(_ pairing: PairingPayload, sessionId: String, answer: String) async {}
     func jump(_ pairing: PairingPayload, sessionId: String) async -> JumpOutcome? { nil }
 }

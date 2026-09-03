@@ -6,6 +6,7 @@ import VibeBuddyKit
 private final class FakeWatchTransport: WatchStateTransport {
     var isAvailable = true
     var onReady: (() -> Void)?
+    var onApprovalRequest: ((WatchApprovalRequest) async -> WatchApprovalResult)?
     var failNextSends = false
     private(set) var sent: [Data] = []
 
@@ -16,6 +17,14 @@ private final class FakeWatchTransport: WatchStateTransport {
 
     var states: [WatchDashboardState] {
         sent.compactMap { try? JSONDecoder().decode(WatchDashboardState.self, from: $0) }
+    }
+
+    /// A tap on the wrist, delivered the way WatchConnectivity delivers one.
+    func tap(_ request: WatchApprovalRequest) async -> WatchApprovalResult {
+        guard let onApprovalRequest else {
+            return WatchApprovalResult(attemptId: request.attemptId, outcome: .failed)
+        }
+        return await onApprovalRequest(request)
     }
 
     /// The Watch came back. Drive the callback the real session fires.
@@ -116,7 +125,7 @@ final class WatchRelayTests: XCTestCase {
         let relayed = transport.states.last
         XCTAssertEqual(relayed?.isDemo, true)
         XCTAssertEqual(relayed?.relay, .live)
-        XCTAssertEqual(relayed?.counts.needsResponse, 2)
+        XCTAssertEqual(relayed?.counts.needsResponse, 3)
         XCTAssertEqual(relayed?.counts.working, 3)
         XCTAssertEqual(relayed?.counts.done, 3)
         XCTAssertEqual(relayed?.stuck, 1)
@@ -135,7 +144,7 @@ final class WatchRelayTests: XCTestCase {
         store.decide(approvalId, .allow)
 
         XCTAssertEqual(transport.states.count, 2)
-        XCTAssertEqual(transport.states.last?.counts.needsResponse, 1)
+        XCTAssertEqual(transport.states.last?.counts.needsResponse, 2)
         store.stop()
     }
 
@@ -151,6 +160,117 @@ final class WatchRelayTests: XCTestCase {
         for secret in ["10.0.0.7", "9876", "s3cr3t-bearer", "iTerm", "todos.sort", "\"sessions\""] {
             XCTAssertFalse(json.contains(secret), "relay payload leaked \(secret)")
         }
+        store.stop()
+    }
+
+    // MARK: - Decisions coming back from the wrist
+
+    /// The wrist's view of the world, taken from what was actually relayed —
+    /// never from the store's internals, because that is all the Watch has.
+    private func relayedAlert(_ transport: FakeWatchTransport,
+                              decidable: Bool) throws -> WatchAlert {
+        let state = try XCTUnwrap(transport.states.last)
+        return try XCTUnwrap(state.alerts.first { $0.isDecidable == decidable })
+    }
+
+    private func demoStore(_ transport: FakeWatchTransport,
+                           decisions: DecisionClient = NullDecisionClient()) -> DashboardStore {
+        let store = DashboardStore(streamer: EmptyStreamer(), notifier: SilentNotifier(),
+                                   decisionClient: decisions,
+                                   watchRelay: WatchRelay(transport: transport))
+        store.startDemo()
+        return store
+    }
+
+    func testAWatchApprovalResolvesTheApprovalAndReportsAccepted() async throws {
+        let transport = FakeWatchTransport()
+        let store = demoStore(transport)
+        let alert = try relayedAlert(transport, decidable: true)
+        let approvalId = try XCTUnwrap(alert.approvalId)
+
+        let result = await transport.tap(WatchApprovalRequest(
+            attemptId: "t-1", sessionId: alert.sessionId,
+            approvalId: approvalId, choice: .allow))
+
+        XCTAssertEqual(result, WatchApprovalResult(attemptId: "t-1", outcome: .accepted))
+        XCTAssertFalse(store.allSessions.contains { $0.pendingApproval?.id == approvalId })
+        store.stop()
+    }
+
+    func testARepeatedTapIsNotResubmitted() async throws {
+        let transport = FakeWatchTransport()
+        let store = demoStore(transport)
+        let alert = try relayedAlert(transport, decidable: true)
+        let request = WatchApprovalRequest(attemptId: "t-1", sessionId: alert.sessionId,
+                                           approvalId: try XCTUnwrap(alert.approvalId),
+                                           choice: .allow)
+
+        _ = await transport.tap(request)
+        let relayCount = transport.sent.count
+        let repeated = await transport.tap(request)
+
+        // Still accepted — the tap did land — but nothing moved a second time.
+        XCTAssertEqual(repeated.outcome, .accepted)
+        XCTAssertEqual(transport.sent.count, relayCount, "a duplicate tap re-projected nothing")
+        store.stop()
+    }
+
+    func testATapForAnApprovalThatMovedOnIsRefused() async throws {
+        let transport = FakeWatchTransport()
+        let store = demoStore(transport)
+        let alert = try relayedAlert(transport, decidable: true)
+
+        let stale = await transport.tap(WatchApprovalRequest(
+            attemptId: "t-1", sessionId: alert.sessionId,
+            approvalId: "an-approval-that-already-resolved", choice: .allow))
+        XCTAssertEqual(stale.outcome, .refused)
+
+        let wrongSession = await transport.tap(WatchApprovalRequest(
+            attemptId: "t-2", sessionId: "demo-work",
+            approvalId: try XCTUnwrap(alert.approvalId), choice: .allow))
+        XCTAssertEqual(wrongSession.outcome, .refused)
+        store.stop()
+    }
+
+    func testTheRichEditApprovalCannotBeResolvedFromTheWrist() async throws {
+        let transport = FakeWatchTransport()
+        let store = demoStore(transport)
+        let displayOnly = try relayedAlert(transport, decidable: false)
+        // Its real approval id, taken from the phone — the Watch was never told it.
+        let hidden = try XCTUnwrap(store.allSessions
+            .first { $0.id == displayOnly.sessionId }?.pendingApproval?.id)
+
+        let result = await transport.tap(WatchApprovalRequest(
+            attemptId: "t-1", sessionId: displayOnly.sessionId,
+            approvalId: hidden, choice: .allow))
+
+        XCTAssertEqual(result.outcome, .refused)
+        XCTAssertTrue(store.allSessions.contains { $0.pendingApproval?.id == hidden })
+        store.stop()
+    }
+
+    func testAnUnreachableMacReportsFailedAndTheTapCanBeMadeAgain() async throws {
+        let transport = FakeWatchTransport()
+        let decisions = UnreachableDecisionClient()
+        let store = DashboardStore(streamer: EmptyStreamer(), notifier: SilentNotifier(),
+                                   decisionClient: decisions,
+                                   watchRelay: WatchRelay(transport: transport))
+        // Demo Mode fills the dashboard; the pairing is what makes it live, so
+        // the decision goes to the (refusing) Mac rather than resolving locally.
+        store.startDemo()
+        let alert = try relayedAlert(transport, decidable: true)
+        store.start(PairingPayload(host: "127.0.0.1", port: 9, token: "test"))
+        let request = WatchApprovalRequest(attemptId: "t-1", sessionId: alert.sessionId,
+                                           approvalId: try XCTUnwrap(alert.approvalId),
+                                           choice: .allow)
+
+        let first = await transport.tap(request)
+        XCTAssertEqual(first.outcome, .failed)
+        // Not remembered as handled, so the user can try the same tap again.
+        let second = await transport.tap(request)
+        XCTAssertEqual(second.outcome, .failed)
+        let attempts = await decisions.attempts
+        XCTAssertEqual(attempts, 2)
         store.stop()
     }
 }

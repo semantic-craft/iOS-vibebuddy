@@ -4,10 +4,13 @@ import VibeBuddyKit
 /// The urgent takeover. A blocked session is exceptional and time-sensitive
 /// enough to replace the calm home content rather than sit below it.
 ///
-/// This slice is read-only on both kinds of wait: acting from the wrist needs
-/// the validated one-shot decision path, which is a later slice. Saying so is
-/// better than an Approve button that cannot honestly report what happened.
+/// A permission whose exact command or path was relayed in full can be resolved
+/// here, one shot only. Everything else — every question, and any approval whose
+/// real substance (an Edit's diff, an over-long command) stayed on the iPhone —
+/// keeps saying so instead of offering a button that cannot honestly report what
+/// was approved.
 struct WatchAlertCard: View {
+    @ObservedObject var store: WatchStateStore
     let alert: WatchAlert
     let now: Date
     let alsoWaiting: Int
@@ -96,11 +99,15 @@ struct WatchAlertCard: View {
                 .foregroundStyle(.secondary)
             }
 
-            Text(alert.waitKind == .permission
-                 ? "Approve or deny on your iPhone."
-                 : "Answer on your iPhone.")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+            if alert.isDecidable {
+                WatchApprovalActions(store: store, alert: alert)
+            } else {
+                Text(alert.waitKind == .permission
+                     ? "Approve or deny on your iPhone."
+                     : "Answer on your iPhone.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
 
             if alsoWaiting > 0 {
                 Text("\(alsoWaiting) more waiting")
@@ -110,5 +117,81 @@ struct WatchAlertCard: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// The one-shot decision, and an honest sentence about where it got to.
+///
+/// The buttons are live only when a decision could actually travel: the iPhone
+/// has to be reachable *and* still connected to the Mac. A tap that cannot leave
+/// the wrist is worse than no button, so when either link is down they are
+/// disabled and the reason is written out.
+///
+/// There is no "always allow" here, and there cannot be: the wrist can only
+/// encode `allow` or `deny` (ADR-0010 keeps persisted rules where the full
+/// command is readable).
+struct WatchApprovalActions: View {
+    @ObservedObject var store: WatchStateStore
+    let alert: WatchAlert
+
+    private var phase: WatchApprovalAction.Phase? {
+        store.approval.action.flatMap { $0.approvalId == alert.approvalId ? $0.phase : nil }
+    }
+
+    /// Why a decision cannot be sent right now, if it cannot.
+    private var blocked: LocalizedStringResource? {
+        if !store.canReachPhone { return "Can't reach your iPhone — decide there, or move closer." }
+        if store.state?.relay == .disconnected {
+            return "Your iPhone can't reach your Mac, so this can't be sent."
+        }
+        return nil
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                button(.deny, title: "Deny", tint: Color(taskStatus: TaskPresentationState.error.colorToken))
+                button(.allow, title: "Approve", tint: Color(taskStatus: TaskPresentationState.completeUnread.colorToken))
+            }
+            .disabled(blocked != nil || store.approval.isBusy)
+
+            if let message = statusText {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    if phase == .sending { ProgressView().controlSize(.mini) }
+                    Text(message)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func button(_ choice: WatchApprovalChoice,
+                        title: LocalizedStringResource, tint: Color) -> some View {
+        Button {
+            store.submit(alert, choice)
+        } label: {
+            Text(title)
+                .font(.caption)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .frame(maxWidth: .infinity)
+        }
+        .tint(tint)
+        .buttonStyle(.borderedProminent)
+    }
+
+    /// Never "Approved". The wrist knows only that the Mac took the decision;
+    /// the alert itself clears when a later snapshot says the prompt is gone.
+    private var statusText: LocalizedStringResource? {
+        switch phase {
+        case .sending: return "Sending…"
+        case .awaitingResolution: return "Sent. Waiting for your Mac to confirm."
+        case .failed: return "Couldn't send that. Try again."
+        case .refused: return "This is no longer waiting on you."
+        case nil: return blocked
+        }
     }
 }

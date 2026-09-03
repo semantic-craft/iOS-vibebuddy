@@ -12,6 +12,10 @@ protocol WatchStateTransport: AnyObject {
     var isAvailable: Bool { get }
     /// Called when the transport becomes able to deliver after refusing.
     var onReady: (() -> Void)? { get set }
+    /// A decision the Watch asked for. The handler answers with what actually
+    /// happened, and the transport hands that straight back to the wrist — the
+    /// Watch never assumes a tap landed.
+    var onApprovalRequest: ((WatchApprovalRequest) async -> WatchApprovalResult)? { get set }
     /// Latest-value delivery. Throws when the session cannot take it right now.
     func send(_ payload: Data) throws
 }
@@ -31,6 +35,14 @@ final class WatchRelay {
     private(set) var lastDelivered: WatchDashboardState?
     /// The newest value the transport could not take, retried when it can.
     private(set) var pending: WatchDashboardState?
+
+    /// Who decides a Watch tap. The relay owns the only WatchConnectivity
+    /// session on this device, so the door in goes through the same object as
+    /// the door out; the deciding itself belongs to the store.
+    var onApprovalRequest: ((WatchApprovalRequest) async -> WatchApprovalResult)? {
+        get { transport.onApprovalRequest }
+        set { transport.onApprovalRequest = newValue }
+    }
 
     init(transport: WatchStateTransport) {
         self.transport = transport
@@ -78,6 +90,7 @@ final class WatchRelay {
 @MainActor
 final class WatchConnectivityTransport: NSObject, WatchStateTransport {
     var onReady: (() -> Void)?
+    var onApprovalRequest: ((WatchApprovalRequest) async -> WatchApprovalResult)?
 
     private let session: WCSession?
 
@@ -101,6 +114,30 @@ final class WatchConnectivityTransport: NSObject, WatchStateTransport {
     func send(_ payload: Data) throws {
         guard let session else { throw WatchRelayError.unsupported }
         try session.updateApplicationContext([WatchStateInbox.contextKey: payload])
+    }
+
+    /// Answer one approval message from the wrist. The reply is sent only after
+    /// the decision has actually been attempted, so `accepted` on the Watch
+    /// means the Mac took it rather than that the radio worked.
+    fileprivate nonisolated func handle(approval payload: Data?,
+                                        reply: @escaping @Sendable ([String: Any]) -> Void) {
+        // An unreadable payload names no attempt, so there is nothing to answer
+        // about. Refuse rather than guess which prompt it meant.
+        guard let payload,
+              let request = try? JSONDecoder().decode(WatchApprovalRequest.self, from: payload)
+        else {
+            reply([WatchApprovalResult.messageKey: Data()])
+            return
+        }
+        Task { @MainActor [weak self] in
+            let result: WatchApprovalResult
+            if let handler = self?.onApprovalRequest {
+                result = await handler(request)
+            } else {
+                result = WatchApprovalResult(attemptId: request.attemptId, outcome: .failed)
+            }
+            reply([WatchApprovalResult.messageKey: (try? JSONEncoder().encode(result)) ?? Data()])
+        }
     }
 
     /// Activation, pairing, and reachability all arrive off the main actor.
@@ -137,4 +174,22 @@ extension WatchConnectivityTransport: WCSessionDelegate {
     nonisolated func sessionReachabilityDidChange(_ session: WCSession) {
         readyChanged()
     }
+
+    nonisolated func session(_ session: WCSession,
+                             didReceiveMessage message: [String: Any],
+                             replyHandler: @escaping ([String: Any]) -> Void) {
+        // Only the payload crosses the actor boundary: `[String: Any]` is not
+        // Sendable, and nothing else in the message is ours.
+        let payload = message[WatchApprovalRequest.messageKey] as? Data
+        let reply = UncheckedSendable(replyHandler)
+        handle(approval: payload) { reply.value($0) }
+    }
+}
+
+/// WatchConnectivity hands back a non-Sendable reply closure that must be called
+/// exactly once, from anywhere. Nothing else touches it, so carrying it across
+/// the hop is safe.
+private struct UncheckedSendable<T>: @unchecked Sendable {
+    let value: T
+    init(_ value: T) { self.value = value }
 }

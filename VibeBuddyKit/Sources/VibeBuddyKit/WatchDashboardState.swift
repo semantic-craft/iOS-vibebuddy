@@ -69,6 +69,11 @@ public struct WatchAlert: Codable, Equatable, Sendable, Identifiable {
     /// show what is being asked. Labels only — an option's `value` is text that
     /// would be typed into someone's terminal, and the Watch cannot send it.
     public var options: [String]
+    /// The approval this alert may resolve from the wrist, when the relayed
+    /// detail is complete enough to decide on (`WatchApprovalEligibility`).
+    /// `nil` — always, for a question — means display-only: read it here,
+    /// decide on the iPhone.
+    public var approvalId: String?
     public var waitingSince: Date
 
     public var id: String { sessionId }
@@ -82,6 +87,7 @@ public struct WatchAlert: Codable, Equatable, Sendable, Identifiable {
         tool: String? = nil,
         request: String? = nil,
         options: [String] = [],
+        approvalId: String? = nil,
         waitingSince: Date
     ) {
         self.sessionId = sessionId
@@ -92,8 +98,12 @@ public struct WatchAlert: Codable, Equatable, Sendable, Identifiable {
         self.tool = tool
         self.request = request
         self.options = options
+        self.approvalId = approvalId
         self.waitingSince = waitingSince
     }
+
+    /// Whether the wrist may offer Approve / Deny for this alert.
+    public var isDecidable: Bool { approvalId != nil }
 
     public func waitedFor(now: Date) -> TimeInterval {
         max(0, now.timeIntervalSince(waitingSince))
@@ -159,6 +169,20 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
     /// wrist should not.
     public var stuck: Int { presentation.error }
 
+    /// Demo Mode only: what a later Mac snapshot would say once this approval
+    /// resolved. Sample data then travels the same path as real data — the
+    /// alert clears because the world changed, not because a button was tapped.
+    public func resolvingApproval(_ approvalId: String) -> WatchDashboardState {
+        guard alerts.contains(where: { $0.approvalId == approvalId }) else { return self }
+        var resolved = self
+        resolved.alerts.removeAll { $0.approvalId == approvalId }
+        resolved.counts.needsResponse = max(0, counts.needsResponse - 1)
+        resolved.counts.working += 1
+        resolved.presentation.requiresInput = max(0, presentation.requiresInput - 1)
+        resolved.presentation.thinking += 1
+        return resolved
+    }
+
     /// Whether two projections say the same thing about the world.
     ///
     /// Only the observation time may differ: the Watch derives every age and
@@ -221,6 +245,10 @@ public enum WatchDashboardProjection {
             options: waitKind == .question
                 ? (session.pendingQuestion?.options.map(\.label) ?? [])
                 : [],
+            // Present only when the wrist has enough to decide on. A question is
+            // never decidable here, and neither is an approval whose real detail
+            // stayed on the iPhone.
+            approvalId: WatchApprovalEligibility.approvalId(for: session),
             waitingSince: session.statusSince
         )
     }

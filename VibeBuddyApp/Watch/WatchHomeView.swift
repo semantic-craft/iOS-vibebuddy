@@ -5,6 +5,7 @@ import VibeBuddyKit
 /// weekly allowance as secondary resource health. When a session is actually
 /// blocked, the same page becomes the alert instead of burying it behind a swipe.
 struct WatchHomeView: View {
+    @ObservedObject var store: WatchStateStore
     let state: WatchDashboardState
     let now: Date
 
@@ -16,7 +17,7 @@ struct WatchHomeView: View {
                         WatchDisconnectedBanner()
                     }
                     if let alert = state.topAlert {
-                        WatchAlertCard(alert: alert, now: now,
+                        WatchAlertCard(store: store, alert: alert, now: now,
                                        alsoWaiting: state.alerts.count - 1)
                     } else {
                         WatchCalmHeader(state: state)
