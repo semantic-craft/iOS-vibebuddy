@@ -661,6 +661,14 @@ public struct CodexRolloutParser: Sendable {
         turnActive = anonymousTurnCount > 0 || !activeTurnIDs.isEmpty
     }
 
+    /// Drop every in-flight turn without inventing a Codex completion record.
+    /// Used when a Desktop writer is gone; the monitor then emits `stop`.
+    mutating func abandonActiveTurns() {
+        activeTurnIDs.removeAll()
+        anonymousTurnCount = 0
+        refreshTurnState()
+    }
+
     private static func itemFailed(_ item: [String: Any]) -> Bool {
         if let exit = item["exit_code"] as? NSNumber, exit.intValue != 0 { return true }
         if let status = (item["status"] as? String)?.lowercased(),
@@ -797,6 +805,14 @@ public actor CodexRolloutMonitor {
     private let discoveryInterval: Duration
     private let debounceInterval: Duration
     private let recoveryWindow: TimeInterval
+    private let ownerlessAfter: TimeInterval
+    /// Process/lock probes may only retire an already-working Desktop thread.
+    /// They must never create a session, never move one into `working`, and
+    /// never change ObservationHealth. ObservationSource is still never
+    /// guessed from process existence — this is a bounded exception for
+    /// "the writer is gone, leave working".
+    private let isDesktopAppServerAlive: @Sendable () -> Bool
+    private let hasWriterLock: @Sendable (String) -> Bool
     private let watcherQueue = DispatchQueue(
         label: "com.vibebuddy.codex-rollout-watchers",
         qos: .utility
@@ -815,18 +831,30 @@ public actor CodexRolloutMonitor {
     private var watcherEventCount = 0
     private var debouncedRefreshCount = 0
     private var watcherRecoveryCount = 0
+    private var ownerlessSince: [String: Date] = [:]
 
     public init(
         root: URL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".codex/sessions", isDirectory: true),
         discoveryInterval: Duration = .seconds(30),
         debounceInterval: Duration = .milliseconds(100),
-        recoveryWindow: TimeInterval = 30 * 60
+        recoveryWindow: TimeInterval = 30 * 60,
+        ownerlessAfter: TimeInterval = 60,
+        lockRoot: URL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".codex/thread-writer-locks", isDirectory: true),
+        isDesktopAppServerAlive: (@Sendable () -> Bool)? = nil,
+        hasWriterLock: (@Sendable (String) -> Bool)? = nil
     ) {
         self.root = root
         self.discoveryInterval = discoveryInterval
         self.debounceInterval = debounceInterval
         self.recoveryWindow = recoveryWindow
+        self.ownerlessAfter = ownerlessAfter
+        self.isDesktopAppServerAlive = isDesktopAppServerAlive ?? { CodexDesktopAppServer.isAlive() }
+        self.hasWriterLock = hasWriterLock ?? { id in
+            FileManager.default.fileExists(
+                atPath: lockRoot.appendingPathComponent("\(id).lock").path)
+        }
     }
 
     public func run(store: SessionStore) async {
@@ -908,7 +936,48 @@ public actor CodexRolloutMonitor {
         for file in files {
             emitted.append(contentsOf: refresh(file: file, now: now, installWatcher: installWatchers))
         }
+        emitted.append(contentsOf: retireOwnerless(now: now))
         return emitted
+    }
+
+    /// A Desktop turn with no writer leaves `working` on the existing discovery
+    /// cadence (default 30s), not a new one-second poll.
+    ///
+    /// Lock files persist after turns and their mtime does not follow writes, so
+    /// a lock's *presence* is not proof of a writer. A missing lock, or a dead
+    /// ChatGPT.app-bundled `codex app-server`, is enough to call the thread
+    /// ownerless. Leftover locks are ignored once that process is already gone.
+    private func retireOwnerless(now: Date) -> [HookEvent] {
+        var events: [HookEvent] = []
+        let appServerAlive = isDesktopAppServerAlive()
+        for (path, cursor) in cursors {
+            guard cursor.surfaced, cursor.parser.turnActive,
+                  cursor.parser.isDesktopSession,
+                  let sessionID = cursor.parser.sessionID
+            else {
+                ownerlessSince[path] = nil
+                continue
+            }
+            let ownerless = !appServerAlive || !hasWriterLock(sessionID)
+            guard ownerless else {
+                ownerlessSince[path] = nil
+                continue
+            }
+            let since = ownerlessSince[path] ?? now
+            ownerlessSince[path] = since
+            guard now.timeIntervalSince(since) >= ownerlessAfter else { continue }
+
+            var updated = cursor
+            updated.parser.abandonActiveTurns()
+            cursors[path] = updated
+            ownerlessSince[path] = nil
+            events.append(HookEvent(
+                kind: .stop, sessionID: sessionID, agent: .codex,
+                cwd: cursor.parser.cwd, message: "Abandoned",
+                observationSource: .rollout, timestamp: now,
+                desktopThreadID: sessionID))
+        }
+        return events
     }
 
     private func refresh(file: URL, now: Date, installWatcher: Bool) -> [HookEvent] {
@@ -1047,6 +1116,7 @@ public actor CodexRolloutMonitor {
 
     private func removeTracking(path: String) {
         cursors[path] = nil
+        ownerlessSince[path] = nil
         debounceTasks.removeValue(forKey: path)?.task.cancel()
         if let registration = watchers.removeValue(forKey: path) {
             registration.watcher.cancelAndWait()
@@ -1075,6 +1145,7 @@ public actor CodexRolloutMonitor {
         eventQueue.removeAll()
         eventQueueHead = 0
         cursors.removeAll()
+        ownerlessSince.removeAll()
         recoveryGateForTesting = nil
         sink = nil
     }
@@ -1171,5 +1242,28 @@ public actor CodexRolloutMonitor {
         } catch {
             return Data()
         }
+    }
+}
+
+/// The ChatGPT.app-bundled `codex` binary. Homebrew CLI and ssh `app-server`
+/// proxies must not count — this machine routinely runs all three.
+enum CodexDesktopAppServer {
+    static func isAlive() -> Bool {
+        let needed = proc_listpids(UInt32(PROC_ALL_PIDS), 0, nil, 0)
+        guard needed > 0 else { return false }
+        var pids = [pid_t](repeating: 0, count: Int(needed) / MemoryLayout<pid_t>.stride)
+        let filled = proc_listpids(
+            UInt32(PROC_ALL_PIDS), 0, &pids,
+            Int32(pids.count * MemoryLayout<pid_t>.stride))
+        guard filled > 0 else { return false }
+        let count = Int(filled) / MemoryLayout<pid_t>.stride
+        var pathBuffer = [UInt8](repeating: 0, count: Int(4 * MAXPATHLEN))
+        for pid in pids.prefix(count) where pid > 0 {
+            let len = proc_pidpath(pid, &pathBuffer, UInt32(pathBuffer.count))
+            guard len > 0 else { continue }
+            let path = String(decoding: pathBuffer.prefix(Int(len)), as: UTF8.self)
+            if path.hasSuffix("/ChatGPT.app/Contents/Resources/codex") { return true }
+        }
+        return false
     }
 }

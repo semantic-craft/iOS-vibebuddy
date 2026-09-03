@@ -396,6 +396,33 @@ struct CodexRolloutMonitorTests {
         #expect(events.last?.enrichment?.contextWindow == 1_000)
     }
 
+    @Test("an ownerless Desktop thread leaves working within a minute")
+    func ownerlessThreadLeavesWorking() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        _ = try fixture.write(
+            named: "rollout-ownerless.jsonl",
+            lines: [sessionMeta(id: "desktop-ownerless"), taskStarted(id: "t1")]
+        )
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            isDesktopAppServerAlive: { false },
+            hasWriterLock: { _ in false }
+        )
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-ownerless"]?.status == .working)
+
+        for event in await monitor.poll(now: now.addingTimeInterval(59)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-ownerless"]?.status == .working)
+        #expect(reducer.sessions["desktop-ownerless"]?.summary != "Abandoned")
+
+        for event in await monitor.poll(now: now.addingTimeInterval(60)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-ownerless"]?.status == .done)
+        #expect(reducer.sessions["desktop-ownerless"]?.summary == "Abandoned")
+        #expect(reducer.sessions["desktop-ownerless"]?.failed != true)
+    }
+
     @Test("a thread resumed from an older date directory is discovered")
     func resumedOldThreadDiscovery() async throws {
         let fixture = try RolloutFixture(now: now)
