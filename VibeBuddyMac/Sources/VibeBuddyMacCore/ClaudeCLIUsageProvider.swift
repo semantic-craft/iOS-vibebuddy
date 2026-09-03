@@ -93,6 +93,11 @@ public enum ClaudeUsageResponseDecoder {
         )
     }
 
+    /// `/usage` drops the minutes when a window resets on the hour — "Sep 5 at
+    /// 8pm" is the same shape as "Sep 3 at 2:30pm", not a different one. Both
+    /// spellings are the CLI's normal output, so both parse.
+    private static let resetFormats = ["MMM d 'at' h:mma yyyy", "MMM d 'at' ha yyyy"]
+
     private static func parseReset(
         _ value: String,
         timeZoneID: String,
@@ -107,8 +112,10 @@ public enum ClaudeUsageResponseDecoder {
         formatter.calendar = localCalendar
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = timeZone
-        formatter.dateFormat = "MMM d 'at' h:mma yyyy"
-        guard var candidate = formatter.date(from: "\(value) \(year)") else { return nil }
+        guard var candidate = resetFormats.lazy.compactMap({ format -> Date? in
+            formatter.dateFormat = format
+            return formatter.date(from: "\(value) \(year)")
+        }).first else { return nil }
         if candidate < now.addingTimeInterval(-60) {
             candidate = localCalendar.date(byAdding: .year, value: 1, to: candidate) ?? candidate
         }
@@ -131,7 +138,11 @@ public final class ClaudeCLIUsageProvider: AccountUsageProviding, @unchecked Sen
             "--safe-mode",
             "--permission-mode", "dontAsk",
         ],
-        timeout: TimeInterval = 15
+        // Measured on a real account: `claude -p /usage` normally answers in
+        // 2-7s but has been seen to take 17s. A refresh runs every 15 minutes,
+        // so waiting a little longer costs nothing and is the difference
+        // between a real number and "Usage refresh timed out" on the wrist.
+        timeout: TimeInterval = 30
     ) {
         self.executableURL = executableURL ?? Self.resolveClaudeExecutable()
         self.arguments = arguments

@@ -90,6 +90,41 @@ struct AccountUsageTests {
         )))
     }
 
+    @Test("a Claude window that resets on the hour prints no minutes and still parses")
+    func claudeWholeHourReset() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "Asia/Shanghai"))
+        let fetchedAt = try #require(calendar.date(from: DateComponents(
+            year: 2026, month: 9, day: 3, hour: 12
+        )))
+        // Recorded verbatim from `claude -p /usage --output-format json`: the CLI
+        // writes "8pm", not "8:00pm", whenever a window happens to reset on the hour.
+        let output = """
+        You are currently using your subscription to power your Claude Code usage
+
+        Current session: 43% used · resets Sep 3 at 2:30pm (Asia/Shanghai)
+        Current week (all models): 58% used · resets Sep 5 at 8pm (Asia/Shanghai)
+        Current week (Fable): 58% used · resets Sep 5 at 8pm (Asia/Shanghai)
+
+        What's contributing to your limits usage?
+        """
+        let data = try JSONSerialization.data(withJSONObject: [
+            "is_error": false,
+            "result": output,
+        ])
+
+        let snapshot = try ClaudeUsageResponseDecoder.decode(
+            data, fetchedAt: fetchedAt, calendar: calendar)
+
+        #expect(snapshot.secondary?.usedPercent == 58)
+        #expect(snapshot.secondary?.resetsAt == calendar.date(from: DateComponents(
+            year: 2026, month: 9, day: 5, hour: 20
+        )))
+        #expect(snapshot.primary?.resetsAt == calendar.date(from: DateComponents(
+            year: 2026, month: 9, day: 3, hour: 14, minute: 30
+        )))
+    }
+
     @Test("provider percentages outside zero through one hundred are rejected")
     func percentageBounds() throws {
         let output = """
