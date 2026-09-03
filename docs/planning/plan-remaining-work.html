@@ -72,17 +72,16 @@
 <div class="wrap">
 
 <h1>vibebuddy — 收尾实施计划</h1>
-<p class="sub">8 个会话 · 7 个在你的 Mac 上跑（Grok）· 1 个在云端跑（Cursor Cloud Agent）· 每个会话复制一次即可</p>
+<p class="sub">给 Grok 的并行开发编排 · 8 个会话，全部在你的 Mac 上跑 · 每个会话复制一次即可</p>
 
 <div class="banner">
-  <p><b>怎么用：</b>每张卡片右上角标了 <span class="tag t-loc">本地</span> 或
-  <span class="tag t-cloud">云端</span>。本地的在仓库根目录 <code>~/Projects/iOS-vibebuddy</code>
-  起一个 Grok 会话；云端的在 Cursor 里新开一个 Cloud Agent。都是点「复制提示词」，粘进去，回车。
-  提示词是自包含的——纪律、验证命令、坑、交付要求全在里面，<b>不需要再粘第二段，也不需要你先手动建 worktree</b>（agent 自己建）。</p>
-  <p><b>为什么只有一个在云端：</b>云端 VM 是 Linux，<b>没有 Swift、没有 Xcode、没有 <code>~/.codex</code>、
-  没有 <code>.scratch/</code> 的 ticket（它被 gitignore，只在你的 Mac 上）、也没有那两个装着未提交成品的 worktree</b>。
-  所以任何要编译、跑测试、看真实 Codex 数据、改 ticket、碰设备的事都只能在 Mac 上做。云端能做的是纯文档 + git/GitHub 操作，见第二节。</p>
-  <p><b>基线：</b><code>main</code> = <code>origin/main</code> = <code>5acc0ef</code>，Mac 上实跑绿：
+  <p><b>怎么用：</b>在仓库根目录 <code>~/Projects/iOS-vibebuddy</code> 起一个 Grok 会话，点对应卡片的
+  「复制提示词」，粘进去，回车。提示词是自包含的——纪律、验证命令、坑、交付要求全在里面，
+  <b>不需要再粘第二段，也不需要你先手动建 worktree</b>（agent 自己建）。</p>
+  <p><b>为什么全在本地：</b>Cursor 云端 VM 是 Linux，没有 Swift / Xcode、没有 <code>~/.codex</code>、
+  没有 <code>.scratch/</code> 的 ticket（gitignore，只在 Mac 上）、也没有那两个装着未提交成品的 worktree。
+  唯一能上云的只有纯文档工作，不值得为它分裂流程，所以决定全部在 Mac 上做。</p>
+  <p><b>基线：</b><code>main</code> = <code>origin/main</code> = <code>5acc0ef</code>，本机实跑绿：
   VibeBuddyKit 218 测试 / 26 套件，VibeBuddyMac 459 / 44。GitHub 上 PR #1–#7、#9–#11 已合，
   <b>PR #8 仍开着</b>。</p>
   <p><b>硬约束：</b>同一个 worktree 同一时间只能有一个会话；不要在仓库根目录切分支。
@@ -142,30 +141,16 @@
 <h2>二、编排：什么并行、什么串行</h2>
 
 <pre class="map">波 1  ── 现在就开，3 个并行 ────────────────────────────────────
-  [本地] M   集成与卫生         主工作区    先合这份计划的 PR 和 PR #8，做卫生，然后待命收 PR
-  [本地] C1  抢救 Desktop 跳转   worktree codex-desktop-jump      ← 已有成品，只需收尾
-  [本地] C2  抢救 auth / 默认值  worktree auth-and-defaults-followup ← 已有成品，只需收尾
+  M   集成与卫生         主工作区    先合这份计划的 PR（#13）和 PR #8，做卫生，然后待命收 PR
+  C1  抢救 Desktop 跳转   worktree codex-desktop-jump      ← 已有成品，只需收尾
+  C2  抢救 auth / 默认值  worktree auth-and-defaults-followup ← 已有成品，只需收尾
 
 波 2  ── 波 1 的 PR 合完之后，2 个并行 ──────────────────────────
-  [本地] C3  Desktop 观察可信度（ticket 06 → 02）   worktree codex-observation-trust
-  [云端] B   规划文档同步（不碰 ticket）             Cursor Cloud Agent，自己的分支
+  C3  Desktop 观察可信度（ticket 06 → 02）   worktree codex-observation-trust
+  B   真相同步与簿记                        worktree bookkeeping
 
 波 3  ── 你本人在场，一次只开一个 ─────────────────────────────
-  [本地] H1  Sparkle 发布闭环  →  H2  装机验收  →  H3  真机 Watch 验收</pre>
-
-<h3>本地还是云端：按这张表判断</h3>
-<table>
-  <tr><th>任务需要…</th><th>本地 Mac</th><th>云端 VM（Linux）</th></tr>
-  <tr><td>编译 / 跑 <code>swift test</code> / <code>xcodebuild</code></td><td>有</td><td><b>没有</b>（VibeBuddyKit 本身就 import SwiftUI / Security，MacCore import AppKit，Linux 上编不过）</td></tr>
-  <tr><td>读 / 改 <code>.scratch/</code> 的 ticket</td><td>有</td><td><b>没有</b>（被 gitignore，不在 GitHub 上）</td></tr>
-  <tr><td>那两个装着未提交成品的 worktree</td><td>有</td><td><b>没有</b>（<code>.claude/</code> 被 gitignore）</td></tr>
-  <tr><td>看真实的 <code>~/.codex</code>（锁文件、进程、rollout）</td><td>有</td><td>没有</td></tr>
-  <tr><td>已安装的 App、手机、手表</td><td>有</td><td>没有</td></tr>
-  <tr><td>git / <code>gh</code> / 开 PR / 改 <code>docs/</code></td><td>有</td><td>有</td></tr>
-</table>
-<p style="font-size:14px;color:var(--dim)">结论：只有 <b>B</b> 能上云。它原来包含"回写 ticket"这一半，现在这一半挪进了 M 的收尾步骤（M 在本地、
-而且收完 PR 后本来就闲着）。M 每合一条 PR 会把测试数量写进合并留言，B 在云端从 GitHub 上读，不用自己跑。
-如果你想省本地注意力，也可以把 B 放到最后、等 M 全部收完再开——它不在任何关键路径上。</p>
+  H1  Sparkle 发布闭环  →  H2  装机验收  →  H3  真机 Watch 验收</pre>
 
 <h3>串行的地方只有三处</h3>
 <table>
@@ -187,17 +172,15 @@ C2 加 <code>BearerAuth</code> 的 init 在 462 行附近、改 104 行的 <code
 <div class="card">
   <header>
     <div class="idrow">
-      <span class="id">M</span><span class="title">集成与卫生 + ticket 回写</span>
-      <span class="tag t-loc">本地</span><span class="tag t-ser">串行闸门</span><span class="tag t-par">波 1 可与 C1 C2 并行</span>
+      <span class="id">M</span><span class="title">集成与卫生</span>
+      <span class="tag t-ser">串行闸门</span><span class="tag t-par">波 1 可与 C1 C2 并行</span>
     </div>
-    <p class="meta"><b>工作目录</b> 仓库根目录（不建 worktree） · <b>前置</b> 无 · <b>产出</b> 计划 PR 与 PR #8 进 main，仓库卫生，之后按序收 C2 → C1 → C3 → B，最后回写 ticket</p>
+    <p class="meta"><b>工作目录</b> 仓库根目录（不建 worktree） · <b>前置</b> 无 · <b>产出</b> PR #13 与 PR #8 进 main，仓库卫生，之后按序收 C2 → C1 → C3 → B</p>
   </header>
   <div class="body">
-    <p>先把这份计划的 PR 和 PR #8 合掉，再做仓库卫生，然后这个会话保持开着，C1/C2/C3/B 的 PR 出来后由它一条一条收。每合一条把测试数量写进合并留言（云端的 B 靠它拿数据）。全部收完后回写 <code>.scratch/</code> 里的 ticket——云端看不见 ticket，所以这一半只能在这里做。</p>
+    <p>先把这份计划的 PR（#13）和 PR #8 合掉，再做仓库卫生，然后这个会话保持开着，C1/C2/C3/B 的 PR 出来后由它一条一条收。</p>
     <button class="btn copy" data-target="p-m">复制提示词</button>
-    <details><summary>展开看提示词全文</summary><pre class="prompt" id="p-m">你是 vibebuddy 仓库的集成 agent。本次任务代号 M：先合并这份计划的 PR 和 PR #8、做仓库卫生、然后按序收其它会话的 PR、最后回写 ticket。
-
-这是【本地 Mac 上】的任务：需要 Xcode、Swift、.scratch/ 的 ticket 和本地 worktree，云端 agent 没有这些，不要在云端跑。
+    <details><summary>展开看提示词全文</summary><pre class="prompt" id="p-m">你是 vibebuddy 仓库的集成 agent。本次任务代号 M：先合并这份计划的 PR（#13）和 PR #8、做仓库卫生、然后按序收其它会话的 PR。
 
 ## 项目与纪律（先读完再动手）
 
@@ -229,12 +212,12 @@ NotificationDelivery），不要漂移到同义词。
   cd VibeBuddyMacApp ; xcodegen generate ; cd .. ; xcodebuild -project VibeBuddyMacApp/VibeBuddyMacApp.xcodeproj -scheme VibeBuddyMacApp -configuration Debug -destination 'platform=macOS' build CODE_SIGNING_ALLOWED=NO
   cd VibeBuddyApp ; xcodegen generate ; cd .. ; xcodebuild -project VibeBuddyApp/VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -configuration Debug -destination 'generic/platform=iOS Simulator' build CODE_SIGNING_ALLOWED=NO
 
-## 第零步：合并这份计划的 PR
+## 第零步：合并这份计划的 PR（#13）
 
-分支 cursor/cloud-agent-1788439510943-7bqvx 上有一个 PR（标题含「收尾实施计划」），内容只有三样：
+PR #13「docs(planning): 收尾实施计划」，分支 cursor/cloud-agent-1788439510943-7bqvx，内容只有三样：
 docs/planning/plan-remaining-work.html（本计划）、.gitignore 加了 docs/qa-screenshots/、
 以及把误提交的 8 张截图和 Package.resolved 从分支上撤掉。看一眼 diff 确认没有代码改动，
-gh pr merge &lt;编号&gt; --squash --delete-branch ，主工作区 git pull --ff-only 。
+gh pr merge 13 --squash --delete-branch ，主工作区 git pull --ff-only 。
 【坑】pull 之后你本地 docs/qa-screenshots/2026-09-install/ 那 8 张截图会从"未跟踪"变成"被忽略"，
 这是预期的，文件本身还在磁盘上，不要删。
 【坑】合并这条 PR 之前，如果 git status 显示 docs/planning/plan-remaining-work.html 是未跟踪文件
@@ -289,12 +272,10 @@ CodexRolloutMonitorTests.swift / docs/planning/prior-art.md / hooks/README.md）
   2. gh pr merge &lt;编号&gt; --squash --delete-branch
   3. 主工作区 git pull --ff-only
   4. 跑上面四条验证命令。
-  5. 【把四条验证的结果写成一条 PR 留言】：gh pr comment &lt;编号&gt; --body "merged as &lt;sha&gt;; Kit N tests / M suites, Mac N / M, macOS build ok, iOS build ok"
-     B 会话在云端跑，没有 Swift，它靠读这条留言拿测试数量。没有这条留言 B 就只能写"未核实"。
-  6. git branch -D &lt;本地分支&gt;（如果本地还有），git worktree remove 对应 worktree（只在那个会话
+  5. git branch -D &lt;本地分支&gt;（如果本地还有），git worktree remove 对应 worktree（只在那个会话
      已经结束、且工作区干净时才做；不确定就留着，让用户决定）。
 
-B 是云端会话开的 PR，只改 docs/，合并流程一样，但第 4 步可以只跑 Kit + Mac 的 swift test（它不碰代码）。
+B 的 PR 只改 docs/，合并流程一样，第 4 步可以只跑 Kit + Mac 的 swift test。
 
 【坑】
 - 一次只合一条，合完跑完测试再合下一条。并行合了出回归就分不清是谁的。
@@ -303,29 +284,10 @@ B 是云端会话开的 PR，只改 docs/，合并流程一样，但第 4 步可
 - C2 排在 C1 前面是因为 C2 更小。两者都改了 VibeBuddyServer.swift 和 MenuBarModel.swift
   的不同区段，C1 会自己 rebase 处理。
 
-## 第四步：回写 ticket（C1 / C2 / C3 全部收完之后）
-
-.scratch/ 被 gitignore，只存在于这台 Mac 上，云端的 B 会话看不见它，所以 ticket 的真相同步
-只能在这里做。逐条：
-  - .scratch/codex-desktop-monitoring/issues/04-jump-to-desktop-thread.md：按 C1 的 PR 结果写
-    （代码在 main + 本机跳转验证结果；iPhone 端目视留给 H2，不写 done）。
-  - .scratch/codex-desktop-monitoring/issues/06-…md 和 02-…md：按 C3 的 PR 结果写。02 如果因为
-    锁文件不可靠没做成，把 C3 报告里的实证结论原样抄进去。
-  - .scratch/architecture-boundaries/issues/01-execute-boundary-refactor.md：现在还是
-    ready-for-agent，但 PRD 第 2–6 步已落地（VibeBuddyKit/Sources/VibeBuddyKit/VoiceCallCoordinator.swift
-    被 iOS 与 macOS 两端的 VoiceChat.swift 共用；PR #11 删了 Qwen 死路径并同步了术语表；
-    PR #9 拆出 AccountUsageCoordinator；PR #10 收敛成一个 BearerAuthMiddleware）。
-    对着 .scratch/architecture-boundaries/PRD.md 的验收标准逐条 rg 核实，改成 done，
-    并写明第 1 步（Kit 表面分组）还剩什么、值不值得做——不值得就写"不做"和理由，
-    不要留一个永远悬着的票。
-  - 每条 ticket 的 Status 要能被 B 在云端引用：把每条的最终 Status 一句话汇总，
-    gh pr comment 到 B 的 PR 上（如果 B 已开 PR）或写在你的最终汇报里。
-【坑】ticket 是 gitignore 的，改完不需要也不可能提交，git status 看不到它是正常的。
-
 ## 交付
 
 一段汇报：main 的最终 commit、每次合并后的四条验证结果（测试数量要写出来）、
-删掉的 worktree 与分支清单、退回去的 PR（如果有）、每条 ticket 的最终 Status、你看到但没动的问题。</pre></details>
+删掉的 worktree 与分支清单、退回去的 PR（如果有）、你看到但没动的问题。</pre></details>
   </div>
 </div>
 
@@ -334,7 +296,7 @@ B 是云端会话开的 PR，只改 docs/，合并流程一样，但第 4 步可
   <header>
     <div class="idrow">
       <span class="id">C1</span><span class="title">抢救 Codex Desktop 跳转（ticket 04）</span>
-      <span class="tag t-loc">本地</span><span class="tag t-par">可并行</span>
+      <span class="tag t-par">可并行</span>
     </div>
     <p class="meta"><b>工作目录</b> <code>.claude/worktrees/codex-desktop-jump</code>（已存在）· <b>前置</b> 无，但 rebase 要等 M 合完 PR #8 · <b>产出</b> 一个 PR</p>
   </header>
@@ -343,7 +305,6 @@ B 是云端会话开的 PR，只改 docs/，合并流程一样，但第 4 步可
     <button class="btn copy" data-target="p-c1">复制提示词</button>
     <details><summary>展开看提示词全文</summary><pre class="prompt" id="p-c1">你是 vibebuddy 仓库的开发 agent。本次任务代号 C1：把一份已经写完但从未提交的实现收尾、验证、提交、开 PR。
 
-这是【本地 Mac 上】的任务：成品代码只存在于这台 Mac 的一个 worktree 里，而且需要 Xcode 与 Swift 验证。云端 agent 没有这些，不要在云端跑。
 
 ## 你的工作目录（第一件事）
 
@@ -479,7 +440,7 @@ rebase 时解掉的冲突逐条说明、真实跳转验证的结果、未验证�
   <header>
     <div class="idrow">
       <span class="id">C2</span><span class="title">抢救 auth / 默认值硬化 + 修 flaky 测试</span>
-      <span class="tag t-loc">本地</span><span class="tag t-par">可并行</span>
+      <span class="tag t-par">可并行</span>
     </div>
     <p class="meta"><b>工作目录</b> <code>.claude/worktrees/auth-and-defaults-followup</code>（已存在）· <b>前置</b> 无 · <b>产出</b> 一个 PR（M 会最先合它）</p>
   </header>
@@ -488,7 +449,6 @@ rebase 时解掉的冲突逐条说明、真实跳转验证的结果、未验证�
     <button class="btn copy" data-target="p-c2">复制提示词</button>
     <details><summary>展开看提示词全文</summary><pre class="prompt" id="p-c2">你是 vibebuddy 仓库的开发 agent。本次任务代号 C2：把一份已经写完但从未提交的小硬化收尾，顺带修一个已知的 flaky 测试。
 
-这是【本地 Mac 上】的任务：成品代码只存在于这台 Mac 的一个 worktree 里，而且需要 Swift 跑测试。云端 agent 没有这些，不要在云端跑。
 
 ## 你的工作目录（第一件事）
 
@@ -609,7 +569,7 @@ precondition 那处的判断依据和最终选择、flaky 测试的处理方式�
   <header>
     <div class="idrow">
       <span class="id">C3</span><span class="title">Codex Desktop 观察可信度（ticket 06 → 02）</span>
-      <span class="tag t-loc">本地</span><span class="tag t-ser">必须等 PR #8 + C1 合完</span>
+      <span class="tag t-ser">必须等 PR #8 + C1 合完</span>
     </div>
     <p class="meta"><b>工作目录</b> 自建 worktree <code>codex-observation-trust</code> · <b>前置</b> PR #8 与 C1 都已进 main · <b>产出</b> 一个 PR、两个提交</p>
   </header>
@@ -618,7 +578,6 @@ precondition 那处的判断依据和最终选择、flaky 测试的处理方式�
     <button class="btn copy" data-target="p-c3">复制提示词</button>
     <details><summary>展开看提示词全文</summary><pre class="prompt" id="p-c3">你是 vibebuddy 仓库的开发 agent。本次任务代号 C3：让 Codex Desktop 的观察结果可信——先修健康诊断与发现逻辑不一致（ticket 06），再让无主线程一分钟内收敛（ticket 02）。
 
-这是【本地 Mac 上】的任务：ticket 02 的两个信号（锁文件、进程）必须在真实的 ~/.codex 和真实的 ChatGPT.app 上实证，而且需要 Swift 跑测试。云端 agent 没有这些，不要在云端跑。
 
 ## 前置检查（第一件事，不满足就停下）
 
@@ -794,116 +753,124 @@ working（进入 done，并标注成"被放弃"），而不是等两小时的 st
 <div class="card">
   <header>
     <div class="idrow">
-      <span class="id">B</span><span class="title">规划文档同步（云端）</span>
-      <span class="tag t-cloud">云端</span><span class="tag t-par">可与 C3 并行，不在关键路径上</span>
+      <span class="id">B</span><span class="title">真相同步与簿记</span>
+      <span class="tag t-par">可与 C3 并行，不在关键路径上</span>
     </div>
-    <p class="meta"><b>在哪跑</b> Cursor Cloud Agent（Linux VM，仓库根目录）· <b>前置</b> C1 / C2 已合，C3 有结论，M 已把测试数量写进合并留言 · <b>产出</b> 一个只改 <code>docs/</code> 的 PR</p>
+    <p class="meta"><b>工作目录</b> 自建 worktree <code>bookkeeping</code> · <b>前置</b> C1 / C2 已合，C3 有结论 · <b>产出</b> 一个 PR（只改 docs）+ ticket 直接落地</p>
   </header>
   <div class="body">
-    <p>这是唯一能上云的任务，因为它只碰 <code>docs/</code>。它<b>不碰 ticket</b>（<code>.scratch/</code> 在云端不存在），ticket 回写已经挪进 M 的第四步。云端没有 Swift，所以测试数量一律引用 M 在 PR 上留的合并留言，并标明出处。</p>
+    <p>这个项目的记忆是 markdown，<b>追踪器说谎的代价由之后每一个会话承担</b>。验收标准是"文档里每个路径、行号、commit 都实际存在"，不是"文档写得漂亮"。想省注意力可以放到最后、等 M 全部收完再开。</p>
     <button class="btn copy" data-target="p-b">复制提示词</button>
-    <details><summary>展开看提示词全文</summary><pre class="prompt" id="p-b">你是 vibebuddy 仓库的文档 agent，在 Cursor Cloud Agent 里运行。本次任务代号 B：把规划文档同步到代码的真实状态。这一票【不改任何代码】。
-
-## 你所在的环境（先认清，别按本地的习惯做）
-
-这是一台 Linux 云端 VM，仓库在当前工作目录（通常是 /workspace）。它【没有】：
-  - Swift / Xcode：你【不能】跑 swift test 或 xcodebuild。测试数量一律引用 M 会话在每个 PR 合并留言里
-    写的数字（格式类似 "merged as &lt;sha&gt;; Kit N tests / M suites, Mac N / M, macOS build ok, iOS build ok"），
-    用 gh pr view &lt;编号&gt; --comments 读，并在文档里标明"数字来自 PR #N 的合并留言"。
-    没有留言的就写"未核实"，不要编。
-  - .scratch/ 目录：ticket 追踪器被 gitignore，只存在于用户的 Mac 上。你【看不见也改不了 ticket】。
-    ticket 的回写由本地的 M 会话做（它的第四步），不是你。文档里凡是提到 ticket Status 的地方，
-    引用 M 在 PR 留言或汇报里给的一句话汇总；拿不到就写"以 .scratch 里的 ticket 为准"。
-  - ~/.codex、已安装的 App、任何设备。
-它【有】：git、gh、完整的代码和 docs/。你能做的就是读代码、读 GitHub、写文档。
+    <details><summary>展开看提示词全文</summary><pre class="prompt" id="p-b">你是 vibebuddy 仓库的文档 agent。本次任务代号 B：把追踪器和规划文档同步到代码的真实状态。这一票【不改任何代码】。
 
 ## 为什么这票重要
 
-这个项目没有 GitHub Issues，进度、决策和下一步全是仓库里的 markdown。它是所有后续会话读到的
-唯一事实来源。一处过期的断言会让下一个 agent 重做已经做完的事，或在错误前提上开工。
-所以验收标准是【文档里提到的每个路径、行号、commit 都实际存在且正确】，不是"写得漂亮"。
-每一条断言你都要用 rg / git show / git log / gh 核过再写。
+这个项目没有 GitHub Issues，进度、决策和下一步全都是仓库里的 markdown（.scratch/&lt;feature&gt;/
+的 ticket + docs/planning/ 的规划文档）。也就是说【它是所有后续会话读到的唯一事实来源】。
+一处过期的 Status 会让下一个 agent 重做已经做完的事，或者在错误的前提上开工。
+所以本票的验收标准是【文档里提到的每个路径、行号、commit、测试数量都实际存在且正确】，
+不是"文档写得漂亮"。每一条断言你都要用 rg / git show / git log 核过再写。
 
-## 先摸清状态
+## 建你自己的 worktree
 
-git fetch origin ; git log --oneline -12 origin/main
-gh pr list --state all --limit 20
-看清这几条进了 main 没有：PR #8「close four Codex Desktop rollout gaps」、C2「BearerAuth /
-UserDefaults 硬化」、C1「jump to a Desktop thread」、C3「rollout 健康诊断 + 无主线程收敛」。
-没进来的就按"未合并 / 进行中"如实记录，不要假设成功。对每个已合并的 PR，
-gh pr view &lt;编号&gt; --comments 读 M 留的合并留言拿测试数量。
+cd /Users/xianweizhang/Projects/iOS-vibebuddy ; git fetch origin ; git log --oneline -10 origin/main
+先看清这几条进 main 没有：PR #13（本计划）、PR #8「close four Codex Desktop rollout gaps」、
+C2「BearerAuth / UserDefaults 硬化」、C1「jump to a Desktop thread」、
+C3「rollout 健康诊断 + 无主线程收敛」。没进来的就按"未合并 / 进行中"如实记录，不要假设成功。
 
-在当前分支上直接工作（云端 agent 有自己的分支），不要 checkout 到 main。
+cd /Users/xianweizhang/Projects/iOS-vibebuddy ; tools/agent-worktree.sh bookkeeping
+cd 进它打印的路径（.claude/worktrees/bookkeeping，分支 feat/bookkeeping）。
+
+【重要且容易搞混】.scratch/ 在 worktree 里是软链回主工作区的，而且被 .gitignore 忽略。
+所以：改 ticket 的 Status【立刻生效、不需要提交、也不可能提交】，git status 里看不到它是
+正常的，不要以为改动丢了、不要试图 git add 它。docs/ 是被跟踪的，走分支 + PR。
 
 ## 纪律
 
-1. 不改代码。一行都不改。要改代码的地方写进文档的"待办"里，不要动手。
-2. 不合并 PR，不 force push，不改 GitHub 设置。
-3. 不删历史规划文档——它们是判断依据的存档。用"头部加一行指向新文件"让它们退役。
-4. 不发明进度。核不实的写"未核实"。
-5. 术语以仓库根目录 CONTEXT.md 为准，不要漂移到同义词。
-6. 只改 docs/。不要碰 .gitignore、tools/、任何 Swift 文件。
+1. 不改代码。一行都不改。要改代码的地方写成 ticket，不要自己动手。
+2. 不要在仓库根目录切分支，不要合并 PR，不要 force push。
+3. 不要删除历史规划文档——它们是判断依据的存档。用"头部加一行指向新文件"让它们退役。
+4. 不要发明进度。核不实的就写"未核实"。
+5. 术语以 CONTEXT.md 为准，不要漂移到同义词。
+6. VibeBuddyMac/Package.resolved 会被 swift test 改写，提交前 git checkout -- VibeBuddyMac/Package.resolved 。
 
-## 要做的五件事
+## 要做的七件事
 
-### 1. 写新的状态文档
+### 1. 架构边界票收口
+.scratch/architecture-boundaries/issues/01-execute-boundary-refactor.md 现在还是 ready-for-agent，
+但 PRD 的第 2–6 步其实已经落地了：
+  - 第 2 步（共享实时语音协调器）：VibeBuddyKit/Sources/VibeBuddyKit/VoiceCallCoordinator.swift
+    存在，且被 VibeBuddyApp/Sources/VoiceChat.swift 与 VibeBuddyMacApp/Sources/VoiceChat.swift 两端共用。
+  - 第 3 步（删遗留的 Qwen 语音路径）：PR #11。
+  - 第 4 步（拆 MenuBarModel）：PR #9，拆出 AccountUsageCoordinator。
+  - 第 5 步（守护路由分组 + 共享鉴权策略）：PR #10，收敛成一个 BearerAuthMiddleware。
+  - 第 6 步（术语表对齐 ADR-0007 修正）：PR #11。
+逐条对着 .scratch/architecture-boundaries/PRD.md 的验收标准核实（自己 rg 确认，别信我这段），
+然后把 Status 改成 done，并写明第 1 步（澄清 Kit 的表面分组）还剩什么、值不值得做。
+【如果不值得做，就写"不做"和理由】——不要留一个永远悬着的票。
+
+### 2. 按 PR 结果回写其它 ticket
+  - .scratch/codex-desktop-monitoring/issues/04-jump-to-desktop-thread.md：按 C1 的 PR 写
+    （代码在 main + 本机跳转验证结果；iPhone 端目视留给 H2，不写 done）。C1 会话自己可能已经改过，核一遍。
+  - .scratch/codex-desktop-monitoring/issues/06-…md 与 02-…md：按 C3 的 PR 写。02 如果因为锁文件
+    不可靠没做成，把 C3 汇报里的实证结论原样抄进去。
+  - .scratch/codex-desktop-monitoring/issues/01-real-desktop-acceptance.md：确认是
+    「代码已在 main（PR #8），等真实 Desktop 线程验收」、仍 ready-for-human。
+
+### 3. 写新的状态文档
 新建 docs/planning/status-and-plan-2026-09-04.md，取代 status-and-plan-2026-09-03.md
 （在 09-03 那份头部加一行指向新文件，不要删它）。
 【上限 120 行】。09-03 那份有 209 行，一大半是当天的过程记录；新的只写状态和下一步。
-内容：main 的当前 commit；四个开发会话（M / C1 / C2 / C3）各自的 PR 编号、合并 commit、
-测试数量（注明来自合并留言）；剩下的人工事项（H1 Sparkle 上线三步、H2 装机验收、H3 真机 Watch 验收）
-以及它们的前置；第 4 条那节"不做清单"。
-关于架构边界重构：写"PRD 第 2–6 步已落地"并给出证据——
-VibeBuddyKit/Sources/VibeBuddyKit/VoiceCallCoordinator.swift 被 VibeBuddyApp/Sources/VoiceChat.swift 与
-VibeBuddyMacApp/Sources/VoiceChat.swift 两端共用（自己 rg 确认）；PR #11 删 Qwen 死路径 + 同步术语表；
-PR #9 拆出 AccountUsageCoordinator；PR #10 收敛成一个 BearerAuthMiddleware。ticket 的 Status 由 M 改，
-你只写"ticket 回写见 M 的汇报"。
+要写清：main 的当前 commit 与你自己实跑的测试数量（cd VibeBuddyKit ; swift test 和
+cd VibeBuddyMac ; swift test）、四个开发会话（M / C1 / C2 / C3）的 PR 编号与结果、
+剩下的人工事项（H1 Sparkle 上线三步、H2 装机验收、H3 真机 Watch 验收）及其前置，
+以及第 5 条那节"不做清单"。
 
-### 2. 让旧的提示词包退役
-docs/planning/prompts-2026-09.md 头部加一行：任务集已全部完成或改写，但它的「通用约束」一节仍然
-有效并被引用，所以保留、不要删。当前的任务与提示词见 docs/planning/plan-remaining-work.html。
+### 4. 让旧的提示词包退役
+docs/planning/prompts-2026-09.md 头部加一行：任务集已全部完成或改写，但它的「通用约束」一节
+仍然有效并被引用，所以保留、不要删。当前的任务与提示词见 docs/planning/plan-remaining-work.html。
 
-### 3. 更新 HTML 计划
-docs/planning/plan-remaining-work.html 里每个会话卡片（M / C1 / C2 / C3 / B）在卡片正文第一段
-末尾追加一句实际结果（PR 编号 + 合并 commit，或"进行中"）。【只改文字】，不要动它的结构、
-样式、&lt;pre class="prompt"&gt; 里的提示词正文、或复制按钮的 JS。改完用浏览器或 python 解析一遍
-确认 8 个按钮、8 个 pre 还都在、id 没变。
-
-### 4. 把"不做"的东西集中成一节（写进第 1 条的新状态文档）
-每条写判断依据，以后不用重新论证：
+### 5. 把"不做"的东西集中成一节（写进第 3 条的新状态文档）
+每条都要写判断依据，这样以后不用重新论证：
   - App Store 公开提交：搁置。个人项目，审核 + 商店文案 + 隐私标签 + 截图是纯人力开销、
     零个人收益。tools/archive-ios.sh 与 docs/app-store-*.md 原样归档不删。
   - R2 / TestFlight：从关键路径移除。-exportArchive 和 Apple Distribution 身份只有上传
-    TestFlight 或商店才需要；真机 Watch 验收用 Xcode 直装 iPhone（watchOS app 内嵌，跟着装上）。
-  - codex-desktop 票 03 / 05 / 07 / 08 / 09 / 10：保持 deferred（理由在各票里，你看不见，汇总一句
-    "各票内已记录理由"即可）。
+    TestFlight 或商店才需要；真机 Watch 验收用 Xcode 直装 iPhone（watchOS app 内嵌，会跟着装上）。
+  - codex-desktop 票 03 / 05 / 07 / 08 / 09 / 10：保持 deferred，理由已在各票里，汇总一句即可。
   - codex-desktop 票 11：wontfix。
   - antigravity hooks：blocked-upstream（agy 1.0.5/1.0.6 加载但不执行 hooks，
     上游 google-antigravity/antigravity-cli#222）。
-  - 云端能做的事只有 docs：VibeBuddyKit import SwiftUI / Security，MacCore import AppKit，
-    Linux 上编不过；.scratch 与 .claude 被 gitignore。以后派任务时按这条分。
+  - Cursor 云端 agent 不用于本仓库的开发：云端 VM 是 Linux，没有 Swift / Xcode、没有 ~/.codex、
+    没有 .scratch 与 .claude（gitignore）。只有纯文档能上云，不值得为它分裂流程。
 
-### 5. 改指向
+### 6. 更新 HTML 计划
+docs/planning/plan-remaining-work.html 里每个会话卡片（M / C1 / C2 / C3 / B）在卡片正文第一段
+末尾追加一句实际结果（PR 编号 + 合并 commit，或"进行中"）。【只改文字】，不要动它的结构、
+样式、提示词正文或复制按钮的 JS。改完用 python 解析一遍确认 8 个按钮、8 个 pre 还都在、id 没变。
+
+### 7. 改指向
 docs/planning/roadmap.md 顶部那行指向 status-and-plan-2026-09-03.md，改到新文档。
 
-## 验证（你能做的那部分）
+## 验证
 
-把新写和改写的文档里的【每一条】可核实断言过一遍：文件路径 ls / rg 存在，行号对得上，
-commit 用 git show 存在，PR 编号用 gh pr view 存在，测试数量与合并留言一致。
-核不实的删掉或标"未核实"。回复里报告核了几条、改掉了几处不实的旧断言、哪些数据是"未核实"。
+把你新写和改写的文档里的【每一条】可核实断言过一遍：
+文件路径 rg / ls 存在，行号对得上，commit 用 git show 存在，PR 编号用 gh pr view 存在，
+测试数量是你自己跑出来的，ticket Status 与实际一致。核不实的删掉或标"未核实"。
+在回复里报告你核了几条、改掉了几处不实的旧断言。
 
-提交（Conventional Commits，例如 docs(planning): 2026-09-04 status, retire the September prompt pack），
-推送当前分支，开一个【草稿】PR。【不要自己合并】——本地的 M 会话负责集成。
+git checkout -- VibeBuddyMac/Package.resolved
+git push -u origin feat/bookkeeping ; gh pr create
+【不要自己合并 PR】——有一个 M 会话负责集成。
 
 ## 交付
 
-回复末尾给「集成清单」：分支名、提交、新增/改动的文档清单、核实过的断言条数、
-发现并改掉的不实断言逐条列出、标为"未核实"的数据及原因、你看到但没动的问题。</pre></details>
+回复末尾给「集成清单」：分支名、提交、新增/改动的文档清单、改过的 ticket 清单及其最终 Status、
+核实过的断言条数、发现并改掉的不实断言逐条列出、架构边界票第 1 步的最终判断、你看到但没动的问题。</pre></details>
   </div>
 </div>
 
 <h2>四、需要你本人在场的三个会话</h2>
-<p style="font-size:14px;color:var(--dim)">这三个都独占已安装的 App、<code>:9876</code> 和你的设备，只能一次开一个，也都只能在 Mac 上做。
+<p style="font-size:14px;color:var(--dim)">这三个都独占已安装的 App、<code>:9876</code> 和你的设备，只能一次开一个。
 建议顺序 <b>H1 → H2 → H3</b>。</p>
 
 <div class="note"><b>为什么 H1（发布管道）排在 H2（验收）前面：</b>
@@ -917,7 +884,7 @@ commit 用 git show 存在，PR 编号用 gh pr view 存在，测试数量与合
   <header>
     <div class="idrow">
       <span class="id">H1</span><span class="title">Sparkle 发布闭环</span>
-      <span class="tag t-loc">本地</span><span class="tag t-hum">你在场</span>
+      <span class="tag t-hum">你在场</span>
     </div>
     <p class="meta"><b>工作目录</b> 仓库根目录 · <b>前置</b> 波 1 / 波 2 合完 · <b>产出</b> ticket <code>mac-power-features/07</code> → <code>done</code></p>
   </header>
@@ -993,7 +960,7 @@ docs/release-notes-1.1.md 和 docs/app-store-listing.md）、检查签名与公�
   <header>
     <div class="idrow">
       <span class="id">H2</span><span class="title">装机验收（Mac + iPhone）</span>
-      <span class="tag t-loc">本地</span><span class="tag t-hum">你在场</span>
+      <span class="tag t-hum">你在场</span>
     </div>
     <p class="meta"><b>工作目录</b> 仓库根目录 · <b>前置</b> H1 完成、App 在跑、手机已配对 · <b>产出</b> 五张 ticket 结果 + 一份交接</p>
   </header>
@@ -1077,7 +1044,7 @@ Live Activity 真机后台推送。逐条更新那个 checklist。
   <header>
     <div class="idrow">
       <span class="id">H3</span><span class="title">真机 Watch 验收（W8，含 W4–W7 补验）</span>
-      <span class="tag t-loc">本地</span><span class="tag t-hum">你在场 + 真 Apple Watch</span>
+      <span class="tag t-hum">你在场 + 真 Apple Watch</span>
     </div>
     <p class="meta"><b>工作目录</b> 仓库根目录 · <b>前置</b> H2 完成 · <b>产出</b> ticket 08 与 W4–W7 结果，PRD 收口</p>
   </header>
@@ -1150,15 +1117,15 @@ ticket 08（.scratch/watchos-companion/issues/08-release-and-real-device-accepta
 </div>
 
 <h2>五、依赖与时序</h2>
-<pre class="map">计划 PR ──→ PR #8 ─────┬──→ C1（rebase 时才需要它）─────┐
-                       │                                   ├──→ C3（06 → 02）──→ [云端] B
-                       └──→ C3（06 的修法依赖它的递归发现）─┘         ↑
-                                                                      │
-C2 ─────────────────────────────────────────────────────────────────── ┘（无依赖，最先合）
+<pre class="map">PR #13 ──→ PR #8 ─────┬──→ C1（rebase 时才需要它）─────┐
+                      │                                   ├──→ C3（06 → 02）──→ B
+                      └──→ C3（06 的修法依赖它的递归发现）─┘         ↑
+                                                                     │
+C2 ────────────────────────────────────────────────────────────────── ┘（无依赖，最先合）
 
-[本地] M 贯穿波 1 与波 2：合计划 PR → 合 PR #8 → 卫生 → 收 C2 → 收 C1 → 收 C3 → 收 B → 回写 ticket
+M 贯穿波 1 与波 2：合 PR #13 → 合 PR #8 → 卫生 → 收 C2 → 收 C1 → 收 C3 → 收 B
 
-波 3（你在场，串行，本地）：H1 Sparkle 闭环 → H2 装机验收 → H3 真机 Watch 验收</pre>
+波 3（你在场，串行）：H1 Sparkle 闭环 → H2 装机验收 → H3 真机 Watch 验收</pre>
 
 <div class="note stop"><b>唯一会毁掉成果的操作：</b>在
 <code>.claude/worktrees/codex-desktop-jump</code> 或
