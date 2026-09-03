@@ -31,6 +31,11 @@ public protocol RealtimeVoiceProvider: Actor {
     func close()
 }
 
+// URLSessionWebSocketTask is Apple-platform Foundation only; the concrete
+// realtime voice client is excluded from the Linux build. The provider-agnostic
+// `RealtimeVoiceEvent`/`RealtimeVoiceProvider` types above remain cross-platform.
+#if canImport(Darwin)
+
 /// Alibaba Bailian / DashScope Qwen-Omni-Realtime over its OpenAI-Realtime-style
 /// WebSocket (`wss://…/api-ws/v1/realtime`). One model handles ears + brain +
 /// mouth: 16 kHz PCM in, 24 kHz PCM out, server-side semantic VAD.
@@ -176,3 +181,5 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
         }
     }
 }
+
+#endif

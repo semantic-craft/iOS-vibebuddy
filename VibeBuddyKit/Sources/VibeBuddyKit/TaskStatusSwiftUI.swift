@@ -1,3 +1,4 @@
+#if canImport(SwiftUI)
 import SwiftUI
 
 public extension Color {
@@ -97,3 +98,4 @@ public struct TaskStatusIndicator: View {
         return contrast == .increased ? 1 : 0
     }
 }
+#endif

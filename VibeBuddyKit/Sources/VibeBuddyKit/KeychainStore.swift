@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(Security)
 import Security
+#endif
 
 /// Minimal Keychain wrapper for the one secret we hold: the user's own DashScope
 /// API key. Never written to UserDefaults or committed; read at runtime only.
@@ -7,6 +9,7 @@ import Security
 public enum KeychainStore {
     private static let service = "com.vibebuddy.secrets"
 
+#if canImport(Security)
     public static func set(_ value: String?, for key: String) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -35,6 +38,27 @@ public enum KeychainStore {
         else { return nil }
         return s
     }
+#else
+    /// Linux has no Keychain. VibeBuddy's real secret storage is Apple-only;
+    /// this process-lifetime in-memory fallback keeps the shared package
+    /// buildable and testable on Linux without persisting anything to disk.
+    private final class InMemoryStore: @unchecked Sendable {
+        private let lock = NSLock()
+        private var values: [String: String] = [:]
+        func set(_ value: String?, for key: String) {
+            lock.lock(); defer { lock.unlock() }
+            if let value, !value.isEmpty { values[key] = value } else { values[key] = nil }
+        }
+        func get(_ key: String) -> String? {
+            lock.lock(); defer { lock.unlock() }
+            return values[key]
+        }
+    }
+    private static let backing = InMemoryStore()
+
+    public static func set(_ value: String?, for key: String) { backing.set(value, for: key) }
+    public static func get(_ key: String) -> String? { backing.get(key) }
+#endif
 }
 
 /// The language the voice companion converses in — drives speech recognition,

@@ -1,5 +1,9 @@
 import Foundation
 
+// URLSessionWebSocketTask is Apple-platform Foundation only; the realtime voice
+// clients are excluded from the Linux build of the shared package.
+#if canImport(Darwin)
+
 /// OpenAI Realtime (GA) speech-to-speech over `wss://api.openai.com/v1/realtime`.
 /// The GA API nests audio config under `session.audio.input/output` and renames
 /// the audio events to `response.output_audio.*` (the beta shape is disabled).
@@ -141,3 +145,5 @@ public actor OpenAIRealtimeSession: RealtimeVoiceProvider {
         }
     }
 }
+
+#endif

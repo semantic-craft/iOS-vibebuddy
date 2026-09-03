@@ -1,5 +1,9 @@
 import Foundation
 
+// URLSessionWebSocketTask is Apple-platform Foundation only; the realtime voice
+// clients are excluded from the Linux build of the shared package.
+#if canImport(Darwin)
+
 /// Google Gemini Live API (`BidiGenerateContent`) speech-to-speech. A different
 /// schema from the OpenAI-style providers: a `setup` message configures the
 /// session, audio goes up as `realtimeInput.audio` (16 kHz PCM), and audio comes
@@ -165,3 +169,5 @@ public actor GeminiRealtimeSession: RealtimeVoiceProvider {
         }
     }
 }
+
+#endif
