@@ -111,11 +111,20 @@ final class RealtimeAudioIO: @unchecked Sendable {
         // The converter input block is @Sendable; the buffer is consumed
         // synchronously inside convert(), so this capture is safe.
         nonisolated(unsafe) let inputBuffer = buffer
-        var fed = false
+        // The input block is `@Sendable`, so the "already handed this buffer
+        // over" flag must not be a captured `var`: nothing in the AVAudioConverter
+        // contract promises the block only ever runs on this thread, and a torn
+        // read there would feed the same buffer twice (or none). The lock is
+        // itself Sendable, so the capture is immutable and the one-shot
+        // hand-off is a single atomic test-and-set.
+        let fed = OSAllocatedUnfairLock(initialState: false)
         var error: NSError?
         converter.convert(to: out, error: &error) { _, status in
-            if fed { status.pointee = .noDataNow; return nil }
-            fed = true
+            let alreadyFed = fed.withLock { flag in
+                defer { flag = true }
+                return flag
+            }
+            if alreadyFed { status.pointee = .noDataNow; return nil }
             status.pointee = .haveData
             return inputBuffer
         }
