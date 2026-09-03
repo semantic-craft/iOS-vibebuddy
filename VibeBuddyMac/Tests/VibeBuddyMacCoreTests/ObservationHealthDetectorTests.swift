@@ -128,6 +128,23 @@ struct ObservationHealthDetectorTests {
         #expect(supportedResult.health(agent: .codex, source: .rollout) == .healthy)
     }
 
+    @Test("a rollout still being written in an old date directory is healthy")
+    func oldDateDirectoryRolloutIsHealthy() throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        try write("model = \"gpt\"\n", to: home.appendingPathComponent(".codex/config.toml"))
+        // `now` is 2023-11-14. The old today/yesterday walk cannot see October.
+        let old = home.appendingPathComponent(".codex/sessions/2023/10/01/rollout-resumed.jsonl")
+        try write(
+            #"{"type":"session_meta","payload":{"cli_version":"0.151.0-alpha.7.2"}}"# + "\n" +
+            #"{"type":"event_msg","payload":{"type":"task_started"}}"#,
+            to: old)
+
+        let result = detect(home: home)
+        #expect(result.health(agent: .codex, source: .rollout) == .healthy)
+        #expect(result.diagnostic(agent: .codex, source: .rollout)?.lastObservedAt != nil)
+    }
+
     @Test("an unreadable rollout directory is not treated as an empty source")
     func unreadableRolloutDirectory() throws {
         let home = try tempHome()

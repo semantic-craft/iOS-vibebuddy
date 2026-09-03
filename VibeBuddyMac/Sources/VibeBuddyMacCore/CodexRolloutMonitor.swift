@@ -1080,25 +1080,15 @@ public actor CodexRolloutMonitor {
     }
 
     /// Rollouts live under their *start* date, and a resumed thread keeps
-    /// appending to that old file, so discovery walks every date directory and
-    /// keeps whatever was written inside the recency window.
+    /// appending to that old file. Discovery is the shared recursive walk;
+    /// an already-tracked active turn is retained past the recency window.
     private func candidateFiles(now: Date) -> [URL] {
         let fm = FileManager.default
-        let keys: Set<URLResourceKey> = [.isRegularFileKey, .contentModificationDateKey]
         var files: [URL] = []
-
-        if let enumerator = fm.enumerator(
-            at: root, includingPropertiesForKeys: Array(keys), options: [.skipsHiddenFiles]
+        if case .found(let candidates) = CodexRolloutDiscovery.candidates(
+            in: root, now: now, window: recoveryWindow, fileManager: fm
         ) {
-            for case let url as URL in enumerator {
-                guard url.lastPathComponent.hasPrefix("rollout-"), url.pathExtension == "jsonl",
-                      let values = try? url.resourceValues(forKeys: keys),
-                      values.isRegularFile == true,
-                      let modified = values.contentModificationDate,
-                      now.timeIntervalSince(modified) <= recoveryWindow
-                else { continue }
-                files.append(url)
-            }
+            files = candidates.map(\.url)
         }
         // Retain only active rollouts beyond the recency window. Completed or
         // abandoned files age out, bounding watcher descriptors over time.
