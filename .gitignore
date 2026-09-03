@@ -34,6 +34,10 @@ build-device/
 dist/*
 !dist/README.md
 
+# Acceptance screenshots carry real project names; they stay on the machine that
+# took them. (Cursor's cloud hand-off once swept them into a public branch.)
+docs/qa-screenshots/
+
 # Local agent tooling
 .antigravitycli/
 
