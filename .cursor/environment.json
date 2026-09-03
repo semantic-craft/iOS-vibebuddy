@@ -1,0 +1,4 @@
+{
+  "name": "iOS-vibebuddy (Linux Swift + agent hooks)",
+  "install": "bash .cursor/install.sh"
+}
