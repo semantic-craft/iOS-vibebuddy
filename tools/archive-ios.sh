@@ -19,6 +19,7 @@ BUILD="$APP_PROJ/build"                 # matches .gitignore's build/ — never 
 SCHEME="VibeBuddyApp"
 BUNDLE_ID="com.vibebuddy.app"
 WIDGET_BUNDLE_ID="com.vibebuddy.app.widget"
+WATCH_BUNDLE_ID="com.vibebuddy.app.watchkitapp"
 
 API_KEY=""
 KEY_ID=""
@@ -128,6 +129,30 @@ else
 fi
 [[ "$WIDGET_BUNDLE_ID" == "$BUNDLE_ID."* ]] || FAILED+=("widget bundle id must start with \"$BUNDLE_ID.\"")
 
+# The Watch app must declare the iPhone app as its companion, or WatchKit
+# refuses to pair it — a mismatch here is invisible until a real device install.
+if sed -n 's/^ *PRODUCT_BUNDLE_IDENTIFIER: *\(.*\)$/\1/p' "$APP_PROJ/project.yml" | grep -qx "$WATCH_BUNDLE_ID"; then
+  note "watch bundle id: $WATCH_BUNDLE_ID"
+else
+  FAILED+=("no target declares PRODUCT_BUNDLE_IDENTIFIER $WATCH_BUNDLE_ID")
+fi
+[[ "$WATCH_BUNDLE_ID" == "$BUNDLE_ID."* ]] || FAILED+=("watch bundle id must start with \"$BUNDLE_ID.\"")
+
+WATCH_COMPANION="$(sed -n 's/^ *WKCompanionAppBundleIdentifier: *\(.*\)$/\1/p' "$APP_PROJ/project.yml" | head -1)"
+check "watch companion app id" "$BUNDLE_ID" "$WATCH_COMPANION"
+
+# The Watch app is WatchConnectivity-only by design (see WatchStateStore.swift) —
+# it opens no LAN socket and holds no bearer token, so it has no entitlements file
+# and no App Group. If that ever changes, the group it declares must match the
+# app's, the same way the widget's does.
+WATCH_ENTITLEMENTS="$APP_PROJ/Watch/VibeBuddyWatch.entitlements"
+if [[ -f "$WATCH_ENTITLEMENTS" ]]; then
+  WATCH_GROUP="$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.application-groups:0' "$WATCH_ENTITLEMENTS" 2>/dev/null || echo MISSING)"
+  check "app group (watch matches app)" "$APP_GROUP" "$WATCH_GROUP"
+else
+  note "watch app: no entitlements file (WatchConnectivity-only design; no shared App Group)"
+fi
+
 ICON="$APP_PROJ/Sources/Assets.xcassets/AppIcon.appiconset/icon_1024.png"
 if [[ -f "$ICON" ]]; then
   DIMS="$(sips -g pixelWidth -g pixelHeight "$ICON" 2>/dev/null | awk '/pixel/ {print $2}' | paste -sd x -)"
@@ -181,6 +206,17 @@ note "bundle id:                  $(/usr/libexec/PlistBuddy -c 'Print :CFBundleI
 WIDGET_IN_ARCHIVE="$ARCHIVED_APP/PlugIns/VibeBuddyWidget.appex"
 [[ -d "$WIDGET_IN_ARCHIVE" ]] || die "the widget extension is missing from the archive"
 note "widget:                     $(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$WIDGET_IN_ARCHIVE/Info.plist")"
+
+# xcodegen embeds the Watch app automatically (an "Embed Watch Content" copy
+# files phase) because VibeBuddyApp depends on VibeBuddyWatch — no explicit
+# `embed: true` needed for a watchOS application dependency. It lands under
+# Watch/, not PlugIns/, unlike an app extension.
+WATCH_IN_ARCHIVE="$ARCHIVED_APP/Watch/VibeBuddyWatch.app"
+[[ -d "$WATCH_IN_ARCHIVE" ]] || die "the Watch app is missing from the archive"
+WATCH_ARCHIVED_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$WATCH_IN_ARCHIVE/Info.plist")"
+[[ "$WATCH_ARCHIVED_ID" == "$WATCH_BUNDLE_ID" ]] \
+  || die "the archived Watch app's bundle id is \"$WATCH_ARCHIVED_ID\", expected \"$WATCH_BUNDLE_ID\""
+note "watch app:                  $WATCH_ARCHIVED_ID"
 
 if (( SKIP_EXPORT )); then
   step "export skipped (--skip-export)"
@@ -262,6 +298,16 @@ WIDGET_AUTH="$(authority "$SHIPPED_WIDGET")"
 [[ "$WIDGET_AUTH" == Apple\ Distribution* || "$WIDGET_AUTH" == iPhone\ Distribution* ]] \
   || die "the widget is signed by \"$WIDGET_AUTH\", not an Apple Distribution certificate"
 note "widget: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$SHIPPED_WIDGET/Info.plist"), distribution-signed"
+
+SHIPPED_WATCH="$SHIPPED/Watch/VibeBuddyWatch.app"
+[[ -d "$SHIPPED_WATCH" ]] || die "the Watch app did not survive the export"
+WATCH_AUTH="$(authority "$SHIPPED_WATCH")"
+[[ "$WATCH_AUTH" == Apple\ Distribution* || "$WATCH_AUTH" == iPhone\ Distribution* ]] \
+  || die "the Watch app is signed by \"$WATCH_AUTH\", not an Apple Distribution certificate"
+SHIPPED_WATCH_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$SHIPPED_WATCH/Info.plist")"
+[[ "$SHIPPED_WATCH_ID" == "$WATCH_BUNDLE_ID" ]] \
+  || die "the exported Watch app's bundle id is \"$SHIPPED_WATCH_ID\", expected \"$WATCH_BUNDLE_ID\""
+note "watch:  $SHIPPED_WATCH_ID, distribution-signed"
 
 step "done — $SCHEME $VERSION (build $BUILD_NO)"
 note "archive: $ARCHIVE"
