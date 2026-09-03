@@ -60,6 +60,12 @@ public struct HookEvent: Sendable, Equatable {
     /// (the Codex rollout's `token_count`). Applied through the reducer's
     /// enrichment path, never as a progress transition.
     public let enrichment: TranscriptInfo?
+    /// The Codex Desktop thread this event belongs to. Only the rollout tailer
+    /// sets it, and only for sessions the rollout itself declares as Desktop —
+    /// which is the sole place that fact is known. Nil everywhere else, and the
+    /// reducer reads it as "this session is a Desktop thread, jumpable through
+    /// ChatGPT.app rather than through a terminal".
+    public let desktopThreadID: String?
 
     public init(
         kind: Kind,
@@ -79,7 +85,8 @@ public struct HookEvent: Sendable, Equatable {
         childType: String? = nil,
         childAction: ChildLifecycleAction? = nil,
         turnID: String? = nil,
-        enrichment: TranscriptInfo? = nil
+        enrichment: TranscriptInfo? = nil,
+        desktopThreadID: String? = nil
     ) {
         self.kind = kind
         self.sessionID = sessionID
@@ -99,5 +106,6 @@ public struct HookEvent: Sendable, Equatable {
         self.childAction = childAction
         self.turnID = turnID
         self.enrichment = enrichment
+        self.desktopThreadID = desktopThreadID
     }
 }

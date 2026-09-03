@@ -202,12 +202,17 @@ public struct CodexRolloutParser: Sendable {
         childAction: HookEvent.ChildLifecycleAction? = nil,
         enrichment: TranscriptInfo? = nil
     ) -> HookEvent {
+        // Every event that reaches here comes from a rollout the parser has
+        // already classified as Codex Desktop, so the session id is also the
+        // thread id ChatGPT.app opens — the one jump target these sessions have.
         HookEvent(kind: kind, sessionID: sessionID, agent: .codex,
                   cwd: cwd, toolName: toolName, message: message, model: model,
+                  observationSource: .rollout,
                   toolError: toolError, timestamp: timestamp,
                   childID: childID, childKind: childKind, childName: childName,
                   childType: childType, childAction: childAction,
-                  enrichment: enrichment)
+                  enrichment: enrichment,
+                  desktopThreadID: sessionID)
     }
 
     private struct PendingCollab {

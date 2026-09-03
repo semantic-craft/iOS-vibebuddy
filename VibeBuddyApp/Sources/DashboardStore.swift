@@ -374,9 +374,10 @@ final class DashboardStore: ObservableObject {
 
     func jump(_ sessionId: String) {
         guard let pairing else { showToast(String(localized: "Couldn't reach your Mac")); return }
+        let desktopThread = allSessions.first { $0.id == sessionId }?.jumpsToDesktopThread ?? false
         Task {
             let outcome = await decisionClient.jump(pairing, sessionId: sessionId)
-            showToast(Self.jumpMessage(outcome))
+            showToast(Self.jumpMessage(outcome, desktopThread: desktopThread))
         }
     }
 
@@ -405,7 +406,19 @@ final class DashboardStore: ObservableObject {
     /// say so; `nil` means the Mac wasn't reachable. `activatedApp` is the case
     /// worth naming: the right app is now in front, but the session's own window
     /// wasn't reachable, so the user still has to find the tab themselves.
-    static func jumpMessage(_ outcome: JumpOutcome?) -> String {
+    static func jumpMessage(_ outcome: JumpOutcome?, desktopThread: Bool = false) -> String {
+        // A Codex Desktop session has no terminal at either end: the Mac opened
+        // its thread in ChatGPT, so saying "terminal" here would name a thing
+        // the user never had.
+        if desktopThread {
+            switch outcome {
+            case .focused:      return String(localized: "Opened the thread in ChatGPT on your Mac")
+            case .activatedApp: return String(localized: "Opened ChatGPT on your Mac — find the thread there")
+            case .unsupported:  return String(localized: "Couldn't open the thread — is ChatGPT running on your Mac?")
+            case .noTerminal:   return String(localized: "No thread for this session")
+            case nil:           return String(localized: "Couldn't reach your Mac")
+            }
+        }
         switch outcome {
         case .focused:      return String(localized: "Focused the terminal on your Mac")
         case .activatedApp: return String(localized: "Opened the app on your Mac — find the tab there")

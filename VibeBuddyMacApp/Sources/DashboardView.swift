@@ -374,7 +374,9 @@ private struct DetailView: View {
                             .keyboardShortcut("a", modifiers: []).tint(.green)
                         Button("Deny") { model.decide(approval.id, .deny) }
                             .keyboardShortcut("d", modifiers: []).tint(.red)
-                        Button("Jump to terminal") { model.jump(session) }
+                        Button(session.jumpsToDesktopThread ? "Open thread in ChatGPT" : "Jump to terminal") {
+                            model.jump(session)
+                        }
                     }
                     .buttonStyle(.borderedProminent)
                     HStack(spacing: 10) {
@@ -394,13 +396,15 @@ private struct DetailView: View {
                     }
                 } else {
                     if let s = session.summary { Text(s).foregroundStyle(.secondary) }
-                    Button("Jump to terminal") { model.jump(session) }
+                    Button(session.jumpsToDesktopThread ? "Open thread in ChatGPT" : "Jump to terminal") {
+                        model.jump(session)
+                    }
                 }
                 // What the last jump actually achieved — focused the pane, only
                 // raised the app, or found nothing to raise. Same wording as the
                 // glance rows.
                 if let outcome = model.jumpFeedback[session.id] {
-                    Label(outcome.macMessage(for: session.terminalRef), systemImage: "arrow.uturn.forward")
+                    Label(outcome.macMessage(for: session), systemImage: "arrow.uturn.forward")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .contentTransition(.opacity)

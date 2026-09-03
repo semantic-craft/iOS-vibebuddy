@@ -6,18 +6,29 @@ import VibeBuddyKit
 /// never reports differently depending on where it was started from.
 ///
 /// The wording promises only what happened: `.focused` means the session's own
-/// pane came forward, `.activatedApp` means we could only raise the app around
-/// it, and the two failure cases say which kind of failure it was.
+/// pane (or, for a Codex Desktop session, its thread) came forward,
+/// `.activatedApp` means we could only raise the app around it, and the two
+/// failure cases say which kind of failure it was.
 extension JumpOutcome {
     @MainActor
-    func macMessage(for ref: TerminalRef?) -> String {
+    func macMessage(for session: AgentSession) -> String {
+        // A Codex Desktop session's jump lands in a ChatGPT thread, not a
+        // terminal, so every outcome has to be worded for where it went.
+        if session.jumpsToDesktopThread {
+            switch self {
+            case .focused: return "Opened thread in ChatGPT"
+            case .activatedApp: return "Brought ChatGPT to front"
+            case .unsupported: return "Couldn't open the thread — is ChatGPT running?"
+            case .noTerminal: return "No thread recorded for this session"
+            }
+        }
         switch self {
         case .focused:
             return "Focused terminal"
         case .activatedApp:
             // The app's own name when macOS can tell us (it is running — that is
             // what `.activatedApp` means), otherwise the honest generic.
-            if let name = ref?.hostBundleId.flatMap(Self.runningAppName) {
+            if let name = session.terminalRef?.hostBundleId.flatMap(Self.runningAppName) {
                 return "Brought \(name) to front"
             }
             return "Brought app to front"

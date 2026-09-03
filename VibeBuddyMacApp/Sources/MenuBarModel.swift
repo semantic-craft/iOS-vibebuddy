@@ -378,21 +378,29 @@ final class MenuBarModel: ObservableObject {
     /// Back-compat for voice + existing callers.
     func decide(_ approvalId: String, approve: Bool) { decide(approvalId, approve ? .allow : .deny) }
 
-    /// Jump to a session's terminal without blocking the UI: the click is
-    /// acknowledged immediately and the AppleScript/`tmux` work happens off the
-    /// main actor, publishing what it actually achieved when it lands.
+    /// Jump to where a session lives without blocking the UI: the click is
+    /// acknowledged immediately and the AppleScript/`tmux`/LaunchServices work
+    /// happens off the main actor, publishing what it actually achieved when it
+    /// lands.
     ///
-    /// Never refuses. A session with no ref is a real answer ("no terminal
-    /// recorded"), not a dead control — that silence was the bug.
+    /// Two kinds of target, and a session has at most one. A terminal session
+    /// has a ref; a Codex Desktop session has only the thread it is, which
+    /// ChatGPT.app opens. Never refuses. A session with neither is a real answer
+    /// ("no terminal recorded"), not a dead control — that silence was the bug.
     func jump(_ session: AgentSession) {
         acknowledge(session.id)
-        guard let ref = session.terminalRef else {
+        if let ref = session.terminalRef {
+            Task { [weak self] in
+                let outcome = await TerminalJumper.jump(ref)
+                self?.showJumpFeedback(outcome, for: session.id)
+            }
+        } else if let thread = session.desktopThreadID {
+            Task { [weak self] in
+                let outcome = await CodexDesktopJumper.jump(threadID: thread)
+                self?.showJumpFeedback(outcome, for: session.id)
+            }
+        } else {
             showJumpFeedback(.noTerminal, for: session.id)
-            return
-        }
-        Task { [weak self] in
-            let outcome = await TerminalJumper.jump(ref)
-            self?.showJumpFeedback(outcome, for: session.id)
         }
     }
 

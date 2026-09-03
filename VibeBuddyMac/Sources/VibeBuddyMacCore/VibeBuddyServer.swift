@@ -32,6 +32,9 @@ public struct VibeBuddyServer: Sendable {
     public let approvalTimeout: Duration
     public let approvalID: @Sendable () -> String
     public let onJump: @Sendable (TerminalRef) async -> JumpOutcome
+    /// The other kind of jump: a Codex Desktop session has no terminal, only the
+    /// thread it *is*, opened in ChatGPT.app.
+    public let onJumpToDesktopThread: @Sendable (String) async -> JumpOutcome
     public let onAnswer: @Sendable (TerminalRef, String) -> Void
     public let onDevicePaired: @Sendable (DeviceRegistrationPayload) -> Void
 
@@ -48,6 +51,7 @@ public struct VibeBuddyServer: Sendable {
                 approvalTimeout: Duration = .seconds(25),
                 approvalID: @escaping @Sendable () -> String = { UUID().uuidString },
                 onJump: @escaping @Sendable (TerminalRef) async -> JumpOutcome = { await TerminalJumper.jump($0) },
+                onJumpToDesktopThread: @escaping @Sendable (String) async -> JumpOutcome = { await CodexDesktopJumper.jump(threadID: $0) },
                 onAnswer: @escaping @Sendable (TerminalRef, String) -> Void = { ref, answer in TerminalInjector.inject(answer, into: ref) },
                 onDevicePaired: @escaping @Sendable (DeviceRegistrationPayload) -> Void = { _ in }) {
         self.store = store
@@ -66,6 +70,7 @@ public struct VibeBuddyServer: Sendable {
         self.approvalTimeout = approvalTimeout
         self.approvalID = approvalID
         self.onJump = onJump
+        self.onJumpToDesktopThread = onJumpToDesktopThread
         self.onAnswer = onAnswer
         self.onDevicePaired = onDevicePaired
     }
@@ -365,6 +370,7 @@ public struct VibeBuddyServer: Sendable {
         }
 
         let onJump = self.onJump
+        let onJumpToDesktopThread = self.onJumpToDesktopThread
         // Terminal-ref capture — bearer-token gated (the capture hook reads the
         // token file and sends it). Without it any local process could hijack a
         // session's terminal target. (daemon-security/01, ADR-0009.)
@@ -402,6 +408,10 @@ public struct VibeBuddyServer: Sendable {
             let outcome: JumpOutcome
             if let ref = await store.terminalRef(for: sid) {
                 outcome = await onJump(ref)
+            } else if let thread = await store.desktopThreadID(for: sid) {
+                // Codex Desktop runs no hook, so this session will never have a
+                // ref; its thread id is the target instead.
+                outcome = await onJumpToDesktopThread(thread)
             } else {
                 outcome = .noTerminal
             }
