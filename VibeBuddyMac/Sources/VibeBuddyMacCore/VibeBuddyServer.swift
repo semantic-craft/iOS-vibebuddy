@@ -93,8 +93,11 @@ public struct VibeBuddyServer: Sendable {
         let token = self.token
 
         let wsRouter = Router(context: BasicWebSocketRequestContext.self)
+        // The upgrade handshake is not a router route, so it can't sit in the
+        // authenticated group — it runs the same header-only check directly.
+        let wsAuth = BearerAuth(token: token, allowsQueryToken: false)
         wsRouter.ws("/ws") { request, _ in
-            request.headers[.authorization] == "Bearer \(token)" ? .upgrade() : .dontUpgrade
+            wsAuth.authorizes(request) ? .upgrade() : .dontUpgrade
         } onUpgrade: { inbound, outbound, _ in
             // Push the current snapshot, then every change, until the client closes.
             let subscription = await store.subscribe()
@@ -165,16 +168,25 @@ public struct VibeBuddyServer: Sendable {
         let deviceTokens = self.deviceTokens
         let onDevicePaired = self.onDevicePaired
 
-        // Liveness — unauthenticated, used by the app's connection screen.
+        // Liveness — unauthenticated, used by the app's connection screen. The
+        // only route registered straight on the router: everything else below
+        // goes through one of the two authenticated groups.
         router.get("health") { _, _ -> String in "ok" }
+
+        // Auth lives here and nowhere else. `authed` is the phone/LAN surface:
+        // `Authorization: Bearer <token>` only. `hookAuthed` is the CLI-hook
+        // surface (`/hook`, `/approval`, `/terminal`), which also accepts the
+        // token as a `?token=` query param for native-http hooks that cannot set
+        // a header (e.g. Qwen). daemon-security/01, ADR-0009.
+        let authed = router.group()
+            .add(middleware: BearerAuthMiddleware(auth: BearerAuth(token: token, allowsQueryToken: false)))
+        let hookAuthed = router.group()
+            .add(middleware: BearerAuthMiddleware(auth: BearerAuth(token: token, allowsQueryToken: true)))
 
         // Register an iOS device. Token-gated. Body is `{"token","name","model",
         // "systemVersion"}` (or a raw APNs token string). `token` -> APNs
         // registry; the other fields feed the paired-device display.
-        router.post("device") { request, _ -> HTTPResponse.Status in
-            guard request.headers[.authorization] == "Bearer \(token)" else {
-                throw HTTPError(.unauthorized)
-            }
+        authed.post("device") { request, _ -> HTTPResponse.Status in
             let buffer = try await request.body.collect(upTo: 4096)
             let body = String(decoding: Data(buffer: buffer), as: UTF8.self)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -194,8 +206,7 @@ public struct VibeBuddyServer: Sendable {
         // Live Activity push-token registration (dynamic-island/02) — token-gated,
         // sent by the phone when its activity produces / rotates a push token.
         let activityTokens = self.activityTokens
-        router.post("activity") { request, _ -> HTTPResponse.Status in
-            guard request.headers[.authorization] == "Bearer \(token)" else { throw HTTPError(.unauthorized) }
+        authed.post("activity") { request, _ -> HTTPResponse.Status in
             let buffer = try await request.body.collect(upTo: 4096)
             guard let o = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
                   let t = o["token"] as? String, !t.isEmpty else { return .ok }
@@ -209,8 +220,7 @@ public struct VibeBuddyServer: Sendable {
         // spoof sessions; the token closes that (daemon-security/01, ADR-0009).
         // `?agent=<source>` tags which CLI it came from (claude/codex/qwen/kimi/
         // antigravity/grok/opencode/copilot); Claude Code is the default.
-        router.post("hook") { request, _ -> HTTPResponse.Status in
-            guard Self.hookAuthorized(request, token: token) else { throw HTTPError(.unauthorized) }
+        hookAuthed.post("hook") { request, _ -> HTTPResponse.Status in
             let agent = AgentKind.fromSource(request.uri.queryParameters["agent"].map(String.init))
             let buffer = try await request.body.collect(upTo: 1 << 20) // 1 MB cap
             await store.ingest(Data(buffer: buffer), agent: agent, receivedAt: Date())
@@ -218,10 +228,7 @@ public struct VibeBuddyServer: Sendable {
         }
 
         // Full snapshot — bearer-token gated.
-        router.get("snapshot") { request, _ -> Response in
-            guard request.headers[.authorization] == "Bearer \(token)" else {
-                throw HTTPError(.unauthorized)
-            }
+        authed.get("snapshot") { request, _ -> Response in
             let snapshot = await store.snapshot(now: Date())
             let data = try JSONEncoder().encode(snapshot)
             return Response(
@@ -233,10 +240,7 @@ public struct VibeBuddyServer: Sendable {
 
         // Privacy-minimized local diagnostics. Token-gated because stable
         // session IDs remain local user metadata.
-        router.get("lifecycle") { request, _ -> Response in
-            guard request.headers[.authorization] == "Bearer \(token)" else {
-                throw HTTPError(.unauthorized)
-            }
+        authed.get("lifecycle") { _, _ -> Response in
             let data = try JSONEncoder().encode(await store.recentLifecycle())
             return Response(
                 status: .ok,
@@ -245,10 +249,7 @@ public struct VibeBuddyServer: Sendable {
             )
         }
 
-        router.delete("lifecycle") { request, _ -> HTTPResponse.Status in
-            guard request.headers[.authorization] == "Bearer \(token)" else {
-                throw HTTPError(.unauthorized)
-            }
+        authed.delete("lifecycle") { _, _ -> HTTPResponse.Status in
             guard await store.clearLifecycleJournal() else {
                 throw HTTPError(.internalServerError)
             }
@@ -257,10 +258,7 @@ public struct VibeBuddyServer: Sendable {
 
         // Explicit read acknowledgement. Merely receiving/rendering a snapshot
         // never clears unread state; a client calls this only after selection or open.
-        router.post("acknowledge") { request, _ -> HTTPResponse.Status in
-            guard request.headers[.authorization] == "Bearer \(token)" else {
-                throw HTTPError(.unauthorized)
-            }
+        authed.post("acknowledge") { request, _ -> HTTPResponse.Status in
             let buffer = try await request.body.collect(upTo: 4096)
             guard let object = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
                   let sessionID = object["sessionId"] as? String,
@@ -282,8 +280,7 @@ public struct VibeBuddyServer: Sendable {
         let approvalContext = self.approvalContext
         let timeout = self.approvalTimeout
         let makeID = self.approvalID
-        router.post("approval") { request, _ -> Response in
-            guard Self.hookAuthorized(request, token: token) else { throw HTTPError(.unauthorized) }
+        hookAuthed.post("approval") { request, _ -> Response in
             let agent = AgentKind.fromSource(request.uri.queryParameters["agent"].map(String.init))
             let buffer = try await request.body.collect(upTo: 1 << 20)
             let data = Data(buffer: buffer)
@@ -338,8 +335,7 @@ public struct VibeBuddyServer: Sendable {
         }
 
         // Resolve a held approval — bearer-token gated (the phone sends this).
-        router.post("decision") { request, _ -> HTTPResponse.Status in
-            guard request.headers[.authorization] == "Bearer \(token)" else { throw HTTPError(.unauthorized) }
+        authed.post("decision") { request, _ -> HTTPResponse.Status in
             let buffer = try await request.body.collect(upTo: 4096)
             guard let obj = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
                   let id = obj["approvalId"] as? String,
@@ -372,8 +368,7 @@ public struct VibeBuddyServer: Sendable {
         // Terminal-ref capture — bearer-token gated (the capture hook reads the
         // token file and sends it). Without it any local process could hijack a
         // session's terminal target. (daemon-security/01, ADR-0009.)
-        router.post("terminal") { request, _ -> HTTPResponse.Status in
-            guard Self.hookAuthorized(request, token: token) else { throw HTTPError(.unauthorized) }
+        hookAuthed.post("terminal") { request, _ -> HTTPResponse.Status in
             let buffer = try await request.body.collect(upTo: 64 * 1024)
             let body = Data(buffer: buffer)
             // `TerminalRef` is the wire shape, so the payload decodes straight
@@ -394,8 +389,7 @@ public struct VibeBuddyServer: Sendable {
             await store.setTerminalRef(sessionID: sid, ref)
             return .ok
         }
-        router.post("jump") { request, _ -> Response in
-            guard request.headers[.authorization] == "Bearer \(token)" else { throw HTTPError(.unauthorized) }
+        authed.post("jump") { request, _ -> Response in
             let buffer = try await request.body.collect(upTo: 4096)
             guard let o = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
                   let sid = o["sessionId"] as? String else { throw HTTPError(.badRequest) }
@@ -417,8 +411,7 @@ public struct VibeBuddyServer: Sendable {
         }
 
         let onAnswer = self.onAnswer
-        router.post("answer") { request, _ -> HTTPResponse.Status in
-            guard request.headers[.authorization] == "Bearer \(token)" else { throw HTTPError(.unauthorized) }
+        authed.post("answer") { request, _ -> HTTPResponse.Status in
             let buffer = try await request.body.collect(upTo: 4096)
             guard let o = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
                   let sid = o["sessionId"] as? String,
@@ -434,16 +427,6 @@ public struct VibeBuddyServer: Sendable {
         }
 
         return router
-    }
-
-    /// CLI-hook routes (`/hook`, `/approval`, `/terminal`) accept the bearer token
-    /// as an `Authorization: Bearer` header (script hooks) OR a `?token=` query
-    /// param (native-http hooks that can't set a header, e.g. Qwen). The phone
-    /// routes stay header-only. daemon-security/01, ADR-0009.
-    static func hookAuthorized(_ request: Request, token: String) -> Bool {
-        if request.headers[.authorization] == "Bearer \(token)" { return true }
-        if request.uri.queryParameters["token"].map(String.init) == token { return true }
-        return false
     }
 
     /// The PreToolUse decision, in the shape the calling agent parses.
@@ -467,4 +450,32 @@ public struct VibeBuddyServer: Sendable {
                         body: .init(byteBuffer: ByteBuffer(string: json)))
     }
 
+}
+
+/// The daemon's single bearer-token check.
+///
+/// Phone/LAN routes accept the token only as an `Authorization: Bearer <token>`
+/// header. The CLI-hook routes (`/hook`, `/approval`, `/terminal`) additionally
+/// accept it as a `?token=<token>` query param, for native-http hooks that can't
+/// set a header (e.g. Qwen). daemon-security/01, ADR-0009.
+struct BearerAuth: Sendable {
+    let token: String
+    let allowsQueryToken: Bool
+
+    func authorizes(_ request: Request) -> Bool {
+        if request.headers[.authorization] == "Bearer \(token)" { return true }
+        if allowsQueryToken, request.uri.queryParameters["token"].map(String.init) == token { return true }
+        return false
+    }
+}
+
+/// Rejects every request in its route group that doesn't carry the token.
+struct BearerAuthMiddleware<Context: RequestContext>: RouterMiddleware {
+    let auth: BearerAuth
+
+    func handle(_ request: Request, context: Context,
+                next: (Request, Context) async throws -> Response) async throws -> Response {
+        guard auth.authorizes(request) else { throw HTTPError(.unauthorized) }
+        return try await next(request, context)
+    }
 }

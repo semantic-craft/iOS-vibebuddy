@@ -29,8 +29,10 @@ can't post, regardless of origin.
 The token is accepted **either** as an `Authorization: Bearer <token>` header
 (script hooks: the lifecycle forwarder, approval, capture, and opencode plugin)
 **or** as a `?token=<token>` query param (native-http
-hooks that can't set headers — Qwen). Both are checked by `hookAuthorized` in
-`VibeBuddyServer`.
+hooks that can't set headers — Qwen). Both are checked by the `BearerAuth` /
+`BearerAuthMiddleware` pair in `VibeBuddyServer`: the hook routes live in a route
+group whose middleware allows the query token, the phone routes in one that does
+not, and `/health` sits outside both.
 
 The secret is the existing file-based `TokenStore`
 (`~/Library/Application Support/vibebuddy/token`, 0600) — the same token the phone
