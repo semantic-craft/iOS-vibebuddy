@@ -423,6 +423,77 @@ struct CodexRolloutMonitorTests {
         #expect(reducer.sessions["desktop-ownerless"]?.failed != true)
     }
 
+    @Test("worst-case scan phase still abandons within a minute of the writer vanishing")
+    func worstCaseScanPhaseLeavesWorkingWithinAMinute() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        _ = try fixture.write(
+            named: "rollout-phase.jsonl",
+            lines: [sessionMeta(id: "desktop-phase"), taskStarted(id: "t1")]
+        )
+        let discoveryInterval: TimeInterval = 30
+        let ownerlessAfter: TimeInterval = 60
+        let writer = WriterFlag(isAlive: true)
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            discoveryInterval: .seconds(discoveryInterval),
+            ownerlessAfter: ownerlessAfter,
+            isDesktopAppServerAlive: { writer.isAlive },
+            hasWriterLock: { _ in writer.isAlive }
+        )
+
+        // t=0: last scan that still sees a writer. The writer vanishes immediately after.
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-phase"]?.status == .working)
+        writer.isAlive = false
+
+        // Production cadence: first ownerless observation is one interval later.
+        let firstOwnerless = now.addingTimeInterval(discoveryInterval)
+        for event in await monitor.poll(now: firstOwnerless) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-phase"]?.status == .working)
+        #expect(reducer.sessions["desktop-phase"]?.summary != "Abandoned")
+
+        // Bound is ownerlessAfter from the last owned scan, not from first ownerless.
+        // The old clock would still be waiting until firstOwnerless + ownerlessAfter (90s).
+        let deadline = now.addingTimeInterval(ownerlessAfter)
+        for event in await monitor.poll(now: deadline) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-phase"]?.status == .done)
+        #expect(reducer.sessions["desktop-phase"]?.summary == "Abandoned")
+        #expect(reducer.sessions["desktop-phase"]?.failed != true)
+    }
+
+    @Test("an owned but silent Desktop rollout stays working")
+    func ownedSilentRolloutStaysWorking() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        _ = try fixture.write(
+            named: "rollout-silent.jsonl",
+            lines: [sessionMeta(id: "desktop-silent"), taskStarted(id: "t1")]
+        )
+        let discoveryInterval: TimeInterval = 30
+        let ownerlessAfter: TimeInterval = 60
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            discoveryInterval: .seconds(discoveryInterval),
+            ownerlessAfter: ownerlessAfter,
+            isDesktopAppServerAlive: { true },
+            hasWriterLock: { _ in true }
+        )
+
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-silent"]?.status == .working)
+
+        for step in 1...3 {
+            for event in await monitor.poll(now: now.addingTimeInterval(discoveryInterval * TimeInterval(step))) {
+                reducer.apply(event)
+            }
+        }
+        #expect(reducer.sessions["desktop-silent"]?.status == .working)
+        #expect(reducer.sessions["desktop-silent"]?.summary != "Abandoned")
+    }
+
     @Test("a missing lock directory does not abandon a live Desktop writer")
     func missingLockDirectoryKeepsWorking() async throws {
         let fixture = try RolloutFixture(now: now)
@@ -748,6 +819,12 @@ struct CodexRolloutMonitorTests {
         #expect(diagnostics.pendingDebounceCount == 0)
         #expect(diagnostics.queuedEventCount == 0)
     }
+}
+
+/// Flip the injected writer probes mid-test without capturing a local `var`.
+private final class WriterFlag: @unchecked Sendable {
+    var isAlive: Bool
+    init(isAlive: Bool) { self.isAlive = isAlive }
 }
 
 private actor EventRecorder {

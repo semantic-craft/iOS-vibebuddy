@@ -831,7 +831,10 @@ public actor CodexRolloutMonitor {
     private var watcherEventCount = 0
     private var debouncedRefreshCount = 0
     private var watcherRecoveryCount = 0
-    private var ownerlessSince: [String: Date] = [:]
+    /// Last scan that still saw a writer, or the first ownerless observation
+    /// if this thread was never confirmed owned. The abandon deadline is
+    /// `ownerlessAfter` after that instant — not after the first ownerless scan.
+    private var lastOwnedAt: [String: Date] = [:]
 
     public init(
         root: URL = FileManager.default.homeDirectoryForCurrentUser
@@ -949,6 +952,13 @@ public actor CodexRolloutMonitor {
     /// A Desktop turn with no writer leaves `working` on the existing discovery
     /// cadence (default 30s), not a new one-second poll.
     ///
+    /// The clock starts at the last scan that still saw a writer (or the first
+    /// ownerless observation, if we never saw one). Abandon once that instant
+    /// is `ownerlessAfter` old. Worst case with the default 30s cadence: the
+    /// writer vanishes just after a scan; the pass at +60s retires it. Starting
+    /// the clock on the first ownerless scan would miss that bound by one
+    /// interval (~90s).
+    ///
     /// Lock files persist after turns and their mtime does not follow writes, so
     /// a lock's *presence* is not proof of a writer. A missing lock (only when
     /// the lock directory itself exists), or a dead ChatGPT.app-bundled
@@ -962,22 +972,22 @@ public actor CodexRolloutMonitor {
                   cursor.parser.isDesktopSession,
                   let sessionID = cursor.parser.sessionID
             else {
-                ownerlessSince[path] = nil
+                lastOwnedAt[path] = nil
                 continue
             }
             let ownerless = !appServerAlive || !hasWriterLock(sessionID)
-            guard ownerless else {
-                ownerlessSince[path] = nil
+            if !ownerless {
+                lastOwnedAt[path] = now
                 continue
             }
-            let since = ownerlessSince[path] ?? now
-            ownerlessSince[path] = since
-            guard now.timeIntervalSince(since) >= ownerlessAfter else { continue }
+            let confirmedAt = lastOwnedAt[path] ?? now
+            lastOwnedAt[path] = confirmedAt
+            guard now.timeIntervalSince(confirmedAt) >= ownerlessAfter else { continue }
 
             var updated = cursor
             updated.parser.abandonActiveTurns()
             cursors[path] = updated
-            ownerlessSince[path] = nil
+            lastOwnedAt[path] = nil
             events.append(HookEvent(
                 kind: .stop, sessionID: sessionID, agent: .codex,
                 cwd: cursor.parser.cwd, message: "Abandoned",
@@ -1123,7 +1133,7 @@ public actor CodexRolloutMonitor {
 
     private func removeTracking(path: String) {
         cursors[path] = nil
-        ownerlessSince[path] = nil
+        lastOwnedAt[path] = nil
         debounceTasks.removeValue(forKey: path)?.task.cancel()
         if let registration = watchers.removeValue(forKey: path) {
             registration.watcher.cancelAndWait()
@@ -1152,7 +1162,7 @@ public actor CodexRolloutMonitor {
         eventQueue.removeAll()
         eventQueueHead = 0
         cursors.removeAll()
-        ownerlessSince.removeAll()
+        lastOwnedAt.removeAll()
         recoveryGateForTesting = nil
         sink = nil
     }
