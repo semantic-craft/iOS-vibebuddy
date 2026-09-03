@@ -104,7 +104,7 @@ final class MenuBarModel: ObservableObject {
         let base: CGFloat = saved > 0 ? saved : Self.defaultGlanceScale()
         // Snap to one of the 3 presets so the menu Picker selection always matches.
         glanceScale = [0.8, 1.0, 1.2].min(by: { abs($0 - base) < abs($1 - base) }) ?? 1.0
-        showGlance = Self.loadBool("showGlance", default: true)
+        showGlance = UserDefaults.standard.bool(forKey: "showGlance", default: true)
         openDashboardHotkey = Hotkey.loadOpenDashboard()
         toggleGlanceHotkey = Hotkey.loadToggleGlance()
         usage = AccountUsageCoordinator(store: store, notifier: notifier)
@@ -159,11 +159,6 @@ final class MenuBarModel: ObservableObject {
                 NotificationCenter.default.post(name: .openDashboard, object: nil)
             }
         }
-    }
-
-    /// A Bool default that treats an absent key as `default` (so first launch is on).
-    private static func loadBool(_ key: String, default fallback: Bool) -> Bool {
-        UserDefaults.standard.object(forKey: key) == nil ? fallback : UserDefaults.standard.bool(forKey: key)
     }
 
     /// Quiet right now if the user toggled it, or the nightly window is active.
