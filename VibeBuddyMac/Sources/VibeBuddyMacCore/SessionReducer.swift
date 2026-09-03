@@ -7,9 +7,13 @@ import VibeBuddyKit
 /// tokens, branch) is layered on by the server, not here.
 public struct SessionReducer: Sendable {
     public private(set) var sessions: [String: AgentSession] = [:]
-    /// The last per-turn token reading we added to a session's cumulative spend,
-    /// so the same turn (re-read on every mid-turn event) is counted only once.
-    private var lastCountedTokens: [String: Int] = [:]
+    /// The last turn whose token reading we added to a session's cumulative
+    /// spend, so the same turn (re-read on every mid-turn event) is counted only
+    /// once. Identified by the source's own turn id when it has one (Grok's
+    /// `turn_completed.prompt_id`), else by the reading itself — all Claude's
+    /// transcript offers, where consecutive turns of identical cost are the
+    /// price of having no turn identity at all.
+    private var lastCountedTurn: [String: String] = [:]
     /// The turn a session is currently on, for CLIs that label turns
     /// (`HookEvent.turnID`). Grok dispatches a cancelled turn's report off the
     /// command loop, so it can land after the next turn already started.
@@ -94,7 +98,7 @@ public struct SessionReducer: Sendable {
             // The session is over (exit / clear / logout). Drop it entirely so
             // an idle "needs you" prompt doesn't outlive the session it belonged to.
             sessions.removeValue(forKey: event.sessionID)
-            lastCountedTokens[event.sessionID] = nil
+            lastCountedTurn[event.sessionID] = nil
             currentTurnID[event.sessionID] = nil
         case .sessionMetadataChanged:
             // Model and cwd changes describe the same live session. They must
@@ -153,7 +157,7 @@ public struct SessionReducer: Sendable {
             // The per-session side tables outlive nothing: a session id that
             // comes back (grok resumes one) must start its accounting fresh.
             currentTurnID[id] = nil
-            lastCountedTokens[id] = nil
+            lastCountedTurn[id] = nil
         }
     }
 
@@ -166,10 +170,11 @@ public struct SessionReducer: Sendable {
         if let branch = info.branch { s.branch = branch }
         if let tokens = info.tokens {
             s.tokens = tokens
-            // Accumulate cumulative spend, counting each fresh turn reading once.
-            if lastCountedTokens[sessionID] != tokens {
+            // Accumulate cumulative spend, counting each fresh turn once.
+            let turn = info.tokensTurnID ?? String(tokens)
+            if lastCountedTurn[sessionID] != turn {
                 s.spentTokens = (s.spentTokens ?? 0) + tokens
-                lastCountedTokens[sessionID] = tokens
+                lastCountedTurn[sessionID] = turn
             }
         }
         if let contextTokens = info.contextTokens {

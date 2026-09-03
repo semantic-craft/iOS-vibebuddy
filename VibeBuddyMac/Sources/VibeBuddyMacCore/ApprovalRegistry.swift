@@ -7,11 +7,17 @@ public actor ApprovalRegistry {
     public enum Outcome: String, Sendable { case allow, deny, pass }
 
     private var waiters: [String: CheckedContinuation<Outcome, Never>] = [:]
+    /// Decisions that arrived before their request started waiting. The pending
+    /// card is broadcast an actor hop *before* `/approval` registers its waiter,
+    /// so a decision can legitimately land in that window; without this it would
+    /// be dropped and the hook would fail open on the timeout instead.
+    private var earlyDecisions: [String: Outcome] = [:]
 
     public init() {}
 
     public func wait(id: String, timeout: Duration) async -> Outcome {
-        await withCheckedContinuation { (cont: CheckedContinuation<Outcome, Never>) in
+        if let early = earlyDecisions.removeValue(forKey: id) { return early }
+        return await withCheckedContinuation { (cont: CheckedContinuation<Outcome, Never>) in
             waiters[id] = cont
             Task { [weak self] in
                 try? await Task.sleep(for: timeout)
@@ -25,7 +31,19 @@ public actor ApprovalRegistry {
     }
 
     private func resume(id: String, with outcome: Outcome) {
-        guard let cont = waiters.removeValue(forKey: id) else { return }
+        guard let cont = waiters.removeValue(forKey: id) else {
+            // A timeout for an id nobody is waiting on is spent; a real decision
+            // is held briefly for the request that is about to wait on it.
+            guard outcome != .pass else { return }
+            earlyDecisions[id] = outcome
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(60))
+                await self?.forgetEarlyDecision(id)
+            }
+            return
+        }
         cont.resume(returning: outcome)
     }
+
+    private func forgetEarlyDecision(_ id: String) { earlyDecisions[id] = nil }
 }

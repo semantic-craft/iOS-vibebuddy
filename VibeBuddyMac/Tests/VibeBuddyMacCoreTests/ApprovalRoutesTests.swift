@@ -24,6 +24,7 @@ private func grokBash(_ cmd: String, tool: String = "run_terminal_command",
 struct ApprovalRoutesTests {
     private func server(allow: [String] = [], deny: [String] = [],
                         store: SessionStore = SessionStore(),
+                        approvalTimeout: Duration = .seconds(5),
                         port: Int = 9876, host: String = "0.0.0.0") -> VibeBuddyServer {
         // A throwaway temp-file allow store keeps each test hermetic (ADR 0010).
         let storeURL = FileManager.default.temporaryDirectory
@@ -32,8 +33,21 @@ struct ApprovalRoutesTests {
                         approvalRegistry: ApprovalRegistry(),
                         rules: { _ in PermissionRules(allow: allow, deny: deny) },
                         allowStore: VibeBuddyAllowStore(url: storeURL),
-                        approvalTimeout: .milliseconds(200),
+                        approvalTimeout: approvalTimeout,
                         approvalID: { "s" })
+    }
+
+    /// Wait until the held approval is visible as a pending card. The server
+    /// registers the decision context before broadcasting the card, so from this
+    /// point a `/decision` always finds what it needs — a fixed sleep does not,
+    /// and the whole-suite run is parallel enough to lose that race.
+    private func waitForPendingApproval(_ store: SessionStore, session: String) async throws {
+        for _ in 0..<1000 {
+            let sessions = await store.snapshot(now: Date()).sessions
+            if sessions.first(where: { $0.id == session })?.pendingApproval != nil { return }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        Issue.record("no approval ever became pending for session \(session)")
     }
 
     @Test("allow-listed command returns an allow decision immediately")
@@ -52,14 +66,15 @@ struct ApprovalRoutesTests {
     @Test("an un-listed command holds, then a /decision approve releases it")
     func askThenApprove() async throws {
         let body = #"{"hook_event_name":"PreToolUse","session_id":"s","cwd":"/x/p","tool_name":"Bash","tool_input":{"command":"rm -rf build"}}"#
-        let srv = server()   // empty allow → .ask
+        let store = SessionStore()
+        let srv = server(store: store)   // empty allow → .ask
         try await srv.buildApplication().test(.router) { client in
             async let approval = client.execute(uri: "/approval", method: .post,
                                                 headers: [.authorization: "Bearer t0k"], body: ByteBuffer(string: body)) { res -> String in
                 #expect(res.status == .ok)
                 return String(buffer: res.body)
             }
-            try await Task.sleep(for: .milliseconds(80))
+            try await waitForPendingApproval(store, session: "s")
             let decision = #"{"approvalId":"s","decision":"allow"}"#
             try await client.execute(uri: "/decision", method: .post,
                                      headers: [.authorization: "Bearer t0k"],
@@ -74,7 +89,7 @@ struct ApprovalRoutesTests {
     @Test("no decision times out to an empty body (hook prints nothing)")
     func timesOutEmpty() async throws {
         let body = #"{"hook_event_name":"PreToolUse","session_id":"s","cwd":"/x/p","tool_name":"Bash","tool_input":{"command":"rm -rf build"}}"#
-        try await server().buildApplication().test(.router) { client in
+        try await server(approvalTimeout: .milliseconds(200)).buildApplication().test(.router) { client in
             try await client.execute(uri: "/approval", method: .post,
                                      headers: [.authorization: "Bearer t0k"], body: ByteBuffer(string: body)) { res in
                 #expect(res.status == .ok)
@@ -97,13 +112,14 @@ struct ApprovalRoutesTests {
 
     @Test("alwaysAllow persists a rule so the next identical call auto-allows")
     func alwaysAllowPersists() async throws {
-        let srv = server()   // empty native allow → first call holds
+        let store = SessionStore()
+        let srv = server(store: store)   // empty native allow → first call holds
         try await srv.buildApplication().test(.router) { client in
             async let first = client.execute(uri: "/approval", method: .post,
                 headers: [.authorization: "Bearer t0k"], body: ByteBuffer(string: bash("git status"))) { res -> String in
                 String(buffer: res.body)
             }
-            try await Task.sleep(for: .milliseconds(80))
+            try await waitForPendingApproval(store, session: "s")
             try await client.execute(uri: "/decision", method: .post,
                 headers: [.authorization: "Bearer t0k"],
                 body: ByteBuffer(string: #"{"approvalId":"s","decision":"alwaysAllow"}"#)) { res in
@@ -121,13 +137,14 @@ struct ApprovalRoutesTests {
 
     @Test("allowSession auto-allows a different command in the same session")
     func allowSessionAllowsSiblings() async throws {
-        let srv = server()
+        let store = SessionStore()
+        let srv = server(store: store)
         try await srv.buildApplication().test(.router) { client in
             async let first = client.execute(uri: "/approval", method: .post,
                 headers: [.authorization: "Bearer t0k"], body: ByteBuffer(string: bash("git status"))) { res -> String in
                 String(buffer: res.body)
             }
-            try await Task.sleep(for: .milliseconds(80))
+            try await waitForPendingApproval(store, session: "s")
             try await client.execute(uri: "/decision", method: .post,
                 headers: [.authorization: "Bearer t0k"],
                 body: ByteBuffer(string: #"{"approvalId":"s","decision":"allowSession"}"#)) { res in
@@ -186,7 +203,7 @@ struct ApprovalRoutesTests {
         try await srv.buildApplication().test(.router) { client in
             async let held = approve(client, body: grokBash("rm -rf build", mode: "default"),
                                      agent: "grok")
-            try await Task.sleep(for: .milliseconds(80))
+            try await waitForPendingApproval(store, session: "gs")
             // The pending card carries the mode, so the UI can say an allow here
             // is not final (grok still prompts locally outside bypassPermissions).
             let pending = await store.snapshot(now: Date()).sessions.first { $0.id == "gs" }?.pendingApproval
@@ -204,7 +221,7 @@ struct ApprovalRoutesTests {
 
     @Test("no decision on a grok call times out to an empty body (fail-open)")
     func grokTimesOutEmpty() async throws {
-        try await server().buildApplication().test(.router) { client in
+        try await server(approvalTimeout: .milliseconds(200)).buildApplication().test(.router) { client in
             let text = try await approve(client, body: grokBash("rm -rf build"), agent: "grok")
             #expect(text.isEmpty)
         }
@@ -230,9 +247,10 @@ struct ApprovalRoutesTests {
 
     @Test("alwaysAllow from a grok approval matches the next grok call, alias included")
     func grokAlwaysAllowPersists() async throws {
-        try await server().buildApplication().test(.router) { client in
+        let store = SessionStore()
+        try await server(store: store).buildApplication().test(.router) { client in
             async let first = approve(client, body: grokBash("git status"), agent: "grok")
-            try await Task.sleep(for: .milliseconds(80))
+            try await waitForPendingApproval(store, session: "gs")
             try await client.execute(uri: "/decision", method: .post,
                 headers: [.authorization: "Bearer t0k"],
                 body: ByteBuffer(string: #"{"approvalId":"s","decision":"alwaysAllow"}"#)) { res in

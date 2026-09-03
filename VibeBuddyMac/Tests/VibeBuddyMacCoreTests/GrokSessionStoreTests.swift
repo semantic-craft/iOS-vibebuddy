@@ -125,20 +125,26 @@ struct GrokSessionStoreTests {
         #expect(entries.isEmpty)
     }
 
-    @Test("re-reading the same turn does not double the session spend")
-    func cumulativeSpendIsNotDoubled() {
+    @Test("the turn id separates a re-read from a second turn of the same cost")
+    func cumulativeSpendCountsEachTurnOnce() {
         var reducer = SessionReducer()
         reducer.apply(HookEvent(kind: .sessionStart, sessionID: "s", agent: .grok, timestamp: t0))
         // Every mid-turn event re-reads the same newest `turn_completed`.
-        let info = TranscriptInfo(model: "grok-4.6", tokens: 5_400,
+        let info = TranscriptInfo(model: "grok-4.6", tokens: 5_400, tokensTurnID: "p1",
                                   contextTokens: 80_944, contextWindow: 500_000)
         reducer.enrich(sessionID: "s", with: info)
         reducer.enrich(sessionID: "s", with: info)
         #expect(reducer.sessions["s"]?.spentTokens == 5_400)
 
+        // A different turn that happened to cost exactly as much is still spend.
+        reducer.enrich(sessionID: "s", with: TranscriptInfo(
+            tokens: 5_400, tokensTurnID: "p2", contextTokens: 86_000))
+        #expect(reducer.sessions["s"]?.spentTokens == 10_800)
+
         // The next turn's reading is a fresh cost and accumulates.
-        reducer.enrich(sessionID: "s", with: TranscriptInfo(tokens: 900, contextTokens: 81_000))
-        #expect(reducer.sessions["s"]?.spentTokens == 6_300)
+        reducer.enrich(sessionID: "s", with: TranscriptInfo(tokens: 900, tokensTurnID: "p3",
+                                                            contextTokens: 81_000))
+        #expect(reducer.sessions["s"]?.spentTokens == 11_700)
         #expect(reducer.sessions["s"]?.tokens == 900)
     }
 

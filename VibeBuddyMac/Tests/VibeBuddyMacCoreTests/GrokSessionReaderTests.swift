@@ -50,17 +50,41 @@ struct GrokSessionReaderTests {
 
     // MARK: - Tokens
 
-    @Test("the newest turn_completed is one turn's cost, which the reducer accumulates")
+    @Test("the newest turn_completed is one turn's cost, tagged with its prompt id")
     func turnTokensFromLog() throws {
         let fixture = try GrokFixture()
         defer { fixture.cleanUp() }
         try fixture.write("updates.jsonl", [
-            GrokFixture.turnCompleted(input: 1_000, output: 100),
-            GrokFixture.turnCompleted(input: 2_000, output: 200),
+            GrokFixture.turnCompleted(input: 1_000, output: 100, promptID: "p1"),
+            GrokFixture.turnCompleted(input: 2_000, output: 200, promptID: "p2"),
         ].joined(separator: "\n"))
 
         let info = try #require(GrokSessionReader.read(directory: fixture.directory)?.info)
         #expect(info.tokens == 2_200)
+        #expect(info.tokensTurnID == "p2")   // the reducer dedupes on this, not the total
+    }
+
+    @Test("two turns of identical cost are told apart by their prompt ids")
+    func equalCostTurnsKeepDistinctIDs() {
+        let first = GrokSessionReader.facts(updatesTail: updates([
+            GrokFixture.turnCompleted(input: 1_000, output: 100, promptID: "p1"),
+        ]))
+        let second = GrokSessionReader.facts(updatesTail: updates([
+            GrokFixture.turnCompleted(input: 1_000, output: 100, promptID: "p2"),
+        ]))
+        #expect(first.turnTokens == second.turnTokens)
+        #expect(first.turnTokensID == "p1")
+        #expect(second.turnTokensID == "p2")
+    }
+
+    @Test("without a prompt_id the record's _meta identity stands in")
+    func turnIDFallsBackToMeta() {
+        let facts = GrokSessionReader.facts(updatesTail: updates([
+            GrokFixture.turnCompleted(input: 10, output: 1, promptID: nil,
+                                      eventID: "session-1-2587"),
+        ]))
+        #expect(facts.turnTokens == 11)
+        #expect(facts.turnTokensID == "session-1-2587")
     }
 
     // MARK: - Prose

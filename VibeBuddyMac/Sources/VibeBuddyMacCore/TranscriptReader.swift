@@ -5,6 +5,11 @@ import VibeBuddyKit
 public struct TranscriptInfo: Equatable, Sendable {
     public var model: String?
     public var tokens: Int?           // turn cost: input + output
+    /// Which turn `tokens` belongs to, when the source names one (Grok's
+    /// `turn_completed.prompt_id`). The reducer needs it to tell a re-read of
+    /// one turn from a genuinely new turn that happened to cost the same.
+    /// Claude's transcript names no turn, so it stays nil there.
+    public var tokensTurnID: String?
     public var contextTokens: Int?    // prompt sent: input + cache_read + cache_creation
     /// The model's real context window, when the source records it (Grok writes
     /// `contextWindowTokens` into `signals.json`). nil keeps the reducer's
@@ -25,6 +30,7 @@ public struct TranscriptInfo: Equatable, Sendable {
     public var activeTool: String?
 
     public init(model: String? = nil, tokens: Int? = nil,
+                tokensTurnID: String? = nil,
                 contextTokens: Int? = nil, contextWindow: Int? = nil,
                 summary: String? = nil, branch: String? = nil,
                 pendingQuestion: PendingQuestion? = nil,
@@ -32,6 +38,7 @@ public struct TranscriptInfo: Equatable, Sendable {
                 activeTool: String? = nil) {
         self.model = model
         self.tokens = tokens
+        self.tokensTurnID = tokensTurnID
         self.contextTokens = contextTokens
         self.contextWindow = contextWindow
         self.summary = summary
