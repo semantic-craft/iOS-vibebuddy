@@ -29,6 +29,10 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var lifecycleJournalClearFailed = false
     @Published private(set) var notificationDeliveryHealth = NotificationDeliveryHealth()
     @Published private(set) var recentNotificationDeliveries: [NotificationDeliveryRecord] = []
+    /// The outcome of the most recent jump per session id, shown transiently in
+    /// the row that was clicked and cleared by `showJumpFeedback`.
+    @Published private(set) var jumpFeedback: [String: JumpOutcome] = [:]
+    private var jumpFeedbackClears: [String: Task<Void, Never>] = [:]
     /// Sessions the user has pointed the buddy at (in-memory, never persisted).
     /// Empty = the buddy sees all sessions; pruned to live IDs on every snapshot.
     @Published private(set) var buddySessionIDs: Set<String> = []
@@ -496,10 +500,36 @@ final class MenuBarModel: ObservableObject {
     /// Back-compat for voice + existing callers.
     func decide(_ approvalId: String, approve: Bool) { decide(approvalId, approve ? .allow : .deny) }
 
+    /// Jump to a session's terminal without blocking the UI: the click is
+    /// acknowledged immediately and the AppleScript/`tmux` work happens off the
+    /// main actor, publishing what it actually achieved when it lands.
+    ///
+    /// Never refuses. A session with no ref is a real answer ("no terminal
+    /// recorded"), not a dead control — that silence was the bug.
     func jump(_ session: AgentSession) {
         acknowledge(session.id)
-        guard let ref = session.terminalRef else { return }
-        TerminalJumper.jump(ref)
+        guard let ref = session.terminalRef else {
+            showJumpFeedback(.noTerminal, for: session.id)
+            return
+        }
+        Task { [weak self] in
+            let outcome = await TerminalJumper.jump(ref)
+            self?.showJumpFeedback(outcome, for: session.id)
+        }
+    }
+
+    /// Publish a jump result against its session and retract it a beat later, so
+    /// the row goes back to showing live activity. A second jump replaces the
+    /// first one's countdown instead of inheriting its deadline.
+    private func showJumpFeedback(_ outcome: JumpOutcome, for sessionID: String) {
+        jumpFeedback[sessionID] = outcome
+        jumpFeedbackClears[sessionID]?.cancel()
+        jumpFeedbackClears[sessionID] = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            guard !Task.isCancelled else { return }
+            self?.jumpFeedback[sessionID] = nil
+            self?.jumpFeedbackClears[sessionID] = nil
+        }
     }
 
     /// Explicitly viewing/selecting a completion clears its authoritative unread

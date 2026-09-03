@@ -30,12 +30,12 @@ The CLI pipes its event JSON on stdin. VibeBuddy reads `hook_event_name`,
 | CLI | source | config | hook style | status |
 |-----|--------|--------|-----------|--------|
 | Claude Code | `claude` | `~/.claude/settings.json` | JSON `hooks` array | ✅ tested |
-| Codex | `codex` | `~/.codex/config.toml` | TOML `[hooks]` / notify | ✅ tested |
+| Codex | `codex` | `~/.codex/hooks.json` (`notify` untouched) | JSON `hooks` array | ✅ tested |
 | OpenCode | `opencode` | `~/.config/opencode/` plugin | Claude-compatible hooks | ⚠️ template |
 | Qwen Code | `qwen` | `~/.qwen/` | Claude-compatible hooks | ⚠️ template |
 | Kimi | `kimi` | `~/.kimi/config.toml` | TOML hooks | ⚠️ template |
 | Antigravity (Gemini) | `antigravity` | `~/.gemini/antigravity-cli/hooks.json` | JSON `command` hooks | blocked: `agy` 1.0.5 loads but skips execution |
-| Grok | `grok` | per-CLI hooks | Claude-compatible hooks | ⚠️ template |
+| Grok | `grok` | `~/.grok/hooks/vibebuddy.json` | JSON `command` hooks | ✅ tested |
 | GitHub Copilot | `copilot` | — | observe mode (no hooks) | ⚠️ partial |
 
 ✅ = wired and exercised. ⚠️ template = the source routing + display are done in
@@ -69,13 +69,33 @@ yet — it appears once a future watcher observes it.
 ### Terminal capture (for jump-to-terminal)
 
 Jump-to-terminal needs to know which terminal each session runs in. A second hook,
-`hooks/capture-terminal.sh`, POSTs `{session_id, term_program, tty, tmux, tmux_pane}`
-to `/terminal`. `install-claude-hooks.py` wires it to **both `SessionStart` and
+`hooks/capture-terminal.sh`, POSTs to `/terminal` at three levels of precision:
+`{tmux, tmux_pane}` for the multiplexer pane, `{tty, iterm_session_id,
+wezterm_pane, kitty_window_id, kitty_listen_on, ghostty_terminal_id}` for the
+window/tab/split of one emulator, and `{term_program, host_bundle_id, host_pid,
+cwd}` for the app. `host_bundle_id` is the bundle identifier of the nearest GUI
+ancestor process, so a session inside an embedded terminal — the Claude desktop
+app, Cursor, Zed, a JetBrains IDE — is still reachable even though it exports no
+`TERM_PROGRAM` at all. Background-only ancestors (`LSBackgroundOnly` or
+`LSUIElement` in their `Info.plist`) are stepped over, because such a bundle id
+can never be activated: the Claude Code CLI is itself one of these wrapper
+`.app`s, nested under the Claude desktop app that actually owns the window. Empty values are omitted, and the Mac reads an empty
+string as absence. Run the script with `--print` to see what it would send. `install-claude-hooks.py`, `install-codex-hooks.py`, and
+`install-grok-hooks.py` all wire it to **both `SessionStart` and
 `UserPromptSubmit`**: SessionStart catches new sessions, and UserPromptSubmit
 re-captures so a session that missed SessionStart — e.g. the hook was added while
-the session was already open — **self-heals on its next prompt** (writing the same
-ref is idempotent). A session with no captured terminal can't be jumped to (the iOS
-button hides; the Mac button disables; a phone jump reports "no terminal").
+the session was already open — **self-heals on its next prompt**. That re-capture
+is not idempotent (it skips the Ghostty AppleScript probe, which only answers
+while the surface is focused), so the Mac **merges** each ref into the stored one
+field by field — a later capture updates what it saw and never erases what it
+didn't see. Grok's event payload uses camelCase `sessionId`; the script
+reads both key spellings. A session with no captured terminal can't be jumped to
+(the iOS button hides; the Mac button disables; a phone jump reports "no
+terminal"), and a session captured only at app level reports `activatedApp` —
+the right app comes forward but the user still finds the tab. Codex requires re-trusting hooks via `/hooks` after this change picks
+up the new capture group, same as any other `hooks.json` edit; Grok requires
+reloading hooks (Ctrl+L → Hooks tab → 'l', or restart the session) before the new
+capture group takes effect.
 
 ### Reversibility
 

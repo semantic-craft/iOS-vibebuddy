@@ -91,13 +91,173 @@ public struct PendingQuestion: Codable, Sendable, Equatable, Identifiable {
 }
 
 /// Identifies the terminal a session runs in, so the Mac can jump to it.
+///
+/// Three levels of precision, captured together by `hooks/capture-terminal.sh`
+/// and consumed in that order by the jumper:
+///
+/// 1. **Pane** — `tmuxPane` (+ `tmux` socket) selects the pane inside a
+///    multiplexer.
+/// 2. **Surface** — `tty`, `itermSessionId`, `ghosttyTerminalId`,
+///    `weztermPane`, `kittyWindowId` each identify one window/tab/split of a
+///    specific terminal emulator, so the exact one can be raised.
+/// 3. **App** — `termProgram`, or `hostBundleId` when the host sets no
+///    `TERM_PROGRAM` at all (VS Code/Cursor tell each other apart only this
+///    way, and the Claude desktop app sets none). Bringing the app forward is
+///    the honest floor: it lands the user in the right application even when
+///    the surface is unknowable.
+///
+/// Wire format is snake_case throughout, so the `/terminal` hook payload and
+/// the phone's `AgentSession` JSON are the same shape. Empty strings decode as
+/// `nil` — shell hooks find it easier to send `""` than to omit a key.
 public struct TerminalRef: Codable, Sendable, Equatable {
-    public let termProgram: String
+    /// `$TERM_PROGRAM`: `ghostty`, `iTerm.app`, `apple_terminal`, `WezTerm`,
+    /// `WarpTerminal`, `vscode`, or `kitty` (synthesized — kitty sets none).
+    /// `nil` when the host exports nothing; `hostBundleId` covers that case.
+    public let termProgram: String?
+    /// Controlling tty without the `/dev/` prefix (`ttys003`). Terminal.app and
+    /// iTerm2 both expose it per tab, which makes it an exact target there.
     public let tty: String?
+    /// `$TMUX` — `socket,pid,session`; only the socket path is used.
     public let tmux: String?
+    /// `$TMUX_PANE` — `%3`.
     public let tmuxPane: String?
-    public init(termProgram: String, tty: String? = nil, tmux: String? = nil, tmuxPane: String? = nil) {
-        self.termProgram = termProgram; self.tty = tty; self.tmux = tmux; self.tmuxPane = tmuxPane
+    /// The UUID half of `$ITERM_SESSION_ID` (`w0t0p0:UUID`), which equals an
+    /// iTerm2 session's `unique ID`.
+    public let itermSessionId: String?
+    /// `$WEZTERM_PANE` — an integer pane id for `wezterm cli activate-pane`.
+    public let weztermPane: String?
+    /// `$KITTY_WINDOW_ID` — an integer for `kitten @ focus-window --match id:N`.
+    public let kittyWindowId: String?
+    /// `$KITTY_LISTEN_ON` — the remote-control socket. Without it kitty's
+    /// window cannot be addressed from outside, so the jump stops at the app.
+    public let kittyListenOn: String?
+    /// Ghostty's AppleScript `terminal` id, probed once at SessionStart while
+    /// the surface is still focused (Ghostty exports no env var for it).
+    public let ghosttyTerminalId: String?
+    /// Bundle identifier of the nearest GUI ancestor process. The universal
+    /// fallback: it names whatever app is hosting the session even when that
+    /// app is not a terminal emulator we know.
+    public let hostBundleId: String?
+    /// Pid of that GUI ancestor. Diagnostic only — kept so a stale ref can be
+    /// told from a live one.
+    public let hostPid: Int?
+    /// The session's working directory. Ghostty can be matched on it when the
+    /// terminal id is missing or stale.
+    public let cwd: String?
+
+    public init(termProgram: String? = nil,
+                tty: String? = nil,
+                tmux: String? = nil,
+                tmuxPane: String? = nil,
+                itermSessionId: String? = nil,
+                weztermPane: String? = nil,
+                kittyWindowId: String? = nil,
+                kittyListenOn: String? = nil,
+                ghosttyTerminalId: String? = nil,
+                hostBundleId: String? = nil,
+                hostPid: Int? = nil,
+                cwd: String? = nil) {
+        self.termProgram = termProgram
+        self.tty = tty
+        self.tmux = tmux
+        self.tmuxPane = tmuxPane
+        self.itermSessionId = itermSessionId
+        self.weztermPane = weztermPane
+        self.kittyWindowId = kittyWindowId
+        self.kittyListenOn = kittyListenOn
+        self.ghosttyTerminalId = ghosttyTerminalId
+        self.hostBundleId = hostBundleId
+        self.hostPid = hostPid
+        self.cwd = cwd
+    }
+
+    /// Bundle identifiers of the two emulators that expose a per-tab `tty`, and
+    /// so are the only ones a bare tty can address below app level.
+    private static let ttyAddressableBundleIDs: Set<String> = ["com.apple.Terminal", "com.googlecode.iterm2"]
+    private static let ttyAddressableTermPrograms: Set<String> = ["apple_terminal", "iterm.app"]
+
+    /// Whether this ref names a specific pane/tab/window rather than only an
+    /// app. Drives the difference between `JumpOutcome.focused` and
+    /// `.activatedApp`, and lets the UI promise only what it can deliver.
+    ///
+    /// A `tty` counts only under Terminal.app and iTerm2: they are the two
+    /// emulators whose AppleScript dictionary exposes it per tab. Everywhere
+    /// else the tty is real but unaddressable, and a jump can reach the app at
+    /// best — so promising an exact target would be a lie.
+    public var hasExactTarget: Bool {
+        if tmuxPane != nil || itermSessionId != nil || weztermPane != nil
+            || kittyWindowId != nil || ghosttyTerminalId != nil { return true }
+        guard tty != nil else { return false }
+        if let tp = termProgram?.lowercased(), Self.ttyAddressableTermPrograms.contains(tp) { return true }
+        return hostBundleId.map(Self.ttyAddressableBundleIDs.contains) ?? false
+    }
+
+    /// Whether storing this ref would buy the jumper anything. A ref with no
+    /// exact target, no `TERM_PROGRAM` and no host bundle id names nothing the
+    /// jumper could act on — keeping it would only turn an honest "no terminal
+    /// recorded" into a mystifying "couldn't locate this session's window".
+    public var isActionable: Bool {
+        hasExactTarget || termProgram != nil || hostBundleId != nil
+    }
+
+    /// This ref updated by a later capture: every field the new one carries
+    /// wins, everything it is silent about is kept.
+    ///
+    /// Re-capture is not idempotent, which is why this exists. The
+    /// `UserPromptSubmit` capture deliberately skips the Ghostty AppleScript
+    /// probe (it is only correct while the surface is focused, i.e. at
+    /// `SessionStart`), so a wholesale replace would erase
+    /// `ghosttyTerminalId` on the session's next prompt.
+    public func merging(_ newer: TerminalRef) -> TerminalRef {
+        TerminalRef(
+            termProgram: newer.termProgram ?? termProgram,
+            tty: newer.tty ?? tty,
+            tmux: newer.tmux ?? tmux,
+            tmuxPane: newer.tmuxPane ?? tmuxPane,
+            itermSessionId: newer.itermSessionId ?? itermSessionId,
+            weztermPane: newer.weztermPane ?? weztermPane,
+            kittyWindowId: newer.kittyWindowId ?? kittyWindowId,
+            kittyListenOn: newer.kittyListenOn ?? kittyListenOn,
+            ghosttyTerminalId: newer.ghosttyTerminalId ?? ghosttyTerminalId,
+            hostBundleId: newer.hostBundleId ?? hostBundleId,
+            hostPid: newer.hostPid ?? hostPid,
+            cwd: newer.cwd ?? cwd
+        )
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case termProgram = "term_program"
+        case tty
+        case tmux
+        case tmuxPane = "tmux_pane"
+        case itermSessionId = "iterm_session_id"
+        case weztermPane = "wezterm_pane"
+        case kittyWindowId = "kitty_window_id"
+        case kittyListenOn = "kitty_listen_on"
+        case ghosttyTerminalId = "ghostty_terminal_id"
+        case hostBundleId = "host_bundle_id"
+        case hostPid = "host_pid"
+        case cwd
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func str(_ k: CodingKeys) -> String? {
+            guard let v = try? c.decodeIfPresent(String.self, forKey: k), !v.isEmpty else { return nil }
+            return v
+        }
+        termProgram = str(.termProgram)
+        tty = str(.tty)
+        tmux = str(.tmux)
+        tmuxPane = str(.tmuxPane)
+        itermSessionId = str(.itermSessionId)
+        weztermPane = str(.weztermPane)
+        kittyWindowId = str(.kittyWindowId)
+        kittyListenOn = str(.kittyListenOn)
+        ghosttyTerminalId = str(.ghosttyTerminalId)
+        hostBundleId = str(.hostBundleId)
+        hostPid = (try? c.decodeIfPresent(Int.self, forKey: .hostPid)) ?? nil
+        cwd = str(.cwd)
     }
 }
 

@@ -15,6 +15,8 @@ struct PetFace: View {
     var bare: Bool = false
     var scale: CGFloat = 1
 
+    @Environment(\.displayScale) private var displayScale
+
     private var accent: Color { Color(taskStatus: state.presentationState.colorToken) }
     private var ink: Color { bare ? .white : .primary }
 
@@ -41,11 +43,18 @@ struct PetFace: View {
                 let grid = rows(blink: blink, mouthOpen: mouthOpen)
                 let cw = size.width / 13
                 let ch = size.height / CGFloat(grid.count)
+                // Snap every cell edge to the display grid instead of padding each
+                // rect by 0.6pt: shared edges land on the same device pixel, so the
+                // sprite stays crisp (and seam-free) even at the small collapsed
+                // glance size, where a cell is only ~1.5pt wide.
+                let dp = max(displayScale, 1)
+                func snap(_ v: CGFloat) -> CGFloat { (v * dp).rounded() / dp }
                 for (r, line) in grid.enumerated() {
+                    let y0 = snap(CGFloat(r) * ch), y1 = snap(CGFloat(r + 1) * ch)
                     for (c, char) in line.enumerated() {
                         guard let color = fill(char) else { continue }
-                        let rect = CGRect(x: CGFloat(c) * cw, y: CGFloat(r) * ch,
-                                          width: cw + 0.6, height: ch + 0.6)
+                        let x0 = snap(CGFloat(c) * cw), x1 = snap(CGFloat(c + 1) * cw)
+                        let rect = CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0)
                         ctx.fill(Path(rect), with: .color(color))
                     }
                 }
