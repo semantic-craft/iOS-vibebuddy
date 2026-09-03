@@ -14,7 +14,36 @@ struct EmptyStreamer: SnapshotStreaming {
 struct SilentNotifier: AttentionNotifier {
     func requestAuthorization() {}
     func notify(_ alert: SoundAlert) {}
+    func withdraw(_ identifiers: [String]) {}
     func confirmPairing() {}
+}
+
+/// Remembers what the phone told the user, so a test can assert that the wrist
+/// would have been shown it exactly once and that it was taken back on time.
+final class RecordingNotifier: AttentionNotifier, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _posted: [String] = []
+    private var _withdrawn: [String] = []
+
+    var posted: [String] { lock.withLock { _posted } }
+    var withdrawn: [String] { lock.withLock { _withdrawn } }
+
+    func requestAuthorization() {}
+    func notify(_ alert: SoundAlert) { lock.withLock { _posted.append(alert.notificationID) } }
+    func withdraw(_ identifiers: [String]) { lock.withLock { _withdrawn.append(contentsOf: identifiers) } }
+    func confirmPairing() {}
+}
+
+/// Plays a fixed list of snapshots and then stays open, so the store never runs
+/// its reconnect loop in the middle of an assertion.
+struct ScriptedStreamer: SnapshotStreaming {
+    let snapshots: [Snapshot]
+
+    func stream(_ pairing: PairingPayload) -> AsyncStream<Snapshot> {
+        AsyncStream { continuation in
+            for snapshot in snapshots { continuation.yield(snapshot) }
+        }
+    }
 }
 
 struct NullDecisionClient: DecisionClient {

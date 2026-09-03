@@ -42,6 +42,10 @@ final class DashboardStore: ObservableObject {
     /// Decides which sound (if any) each snapshot earns. Reset per connection so
     /// the opening backlog of an already-waiting session stays silent.
     private var policy = SoundPolicy()
+    /// What this phone has told you is waiting. The iPhone is the only device
+    /// that schedules a notification — the Watch mirrors it — so this is also
+    /// the only place that can take one back once the wait is over.
+    private var notifications = WaitingNotificationLedger()
     private var pairing: PairingPayload?
     private var isDemo = false
     /// Deep links can arrive before `start(_:)` installs the pairing on a cold
@@ -449,6 +453,10 @@ final class DashboardStore: ObservableObject {
             Haptics.play(for: alert.sound)   // a tasteful tap to go with the cue
         }
         if !alerts.isEmpty { cuePulse += 1 }   // let the buddy react
+        // Answered on the Mac, or gone entirely: the banner it left on the phone
+        // and on the wrist is describing something nobody is blocked on.
+        notifications.record(alerts)
+        notifier.withdraw(notifications.withdrawals(for: snapshot.sessions))
         observationDiagnostics = snapshot.observationDiagnostics ?? []
         lastProviderQuota = snapshot.providerQuota ?? []
         buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: snapshot.sessions)

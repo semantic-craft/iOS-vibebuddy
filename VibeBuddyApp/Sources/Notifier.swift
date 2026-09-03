@@ -13,6 +13,10 @@ enum NotificationID {
 protocol AttentionNotifier: Sendable {
     func requestAuthorization()
     func notify(_ alert: SoundAlert)
+    /// Take back notifications whose session is no longer waiting. They are
+    /// mirrored on the Watch, where a banner for an answered request is worse
+    /// than no banner: it opens onto a session the wrist no longer lists.
+    func withdraw(_ identifiers: [String])
     func confirmPairing()
 }
 
@@ -24,8 +28,18 @@ struct LocalNotifier: AttentionNotifier {
 
     func notify(_ alert: SoundAlert) {
         let (title, body) = Self.copy(for: alert)
+        // The identifier the Mac's push uses as its collapse id: whichever
+        // channel gets there first, iOS keeps one notification, and the Watch
+        // mirrors one.
         post(title: title, body: body, sound: alert.sound,
-             id: "\(alert.sessionID)-\(alert.sound.rawValue)")
+             id: alert.notificationID, sessionID: alert.sessionID)
+    }
+
+    func withdraw(_ identifiers: [String]) {
+        guard !identifiers.isEmpty else { return }
+        let center = UNUserNotificationCenter.current()
+        center.removeDeliveredNotifications(withIdentifiers: identifiers)
+        center.removePendingNotificationRequests(withIdentifiers: identifiers)
     }
 
     /// A fresh pairing just succeeded — the one chrome cue not tied to a session.
@@ -35,13 +49,21 @@ struct LocalNotifier: AttentionNotifier {
              sound: .pairSuccess, id: NotificationID.pairSuccess)
     }
 
-    private func post(title: String, body: String, sound: NotificationSound, id: String) {
+    private func post(title: String, body: String, sound: NotificationSound,
+                      id: String, sessionID: String? = nil) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = Self.soundOn
             ? UNNotificationSound(named: UNNotificationSoundName(rawValue: sound.fileName))
             : nil
+        // Everything said about one session groups and opens as that session,
+        // on the phone and on the wrist alike.
+        if let sessionID {
+            content.threadIdentifier = sessionID
+            content.targetContentIdentifier = sessionID
+            content.userInfo = ["sessionId": sessionID]
+        }
         UNUserNotificationCenter.current()
             .add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
     }
