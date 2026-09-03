@@ -275,6 +275,36 @@ struct WatchDashboardStateTests {
         #expect(state.quota(.claude)?.freshness(now: now) == .live)
     }
 
+    @Test("Two unavailable providers each keep their own reason and stay separate rows")
+    func bothProvidersUnavailableKeepTheirOwnReason() {
+        let state = project([], quotas: [
+            .unavailable(.codex, reason: "Codex CLI is unavailable"),
+            .unavailable(.claude, reason: "Claude is not signed in"),
+        ])
+        // Two rows, never merged into one "quota is down" line.
+        #expect(state.quotas.map(\.provider) == [.codex, .claude])
+        #expect(state.quota(.codex)?.unavailableReason == "Codex CLI is unavailable")
+        #expect(state.quota(.claude)?.unavailableReason == "Claude is not signed in")
+        #expect(state.quotas.allSatisfy { $0.freshness(now: now) == .unavailable })
+        #expect(state.quotas.allSatisfy { $0.weeklyRemainingPercent == nil })
+    }
+
+    @Test("A Claude value survives the wire the Watch actually receives")
+    func claudeQuotaRoundTripsToTheWatch() throws {
+        let sent = project([], quotas: [
+            ProviderQuota(provider: .codex, weeklyRemainingPercent: 68, observedAt: now),
+            ProviderQuota(provider: .claude, weeklyRemainingPercent: 42,
+                          weeklyResetsAt: now.addingTimeInterval(86_400),
+                          shortWindowRemainingPercent: 57, observedAt: now),
+        ])
+        let received = try JSONDecoder().decode(
+            WatchDashboardState.self, from: JSONEncoder().encode(sent))
+        #expect(received.quota(.claude)?.weeklyRemainingPercent == 42)
+        #expect(received.quota(.claude)?.shortWindowRemainingPercent == 57)
+        #expect(received.quota(.claude)?.freshness(now: now) == .live)
+        #expect(received.quota(.codex)?.weeklyRemainingPercent == 68)
+    }
+
     // MARK: relay
 
     @Test("A disconnected relay keeps the last state and reports its age")

@@ -174,4 +174,132 @@ struct ProviderQuotaProjectionTests {
                 usageResponse: Data("not json".utf8), fetchedAt: fetchedAt)
         }
     }
+
+    // MARK: Claude, on the same contract
+
+    /// The `/usage` envelope the CLI actually writes, wrapped the way the
+    /// adapter receives it. Recorded output, never the tester's own account.
+    private func claudeUsage(_ body: String, isError: Bool = false) throws -> Data {
+        try JSONSerialization.data(withJSONObject: ["is_error": isError, "result": body])
+    }
+
+    private func claudeQuota(_ body: String, now: Date) throws -> ProviderQuota {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "Asia/Shanghai"))
+        let decoded = try ClaudeUsageResponseDecoder.decode(
+            try claudeUsage(body), fetchedAt: now, calendar: calendar)
+        return ProviderQuota(.available(decoded, nextRefreshAt: nil), provider: .claude)
+    }
+
+    @Test("A recorded Claude /usage reading becomes the same normalized quota as Codex")
+    func claudeReadingNormalizes() throws {
+        let now = Date(timeIntervalSince1970: 1_788_400_000)
+        let result = try claudeQuota("""
+        You are currently using your subscription to power your Claude Code usage
+
+        Current session: 43% used · resets Sep 3 at 2:30pm (Asia/Shanghai)
+        Current week (all models): 58% used · resets Sep 5 at 8pm (Asia/Shanghai)
+        Current week (Fable): 58% used · resets Sep 5 at 8pm (Asia/Shanghai)
+        """, now: now)
+
+        #expect(result.provider == .claude)
+        #expect(result.weeklyRemainingPercent == 42)
+        #expect(result.shortWindowRemainingPercent == 57)
+        #expect(result.weeklyResetsAt != nil)
+        #expect(result.observedAt == now)
+        #expect(result.freshness(now: now) == .live)
+    }
+
+    @Test("A Claude reading with only the session window says nothing about the week")
+    func claudeWithoutWeeklyIsUnavailable() throws {
+        let now = Date(timeIntervalSince1970: 1_788_400_000)
+        let result = try claudeQuota(
+            "Current session: 43% used · resets Sep 3 at 2:30pm (Asia/Shanghai)", now: now)
+        #expect(result.weeklyRemainingPercent == nil)
+        #expect(result.shortWindowRemainingPercent == 57)
+        #expect(result.freshness(now: now) == .unavailable)
+        #expect(result.unavailableReason == "Claude returned an unsupported format")
+    }
+
+    @Test("A signed-out or malformed Claude reply never becomes a number")
+    func claudeFailuresNeverBecomeNumbers() throws {
+        #expect(throws: AccountUsageError.notLoggedIn) {
+            try ClaudeUsageResponseDecoder.decode(
+                try claudeUsage("You are not logged in", isError: true), fetchedAt: fetchedAt)
+        }
+        #expect(throws: AccountUsageError.incompatibleFormat) {
+            try ClaudeUsageResponseDecoder.decode(Data("not json".utf8), fetchedAt: fetchedAt)
+        }
+        #expect(throws: AccountUsageError.incompatibleFormat) {
+            try ClaudeUsageResponseDecoder.decode(
+                try claudeUsage("Nothing about usage here"), fetchedAt: fetchedAt)
+        }
+    }
+
+    // MARK: both providers at once
+
+    private func codexState(usedWeekly: Int) -> AccountUsageState {
+        .available(snapshot(primary: window(.primary, used: usedWeekly, minutes: 10_080)),
+                   nextRefreshAt: nil)
+    }
+
+    private func claudeState(usedWeekly: Int, fetchedAt: Date) -> AccountUsageState {
+        .available(
+            AccountUsageSnapshot(
+                provider: .claude, planType: nil,
+                primary: nil,
+                secondary: AccountUsageWindow(kind: .secondary, usedPercent: usedWeekly,
+                                              windowDurationMinutes: 10_080, resetsAt: nil),
+                lifetimeTokens: nil, latestDailyTokens: nil, fetchedAt: fetchedAt),
+            nextRefreshAt: nil)
+    }
+
+    @Test("Every provider reaches the snapshot, in a stable order, each from its own state")
+    func bothProvidersProjected() {
+        let quotas = ProviderQuota.all(from: [
+            .codex: codexState(usedWeekly: 32),
+            .claude: claudeState(usedWeekly: 58, fetchedAt: fetchedAt),
+        ])
+        #expect(quotas.map(\.provider) == AccountUsageProvider.allCases)
+        #expect(quotas.first { $0.provider == .codex }?.weeklyRemainingPercent == 68)
+        #expect(quotas.first { $0.provider == .claude }?.weeklyRemainingPercent == 42)
+    }
+
+    @Test("A failing or disabled provider never changes what the other one reports")
+    func oneProviderFailingLeavesTheOtherAlone() {
+        let claudeBroken = ProviderQuota.all(from: [
+            .codex: codexState(usedWeekly: 32),
+            .claude: .unavailable(.notLoggedIn, lastAttemptAt: fetchedAt, nextRefreshAt: nil),
+        ])
+        #expect(claudeBroken.first { $0.provider == .codex }?.weeklyRemainingPercent == 68)
+        #expect(claudeBroken.first { $0.provider == .claude }?.weeklyRemainingPercent == nil)
+        #expect(claudeBroken.first { $0.provider == .claude }?.unavailableReason
+                == "Claude is not signed in")
+
+        let codexOff = ProviderQuota.all(from: [
+            .codex: .disabled,
+            .claude: claudeState(usedWeekly: 58, fetchedAt: fetchedAt),
+        ])
+        #expect(codexOff.first { $0.provider == .codex }?.unavailableReason
+                == "Collection is turned off")
+        #expect(codexOff.first { $0.provider == .claude }?.weeklyRemainingPercent == 42)
+    }
+
+    @Test("Each provider ages on its own clock, and both can be unavailable at once")
+    func freshnessAndFailureAreIndependent() {
+        let mixed = ProviderQuota.all(from: [
+            .codex: codexState(usedWeekly: 32),
+            .claude: claudeState(usedWeekly: 58, fetchedAt: fetchedAt.addingTimeInterval(-900)),
+        ])
+        #expect(mixed.first { $0.provider == .codex }?.freshness(now: fetchedAt) == .live)
+        #expect(mixed.first { $0.provider == .claude }?.freshness(now: fetchedAt) == .stale)
+        // A stale reading keeps its last number; it does not become zero.
+        #expect(mixed.first { $0.provider == .claude }?.weeklyRemainingPercent == 42)
+
+        // Nothing configured at all is still one explicit entry per provider,
+        // not an empty list.
+        let none = ProviderQuota.all(from: [:])
+        #expect(none.count == AccountUsageProvider.allCases.count)
+        #expect(none.allSatisfy { $0.unavailableReason == "Collection is turned off" })
+    }
 }

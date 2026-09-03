@@ -9,6 +9,18 @@ import VibeBuddyKit
 /// provider's shape is still in scope. Everything downstream — the wire
 /// snapshot, the iPhone, the Watch — deals only in remaining.
 public extension ProviderQuota {
+    /// Every provider the app knows about, in a stable order, projected from
+    /// whatever its own collector currently knows.
+    ///
+    /// One entry per provider, always: a provider that is failing, still
+    /// loading, or switched off stays explicitly present and says why, instead
+    /// of vanishing from the list and leaving the wrist to guess. Because each
+    /// entry is built only from that provider's own state, a broken Claude
+    /// cannot change what Codex reports, and vice versa.
+    static func all(from states: [AccountUsageProvider: AccountUsageState]) -> [ProviderQuota] {
+        AccountUsageProvider.allCases.map { ProviderQuota(states[$0] ?? .disabled, provider: $0) }
+    }
+
     /// A window at least this long counts as the weekly allowance. Providers
     /// describe their windows by duration rather than by name, so the weekly one
     /// is identified by how long it lasts, not by which slot it arrived in.
