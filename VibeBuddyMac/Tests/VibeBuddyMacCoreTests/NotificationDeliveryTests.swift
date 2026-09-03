@@ -1,5 +1,8 @@
 import Crypto
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import Testing
 import VibeBuddyKit
 @testable import VibeBuddyMacCore

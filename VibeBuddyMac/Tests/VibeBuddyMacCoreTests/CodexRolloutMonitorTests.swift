@@ -1,3 +1,8 @@
+// This suite drives the Codex Desktop rollout file-watcher, which is built on the
+// Apple-only DispatchSource kqueue mechanism. On Linux the monitor intentionally
+// falls back to polling (no per-file watcher), so these watcher-count assertions
+// do not apply there.
+#if canImport(Darwin)
 import Foundation
 import Testing
 import VibeBuddyKit
@@ -699,3 +704,5 @@ private func eventually(
     }
     return await condition()
 }
+
+#endif

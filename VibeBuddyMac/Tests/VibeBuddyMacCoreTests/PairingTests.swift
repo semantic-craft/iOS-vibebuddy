@@ -53,8 +53,10 @@ struct PairingTests {
         #expect(decoded == payload)
     }
 
+    #if canImport(CoreImage)
     @Test("a QR image is generated from a string")
     func qrImage() {
         #expect(Pairing.qrImage(from: "vibebuddy://pair") != nil)
     }
+    #endif
 }

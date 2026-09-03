@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 import Darwin
+#else
+import Glibc
+#endif
 import Foundation
 import Testing
 import VibeBuddyKit
@@ -489,7 +493,7 @@ struct AccountUsageTests {
         barrier.releaseWorker()
         try? await Task.sleep(for: .milliseconds(300))
         if let cancellationPID {
-            #expect(Darwin.kill(cancellationPID, 0) == 0)
+            #expect(kill(cancellationPID, 0) == 0)
         }
         signalGate.allowTermination()
         await cancellationRequest.value
@@ -726,7 +730,7 @@ struct AccountUsageTests {
         guard let pid else { return }
         for _ in 0..<500 {
             errno = 0
-            if Darwin.kill(pid, 0) == -1, errno == ESRCH { return }
+            if kill(pid, 0) == -1, errno == ESRCH { return }
             try? await Task.sleep(for: .milliseconds(10))
         }
         Issue.record("process \(pid) was never reaped")
@@ -829,7 +833,7 @@ private final class ProcessSignalGate: @unchecked Sendable {
         lock.lock()
         signals.append(signal)
         lock.unlock()
-        return Darwin.kill(processID, signal)
+        return kill(processID, signal)
     }
 
     func waitUntilTerminationStarts() async {

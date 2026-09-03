@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 import Testing
 import VibeBuddyKit
 @testable import VibeBuddyMacCore
@@ -288,3 +289,4 @@ struct TerminalJumperTests {
                 == .unsupported)
     }
 }
+#endif

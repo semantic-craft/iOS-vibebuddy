@@ -1,5 +1,8 @@
 import Testing
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 @testable import VibeBuddyMacCore
 
 /// Live diagnostic: only runs when APNS_* env vars are set. Sends a push to a

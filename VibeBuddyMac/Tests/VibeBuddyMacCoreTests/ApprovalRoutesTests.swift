@@ -1,6 +1,13 @@
 import Testing
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+#if canImport(Darwin)
 import Darwin
+#else
+import Glibc
+#endif
 import NIOCore
 import Hummingbird
 import HummingbirdTesting
@@ -308,24 +315,30 @@ private enum HookTestError: Error { case noFreePort }
 /// An ephemeral port the kernel just handed out — closed again before use, so
 /// the server can claim it. Good enough for a single-process test.
 private func freePort() throws -> Int {
-    let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+    #if canImport(Darwin)
+    let fd = socket(AF_INET, SOCK_STREAM, 0)
+    #else
+    let fd = socket(AF_INET, Int32(SOCK_STREAM.rawValue), 0)
+    #endif
     guard fd >= 0 else { throw HookTestError.noFreePort }
-    defer { Darwin.close(fd) }
+    defer { close(fd) }
     var addr = sockaddr_in()
+    #if canImport(Darwin)
     addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+    #endif
     addr.sin_family = sa_family_t(AF_INET)
     addr.sin_addr.s_addr = in_addr_t(0)   // INADDR_ANY
     addr.sin_port = 0
     let bound = withUnsafePointer(to: &addr) {
         $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-            Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
         }
     }
     guard bound == 0 else { throw HookTestError.noFreePort }
     var out = sockaddr_in()
     var len = socklen_t(MemoryLayout<sockaddr_in>.size)
     let named = withUnsafeMutablePointer(to: &out) {
-        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.getsockname(fd, $0, &len) }
+        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(fd, $0, &len) }
     }
     guard named == 0 else { throw HookTestError.noFreePort }
     return Int(UInt16(bigEndian: out.sin_port))

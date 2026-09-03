@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 import Darwin
+#else
+import Glibc
+#endif
 import Foundation
 import Testing
 @testable import VibeBuddyMacCore
@@ -253,7 +257,7 @@ struct GrokUsageProviderTests {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         ))
         errno = 0
-        #expect(Darwin.kill(pid, 0) == -1)
+        #expect(kill(pid, 0) == -1)
         #expect(errno == ESRCH)
     }
 
@@ -284,11 +288,11 @@ struct GrokUsageProviderTests {
         await #expect(throws: (any Error).self) { try await fetch.value }
 
         if let pid {
-            for _ in 0..<200 where Darwin.kill(pid, 0) == 0 {
+            for _ in 0..<200 where kill(pid, 0) == 0 {
                 try? await Task.sleep(for: .milliseconds(10))
             }
             errno = 0
-            #expect(Darwin.kill(pid, 0) == -1)
+            #expect(kill(pid, 0) == -1)
             #expect(errno == ESRCH)
         }
     }

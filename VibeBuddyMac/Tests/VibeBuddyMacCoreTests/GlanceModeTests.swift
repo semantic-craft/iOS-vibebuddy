@@ -1,3 +1,4 @@
+#if canImport(CoreGraphics)
 import Testing
 import Foundation
 @testable import VibeBuddyMacCore
@@ -10,3 +11,4 @@ struct GlanceModeTests {
     @Test("zero top inset (no notch) → .pill")
     func pill() { #expect(GlanceMode.from(topInset: 0) == .pill) }
 }
+#endif
