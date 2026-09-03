@@ -416,6 +416,35 @@ struct SessionReducerTests {
         #expect(r.sessions["s1"]?.status == .done)
     }
 
+    /// The UserPromptSubmit re-capture deliberately skips the Ghostty
+    /// AppleScript probe, so it reports strictly less than the SessionStart one.
+    /// Replacing the ref wholesale would silently downgrade a jump from the
+    /// exact surface to the whole app on the session's second prompt.
+    @Test("a later capture that couldn't probe Ghostty doesn't erase the terminal id")
+    func terminalRefMergesRatherThanReplaces() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart))
+        r.setTerminalRef(sessionID: "s1", TerminalRef(termProgram: "ghostty", tty: "ttys003",
+                                                      ghosttyTerminalId: "42", cwd: "/x/p"))
+        r.setTerminalRef(sessionID: "s1", TerminalRef(termProgram: "ghostty", tty: "ttys009", cwd: "/x/p"))
+        let ref = r.sessions["s1"]?.terminalRef
+        #expect(ref?.ghosttyTerminalId == "42")   // kept — the re-capture never looked
+        #expect(ref?.tty == "ttys009")            // updated — the re-capture did look
+        #expect(ref?.termProgram == "ghostty")
+    }
+
+    @Test("a re-capture can also add a field the first one missed")
+    func terminalRefAddsNewFields() {
+        var r = SessionReducer()
+        r.apply(ev(.sessionStart))
+        r.setTerminalRef(sessionID: "s1", TerminalRef(termProgram: "ghostty", tty: "ttys003"))
+        r.setTerminalRef(sessionID: "s1", TerminalRef(tmux: "/tmp/x,1,0", tmuxPane: "%7"))
+        let ref = r.sessions["s1"]?.terminalRef
+        #expect(ref?.tmuxPane == "%7")
+        #expect(ref?.termProgram == "ghostty")
+        #expect(ref?.tty == "ttys003")
+    }
+
     // MARK: - Context usage enrichment
 
     @Test("enrich carries contextTokens and a model-derived contextWindow")

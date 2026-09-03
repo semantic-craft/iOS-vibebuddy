@@ -53,7 +53,10 @@ Codex sends lifecycle event JSON on stdin to commands registered in
 for all 12 events supported by the current Codex hook schema: SessionStart,
 UserPromptSubmit, PreToolUse, PostToolUse, PermissionRequest, PreCompact,
 PostCompact, SubagentStart, SubagentStop, Stop, Interrupt, and SessionEnd.
-Existing hook groups are retained.
+Existing hook groups are retained. It also appends the terminal-capture hook
+(`capture-terminal.sh`, see below) as its own group on `SessionStart` and
+`UserPromptSubmit`, synchronous like the rest, so Codex sessions get a
+jump-to-terminal ref.
 
 Released Codex builds currently skip command hooks carrying `async: true`, even
 though the rolling documentation describes asynchronous handlers. VibeBuddy
@@ -138,11 +141,62 @@ your Mac actually prompts (prompting mode); auto-mode users gain nothing.
 
 ## Terminal capture (jump-back)
 
-`capture-terminal.sh` is installed automatically as a second SessionStart hook by
-`--install` (and removed by `--uninstall`) for Claude and Grok. It reads the session
-id from `$GROK_SESSION_ID`, then `sessionId`, then `session_id`, so the same script
-serves both wire shapes. On each new session it
-POSTs the session's `TERM_PROGRAM`, `TTY`, `TMUX`, and `TMUX_PANE` to
-`http://127.0.0.1:${VIBEBUDDY_PORT:-9876}/terminal`. The Mac app stores this as
-`AgentSession.terminalRef` and uses it to focus the right terminal window when you
-press **Jump to terminal** in the Dashboard.
+`capture-terminal.sh` is installed automatically as a second hook group on
+`SessionStart` and `UserPromptSubmit` by the Claude, Codex, and Grok installers'
+`--install` (and removed by their `--uninstall`). SessionStart catches new
+sessions; UserPromptSubmit re-captures so a session that missed SessionStart
+self-heals on its next prompt. The re-capture reports less than the first one —
+it skips the Ghostty AppleScript probe, which is only valid while the surface is
+focused — so the Mac *merges* each ref into the stored one field by field: a
+later capture updates what it saw and never erases what it didn't. On each
+event it POSTs the session's id — Grok's camelCase `sessionId`, else `session_id`,
+else `$GROK_SESSION_ID` as a last resort — plus everything it can learn about
+where the session lives, to
+`http://127.0.0.1:${VIBEBUDDY_PORT:-9876}/terminal`:
+
+| level | fields | what it buys |
+| --- | --- | --- |
+| pane | `tmux`, `tmux_pane` | selects the pane, unzooming the window if it was zoomed |
+| surface | `tty`, `iterm_session_id`, `wezterm_pane`, `kitty_window_id`, `kitty_listen_on`, `ghostty_terminal_id` | raises the session's own window/tab/split |
+| app | `term_program`, `host_bundle_id`, `host_pid`, `cwd` | brings the host application forward |
+
+Hooks run with a stripped environment and no controlling tty, so all of it comes
+from one `ps` snapshot walked up the process tree (~100 ms). `host_bundle_id` is
+the bundle identifier of the nearest GUI ancestor, which is the only handle an
+embedded terminal (the Claude desktop app, Cursor, Zed, a JetBrains IDE) ever
+gives us — and the only way to tell Cursor from VS Code, since both report
+`TERM_PROGRAM=vscode`. Ancestors whose bundle is background-only
+(`LSBackgroundOnly` or `LSUIElement`) are skipped and the walk keeps climbing:
+the Claude Code CLI itself ships as such a wrapper `.app`, and its bundle id
+never appears in `NSRunningApplication`, so recording it would make every jump a
+no-op instead of raising the Claude desktop app that hosts it.
+
+Ghostty exports no identifier for its surface, so it is asked for one over
+AppleScript, at `SessionStart` only and capped at 2 s. The first such call raises
+the system's Automation consent dialog; decline it, or set
+`VIBEBUDDY_GHOSTTY_PROBE=0`, and Ghostty jumps fall back to matching on `cwd`.
+
+The Mac app stores all of this as `AgentSession.terminalRef` and uses it to focus
+the right terminal window when you press **Jump to terminal** in the Dashboard.
+`bash capture-terminal.sh --print` (or `VIBEBUDDY_CAPTURE_DRY_RUN=1`) prints the
+JSON instead of POSTing it — the quickest way to see what your terminal reveals.
+
+The script's parsers are unit-tested against fixed strings (no process table, no
+network, no AppleScript):
+
+```
+bash hooks/tests/capture-terminal-parsing.sh
+```
+
+Because the capture hook rides inside each CLI's own hook config, it needs the
+same reload/trust step as any other change there: Codex requires re-running
+`/hooks` in a fresh session to trust the new group; Grok requires reloading hooks
+(`/hooks` → `r`, or a new session).
+
+Grok resolves a quoted, argument-less `command` as a literal *path* (verified on
+1.0.13): `"…/capture-terminal.sh"` becomes `<grok home>/hooks/"…"` and fails with
+`command not found`. A command with an argument is shell-parsed instead, so both
+the Grok installer and the Claude one (whose hooks Grok imports through
+`[compat.claude]`) install the capture hook with an inert agent name argument —
+`"…/capture-terminal.sh" grok` / `… claude`. The script reads stdin and the
+environment, never `$1`.

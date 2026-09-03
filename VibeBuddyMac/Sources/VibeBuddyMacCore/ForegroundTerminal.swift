@@ -12,8 +12,9 @@ import VibeBuddyKit
 /// — it silences a finishing session's cue when its terminal is on screen, and
 /// at worst over-silences sibling tabs in the same app, never the reverse.
 public enum ForegroundTerminal {
-    /// Bundle identifiers a given `TERM_PROGRAM` is known to run under. The
-    /// reverse of `TerminalJumper.appName(forTermProgram:)`; keep the two in sync.
+    /// Bundle identifiers a given `TERM_PROGRAM` is known to run under. The one
+    /// table for the mapping — `TerminalJumper` reads it too, to decide which app
+    /// a jump should bring forward.
     static func bundleIDs(forTermProgram tp: String) -> [String] {
         switch tp.lowercased() {
         case "ghostty":               return ["com.mitchellh.ghostty"]
@@ -27,6 +28,17 @@ public enum ForegroundTerminal {
         }
     }
 
+    /// Every bundle id a ref could be running under: the captured host bundle id
+    /// (exact, from process ancestry) plus whatever its `TERM_PROGRAM` implies.
+    /// Both are needed — a session inside an embedded terminal has only the
+    /// former, and a session under tmux, whose server has no GUI ancestor, has
+    /// only the latter.
+    static func bundleIDs(for ref: TerminalRef) -> [String] {
+        let fromTermProgram = ref.termProgram.map { bundleIDs(forTermProgram: $0) } ?? []
+        guard let host = ref.hostBundleId else { return fromTermProgram }
+        return [host] + fromTermProgram
+    }
+
     /// The sessions whose terminal app is `frontmostBundleID`. Empty when nothing
     /// matches — a non-terminal app is frontmost, the terminal is unknown, or no
     /// session reported a terminal.
@@ -35,7 +47,7 @@ public enum ForegroundTerminal {
         guard let front = frontmostBundleID else { return [] }
         return Set(
             sessions
-                .filter { ($0.terminalRef.map { bundleIDs(forTermProgram: $0.termProgram) } ?? []).contains(front) }
+                .filter { ($0.terminalRef.map { bundleIDs(for: $0) } ?? []).contains(front) }
                 .map(\.id)
         )
     }

@@ -41,6 +41,18 @@ struct ForegroundTerminalTests {
                 frontmostBundleID: "com.mitchellh.ghostty") == ["a", "b"])
     }
 
+    @Test("a session in an embedded terminal is matched by its captured host bundle id")
+    func hostBundleID() {
+        let embedded = AgentSession(id: "a", agent: .claudeCode, project: "a", status: .done,
+                                    terminalRef: TerminalRef(hostBundleId: "com.anthropic.claude-code"),
+                                    statusSince: .init(timeIntervalSince1970: 0),
+                                    updatedAt: .init(timeIntervalSince1970: 0))
+        #expect(ForegroundTerminal.focusedSessionIDs(among: [embedded],
+                frontmostBundleID: "com.anthropic.claude-code") == ["a"])
+        #expect(ForegroundTerminal.focusedSessionIDs(among: [embedded],
+                frontmostBundleID: "com.mitchellh.ghostty").isEmpty)
+    }
+
     @Test("no frontmost / no terminalRef → empty")
     func nilCases() {
         #expect(ForegroundTerminal.focusedSessionIDs(among: [session("a", term: nil)],

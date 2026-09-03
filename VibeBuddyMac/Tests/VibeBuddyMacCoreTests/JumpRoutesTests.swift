@@ -14,7 +14,7 @@ struct JumpRoutesTests {
         let box = Box()
         let store = SessionStore()
         let server = VibeBuddyServer(store: store, token: "t0k",
-                                     onJump: { box.jumped.append($0.tmuxPane ?? "") })
+                                     onJump: { box.jumped.append($0.tmuxPane ?? ""); return .focused })
         try await server.buildApplication().test(.router) { client in
             _ = try await client.execute(uri: "/hook", method: .post,
                 headers: [.authorization: "Bearer t0k"],
@@ -41,6 +41,108 @@ struct JumpRoutesTests {
         }
     }
 
+    @Test("/terminal decodes the full ref, empty strings included, as nil")
+    func storesRichRef() async throws {
+        let store = SessionStore()
+        let server = VibeBuddyServer(store: store, token: "t0k", onJump: { _ in .focused })
+        try await server.buildApplication().test(.router) { client in
+            _ = try await client.execute(uri: "/hook", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"hook_event_name":"SessionStart","session_id":"s","cwd":"/x/p"}"#)) { _ in }
+            _ = try await client.execute(uri: "/terminal", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: """
+                {"session_id":"s","term_program":"ghostty","tty":"ttys003","tmux":"",\
+                "iterm_session_id":"","wezterm_pane":"4","kitty_window_id":"9",\
+                "kitty_listen_on":"unix:/tmp/k","ghostty_terminal_id":"7",\
+                "host_bundle_id":"com.mitchellh.ghostty","host_pid":4242,"cwd":"/x/p"}
+                """)) { _ in }
+            let ref = try #require(await store.terminalRef(for: "s"))
+            #expect(ref.termProgram == "ghostty")
+            #expect(ref.tty == "ttys003")
+            #expect(ref.tmux == nil)
+            #expect(ref.itermSessionId == nil)
+            #expect(ref.weztermPane == "4")
+            #expect(ref.kittyWindowId == "9")
+            #expect(ref.kittyListenOn == "unix:/tmp/k")
+            #expect(ref.ghosttyTerminalId == "7")
+            #expect(ref.hostBundleId == "com.mitchellh.ghostty")
+            #expect(ref.hostPid == 4242)
+            #expect(ref.cwd == "/x/p")
+            #expect(ref.hasExactTarget)
+        }
+    }
+
+    @Test("/terminal accepts a session that reported no TERM_PROGRAM at all")
+    func storesHostOnlyRef() async throws {
+        let store = SessionStore()
+        try await VibeBuddyServer(store: store, token: "t0k", onJump: { _ in .activatedApp })
+            .buildApplication().test(.router) { client in
+            _ = try await client.execute(uri: "/hook", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"hook_event_name":"SessionStart","session_id":"s","cwd":"/x/p"}"#)) { _ in }
+            _ = try await client.execute(uri: "/terminal", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"session_id":"s","host_bundle_id":"com.anthropic.claude-code"}"#)) { _ in }
+            let ref = try #require(await store.terminalRef(for: "s"))
+            #expect(ref.termProgram == nil)
+            #expect(ref.hostBundleId == "com.anthropic.claude-code")
+            #expect(!ref.hasExactTarget)
+        }
+    }
+
+    /// A ref carrying only a `cwd` names nothing: several sessions share a
+    /// directory, and no emulator can be addressed by it alone. Storing it would
+    /// turn the honest "no terminal recorded" into "couldn't locate this
+    /// session's window", which reads like a bug in the jump.
+    @Test("/terminal accepts but ignores a ref with nothing actionable in it")
+    func ignoresUselessRef() async throws {
+        final class Box: @unchecked Sendable { var jumped = 0 }
+        let box = Box()
+        let store = SessionStore()
+        try await VibeBuddyServer(store: store, token: "t0k",
+                                  onJump: { _ in box.jumped += 1; return .unsupported })
+            .buildApplication().test(.router) { client in
+            _ = try await client.execute(uri: "/hook", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"hook_event_name":"SessionStart","session_id":"s","cwd":"/x/p"}"#)) { _ in }
+            try await client.execute(uri: "/terminal", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"session_id":"s","cwd":"/x/p","term_program":"","host_bundle_id":""}"#)) { res in
+                #expect(res.status == .ok)   // never an error: a hook must not fail its session
+            }
+            #expect(await store.terminalRef(for: "s") == nil)
+            try await client.execute(uri: "/jump", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"sessionId":"s"}"#)) { res in
+                #expect(self.outcome(res.body) == "noTerminal")
+            }
+        }
+        #expect(box.jumped == 0)
+    }
+
+    /// The re-capture on `UserPromptSubmit` skips the Ghostty probe, so the
+    /// route has to merge rather than replace — end to end, through the store.
+    @Test("a second /terminal POST merges into the first instead of replacing it")
+    func mergesSuccessiveRefs() async throws {
+        let store = SessionStore()
+        try await VibeBuddyServer(store: store, token: "t0k", onJump: { _ in .focused })
+            .buildApplication().test(.router) { client in
+            _ = try await client.execute(uri: "/hook", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"hook_event_name":"SessionStart","session_id":"s","cwd":"/x/p"}"#)) { _ in }
+            _ = try await client.execute(uri: "/terminal", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"session_id":"s","term_program":"ghostty","tty":"ttys003","ghostty_terminal_id":"7","cwd":"/x/p"}"#)) { _ in }
+            _ = try await client.execute(uri: "/terminal", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"session_id":"s","term_program":"ghostty","tty":"ttys011","ghostty_terminal_id":"","cwd":"/x/p"}"#)) { _ in }
+            let ref = try #require(await store.terminalRef(for: "s"))
+            #expect(ref.ghosttyTerminalId == "7")
+            #expect(ref.tty == "ttys011")
+        }
+    }
+
     @Test("/jump without a token is 401")
     func jumpUnauthorized() async throws {
         try await VibeBuddyServer(store: SessionStore(), token: "t0k").buildApplication().test(.router) { client in
@@ -53,10 +155,13 @@ struct JumpRoutesTests {
         (try? JSONDecoder().decode([String: String].self, from: Data(buffer: body)))?["outcome"]
     }
 
-    @Test("a supported terminal reports outcome=focused")
-    func reportsFocused() async throws {
+    /// The route reports whatever the jumper achieved — it no longer guesses from
+    /// the ref, so every outcome the jumper can return has to survive the wire.
+    @Test("the jumper's own verdict is what the phone reads back",
+          arguments: [JumpOutcome.focused, .activatedApp, .unsupported])
+    func reportsJumperOutcome(_ expected: JumpOutcome) async throws {
         let store = SessionStore()
-        let server = VibeBuddyServer(store: store, token: "t0k", onJump: { _ in })
+        let server = VibeBuddyServer(store: store, token: "t0k", onJump: { _ in expected })
         try await server.buildApplication().test(.router) { client in
             _ = try await client.execute(uri: "/hook", method: .post,
                 headers: [.authorization: "Bearer t0k"],
@@ -68,41 +173,24 @@ struct JumpRoutesTests {
                 headers: [.authorization: "Bearer t0k"],
                 body: ByteBuffer(string: #"{"sessionId":"s"}"#)) { res in
                 #expect(res.status == .ok)
-                #expect(self.outcome(res.body) == "focused")
+                #expect(self.outcome(res.body) == expected.rawValue)
             }
         }
     }
 
-    @Test("an unknown terminal reports outcome=unsupported and does not jump")
-    func reportsUnsupported() async throws {
+    @Test("a session with no terminal ref reports noTerminal and never runs the jumper")
+    func reportsNoTerminal() async throws {
         final class Box: @unchecked Sendable { var jumped = 0 }
         let box = Box()
-        let store = SessionStore()
-        let server = VibeBuddyServer(store: store, token: "t0k", onJump: { _ in box.jumped += 1 })
-        try await server.buildApplication().test(.router) { client in
-            _ = try await client.execute(uri: "/hook", method: .post,
-                headers: [.authorization: "Bearer t0k"],
-                body: ByteBuffer(string: #"{"hook_event_name":"SessionStart","session_id":"s","cwd":"/x/p"}"#)) { _ in }
-            _ = try await client.execute(uri: "/terminal", method: .post,
-                headers: [.authorization: "Bearer t0k"],
-                body: ByteBuffer(string: #"{"session_id":"s","term_program":"mystery"}"#)) { _ in }
-            try await client.execute(uri: "/jump", method: .post,
-                headers: [.authorization: "Bearer t0k"],
-                body: ByteBuffer(string: #"{"sessionId":"s"}"#)) { res in
-                #expect(self.outcome(res.body) == "unsupported")
-            }
-            #expect(box.jumped == 0)
-        }
-    }
-
-    @Test("a session with no terminal ref reports outcome=noTerminal")
-    func reportsNoTerminal() async throws {
-        try await VibeBuddyServer(store: SessionStore(), token: "t0k", onJump: { _ in }).buildApplication().test(.router) { client in
+        try await VibeBuddyServer(store: SessionStore(), token: "t0k",
+                                  onJump: { _ in box.jumped += 1; return .focused })
+            .buildApplication().test(.router) { client in
             try await client.execute(uri: "/jump", method: .post,
                 headers: [.authorization: "Bearer t0k"],
                 body: ByteBuffer(string: #"{"sessionId":"ghost"}"#)) { res in
                 #expect(self.outcome(res.body) == "noTerminal")
             }
         }
+        #expect(box.jumped == 0)
     }
 }

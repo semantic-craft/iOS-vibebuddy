@@ -42,7 +42,9 @@ EVENTS = [
 ]
 # Terminal capture runs on SessionStart (catch new sessions) AND UserPromptSubmit
 # (re-capture so a session that missed SessionStart — e.g. the hook was added
-# mid-session — self-heals on its next prompt; writing the same ref is idempotent).
+# mid-session — self-heals on its next prompt). The re-capture skips the Ghostty
+# AppleScript probe, so it is not idempotent; the Mac merges each ref into the
+# stored one field by field, keeping what a later capture couldn't see.
 CAPTURE_EVENTS = ["SessionStart", "UserPromptSubmit"]
 
 

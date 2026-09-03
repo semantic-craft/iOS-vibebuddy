@@ -46,14 +46,29 @@ function sendHook(name, fields) {
   return post(HOOK_URL, { hook_event_name: name, ...fields });
 }
 
+// OpenCode plugins run inside the OpenCode process itself, which *is* the child
+// of the terminal, so the environment here is the real one — no ancestor walk is
+// needed (unlike `hooks/capture-terminal.sh`, which runs in a stripped hook
+// process). What this cannot see is the host app's bundle id or Ghostty's
+// terminal id; those need a process-tree walk and an AppleScript round trip,
+// which the shell hook does for the CLIs that have one.
 function sendTerminal(sessionId, env) {
   const e = env || {};
+  const tty = (e.TTY || e.SSH_TTY || "").replace(/^\/dev\//, "");
+  // $ITERM_SESSION_ID is "w0t0p0:UUID"; only the UUID half is an iTerm2 session's
+  // `unique ID`.
+  const iterm = (e.ITERM_SESSION_ID || "").split(":").pop();
   return post(TERM_URL, {
     session_id: sessionId || "",
-    term_program: e.TERM_PROGRAM || "",
-    tty: e.TTY || e.SSH_TTY || "",
+    term_program: e.TERM_PROGRAM || (e.KITTY_WINDOW_ID || e.TERM === "xterm-kitty" ? "kitty" : ""),
+    tty,
     tmux: e.TMUX || "",
     tmux_pane: e.TMUX_PANE || "",
+    iterm_session_id: iterm,
+    wezterm_pane: e.WEZTERM_PANE || "",
+    kitty_window_id: e.KITTY_WINDOW_ID || "",
+    kitty_listen_on: e.KITTY_LISTEN_ON || "",
+    cwd: e.PWD || "",
   });
 }
 

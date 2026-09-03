@@ -78,10 +78,11 @@ struct DashboardView: View {
                 Button("") { statusFilter = nil }.keyboardShortcut("0", modifiers: .command)
                 // ⌘F focuses the sessions search field.
                 Button("") { searchFocused = true }.keyboardShortcut("f", modifiers: .command)
-                // ⏎ jumps to the selected session's terminal (no-op without a
-                // terminalRef; ignored while typing in search so it doesn't shadow
-                // the field's own Return).
-                Button("") { if !searchFocused, let s = selectedSession, s.terminalRef != nil { model.jump(s) } }
+                // ⏎ jumps to the selected session's terminal. Sessions without a
+                // terminalRef are not excluded — they answer with "No terminal
+                // recorded" in the detail pane. Ignored while typing in search so
+                // it doesn't shadow the field's own Return.
+                Button("") { if !searchFocused, let s = selectedSession { model.jump(s) } }
                     .keyboardShortcut(.return, modifiers: [])
             }
             .opacity(0)
@@ -374,7 +375,6 @@ private struct DetailView: View {
                         Button("Deny") { model.decide(approval.id, .deny) }
                             .keyboardShortcut("d", modifiers: []).tint(.red)
                         Button("Jump to terminal") { model.jump(session) }
-                            .disabled(session.terminalRef == nil)
                     }
                     .buttonStyle(.borderedProminent)
                     HStack(spacing: 10) {
@@ -395,7 +395,15 @@ private struct DetailView: View {
                 } else {
                     if let s = session.summary { Text(s).foregroundStyle(.secondary) }
                     Button("Jump to terminal") { model.jump(session) }
-                        .disabled(session.terminalRef == nil)
+                }
+                // What the last jump actually achieved — focused the pane, only
+                // raised the app, or found nothing to raise. Same wording as the
+                // glance rows.
+                if let outcome = model.jumpFeedback[session.id] {
+                    Label(outcome.macMessage(for: session.terminalRef), systemImage: "arrow.uturn.forward")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .contentTransition(.opacity)
                 }
                 // Peek at what the agent has been doing without leaving the app.
                 Button { showTranscript = true } label: {
@@ -407,6 +415,7 @@ private struct DetailView: View {
             }
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .animation(.smooth(duration: 0.18), value: model.jumpFeedback)
         }
         .sheet(isPresented: $showTranscript) {
             TranscriptSheet(session: session, model: model)

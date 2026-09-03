@@ -125,12 +125,16 @@ final class GlanceWindow {
 
     private func measuredContentSize(on screen: NSScreen) -> NSSize {
         let maxWidth = min(screen.frame.width - 80, 560)
-        let measured = measuringController.sizeThatFits(in: NSSize(width: maxWidth, height: 280))
+        // Propose the usable height rather than a guessed cap: expanded the glance
+        // is a header plus up to six session rows, which no longer fits in 280pt.
+        // SwiftUI still reports the *ideal* height, so the collapsed pill stays short.
+        let maxHeight = max(160, screen.visibleFrame.height - 40)
+        let measured = measuringController.sizeThatFits(in: NSSize(width: maxWidth, height: maxHeight))
         guard measured.width.isFinite, measured.height.isFinite,
               measured.width > 0, measured.height > 0 else {
             return NSSize(width: 140, height: mode == .notch ? 38 : 28)
         }
-        return measured
+        return NSSize(width: min(measured.width, maxWidth), height: min(measured.height, maxHeight))
     }
 
     private func scheduleReposition() {

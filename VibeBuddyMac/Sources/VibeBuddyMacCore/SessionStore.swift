@@ -253,7 +253,10 @@ public actor SessionStore {
     }
 
     public func setTerminalRef(sessionID: String, _ ref: TerminalRef) {
-        pendingTerminalRefs[sessionID] = ref          // remembered even if the session isn't here yet
+        // Remembered even if the session isn't here yet — and merged for the
+        // same reason the reducer merges: a re-capture that skipped the Ghostty
+        // probe must not erase the id the first one found.
+        pendingTerminalRefs[sessionID] = pendingTerminalRefs[sessionID]?.merging(ref) ?? ref
         if reducer.sessions[sessionID] != nil {
             reducer.setTerminalRef(sessionID: sessionID, ref)
             broadcast()
