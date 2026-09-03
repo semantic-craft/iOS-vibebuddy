@@ -13,6 +13,7 @@ DerivedData/
 VibeBuddyApp/VibeBuddyApp.xcodeproj/
 VibeBuddyApp/Sources/Info.plist
 VibeBuddyApp/Widget/Info.plist
+VibeBuddyApp/Watch/Info.plist
 VibeBuddyMacApp/VibeBuddyMacApp.xcodeproj/
 VibeBuddyMacApp/Sources/Info.plist
 
@@ -25,21 +26,17 @@ docs/handoffs/
 # Python bytecode
 __pycache__/
 
-# Build artifacts / release packaging (the DMG is attached to GitHub Releases, not tracked)
+# Build artifacts / release packaging. Everything tools/release-mac.sh writes into
+# dist/ is a signed artifact of one specific build (DMG, appcast.xml, deltas, the
+# release-note copy Sparkle embeds); it is published to GitHub Releases / gh-pages,
+# never committed — a stale committed appcast would point at a DMG nobody has.
 build-device/
-dist/*.dmg
+dist/*
+!dist/README.md
 
 # Local agent tooling
 .antigravitycli/
 
-# >>> matt-pocock skills (warehouse symlinks — machine-local, do not commit) >>>
-# 原件在 xw-skills/mattpocock-skills；各机重新挂链，勿提交绝对路径。
-/.claude/skills/codebase-design
-/.claude/skills/improve-codebase-architecture
-/.claude/skills/prototype
-/.claude/skills/to-spec
-/.claude/skills/to-tickets
-# <<< matt-pocock skills <<<
 .scratch
 .claude/
 

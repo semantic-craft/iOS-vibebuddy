@@ -149,9 +149,10 @@ self-heals on its next prompt. The re-capture reports less than the first one �
 it skips the Ghostty AppleScript probe, which is only valid while the surface is
 focused — so the Mac *merges* each ref into the stored one field by field: a
 later capture updates what it saw and never erases what it didn't. On each
-event it POSTs the session's id — Grok's camelCase `sessionId`, else `session_id`,
-else `$GROK_SESSION_ID` as a last resort — plus everything it can learn about
-where the session lives, to
+event it POSTs the session's `session_id` (or Grok's camelCase `sessionId`;
+`$GROK_SESSION_ID` is the last resort only, since grok exports it to every
+process it spawns) plus
+everything it can learn about where the session lives, to
 `http://127.0.0.1:${VIBEBUDDY_PORT:-9876}/terminal`:
 
 | level | fields | what it buys |

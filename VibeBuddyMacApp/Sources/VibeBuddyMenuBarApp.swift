@@ -185,6 +185,7 @@ enum MenuBarGlyph {
 struct MenuBarLabel: View {
     @ObservedObject var model: MenuBarModel
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         let state = model.presentationSummary.primaryState
@@ -216,10 +217,17 @@ struct MenuBarLabel: View {
         }
         .task {
             // Screenshot/exploration mode is intentionally self-contained: open
-            // the dashboard without depending on a global hotkey or menu click.
+            // the window to shoot without depending on a global hotkey or menu
+            // click. A demo instance shares the installed app's bundle id, so
+            // driving its menus over Accessibility is ambiguous — the env var is
+            // the only reliable way to aim a screenshot at Settings.
             if ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1" {
                 AppActivationPolicy.enter()
-                openWindow(id: "dashboard")
+                if ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO_PAGE"] == "settings" {
+                    openSettings()
+                } else {
+                    openWindow(id: "dashboard")
+                }
             }
         }
     }

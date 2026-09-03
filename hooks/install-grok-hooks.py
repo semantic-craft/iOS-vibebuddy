@@ -80,11 +80,11 @@ EVENTS = [
     "SessionEnd",
 ]
 # Terminal capture (jump-to-terminal) rides along as a second hook group on
-# SessionStart (new sessions) and UserPromptSubmit (a session that missed
-# SessionStart self-heals on its next prompt), matching the Claude installer.
-# The re-capture reports less than the first one — it skips the Ghostty
-# AppleScript probe — so the Mac merges each ref into the stored one field by
-# field rather than replacing it.
+# SessionStart (new sessions) AND UserPromptSubmit (a session that missed
+# SessionStart self-heals on its next prompt; writing the same ref is
+# idempotent), matching the Claude installer. The UserPromptSubmit re-capture
+# reports less than the first one (no Ghostty probe), so the Mac merges refs
+# field by field rather than replacing them.
 CAPTURE_EVENTS = ["SessionStart", "UserPromptSubmit"]
 
 

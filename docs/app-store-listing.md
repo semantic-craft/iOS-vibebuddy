@@ -12,7 +12,7 @@ Drafts for App Store Connect. English. Edit freely.
 **Secondary category:** Utilities
 
 **Promotional text (≤170 chars):**
-Keep an eye on your Claude Code and Codex sessions from your phone. Get notified when one needs you, review the exact command, and approve or deny — right from the lock screen.
+Keep an eye on your Claude Code and Codex sessions from your phone. Get notified when one needs you, review the exact command, and approve or deny.
 
 **Description:**
 vibebuddy is the phone companion for the vibebuddy Mac app. It shows the live status of your AI coding agents (Claude Code, Codex) running on your Mac, and lets you respond without walking back to your desk.

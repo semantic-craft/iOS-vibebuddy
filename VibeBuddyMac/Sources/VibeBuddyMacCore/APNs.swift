@@ -118,6 +118,13 @@ public actor APNsPusher {
         request.setValue(config.bundleID, forHTTPHeaderField: "apns-topic")
         request.setValue("alert", forHTTPHeaderField: "apns-push-type")
         request.setValue("10", forHTTPHeaderField: "apns-priority")
+        // The same identifier the phone gives its own local notification for
+        // this cue, so the two channels collapse into one banner instead of
+        // saying the same thing twice — once on the phone, twice on the Watch.
+        if let sessionID, let sound = NotificationSound(rawValue: category) {
+            request.setValue(NotificationIdentity.id(sessionID: sessionID, sound: sound),
+                             forHTTPHeaderField: "apns-collapse-id")
+        }
         // An empty sound means a silent (banner-only) push.
         let soundField = sound.isEmpty ? "" : #","sound":"\#(Self.escape(sound))""#
         let payload = #"{"aps":{"alert":{"title":"\#(Self.escape(title))","body":"\#(Self.escape(body))"}\#(soundField)}}"#

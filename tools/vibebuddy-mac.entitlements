@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Hardened Runtime entitlements for the notarized, directly-distributed build
+	  (tools/release-mac.sh). The app is NOT sandboxed, so only resource-access
+	  entitlements are needed; everything else the app does (spawning tmux/open/
+	  python3, listening on 127.0.0.1:9876, reading the login Keychain) needs no
+	  entitlement outside the sandbox.
+
+	  audio-input: VoiceChat / RealtimeAudioIO capture the microphone. Under the
+	  Hardened Runtime this entitlement is required or the capture silently fails.
+	-->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+</dict>
+</plist>

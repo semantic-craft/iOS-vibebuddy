@@ -142,7 +142,9 @@ public struct VibeBuddyServer: Sendable {
                         sound = session.waitKind == .permission ? .needsApproval : .needsAnswer
                     }
                     for deviceToken in await deviceTokens.all() {
-                        await pusher.send(title: title, body: body, to: deviceToken, sound: sound.fileName)
+                        await pusher.send(title: title, body: body, to: deviceToken,
+                                          sound: sound.fileName,
+                                          sessionID: session.id, soundCategory: sound.rawValue)
                     }
                 }
             }

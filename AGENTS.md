@@ -16,32 +16,12 @@ tests, but do not let low-value test expansion displace end-to-end validation.
 
 ## Agent skills
 
-Per-repo configuration consumed by the engineering skills (`to-tickets`, `to-spec`,
-`triage`, `diagnose`, `tdd`, `improve-codebase-architecture`, `zoom-out`).
-
-Upstream renamed `to-issues` → `to-tickets` and `to-prd` → `to-spec` in v1.1.
-Those four Matt Pocock skills (plus `codebase-design`, which
-`improve-codebase-architecture` references) are symlinks into
-`xw-skills/mattpocock-skills` and are gitignored. The remaining skills under
-`.claude/skills/` are this repo's own and are tracked. `.agents/skills` is a
-bridge symlink to `.claude/skills`, so Codex/Copilot/OpenCode see the same set.
-
-Do not run `dev-link` here — it mounts all 28 of Matt's skills and writes its
-gitignore block against `.agents/skills`, which is a symlink in this repo.
-Re-link per machine instead:
-
-```bash
-MP="$HOME/Projects/xw-skills/mattpocock-skills/skills/engineering"
-[ -e .agents/skills ] || ln -s ../.claude/skills .agents/skills
-for s in to-tickets to-spec prototype improve-codebase-architecture codebase-design; do
-  ln -sfn "$MP/$s" ".claude/skills/$s"
-done
-```
-
-`to-tickets`, `to-spec`, and `improve-codebase-architecture` carry upstream's
-`disable-model-invocation: true`, so they are manual `/`-invoke only. The old
-vendored copies had it stripped; that customization was dropped on purpose when
-they moved onto the warehouse originals.
+Skills come from `dev-link` (Matt Pocock groups + `design-ui`), never from
+anything tracked in this repo. `.agents/skills/<name>` are absolute symlinks
+into the `xw-skills` warehouse, and `.claude/skills/<name>` are relative
+symlinks pointing at those. Both directories are gitignored/excluded and
+machine-local. Re-run `dev-link` after pulling warehouse changes; this repo
+owns no skills of its own.
 
 ### Issue tracker
 

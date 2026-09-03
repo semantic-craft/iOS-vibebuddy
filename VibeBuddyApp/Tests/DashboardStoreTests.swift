@@ -9,21 +9,9 @@ private actor DecisionRecorder: DecisionClient {
         acknowledgedSessionIDs.append(sessionId)
     }
 
-    func decide(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async {}
+    func decide(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> Bool { true }
     func answer(_ pairing: PairingPayload, sessionId: String, answer: String) async {}
     func jump(_ pairing: PairingPayload, sessionId: String) async -> JumpOutcome? { nil }
-}
-
-private struct EmptyStreamer: SnapshotStreaming {
-    func stream(_ pairing: PairingPayload) -> AsyncStream<Snapshot> {
-        AsyncStream { $0.finish() }
-    }
-}
-
-private struct SilentNotifier: AttentionNotifier {
-    func requestAuthorization() {}
-    func notify(_ alert: SoundAlert) {}
-    func confirmPairing() {}
 }
 
 @MainActor

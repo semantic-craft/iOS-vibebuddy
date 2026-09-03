@@ -2,7 +2,7 @@
 
 **Last Updated**: 2026-06-03
 
-> **2026-09-02 起，当前进度与下一步以 [`status-and-plan-2026-09-02.md`](status-and-plan-2026-09-02.md) 为准；下面的 Status 段是 6 月的历史记录。**
+> **2026-09-03 起，当前进度与下一步以 [`status-and-plan-2026-09-03.md`](status-and-plan-2026-09-03.md) 为准；`status-and-plan-2026-09-02.md` 已被它取代，下面的 Status 段是 6 月的历史记录。**
 
 ## Status (2026-06-03)
 

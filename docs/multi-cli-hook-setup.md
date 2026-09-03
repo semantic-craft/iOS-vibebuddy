@@ -143,11 +143,11 @@ the session was already open — **self-heals on its next prompt**. That re-capt
 is not idempotent (it skips the Ghostty AppleScript probe, which only answers
 while the surface is focused), so the Mac **merges** each ref into the stored one
 field by field — a later capture updates what it saw and never erases what it
-didn't see. Grok's event payload uses camelCase `sessionId` and
-spells its event name `hookEventName` with snake_case values; the script reads
-both key spellings of each, and falls back to `$GROK_SESSION_ID` only as a last
-resort — every process grok spawns inherits it, so preferring it would
-mis-attribute a Claude session started from a shell inside grok. A session with no captured terminal can't be jumped to
+didn't see. Grok's event payload uses camelCase `sessionId` and spells its event
+name `hookEventName`; the script reads the payload's `session_id` first, then
+`sessionId`, and only then falls back to `$GROK_SESSION_ID` — every process grok
+spawned inherits that variable, so it would otherwise mis-attribute a Claude
+session started from a shell inside grok. A session with no captured terminal can't be jumped to
 (the iOS button hides; the Mac button disables; a phone jump reports "no
 terminal"), and a session captured only at app level reports `activatedApp` —
 the right app comes forward but the user still finds the tab. Codex requires re-trusting hooks via `/hooks` after this change picks

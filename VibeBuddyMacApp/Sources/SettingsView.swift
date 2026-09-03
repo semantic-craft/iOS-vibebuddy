@@ -146,7 +146,12 @@ private struct SetupSettings: View {
                 .frame(maxHeight: 110)
             }
         }
-        .padding(.horizontal)
+        // Every other tab is `.grouped`; Setup was the one plain `Form`, and on
+        // macOS only the grouped style puts the form in a scroll view. Setup is
+        // also the only tab taller than the window's fixed 400pt frame, so the
+        // unscrollable form was laid out over-tall and centre-clipped: the whole
+        // "Observation health" section sat above the top edge, unreachable.
+        .formStyle(.grouped)
         .onAppear { setup.refresh() }
     }
 

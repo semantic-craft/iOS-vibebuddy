@@ -37,6 +37,11 @@ targets:
       path: Sources/Info.plist
       properties:
         CFBundleDisplayName: vibebuddy
+        # Without these two, xcodegen writes its own defaults (1.0 / 1) into the
+        # generated Info.plist and MARKETING_VERSION / CURRENT_PROJECT_VERSION below
+        # never reach the bundle — which is how 0.1 shipped as "1.0 (1)".
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         LSUIElement: true
         LSMinimumSystemVersion: "14.0"
         NSMicrophoneUsageDescription: "Talk to your buddy to ask about your agents and approve actions by voice."
@@ -45,16 +50,21 @@ targets:
         # session's own tab. macOS asks for Automation permission per target app on
         # the first attempt and refuses without this string.
         NSAppleEventsUsageDescription: "Bring the terminal window running your agent session back to the front when you jump to it."
-        # Sparkle auto-update (issue 07, direct-distribution only). Inert until a real
-        # signed appcast + EdDSA public key are filled in (see .scratch/.../07 + handoff).
-        SUFeedURL: "https://vibebuddy.invalid/appcast.xml"   # TODO: host a signed appcast
-        SUPublicEDKey: "3Ze0A+sHbvkQ8CLlDUIcYvm7BJS4IJLU1rNEX66F9R4="  # public key (private key in login Keychain); generated 2026-06-06
-        SUEnableAutomaticChecks: false                        # opt-in only until configured
+        # Sparkle auto-update (issue 07, direct distribution only).
+        # Feed: appcast.xml on the repo's gh-pages branch; DMGs are GitHub Release assets.
+        # Both are produced by tools/release-mac.sh; see docs/sparkle-setup.md.
+        SUFeedURL: "https://semantic-craft.github.io/iOS-vibebuddy/appcast.xml"
+        # EdDSA public key; private key lives in the login Keychain under
+        # service "https://sparkle-project.org", account "ed25519". Generated 2026-06-06.
+        SUPublicEDKey: "3Ze0A+sHbvkQ8CLlDUIcYvm7BJS4IJLU1rNEX66F9R4="
+        # SUEnableAutomaticChecks intentionally absent: Sparkle asks the user once on
+        # launch whether to check automatically. There is no in-app toggle, so forcing
+        # either value would take the choice away from the user.
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.mac
-        MARKETING_VERSION: "0.1"
-        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "1.1"
+        CURRENT_PROJECT_VERSION: "2"
         SWIFT_VERSION: "6.0"
         # Build signs ad-hoc; tools/redeploy-mac.sh re-signs the built .app with a
         # stable local Apple Development identity so Keychain ACLs / TCC grants

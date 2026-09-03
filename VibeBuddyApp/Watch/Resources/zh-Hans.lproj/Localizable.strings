@@ -1,0 +1,57 @@
+/* VibeBuddy Watch — Simplified Chinese (zh-Hans).
+   Keys are the English source text (development language = en), matching the
+   iPhone's convention. Brand name, provider names and Mac-side diagnostic
+   strings are intentionally not translated. */
+
+/* MARK: No data / onboarding */
+"Waiting for iPhone" = "等待 iPhone";
+"Open vibebuddy on your iPhone and pair it with your Mac. Sessions and weekly quota appear here." = "在 iPhone 上打开 vibebuddy 并与 Mac 配对，会话与周额度就会显示在这里。";
+
+/* MARK: Freshness footer */
+"Sample data" = "示例数据";
+"Can't reach your Mac" = "连不上你的 Mac";
+"iPhone stopped updating" = "iPhone 已停止更新";
+"Out of range of your iPhone" = "已超出 iPhone 范围";
+"No data" = "没有数据";
+"Never updated" = "从未更新";
+"Just updated" = "刚刚更新";
+"Updated %@ ago" = "%@ 前更新";
+"Stale" = "已过期";
+"Unavailable" = "不可用";
+"Unavailable · %@" = "不可用 · %@";
+
+/* MARK: Overview */
+"Needs response" = "需回应";
+"Working" = "进行中";
+"Done" = "完成";
+"Stuck" = "卡住";
+"Nobody's waiting" = "没人在等你";
+"All quiet" = "一切安静";
+"%lld working" = "%lld 个进行中";
+"No sessions" = "没有会话";
+"Start a session on your Mac and it shows up here." = "在 Mac 上启动一个会话，它就会出现在这里。";
+"No recent update" = "没有最新数据";
+"Your iPhone can't reach your Mac, so this is the last thing it knew." = "你的 iPhone 连不上 Mac，这是它最后知道的情况。";
+"Your iPhone is nearby but hasn't sent anything in a while. Open vibebuddy on your iPhone." = "iPhone 就在附近，但已有一段时间没有发送数据。请在 iPhone 上打开 vibebuddy。";
+"Your Watch has lost your iPhone, so this is the last thing it knew." = "手表已与 iPhone 失去连接，这是它最后知道的情况。";
+
+/* MARK: Urgent takeover */
+"Needs approval" = "需要批准";
+"Asked a question" = "问了你一个问题";
+"Approve or deny on your iPhone." = "到 iPhone 上批准或拒绝。";
+"Answer on your iPhone." = "到 iPhone 上回答。";
+"%lld more waiting" = "还有 %lld 个在等";
+"Waiting" = "等待中";
+
+/* MARK: Quota */
+"Quota" = "额度";
+"Weekly remaining" = "周额度剩余";
+"5-hour window" = "5 小时窗口";
+"%@ left" = "剩余 %@";
+"Resets in %@" = "%@ 后重置";
+"Reset time unknown" = "重置时间未知";
+"Stale · %@" = "已过期 · %@";
+"%@ of the weekly allowance remaining" = "周额度剩余 %@";
+"%@, stale" = "%@，已过期";
+"No quota sources" = "没有额度来源";
+"Sign in to Codex or Claude Code on your Mac to see weekly allowance here." = "在 Mac 上登录 Codex 或 Claude Code，这里就会显示周额度。";

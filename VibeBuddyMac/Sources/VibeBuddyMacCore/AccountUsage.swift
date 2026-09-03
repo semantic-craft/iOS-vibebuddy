@@ -6,19 +6,6 @@ public enum AccountUsageWindowKind: String, Codable, Sendable {
     case primary
     case secondary
 }
-public enum AccountUsageProvider: String, Codable, CaseIterable, Sendable {
-    case codex
-    case claude
-    case grok
-
-    public var displayName: String {
-        switch self {
-        case .codex: "Codex"
-        case .claude: "Claude"
-        case .grok: "Grok"
-        }
-    }
-}
 
 public struct AccountUsageWindow: Codable, Equatable, Sendable, Identifiable {
     public var kind: AccountUsageWindowKind

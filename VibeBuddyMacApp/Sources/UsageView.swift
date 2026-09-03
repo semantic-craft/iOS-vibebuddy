@@ -1,4 +1,5 @@
 import SwiftUI
+import VibeBuddyKit
 import VibeBuddyMacCore
 
 struct AccountUsageSummaryView: View {
