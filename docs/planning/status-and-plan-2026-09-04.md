@@ -12,7 +12,7 @@ VibeBuddyMac `swift test` **468 / 44 套件**，全绿。未跑 Xcode 构建。
 
 | 会话 | 内容 | 结果 |
 |---|---|---|
-| M | 合计划 PR + PR #8，再按 C2 → C1 → C3 → B 收 | **已合** PR #13（`7182457`）、#8（`f28da09`）、#14（`dd943a0`）、#15（`fbe199a`）。C3 尚未出 PR，B 是本文件所在分支 |
+| M | 合计划 PR + PR #8，再按 C2 → C1 → C3 → B 收 | **已合** PR #13（`7182457`）、#8（`f28da09`）、#14（`dd943a0`）、#15（`fbe199a`）。C3 尚未出 PR。B = PR #17（本文件，未合） |
 | C1 | Desktop 线程跳进 ChatGPT.app（ticket 04） | **已合** PR #15 = `fbe199a`。本机跳转验证过前置；iPhone 目视与是否切到指定对话留给 H2。票 = `ready-for-human`，**不是 done** |
 | C2 | 空 bearer 失败关闭 + UserDefaults 默认值 + 子进程回收测试 | **已合** PR #14 = `dd943a0` |
 | C3 | ticket 06 → 02：健康诊断与递归发现一致；无主线程收敛 | **进行中，无 PR。** worktree `feat/codex-observation-trust`：06 已有本地提交 `9232729`（`CodexRolloutDiscovery`）；02 有未提交改动。两票都被 C3 标成 `fixed-pending-merge`。锁实证写在票 02 Comments，B 未复跑 |
