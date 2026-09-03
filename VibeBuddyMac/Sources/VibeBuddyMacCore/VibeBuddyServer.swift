@@ -29,7 +29,7 @@ public struct VibeBuddyServer: Sendable {
     public let approvalContext: ApprovalContextStore
     public let approvalTimeout: Duration
     public let approvalID: @Sendable () -> String
-    public let onJump: @Sendable (TerminalRef) -> Void
+    public let onJump: @Sendable (TerminalRef) async -> JumpOutcome
     public let onAnswer: @Sendable (TerminalRef, String) -> Void
     public let onDevicePaired: @Sendable (DeviceRegistrationPayload) -> Void
 
@@ -45,7 +45,7 @@ public struct VibeBuddyServer: Sendable {
                 approvalContext: ApprovalContextStore = ApprovalContextStore(),
                 approvalTimeout: Duration = .seconds(25),
                 approvalID: @escaping @Sendable () -> String = { UUID().uuidString },
-                onJump: @escaping @Sendable (TerminalRef) -> Void = { TerminalJumper.jump($0) },
+                onJump: @escaping @Sendable (TerminalRef) async -> JumpOutcome = { await TerminalJumper.jump($0) },
                 onAnswer: @escaping @Sendable (TerminalRef, String) -> Void = { ref, answer in TerminalInjector.inject(answer, into: ref) },
                 onDevicePaired: @escaping @Sendable (DeviceRegistrationPayload) -> Void = { _ in }) {
         self.store = store
@@ -362,11 +362,22 @@ public struct VibeBuddyServer: Sendable {
         router.post("terminal") { request, _ -> HTTPResponse.Status in
             guard Self.hookAuthorized(request, token: token) else { throw HTTPError(.unauthorized) }
             let buffer = try await request.body.collect(upTo: 64 * 1024)
-            guard let o = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
-                  let sid = o["session_id"] as? String, let tp = o["term_program"] as? String
+            let body = Data(buffer: buffer)
+            // `TerminalRef` is the wire shape, so the payload decodes straight
+            // into it; only the session id is envelope.
+            struct Envelope: Decodable {
+                let sessionID: String
+                enum CodingKeys: String, CodingKey { case sessionID = "session_id" }
+            }
+            guard let sid = (try? JSONDecoder().decode(Envelope.self, from: body))?.sessionID,
+                  !sid.isEmpty,
+                  let ref = try? JSONDecoder().decode(TerminalRef.self, from: body)
             else { return .ok }
-            func nz(_ k: String) -> String? { (o[k] as? String).flatMap { $0.isEmpty ? nil : $0 } }
-            let ref = TerminalRef(termProgram: tp, tty: nz("tty"), tmux: nz("tmux"), tmuxPane: nz("tmux_pane"))
+            // A ref with no exact target, no TERM_PROGRAM and no host bundle id
+            // names nothing the jumper could act on. Accept the POST (the hook
+            // must never see an error) but don't store it, so `/jump` answers
+            // the truthful `.noTerminal` rather than `.unsupported`.
+            guard ref.isActionable else { return .ok }
             await store.setTerminalRef(sessionID: sid, ref)
             return .ok
         }
@@ -378,12 +389,15 @@ public struct VibeBuddyServer: Sendable {
             // Jumping is an explicit return to the task, even if this terminal
             // type cannot ultimately be focused.
             await store.acknowledgeCompletion(sessionID: sid)
-            // Report what actually happened so the phone can give honest feedback:
-            // focused (ran), unsupported (known terminal type → no command), or none.
-            let ref = await store.terminalRef(for: sid)
-            let hasRunnable = ref.map { !TerminalJumper.commands(for: $0).isEmpty } ?? false
-            let outcome = JumpOutcome.decide(hasRef: ref != nil, hasRunnableCommand: hasRunnable)
-            if outcome == .focused, let ref { onJump(ref) }
+            // Report what actually happened so the phone can give honest feedback.
+            // The jumper answers after it has run, so `focused` means the exact
+            // pane/tab really came forward — not merely that a command existed.
+            let outcome: JumpOutcome
+            if let ref = await store.terminalRef(for: sid) {
+                outcome = await onJump(ref)
+            } else {
+                outcome = .noTerminal
+            }
             let data = try JSONEncoder().encode(["outcome": outcome.rawValue])
             return Response(status: .ok, headers: [.contentType: "application/json"],
                             body: .init(byteBuffer: ByteBuffer(bytes: data)))

@@ -302,13 +302,16 @@ final class DashboardStore: ObservableObject {
     }
 
     /// Honest feedback for a jump — success lands on the Mac, so the phone has to
-    /// say so; `nil` means the Mac wasn't reachable.
+    /// say so; `nil` means the Mac wasn't reachable. `activatedApp` is the case
+    /// worth naming: the right app is now in front, but the session's own window
+    /// wasn't reachable, so the user still has to find the tab themselves.
     static func jumpMessage(_ outcome: JumpOutcome?) -> String {
         switch outcome {
-        case .focused:     return String(localized: "Focused the terminal on your Mac")
-        case .unsupported: return String(localized: "Can't focus this terminal type yet")
-        case .noTerminal:  return String(localized: "No terminal for this session")
-        case nil:          return String(localized: "Couldn't reach your Mac")
+        case .focused:      return String(localized: "Focused the terminal on your Mac")
+        case .activatedApp: return String(localized: "Opened the app on your Mac — find the tab there")
+        case .unsupported:  return String(localized: "Can't focus this terminal type yet")
+        case .noTerminal:   return String(localized: "No terminal for this session")
+        case nil:           return String(localized: "Couldn't reach your Mac")
         }
     }
 

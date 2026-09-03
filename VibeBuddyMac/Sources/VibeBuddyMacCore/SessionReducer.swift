@@ -206,9 +206,15 @@ public struct SessionReducer: Sendable {
     }
 
     /// Attach the terminal a session runs in (does not change status).
+    ///
+    /// Merged, never replaced: the `UserPromptSubmit` re-capture skips the
+    /// Ghostty AppleScript probe (only valid while the surface is focused), so
+    /// a wholesale assignment would drop `ghosttyTerminalId` on the session's
+    /// second prompt. Whatever the new capture saw wins; whatever it is silent
+    /// about survives.
     public mutating func setTerminalRef(sessionID: String, _ ref: TerminalRef) {
         guard var s = sessions[sessionID] else { return }
-        s.terminalRef = ref
+        s.terminalRef = s.terminalRef?.merging(ref) ?? ref
         sessions[sessionID] = s
     }
 
