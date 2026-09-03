@@ -475,7 +475,7 @@ struct BearerAuth: Sendable {
     func authorizes(_ request: Request) -> Bool {
         // An empty configured token must never authorize anything (an empty
         // `Authorization: Bearer ` header or `?token=` would otherwise match it).
-        // Fail closed rather than `precondition`: vibebuddyd 优先环境变量，否则 TokenStore；空 env 仍 401.
+        // Fail closed rather than `precondition`: empty VIBEBUDDY_TOKEN still 401s.
         guard !token.isEmpty else { return false }
         if request.headers[.authorization] == "Bearer \(token)" { return true }
         if allowsQueryToken, request.uri.queryParameters["token"].map(String.init) == token { return true }

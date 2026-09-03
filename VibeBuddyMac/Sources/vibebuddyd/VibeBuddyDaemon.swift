@@ -15,7 +15,7 @@ struct VibeBuddyDaemon {
             token = envToken  // including empty: BearerAuth fail-closed, no store fallback
             tokenSource = "env"
         } else {
-            token = (try? TokenStore.defaultStore().loadOrCreate()) ?? Token.generate()
+            token = try TokenStore.defaultStore().loadOrCreate()
             tokenSource = "TokenStore"
         }
         let journalURL = env["VIBEBUDDY_JOURNAL_PATH"].map {
