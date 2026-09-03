@@ -169,7 +169,7 @@ vibebuddy stands on the shoulders of two clever projects that first proved you c
 
 ## 📍 Status
 
-v1 core is complete and verified end-to-end: 3-bucket dashboard, QR pairing, notifications, remote approvals, Live Activity / Dynamic Island, the voice companion, and multi-CLI hooks (Claude Code + Codex tested). See [`docs/planning/roadmap.md`](docs/planning/roadmap.md).
+v1 core is complete and verified end-to-end: 3-bucket dashboard, QR pairing, notifications, remote approvals, Live Activity / Dynamic Island, the voice companion, and multi-CLI hooks (Claude Code + Codex tested). See [`docs/planning/overview.md`](docs/planning/overview.md).
 
 ## 📄 License
 

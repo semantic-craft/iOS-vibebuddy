@@ -169,7 +169,7 @@ vibebuddy 站在两个聪明项目的肩膀上——它们最早证明了可以�
 
 ## 📍 状态
 
-v1 核心已完成并端到端验证：三栏仪表盘、扫码配对、通知、远程批准、实时活动 / 灵动岛、语音伴侣，以及多 CLI hooks（Claude Code + Codex 已测试）。见 [`docs/planning/roadmap.md`](docs/planning/roadmap.md)。
+v1 核心已完成并端到端验证：三栏仪表盘、扫码配对、通知、远程批准、实时活动 / 灵动岛、语音伴侣，以及多 CLI hooks（Claude Code + Codex 已测试）。见 [`docs/planning/overview.md`](docs/planning/overview.md)。
 
 ## 📄 许可
 

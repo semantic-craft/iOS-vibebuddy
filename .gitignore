@@ -20,6 +20,15 @@ VibeBuddyMacApp/Sources/Info.plist
 # Session handoffs (kept locally, not tracked)
 docs/handoffs/
 
+# Development plans stay on this machine under .scratch/planning/
+docs/planning/plan-*.html
+docs/planning/status-and-plan-*.md
+docs/planning/prompts-*.md
+docs/planning/roadmap.md
+docs/roadmap-checklist-*.md
+docs/finish-checklist-*.md
+docs/superpowers/plans/
+
 # Visual-companion brainstorm runtime
 .superpowers/
 

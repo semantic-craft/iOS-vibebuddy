@@ -67,4 +67,3 @@ Priority when a session could be in two: `needsResponse` > `working` > `done`.
 
 - [prd.md](./prd.md) — problem, solution, user stories, decisions
 - [architecture.md](./architecture.md) — components, data model, state machine, wire protocol
-- [roadmap.md](./roadmap.md) — phased build plan A→F and which skills each phase uses
