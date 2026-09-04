@@ -169,7 +169,7 @@ vibebuddy stands on the shoulders of two clever projects that first proved you c
 
 ## 📍 Status
 
-The public Mac release is **[v1.0](https://github.com/semantic-craft/iOS-vibebuddy/releases/tag/v1.0)**. v1 core includes the 3-bucket dashboard, QR pairing, notifications, remote approvals, Live Activity / Dynamic Island, the voice companion, and multi-CLI hooks (Claude Code + Codex tested). The iPhone app is installed from Xcode on a personal device; Widget / Live Activity real-device visual acceptance remains pending. The Watch companion is buildable; real-device acceptance remains pending. See [`docs/planning/roadmap.md`](docs/planning/roadmap.md).
+The public Mac release is **[v1.0](https://github.com/semantic-craft/iOS-vibebuddy/releases/tag/v1.0)**. v1 core implements the 3-bucket dashboard, QR pairing, notifications, remote approvals, Live Activity / Dynamic Island, the voice companion, and multi-CLI hooks (Claude Code + Codex tested). The iPhone app is installed from Xcode on a personal device, but real-device acceptance is still partial: Widget / Live Activity visuals, always-allow / allow-session approval flows, voice actions, iOS voice parity, the OpenAI path, and the Watch companion remain pending human verification. See the [`real-device acceptance checklist`](docs/roadmap-checklist-2026-06-06.md) and [`roadmap`](docs/planning/roadmap.md).
 
 ## 📄 License
 

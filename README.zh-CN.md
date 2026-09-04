@@ -169,7 +169,7 @@ vibebuddy 站在两个聪明项目的肩膀上——它们最早证明了可以�
 
 ## 📍 状态
 
-当前公开的 Mac 版本是 **[v1.0](https://github.com/semantic-craft/iOS-vibebuddy/releases/tag/v1.0)**。v1 核心包括三栏仪表盘、扫码配对、通知、远程批准、实时活动 / 灵动岛、语音伴侣，以及多 CLI hooks（Claude Code + Codex 已测试）。iPhone 应用已通过 Xcode 安装到个人设备；Widget / 实时活动的真机目视验收仍待完成。Watch 伴侣应用可构建，真机验收仍待完成。见 [`docs/planning/roadmap.md`](docs/planning/roadmap.md)。
+当前公开的 Mac 版本是 **[v1.0](https://github.com/semantic-craft/iOS-vibebuddy/releases/tag/v1.0)**。v1 核心已实现三栏仪表盘、扫码配对、通知、远程批准、实时活动 / 灵动岛、语音伴侣，以及多 CLI hooks（Claude Code + Codex 已测试）。iPhone 应用已通过 Xcode 安装到个人设备，但真机验收仍不完整：Widget / 实时活动目视效果、总是允许 / 本次会话允许的批准流程、语音操作、iOS 语音能力对齐、OpenAI 路径，以及 Watch 伴侣应用仍待人工验证。见 [`真机验收清单`](docs/roadmap-checklist-2026-06-06.md)和[`路线图`](docs/planning/roadmap.md)。
 
 ## 📄 许可
 
