@@ -64,6 +64,20 @@ struct CodexRolloutMonitorTests {
         #expect(customOutput?.kind == .postToolUse)
     }
 
+    @Test("a tool call after probe retirement re-arms parser activity")
+    func toolCallRearmsAfterAbandon() {
+        var parser = CodexRolloutParser()
+        _ = parser.parseLine(Data(sessionMeta(id: "thread-1").utf8), receivedAt: now)
+        _ = parser.parseLine(Data(taskStarted(id: "turn-1").utf8), receivedAt: now)
+        #expect(parser.turnActive)
+        parser.abandonActiveTurns()
+        #expect(!parser.turnActive)
+
+        let call = parser.parseLine(Data(#"{"type":"response_item","payload":{"type":"custom_tool_call","name":"exec","call_id":"c1"}}"#.utf8), receivedAt: now)
+        #expect(call?.kind == .preToolUse)
+        #expect(parser.turnActive)
+    }
+
     @Test("request_user_input is attention, not background work")
     func requestUserInput() {
         var parser = CodexRolloutParser()
@@ -617,6 +631,35 @@ struct CodexRolloutMonitorTests {
         #expect(reducer.sessions["desktop-overlap-exit"]?.summary == "Abandoned")
     }
 
+    @Test("a rollout bootstrapped during overlap stays owned after the old server exits")
+    func rolloutBootstrappedDuringOverlapStaysOwned() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        let ownerlessAfter: TimeInterval = 60
+        let server = IdentityFlag(pid: 81)
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            ownerlessAfter: ownerlessAfter,
+            desktopAppServerIdentities: { server.identities },
+            hasWriterLock: { _ in true }
+        )
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+
+        server.overlap(pid: 82, startedAt: now.addingTimeInterval(1))
+        _ = try fixture.write(
+            named: "rollout-overlap-boot.jsonl",
+            lines: [sessionMeta(id: "desktop-overlap-boot"), taskStarted(id: "t1")]
+        )
+        for event in await monitor.poll(now: now.addingTimeInterval(30)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-overlap-boot"]?.status == .working)
+
+        server.dropOldest()
+        for event in await monitor.poll(now: now.addingTimeInterval(90)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-overlap-boot"]?.status == .working)
+        #expect(reducer.sessions["desktop-overlap-boot"]?.summary != "Abandoned")
+    }
+
     @Test("an overlapping replacement process does not abandon a turn that wrote during the overlap")
     func overlappingAppServerAppendStaysOwned() async throws {
         let fixture = try RolloutFixture(now: now)
@@ -769,6 +812,43 @@ struct CodexRolloutMonitorTests {
         for event in await monitor.poll(now: now.addingTimeInterval(61)) { reducer.apply(event) }
         #expect(reducer.sessions["desktop-approved"]?.status == .done)
         #expect(reducer.sessions["desktop-approved"]?.summary == "Abandoned")
+    }
+
+    @Test("a probe-retired turn that resumes with a tool can retire again")
+    func resumedAbandonedTurnCanRetireAgain() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        let file = try fixture.write(
+            named: "rollout-rearm.jsonl",
+            lines: [sessionMeta(id: "desktop-rearm"), taskStarted(id: "t1")]
+        )
+        let writer = WriterFlag(isAlive: true)
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            isDesktopAppServerAlive: { writer.isAlive },
+            hasWriterLock: { _ in writer.isAlive }
+        )
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-rearm"]?.status == .working)
+
+        writer.isAlive = false
+        for event in await monitor.poll(now: now.addingTimeInterval(60)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-rearm"]?.status == .done)
+        #expect(reducer.sessions["desktop-rearm"]?.summary == "Abandoned")
+
+        writer.isAlive = true
+        try append(
+            #"{"type":"response_item","payload":{"type":"custom_tool_call","name":"exec","call_id":"c1"}}"#,
+            to: file)
+        for event in await monitor.poll(now: now.addingTimeInterval(61)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-rearm"]?.status == .working)
+        #expect(reducer.sessions["desktop-rearm"]?.probeRetired != true)
+
+        writer.isAlive = false
+        for event in await monitor.poll(now: now.addingTimeInterval(121)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-rearm"]?.status == .done)
+        #expect(reducer.sessions["desktop-rearm"]?.summary == "Abandoned")
     }
 
     @Test("bootstrapping after ChatGPT already relaunched retires the interrupted turn")

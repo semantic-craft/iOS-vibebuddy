@@ -22,6 +22,8 @@ public struct CodexRolloutParser: Sendable {
     private var contextWindow: Int?
     private var activeTurnIDs: Set<String> = []
     private var anonymousTurnCount = 0
+    /// A tool record after probe retirement, with no new `task_started`.
+    private var resumedActivity = false
     private var pendingCollab: [String: PendingCollab] = [:]
     private var attributedCollabCalls: Set<String> = []
     private var collabChildren: [String: CollabChild] = [:]
@@ -245,6 +247,7 @@ public struct CodexRolloutParser: Sendable {
                                  message: "Waiting for your input", timestamp: timestamp))
         }
         awaitingUser = false
+        rearmIfIdle()
         let namespace = (payload["namespace"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         if namespace?.lowercased() == "collaboration" {
             return eventsForCollabCall(payload, toolName: name, sessionID: sessionID, timestamp: timestamp)
@@ -295,6 +298,7 @@ public struct CodexRolloutParser: Sendable {
         timestamp: Date
     ) -> [HookEvent] {
         awaitingUser = false
+        rearmIfIdle()
         let callID = Self.nonEmpty(payload["call_id"] as? String)
         guard let callID, let pending = pendingCollab.removeValue(forKey: callID) else {
             return [event(.postToolUse, sessionID: sessionID, toolName: "Tool", timestamp: timestamp)]
@@ -355,6 +359,7 @@ public struct CodexRolloutParser: Sendable {
         }
         guard let toolName = Self.completedToolName(item) else { return [] }
         awaitingUser = false
+        rearmIfIdle()
         return [event(.postToolUse, sessionID: sessionID, toolName: toolName,
                       toolError: Self.itemFailed(item), timestamp: timestamp)]
     }
@@ -647,12 +652,14 @@ public struct CodexRolloutParser: Sendable {
 
     private mutating func startTurn(_ turnID: String?) {
         awaitingUser = false
+        resumedActivity = false
         if let turnID, !turnID.isEmpty { activeTurnIDs.insert(turnID) }
         else { anonymousTurnCount += 1 }
         refreshTurnState()
     }
 
     private mutating func finishTurn(_ turnID: String?) {
+        resumedActivity = false
         if let turnID, !turnID.isEmpty {
             activeTurnIDs.remove(turnID)
         } else if anonymousTurnCount > 0 {
@@ -664,13 +671,20 @@ public struct CodexRolloutParser: Sendable {
     }
 
     private mutating func finishUnknownTurn() {
+        resumedActivity = false
         if anonymousTurnCount > 0 { anonymousTurnCount -= 1 }
         else if activeTurnIDs.count == 1 { activeTurnIDs.removeAll() }
         refreshTurnState()
     }
 
     private mutating func refreshTurnState() {
-        turnActive = anonymousTurnCount > 0 || !activeTurnIDs.isEmpty
+        turnActive = anonymousTurnCount > 0 || !activeTurnIDs.isEmpty || resumedActivity
+    }
+
+    private mutating func rearmIfIdle() {
+        guard !turnActive else { return }
+        resumedActivity = true
+        refreshTurnState()
     }
 
     /// Drop every in-flight turn without inventing a Codex completion record.
@@ -679,6 +693,7 @@ public struct CodexRolloutParser: Sendable {
         activeTurnIDs.removeAll()
         anonymousTurnCount = 0
         awaitingUser = false
+        resumedActivity = false
         refreshTurnState()
     }
 
@@ -859,9 +874,9 @@ public actor CodexRolloutMonitor {
     /// Last observed ChatGPT.app-bundled app-server. A different live identity
     /// between scans is a replacement, not continued ownership.
     private var lastAppServerIdentities: Set<CodexDesktopAppServer.Identity> = []
-    /// Identities live when this path last consumed a rollout append.
-    /// Watcher refreshes stamp `Date()`, so this — not `lastOwnedAt == now` —
-    /// is what exempts a resumed turn from replacement marking.
+    /// Identities live when this path was last bootstrapped or consumed an
+    /// append. Watcher refreshes stamp `Date()`, so this — not `lastOwnedAt == now`
+    /// — exempts a resumed turn from replacement marking.
     private var lastOwnedIdentities: [String: Set<CodexDesktopAppServer.Identity>] = [:]
 
     public init(
@@ -1140,6 +1155,7 @@ public actor CodexRolloutMonitor {
                 if let bootstrapped = Self.bootstrap(file: file, state: state, receivedAt: now) {
                     cursor = bootstrapped.cursor
                     emitted = bootstrapped.events
+                    recordOwnedIdentities(path: path)
                 } else {
                     removeTracking(path: path)
                     return []
@@ -1151,13 +1167,14 @@ public actor CodexRolloutMonitor {
                 cursor.checkpoint = Self.checkpoint(file: file, endingAt: cursor.offset)
                 ownerlessObserved.remove(path)
                 lastOwnedAt[path] = now
-                lastOwnedIdentities[path] = Set(desktopAppServerIdentities())
+                recordOwnedIdentities(path: path)
             }
             cursor.identity = state.identity
             cursors[path] = cursor
         } else if let bootstrapped = Self.bootstrap(file: file, state: state, receivedAt: now) {
             cursors[path] = bootstrapped.cursor
             emitted = bootstrapped.events
+            recordOwnedIdentities(path: path)
         }
 
         if installWatcher { ensureWatcher(for: file, identity: state.identity) }
@@ -1265,6 +1282,10 @@ public actor CodexRolloutMonitor {
         eventQueue.removeAll(keepingCapacity: isRunning)
         eventQueueHead = 0
         deliveryTask = nil
+    }
+
+    private func recordOwnedIdentities(path: String) {
+        lastOwnedIdentities[path] = Set(desktopAppServerIdentities())
     }
 
     private func removeTracking(path: String) {
