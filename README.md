@@ -92,10 +92,10 @@ Full English and Simplified-Chinese UI on both apps. Plus a **Demo mode** that l
 > ```bash
 > xattr -dr com.apple.quarantine /Applications/vibebuddy.app
 > ```
-> A signed + notarized (double-click-to-open, zero-warning) build is on the way.
+> The current public build is unsigned. A signed + notarized (double-click-to-open, zero-warning) build is not in this release.
 
 ### iPhone app
-Build it from source for now — see [Build & run](#️-build--run). (App Store submission in progress.)
+Build it from source for now — see [Build & run](#️-build--run). Install on your own iPhone; there is no public iPhone download.
 
 ---
 
@@ -169,7 +169,7 @@ vibebuddy stands on the shoulders of two clever projects that first proved you c
 
 ## 📍 Status
 
-v1 core is complete and verified end-to-end: 3-bucket dashboard, QR pairing, notifications, remote approvals, Live Activity / Dynamic Island, the voice companion, and multi-CLI hooks (Claude Code + Codex tested). See [`docs/planning/roadmap.md`](docs/planning/roadmap.md).
+The public Mac release is **[v1.0](https://github.com/semantic-craft/iOS-vibebuddy/releases/tag/v1.0)**. v1 core is complete and verified end-to-end: 3-bucket dashboard, QR pairing, notifications, remote approvals, Live Activity / Dynamic Island, the voice companion, and multi-CLI hooks (Claude Code + Codex tested). iPhone and Watch are installed from Xcode onto personal devices. See [`docs/planning/roadmap.md`](docs/planning/roadmap.md).
 
 ## 📄 License
 

@@ -92,10 +92,10 @@ vibebuddy 在你的 Mac 与手机之间**直接**通过你自己的网络通信�
 > ```bash
 > xattr -dr com.apple.quarantine /Applications/vibebuddy.app
 > ```
-> 正式签名 + 公证版（双击即开、零警告）即将推出。
+> 当前公开构建尚未签名。正式签名 + 公证版（双击即开、零警告）不在这个公开版本里。
 
 ### iPhone 应用
-目前请从源码构建——见 [构建与运行](#️-构建与运行)。（App Store 上架审核中。）
+目前请从源码构建——见 [构建与运行](#️-构建与运行)。装到你自己的 iPhone 上即可；没有公开的 iPhone 下载。
 
 ---
 
@@ -169,7 +169,7 @@ vibebuddy 站在两个聪明项目的肩膀上——它们最早证明了可以�
 
 ## 📍 状态
 
-v1 核心已完成并端到端验证：三栏仪表盘、扫码配对、通知、远程批准、实时活动 / 灵动岛、语音伴侣，以及多 CLI hooks（Claude Code + Codex 已测试）。见 [`docs/planning/roadmap.md`](docs/planning/roadmap.md)。
+当前公开的 Mac 版本是 **[v1.0](https://github.com/semantic-craft/iOS-vibebuddy/releases/tag/v1.0)**。v1 核心已完成并端到端验证：三栏仪表盘、扫码配对、通知、远程批准、实时活动 / 灵动岛、语音伴侣，以及多 CLI hooks（Claude Code + Codex 已测试）。iPhone 与 Watch 用 Xcode 装到个人设备。见 [`docs/planning/roadmap.md`](docs/planning/roadmap.md)。
 
 ## 📄 许可
 

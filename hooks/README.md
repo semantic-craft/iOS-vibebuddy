@@ -86,9 +86,19 @@ replayed into the dashboard.
 What the rollout does and does not tell us:
 
 - A Desktop thread is recognised by `session_meta.originator == "Codex Desktop"`
-  (`source` is the `vscode` enum default and cannot be used). A spawned subagent
-  thread carries the same originator and is skipped by `thread_source ==
-  "subagent"` / `source.subagent`; the parent's collaboration records own it.
+  **or** string `source == "vscode"`. Desktop stamps `originator` and uses
+  `vscode` as the `source` enum default; the `source` fallback is kept so
+  Desktop-family threads that stamp a different originator still surface.
+  Observed locally (read-only, 2026-09-04): 2230 rollouts under
+  `~/.codex/sessions` + `archived_sessions` were either `Codex Desktop` (2203)
+  or `codex_work_desktop` (27); every string `source=vscode` sat on one of
+  those two originators; the 27 `codex_work_desktop` threads would be missed
+  by an originator-only check. Fixtures treat CLI as `originator: "Codex CLI"`
+  + `source: "cli"` and ignore it. This machine has no CLI or VS Code/Cursor
+  IDE rollouts, so whether those hosts ever stamp string `source=vscode` is
+  unverified. A spawned subagent thread carries the same originator and is
+  skipped by `thread_source == "subagent"` / `source.subagent`; the parent's
+  collaboration records own it.
 - Rollouts sit under their *start* date and a resumed thread keeps appending to
   that old file, so discovery walks every date directory and keeps files written
   within the last 30 minutes.
