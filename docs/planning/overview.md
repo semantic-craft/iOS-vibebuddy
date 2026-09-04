@@ -33,7 +33,7 @@ Priority when a session could be in two: `needsResponse` > `working` > `done`.
 | Repo | **Monorepo** `~/Projects/iOS-vibebuddy` with shared `VibeBuddyKit` package | Single source of truth for the wire types. |
 | Transport (v1) | **LAN HTTP + WebSocket**, light **bearer token** | App stores `host:port`+token so swapping in a Tailscale IP later needs no code change. |
 | Connect UX (R2) | **QR pairing** | Mac shows a QR encoding `host:port` + token; phone scans (no manual IP). Same QR later carries the Tailscale `100.x` IP. |
-| Interaction | **Remote approve / answer; APNs + local notifications; Widget / Live Activity; Watch companion** | Token still gates viewing. Remote control reuses the same bearer token. Closed-app updates go through APNs. |
+| Interaction | **Remote approve / answer; local notifications; Widget / Live Activity; Watch companion** | Token still gates viewing. Remote control reuses the same bearer token. Closed-app APNs delivery remains deferred until paid-account signing, an APNs key, and real-device acceptance are in place. |
 | Sources | **Claude Code first, Codex fast-follow** | Daemon is source-agnostic (`agent` field per session) from day one; Claude Code's hooks are richest and map cleanest. |
 | Detection model | **Borrow concepts**, not code, from m5-paper-buddy (transcript tail parse, RUNNING/WAITING sets) + open-vibe-island (multi-agent `SessionState` reducer) | Re-implement lean, in Swift, non-blocking. |
 
@@ -41,18 +41,19 @@ Priority when a session could be in two: `needsResponse` > `working` > `done`.
 
 **In:**
 - **macOS menu-bar app** (`VibeBuddyMac` / `VibeBuddyMacApp`): receives hook events, derives per-session state, parses transcript tail, broadcasts over token-gated LAN WebSocket + REST snapshot, and shows a pairing QR + status glance.
-- iOS app: **scan QR to pair**, three-section live dashboard, remote approve / answer, local notifications + **APNs**, **Widget / Live Activity**.
+- iOS app: **scan QR to pair**, three-section live dashboard, remote approve / answer, local notifications, **Widget / Live Activity**.
 - **watchOS companion** on a paired personal Watch (no direct Mac transport; iPhone relays).
 - Hook routes require the install bearer token (**ADR-0009**).
 
 **Out (deferred):**
 - Tailscale remote access (the token is already present; Tailscale is a later QR host value).
+- Closed-app APNs delivery (the code path exists, but paid-account signing, an APNs key, and real-device acceptance are still required).
 - App Store / TestFlight distribution (personal Xcode install this round).
 - Agents beyond the current adapter set.
 
 ## Key Risks & Mitigation
 
-1. **iOS background limits** — a suspended app can't hold a WebSocket. *Mitigation*: APNs + Live Activity keep closed-app updates alive; the WebSocket is for foreground.
+1. **iOS background limits** — a suspended app can't hold a WebSocket. *Mitigation*: the WebSocket covers foreground use; closed-app APNs delivery remains deferred until its credentials and real-device path are accepted end to end.
 2. **"Needs response" false positives/negatives** — distinguishing a real permission/idle wait from normal tool churn. *Mitigation*: drive `needsResponse` from the `Notification` hook (purpose-built for "Claude wants your attention"), not from blindly counting `PreToolUse`.
 3. **Codex hook surface differs from Claude Code** — *Mitigation*: source-agnostic model; Codex added as a separate adapter after Claude Code path is proven.
 4. **Swift server libs** — picking an HTTP/WS server for the daemon. *Mitigation*: lean default (Hummingbird or Network.framework), decided in Phase B, isolated behind a small server interface.
