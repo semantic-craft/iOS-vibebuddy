@@ -12,7 +12,7 @@ packages:
     path: ../VibeBuddyMac
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
-    from: 2.6.0
+    exactVersion: 2.9.6
 targets:
   VibeBuddyMacApp:
     type: application
@@ -64,7 +64,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.mac
         MARKETING_VERSION: "1.1"
-        CURRENT_PROJECT_VERSION: "2"
+        CURRENT_PROJECT_VERSION: "3"
         SWIFT_VERSION: "6.0"
         # Build signs ad-hoc; tools/redeploy-mac.sh re-signs the built .app with a
         # stable local Apple Development identity so Keychain ACLs / TCC grants
