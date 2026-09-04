@@ -66,6 +66,9 @@ public struct HookEvent: Sendable, Equatable {
     /// reducer reads it as "this session is a Desktop thread, jumpable through
     /// ChatGPT.app rather than through a terminal".
     public let desktopThreadID: String?
+    /// True only for the Desktop probe's synthetic stop. Distinct from an
+    /// agent that happened to finish with the word "Abandoned".
+    public let probeRetirement: Bool
 
     public init(
         kind: Kind,
@@ -86,7 +89,8 @@ public struct HookEvent: Sendable, Equatable {
         childAction: ChildLifecycleAction? = nil,
         turnID: String? = nil,
         enrichment: TranscriptInfo? = nil,
-        desktopThreadID: String? = nil
+        desktopThreadID: String? = nil,
+        probeRetirement: Bool = false
     ) {
         self.kind = kind
         self.sessionID = sessionID
@@ -107,5 +111,6 @@ public struct HookEvent: Sendable, Equatable {
         self.turnID = turnID
         self.enrichment = enrichment
         self.desktopThreadID = desktopThreadID
+        self.probeRetirement = probeRetirement
     }
 }

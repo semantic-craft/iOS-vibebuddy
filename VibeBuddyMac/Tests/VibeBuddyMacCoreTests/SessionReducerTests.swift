@@ -16,12 +16,14 @@ struct SessionReducerTests {
         message: String? = nil,
         model: String? = nil,
         toolError: Bool = false,
+        probeRetirement: Bool = false,
         at: TimeInterval = 0
     ) -> HookEvent {
         HookEvent(kind: kind, sessionID: sid, agent: .claudeCode,
                   cwd: cwd, toolName: tool, message: message,
                   model: model,
-                  toolError: toolError, timestamp: t0.addingTimeInterval(at))
+                  toolError: toolError, timestamp: t0.addingTimeInterval(at),
+                  probeRetirement: probeRetirement)
     }
 
     @Test("preToolUse sets the active tool; postToolUse and a new turn clear it")
@@ -98,6 +100,42 @@ struct SessionReducerTests {
         r.apply(ev(.userPromptSubmit, at: 2))
         #expect(r.sessions["s1"]?.hasUnreadCompletion == false)
         #expect(r.sessions["s1"]?.presentationState == .thinking)
+    }
+
+    @Test("probe abandonment is done, not a successful unread completion")
+    func abandonedStopIsNotUnreadCompletion() {
+        var r = SessionReducer()
+        r.apply(ev(.userPromptSubmit, at: 0))
+        r.apply(ev(.stop, message: "Abandoned", probeRetirement: true, at: 60))
+        #expect(r.sessions["s1"]?.status == .done)
+        #expect(r.sessions["s1"]?.summary == "Abandoned")
+        #expect(r.sessions["s1"]?.failed != true)
+        #expect(r.sessions["s1"]?.hasUnreadCompletion == false)
+        #expect(r.sessions["s1"]?.presentationState != .completeUnread)
+
+        r.apply(ev(.userPromptSubmit, at: 61))
+        r.apply(ev(.postToolUse, tool: "Bash", toolError: true, at: 62))
+        r.apply(ev(.stop, message: "Abandoned", probeRetirement: true, at: 120))
+        #expect(r.sessions["s1"]?.failed != true)
+        #expect(r.sessions["s1"]?.hasUnreadCompletion == false)
+
+        var ordinary = SessionReducer()
+        ordinary.apply(ev(.userPromptSubmit, at: 0))
+        ordinary.apply(ev(.stop, message: "Abandoned", at: 1))
+        #expect(ordinary.sessions["s1"]?.hasUnreadCompletion == true)
+        #expect(ordinary.sessions["s1"]?.probeRetired != true)
+
+        r.apply(ev(.preToolUse, tool: "Bash", at: 121))
+        #expect(r.sessions["s1"]?.probeRetired != true)
+        r.apply(ev(.stop, at: 122))
+        #expect(r.sessions["s1"]?.hasUnreadCompletion == true)
+
+        var genuine = SessionReducer()
+        genuine.apply(ev(.userPromptSubmit, at: 0))
+        genuine.apply(ev(.stop, message: "Abandoned", probeRetirement: true, at: 60))
+        genuine.apply(ev(.stop, message: "Done", at: 61))
+        #expect(genuine.sessions["s1"]?.probeRetired != true)
+        #expect(genuine.sessions["s1"]?.hasUnreadCompletion == true)
     }
 
     @Test("a failure-looking Stop message marks failed even without a tool error")

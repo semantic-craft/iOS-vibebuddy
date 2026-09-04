@@ -63,9 +63,17 @@ code, and tests — don't drift to synonyms.
 ## Observability (2026-09)
 
 - **ObservationSource / ObservationHealth** — which signal currently backs a
-  session (`hook`, `rollout`, `transcript`, `restored`) plus its last-seen time
+  session (`hook`, `rollout`, `transcript`, `recovery`) plus its last-seen time
   and a health verdict (healthy / degraded / unsupported / eventsMissing). Never
   guessed from process existence; shown in Mac Settings and on session rows.
+  One bounded exception: a ChatGPT.app-bundled `codex app-server` probe (and a
+  missing `thread-writer-locks/<id>.lock`) may only *retire* an already-working
+  Desktop session when that writer is gone. They must not create a session,
+  move one into `working`, or change ObservationHealth.
+- **Abandoned** — a Desktop session that left `working` for `done` because its
+  writer disappeared (Desktop quit/crash, or the thread lock is gone). Carried
+  as `summary == "Abandoned"`. Not `failed`: that flag is a real tool-error
+  signal, and being abandoned is not one.
 - **ChildAgent / childTopologyDegraded** — a subagent, task, or teammate under a
   parent session (`subagent:<id>` / `task:<id>` / `teammate:<team>/<name>`),
   with `running` / `completed` / `unknown`. Missing identity sets the degraded

@@ -35,7 +35,8 @@ public struct SessionReducer: Sendable {
 
     public mutating func apply(
         _ event: HookEvent,
-        observationSource: ObservationSource? = nil
+        observationSource: ObservationSource? = nil,
+        recordsEvidence: Bool = true
     ) {
         switch event.kind {
         case .sessionStart:
@@ -44,12 +45,14 @@ public struct SessionReducer: Sendable {
             // buckets that is `done` until UserPromptSubmit arrives.
             upsert(event, status: .done, waitKind: nil)
             sessions[event.sessionID]?.failed = false
+            sessions[event.sessionID]?.probeRetired = nil
             sessions[event.sessionID]?.activeTool = nil
         case .userPromptSubmit:
             if let turnID = event.turnID { currentTurnID[event.sessionID] = turnID }
             upsert(event, status: .working, waitKind: nil)
             sessions[event.sessionID]?.hasUnreadCompletion = false
             sessions[event.sessionID]?.failed = false
+            sessions[event.sessionID]?.probeRetired = nil
             sessions[event.sessionID]?.activeTool = nil
         case .preToolUse, .postToolUse:
             if event.childID != nil {
@@ -58,6 +61,7 @@ public struct SessionReducer: Sendable {
             } else {
                 upsert(event, status: .working, waitKind: nil)
                 sessions[event.sessionID]?.hasUnreadCompletion = false
+                sessions[event.sessionID]?.probeRetired = nil
                 if event.kind == .preToolUse {
                     sessions[event.sessionID]?.activeTool = event.toolName
                 } else {
@@ -87,6 +91,15 @@ public struct SessionReducer: Sendable {
             // carry the agent's final summary when present.
             upsert(event, status: .done, waitKind: nil, summary: event.message)
             sessions[event.sessionID]?.activeTool = nil
+            // Probe retirement is done, not failed, and not a successful
+            // completion — no unread-complete badge and no agentDone cue.
+            if event.probeRetirement {
+                sessions[event.sessionID]?.hasUnreadCompletion = false
+                sessions[event.sessionID]?.failed = false
+                sessions[event.sessionID]?.probeRetired = true
+                break
+            }
+            sessions[event.sessionID]?.probeRetired = nil
             // Carry the last tool's outcome; also treat a failure-looking stop
             // message as stuck even when no tool error was reported.
             if FailureHeuristic.looksFailed(event.message) { sessions[event.sessionID]?.failed = true }
@@ -115,11 +128,13 @@ public struct SessionReducer: Sendable {
             if let thread = event.desktopThreadID {
                 sessions[event.sessionID]?.desktopThreadID = thread
             }
-            recordObservation(
-                sessionID: event.sessionID,
-                source: observationSource ?? event.observationSource ?? .hook,
-                at: event.timestamp,
-                health: .healthy)
+            if recordsEvidence {
+                recordObservation(
+                    sessionID: event.sessionID,
+                    source: observationSource ?? event.observationSource ?? .hook,
+                    at: event.timestamp,
+                    health: .healthy)
+            }
         }
     }
 

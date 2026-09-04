@@ -64,6 +64,20 @@ struct CodexRolloutMonitorTests {
         #expect(customOutput?.kind == .postToolUse)
     }
 
+    @Test("a tool call after probe retirement re-arms parser activity")
+    func toolCallRearmsAfterAbandon() {
+        var parser = CodexRolloutParser()
+        _ = parser.parseLine(Data(sessionMeta(id: "thread-1").utf8), receivedAt: now)
+        _ = parser.parseLine(Data(taskStarted(id: "turn-1").utf8), receivedAt: now)
+        #expect(parser.turnActive)
+        parser.abandonActiveTurns()
+        #expect(!parser.turnActive)
+
+        let call = parser.parseLine(Data(#"{"type":"response_item","payload":{"type":"custom_tool_call","name":"exec","call_id":"c1"}}"#.utf8), receivedAt: now)
+        #expect(call?.kind == .preToolUse)
+        #expect(parser.turnActive)
+    }
+
     @Test("request_user_input is attention, not background work")
     func requestUserInput() {
         var parser = CodexRolloutParser()
@@ -396,6 +410,616 @@ struct CodexRolloutMonitorTests {
         #expect(events.last?.enrichment?.contextWindow == 1_000)
     }
 
+    @Test("an ownerless Desktop thread leaves working within a minute")
+    func ownerlessThreadLeavesWorking() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        _ = try fixture.write(
+            named: "rollout-ownerless.jsonl",
+            lines: [sessionMeta(id: "desktop-ownerless"), taskStarted(id: "t1")]
+        )
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            isDesktopAppServerAlive: { false },
+            hasWriterLock: { _ in false }
+        )
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-ownerless"]?.status == .working)
+
+        for event in await monitor.poll(now: now.addingTimeInterval(59)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-ownerless"]?.status == .working)
+        #expect(reducer.sessions["desktop-ownerless"]?.summary != "Abandoned")
+
+        for event in await monitor.poll(now: now.addingTimeInterval(60)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-ownerless"]?.status == .done)
+        #expect(reducer.sessions["desktop-ownerless"]?.summary == "Abandoned")
+        #expect(reducer.sessions["desktop-ownerless"]?.failed != true)
+    }
+
+    @Test("worst-case scan phase still abandons within a minute of the writer vanishing")
+    func worstCaseScanPhaseLeavesWorkingWithinAMinute() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        _ = try fixture.write(
+            named: "rollout-phase.jsonl",
+            lines: [sessionMeta(id: "desktop-phase"), taskStarted(id: "t1")]
+        )
+        let discoveryInterval: TimeInterval = 30
+        let ownerlessAfter: TimeInterval = 60
+        let writer = WriterFlag(isAlive: true)
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            discoveryInterval: .seconds(discoveryInterval),
+            ownerlessAfter: ownerlessAfter,
+            isDesktopAppServerAlive: { writer.isAlive },
+            hasWriterLock: { _ in writer.isAlive }
+        )
+
+        // t=0: last scan that still sees a writer. The writer vanishes immediately after.
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-phase"]?.status == .working)
+        writer.isAlive = false
+
+        // Production cadence: first ownerless observation is one interval later.
+        let firstOwnerless = now.addingTimeInterval(discoveryInterval)
+        for event in await monitor.poll(now: firstOwnerless) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-phase"]?.status == .working)
+        #expect(reducer.sessions["desktop-phase"]?.summary != "Abandoned")
+
+        // Bound is ownerlessAfter from the last owned scan, not from first ownerless.
+        // The old clock would still be waiting until firstOwnerless + ownerlessAfter (90s).
+        let deadline = now.addingTimeInterval(ownerlessAfter)
+        for event in await monitor.poll(now: deadline) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-phase"]?.status == .done)
+        #expect(reducer.sessions["desktop-phase"]?.summary == "Abandoned")
+        #expect(reducer.sessions["desktop-phase"]?.failed != true)
+    }
+
+    @Test("writer vanishes, ChatGPT relaunches inside the grace, the interrupted turn still retires within a minute")
+    func relaunchInsideGraceStillRetires() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        _ = try fixture.write(
+            named: "rollout-relaunch.jsonl",
+            lines: [sessionMeta(id: "desktop-relaunch"), taskStarted(id: "t1")]
+        )
+        let discoveryInterval: TimeInterval = 30
+        let ownerlessAfter: TimeInterval = 60
+        let appServer = WriterFlag(isAlive: true)
+        let lock = WriterFlag(isAlive: true)
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            discoveryInterval: .seconds(discoveryInterval),
+            ownerlessAfter: ownerlessAfter,
+            isDesktopAppServerAlive: { appServer.isAlive },
+            hasWriterLock: { _ in lock.isAlive }
+        )
+
+        // t=0: last scan that still sees a writer.
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-relaunch"]?.status == .working)
+
+        // ChatGPT quits; the interrupted thread's lock file is leftover.
+        appServer.isAlive = false
+        let firstOwnerless = now.addingTimeInterval(discoveryInterval)
+        for event in await monitor.poll(now: firstOwnerless) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-relaunch"]?.status == .working)
+        #expect(reducer.sessions["desktop-relaunch"]?.summary != "Abandoned")
+
+        // Relaunch inside the grace: new app-server is alive, stale lock remains.
+        // That pair is not fresh thread evidence and must not reset the clock.
+        appServer.isAlive = true
+        let beforeDeadline = now.addingTimeInterval(ownerlessAfter - 1)
+        for event in await monitor.poll(now: beforeDeadline) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-relaunch"]?.status == .working)
+        #expect(reducer.sessions["desktop-relaunch"]?.summary != "Abandoned")
+
+        let deadline = now.addingTimeInterval(ownerlessAfter)
+        for event in await monitor.poll(now: deadline) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-relaunch"]?.status == .done)
+        #expect(reducer.sessions["desktop-relaunch"]?.summary == "Abandoned")
+        #expect(reducer.sessions["desktop-relaunch"]?.failed != true)
+    }
+
+    @Test("ChatGPT relaunch between scans still retires the interrupted turn within a minute")
+    func appServerReplacementBetweenScansRetires() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        _ = try fixture.write(
+            named: "rollout-replaced.jsonl",
+            lines: [sessionMeta(id: "desktop-replaced"), taskStarted(id: "t1")]
+        )
+        let discoveryInterval: TimeInterval = 30
+        let ownerlessAfter: TimeInterval = 60
+        let server = IdentityFlag(pid: 11)
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            discoveryInterval: .seconds(discoveryInterval),
+            ownerlessAfter: ownerlessAfter,
+            desktopAppServerIdentity: { server.current },
+            hasWriterLock: { _ in true }
+        )
+
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-replaced"]?.status == .working)
+
+        // Quit and relaunch entirely between scans: both observations see a live
+        // app-server plus leftover lock. Identity change is the missing edge.
+        server.relaunch()
+        let firstAfterReplace = now.addingTimeInterval(discoveryInterval)
+        for event in await monitor.poll(now: firstAfterReplace) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-replaced"]?.status == .working)
+        #expect(reducer.sessions["desktop-replaced"]?.summary != "Abandoned")
+
+        let deadline = now.addingTimeInterval(ownerlessAfter)
+        for event in await monitor.poll(now: deadline) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-replaced"]?.status == .done)
+        #expect(reducer.sessions["desktop-replaced"]?.summary == "Abandoned")
+        #expect(reducer.sessions["desktop-replaced"]?.failed != true)
+    }
+
+    @Test("a rollout append in the same pass as an app-server replacement stays owned")
+    func appendDuringAppServerReplacementStaysOwned() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        let file = try fixture.write(
+            named: "rollout-replaced-live.jsonl",
+            lines: [sessionMeta(id: "desktop-replaced-live"), taskStarted(id: "t1")]
+        )
+        let discoveryInterval: TimeInterval = 30
+        let ownerlessAfter: TimeInterval = 60
+        let server = IdentityFlag(pid: 21)
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            discoveryInterval: .seconds(discoveryInterval),
+            ownerlessAfter: ownerlessAfter,
+            desktopAppServerIdentity: { server.current },
+            hasWriterLock: { _ in true }
+        )
+
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-replaced-live"]?.status == .working)
+
+        try append(
+            #"{"type":"response_item","payload":{"type":"custom_tool_call","name":"exec","call_id":"c1"}}"#,
+            to: file)
+        server.relaunch()
+        let afterReplace = now.addingTimeInterval(discoveryInterval)
+        for event in await monitor.poll(now: afterReplace) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-replaced-live"]?.status == .working)
+        #expect(reducer.sessions["desktop-replaced-live"]?.activeTool == "exec")
+        #expect(reducer.sessions["desktop-replaced-live"]?.summary != "Abandoned")
+
+        let deadline = now.addingTimeInterval(ownerlessAfter)
+        for event in await monitor.poll(now: deadline) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-replaced-live"]?.status == .working)
+        #expect(reducer.sessions["desktop-replaced-live"]?.summary != "Abandoned")
+    }
+
+    @Test("when the owning app-server exits during overlap, the interrupted turn still retires")
+    func owningServerExitDuringOverlapRetires() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        _ = try fixture.write(
+            named: "rollout-overlap-exit.jsonl",
+            lines: [sessionMeta(id: "desktop-overlap-exit"), taskStarted(id: "t1")]
+        )
+        let ownerlessAfter: TimeInterval = 60
+        let server = IdentityFlag(pid: 71)
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            ownerlessAfter: ownerlessAfter,
+            desktopAppServerIdentities: { server.identities },
+            hasWriterLock: { _ in true }
+        )
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-overlap-exit"]?.status == .working)
+
+        server.overlap(pid: 72, startedAt: now.addingTimeInterval(1))
+        for event in await monitor.poll(now: now.addingTimeInterval(30)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-overlap-exit"]?.status == .working)
+
+        server.dropOldest()
+        for event in await monitor.poll(now: now.addingTimeInterval(90)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-overlap-exit"]?.status == .done)
+        #expect(reducer.sessions["desktop-overlap-exit"]?.summary == "Abandoned")
+    }
+
+    @Test("a rollout bootstrapped during overlap stays owned after the old server exits")
+    func rolloutBootstrappedDuringOverlapStaysOwned() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        let ownerlessAfter: TimeInterval = 60
+        let server = IdentityFlag(pid: 81)
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            ownerlessAfter: ownerlessAfter,
+            desktopAppServerIdentities: { server.identities },
+            hasWriterLock: { _ in true }
+        )
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+
+        server.overlap(pid: 82, startedAt: now.addingTimeInterval(1))
+        _ = try fixture.write(
+            named: "rollout-overlap-boot.jsonl",
+            lines: [sessionMeta(id: "desktop-overlap-boot"), taskStarted(id: "t1")]
+        )
+        for event in await monitor.poll(now: now.addingTimeInterval(30)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-overlap-boot"]?.status == .working)
+
+        server.dropOldest()
+        for event in await monitor.poll(now: now.addingTimeInterval(90)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-overlap-boot"]?.status == .working)
+        #expect(reducer.sessions["desktop-overlap-boot"]?.summary != "Abandoned")
+    }
+
+    @Test("a rollout written before the overlapping replacement is discovered still retires")
+    func rolloutWrittenBeforeOverlapDiscoveryRetires() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        let ownerlessAfter: TimeInterval = 60
+        let server = IdentityFlag(pid: 91)
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            ownerlessAfter: ownerlessAfter,
+            desktopAppServerIdentities: { server.identities },
+            hasWriterLock: { _ in true }
+        )
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+
+        let writtenAt = now.addingTimeInterval(10)
+        let file = try fixture.write(
+            named: "rollout-overlap-stale.jsonl",
+            lines: [sessionMeta(id: "desktop-overlap-stale"), taskStarted(id: "t1")]
+        )
+        try FileManager.default.setAttributes([.modificationDate: writtenAt], ofItemAtPath: file.path)
+        server.overlap(pid: 92, startedAt: now.addingTimeInterval(20))
+        for event in await monitor.poll(now: now.addingTimeInterval(30)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-overlap-stale"]?.status == .working)
+
+        server.dropOldest()
+        for event in await monitor.poll(now: now.addingTimeInterval(90)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-overlap-stale"]?.status == .done)
+        #expect(reducer.sessions["desktop-overlap-stale"]?.summary == "Abandoned")
+    }
+
+    @Test("an overlapping replacement process does not abandon a turn that wrote during the overlap")
+    func overlappingAppServerAppendStaysOwned() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        let file = try fixture.write(
+            named: "rollout-overlap.jsonl",
+            lines: [sessionMeta(id: "desktop-overlap"), taskStarted(id: "t1")]
+        )
+        let ownerlessAfter: TimeInterval = 60
+        let server = IdentityFlag(pid: 61)
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            ownerlessAfter: ownerlessAfter,
+            desktopAppServerIdentities: { server.identities },
+            hasWriterLock: { _ in true }
+        )
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-overlap"]?.status == .working)
+
+        try append(
+            #"{"type":"response_item","payload":{"type":"custom_tool_call","name":"exec","call_id":"c1"}}"#,
+            to: file)
+        server.overlap(pid: 62, startedAt: Date())
+        let watcherNow = Date()
+        for event in await monitor.consumeForTesting(file: file, now: watcherNow) { reducer.apply(event) }
+        server.dropOldest()
+
+        let laterScan = watcherNow.addingTimeInterval(ownerlessAfter)
+        for event in await monitor.poll(now: laterScan) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-overlap"]?.status == .working)
+        #expect(reducer.sessions["desktop-overlap"]?.summary != "Abandoned")
+    }
+
+    @Test("a watcher append under a replacement server stays owned across the next scan")
+    func watcherAppendUnderReplacementStaysOwned() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        let file = try fixture.write(
+            named: "rollout-watcher-replace.jsonl",
+            lines: [sessionMeta(id: "desktop-watcher-replace"), taskStarted(id: "t1")]
+        )
+        let ownerlessAfter: TimeInterval = 60
+        let server = IdentityFlag(pid: 51)
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            ownerlessAfter: ownerlessAfter,
+            desktopAppServerIdentity: { server.current },
+            hasWriterLock: { _ in true }
+        )
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-watcher-replace"]?.status == .working)
+
+        try append(
+            #"{"type":"response_item","payload":{"type":"custom_tool_call","name":"exec","call_id":"c1"}}"#,
+            to: file)
+        server.relaunch()
+        let watcherNow = Date()
+        for event in await monitor.consumeForTesting(file: file, now: watcherNow) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-watcher-replace"]?.activeTool == "exec")
+
+        let laterScan = watcherNow.addingTimeInterval(ownerlessAfter)
+        for event in await monitor.poll(now: laterScan) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-watcher-replace"]?.status == .working)
+        #expect(reducer.sessions["desktop-watcher-replace"]?.summary != "Abandoned")
+    }
+
+    @Test("a rollout append after an ownerless scan re-arms ownership")
+    func rolloutAppendRearmsOwnership() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        let file = try fixture.write(
+            named: "rollout-rearm.jsonl",
+            lines: [sessionMeta(id: "desktop-rearm"), taskStarted(id: "t1")]
+        )
+        let discoveryInterval: TimeInterval = 30
+        let ownerlessAfter: TimeInterval = 60
+        let appServer = WriterFlag(isAlive: true)
+        let lock = WriterFlag(isAlive: true)
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            discoveryInterval: .seconds(discoveryInterval),
+            ownerlessAfter: ownerlessAfter,
+            isDesktopAppServerAlive: { appServer.isAlive },
+            hasWriterLock: { _ in lock.isAlive }
+        )
+
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-rearm"]?.status == .working)
+
+        appServer.isAlive = false
+        let firstOwnerless = now.addingTimeInterval(discoveryInterval)
+        for event in await monitor.poll(now: firstOwnerless) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-rearm"]?.status == .working)
+        #expect(reducer.sessions["desktop-rearm"]?.summary != "Abandoned")
+
+        try append(
+            #"{"type":"response_item","payload":{"type":"custom_tool_call","name":"exec","call_id":"c1"}}"#,
+            to: file)
+        appServer.isAlive = true
+        let rearmedAt = firstOwnerless.addingTimeInterval(1)
+        for event in await monitor.poll(now: rearmedAt) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-rearm"]?.status == .working)
+        #expect(reducer.sessions["desktop-rearm"]?.activeTool == "exec")
+
+        // Without the append, the original deadline would have retired this turn.
+        let originalDeadline = now.addingTimeInterval(ownerlessAfter)
+        for event in await monitor.poll(now: originalDeadline) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-rearm"]?.status == .working)
+        #expect(reducer.sessions["desktop-rearm"]?.summary != "Abandoned")
+
+        for event in await monitor.poll(now: originalDeadline.addingTimeInterval(discoveryInterval)) {
+            reducer.apply(event)
+        }
+        #expect(reducer.sessions["desktop-rearm"]?.status == .working)
+        #expect(reducer.sessions["desktop-rearm"]?.summary != "Abandoned")
+    }
+
+    @Test("a tool output after approval clears waiting so a later quit can retire")
+    func toolOutputClearsWaitingAndAllowsRetirement() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        let file = try fixture.write(
+            named: "rollout-approved.jsonl",
+            lines: [
+                sessionMeta(id: "desktop-approved"),
+                taskStarted(id: "t1"),
+                #"{"type":"event_msg","payload":{"type":"exec_approval_request"}}"#,
+            ]
+        )
+        let writer = WriterFlag(isAlive: true)
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            isDesktopAppServerAlive: { writer.isAlive },
+            hasWriterLock: { _ in writer.isAlive }
+        )
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-approved"]?.status == .needsResponse)
+
+        try append(
+            #"{"type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"ok"}}"#,
+            to: file)
+        for event in await monitor.poll(now: now.addingTimeInterval(1)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-approved"]?.status == .working)
+
+        writer.isAlive = false
+        for event in await monitor.poll(now: now.addingTimeInterval(61)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-approved"]?.status == .done)
+        #expect(reducer.sessions["desktop-approved"]?.summary == "Abandoned")
+    }
+
+    @Test("a probe-retired turn that resumes with a tool can retire again")
+    func resumedAbandonedTurnCanRetireAgain() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        let file = try fixture.write(
+            named: "rollout-rearm.jsonl",
+            lines: [sessionMeta(id: "desktop-rearm"), taskStarted(id: "t1")]
+        )
+        let writer = WriterFlag(isAlive: true)
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            isDesktopAppServerAlive: { writer.isAlive },
+            hasWriterLock: { _ in writer.isAlive }
+        )
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-rearm"]?.status == .working)
+
+        writer.isAlive = false
+        for event in await monitor.poll(now: now.addingTimeInterval(60)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-rearm"]?.status == .done)
+        #expect(reducer.sessions["desktop-rearm"]?.summary == "Abandoned")
+
+        writer.isAlive = true
+        try append(
+            #"{"type":"response_item","payload":{"type":"custom_tool_call","name":"exec","call_id":"c1"}}"#,
+            to: file)
+        for event in await monitor.poll(now: now.addingTimeInterval(61)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-rearm"]?.status == .working)
+        #expect(reducer.sessions["desktop-rearm"]?.probeRetired != true)
+
+        writer.isAlive = false
+        for event in await monitor.poll(now: now.addingTimeInterval(121)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-rearm"]?.status == .done)
+        #expect(reducer.sessions["desktop-rearm"]?.summary == "Abandoned")
+    }
+
+    @Test("bootstrapping after ChatGPT already relaunched retires the interrupted turn")
+    func bootstrapAfterAppServerReplacementRetires() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        let file = try fixture.write(
+            named: "rollout-stale-server.jsonl",
+            lines: [sessionMeta(id: "desktop-stale-server"), taskStarted(id: "t1")]
+        )
+        try FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: file.path)
+        let server = IdentityFlag(pid: 41, startedAt: now.addingTimeInterval(3600))
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            desktopAppServerIdentity: { server.current },
+            hasWriterLock: { _ in true }
+        )
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-stale-server"]?.status == .working)
+
+        for event in await monitor.poll(now: now.addingTimeInterval(60)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-stale-server"]?.status == .done)
+        #expect(reducer.sessions["desktop-stale-server"]?.summary == "Abandoned")
+        #expect(reducer.sessions["desktop-stale-server"]?.failed != true)
+    }
+
+    @Test("a Desktop turn waiting for input is not abandoned when the writer vanishes")
+    func waitingTurnIsNotAbandoned() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        _ = try fixture.write(
+            named: "rollout-waiting.jsonl",
+            lines: [
+                sessionMeta(id: "desktop-waiting"),
+                taskStarted(id: "t1"),
+                #"{"type":"event_msg","payload":{"type":"exec_approval_request"}}"#,
+            ]
+        )
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            isDesktopAppServerAlive: { false },
+            hasWriterLock: { _ in false }
+        )
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-waiting"]?.status == .needsResponse)
+
+        for event in await monitor.poll(now: now.addingTimeInterval(60)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-waiting"]?.status == .needsResponse)
+        #expect(reducer.sessions["desktop-waiting"]?.summary != "Abandoned")
+    }
+
+    @Test("an owned but silent Desktop rollout stays working")
+    func ownedSilentRolloutStaysWorking() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        _ = try fixture.write(
+            named: "rollout-silent.jsonl",
+            lines: [sessionMeta(id: "desktop-silent"), taskStarted(id: "t1")]
+        )
+        let discoveryInterval: TimeInterval = 30
+        let ownerlessAfter: TimeInterval = 60
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            discoveryInterval: .seconds(discoveryInterval),
+            ownerlessAfter: ownerlessAfter,
+            isDesktopAppServerAlive: { true },
+            hasWriterLock: { _ in true }
+        )
+
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-silent"]?.status == .working)
+
+        for step in 1...3 {
+            for event in await monitor.poll(now: now.addingTimeInterval(discoveryInterval * TimeInterval(step))) {
+                reducer.apply(event)
+            }
+        }
+        #expect(reducer.sessions["desktop-silent"]?.status == .working)
+        #expect(reducer.sessions["desktop-silent"]?.summary != "Abandoned")
+    }
+
+    @Test("an unreadable lock directory does not abandon a live Desktop writer")
+    func unreadableLockDirectoryKeepsWorking() async throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let sessions = home.appendingPathComponent("sessions", isDirectory: true)
+        let day = sessions.appendingPathComponent("2026/09/02", isDirectory: true)
+        try FileManager.default.createDirectory(at: day, withIntermediateDirectories: true)
+        let file = day.appendingPathComponent("rollout-lockunreadable.jsonl")
+        try Data(( [sessionMeta(id: "desktop-lockunreadable"), taskStarted(id: "t1")]
+            .joined(separator: "\n") + "\n").utf8).write(to: file)
+        try FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: file.path)
+        let lockDir = home.appendingPathComponent("thread-writer-locks", isDirectory: true)
+        try FileManager.default.createDirectory(at: lockDir, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: lockDir.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700],
+                                                        ofItemAtPath: lockDir.path) }
+
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: sessions,
+            isDesktopAppServerAlive: { true }
+        )
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-lockunreadable"]?.status == .working)
+
+        for event in await monitor.poll(now: now.addingTimeInterval(60)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-lockunreadable"]?.status == .working)
+        #expect(reducer.sessions["desktop-lockunreadable"]?.summary != "Abandoned")
+    }
+
+    @Test("a missing lock directory does not abandon a live Desktop writer")
+    func missingLockDirectoryKeepsWorking() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        _ = try fixture.write(
+            named: "rollout-nolockdir.jsonl",
+            lines: [sessionMeta(id: "desktop-nolockdir"), taskStarted(id: "t1")]
+        )
+        let siblingLocks = fixture.root.deletingLastPathComponent()
+            .appendingPathComponent("thread-writer-locks", isDirectory: true)
+        #expect(!FileManager.default.fileExists(atPath: siblingLocks.path))
+
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            isDesktopAppServerAlive: { true }
+        )
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-nolockdir"]?.status == .working)
+
+        for event in await monitor.poll(now: now.addingTimeInterval(60)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-nolockdir"]?.status == .working)
+        #expect(reducer.sessions["desktop-nolockdir"]?.summary != "Abandoned")
+    }
+
     @Test("a thread resumed from an older date directory is discovered")
     func resumedOldThreadDiscovery() async throws {
         let fixture = try RolloutFixture(now: now)
@@ -695,6 +1319,37 @@ struct CodexRolloutMonitorTests {
         #expect(diagnostics.watchedFileCount == 0)
         #expect(diagnostics.pendingDebounceCount == 0)
         #expect(diagnostics.queuedEventCount == 0)
+    }
+}
+
+/// Flip the injected writer probes mid-test without capturing a local `var`.
+private final class WriterFlag: @unchecked Sendable {
+    var isAlive: Bool
+    init(isAlive: Bool) { self.isAlive = isAlive }
+}
+
+private final class IdentityFlag: @unchecked Sendable {
+    var identities: [CodexDesktopAppServer.Identity]
+    var current: CodexDesktopAppServer.Identity? {
+        get { identities.first }
+        set { identities = newValue.map { [$0] } ?? [] }
+    }
+    init(pid: pid_t, startedAt: Date = Date(timeIntervalSince1970: 0)) {
+        identities = [Self.identity(pid: pid, startedAt: startedAt)]
+    }
+    func relaunch(startedAt: Date = Date(timeIntervalSince1970: 0)) {
+        let next = (current?.pid ?? 0) + 1
+        identities = [Self.identity(pid: next, startedAt: startedAt)]
+    }
+    func overlap(pid: pid_t, startedAt: Date) {
+        identities.append(Self.identity(pid: pid, startedAt: startedAt))
+    }
+    func dropOldest() {
+        if identities.count > 1 { identities.removeFirst() }
+    }
+    private static func identity(pid: pid_t, startedAt: Date) -> CodexDesktopAppServer.Identity {
+        let sec = UInt64(max(0, startedAt.timeIntervalSince1970.rounded(.down)))
+        return CodexDesktopAppServer.Identity(pid: pid, startSec: sec, startUsec: 0)
     }
 }
 

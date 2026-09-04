@@ -11,6 +11,9 @@ public struct CodexRolloutParser: Sendable {
     public private(set) var cwd: String?
     public private(set) var isDesktopSession = false
     public private(set) var turnActive = false
+    /// True after an approval or `request_user_input` notification. Probes may
+    /// only retire a `working` turn, so a waiting session is left alone.
+    public private(set) var awaitingUser = false
     /// Latest model named by `turn_context` / `thread_settings_applied`.
     public private(set) var model: String?
     private var tokenRecordCount = 0
@@ -19,6 +22,8 @@ public struct CodexRolloutParser: Sendable {
     private var contextWindow: Int?
     private var activeTurnIDs: Set<String> = []
     private var anonymousTurnCount = 0
+    /// A tool record after probe retirement, with no new `task_started`.
+    private var resumedActivity = false
     private var pendingCollab: [String: PendingCollab] = [:]
     private var attributedCollabCalls: Set<String> = []
     private var collabChildren: [String: CollabChild] = [:]
@@ -85,14 +90,14 @@ public struct CodexRolloutParser: Sendable {
                 return [event(.stop, sessionID: sessionID,
                               message: "Turn aborted", timestamp: timestamp)]
             case "exec_approval_request":
-                return [event(.notification, sessionID: sessionID, toolName: "Shell",
-                              message: "Permission required for Shell", timestamp: timestamp)]
+                return waiting(event(.notification, sessionID: sessionID, toolName: "Shell",
+                                     message: "Permission required for Shell", timestamp: timestamp))
             case "apply_patch_approval_request":
-                return [event(.notification, sessionID: sessionID, toolName: "File change",
-                              message: "Permission required for file change", timestamp: timestamp)]
+                return waiting(event(.notification, sessionID: sessionID, toolName: "File change",
+                                     message: "Permission required for file change", timestamp: timestamp))
             case "request_user_input", "elicitation_request":
-                return [event(.notification, sessionID: sessionID,
-                              message: "Waiting for your input", timestamp: timestamp)]
+                return waiting(event(.notification, sessionID: sessionID,
+                                     message: "Waiting for your input", timestamp: timestamp))
             case "item_completed":
                 guard let item = payload["item"] as? [String: Any] else { return [] }
                 return eventsForCompletedItem(item, sessionID: sessionID, timestamp: timestamp)
@@ -238,9 +243,11 @@ public struct CodexRolloutParser: Sendable {
         let itemType = payload["type"] as? String ?? "function_call"
         let name = Self.startedToolName(payload, itemType: itemType)
         if name.split(separator: "/").last?.lowercased() == "request_user_input" {
-            return [event(.notification, sessionID: sessionID, toolName: name,
-                          message: "Waiting for your input", timestamp: timestamp)]
+            return waiting(event(.notification, sessionID: sessionID, toolName: name,
+                                 message: "Waiting for your input", timestamp: timestamp))
         }
+        awaitingUser = false
+        rearmIfIdle()
         let namespace = (payload["namespace"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         if namespace?.lowercased() == "collaboration" {
             return eventsForCollabCall(payload, toolName: name, sessionID: sessionID, timestamp: timestamp)
@@ -290,6 +297,8 @@ public struct CodexRolloutParser: Sendable {
         sessionID: String,
         timestamp: Date
     ) -> [HookEvent] {
+        awaitingUser = false
+        rearmIfIdle()
         let callID = Self.nonEmpty(payload["call_id"] as? String)
         guard let callID, let pending = pendingCollab.removeValue(forKey: callID) else {
             return [event(.postToolUse, sessionID: sessionID, toolName: "Tool", timestamp: timestamp)]
@@ -349,6 +358,8 @@ public struct CodexRolloutParser: Sendable {
             return eventsForCollabItem(item, sessionID: sessionID, timestamp: timestamp)
         }
         guard let toolName = Self.completedToolName(item) else { return [] }
+        awaitingUser = false
+        rearmIfIdle()
         return [event(.postToolUse, sessionID: sessionID, toolName: toolName,
                       toolError: Self.itemFailed(item), timestamp: timestamp)]
     }
@@ -634,13 +645,21 @@ public struct CodexRolloutParser: Sendable {
         }
     }
 
+    private mutating func waiting(_ event: HookEvent) -> [HookEvent] {
+        awaitingUser = true
+        return [event]
+    }
+
     private mutating func startTurn(_ turnID: String?) {
+        awaitingUser = false
+        resumedActivity = false
         if let turnID, !turnID.isEmpty { activeTurnIDs.insert(turnID) }
         else { anonymousTurnCount += 1 }
         refreshTurnState()
     }
 
     private mutating func finishTurn(_ turnID: String?) {
+        resumedActivity = false
         if let turnID, !turnID.isEmpty {
             activeTurnIDs.remove(turnID)
         } else if anonymousTurnCount > 0 {
@@ -652,13 +671,30 @@ public struct CodexRolloutParser: Sendable {
     }
 
     private mutating func finishUnknownTurn() {
+        resumedActivity = false
         if anonymousTurnCount > 0 { anonymousTurnCount -= 1 }
         else if activeTurnIDs.count == 1 { activeTurnIDs.removeAll() }
         refreshTurnState()
     }
 
     private mutating func refreshTurnState() {
-        turnActive = anonymousTurnCount > 0 || !activeTurnIDs.isEmpty
+        turnActive = anonymousTurnCount > 0 || !activeTurnIDs.isEmpty || resumedActivity
+    }
+
+    private mutating func rearmIfIdle() {
+        guard !turnActive else { return }
+        resumedActivity = true
+        refreshTurnState()
+    }
+
+    /// Drop every in-flight turn without inventing a Codex completion record.
+    /// Used when a Desktop writer is gone; the monitor then emits `stop`.
+    mutating func abandonActiveTurns() {
+        activeTurnIDs.removeAll()
+        anonymousTurnCount = 0
+        awaitingUser = false
+        resumedActivity = false
+        refreshTurnState()
     }
 
     private static func itemFailed(_ item: [String: Any]) -> Bool {
@@ -791,12 +827,25 @@ public actor CodexRolloutMonitor {
         let task: Task<Void, Never>
     }
 
-    private typealias EventSink = @Sendable (HookEvent) async -> Void
+    private struct QueuedEvent {
+        let event: HookEvent
+        let recordsEvidence: Bool
+    }
+
+    private typealias EventSink = @Sendable (HookEvent, Bool) async -> Void
 
     private let root: URL
     private let discoveryInterval: Duration
     private let debounceInterval: Duration
     private let recoveryWindow: TimeInterval
+    private let ownerlessAfter: TimeInterval
+    /// Process/lock probes may only retire an already-working Desktop thread.
+    /// They must never create a session, never move one into `working`, and
+    /// never change ObservationHealth. ObservationSource is still never
+    /// guessed from process existence — this is a bounded exception for
+    /// "the writer is gone, leave working".
+    private let desktopAppServerIdentities: @Sendable () -> [CodexDesktopAppServer.Identity]
+    private let hasWriterLock: @Sendable (String) -> Bool
     private let watcherQueue = DispatchQueue(
         label: "com.vibebuddy.codex-rollout-watchers",
         qos: .utility
@@ -806,7 +855,7 @@ public actor CodexRolloutMonitor {
     private var debounceTasks: [String: DebounceRegistration] = [:]
     private var recoveryTask: Task<Void, Never>?
     private var deliveryTask: Task<Void, Never>?
-    private var eventQueue: [HookEvent] = []
+    private var eventQueue: [QueuedEvent] = []
     private var eventQueueHead = 0
     private var recoveryGateForTesting: (@Sendable () async -> Void)?
     private var sink: EventSink?
@@ -815,29 +864,110 @@ public actor CodexRolloutMonitor {
     private var watcherEventCount = 0
     private var debouncedRefreshCount = 0
     private var watcherRecoveryCount = 0
+    /// Last scan that still saw a writer, or the first ownerless observation
+    /// if this thread was never confirmed owned. The abandon deadline is
+    /// `ownerlessAfter` after that instant — not after the first ownerless scan.
+    private var lastOwnedAt: [String: Date] = [:]
+    /// Paths already seen without a writer. A later live app-server plus leftover
+    /// lock does not clear this; only a rollout append (`cursor.consume`) does.
+    private var ownerlessObserved: Set<String> = []
+    /// Last observed ChatGPT.app-bundled app-server. A different live identity
+    /// between scans is a replacement, not continued ownership.
+    private var lastAppServerIdentities: Set<CodexDesktopAppServer.Identity> = []
+    /// Identities live when this path was last bootstrapped or consumed an
+    /// append, limited to processes that already existed at the file mtime.
+    /// Watcher refreshes stamp `Date()`, so this — not `lastOwnedAt == now` —
+    /// exempts a resumed turn from replacement marking.
+    private var lastOwnedIdentities: [String: Set<CodexDesktopAppServer.Identity>] = [:]
 
     public init(
         root: URL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".codex/sessions", isDirectory: true),
         discoveryInterval: Duration = .seconds(30),
         debounceInterval: Duration = .milliseconds(100),
-        recoveryWindow: TimeInterval = 30 * 60
+        recoveryWindow: TimeInterval = 30 * 60,
+        ownerlessAfter: TimeInterval = 60,
+        isDesktopAppServerAlive: (@Sendable () -> Bool)? = nil,
+        hasWriterLock: (@Sendable (String) -> Bool)? = nil
+    ) {
+        let identities: @Sendable () -> [CodexDesktopAppServer.Identity]
+        if let isDesktopAppServerAlive {
+            identities = {
+                isDesktopAppServerAlive()
+                    ? [CodexDesktopAppServer.Identity(pid: 1, startSec: 0, startUsec: 0)]
+                    : []
+            }
+        } else {
+            identities = { CodexDesktopAppServer.identities() }
+        }
+        self.init(
+            root: root,
+            discoveryInterval: discoveryInterval,
+            debounceInterval: debounceInterval,
+            recoveryWindow: recoveryWindow,
+            ownerlessAfter: ownerlessAfter,
+            desktopAppServerIdentities: identities,
+            hasWriterLock: hasWriterLock)
+    }
+
+    init(
+        root: URL,
+        discoveryInterval: Duration = .seconds(30),
+        debounceInterval: Duration = .milliseconds(100),
+        recoveryWindow: TimeInterval = 30 * 60,
+        ownerlessAfter: TimeInterval = 60,
+        desktopAppServerIdentity: (@Sendable () -> CodexDesktopAppServer.Identity?)? = nil,
+        desktopAppServerIdentities: (@Sendable () -> [CodexDesktopAppServer.Identity])? = nil,
+        hasWriterLock: (@Sendable (String) -> Bool)? = nil
     ) {
         self.root = root
         self.discoveryInterval = discoveryInterval
         self.debounceInterval = debounceInterval
         self.recoveryWindow = recoveryWindow
+        self.ownerlessAfter = ownerlessAfter
+        if let desktopAppServerIdentities {
+            self.desktopAppServerIdentities = desktopAppServerIdentities
+        } else if let desktopAppServerIdentity {
+            self.desktopAppServerIdentities = {
+                desktopAppServerIdentity().map { [$0] } ?? []
+            }
+        } else {
+            self.desktopAppServerIdentities = { CodexDesktopAppServer.identities() }
+        }
+        // Production `root` is ~/.codex/sessions; CODEX_HOME and test fixtures
+        // follow the same sibling. A missing lock directory is not "no locks".
+        let lockRoot = root.deletingLastPathComponent()
+            .appendingPathComponent("thread-writer-locks", isDirectory: true)
+        self.hasWriterLock = hasWriterLock ?? { id in
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: lockRoot.path, isDirectory: &isDirectory),
+                  isDirectory.boolValue
+            else { return true }
+            // Unreadable/unsearchable is unknown, same as a missing directory —
+            // not proof that this thread has no lock.
+            guard CodexRolloutDiscovery.isReadableDirectory(lockRoot, fileManager: .default) else { return true }
+            return FileManager.default.fileExists(
+                atPath: lockRoot.appendingPathComponent("\(id).lock").path)
+        }
     }
 
     public func run(store: SessionStore) async {
-        await run { event in await store.ingest(event) }
+        await runDelivering { event, recordsEvidence in
+            await store.ingest(event, recordsEvidence: recordsEvidence)
+        }
     }
 
     func run(_ onEvent: @escaping @Sendable (HookEvent) async -> Void) async {
+        await runDelivering { event, _ in await onEvent(event) }
+    }
+
+    private func runDelivering(
+        _ onEvent: @escaping @Sendable (HookEvent, Bool) async -> Void
+    ) async {
         guard !isRunning else { return }
         isRunning = true
         sink = onEvent
-        enqueue(scan(now: Date(), installWatchers: true))
+        enqueueScan(scan(now: Date(), installWatchers: true))
 
         let interval = discoveryInterval
         recoveryTask = Task { [weak self] in
@@ -859,7 +989,7 @@ public actor CodexRolloutMonitor {
     /// One deterministic discovery/recovery pass, public so the file-tail
     /// contract can be tested without timers or a running HTTP server.
     public func poll(now: Date) -> [HookEvent] {
-        scan(now: now, installWatchers: isRunning)
+        scan(now: now, installWatchers: isRunning).events
     }
 
     public func diagnostics() -> CodexRolloutMonitorDiagnostics {
@@ -877,6 +1007,13 @@ public actor CodexRolloutMonitor {
         )
     }
 
+    /// Watcher debounce calls `refresh` with a wall-clock `Date()` and does
+    /// not run `retireOwnerless`. Tests use this to stamp ownership under a
+    /// replacement identity before the next discovery pass.
+    func consumeForTesting(file: URL, now: Date) -> [HookEvent] {
+        refresh(file: file, now: now, installWatcher: false)
+    }
+
     func invalidateWatcherForTesting(at file: URL) {
         let path = file.path
         watcherRecoveryCount += 1
@@ -892,23 +1029,114 @@ public actor CodexRolloutMonitor {
         guard isRunning, !Task.isCancelled else { return }
         if let recoveryGateForTesting { await recoveryGateForTesting() }
         guard isRunning, !Task.isCancelled else { return }
-        enqueue(scan(now: now, installWatchers: true))
+        enqueueScan(scan(now: now, installWatchers: true))
     }
 
-    private func scan(now: Date, installWatchers: Bool) -> [HookEvent] {
+    private struct ScanResult {
+        var observed: [HookEvent] = []
+        var retired: [HookEvent] = []
+        var events: [HookEvent] { observed + retired }
+    }
+
+    private func scan(now: Date, installWatchers: Bool) -> ScanResult {
         discoveryPassCount += 1
         let files = candidateFiles(now: now)
         let livePaths = Set(files.map(\.path))
-        var emitted: [HookEvent] = []
+        let previouslyTracked = Set(cursors.keys)
+        var result = ScanResult()
         for path in Array(cursors.keys) where !livePaths.contains(path) {
-            emitted.append(contentsOf: endedEvents(path: path, now: now))
+            result.observed.append(contentsOf: endedEvents(path: path, now: now))
             removeTracking(path: path)
         }
 
         for file in files {
-            emitted.append(contentsOf: refresh(file: file, now: now, installWatcher: installWatchers))
+            result.observed.append(contentsOf: refresh(file: file, now: now, installWatcher: installWatchers))
         }
-        return emitted
+        result.retired = retireOwnerless(now: now, previouslyTracked: previouslyTracked)
+        return result
+    }
+
+    /// A Desktop turn with no writer leaves `working` on the existing discovery
+    /// cadence (default 30s), not a new one-second poll.
+    ///
+    /// The clock starts at the last scan that still saw a writer (or the first
+    /// ownerless observation, if we never saw one). Abandon once that instant
+    /// is `ownerlessAfter` old. Worst case with the default 30s cadence: the
+    /// writer vanishes just after a scan; the pass at +60s retires it. Starting
+    /// the clock on the first ownerless scan would miss that bound by one
+    /// interval (~90s).
+    ///
+    /// Lock files persist after turns and their mtime does not follow writes, so
+    /// a lock's *presence* is not proof of a writer. A missing lock (only when
+    /// the lock directory itself exists), or a dead ChatGPT.app-bundled
+    /// `codex app-server`, is enough to call the thread ownerless. Leftover
+    /// locks are ignored once that process is already gone. If any previously
+    /// seen app-server identity disappears while another is still live,
+    /// previously tracked turns become ownerless unless their last append was
+    /// already under a still-live identity. After a thread has been
+    /// observed ownerless, a relaunched app-server plus that leftover lock still
+    /// does not reset the clock — only a rollout append re-arms ownership.
+    /// On the monitor's first sighting, a live server whose start is after the
+    /// rollout mtime is also ownerless (ChatGPT already relaunched).
+    private func retireOwnerless(now: Date, previouslyTracked: Set<String>) -> [HookEvent] {
+        var events: [HookEvent] = []
+        let currentIdentities = Set(desktopAppServerIdentities())
+        let appServerAlive = !currentIdentities.isEmpty
+        let firstSighting = lastAppServerIdentities.isEmpty
+        let disappeared = lastAppServerIdentities.subtracting(currentIdentities)
+        if !currentIdentities.isEmpty, !disappeared.isEmpty {
+            for (path, cursor) in cursors {
+                guard previouslyTracked.contains(path) else { continue }
+                if let owned = lastOwnedIdentities[path], !owned.isDisjoint(with: currentIdentities) {
+                    continue
+                }
+                guard cursor.surfaced, cursor.parser.turnActive, !cursor.parser.awaitingUser,
+                      cursor.parser.isDesktopSession
+                else { continue }
+                ownerlessObserved.insert(path)
+            }
+        }
+        lastAppServerIdentities = currentIdentities
+        for (path, cursor) in cursors {
+            guard cursor.surfaced, cursor.parser.turnActive,
+                  cursor.parser.isDesktopSession,
+                  let sessionID = cursor.parser.sessionID
+            else {
+                lastOwnedAt[path] = nil
+                ownerlessObserved.remove(path)
+                continue
+            }
+            // Probes may only retire a working turn. A pending approval or
+            // request_user_input stays needsResponse until the user answers.
+            if cursor.parser.awaitingUser { continue }
+            if firstSighting, !currentIdentities.isEmpty,
+               let modified = Self.fileModifiedAt(path),
+               currentIdentities.allSatisfy({ $0.startedAt > modified }) {
+                ownerlessObserved.insert(path)
+            }
+            if !appServerAlive || !hasWriterLock(sessionID) {
+                ownerlessObserved.insert(path)
+            }
+            if !ownerlessObserved.contains(path) {
+                lastOwnedAt[path] = now
+                continue
+            }
+            let confirmedAt = lastOwnedAt[path] ?? now
+            lastOwnedAt[path] = confirmedAt
+            guard now.timeIntervalSince(confirmedAt) >= ownerlessAfter else { continue }
+
+            var updated = cursor
+            updated.parser.abandonActiveTurns()
+            cursors[path] = updated
+            lastOwnedAt[path] = nil
+            ownerlessObserved.remove(path)
+            events.append(HookEvent(
+                kind: .stop, sessionID: sessionID, agent: .codex,
+                cwd: cursor.parser.cwd, message: "Abandoned",
+                observationSource: .rollout, timestamp: now,
+                desktopThreadID: sessionID, probeRetirement: true))
+        }
+        return events
     }
 
     private func refresh(file: URL, now: Date, installWatcher: Bool) -> [HookEvent] {
@@ -928,6 +1156,7 @@ public actor CodexRolloutMonitor {
                 if let bootstrapped = Self.bootstrap(file: file, state: state, receivedAt: now) {
                     cursor = bootstrapped.cursor
                     emitted = bootstrapped.events
+                    recordOwnedIdentities(path: path)
                 } else {
                     removeTracking(path: path)
                     return []
@@ -937,12 +1166,16 @@ public actor CodexRolloutMonitor {
                 cursor.offset += UInt64(appended.count)
                 emitted = cursor.consume(appended, receivedAt: now)
                 cursor.checkpoint = Self.checkpoint(file: file, endingAt: cursor.offset)
+                ownerlessObserved.remove(path)
+                lastOwnedAt[path] = now
+                recordOwnedIdentities(path: path)
             }
             cursor.identity = state.identity
             cursors[path] = cursor
         } else if let bootstrapped = Self.bootstrap(file: file, state: state, receivedAt: now) {
             cursors[path] = bootstrapped.cursor
             emitted = bootstrapped.events
+            recordOwnedIdentities(path: path)
         }
 
         if installWatcher { ensureWatcher(for: file, identity: state.identity) }
@@ -1025,9 +1258,16 @@ public actor CodexRolloutMonitor {
         enqueue(refresh(file: file, now: Date(), installWatcher: true))
     }
 
-    private func enqueue(_ events: [HookEvent]) {
+    private func enqueueScan(_ result: ScanResult) {
+        enqueue(result.observed)
+        enqueue(result.retired, recordsEvidence: false)
+    }
+
+    private func enqueue(_ events: [HookEvent], recordsEvidence: Bool = true) {
         guard isRunning, !events.isEmpty else { return }
-        eventQueue.append(contentsOf: events)
+        eventQueue.append(contentsOf: events.map {
+            QueuedEvent(event: $0, recordsEvidence: recordsEvidence)
+        })
         guard deliveryTask == nil else { return }
         deliveryTask = Task { [weak self] in
             await self?.drainEventQueue()
@@ -1036,17 +1276,29 @@ public actor CodexRolloutMonitor {
 
     private func drainEventQueue() async {
         while !Task.isCancelled, isRunning, eventQueueHead < eventQueue.count, let sink {
-            let event = eventQueue[eventQueueHead]
+            let queued = eventQueue[eventQueueHead]
             eventQueueHead += 1
-            await sink(event)
+            await sink(queued.event, queued.recordsEvidence)
         }
         eventQueue.removeAll(keepingCapacity: isRunning)
         eventQueueHead = 0
         deliveryTask = nil
     }
 
+    private func recordOwnedIdentities(path: String) {
+        let current = Set(desktopAppServerIdentities())
+        if let modified = Self.fileModifiedAt(path) {
+            lastOwnedIdentities[path] = current.filter { $0.startedAt <= modified }
+        } else {
+            lastOwnedIdentities[path] = current
+        }
+    }
+
     private func removeTracking(path: String) {
         cursors[path] = nil
+        lastOwnedAt[path] = nil
+        lastOwnedIdentities[path] = nil
+        ownerlessObserved.remove(path)
         debounceTasks.removeValue(forKey: path)?.task.cancel()
         if let registration = watchers.removeValue(forKey: path) {
             registration.watcher.cancelAndWait()
@@ -1075,30 +1327,24 @@ public actor CodexRolloutMonitor {
         eventQueue.removeAll()
         eventQueueHead = 0
         cursors.removeAll()
+        lastOwnedAt.removeAll()
+        ownerlessObserved.removeAll()
+        lastOwnedIdentities.removeAll()
+        lastAppServerIdentities.removeAll()
         recoveryGateForTesting = nil
         sink = nil
     }
 
     /// Rollouts live under their *start* date, and a resumed thread keeps
-    /// appending to that old file, so discovery walks every date directory and
-    /// keeps whatever was written inside the recency window.
+    /// appending to that old file. Discovery is the shared recursive walk;
+    /// an already-tracked active turn is retained past the recency window.
     private func candidateFiles(now: Date) -> [URL] {
         let fm = FileManager.default
-        let keys: Set<URLResourceKey> = [.isRegularFileKey, .contentModificationDateKey]
         var files: [URL] = []
-
-        if let enumerator = fm.enumerator(
-            at: root, includingPropertiesForKeys: Array(keys), options: [.skipsHiddenFiles]
+        if case .found(let candidates, _) = CodexRolloutDiscovery.candidates(
+            in: root, now: now, window: recoveryWindow, fileManager: fm
         ) {
-            for case let url as URL in enumerator {
-                guard url.lastPathComponent.hasPrefix("rollout-"), url.pathExtension == "jsonl",
-                      let values = try? url.resourceValues(forKeys: keys),
-                      values.isRegularFile == true,
-                      let modified = values.contentModificationDate,
-                      now.timeIntervalSince(modified) <= recoveryWindow
-                else { continue }
-                files.append(url)
-            }
+            files = candidates.map(\.url)
         }
         // Retain only active rollouts beyond the recency window. Completed or
         // abandoned files age out, bounding watcher descriptors over time.
@@ -1107,6 +1353,10 @@ public actor CodexRolloutMonitor {
             if !files.contains(url) { files.append(url) }
         }
         return files.sorted { $0.path < $1.path }
+    }
+
+    private static func fileModifiedAt(_ path: String) -> Date? {
+        (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
     }
 
     private static func fileState(_ file: URL) -> FileState? {
@@ -1181,5 +1431,51 @@ public actor CodexRolloutMonitor {
         } catch {
             return Data()
         }
+    }
+}
+
+/// The ChatGPT.app-bundled `codex` binary. Homebrew CLI and ssh `app-server`
+/// proxies must not count — this machine routinely runs all three.
+enum CodexDesktopAppServer {
+    struct Identity: Equatable, Hashable, Sendable {
+        var pid: pid_t
+        var startSec: UInt64
+        var startUsec: UInt64
+
+        var startedAt: Date {
+            Date(timeIntervalSince1970: TimeInterval(startSec) + TimeInterval(startUsec) / 1_000_000)
+        }
+    }
+
+    static func isAlive() -> Bool { !identities().isEmpty }
+
+    static func identity() -> Identity? { identities().min(by: { $0.pid < $1.pid }) }
+
+    static func identities() -> [Identity] {
+        let needed = proc_listpids(UInt32(PROC_ALL_PIDS), 0, nil, 0)
+        guard needed > 0 else { return [] }
+        var pids = [pid_t](repeating: 0, count: Int(needed) / MemoryLayout<pid_t>.stride)
+        let filled = proc_listpids(
+            UInt32(PROC_ALL_PIDS), 0, &pids,
+            Int32(pids.count * MemoryLayout<pid_t>.stride))
+        guard filled > 0 else { return [] }
+        let count = Int(filled) / MemoryLayout<pid_t>.stride
+        var pathBuffer = [UInt8](repeating: 0, count: Int(4 * MAXPATHLEN))
+        var matches: [Identity] = []
+        for pid in pids.prefix(count) where pid > 0 {
+            let len = proc_pidpath(pid, &pathBuffer, UInt32(pathBuffer.count))
+            guard len > 0 else { continue }
+            let path = String(decoding: pathBuffer.prefix(Int(len)), as: UTF8.self)
+            guard path.hasSuffix("/ChatGPT.app/Contents/Resources/codex") else { continue }
+            var info = proc_bsdinfo()
+            let size = Int32(MemoryLayout<proc_bsdinfo>.stride)
+            let got = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size)
+            guard got == size else { continue }
+            matches.append(Identity(
+                pid: pid,
+                startSec: info.pbi_start_tvsec,
+                startUsec: info.pbi_start_tvusec))
+        }
+        return matches
     }
 }

@@ -115,20 +115,28 @@ public actor SessionStore {
 
     /// Apply an already-normalized event from a local monitor such as the Codex
     /// Desktop rollout tailer. Hook payload parsing remains in the Data overload.
-    public func ingest(_ event: HookEvent) {
+    /// Probe retirement passes `recordsEvidence: false` so a synthetic stop
+    /// still migrates progress without minting rollout health evidence.
+    public func ingest(_ event: HookEvent, recordsEvidence: Bool = true) {
         let inferredSource = event.observationSource ?? (event.agent == .codex ? .rollout : .hook)
-        ingest(event, observationSource: inferredSource)
+        ingest(event, observationSource: inferredSource, recordsEvidence: recordsEvidence)
     }
 
-    private func ingest(_ event: HookEvent, observationSource: ObservationSource) {
+    private func ingest(
+        _ event: HookEvent,
+        observationSource: ObservationSource,
+        recordsEvidence: Bool = true
+    ) {
         let wasWaiting = reducer.sessions[event.sessionID]?.status == .needsResponse
         if let path = event.transcriptPath { transcriptPaths[event.sessionID] = path }
-        reducer.apply(event, observationSource: observationSource)
+        reducer.apply(event, observationSource: observationSource, recordsEvidence: recordsEvidence)
         if let enrichment = event.enrichment {
             reducer.enrich(sessionID: event.sessionID, with: enrichment)
         }
-        recordSignal(agent: event.agent, source: observationSource, at: event.timestamp,
-                     health: .healthy, coverage: Self.coverage(for: event.kind))
+        if recordsEvidence {
+            recordSignal(agent: event.agent, source: observationSource, at: event.timestamp,
+                         health: .healthy, coverage: Self.coverage(for: event.kind))
+        }
         if reducer.sessions[event.sessionID] == nil {
             // Session was removed (e.g. SessionEnd) — forget its side data.
             transcriptPaths[event.sessionID] = nil

@@ -39,12 +39,6 @@ public enum ObservationHealthDetector {
         "function_call_output", "custom_tool_call_output", "local_shell_call_output",
     ]
 
-    private enum RolloutLookup {
-        case found(url: URL, modifiedAt: Date)
-        case empty
-        case unreadable
-    }
-
     private enum RolloutInspection {
         case supportedEvent
         case metadataOnly
@@ -223,14 +217,15 @@ public enum ObservationHealthDetector {
 
         // Claude transcript paths arrive on hooks and are tracked as runtime
         // signals. Do not recursively walk every historical project transcript
-        // during a Settings refresh. Codex uses date-partitioned directories, so
-        // inspecting today and yesterday is bounded.
+        // during a Settings refresh. Codex diagnostics take the newest rollout
+        // by mtime, including files outside the monitor recency window, so a
+        // restart still has freshness evidence.
         guard source == .rollout else {
             return diagnostic(source: source, signal: signal, fallback: .eventsMissing,
                               now: now, staleAfter: staleAfter)
         }
 
-        switch latestRollout(in: root, now: now, fileManager: fm) {
+        switch CodexRolloutDiscovery.latest(in: root, now: now, fileManager: fm) {
         case .unreadable:
             return diagnostic(source: source, signal: signal, fallback: .sourceUnreadable,
                               now: now, staleAfter: staleAfter, forceFallback: true)
@@ -336,73 +331,6 @@ public enum ObservationHealthDetector {
               let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
         return try? handle.read(upToCount: count)
-    }
-
-    private static func latestRollout(
-        in root: URL,
-        now: Date,
-        fileManager fm: FileManager
-    ) -> RolloutLookup {
-        guard fm.fileExists(atPath: root.path) else { return .empty }
-        guard isReadableDirectory(root, fileManager: fm) else { return .unreadable }
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = .current
-        var latest: (URL, Date)?
-        for daysAgo in 0...1 {
-            guard let day = calendar.date(byAdding: .day, value: -daysAgo, to: now) else { continue }
-            let parts = calendar.dateComponents([.year, .month, .day], from: day)
-            guard let year = parts.year, let month = parts.month, let dayNumber = parts.day else { continue }
-            var directory = root
-            var directoryExists = true
-            for component in [
-                String(format: "%04d", year),
-                String(format: "%02d", month),
-                String(format: "%02d", dayNumber),
-            ] {
-                directory.appendPathComponent(component, isDirectory: true)
-                guard fm.fileExists(atPath: directory.path) else {
-                    directoryExists = false
-                    break
-                }
-                guard isReadableDirectory(directory, fileManager: fm) else {
-                    return .unreadable
-                }
-            }
-            guard directoryExists else { continue }
-            let urls: [URL]
-            do {
-                urls = try fm.contentsOfDirectory(
-                    at: directory,
-                    includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
-                    options: [.skipsHiddenFiles])
-            } catch {
-                return .unreadable
-            }
-            for url in urls where url.pathExtension == "jsonl" {
-                let values: URLResourceValues
-                do {
-                    values = try url.resourceValues(
-                        forKeys: [.isRegularFileKey, .contentModificationDateKey])
-                } catch {
-                    return .unreadable
-                }
-                guard values.isRegularFile == true,
-                      let modified = values.contentModificationDate else { continue }
-                if latest == nil || modified > latest!.1 { latest = (url, modified) }
-            }
-        }
-        if let latest { return .found(url: latest.0, modifiedAt: latest.1) }
-        return .empty
-    }
-
-    private static func isReadableDirectory(_ url: URL, fileManager fm: FileManager) -> Bool {
-        guard fm.isReadableFile(atPath: url.path),
-              let attributes = try? fm.attributesOfItem(atPath: url.path),
-              (attributes[.type] as? FileAttributeType) == .typeDirectory,
-              let permissions = (attributes[.posixPermissions] as? NSNumber)?.intValue,
-              permissions & 0o444 != 0,
-              permissions & 0o111 != 0 else { return false }
-        return true
     }
 
     private static func inspectRollout(

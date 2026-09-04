@@ -362,6 +362,10 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     /// True when a child event arrived without a stable identity. Optional so
     /// older payloads stay decodable and default to "not degraded".
     public var childTopologyDegraded: Bool?
+    /// True when the Mac probe retired this session. Optional so older
+    /// snapshots decode as a normal completion. Distinct from a real stop
+    /// whose last message happened to be "Abandoned".
+    public var probeRetired: Bool?
     public var statusSince: Date
     public var updatedAt: Date
 
@@ -388,6 +392,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         observations: [ObservationEvidence]? = nil,
         childAgents: [ChildAgent]? = nil,
         childTopologyDegraded: Bool? = nil,
+        probeRetired: Bool? = nil,
         statusSince: Date,
         updatedAt: Date
     ) {
@@ -413,6 +418,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         self.observations = observations
         self.childAgents = childAgents
         self.childTopologyDegraded = childTopologyDegraded
+        self.probeRetired = probeRetired
         self.statusSince = statusSince
         self.updatedAt = updatedAt
     }
