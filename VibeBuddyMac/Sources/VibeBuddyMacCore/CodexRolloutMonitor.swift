@@ -914,6 +914,9 @@ public actor CodexRolloutMonitor {
             guard FileManager.default.fileExists(atPath: lockRoot.path, isDirectory: &isDirectory),
                   isDirectory.boolValue
             else { return true }
+            // Unreadable/unsearchable is unknown, same as a missing directory —
+            // not proof that this thread has no lock.
+            guard CodexRolloutDiscovery.isReadableDirectory(lockRoot, fileManager: .default) else { return true }
             return FileManager.default.fileExists(
                 atPath: lockRoot.appendingPathComponent("\(id).lock").path)
         }
@@ -1091,7 +1094,7 @@ public actor CodexRolloutMonitor {
                 kind: .stop, sessionID: sessionID, agent: .codex,
                 cwd: cursor.parser.cwd, message: "Abandoned",
                 observationSource: .rollout, timestamp: now,
-                desktopThreadID: sessionID))
+                desktopThreadID: sessionID, probeRetirement: true))
         }
         return events
     }

@@ -16,12 +16,14 @@ struct SessionReducerTests {
         message: String? = nil,
         model: String? = nil,
         toolError: Bool = false,
+        probeRetirement: Bool = false,
         at: TimeInterval = 0
     ) -> HookEvent {
         HookEvent(kind: kind, sessionID: sid, agent: .claudeCode,
                   cwd: cwd, toolName: tool, message: message,
                   model: model,
-                  toolError: toolError, timestamp: t0.addingTimeInterval(at))
+                  toolError: toolError, timestamp: t0.addingTimeInterval(at),
+                  probeRetirement: probeRetirement)
     }
 
     @Test("preToolUse sets the active tool; postToolUse and a new turn clear it")
@@ -104,7 +106,7 @@ struct SessionReducerTests {
     func abandonedStopIsNotUnreadCompletion() {
         var r = SessionReducer()
         r.apply(ev(.userPromptSubmit, at: 0))
-        r.apply(ev(.stop, message: "Abandoned", at: 60))
+        r.apply(ev(.stop, message: "Abandoned", probeRetirement: true, at: 60))
         #expect(r.sessions["s1"]?.status == .done)
         #expect(r.sessions["s1"]?.summary == "Abandoned")
         #expect(r.sessions["s1"]?.failed != true)
@@ -113,9 +115,15 @@ struct SessionReducerTests {
 
         r.apply(ev(.userPromptSubmit, at: 61))
         r.apply(ev(.postToolUse, tool: "Bash", toolError: true, at: 62))
-        r.apply(ev(.stop, message: "Abandoned", at: 120))
+        r.apply(ev(.stop, message: "Abandoned", probeRetirement: true, at: 120))
         #expect(r.sessions["s1"]?.failed != true)
         #expect(r.sessions["s1"]?.hasUnreadCompletion == false)
+
+        var ordinary = SessionReducer()
+        ordinary.apply(ev(.userPromptSubmit, at: 0))
+        ordinary.apply(ev(.stop, message: "Abandoned", at: 1))
+        #expect(ordinary.sessions["s1"]?.hasUnreadCompletion == true)
+        #expect(ordinary.sessions["s1"]?.probeRetired != true)
     }
 
     @Test("a failure-looking Stop message marks failed even without a tool error")

@@ -755,6 +755,34 @@ struct CodexRolloutMonitorTests {
         #expect(reducer.sessions["desktop-silent"]?.summary != "Abandoned")
     }
 
+    @Test("an unreadable lock directory does not abandon a live Desktop writer")
+    func unreadableLockDirectoryKeepsWorking() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        _ = try fixture.write(
+            named: "rollout-lockunreadable.jsonl",
+            lines: [sessionMeta(id: "desktop-lockunreadable"), taskStarted(id: "t1")]
+        )
+        let lockDir = fixture.root.deletingLastPathComponent()
+            .appendingPathComponent("thread-writer-locks", isDirectory: true)
+        try FileManager.default.createDirectory(at: lockDir, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: lockDir.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700],
+                                                        ofItemAtPath: lockDir.path) }
+
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            isDesktopAppServerAlive: { true }
+        )
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-lockunreadable"]?.status == .working)
+
+        for event in await monitor.poll(now: now.addingTimeInterval(60)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-lockunreadable"]?.status == .working)
+        #expect(reducer.sessions["desktop-lockunreadable"]?.summary != "Abandoned")
+    }
+
     @Test("a missing lock directory does not abandon a live Desktop writer")
     func missingLockDirectoryKeepsWorking() async throws {
         let fixture = try RolloutFixture(now: now)

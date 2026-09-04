@@ -134,7 +134,7 @@ struct SessionStoreTests {
             kind: .stop, sessionID: "s", agent: .codex,
             cwd: "/x/p", message: "Abandoned",
             observationSource: .rollout, timestamp: retiredAt,
-            desktopThreadID: "s"),
+            desktopThreadID: "s", probeRetirement: true),
             recordsEvidence: false)
 
         let after = await store.snapshot(now: retiredAt)

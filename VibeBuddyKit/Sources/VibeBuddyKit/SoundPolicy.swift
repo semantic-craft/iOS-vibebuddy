@@ -136,7 +136,7 @@ public final class SoundPolicy {
         // (`appActive`) or this session's own terminal window is (`focusedSessionIDs`).
         let watching = input.appActive || input.focusedSessionIDs.contains(session.id)
         guard let prev, prev.status != .done, !watching else { return nil }
-        if session.summary == "Abandoned" { return nil }
+        if session.probeRetired == true { return nil }
 
         // Real signal first (a tool/turn error reported by the hook), then the
         // prose heuristic as a fallback. Either way failures ring regardless of runtime.

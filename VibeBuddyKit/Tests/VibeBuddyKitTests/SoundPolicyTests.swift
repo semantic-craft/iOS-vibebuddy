@@ -11,9 +11,10 @@ struct SoundPolicyTests {
     private func session(_ id: String, _ status: SessionStatus,
                          wait: WaitKind? = nil,
                          since: TimeInterval = 0,
-                         summary: String? = nil) -> AgentSession {
+                         summary: String? = nil,
+                         probeRetired: Bool? = nil) -> AgentSession {
         AgentSession(id: id, agent: .claudeCode, project: id, status: status,
-                     waitKind: wait, summary: summary,
+                     waitKind: wait, summary: summary, probeRetired: probeRetired,
                      statusSince: Date(timeIntervalSince1970: since),
                      updatedAt: Date(timeIntervalSince1970: since))
     }
@@ -105,7 +106,8 @@ struct SoundPolicyTests {
     func abandonedDoneSilent() {
         let p = SoundPolicy()
         _ = p.evaluate(input([session("a", .working, since: 0)], now: 0))
-        let alerts = p.evaluate(input([session("a", .done, since: 40, summary: "Abandoned")],
+        let alerts = p.evaluate(input([session("a", .done, since: 40, summary: "Abandoned",
+                                               probeRetired: true)],
                                       now: 40, appActive: false))
         #expect(alerts.isEmpty)
     }

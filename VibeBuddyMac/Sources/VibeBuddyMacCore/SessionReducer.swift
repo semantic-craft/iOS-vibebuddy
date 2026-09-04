@@ -45,12 +45,14 @@ public struct SessionReducer: Sendable {
             // buckets that is `done` until UserPromptSubmit arrives.
             upsert(event, status: .done, waitKind: nil)
             sessions[event.sessionID]?.failed = false
+            sessions[event.sessionID]?.probeRetired = nil
             sessions[event.sessionID]?.activeTool = nil
         case .userPromptSubmit:
             if let turnID = event.turnID { currentTurnID[event.sessionID] = turnID }
             upsert(event, status: .working, waitKind: nil)
             sessions[event.sessionID]?.hasUnreadCompletion = false
             sessions[event.sessionID]?.failed = false
+            sessions[event.sessionID]?.probeRetired = nil
             sessions[event.sessionID]?.activeTool = nil
         case .preToolUse, .postToolUse:
             if event.childID != nil {
@@ -90,9 +92,10 @@ public struct SessionReducer: Sendable {
             sessions[event.sessionID]?.activeTool = nil
             // Probe retirement is done, not failed, and not a successful
             // completion — no unread-complete badge and no agentDone cue.
-            if event.message == "Abandoned" {
+            if event.probeRetirement {
                 sessions[event.sessionID]?.hasUnreadCompletion = false
                 sessions[event.sessionID]?.failed = false
+                sessions[event.sessionID]?.probeRetired = true
                 break
             }
             // Carry the last tool's outcome; also treat a failure-looking stop
