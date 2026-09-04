@@ -3,9 +3,12 @@ import Foundation
 /// Shared rollout discovery for the Desktop monitor and Settings diagnostics.
 ///
 /// Rollouts live under their *start* date, and a resumed thread keeps appending
-/// to that old file. Both callers must walk the injected `sessions` root
-/// recursively and keep whatever was written inside the recency window — they
-/// must not each invent a date-directory assumption.
+/// to that old file. Both callers walk the injected `sessions` root recursively
+/// — they must not each invent a date-directory assumption.
+///
+/// `candidates` keeps the monitor's recency window (what to tail). `latest` is
+/// unbounded by mtime so diagnostics can still classify a stale rollout after
+/// an app or daemon restart.
 ///
 /// The root is `~/.codex/sessions` (or a test/CODEX_HOME stand-in), never the
 /// Codex home itself: that tree also holds `archived_sessions`, cache, backups,
@@ -34,10 +37,12 @@ enum CodexRolloutDiscovery {
         case unreadable
     }
 
+    /// `window` bounds which files the monitor should tail. Pass `nil` to keep
+    /// every rollout so diagnostics can classify stale evidence after a restart.
     static func candidates(
         in root: URL,
         now: Date,
-        window: TimeInterval = recencyWindow,
+        window: TimeInterval? = recencyWindow,
         fileManager fm: FileManager = .default
     ) -> Lookup {
         guard fm.fileExists(atPath: root.path) else { return .empty }
@@ -79,9 +84,9 @@ enum CodexRolloutDiscovery {
 
             guard url.lastPathComponent.hasPrefix("rollout-"), url.pathExtension == "jsonl",
                   values.isRegularFile == true,
-                  let modified = values.contentModificationDate,
-                  now.timeIntervalSince(modified) <= window
+                  let modified = values.contentModificationDate
             else { continue }
+            if let window, now.timeIntervalSince(modified) > window { continue }
             files.append(Candidate(url: url, modifiedAt: modified))
         }
 
@@ -89,15 +94,15 @@ enum CodexRolloutDiscovery {
         return .found(files)
     }
 
-    /// Diagnostics inspect one file: the newest candidate. Same three-way
-    /// result as `candidates` — `.unreadable` must not collapse into `.empty`.
+    /// Diagnostics inspect one file: the newest rollout by mtime, including
+    /// files outside the monitor recency window. Same three-way result as
+    /// `candidates` — `.unreadable` must not collapse into `.empty`.
     static func latest(
         in root: URL,
         now: Date,
-        window: TimeInterval = recencyWindow,
         fileManager fm: FileManager = .default
     ) -> Latest {
-        switch candidates(in: root, now: now, window: window, fileManager: fm) {
+        switch candidates(in: root, now: now, window: nil, fileManager: fm) {
         case .empty: return .empty
         case .unreadable: return .unreadable
         case .found(let files):

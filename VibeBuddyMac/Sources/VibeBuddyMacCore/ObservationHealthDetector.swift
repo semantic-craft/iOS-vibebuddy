@@ -217,8 +217,9 @@ public enum ObservationHealthDetector {
 
         // Claude transcript paths arrive on hooks and are tracked as runtime
         // signals. Do not recursively walk every historical project transcript
-        // during a Settings refresh. Codex rollouts reuse the monitor's recency
-        // window, so a resumed old-date file is visible without walking home.
+        // during a Settings refresh. Codex diagnostics take the newest rollout
+        // by mtime, including files outside the monitor recency window, so a
+        // restart still has freshness evidence.
         guard source == .rollout else {
             return diagnostic(source: source, signal: signal, fallback: .eventsMissing,
                               now: now, staleAfter: staleAfter)
