@@ -61,6 +61,7 @@ public struct SessionReducer: Sendable {
             } else {
                 upsert(event, status: .working, waitKind: nil)
                 sessions[event.sessionID]?.hasUnreadCompletion = false
+                sessions[event.sessionID]?.probeRetired = nil
                 if event.kind == .preToolUse {
                     sessions[event.sessionID]?.activeTool = event.toolName
                 } else {

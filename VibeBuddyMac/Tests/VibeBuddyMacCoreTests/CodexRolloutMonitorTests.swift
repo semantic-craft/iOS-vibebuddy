@@ -587,6 +587,36 @@ struct CodexRolloutMonitorTests {
         #expect(reducer.sessions["desktop-replaced-live"]?.summary != "Abandoned")
     }
 
+    @Test("when the owning app-server exits during overlap, the interrupted turn still retires")
+    func owningServerExitDuringOverlapRetires() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        _ = try fixture.write(
+            named: "rollout-overlap-exit.jsonl",
+            lines: [sessionMeta(id: "desktop-overlap-exit"), taskStarted(id: "t1")]
+        )
+        let ownerlessAfter: TimeInterval = 60
+        let server = IdentityFlag(pid: 71)
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            ownerlessAfter: ownerlessAfter,
+            desktopAppServerIdentities: { server.identities },
+            hasWriterLock: { _ in true }
+        )
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-overlap-exit"]?.status == .working)
+
+        server.overlap(pid: 72, startedAt: now.addingTimeInterval(1))
+        for event in await monitor.poll(now: now.addingTimeInterval(30)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-overlap-exit"]?.status == .working)
+
+        server.dropOldest()
+        for event in await monitor.poll(now: now.addingTimeInterval(90)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-overlap-exit"]?.status == .done)
+        #expect(reducer.sessions["desktop-overlap-exit"]?.summary == "Abandoned")
+    }
+
     @Test("an overlapping replacement process does not abandon a turn that wrote during the overlap")
     func overlappingAppServerAppendStaysOwned() async throws {
         let fixture = try RolloutFixture(now: now)

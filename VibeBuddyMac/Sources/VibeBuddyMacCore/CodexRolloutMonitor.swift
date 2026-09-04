@@ -1054,11 +1054,10 @@ public actor CodexRolloutMonitor {
     /// a lock's *presence* is not proof of a writer. A missing lock (only when
     /// the lock directory itself exists), or a dead ChatGPT.app-bundled
     /// `codex app-server`, is enough to call the thread ownerless. Leftover
-    /// locks are ignored once that process is already gone. A live app-server
-    /// whose pid/start identity changed between scans is also ownerless — the
-    /// quit-and-relaunch happened between observations. A path that was new this
-    /// scan, or that got a rollout append in this same pass, is already owned by
-    /// the replacement server and must not be marked. After a thread has been
+    /// locks are ignored once that process is already gone. If any previously
+    /// seen app-server identity disappears while another is still live,
+    /// previously tracked turns become ownerless unless their last append was
+    /// already under a still-live identity. After a thread has been
     /// observed ownerless, a relaunched app-server plus that leftover lock still
     /// does not reset the clock — only a rollout append re-arms ownership.
     /// On the monitor's first sighting, a live server whose start is after the
@@ -1068,8 +1067,8 @@ public actor CodexRolloutMonitor {
         let currentIdentities = Set(desktopAppServerIdentities())
         let appServerAlive = !currentIdentities.isEmpty
         let firstSighting = lastAppServerIdentities.isEmpty
-        if !lastAppServerIdentities.isEmpty, !currentIdentities.isEmpty,
-           lastAppServerIdentities.isDisjoint(with: currentIdentities) {
+        let disappeared = lastAppServerIdentities.subtracting(currentIdentities)
+        if !currentIdentities.isEmpty, !disappeared.isEmpty {
             for (path, cursor) in cursors {
                 guard previouslyTracked.contains(path) else { continue }
                 if let owned = lastOwnedIdentities[path], !owned.isDisjoint(with: currentIdentities) {

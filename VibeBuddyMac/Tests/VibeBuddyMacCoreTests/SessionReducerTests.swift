@@ -124,6 +124,11 @@ struct SessionReducerTests {
         ordinary.apply(ev(.stop, message: "Abandoned", at: 1))
         #expect(ordinary.sessions["s1"]?.hasUnreadCompletion == true)
         #expect(ordinary.sessions["s1"]?.probeRetired != true)
+
+        r.apply(ev(.preToolUse, tool: "Bash", at: 121))
+        #expect(r.sessions["s1"]?.probeRetired != true)
+        r.apply(ev(.stop, at: 122))
+        #expect(r.sessions["s1"]?.hasUnreadCompletion == true)
     }
 
     @Test("a failure-looking Stop message marks failed even without a tool error")
