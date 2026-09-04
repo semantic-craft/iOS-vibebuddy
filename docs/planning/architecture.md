@@ -15,15 +15,15 @@ Mac
       • Reducer           → derive per-session status (needsResponse/working/done)
       • TranscriptReader  → tail JSONL for model, tokens, last assistant text
       • Broadcaster       → push ServerEvent to WS clients
-      • GET /snapshot, GET /ws   ← bound to 0.0.0.0:PORT (LAN), bearer-token gated
+      • GET /snapshot, WebSocket /ws ← bound to 0.0.0.0:PORT (LAN), bearer-token gated
       • GET /health              ← unauthenticated liveness probe
       │
       │  LAN WebSocket + REST, bearer token  (later: Tailscale 100.x via same channel)
       ▼
 iPhone
   VibeBuddyApp  (SwiftUI, depends on VibeBuddyKit)
-      • Pairing      → scan QR → {host, port, token} → Keychain
-      • Connection store (reconnect, snapshot-on-reconnect)
+      • Pairing      → scan QR → {host, port, token, macName?} → ConnectionStore / UserDefaults
+      • DashboardStore + WebSocket client (automatic /ws reconnect; server-pushed initial snapshot)
       • Dashboard (3 sections) + remote approve / answer
       • local notifications + APNs; Widget / Live Activity
       • Watch companion (iPhone relays; Watch has no Mac token)
@@ -95,7 +95,8 @@ public enum ServerEvent: Codable, Sendable {
 public struct PairingPayload: Codable, Sendable {
     public var host: String          // LAN IP today, Tailscale 100.x later
     public var port: Int
-    public var token: String         // bearer token, stored in Keychain on the phone
+    public var token: String         // bearer token, stored with this payload in UserDefaults
+    public var macName: String?
 }
 ```
 
@@ -105,7 +106,7 @@ We register these Claude Code hooks and reduce them. Claude's status hooks are f
 
 | Hook event | Effect on session |
 |---|---|
-| `SessionStart` | upsert session, `status = working`, set project/branch/cwd |
+| `SessionStart` | upsert session, `status = done`, set project/branch/cwd; remain idle until `UserPromptSubmit` |
 | `UserPromptSubmit` | `status = working`, `statusSince = now` |
 | `PreToolUse` | stay `working`; record active tool name for the "working" detail |
 | `PostToolUse` | stay `working`; clear active tool |
@@ -118,11 +119,11 @@ On every event the daemon also refreshes derived metadata via **TranscriptReader
 
 ## Connection & Pairing
 
-1. `VibeBuddyMac` generates a random `token` on first run (kept in the Mac Keychain) and binds the server to `0.0.0.0:PORT`.
-2. The menu bar's **"Show pairing QR"** renders a QR encoding `PairingPayload { host, port, token }` (host = current LAN IP; later a Tailscale `100.x` IP).
-3. `VibeBuddyApp` scans the QR, stores the payload in the **iOS Keychain**, then connects.
-4. Every `GET /snapshot` and `GET /ws` requires the bearer token (`Authorization: Bearer <token>`); requests without it get `401`. `GET /health` is open (liveness only). `POST /hook`, `/approval`, and `/terminal` also require the same token (header or `?token=`, **ADR-0009**).
-5. On reconnect (phone woke, WiFi changed) the app re-fetches `GET /snapshot` to resync, then resumes the `/ws` stream.
+1. `VibeBuddyMac` generates a random `token` on first run. `TokenStore` persists it in the owner-only (`0600`) file `~/Library/Application Support/vibebuddy/token`, and the server binds to `0.0.0.0:PORT`.
+2. The menu bar's **"Show pairing QR"** renders a QR encoding `PairingPayload { host, port, token, macName? }` (host = current LAN IP; later a Tailscale `100.x` IP).
+3. `VibeBuddyApp` scans the QR, and `ConnectionStore` encodes the full payload into **iOS `UserDefaults`** before connecting.
+4. `GET /snapshot` and the WebSocket `/ws` upgrade require the bearer token in `Authorization: Bearer <token>`; without it, `/snapshot` returns `401` and `/ws` refuses the upgrade. `GET /health` is open (liveness only). `POST /hook`, `/approval`, and `/terminal` also require the same token (header or `?token=`, **ADR-0009**).
+5. On initial connection and reconnect (phone woke, WiFi changed), the app opens `/ws` directly. After the WebSocket is established, the server immediately pushes the current snapshot and then subsequent updates; the current iOS client does not pre-fetch `GET /snapshot`.
 
 ## Wire Protocol
 
@@ -131,8 +132,8 @@ On every event the daemon also refreshes derived metadata via **TranscriptReader
 | Endpoint | Auth | Purpose |
 |---|---|---|
 | `GET /health` | none | liveness probe for the connection screen |
-| `GET /snapshot` | bearer token | full `Snapshot` JSON — initial load and after reconnect |
-| `GET /ws` | bearer token | WebSocket stream of `ServerEvent` frames |
+| `GET /snapshot` | bearer token | full `Snapshot` JSON for explicit REST callers; not used by the current iOS reconnect path |
+| `GET /ws` | bearer token | WebSocket stream; current `Snapshot` immediately after upgrade, then subsequent `ServerEvent` frames |
 
 **Hooks → daemon (bearer token; query token allowed per ADR-0009):**
 
@@ -150,11 +151,11 @@ The forwarder reads `VIBEBUDDY_TOKEN` or the token file selected by `VIBEBUDDY_T
 ## Key Architectural Decisions
 
 1. **Single shared package (VibeBuddyKit).** Models + `Codable` live once; the two apps can't drift on the wire format. *Trade-off*: both Xcode apps take a local-package dependency (fine in a monorepo).
-2. **Mac side is a SwiftUI `MenuBarExtra` app (R1)**, not a headless CLI. Gives a Mac-side glance and a home for launch-at-login, port config, and the pairing QR; matches `eul` / open-vibe-island. The hook-intake + reducer + WebSocket server are embedded behind a `Server` protocol.
-3. **QR pairing + bearer token (R2).** The phone scans a QR instead of typing an IP; the token gives light LAN auth and is reused unchanged when the host becomes a Tailscale IP. Tokens live in Keychain on both sides.
+2. **Mac side is a SwiftUI `MenuBarExtra` app (R1)**, not a headless CLI. Gives a Mac-side glance and a home for launch-at-login, port config, and the pairing QR; matches `eul` / open-vibe-island. The hook-intake, reducer, and WebSocket server are embedded in the Mac product.
+3. **QR pairing + bearer token (R2).** The phone scans a QR instead of typing an IP; the token gives light LAN auth and is reused unchanged when the host becomes a Tailscale IP. The Mac stores it in an owner-only file; iOS stores the full pairing payload in `UserDefaults`.
 4. **Status delivery is bounded and fail-open; the daemon is not read-only.** Claude status hooks run asynchronously and stay off the agent's critical path. Codex and Grok currently invoke status hooks synchronously, but the forwarder caps local HTTP delivery at one second for Codex and three seconds for Grok, so a missing or wedged daemon can delay them only briefly. Remote approval is an opt-in blocking gate. Hook routes share the install bearer token (**ADR-0009**).
 5. **Source-agnostic sessions.** `agent: AgentKind` on every session; Claude Code and Codex are adapters normalizing their payloads into one `AgentSession`. Codex is additive.
-6. **Server library (Phase B decision).** Lean candidates: **Hummingbird 2** (small, async/await, first-class WS) or raw **Network.framework** `NWListener` (zero deps). Isolated behind the `Server` protocol so it's swappable.
+6. **Server library.** The current server is implemented directly with **Hummingbird 2** and HummingbirdWebSocket. There is no `NWListener` backend or `Server` protocol layer in the current implementation.
 7. **Transport is config, not code.** `host:port` + token are data (delivered by QR), so LAN→Tailscale is a value swap.
 
 ## Testing Seams (for TDD / to-spec)
