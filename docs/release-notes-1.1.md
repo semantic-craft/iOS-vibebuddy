@@ -2,7 +2,8 @@
 
 Signed, notarized, and much better at telling you *why* it thinks an agent is
 stuck. This is the first build that opens with a double-click — no Gatekeeper
-warning, no `xattr` incantation — and the first one that can update itself.
+warning, no `xattr` incantation — and the first one prepared for Sparkle updates
+once its signed appcast is published.
 
 ### Agent observability
 
@@ -35,9 +36,10 @@ warning, no `xattr` incantation — and the first one that can update itself.
 
 - **Signed with a Developer ID and notarized by Apple.** First launch is a
   double-click.
-- **Sparkle auto-update** is live. On first launch the app asks once whether it
-  should check for updates on its own; either answer is fine, and
-  "Check for Updates…" in the menu always works.
+- **Sparkle auto-update** is wired in this candidate. It becomes live only
+  after this release is published with a signed appcast. On first launch the
+  app asks once whether it should check for updates on its own; either answer
+  is fine, and "Check for Updates…" in the menu is the manual path.
 
 ### Also
 

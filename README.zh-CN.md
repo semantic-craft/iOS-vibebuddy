@@ -64,7 +64,7 @@
 当 agent 请求执行命令或修改文件时，**完整命令或 diff** 直接推到你手机上。**批准 / 拒绝**，或者 **总是允许这一条** / **本次会话全部允许**——在仪表盘或锁屏上一键搞定。
 
 ### 🔔 通知、实时活动与灵动岛
-会话需要你的那一刻就弹横幅。实时计数通过 ActivityKit 显示在**锁屏和灵动岛**上，并用 **APNs 推送**保持更新——即使 App 已关闭。
+会话需要你时立即弹出横幅。ActivityKit 将实时计数显示在**锁屏和灵动岛**上，并在 App 位于前台或保持连接时更新。App 关闭后的 APNs 推送尚未列入公开 v1.0，仍待付费开发者账号签名、APNs key 和真机端到端验收。
 
 ### 🤖 适配你的整个 agent 矩阵
 从第一天起就与来源无关。**Claude Code 与 Codex** 已端到端测试；**Qwen、Kimi、Grok、OpenCode、Gemini（Antigravity）** 适配器随附。一个通用 hook 安装器全部搞定。
@@ -73,7 +73,7 @@
 Mac 显示一个编码了 `host:port` + bearer token 的二维码。手机扫一次即可——无需手动输 IP。（同一个二维码以后可以承载 Tailscale `100.x` 地址，无需改代码。）
 
 ### 🖥️ 原生 Mac 菜单栏应用
-`MenuBarExtra` 实时计数概览、macOS 刘海概览、**跳转到终端**（一键打开对应会话）、开机自启、Keychain 存储的 token，以及 Sparkle 自动更新。还有 ⏎ / ⌘F 仪表盘快捷键。
+`MenuBarExtra` 实时计数概览、macOS 刘海概览、**跳转到终端**（一键打开对应会话）、开机自启，以及 Keychain 存储的 token。还有 ⏎ / ⌘F 仪表盘快捷键。源码里已接 Sparkle，公开的 v1.0 构建尚未启用自动更新。
 
 ### 🔒 本地优先，隐私至上
 vibebuddy 在你的 Mac 与手机之间**直接**通过你自己的网络通信。会话数据**绝不**经过 vibebuddy 服务器——没有 vibebuddy 云、没有账号、没有埋点、没有追踪。守护进程路由由 bearer token 把关。（可选语音伙伴只会在你开启后，把麦克风音频和所选会话上下文发往*你选择*的服务商，并使用*你自己*的 key。）
@@ -92,10 +92,10 @@ vibebuddy 在你的 Mac 与手机之间**直接**通过你自己的网络通信�
 > ```bash
 > xattr -dr com.apple.quarantine /Applications/vibebuddy.app
 > ```
-> 正式签名 + 公证版（双击即开、零警告）即将推出。
+> 当前公开构建尚未签名。正式签名 + 公证版（双击即开、零警告）不在这个公开版本里。
 
 ### iPhone 应用
-目前请从源码构建——见 [构建与运行](#️-构建与运行)。（App Store 上架审核中。）
+目前请从源码构建——见 [构建与运行](#️-构建与运行)。装到你自己的 iPhone 上即可；没有公开的 iPhone 下载。
 
 ---
 
@@ -169,7 +169,7 @@ vibebuddy 站在两个聪明项目的肩膀上——它们最早证明了可以�
 
 ## 📍 状态
 
-v1 核心已完成并端到端验证：三栏仪表盘、扫码配对、通知、远程批准、实时活动 / 灵动岛、语音伴侣，以及多 CLI hooks（Claude Code + Codex 已测试）。见 [`docs/planning/roadmap.md`](docs/planning/roadmap.md)。
+当前公开的 Mac 版本是 **[v1.0](https://github.com/semantic-craft/iOS-vibebuddy/releases/tag/v1.0)**。v1 核心已实现三栏仪表盘、扫码配对、通知、远程批准、实时活动 / 灵动岛、语音伴侣，以及多 CLI hooks（Claude Code + Codex 已测试）。iPhone 应用已通过 Xcode 安装到个人设备，但真机验收仍不完整：Widget / 实时活动目视效果、总是允许 / 本次会话允许的批准流程、语音操作、iOS 语音能力对齐、OpenAI 路径，以及 Watch 伴侣应用仍待人工验证。见 [`真机验收清单`](docs/roadmap-checklist-2026-06-06.md)和[`路线图`](docs/planning/roadmap.md)。
 
 ## 📄 许可
 

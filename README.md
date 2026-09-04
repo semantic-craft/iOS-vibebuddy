@@ -64,7 +64,7 @@ Every session grouped into **Needs response / Working / Done**, each row showing
 When an agent asks to run a command or edit a file, the **full command or diff** lands on your phone. **Approve / Deny**, or **Always allow this** / **Allow all this session** — straight from the dashboard or the lock screen.
 
 ### 🔔 Notifications, Live Activity & Dynamic Island
-A banner the instant a session needs you. Live counts ride along on the **Lock Screen and Dynamic Island** via ActivityKit, kept fresh with **APNs push** even when the app is closed.
+A banner the instant a session needs you. ActivityKit puts live counts on the **Lock Screen and Dynamic Island**, updated while the app is foregrounded or connected. Closed-app APNs delivery is not part of the public v1.0 and remains deferred pending paid-account signing, an APNs key, and real-device end-to-end acceptance.
 
 ### 🤖 Works across your whole agent fleet
 Source-agnostic from day one. **Claude Code and Codex** are tested end-to-end; adapters ship for **Qwen, Kimi, Grok, OpenCode, and Gemini (Antigravity)**. One universal hook installer wires them all up.
@@ -73,7 +73,7 @@ Source-agnostic from day one. **Claude Code and Codex** are tested end-to-end; a
 The Mac shows a QR encoding `host:port` + a bearer token. The phone scans it once — no manual IP entry. (The same QR can carry a Tailscale `100.x` address later, with no code change.)
 
 ### 🖥️ Native Mac menu-bar app
-A `MenuBarExtra` glance with live counts, a macOS notch glance, **jump-to-terminal** (open the right session with one click), launch-at-login, a Keychain-stored token, and Sparkle auto-update. ⏎ / ⌘F dashboard shortcuts included.
+A `MenuBarExtra` glance with live counts, a macOS notch glance, **jump-to-terminal** (open the right session with one click), launch-at-login, and a Keychain-stored token. ⏎ / ⌘F dashboard shortcuts included. Sparkle update plumbing is in source; it is not live on the public v1.0 build.
 
 ### 🔒 Local-first & private by design
 vibebuddy talks **directly** between your Mac and your phone over your own network. Session data **never** touches a vibebuddy server — there is no vibebuddy cloud, no account, no analytics, no tracking. Daemon routes are bearer-token gated. (The optional voice companion sends microphone audio and selected session context only to the provider *you* chose, with *your* key, when you turn it on.)
@@ -92,10 +92,10 @@ Full English and Simplified-Chinese UI on both apps. Plus a **Demo mode** that l
 > ```bash
 > xattr -dr com.apple.quarantine /Applications/vibebuddy.app
 > ```
-> A signed + notarized (double-click-to-open, zero-warning) build is on the way.
+> The current public build is unsigned. A signed + notarized (double-click-to-open, zero-warning) build is not in this release.
 
 ### iPhone app
-Build it from source for now — see [Build & run](#️-build--run). (App Store submission in progress.)
+Build it from source for now — see [Build & run](#️-build--run). Install on your own iPhone; there is no public iPhone download.
 
 ---
 
@@ -169,7 +169,7 @@ vibebuddy stands on the shoulders of two clever projects that first proved you c
 
 ## 📍 Status
 
-v1 core is complete and verified end-to-end: 3-bucket dashboard, QR pairing, notifications, remote approvals, Live Activity / Dynamic Island, the voice companion, and multi-CLI hooks (Claude Code + Codex tested). See [`docs/planning/roadmap.md`](docs/planning/roadmap.md).
+The public Mac release is **[v1.0](https://github.com/semantic-craft/iOS-vibebuddy/releases/tag/v1.0)**. v1 core implements the 3-bucket dashboard, QR pairing, notifications, remote approvals, Live Activity / Dynamic Island, the voice companion, and multi-CLI hooks (Claude Code + Codex tested). The iPhone app is installed from Xcode on a personal device, but real-device acceptance is still partial: Widget / Live Activity visuals, always-allow / allow-session approval flows, voice actions, iOS voice parity, the OpenAI path, and the Watch companion remain pending human verification. See the [`real-device acceptance checklist`](docs/roadmap-checklist-2026-06-06.md) and [`roadmap`](docs/planning/roadmap.md).
 
 ## 📄 License
 

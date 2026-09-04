@@ -20,6 +20,12 @@ VibeBuddyMacApp/Sources/Info.plist
 # Session handoffs (kept locally, not tracked)
 docs/handoffs/
 
+# Volatile session notes (local copies live in .scratch/planning/)
+docs/planning/plan-remaining-work.html
+docs/planning/prompts-2026-09.md
+docs/planning/status-and-plan-2026-09-02.md
+docs/planning/status-and-plan-2026-09-03.md
+
 # Visual-companion brainstorm runtime
 .superpowers/
 

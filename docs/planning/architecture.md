@@ -1,6 +1,6 @@
 # vibebuddy — Architecture
 
-**Last Updated**: 2026-06-03
+**Last Updated**: 2026-09-04
 
 ## Components
 
@@ -11,7 +11,7 @@ Mac
       ▼
   VibeBuddyMac  (SwiftUI MenuBarExtra app, depends on VibeBuddyKit)
       • MenuBarExtra UI   → status glance, port config, launch-at-login, "Show pairing QR"
-      • POST /hook        ← localhost only, hook intake (no token)
+      • POST /hook /approval /terminal  ← bearer token (ADR-0009; query token allowed)
       • Reducer           → derive per-session status (needsResponse/working/done)
       • TranscriptReader  → tail JSONL for model, tokens, last assistant text
       • Broadcaster       → push ServerEvent to WS clients
@@ -24,7 +24,9 @@ iPhone
   VibeBuddyApp  (SwiftUI, depends on VibeBuddyKit)
       • Pairing      → scan QR → {host, port, token} → Keychain
       • Connection store (reconnect, snapshot-on-reconnect)
-      • Dashboard (3 sections) + local notifications
+      • Dashboard (3 sections) + remote approve / answer
+      • local notifications + APNs; Widget / Live Activity
+      • Watch companion (iPhone relays; Watch has no Mac token)
 ```
 
 Both apps depend on **VibeBuddyKit**, the single source of truth for the wire types.
@@ -99,7 +101,7 @@ public struct PairingPayload: Codable, Sendable {
 
 ## State Machine (hook event → status)
 
-We register these Claude Code hooks and reduce them. This is **non-blocking** (unlike m5-paper-buddy, which blocked `PreToolUse` to relay device approvals) because v1 is read-only.
+We register these Claude Code hooks and reduce them. Claude's status hooks are fail-open and asynchronous, so they stay off the agent's critical path. Remote approval is a separate, opt-in blocking `PreToolUse` gate — not the default path, and not a read-only daemon.
 
 | Hook event | Effect on session |
 |---|---|
@@ -119,7 +121,7 @@ On every event the daemon also refreshes derived metadata via **TranscriptReader
 1. `VibeBuddyMac` generates a random `token` on first run (kept in the Mac Keychain) and binds the server to `0.0.0.0:PORT`.
 2. The menu bar's **"Show pairing QR"** renders a QR encoding `PairingPayload { host, port, token }` (host = current LAN IP; later a Tailscale `100.x` IP).
 3. `VibeBuddyApp` scans the QR, stores the payload in the **iOS Keychain**, then connects.
-4. Every `GET /snapshot` and `GET /ws` requires the bearer token (`Authorization: Bearer <token>`); requests without it get `401`. `GET /health` is open (liveness only). `POST /hook` is localhost-only and unauthenticated.
+4. Every `GET /snapshot` and `GET /ws` requires the bearer token (`Authorization: Bearer <token>`); requests without it get `401`. `GET /health` is open (liveness only). `POST /hook`, `/approval`, and `/terminal` also require the same token (header or `?token=`, **ADR-0009**).
 5. On reconnect (phone woke, WiFi changed) the app re-fetches `GET /snapshot` to resync, then resumes the `/ws` stream.
 
 ## Wire Protocol
@@ -132,21 +134,25 @@ On every event the daemon also refreshes derived metadata via **TranscriptReader
 | `GET /snapshot` | bearer token | full `Snapshot` JSON — initial load and after reconnect |
 | `GET /ws` | bearer token | WebSocket stream of `ServerEvent` frames |
 
-**Hooks → daemon (localhost only, no token):**
+**Hooks → daemon (bearer token; query token allowed per ADR-0009):**
 
 | Endpoint | Purpose |
 |---|---|
 | `POST /hook` | raw Claude Code / Codex hook payload (stdin JSON forwarded by the hook command) |
+| `POST /approval` | opt-in blocking phone-approval gate |
+| `POST /terminal` | jump-to-terminal capture |
 
-Hook command (installed into Claude Code `settings.json`), fail-open like m5:
-`curl -sS --max-time 3 -X POST --data-binary @- http://127.0.0.1:9876/hook 2>/dev/null || true`
+Hook command (the installer records the canonical forwarder's absolute path in Claude Code `settings.json`; shown repository-relative here):
+`hooks/vibebuddy-forward.sh claude`
+
+The forwarder reads `VIBEBUDDY_TOKEN` or the token file selected by `VIBEBUDDY_TOKEN_FILE` (default: `$HOME/Library/Application Support/vibebuddy/token`) on every invocation, sends the shared install token as `Authorization: Bearer <token>`, and remains fail-open if delivery fails.
 
 ## Key Architectural Decisions
 
 1. **Single shared package (VibeBuddyKit).** Models + `Codable` live once; the two apps can't drift on the wire format. *Trade-off*: both Xcode apps take a local-package dependency (fine in a monorepo).
 2. **Mac side is a SwiftUI `MenuBarExtra` app (R1)**, not a headless CLI. Gives a Mac-side glance and a home for launch-at-login, port config, and the pairing QR; matches `eul` / open-vibe-island. The hook-intake + reducer + WebSocket server are embedded behind a `Server` protocol.
 3. **QR pairing + bearer token (R2).** The phone scans a QR instead of typing an IP; the token gives light LAN auth and is reused unchanged when the host becomes a Tailscale IP. Tokens live in Keychain on both sides.
-4. **Non-blocking, read-only daemon.** Hooks return immediately; the daemon only observes — no blocking/timeout machinery, Claude Code stays fully responsive. Revisited if remote control (v2) is added.
+4. **Status delivery is bounded and fail-open; the daemon is not read-only.** Claude status hooks run asynchronously and stay off the agent's critical path. Codex and Grok currently invoke status hooks synchronously, but the forwarder caps local HTTP delivery at one second for Codex and three seconds for Grok, so a missing or wedged daemon can delay them only briefly. Remote approval is an opt-in blocking gate. Hook routes share the install bearer token (**ADR-0009**).
 5. **Source-agnostic sessions.** `agent: AgentKind` on every session; Claude Code and Codex are adapters normalizing their payloads into one `AgentSession`. Codex is additive.
 6. **Server library (Phase B decision).** Lean candidates: **Hummingbird 2** (small, async/await, first-class WS) or raw **Network.framework** `NWListener` (zero deps). Isolated behind the `Server` protocol so it's swappable.
 7. **Transport is config, not code.** `host:port` + token are data (delivered by QR), so LAN→Tailscale is a value swap.

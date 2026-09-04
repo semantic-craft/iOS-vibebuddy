@@ -1,7 +1,7 @@
 # vibebuddy — Overview
 
-**Last Updated**: 2026-06-03
-**Status**: Planning (pre-implementation)
+**Last Updated**: 2026-09-04
+**Status**: Implemented (personal tool; public Mac release is v1.0)
 
 ## Quick Summary
 
@@ -33,26 +33,27 @@ Priority when a session could be in two: `needsResponse` > `working` > `done`.
 | Repo | **Monorepo** `~/Projects/iOS-vibebuddy` with shared `VibeBuddyKit` package | Single source of truth for the wire types. |
 | Transport (v1) | **LAN HTTP + WebSocket**, light **bearer token** | App stores `host:port`+token so swapping in a Tailscale IP later needs no code change. |
 | Connect UX (R2) | **QR pairing** | Mac shows a QR encoding `host:port` + token; phone scans (no manual IP). Same QR later carries the Tailscale `100.x` IP. |
-| Interaction (v1) | **Read-only + local notifications** | Token gates *viewing*; remote *control* still deferred (needs a bidirectional channel). Unidirectional broadcast is simplest and safe. |
+| Interaction | **Remote approve / answer; local notifications; Widget / Live Activity; Watch companion** | Token still gates viewing. Remote control reuses the same bearer token. Closed-app APNs delivery remains deferred until paid-account signing, an APNs key, and real-device acceptance are in place. |
 | Sources | **Claude Code first, Codex fast-follow** | Daemon is source-agnostic (`agent` field per session) from day one; Claude Code's hooks are richest and map cleanest. |
 | Detection model | **Borrow concepts**, not code, from m5-paper-buddy (transcript tail parse, RUNNING/WAITING sets) + open-vibe-island (multi-agent `SessionState` reducer) | Re-implement lean, in Swift, non-blocking. |
 
 ## Scope
 
-**In (v1):**
-- **macOS menu-bar app** (`VibeBuddyMac`): receives Claude Code hook events, derives per-session state, parses transcript tail for model/tokens/last-message, broadcasts over token-gated LAN WebSocket + REST snapshot, and shows a pairing QR + status glance in the menu bar.
-- iOS app: **scan QR to pair**, three-section live dashboard, local notification when a session enters `needsResponse`.
+**In:**
+- **macOS menu-bar app** (`VibeBuddyMac` / `VibeBuddyMacApp`): receives hook events, derives per-session state, parses transcript tail, broadcasts over token-gated LAN WebSocket + REST snapshot, and shows a pairing QR + status glance.
+- iOS app: **scan QR to pair**, three-section live dashboard, remote approve / answer, local notifications, **Widget / Live Activity** (implemented; real-device visual acceptance pending).
+- **watchOS companion** (buildable; real-device acceptance pending; no direct Mac transport; iPhone relays).
+- Hook routes require the install bearer token (**ADR-0009**).
 
-**Out (deferred — see roadmap):**
-- Tailscale remote access (the token is already in v1; Tailscale is just a later QR value).
-- Remote approve / answer from the phone (needs auth + bidirectional channel).
-- True closed-app push via APNs.
-- Home-screen widgets; **Live Activity / Dynamic Island** (strong v1.5 once v1 works).
-- Agents beyond Claude Code + Codex.
+**Out (deferred):**
+- Tailscale remote access (the token is already present; Tailscale is a later QR host value).
+- Closed-app APNs delivery (the code path exists, but paid-account signing, an APNs key, and real-device acceptance are still required).
+- App Store / TestFlight distribution (personal Xcode install this round).
+- Agents beyond the current adapter set.
 
 ## Key Risks & Mitigation
 
-1. **iOS background limits** — a suspended app can't hold a WebSocket. *Mitigation*: v1 targets foreground/active glances + local notifications while alive; defer true closed-app push to APNs (v2).
+1. **iOS background limits** — a suspended app can't hold a WebSocket. *Mitigation*: the WebSocket covers foreground use; closed-app APNs delivery remains deferred until its credentials and real-device path are accepted end to end.
 2. **"Needs response" false positives/negatives** — distinguishing a real permission/idle wait from normal tool churn. *Mitigation*: drive `needsResponse` from the `Notification` hook (purpose-built for "Claude wants your attention"), not from blindly counting `PreToolUse`.
 3. **Codex hook surface differs from Claude Code** — *Mitigation*: source-agnostic model; Codex added as a separate adapter after Claude Code path is proven.
 4. **Swift server libs** — picking an HTTP/WS server for the daemon. *Mitigation*: lean default (Hummingbird or Network.framework), decided in Phase B, isolated behind a small server interface.
