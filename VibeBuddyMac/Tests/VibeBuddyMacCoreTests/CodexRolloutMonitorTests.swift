@@ -587,6 +587,40 @@ struct CodexRolloutMonitorTests {
         #expect(reducer.sessions["desktop-replaced-live"]?.summary != "Abandoned")
     }
 
+    @Test("an overlapping replacement process does not abandon a turn that wrote during the overlap")
+    func overlappingAppServerAppendStaysOwned() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        let file = try fixture.write(
+            named: "rollout-overlap.jsonl",
+            lines: [sessionMeta(id: "desktop-overlap"), taskStarted(id: "t1")]
+        )
+        let ownerlessAfter: TimeInterval = 60
+        let server = IdentityFlag(pid: 61)
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            ownerlessAfter: ownerlessAfter,
+            desktopAppServerIdentities: { server.identities },
+            hasWriterLock: { _ in true }
+        )
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-overlap"]?.status == .working)
+
+        try append(
+            #"{"type":"response_item","payload":{"type":"custom_tool_call","name":"exec","call_id":"c1"}}"#,
+            to: file)
+        server.overlap(pid: 62, startedAt: Date())
+        let watcherNow = Date()
+        for event in await monitor.consumeForTesting(file: file, now: watcherNow) { reducer.apply(event) }
+        server.dropOldest()
+
+        let laterScan = watcherNow.addingTimeInterval(ownerlessAfter)
+        for event in await monitor.poll(now: laterScan) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-overlap"]?.status == .working)
+        #expect(reducer.sessions["desktop-overlap"]?.summary != "Abandoned")
+    }
+
     @Test("a watcher append under a replacement server stays owned across the next scan")
     func watcherAppendUnderReplacementStaysOwned() async throws {
         let fixture = try RolloutFixture(now: now)
@@ -1154,13 +1188,23 @@ private final class WriterFlag: @unchecked Sendable {
 }
 
 private final class IdentityFlag: @unchecked Sendable {
-    var current: CodexDesktopAppServer.Identity?
+    var identities: [CodexDesktopAppServer.Identity]
+    var current: CodexDesktopAppServer.Identity? {
+        get { identities.first }
+        set { identities = newValue.map { [$0] } ?? [] }
+    }
     init(pid: pid_t, startedAt: Date = Date(timeIntervalSince1970: 0)) {
-        current = Self.identity(pid: pid, startedAt: startedAt)
+        identities = [Self.identity(pid: pid, startedAt: startedAt)]
     }
     func relaunch(startedAt: Date = Date(timeIntervalSince1970: 0)) {
         let next = (current?.pid ?? 0) + 1
-        current = Self.identity(pid: next, startedAt: startedAt)
+        identities = [Self.identity(pid: next, startedAt: startedAt)]
+    }
+    func overlap(pid: pid_t, startedAt: Date) {
+        identities.append(Self.identity(pid: pid, startedAt: startedAt))
+    }
+    func dropOldest() {
+        if identities.count > 1 { identities.removeFirst() }
     }
     private static func identity(pid: pid_t, startedAt: Date) -> CodexDesktopAppServer.Identity {
         let sec = UInt64(max(0, startedAt.timeIntervalSince1970.rounded(.down)))

@@ -829,7 +829,7 @@ public actor CodexRolloutMonitor {
     /// never change ObservationHealth. ObservationSource is still never
     /// guessed from process existence — this is a bounded exception for
     /// "the writer is gone, leave working".
-    private let desktopAppServerIdentity: @Sendable () -> CodexDesktopAppServer.Identity?
+    private let desktopAppServerIdentities: @Sendable () -> [CodexDesktopAppServer.Identity]
     private let hasWriterLock: @Sendable (String) -> Bool
     private let watcherQueue = DispatchQueue(
         label: "com.vibebuddy.codex-rollout-watchers",
@@ -858,11 +858,11 @@ public actor CodexRolloutMonitor {
     private var ownerlessObserved: Set<String> = []
     /// Last observed ChatGPT.app-bundled app-server. A different live identity
     /// between scans is a replacement, not continued ownership.
-    private var lastAppServerIdentity: CodexDesktopAppServer.Identity?
-    /// Identity observed when this path last consumed a rollout append.
+    private var lastAppServerIdentities: Set<CodexDesktopAppServer.Identity> = []
+    /// Identities live when this path last consumed a rollout append.
     /// Watcher refreshes stamp `Date()`, so this — not `lastOwnedAt == now` —
     /// is what exempts a resumed turn from replacement marking.
-    private var lastOwnedIdentity: [String: CodexDesktopAppServer.Identity] = [:]
+    private var lastOwnedIdentities: [String: Set<CodexDesktopAppServer.Identity>] = [:]
 
     public init(
         root: URL = FileManager.default.homeDirectoryForCurrentUser
@@ -874,15 +874,15 @@ public actor CodexRolloutMonitor {
         isDesktopAppServerAlive: (@Sendable () -> Bool)? = nil,
         hasWriterLock: (@Sendable (String) -> Bool)? = nil
     ) {
-        let identity: @Sendable () -> CodexDesktopAppServer.Identity?
+        let identities: @Sendable () -> [CodexDesktopAppServer.Identity]
         if let isDesktopAppServerAlive {
-            identity = {
+            identities = {
                 isDesktopAppServerAlive()
-                    ? CodexDesktopAppServer.Identity(pid: 1, startSec: 0, startUsec: 0)
-                    : nil
+                    ? [CodexDesktopAppServer.Identity(pid: 1, startSec: 0, startUsec: 0)]
+                    : []
             }
         } else {
-            identity = { CodexDesktopAppServer.identity() }
+            identities = { CodexDesktopAppServer.identities() }
         }
         self.init(
             root: root,
@@ -890,7 +890,7 @@ public actor CodexRolloutMonitor {
             debounceInterval: debounceInterval,
             recoveryWindow: recoveryWindow,
             ownerlessAfter: ownerlessAfter,
-            desktopAppServerIdentity: identity,
+            desktopAppServerIdentities: identities,
             hasWriterLock: hasWriterLock)
     }
 
@@ -900,7 +900,8 @@ public actor CodexRolloutMonitor {
         debounceInterval: Duration = .milliseconds(100),
         recoveryWindow: TimeInterval = 30 * 60,
         ownerlessAfter: TimeInterval = 60,
-        desktopAppServerIdentity: @escaping @Sendable () -> CodexDesktopAppServer.Identity?,
+        desktopAppServerIdentity: (@Sendable () -> CodexDesktopAppServer.Identity?)? = nil,
+        desktopAppServerIdentities: (@Sendable () -> [CodexDesktopAppServer.Identity])? = nil,
         hasWriterLock: (@Sendable (String) -> Bool)? = nil
     ) {
         self.root = root
@@ -908,7 +909,15 @@ public actor CodexRolloutMonitor {
         self.debounceInterval = debounceInterval
         self.recoveryWindow = recoveryWindow
         self.ownerlessAfter = ownerlessAfter
-        self.desktopAppServerIdentity = desktopAppServerIdentity
+        if let desktopAppServerIdentities {
+            self.desktopAppServerIdentities = desktopAppServerIdentities
+        } else if let desktopAppServerIdentity {
+            self.desktopAppServerIdentities = {
+                desktopAppServerIdentity().map { [$0] } ?? []
+            }
+        } else {
+            self.desktopAppServerIdentities = { CodexDesktopAppServer.identities() }
+        }
         // Production `root` is ~/.codex/sessions; CODEX_HOME and test fixtures
         // follow the same sibling. A missing lock directory is not "no locks".
         let lockRoot = root.deletingLastPathComponent()
@@ -1056,19 +1065,23 @@ public actor CodexRolloutMonitor {
     /// rollout mtime is also ownerless (ChatGPT already relaunched).
     private func retireOwnerless(now: Date, previouslyTracked: Set<String>) -> [HookEvent] {
         var events: [HookEvent] = []
-        let identity = desktopAppServerIdentity()
-        let appServerAlive = identity != nil
-        let firstSighting = lastAppServerIdentity == nil
-        if let previous = lastAppServerIdentity, let identity, previous != identity {
+        let currentIdentities = Set(desktopAppServerIdentities())
+        let appServerAlive = !currentIdentities.isEmpty
+        let firstSighting = lastAppServerIdentities.isEmpty
+        if !lastAppServerIdentities.isEmpty, !currentIdentities.isEmpty,
+           lastAppServerIdentities.isDisjoint(with: currentIdentities) {
             for (path, cursor) in cursors {
-                guard previouslyTracked.contains(path), lastOwnedIdentity[path] != identity else { continue }
+                guard previouslyTracked.contains(path) else { continue }
+                if let owned = lastOwnedIdentities[path], !owned.isDisjoint(with: currentIdentities) {
+                    continue
+                }
                 guard cursor.surfaced, cursor.parser.turnActive, !cursor.parser.awaitingUser,
                       cursor.parser.isDesktopSession
                 else { continue }
                 ownerlessObserved.insert(path)
             }
         }
-        lastAppServerIdentity = identity
+        lastAppServerIdentities = currentIdentities
         for (path, cursor) in cursors {
             guard cursor.surfaced, cursor.parser.turnActive,
                   cursor.parser.isDesktopSession,
@@ -1081,8 +1094,9 @@ public actor CodexRolloutMonitor {
             // Probes may only retire a working turn. A pending approval or
             // request_user_input stays needsResponse until the user answers.
             if cursor.parser.awaitingUser { continue }
-            if firstSighting, let identity,
-               let modified = Self.fileModifiedAt(path), identity.startedAt > modified {
+            if firstSighting, !currentIdentities.isEmpty,
+               let modified = Self.fileModifiedAt(path),
+               currentIdentities.allSatisfy({ $0.startedAt > modified }) {
                 ownerlessObserved.insert(path)
             }
             if !appServerAlive || !hasWriterLock(sessionID) {
@@ -1138,7 +1152,7 @@ public actor CodexRolloutMonitor {
                 cursor.checkpoint = Self.checkpoint(file: file, endingAt: cursor.offset)
                 ownerlessObserved.remove(path)
                 lastOwnedAt[path] = now
-                lastOwnedIdentity[path] = desktopAppServerIdentity()
+                lastOwnedIdentities[path] = Set(desktopAppServerIdentities())
             }
             cursor.identity = state.identity
             cursors[path] = cursor
@@ -1257,7 +1271,7 @@ public actor CodexRolloutMonitor {
     private func removeTracking(path: String) {
         cursors[path] = nil
         lastOwnedAt[path] = nil
-        lastOwnedIdentity[path] = nil
+        lastOwnedIdentities[path] = nil
         ownerlessObserved.remove(path)
         debounceTasks.removeValue(forKey: path)?.task.cancel()
         if let registration = watchers.removeValue(forKey: path) {
@@ -1289,8 +1303,8 @@ public actor CodexRolloutMonitor {
         cursors.removeAll()
         lastOwnedAt.removeAll()
         ownerlessObserved.removeAll()
-        lastOwnedIdentity.removeAll()
-        lastAppServerIdentity = nil
+        lastOwnedIdentities.removeAll()
+        lastAppServerIdentities.removeAll()
         recoveryGateForTesting = nil
         sink = nil
     }
@@ -1397,7 +1411,7 @@ public actor CodexRolloutMonitor {
 /// The ChatGPT.app-bundled `codex` binary. Homebrew CLI and ssh `app-server`
 /// proxies must not count — this machine routinely runs all three.
 enum CodexDesktopAppServer {
-    struct Identity: Equatable, Sendable {
+    struct Identity: Equatable, Hashable, Sendable {
         var pid: pid_t
         var startSec: UInt64
         var startUsec: UInt64
@@ -1407,16 +1421,18 @@ enum CodexDesktopAppServer {
         }
     }
 
-    static func isAlive() -> Bool { identity() != nil }
+    static func isAlive() -> Bool { !identities().isEmpty }
 
-    static func identity() -> Identity? {
+    static func identity() -> Identity? { identities().min(by: { $0.pid < $1.pid }) }
+
+    static func identities() -> [Identity] {
         let needed = proc_listpids(UInt32(PROC_ALL_PIDS), 0, nil, 0)
-        guard needed > 0 else { return nil }
+        guard needed > 0 else { return [] }
         var pids = [pid_t](repeating: 0, count: Int(needed) / MemoryLayout<pid_t>.stride)
         let filled = proc_listpids(
             UInt32(PROC_ALL_PIDS), 0, &pids,
             Int32(pids.count * MemoryLayout<pid_t>.stride))
-        guard filled > 0 else { return nil }
+        guard filled > 0 else { return [] }
         let count = Int(filled) / MemoryLayout<pid_t>.stride
         var pathBuffer = [UInt8](repeating: 0, count: Int(4 * MAXPATHLEN))
         var matches: [Identity] = []
@@ -1434,6 +1450,6 @@ enum CodexDesktopAppServer {
                 startSec: info.pbi_start_tvsec,
                 startUsec: info.pbi_start_tvusec))
         }
-        return matches.min(by: { $0.pid < $1.pid })
+        return matches
     }
 }
