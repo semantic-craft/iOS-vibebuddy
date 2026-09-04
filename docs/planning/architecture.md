@@ -101,7 +101,7 @@ public struct PairingPayload: Codable, Sendable {
 
 ## State Machine (hook event → status)
 
-We register these Claude Code hooks and reduce them. Status hooks are fail-open and return immediately. Remote approval is a separate, opt-in blocking `PreToolUse` gate — not the default path, and not a read-only daemon.
+We register these Claude Code hooks and reduce them. Claude's status hooks are fail-open and asynchronous, so they stay off the agent's critical path. Remote approval is a separate, opt-in blocking `PreToolUse` gate — not the default path, and not a read-only daemon.
 
 | Hook event | Effect on session |
 |---|---|
