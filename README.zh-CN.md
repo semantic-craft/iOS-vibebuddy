@@ -73,7 +73,7 @@
 Mac 显示一个编码了 `host:port` + bearer token 的二维码。手机扫一次即可——无需手动输 IP。（同一个二维码以后可以承载 Tailscale `100.x` 地址，无需改代码。）
 
 ### 🖥️ 原生 Mac 菜单栏应用
-`MenuBarExtra` 实时计数概览、macOS 刘海概览、**跳转到终端**（一键打开对应会话）、开机自启、Keychain 存储的 token，以及 Sparkle 自动更新。还有 ⏎ / ⌘F 仪表盘快捷键。
+`MenuBarExtra` 实时计数概览、macOS 刘海概览、**跳转到终端**（一键打开对应会话）、开机自启，以及 Keychain 存储的 token。还有 ⏎ / ⌘F 仪表盘快捷键。源码里已接 Sparkle，公开的 v1.0 构建尚未启用自动更新。
 
 ### 🔒 本地优先，隐私至上
 vibebuddy 在你的 Mac 与手机之间**直接**通过你自己的网络通信。会话数据**绝不**经过 vibebuddy 服务器——没有 vibebuddy 云、没有账号、没有埋点、没有追踪。守护进程路由由 bearer token 把关。（可选语音伙伴只会在你开启后，把麦克风音频和所选会话上下文发往*你选择*的服务商，并使用*你自己*的 key。）

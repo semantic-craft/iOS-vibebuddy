@@ -89,14 +89,17 @@ What the rollout does and does not tell us:
   **or** string `source == "vscode"`. Desktop stamps `originator` and uses
   `vscode` as the `source` enum default; the `source` fallback is kept so
   Desktop-family threads that stamp a different originator still surface.
-  Observed locally (read-only, 2026-09-04): 2230 rollouts under
-  `~/.codex/sessions` + `archived_sessions` were either `Codex Desktop` (2203)
-  or `codex_work_desktop` (27); every string `source=vscode` sat on one of
-  those two originators; the 27 `codex_work_desktop` threads would be missed
-  by an originator-only check. Fixtures treat CLI as `originator: "Codex CLI"`
+  Observed locally (read-only, 2026-09-04 19:00, no writes to `~/.codex`):
+  2231 rollouts under `~/.codex/sessions` + `archived_sessions` were either
+  `Codex Desktop` (2203) or `codex_work_desktop` (28). String `source=vscode`
+  occurred 828 times and sat only on those two originators (802 + 26); the
+  other 1403 records used object `source.subagent`. The 26 parent
+  `codex_work_desktop` threads (plus 2 subagent children) would be missed by
+  an originator-only check. Fixtures treat CLI as `originator: "Codex CLI"`
   + `source: "cli"` and ignore it. This machine has no CLI or VS Code/Cursor
   IDE rollouts, so whether those hosts ever stamp string `source=vscode` is
-  unverified. A spawned subagent thread carries the same originator and is
+  unverified. PR #8 kept the `source == "vscode"` fallback when it added the
+  subagent skip — compatibility, not a doc reversal. A spawned subagent thread carries the same originator and is
   skipped by `thread_source == "subagent"` / `source.subagent`; the parent's
   collaboration records own it.
 - Rollouts sit under their *start* date and a resumed thread keeps appending to

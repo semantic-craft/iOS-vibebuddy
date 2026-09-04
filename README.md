@@ -73,7 +73,7 @@ Source-agnostic from day one. **Claude Code and Codex** are tested end-to-end; a
 The Mac shows a QR encoding `host:port` + a bearer token. The phone scans it once — no manual IP entry. (The same QR can carry a Tailscale `100.x` address later, with no code change.)
 
 ### 🖥️ Native Mac menu-bar app
-A `MenuBarExtra` glance with live counts, a macOS notch glance, **jump-to-terminal** (open the right session with one click), launch-at-login, a Keychain-stored token, and Sparkle auto-update. ⏎ / ⌘F dashboard shortcuts included.
+A `MenuBarExtra` glance with live counts, a macOS notch glance, **jump-to-terminal** (open the right session with one click), launch-at-login, and a Keychain-stored token. ⏎ / ⌘F dashboard shortcuts included. Sparkle update plumbing is in source; it is not live on the public v1.0 build.
 
 ### 🔒 Local-first & private by design
 vibebuddy talks **directly** between your Mac and your phone over your own network. Session data **never** touches a vibebuddy server — there is no vibebuddy cloud, no account, no analytics, no tracking. Daemon routes are bearer-token gated. (The optional voice companion sends microphone audio and selected session context only to the provider *you* chose, with *your* key, when you turn it on.)
