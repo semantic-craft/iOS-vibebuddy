@@ -294,6 +294,7 @@ public struct CodexRolloutParser: Sendable {
         sessionID: String,
         timestamp: Date
     ) -> [HookEvent] {
+        awaitingUser = false
         let callID = Self.nonEmpty(payload["call_id"] as? String)
         guard let callID, let pending = pendingCollab.removeValue(forKey: callID) else {
             return [event(.postToolUse, sessionID: sessionID, toolName: "Tool", timestamp: timestamp)]
@@ -353,6 +354,7 @@ public struct CodexRolloutParser: Sendable {
             return eventsForCollabItem(item, sessionID: sessionID, timestamp: timestamp)
         }
         guard let toolName = Self.completedToolName(item) else { return [] }
+        awaitingUser = false
         return [event(.postToolUse, sessionID: sessionID, toolName: toolName,
                       toolError: Self.itemFailed(item), timestamp: timestamp)]
     }
@@ -1036,10 +1038,13 @@ public actor CodexRolloutMonitor {
     /// the replacement server and must not be marked. After a thread has been
     /// observed ownerless, a relaunched app-server plus that leftover lock still
     /// does not reset the clock — only a rollout append re-arms ownership.
+    /// On the monitor's first sighting, a live server whose start is after the
+    /// rollout mtime is also ownerless (ChatGPT already relaunched).
     private func retireOwnerless(now: Date, previouslyTracked: Set<String>) -> [HookEvent] {
         var events: [HookEvent] = []
         let identity = desktopAppServerIdentity()
         let appServerAlive = identity != nil
+        let firstSighting = lastAppServerIdentity == nil
         if let previous = lastAppServerIdentity, let identity, previous != identity {
             for (path, cursor) in cursors {
                 guard previouslyTracked.contains(path), lastOwnedAt[path] != now else { continue }
@@ -1062,6 +1067,10 @@ public actor CodexRolloutMonitor {
             // Probes may only retire a working turn. A pending approval or
             // request_user_input stays needsResponse until the user answers.
             if cursor.parser.awaitingUser { continue }
+            if firstSighting, let identity,
+               let modified = Self.fileModifiedAt(path), identity.startedAt > modified {
+                ownerlessObserved.insert(path)
+            }
             if !appServerAlive || !hasWriterLock(sessionID) {
                 ownerlessObserved.insert(path)
             }
@@ -1289,6 +1298,10 @@ public actor CodexRolloutMonitor {
         return files.sorted { $0.path < $1.path }
     }
 
+    private static func fileModifiedAt(_ path: String) -> Date? {
+        (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
+    }
+
     private static func fileState(_ file: URL) -> FileState? {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: file.path),
               let size = (attributes[.size] as? NSNumber)?.uint64Value,
@@ -1371,6 +1384,10 @@ enum CodexDesktopAppServer {
         var pid: pid_t
         var startSec: UInt64
         var startUsec: UInt64
+
+        var startedAt: Date {
+            Date(timeIntervalSince1970: TimeInterval(startSec) + TimeInterval(startUsec) / 1_000_000)
+        }
     }
 
     static func isAlive() -> Bool { identity() != nil }

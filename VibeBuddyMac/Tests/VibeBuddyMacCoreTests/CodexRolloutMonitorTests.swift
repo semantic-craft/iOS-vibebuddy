@@ -639,6 +639,65 @@ struct CodexRolloutMonitorTests {
         #expect(reducer.sessions["desktop-rearm"]?.summary != "Abandoned")
     }
 
+    @Test("a tool output after approval clears waiting so a later quit can retire")
+    func toolOutputClearsWaitingAndAllowsRetirement() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        let file = try fixture.write(
+            named: "rollout-approved.jsonl",
+            lines: [
+                sessionMeta(id: "desktop-approved"),
+                taskStarted(id: "t1"),
+                #"{"type":"event_msg","payload":{"type":"exec_approval_request"}}"#,
+            ]
+        )
+        let writer = WriterFlag(isAlive: true)
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            isDesktopAppServerAlive: { writer.isAlive },
+            hasWriterLock: { _ in writer.isAlive }
+        )
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-approved"]?.status == .needsResponse)
+
+        try append(
+            #"{"type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"ok"}}"#,
+            to: file)
+        for event in await monitor.poll(now: now.addingTimeInterval(1)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-approved"]?.status == .working)
+
+        writer.isAlive = false
+        for event in await monitor.poll(now: now.addingTimeInterval(61)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-approved"]?.status == .done)
+        #expect(reducer.sessions["desktop-approved"]?.summary == "Abandoned")
+    }
+
+    @Test("bootstrapping after ChatGPT already relaunched retires the interrupted turn")
+    func bootstrapAfterAppServerReplacementRetires() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        let file = try fixture.write(
+            named: "rollout-stale-server.jsonl",
+            lines: [sessionMeta(id: "desktop-stale-server"), taskStarted(id: "t1")]
+        )
+        try FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: file.path)
+        let server = IdentityFlag(pid: 41, startedAt: now.addingTimeInterval(3600))
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            desktopAppServerIdentity: { server.current },
+            hasWriterLock: { _ in true }
+        )
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-stale-server"]?.status == .working)
+
+        for event in await monitor.poll(now: now.addingTimeInterval(60)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-stale-server"]?.status == .done)
+        #expect(reducer.sessions["desktop-stale-server"]?.summary == "Abandoned")
+        #expect(reducer.sessions["desktop-stale-server"]?.failed != true)
+    }
+
     @Test("a Desktop turn waiting for input is not abandoned when the writer vanishes")
     func waitingTurnIsNotAbandoned() async throws {
         let fixture = try RolloutFixture(now: now)
@@ -1031,12 +1090,16 @@ private final class WriterFlag: @unchecked Sendable {
 
 private final class IdentityFlag: @unchecked Sendable {
     var current: CodexDesktopAppServer.Identity?
-    init(pid: pid_t) {
-        current = CodexDesktopAppServer.Identity(pid: pid, startSec: 0, startUsec: 0)
+    init(pid: pid_t, startedAt: Date = Date(timeIntervalSince1970: 0)) {
+        current = Self.identity(pid: pid, startedAt: startedAt)
     }
-    func relaunch() {
+    func relaunch(startedAt: Date = Date(timeIntervalSince1970: 0)) {
         let next = (current?.pid ?? 0) + 1
-        current = CodexDesktopAppServer.Identity(pid: next, startSec: 0, startUsec: 0)
+        current = Self.identity(pid: next, startedAt: startedAt)
+    }
+    private static func identity(pid: pid_t, startedAt: Date) -> CodexDesktopAppServer.Identity {
+        let sec = UInt64(max(0, startedAt.timeIntervalSince1970.rounded(.down)))
+        return CodexDesktopAppServer.Identity(pid: pid, startSec: sec, startUsec: 0)
     }
 }
 
