@@ -73,7 +73,7 @@ Source-agnostic from day one. **Claude Code and Codex** are tested end-to-end; a
 The Mac shows a QR encoding `host:port` + a bearer token. The phone scans it once — no manual IP entry. (The same QR can carry a Tailscale `100.x` address later, with no code change.)
 
 ### 🖥️ Native Mac menu-bar app
-A `MenuBarExtra` glance with live counts, a macOS notch glance, **jump-to-terminal** (open the right session with one click), launch-at-login, and a Keychain-stored token. ⏎ / ⌘F dashboard shortcuts included. Sparkle update plumbing is in source; it is not live on the public v1.0 build.
+A `MenuBarExtra` glance with live counts, a macOS notch glance, **jump-to-terminal** (open the right session with one click), launch-at-login, and a LAN bearer token persisted in the owner-only (`0600`) file `~/Library/Application Support/vibebuddy/token`. ⏎ / ⌘F dashboard shortcuts included. Sparkle update plumbing is in source; it is not live on the public v1.0 build.
 
 ### 🔒 Local-first & private by design
 vibebuddy talks **directly** between your Mac and your phone over your own network. Session data **never** touches a vibebuddy server — there is no vibebuddy cloud, no account, no analytics, no tracking. Daemon routes are bearer-token gated. (The optional voice companion sends microphone audio and selected session context only to the provider *you* chose, with *your* key, when you turn it on.)
@@ -124,7 +124,7 @@ The hard part — *detecting* session state — is solved by **hooks** that each
 |------|------|
 | `VibeBuddyKit/` | Shared Codable wire model (SwiftPM) |
 | `VibeBuddyMac/` | macOS core lib + `vibebuddyd` headless CLI (SwiftPM) |
-| `VibeBuddyMacApp/` | macOS menu-bar app (xcodegen) — Keychain token, launch-at-login, Sparkle |
+| `VibeBuddyMacApp/` | macOS menu-bar app (xcodegen) — owner-only LAN-token file, launch-at-login, Sparkle |
 | `VibeBuddyApp/` | iOS app (xcodegen) |
 | `docs/planning/` | overview, PRD, architecture, roadmap, prior-art |
 
@@ -133,14 +133,14 @@ The hard part — *detecting* session state — is solved by **hooks** that each
 cd VibeBuddyMacApp && xcodegen generate
 open VibeBuddyMacApp.xcodeproj   # build & run (⌘R)
 ```
-A menu-bar-only app: live counts, a "Pair a phone" QR, and launch-at-login; the LAN token lives in the Keychain. (`vibebuddyd` in `VibeBuddyMac/` is the headless equivalent: `swift run vibebuddyd`.)
+A menu-bar-only app: live counts, a "Pair a phone" QR, and launch-at-login; the Mac daemon's `TokenStore` keeps the LAN token in the owner-only file `~/Library/Application Support/vibebuddy/token`. (`vibebuddyd` in `VibeBuddyMac/` is the headless equivalent: `swift run vibebuddyd`.)
 
 **iOS app:**
 ```bash
 cd VibeBuddyApp && xcodegen generate
 open VibeBuddyApp.xcodeproj   # run on a Simulator/device
 ```
-Pair by scanning the QR, or enter host/port/token manually. (Simulator: use `127.0.0.1` and the token from `~/Library/Application Support/vibebuddy/token`.)
+Pair by scanning the QR, or enter host/port/token manually. On iOS, `ConnectionStore` persists the pairing payload in `UserDefaults`. (Simulator: use `127.0.0.1` and the token from `~/Library/Application Support/vibebuddy/token`.)
 
 **Hooks (feed real agent sessions):**
 ```bash

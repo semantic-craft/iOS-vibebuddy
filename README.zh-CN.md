@@ -73,7 +73,7 @@
 Mac 显示一个编码了 `host:port` + bearer token 的二维码。手机扫一次即可——无需手动输 IP。（同一个二维码以后可以承载 Tailscale `100.x` 地址，无需改代码。）
 
 ### 🖥️ 原生 Mac 菜单栏应用
-`MenuBarExtra` 实时计数概览、macOS 刘海概览、**跳转到终端**（一键打开对应会话）、开机自启，以及 Keychain 存储的 token。还有 ⏎ / ⌘F 仪表盘快捷键。源码里已接 Sparkle，公开的 v1.0 构建尚未启用自动更新。
+`MenuBarExtra` 实时计数概览、macOS 刘海概览、**跳转到终端**（一键打开对应会话）、开机自启，以及持久化在仅所有者可读写（`0600`）文件 `~/Library/Application Support/vibebuddy/token` 中的局域网 bearer token。还有 ⏎ / ⌘F 仪表盘快捷键。源码里已接 Sparkle，公开的 v1.0 构建尚未启用自动更新。
 
 ### 🔒 本地优先，隐私至上
 vibebuddy 在你的 Mac 与手机之间**直接**通过你自己的网络通信。会话数据**绝不**经过 vibebuddy 服务器——没有 vibebuddy 云、没有账号、没有埋点、没有追踪。守护进程路由由 bearer token 把关。（可选语音伙伴只会在你开启后，把麦克风音频和所选会话上下文发往*你选择*的服务商，并使用*你自己*的 key。）
@@ -124,7 +124,7 @@ Claude Code / Codex / Qwen / … ──hooks──▶ vibebuddy（macOS 菜单�
 |------|------|
 | `VibeBuddyKit/` | 共享 Codable 线缆模型（SwiftPM） |
 | `VibeBuddyMac/` | macOS 核心库 + `vibebuddyd` 无头 CLI（SwiftPM） |
-| `VibeBuddyMacApp/` | macOS 菜单栏应用（xcodegen）—— Keychain token、开机自启、Sparkle |
+| `VibeBuddyMacApp/` | macOS 菜单栏应用（xcodegen）—— 仅所有者可读写的局域网 token 文件、开机自启、Sparkle |
 | `VibeBuddyApp/` | iOS 应用（xcodegen） |
 | `docs/planning/` | 概览、PRD、架构、路线图、先行研究 |
 
@@ -133,14 +133,14 @@ Claude Code / Codex / Qwen / … ──hooks──▶ vibebuddy（macOS 菜单�
 cd VibeBuddyMacApp && xcodegen generate
 open VibeBuddyMacApp.xcodeproj   # 构建并运行（⌘R）
 ```
-一个纯菜单栏应用：实时计数、"配对手机"二维码、开机自启；局域网 token 存在 Keychain 里。（`VibeBuddyMac/` 里的 `vibebuddyd` 是无头等价物：`swift run vibebuddyd`。）
+一个纯菜单栏应用：实时计数、"配对手机"二维码、开机自启；Mac 守护进程的 `TokenStore` 把局域网 token 保存在仅所有者可读写的文件 `~/Library/Application Support/vibebuddy/token` 中。（`VibeBuddyMac/` 里的 `vibebuddyd` 是无头等价物：`swift run vibebuddyd`。）
 
 **iOS 应用：**
 ```bash
 cd VibeBuddyApp && xcodegen generate
 open VibeBuddyApp.xcodeproj   # 在模拟器/真机上运行
 ```
-扫码配对，或手动输入 host/port/token。（模拟器：用 `127.0.0.1` 和 `~/Library/Application Support/vibebuddy/token` 里的 token。）
+扫码配对，或手动输入 host/port/token。在 iOS 上，`ConnectionStore` 把配对 payload 持久化到 `UserDefaults`。（模拟器：用 `127.0.0.1` 和 `~/Library/Application Support/vibebuddy/token` 里的 token。）
 
 **Hooks（接入真实 agent 会话）：**
 ```bash
