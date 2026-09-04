@@ -142,8 +142,10 @@ On every event the daemon also refreshes derived metadata via **TranscriptReader
 | `POST /approval` | opt-in blocking phone-approval gate |
 | `POST /terminal` | jump-to-terminal capture |
 
-Hook command (installed into Claude Code `settings.json`), fail-open like m5:
-`curl -sS --max-time 3 -X POST --data-binary @- http://127.0.0.1:9876/hook 2>/dev/null || true`
+Hook command (the installer records the canonical forwarder's absolute path in Claude Code `settings.json`; shown repository-relative here):
+`hooks/vibebuddy-forward.sh claude`
+
+The forwarder reads `VIBEBUDDY_TOKEN` or the token file selected by `VIBEBUDDY_TOKEN_FILE` (default: `$HOME/Library/Application Support/vibebuddy/token`) on every invocation, sends the shared install token as `Authorization: Bearer <token>`, and remains fail-open if delivery fails.
 
 ## Key Architectural Decisions
 
