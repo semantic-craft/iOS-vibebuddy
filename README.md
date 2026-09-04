@@ -64,7 +64,7 @@ Every session grouped into **Needs response / Working / Done**, each row showing
 When an agent asks to run a command or edit a file, the **full command or diff** lands on your phone. **Approve / Deny**, or **Always allow this** / **Allow all this session** — straight from the dashboard or the lock screen.
 
 ### 🔔 Notifications, Live Activity & Dynamic Island
-A banner the instant a session needs you. Live counts ride along on the **Lock Screen and Dynamic Island** via ActivityKit, kept fresh with **APNs push** even when the app is closed.
+A banner the instant a session needs you. ActivityKit puts live counts on the **Lock Screen and Dynamic Island**, updated while the app is foregrounded or connected. Closed-app APNs delivery is not part of the public v1.0 and remains deferred pending paid-account signing, an APNs key, and real-device end-to-end acceptance.
 
 ### 🤖 Works across your whole agent fleet
 Source-agnostic from day one. **Claude Code and Codex** are tested end-to-end; adapters ship for **Qwen, Kimi, Grok, OpenCode, and Gemini (Antigravity)**. One universal hook installer wires them all up.
