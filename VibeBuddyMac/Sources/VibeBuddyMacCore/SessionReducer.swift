@@ -92,6 +92,7 @@ public struct SessionReducer: Sendable {
             // completion — no unread-complete badge and no agentDone cue.
             if event.message == "Abandoned" {
                 sessions[event.sessionID]?.hasUnreadCompletion = false
+                sessions[event.sessionID]?.failed = false
                 break
             }
             // Carry the last tool's outcome; also treat a failure-looking stop

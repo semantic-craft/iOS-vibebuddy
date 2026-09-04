@@ -110,6 +110,12 @@ struct SessionReducerTests {
         #expect(r.sessions["s1"]?.failed != true)
         #expect(r.sessions["s1"]?.hasUnreadCompletion == false)
         #expect(r.sessions["s1"]?.presentationState != .completeUnread)
+
+        r.apply(ev(.userPromptSubmit, at: 61))
+        r.apply(ev(.postToolUse, tool: "Bash", toolError: true, at: 62))
+        r.apply(ev(.stop, message: "Abandoned", at: 120))
+        #expect(r.sessions["s1"]?.failed != true)
+        #expect(r.sessions["s1"]?.hasUnreadCompletion == false)
     }
 
     @Test("a failure-looking Stop message marks failed even without a tool error")
