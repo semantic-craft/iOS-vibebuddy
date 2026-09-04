@@ -587,6 +587,40 @@ struct CodexRolloutMonitorTests {
         #expect(reducer.sessions["desktop-replaced-live"]?.summary != "Abandoned")
     }
 
+    @Test("a watcher append under a replacement server stays owned across the next scan")
+    func watcherAppendUnderReplacementStaysOwned() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        let file = try fixture.write(
+            named: "rollout-watcher-replace.jsonl",
+            lines: [sessionMeta(id: "desktop-watcher-replace"), taskStarted(id: "t1")]
+        )
+        let ownerlessAfter: TimeInterval = 60
+        let server = IdentityFlag(pid: 51)
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            ownerlessAfter: ownerlessAfter,
+            desktopAppServerIdentity: { server.current },
+            hasWriterLock: { _ in true }
+        )
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-watcher-replace"]?.status == .working)
+
+        try append(
+            #"{"type":"response_item","payload":{"type":"custom_tool_call","name":"exec","call_id":"c1"}}"#,
+            to: file)
+        server.relaunch()
+        let watcherNow = Date()
+        for event in await monitor.consumeForTesting(file: file, now: watcherNow) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-watcher-replace"]?.activeTool == "exec")
+
+        let laterScan = watcherNow.addingTimeInterval(ownerlessAfter)
+        for event in await monitor.poll(now: laterScan) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-watcher-replace"]?.status == .working)
+        #expect(reducer.sessions["desktop-watcher-replace"]?.summary != "Abandoned")
+    }
+
     @Test("a rollout append after an ownerless scan re-arms ownership")
     func rolloutAppendRearmsOwnership() async throws {
         let fixture = try RolloutFixture(now: now)
@@ -757,14 +791,17 @@ struct CodexRolloutMonitorTests {
 
     @Test("an unreadable lock directory does not abandon a live Desktop writer")
     func unreadableLockDirectoryKeepsWorking() async throws {
-        let fixture = try RolloutFixture(now: now)
-        defer { fixture.remove() }
-        _ = try fixture.write(
-            named: "rollout-lockunreadable.jsonl",
-            lines: [sessionMeta(id: "desktop-lockunreadable"), taskStarted(id: "t1")]
-        )
-        let lockDir = fixture.root.deletingLastPathComponent()
-            .appendingPathComponent("thread-writer-locks", isDirectory: true)
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let sessions = home.appendingPathComponent("sessions", isDirectory: true)
+        let day = sessions.appendingPathComponent("2026/09/02", isDirectory: true)
+        try FileManager.default.createDirectory(at: day, withIntermediateDirectories: true)
+        let file = day.appendingPathComponent("rollout-lockunreadable.jsonl")
+        try Data(( [sessionMeta(id: "desktop-lockunreadable"), taskStarted(id: "t1")]
+            .joined(separator: "\n") + "\n").utf8).write(to: file)
+        try FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: file.path)
+        let lockDir = home.appendingPathComponent("thread-writer-locks", isDirectory: true)
         try FileManager.default.createDirectory(at: lockDir, withIntermediateDirectories: true)
         try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: lockDir.path)
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700],
@@ -772,7 +809,7 @@ struct CodexRolloutMonitorTests {
 
         var reducer = SessionReducer()
         let monitor = CodexRolloutMonitor(
-            root: fixture.root,
+            root: sessions,
             isDesktopAppServerAlive: { true }
         )
         for event in await monitor.poll(now: now) { reducer.apply(event) }

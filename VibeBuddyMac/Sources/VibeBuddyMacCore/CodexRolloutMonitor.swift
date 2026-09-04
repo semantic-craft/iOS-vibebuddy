@@ -859,6 +859,10 @@ public actor CodexRolloutMonitor {
     /// Last observed ChatGPT.app-bundled app-server. A different live identity
     /// between scans is a replacement, not continued ownership.
     private var lastAppServerIdentity: CodexDesktopAppServer.Identity?
+    /// Identity observed when this path last consumed a rollout append.
+    /// Watcher refreshes stamp `Date()`, so this — not `lastOwnedAt == now` —
+    /// is what exempts a resumed turn from replacement marking.
+    private var lastOwnedIdentity: [String: CodexDesktopAppServer.Identity] = [:]
 
     public init(
         root: URL = FileManager.default.homeDirectoryForCurrentUser
@@ -978,6 +982,13 @@ public actor CodexRolloutMonitor {
         )
     }
 
+    /// Watcher debounce calls `refresh` with a wall-clock `Date()` and does
+    /// not run `retireOwnerless`. Tests use this to stamp ownership under a
+    /// replacement identity before the next discovery pass.
+    func consumeForTesting(file: URL, now: Date) -> [HookEvent] {
+        refresh(file: file, now: now, installWatcher: false)
+    }
+
     func invalidateWatcherForTesting(at file: URL) {
         let path = file.path
         watcherRecoveryCount += 1
@@ -1050,7 +1061,7 @@ public actor CodexRolloutMonitor {
         let firstSighting = lastAppServerIdentity == nil
         if let previous = lastAppServerIdentity, let identity, previous != identity {
             for (path, cursor) in cursors {
-                guard previouslyTracked.contains(path), lastOwnedAt[path] != now else { continue }
+                guard previouslyTracked.contains(path), lastOwnedIdentity[path] != identity else { continue }
                 guard cursor.surfaced, cursor.parser.turnActive, !cursor.parser.awaitingUser,
                       cursor.parser.isDesktopSession
                 else { continue }
@@ -1127,6 +1138,7 @@ public actor CodexRolloutMonitor {
                 cursor.checkpoint = Self.checkpoint(file: file, endingAt: cursor.offset)
                 ownerlessObserved.remove(path)
                 lastOwnedAt[path] = now
+                lastOwnedIdentity[path] = desktopAppServerIdentity()
             }
             cursor.identity = state.identity
             cursors[path] = cursor
@@ -1245,6 +1257,7 @@ public actor CodexRolloutMonitor {
     private func removeTracking(path: String) {
         cursors[path] = nil
         lastOwnedAt[path] = nil
+        lastOwnedIdentity[path] = nil
         ownerlessObserved.remove(path)
         debounceTasks.removeValue(forKey: path)?.task.cancel()
         if let registration = watchers.removeValue(forKey: path) {
@@ -1276,6 +1289,7 @@ public actor CodexRolloutMonitor {
         cursors.removeAll()
         lastOwnedAt.removeAll()
         ownerlessObserved.removeAll()
+        lastOwnedIdentity.removeAll()
         lastAppServerIdentity = nil
         recoveryGateForTesting = nil
         sink = nil
