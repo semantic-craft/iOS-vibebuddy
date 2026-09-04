@@ -41,7 +41,7 @@ Priority when a session could be in two: `needsResponse` > `working` > `done`.
 
 **In:**
 - **macOS menu-bar app** (`VibeBuddyMac` / `VibeBuddyMacApp`): receives hook events, derives per-session state, parses transcript tail, broadcasts over token-gated LAN WebSocket + REST snapshot, and shows a pairing QR + status glance.
-- iOS app: **scan QR to pair**, three-section live dashboard, remote approve / answer, local notifications, **Widget / Live Activity**.
+- iOS app: **scan QR to pair**, three-section live dashboard, remote approve / answer, local notifications, **Widget / Live Activity** (implemented; real-device visual acceptance pending).
 - **watchOS companion** (buildable; real-device acceptance pending; no direct Mac transport; iPhone relays).
 - Hook routes require the install bearer token (**ADR-0009**).
 
