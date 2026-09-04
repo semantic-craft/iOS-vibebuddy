@@ -100,6 +100,18 @@ struct SessionReducerTests {
         #expect(r.sessions["s1"]?.presentationState == .thinking)
     }
 
+    @Test("probe abandonment is done, not a successful unread completion")
+    func abandonedStopIsNotUnreadCompletion() {
+        var r = SessionReducer()
+        r.apply(ev(.userPromptSubmit, at: 0))
+        r.apply(ev(.stop, message: "Abandoned", at: 60))
+        #expect(r.sessions["s1"]?.status == .done)
+        #expect(r.sessions["s1"]?.summary == "Abandoned")
+        #expect(r.sessions["s1"]?.failed != true)
+        #expect(r.sessions["s1"]?.hasUnreadCompletion == false)
+        #expect(r.sessions["s1"]?.presentationState != .completeUnread)
+    }
+
     @Test("a failure-looking Stop message marks failed even without a tool error")
     func failureStopMessage() {
         var r = SessionReducer()

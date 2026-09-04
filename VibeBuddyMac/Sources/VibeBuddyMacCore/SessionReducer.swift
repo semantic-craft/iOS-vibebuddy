@@ -88,6 +88,12 @@ public struct SessionReducer: Sendable {
             // carry the agent's final summary when present.
             upsert(event, status: .done, waitKind: nil, summary: event.message)
             sessions[event.sessionID]?.activeTool = nil
+            // Probe retirement is done, not failed, and not a successful
+            // completion — no unread-complete badge and no agentDone cue.
+            if event.message == "Abandoned" {
+                sessions[event.sessionID]?.hasUnreadCompletion = false
+                break
+            }
             // Carry the last tool's outcome; also treat a failure-looking stop
             // message as stuck even when no tool error was reported.
             if FailureHeuristic.looksFailed(event.message) { sessions[event.sessionID]?.failed = true }

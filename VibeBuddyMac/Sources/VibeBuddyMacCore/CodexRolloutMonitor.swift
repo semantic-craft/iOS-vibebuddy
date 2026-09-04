@@ -11,6 +11,9 @@ public struct CodexRolloutParser: Sendable {
     public private(set) var cwd: String?
     public private(set) var isDesktopSession = false
     public private(set) var turnActive = false
+    /// True after an approval or `request_user_input` notification. Probes may
+    /// only retire a `working` turn, so a waiting session is left alone.
+    public private(set) var awaitingUser = false
     /// Latest model named by `turn_context` / `thread_settings_applied`.
     public private(set) var model: String?
     private var tokenRecordCount = 0
@@ -85,14 +88,14 @@ public struct CodexRolloutParser: Sendable {
                 return [event(.stop, sessionID: sessionID,
                               message: "Turn aborted", timestamp: timestamp)]
             case "exec_approval_request":
-                return [event(.notification, sessionID: sessionID, toolName: "Shell",
-                              message: "Permission required for Shell", timestamp: timestamp)]
+                return waiting(event(.notification, sessionID: sessionID, toolName: "Shell",
+                                     message: "Permission required for Shell", timestamp: timestamp))
             case "apply_patch_approval_request":
-                return [event(.notification, sessionID: sessionID, toolName: "File change",
-                              message: "Permission required for file change", timestamp: timestamp)]
+                return waiting(event(.notification, sessionID: sessionID, toolName: "File change",
+                                     message: "Permission required for file change", timestamp: timestamp))
             case "request_user_input", "elicitation_request":
-                return [event(.notification, sessionID: sessionID,
-                              message: "Waiting for your input", timestamp: timestamp)]
+                return waiting(event(.notification, sessionID: sessionID,
+                                     message: "Waiting for your input", timestamp: timestamp))
             case "item_completed":
                 guard let item = payload["item"] as? [String: Any] else { return [] }
                 return eventsForCompletedItem(item, sessionID: sessionID, timestamp: timestamp)
@@ -238,9 +241,10 @@ public struct CodexRolloutParser: Sendable {
         let itemType = payload["type"] as? String ?? "function_call"
         let name = Self.startedToolName(payload, itemType: itemType)
         if name.split(separator: "/").last?.lowercased() == "request_user_input" {
-            return [event(.notification, sessionID: sessionID, toolName: name,
-                          message: "Waiting for your input", timestamp: timestamp)]
+            return waiting(event(.notification, sessionID: sessionID, toolName: name,
+                                 message: "Waiting for your input", timestamp: timestamp))
         }
+        awaitingUser = false
         let namespace = (payload["namespace"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         if namespace?.lowercased() == "collaboration" {
             return eventsForCollabCall(payload, toolName: name, sessionID: sessionID, timestamp: timestamp)
@@ -634,7 +638,13 @@ public struct CodexRolloutParser: Sendable {
         }
     }
 
+    private mutating func waiting(_ event: HookEvent) -> [HookEvent] {
+        awaitingUser = true
+        return [event]
+    }
+
     private mutating func startTurn(_ turnID: String?) {
+        awaitingUser = false
         if let turnID, !turnID.isEmpty { activeTurnIDs.insert(turnID) }
         else { anonymousTurnCount += 1 }
         refreshTurnState()
@@ -666,6 +676,7 @@ public struct CodexRolloutParser: Sendable {
     mutating func abandonActiveTurns() {
         activeTurnIDs.removeAll()
         anonymousTurnCount = 0
+        awaitingUser = false
         refreshTurnState()
     }
 
@@ -1032,7 +1043,8 @@ public actor CodexRolloutMonitor {
         if let previous = lastAppServerIdentity, let identity, previous != identity {
             for (path, cursor) in cursors {
                 guard previouslyTracked.contains(path), lastOwnedAt[path] != now else { continue }
-                guard cursor.surfaced, cursor.parser.turnActive, cursor.parser.isDesktopSession
+                guard cursor.surfaced, cursor.parser.turnActive, !cursor.parser.awaitingUser,
+                      cursor.parser.isDesktopSession
                 else { continue }
                 ownerlessObserved.insert(path)
             }
@@ -1047,6 +1059,9 @@ public actor CodexRolloutMonitor {
                 ownerlessObserved.remove(path)
                 continue
             }
+            // Probes may only retire a working turn. A pending approval or
+            // request_user_input stays needsResponse until the user answers.
+            if cursor.parser.awaitingUser { continue }
             if !appServerAlive || !hasWriterLock(sessionID) {
                 ownerlessObserved.insert(path)
             }

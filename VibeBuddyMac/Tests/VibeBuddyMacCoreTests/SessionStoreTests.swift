@@ -142,6 +142,7 @@ struct SessionStoreTests {
         #expect(after.sessions.first?.summary == "Abandoned")
         #expect(after.sessions.first?.desktopThreadID == "s")
         #expect(after.sessions.first?.failed != true)
+        #expect(after.sessions.first?.hasUnreadCompletion == false)
         #expect(after.sessions.first?.observations?.first { $0.source == .rollout }?.lastObservedAt == observedAt)
         #expect(after.observationDiagnostics?.health(agent: .codex, source: .rollout) == .healthy)
         #expect(after.observationDiagnostics?.lastObserved(agent: .codex, source: .rollout) == observedAt)

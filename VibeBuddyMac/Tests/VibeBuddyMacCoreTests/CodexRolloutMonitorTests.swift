@@ -639,6 +639,32 @@ struct CodexRolloutMonitorTests {
         #expect(reducer.sessions["desktop-rearm"]?.summary != "Abandoned")
     }
 
+    @Test("a Desktop turn waiting for input is not abandoned when the writer vanishes")
+    func waitingTurnIsNotAbandoned() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        _ = try fixture.write(
+            named: "rollout-waiting.jsonl",
+            lines: [
+                sessionMeta(id: "desktop-waiting"),
+                taskStarted(id: "t1"),
+                #"{"type":"event_msg","payload":{"type":"exec_approval_request"}}"#,
+            ]
+        )
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            isDesktopAppServerAlive: { false },
+            hasWriterLock: { _ in false }
+        )
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-waiting"]?.status == .needsResponse)
+
+        for event in await monitor.poll(now: now.addingTimeInterval(60)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-waiting"]?.status == .needsResponse)
+        #expect(reducer.sessions["desktop-waiting"]?.summary != "Abandoned")
+    }
+
     @Test("an owned but silent Desktop rollout stays working")
     func ownedSilentRolloutStaysWorking() async throws {
         let fixture = try RolloutFixture(now: now)
