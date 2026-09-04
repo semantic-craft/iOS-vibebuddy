@@ -835,6 +835,9 @@ public actor CodexRolloutMonitor {
     /// if this thread was never confirmed owned. The abandon deadline is
     /// `ownerlessAfter` after that instant — not after the first ownerless scan.
     private var lastOwnedAt: [String: Date] = [:]
+    /// Paths already seen without a writer. A later live app-server plus leftover
+    /// lock does not clear this; only a rollout append (`cursor.consume`) does.
+    private var ownerlessObserved: Set<String> = []
 
     public init(
         root: URL = FileManager.default.homeDirectoryForCurrentUser
@@ -963,7 +966,9 @@ public actor CodexRolloutMonitor {
     /// a lock's *presence* is not proof of a writer. A missing lock (only when
     /// the lock directory itself exists), or a dead ChatGPT.app-bundled
     /// `codex app-server`, is enough to call the thread ownerless. Leftover
-    /// locks are ignored once that process is already gone.
+    /// locks are ignored once that process is already gone. After a thread has
+    /// been observed ownerless, a relaunched app-server plus that leftover lock
+    /// still does not reset the clock — only a rollout append re-arms ownership.
     private func retireOwnerless(now: Date) -> [HookEvent] {
         var events: [HookEvent] = []
         let appServerAlive = isDesktopAppServerAlive()
@@ -973,10 +978,13 @@ public actor CodexRolloutMonitor {
                   let sessionID = cursor.parser.sessionID
             else {
                 lastOwnedAt[path] = nil
+                ownerlessObserved.remove(path)
                 continue
             }
-            let ownerless = !appServerAlive || !hasWriterLock(sessionID)
-            if !ownerless {
+            if !appServerAlive || !hasWriterLock(sessionID) {
+                ownerlessObserved.insert(path)
+            }
+            if !ownerlessObserved.contains(path) {
                 lastOwnedAt[path] = now
                 continue
             }
@@ -988,6 +996,7 @@ public actor CodexRolloutMonitor {
             updated.parser.abandonActiveTurns()
             cursors[path] = updated
             lastOwnedAt[path] = nil
+            ownerlessObserved.remove(path)
             events.append(HookEvent(
                 kind: .stop, sessionID: sessionID, agent: .codex,
                 cwd: cursor.parser.cwd, message: "Abandoned",
@@ -1023,6 +1032,8 @@ public actor CodexRolloutMonitor {
                 cursor.offset += UInt64(appended.count)
                 emitted = cursor.consume(appended, receivedAt: now)
                 cursor.checkpoint = Self.checkpoint(file: file, endingAt: cursor.offset)
+                ownerlessObserved.remove(path)
+                lastOwnedAt[path] = now
             }
             cursor.identity = state.identity
             cursors[path] = cursor
@@ -1134,6 +1145,7 @@ public actor CodexRolloutMonitor {
     private func removeTracking(path: String) {
         cursors[path] = nil
         lastOwnedAt[path] = nil
+        ownerlessObserved.remove(path)
         debounceTasks.removeValue(forKey: path)?.task.cancel()
         if let registration = watchers.removeValue(forKey: path) {
             registration.watcher.cancelAndWait()
@@ -1163,6 +1175,7 @@ public actor CodexRolloutMonitor {
         eventQueueHead = 0
         cursors.removeAll()
         lastOwnedAt.removeAll()
+        ownerlessObserved.removeAll()
         recoveryGateForTesting = nil
         sink = nil
     }
