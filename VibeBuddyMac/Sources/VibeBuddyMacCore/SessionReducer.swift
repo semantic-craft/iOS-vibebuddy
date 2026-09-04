@@ -99,6 +99,7 @@ public struct SessionReducer: Sendable {
                 sessions[event.sessionID]?.probeRetired = true
                 break
             }
+            sessions[event.sessionID]?.probeRetired = nil
             // Carry the last tool's outcome; also treat a failure-looking stop
             // message as stuck even when no tool error was reported.
             if FailureHeuristic.looksFailed(event.message) { sessions[event.sessionID]?.failed = true }

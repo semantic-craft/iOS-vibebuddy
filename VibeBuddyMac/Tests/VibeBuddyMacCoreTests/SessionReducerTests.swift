@@ -129,6 +129,13 @@ struct SessionReducerTests {
         #expect(r.sessions["s1"]?.probeRetired != true)
         r.apply(ev(.stop, at: 122))
         #expect(r.sessions["s1"]?.hasUnreadCompletion == true)
+
+        var genuine = SessionReducer()
+        genuine.apply(ev(.userPromptSubmit, at: 0))
+        genuine.apply(ev(.stop, message: "Abandoned", probeRetirement: true, at: 60))
+        genuine.apply(ev(.stop, message: "Done", at: 61))
+        #expect(genuine.sessions["s1"]?.probeRetired != true)
+        #expect(genuine.sessions["s1"]?.hasUnreadCompletion == true)
     }
 
     @Test("a failure-looking Stop message marks failed even without a tool error")

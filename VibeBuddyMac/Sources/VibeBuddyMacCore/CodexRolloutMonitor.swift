@@ -875,8 +875,9 @@ public actor CodexRolloutMonitor {
     /// between scans is a replacement, not continued ownership.
     private var lastAppServerIdentities: Set<CodexDesktopAppServer.Identity> = []
     /// Identities live when this path was last bootstrapped or consumed an
-    /// append. Watcher refreshes stamp `Date()`, so this — not `lastOwnedAt == now`
-    /// — exempts a resumed turn from replacement marking.
+    /// append, limited to processes that already existed at the file mtime.
+    /// Watcher refreshes stamp `Date()`, so this — not `lastOwnedAt == now` —
+    /// exempts a resumed turn from replacement marking.
     private var lastOwnedIdentities: [String: Set<CodexDesktopAppServer.Identity>] = [:]
 
     public init(
@@ -1285,7 +1286,12 @@ public actor CodexRolloutMonitor {
     }
 
     private func recordOwnedIdentities(path: String) {
-        lastOwnedIdentities[path] = Set(desktopAppServerIdentities())
+        let current = Set(desktopAppServerIdentities())
+        if let modified = Self.fileModifiedAt(path) {
+            lastOwnedIdentities[path] = current.filter { $0.startedAt <= modified }
+        } else {
+            lastOwnedIdentities[path] = current
+        }
     }
 
     private func removeTracking(path: String) {

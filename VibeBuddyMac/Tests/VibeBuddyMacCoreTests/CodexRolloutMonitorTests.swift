@@ -660,6 +660,37 @@ struct CodexRolloutMonitorTests {
         #expect(reducer.sessions["desktop-overlap-boot"]?.summary != "Abandoned")
     }
 
+    @Test("a rollout written before the overlapping replacement is discovered still retires")
+    func rolloutWrittenBeforeOverlapDiscoveryRetires() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        let ownerlessAfter: TimeInterval = 60
+        let server = IdentityFlag(pid: 91)
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            ownerlessAfter: ownerlessAfter,
+            desktopAppServerIdentities: { server.identities },
+            hasWriterLock: { _ in true }
+        )
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+
+        let writtenAt = now.addingTimeInterval(10)
+        let file = try fixture.write(
+            named: "rollout-overlap-stale.jsonl",
+            lines: [sessionMeta(id: "desktop-overlap-stale"), taskStarted(id: "t1")]
+        )
+        try FileManager.default.setAttributes([.modificationDate: writtenAt], ofItemAtPath: file.path)
+        server.overlap(pid: 92, startedAt: now.addingTimeInterval(20))
+        for event in await monitor.poll(now: now.addingTimeInterval(30)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-overlap-stale"]?.status == .working)
+
+        server.dropOldest()
+        for event in await monitor.poll(now: now.addingTimeInterval(90)) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-overlap-stale"]?.status == .done)
+        #expect(reducer.sessions["desktop-overlap-stale"]?.summary == "Abandoned")
+    }
+
     @Test("an overlapping replacement process does not abandon a turn that wrote during the overlap")
     func overlappingAppServerAppendStaysOwned() async throws {
         let fixture = try RolloutFixture(now: now)
