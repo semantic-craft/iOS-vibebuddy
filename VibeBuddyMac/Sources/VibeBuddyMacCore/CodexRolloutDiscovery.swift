@@ -26,7 +26,10 @@ enum CodexRolloutDiscovery {
     /// scan that found no files only because some directories could not be read)
     /// must not collapse into `.empty`.
     enum Lookup: Equatable {
-        case found([Candidate])
+        /// `incomplete` is true when some subdirectory could not be read.
+        /// The monitor still tails the accessible files; `latest` treats that
+        /// as `.unreadable` so a hidden newer rollout cannot look healthy.
+        case found([Candidate], incomplete: Bool)
         case empty
         case unreadable
     }
@@ -91,7 +94,7 @@ enum CodexRolloutDiscovery {
         }
 
         if files.isEmpty { return sawUnreadable ? .unreadable : .empty }
-        return .found(files)
+        return .found(files, incomplete: sawUnreadable)
     }
 
     /// Diagnostics inspect one file: the newest rollout by mtime, including
@@ -104,8 +107,8 @@ enum CodexRolloutDiscovery {
     ) -> Latest {
         switch candidates(in: root, now: now, window: nil, fileManager: fm) {
         case .empty: return .empty
-        case .unreadable: return .unreadable
-        case .found(let files):
+        case .unreadable, .found(_, incomplete: true): return .unreadable
+        case .found(let files, incomplete: false):
             guard let newest = files.max(by: { $0.modifiedAt < $1.modifiedAt }) else {
                 return .empty
             }

@@ -168,6 +168,37 @@ struct ObservationHealthDetectorTests {
         #expect(result.diagnostic(agent: .codex, source: .rollout)?.lastObservedAt != nil)
     }
 
+    @Test("a partial unreadable sessions tree is not classified from the accessible subset")
+    func partialUnreadableSessionsTree() throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        try write("model = \"gpt\"\n", to: home.appendingPathComponent(".codex/config.toml"))
+        let readable = home.appendingPathComponent(".codex/sessions/2023/11/13/rollout-old.jsonl")
+        try write(
+            #"{"type":"session_meta","payload":{"cli_version":"0.151.0-alpha.7.2"}}"# + "\n" +
+            #"{"type":"event_msg","payload":{"type":"task_started"}}"#,
+            to: readable)
+        let hiddenDir = home.appendingPathComponent(".codex/sessions/2023/11/14", isDirectory: true)
+        let hidden = hiddenDir.appendingPathComponent("rollout-newer.jsonl")
+        try write(
+            #"{"type":"session_meta","payload":{"cli_version":"0.151.0-alpha.7.2"}}"# + "\n" +
+            #"{"type":"event_msg","payload":{"type":"task_started"}}"#,
+            to: hidden)
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: hiddenDir.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700],
+                                                        ofItemAtPath: hiddenDir.path) }
+
+        let sessions = home.appendingPathComponent(".codex/sessions", isDirectory: true)
+        let result = detect(home: home)
+        #expect(result.health(agent: .codex, source: .rollout) == .sourceUnreadable)
+        if case .found(let files, incomplete: true) =
+            CodexRolloutDiscovery.candidates(in: sessions, now: now) {
+            #expect(files.map(\.url.lastPathComponent) == ["rollout-old.jsonl"])
+        } else {
+            Issue.record("monitor candidates should still tail the accessible rollout")
+        }
+    }
+
     @Test("an unreadable rollout directory is not treated as an empty source")
     func unreadableRolloutDirectory() throws {
         let home = try tempHome()

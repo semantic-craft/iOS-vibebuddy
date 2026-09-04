@@ -510,6 +510,44 @@ struct CodexRolloutMonitorTests {
         #expect(reducer.sessions["desktop-relaunch"]?.failed != true)
     }
 
+    @Test("ChatGPT relaunch between scans still retires the interrupted turn within a minute")
+    func appServerReplacementBetweenScansRetires() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        _ = try fixture.write(
+            named: "rollout-replaced.jsonl",
+            lines: [sessionMeta(id: "desktop-replaced"), taskStarted(id: "t1")]
+        )
+        let discoveryInterval: TimeInterval = 30
+        let ownerlessAfter: TimeInterval = 60
+        let server = IdentityFlag(pid: 11)
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            discoveryInterval: .seconds(discoveryInterval),
+            ownerlessAfter: ownerlessAfter,
+            desktopAppServerIdentity: { server.current },
+            hasWriterLock: { _ in true }
+        )
+
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-replaced"]?.status == .working)
+
+        // Quit and relaunch entirely between scans: both observations see a live
+        // app-server plus leftover lock. Identity change is the missing edge.
+        server.relaunch()
+        let firstAfterReplace = now.addingTimeInterval(discoveryInterval)
+        for event in await monitor.poll(now: firstAfterReplace) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-replaced"]?.status == .working)
+        #expect(reducer.sessions["desktop-replaced"]?.summary != "Abandoned")
+
+        let deadline = now.addingTimeInterval(ownerlessAfter)
+        for event in await monitor.poll(now: deadline) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-replaced"]?.status == .done)
+        #expect(reducer.sessions["desktop-replaced"]?.summary == "Abandoned")
+        #expect(reducer.sessions["desktop-replaced"]?.failed != true)
+    }
+
     @Test("a rollout append after an ownerless scan re-arms ownership")
     func rolloutAppendRearmsOwnership() async throws {
         let fixture = try RolloutFixture(now: now)
@@ -924,6 +962,17 @@ struct CodexRolloutMonitorTests {
 private final class WriterFlag: @unchecked Sendable {
     var isAlive: Bool
     init(isAlive: Bool) { self.isAlive = isAlive }
+}
+
+private final class IdentityFlag: @unchecked Sendable {
+    var current: CodexDesktopAppServer.Identity?
+    init(pid: pid_t) {
+        current = CodexDesktopAppServer.Identity(pid: pid, startSec: 0, startUsec: 0)
+    }
+    func relaunch() {
+        let next = (current?.pid ?? 0) + 1
+        current = CodexDesktopAppServer.Identity(pid: next, startSec: 0, startUsec: 0)
+    }
 }
 
 private actor EventRecorder {
