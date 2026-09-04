@@ -990,6 +990,7 @@ public actor CodexRolloutMonitor {
         discoveryPassCount += 1
         let files = candidateFiles(now: now)
         let livePaths = Set(files.map(\.path))
+        let previouslyTracked = Set(cursors.keys)
         var result = ScanResult()
         for path in Array(cursors.keys) where !livePaths.contains(path) {
             result.observed.append(contentsOf: endedEvents(path: path, now: now))
@@ -999,7 +1000,7 @@ public actor CodexRolloutMonitor {
         for file in files {
             result.observed.append(contentsOf: refresh(file: file, now: now, installWatcher: installWatchers))
         }
-        result.retired = retireOwnerless(now: now)
+        result.retired = retireOwnerless(now: now, previouslyTracked: previouslyTracked)
         return result
     }
 
@@ -1019,15 +1020,18 @@ public actor CodexRolloutMonitor {
     /// `codex app-server`, is enough to call the thread ownerless. Leftover
     /// locks are ignored once that process is already gone. A live app-server
     /// whose pid/start identity changed between scans is also ownerless — the
-    /// quit-and-relaunch happened between observations. After a thread has
-    /// been observed ownerless, a relaunched app-server plus that leftover lock
-    /// still does not reset the clock — only a rollout append re-arms ownership.
-    private func retireOwnerless(now: Date) -> [HookEvent] {
+    /// quit-and-relaunch happened between observations. A path that was new this
+    /// scan, or that got a rollout append in this same pass, is already owned by
+    /// the replacement server and must not be marked. After a thread has been
+    /// observed ownerless, a relaunched app-server plus that leftover lock still
+    /// does not reset the clock — only a rollout append re-arms ownership.
+    private func retireOwnerless(now: Date, previouslyTracked: Set<String>) -> [HookEvent] {
         var events: [HookEvent] = []
         let identity = desktopAppServerIdentity()
         let appServerAlive = identity != nil
         if let previous = lastAppServerIdentity, let identity, previous != identity {
             for (path, cursor) in cursors {
+                guard previouslyTracked.contains(path), lastOwnedAt[path] != now else { continue }
                 guard cursor.surfaced, cursor.parser.turnActive, cursor.parser.isDesktopSession
                 else { continue }
                 ownerlessObserved.insert(path)

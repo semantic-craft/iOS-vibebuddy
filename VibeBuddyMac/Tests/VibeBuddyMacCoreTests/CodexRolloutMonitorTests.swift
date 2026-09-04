@@ -548,6 +548,45 @@ struct CodexRolloutMonitorTests {
         #expect(reducer.sessions["desktop-replaced"]?.failed != true)
     }
 
+    @Test("a rollout append in the same pass as an app-server replacement stays owned")
+    func appendDuringAppServerReplacementStaysOwned() async throws {
+        let fixture = try RolloutFixture(now: now)
+        defer { fixture.remove() }
+        let file = try fixture.write(
+            named: "rollout-replaced-live.jsonl",
+            lines: [sessionMeta(id: "desktop-replaced-live"), taskStarted(id: "t1")]
+        )
+        let discoveryInterval: TimeInterval = 30
+        let ownerlessAfter: TimeInterval = 60
+        let server = IdentityFlag(pid: 21)
+        var reducer = SessionReducer()
+        let monitor = CodexRolloutMonitor(
+            root: fixture.root,
+            discoveryInterval: .seconds(discoveryInterval),
+            ownerlessAfter: ownerlessAfter,
+            desktopAppServerIdentity: { server.current },
+            hasWriterLock: { _ in true }
+        )
+
+        for event in await monitor.poll(now: now) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-replaced-live"]?.status == .working)
+
+        try append(
+            #"{"type":"response_item","payload":{"type":"custom_tool_call","name":"exec","call_id":"c1"}}"#,
+            to: file)
+        server.relaunch()
+        let afterReplace = now.addingTimeInterval(discoveryInterval)
+        for event in await monitor.poll(now: afterReplace) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-replaced-live"]?.status == .working)
+        #expect(reducer.sessions["desktop-replaced-live"]?.activeTool == "exec")
+        #expect(reducer.sessions["desktop-replaced-live"]?.summary != "Abandoned")
+
+        let deadline = now.addingTimeInterval(ownerlessAfter)
+        for event in await monitor.poll(now: deadline) { reducer.apply(event) }
+        #expect(reducer.sessions["desktop-replaced-live"]?.status == .working)
+        #expect(reducer.sessions["desktop-replaced-live"]?.summary != "Abandoned")
+    }
+
     @Test("a rollout append after an ownerless scan re-arms ownership")
     func rolloutAppendRearmsOwnership() async throws {
         let fixture = try RolloutFixture(now: now)
