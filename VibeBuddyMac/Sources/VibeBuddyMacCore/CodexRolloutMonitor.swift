@@ -799,7 +799,12 @@ public actor CodexRolloutMonitor {
         let task: Task<Void, Never>
     }
 
-    private typealias EventSink = @Sendable (HookEvent) async -> Void
+    private struct QueuedEvent {
+        let event: HookEvent
+        let recordsEvidence: Bool
+    }
+
+    private typealias EventSink = @Sendable (HookEvent, Bool) async -> Void
 
     private let root: URL
     private let discoveryInterval: Duration
@@ -822,7 +827,7 @@ public actor CodexRolloutMonitor {
     private var debounceTasks: [String: DebounceRegistration] = [:]
     private var recoveryTask: Task<Void, Never>?
     private var deliveryTask: Task<Void, Never>?
-    private var eventQueue: [HookEvent] = []
+    private var eventQueue: [QueuedEvent] = []
     private var eventQueueHead = 0
     private var recoveryGateForTesting: (@Sendable () async -> Void)?
     private var sink: EventSink?
@@ -870,14 +875,22 @@ public actor CodexRolloutMonitor {
     }
 
     public func run(store: SessionStore) async {
-        await run { event in await store.ingest(event) }
+        await runDelivering { event, recordsEvidence in
+            await store.ingest(event, recordsEvidence: recordsEvidence)
+        }
     }
 
     func run(_ onEvent: @escaping @Sendable (HookEvent) async -> Void) async {
+        await runDelivering { event, _ in await onEvent(event) }
+    }
+
+    private func runDelivering(
+        _ onEvent: @escaping @Sendable (HookEvent, Bool) async -> Void
+    ) async {
         guard !isRunning else { return }
         isRunning = true
         sink = onEvent
-        enqueue(scan(now: Date(), installWatchers: true))
+        enqueueScan(scan(now: Date(), installWatchers: true))
 
         let interval = discoveryInterval
         recoveryTask = Task { [weak self] in
@@ -899,7 +912,7 @@ public actor CodexRolloutMonitor {
     /// One deterministic discovery/recovery pass, public so the file-tail
     /// contract can be tested without timers or a running HTTP server.
     public func poll(now: Date) -> [HookEvent] {
-        scan(now: now, installWatchers: isRunning)
+        scan(now: now, installWatchers: isRunning).events
     }
 
     public func diagnostics() -> CodexRolloutMonitorDiagnostics {
@@ -932,24 +945,30 @@ public actor CodexRolloutMonitor {
         guard isRunning, !Task.isCancelled else { return }
         if let recoveryGateForTesting { await recoveryGateForTesting() }
         guard isRunning, !Task.isCancelled else { return }
-        enqueue(scan(now: now, installWatchers: true))
+        enqueueScan(scan(now: now, installWatchers: true))
     }
 
-    private func scan(now: Date, installWatchers: Bool) -> [HookEvent] {
+    private struct ScanResult {
+        var observed: [HookEvent] = []
+        var retired: [HookEvent] = []
+        var events: [HookEvent] { observed + retired }
+    }
+
+    private func scan(now: Date, installWatchers: Bool) -> ScanResult {
         discoveryPassCount += 1
         let files = candidateFiles(now: now)
         let livePaths = Set(files.map(\.path))
-        var emitted: [HookEvent] = []
+        var result = ScanResult()
         for path in Array(cursors.keys) where !livePaths.contains(path) {
-            emitted.append(contentsOf: endedEvents(path: path, now: now))
+            result.observed.append(contentsOf: endedEvents(path: path, now: now))
             removeTracking(path: path)
         }
 
         for file in files {
-            emitted.append(contentsOf: refresh(file: file, now: now, installWatcher: installWatchers))
+            result.observed.append(contentsOf: refresh(file: file, now: now, installWatcher: installWatchers))
         }
-        emitted.append(contentsOf: retireOwnerless(now: now))
-        return emitted
+        result.retired = retireOwnerless(now: now)
+        return result
     }
 
     /// A Desktop turn with no writer leaves `working` on the existing discovery
@@ -1122,9 +1141,16 @@ public actor CodexRolloutMonitor {
         enqueue(refresh(file: file, now: Date(), installWatcher: true))
     }
 
-    private func enqueue(_ events: [HookEvent]) {
+    private func enqueueScan(_ result: ScanResult) {
+        enqueue(result.observed)
+        enqueue(result.retired, recordsEvidence: false)
+    }
+
+    private func enqueue(_ events: [HookEvent], recordsEvidence: Bool = true) {
         guard isRunning, !events.isEmpty else { return }
-        eventQueue.append(contentsOf: events)
+        eventQueue.append(contentsOf: events.map {
+            QueuedEvent(event: $0, recordsEvidence: recordsEvidence)
+        })
         guard deliveryTask == nil else { return }
         deliveryTask = Task { [weak self] in
             await self?.drainEventQueue()
@@ -1133,9 +1159,9 @@ public actor CodexRolloutMonitor {
 
     private func drainEventQueue() async {
         while !Task.isCancelled, isRunning, eventQueueHead < eventQueue.count, let sink {
-            let event = eventQueue[eventQueueHead]
+            let queued = eventQueue[eventQueueHead]
             eventQueueHead += 1
-            await sink(event)
+            await sink(queued.event, queued.recordsEvidence)
         }
         eventQueue.removeAll(keepingCapacity: isRunning)
         eventQueueHead = 0

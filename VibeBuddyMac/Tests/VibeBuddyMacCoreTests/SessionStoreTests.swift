@@ -113,4 +113,49 @@ struct SessionStoreTests {
         #expect(await store.acknowledgeCompletion(sessionID: "s"))
         #expect(await store.snapshot(now: t0.addingTimeInterval(3)).sessions.first?.presentationState == .idle)
     }
+
+    @Test("a probe retirement does not refresh rollout observation evidence")
+    func retirementDoesNotRecordRolloutEvidence() async {
+        // Wall-clock T0 so source diagnostics stay inside the 10-minute healthy window.
+        let observedAt = Date()
+        let store = SessionStore()
+        await store.ingest(HookEvent(
+            kind: .userPromptSubmit, sessionID: "s", agent: .codex,
+            cwd: "/x/p", observationSource: .rollout, timestamp: observedAt,
+            desktopThreadID: "s"))
+        let before = await store.snapshot(now: observedAt)
+        #expect(before.sessions.first?.status == .working)
+        #expect(before.sessions.first?.observations?.first { $0.source == .rollout }?.lastObservedAt == observedAt)
+        #expect(before.observationDiagnostics?.health(agent: .codex, source: .rollout) == .healthy)
+        #expect(before.observationDiagnostics?.lastObserved(agent: .codex, source: .rollout) == observedAt)
+
+        let retiredAt = observedAt.addingTimeInterval(30)
+        await store.ingest(HookEvent(
+            kind: .stop, sessionID: "s", agent: .codex,
+            cwd: "/x/p", message: "Abandoned",
+            observationSource: .rollout, timestamp: retiredAt,
+            desktopThreadID: "s"),
+            recordsEvidence: false)
+
+        let after = await store.snapshot(now: retiredAt)
+        #expect(after.sessions.first?.status == .done)
+        #expect(after.sessions.first?.summary == "Abandoned")
+        #expect(after.sessions.first?.desktopThreadID == "s")
+        #expect(after.sessions.first?.failed != true)
+        #expect(after.sessions.first?.observations?.first { $0.source == .rollout }?.lastObservedAt == observedAt)
+        #expect(after.observationDiagnostics?.health(agent: .codex, source: .rollout) == .healthy)
+        #expect(after.observationDiagnostics?.lastObserved(agent: .codex, source: .rollout) == observedAt)
+    }
+}
+
+private extension Array where Element == AgentObservationDiagnostic {
+    func health(agent: AgentKind, source: ObservationSource) -> ObservationHealth? {
+        first(where: { $0.agent == agent })?.sources
+            .first(where: { $0.source == source })?.health
+    }
+
+    func lastObserved(agent: AgentKind, source: ObservationSource) -> Date? {
+        first(where: { $0.agent == agent })?.sources
+            .first(where: { $0.source == source })?.lastObservedAt
+    }
 }

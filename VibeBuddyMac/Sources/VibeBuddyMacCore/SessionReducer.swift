@@ -35,7 +35,8 @@ public struct SessionReducer: Sendable {
 
     public mutating func apply(
         _ event: HookEvent,
-        observationSource: ObservationSource? = nil
+        observationSource: ObservationSource? = nil,
+        recordsEvidence: Bool = true
     ) {
         switch event.kind {
         case .sessionStart:
@@ -115,11 +116,13 @@ public struct SessionReducer: Sendable {
             if let thread = event.desktopThreadID {
                 sessions[event.sessionID]?.desktopThreadID = thread
             }
-            recordObservation(
-                sessionID: event.sessionID,
-                source: observationSource ?? event.observationSource ?? .hook,
-                at: event.timestamp,
-                health: .healthy)
+            if recordsEvidence {
+                recordObservation(
+                    sessionID: event.sessionID,
+                    source: observationSource ?? event.observationSource ?? .hook,
+                    at: event.timestamp,
+                    health: .healthy)
+            }
         }
     }
 
