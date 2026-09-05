@@ -141,7 +141,9 @@
 "Browse available models" = "浏览可用模型";
 "Voice ID — editable (blank = auto by language)" = "音色 ID——可编辑（留空＝按语言自动）";
 "Browse available voices" = "浏览可用音色";
-"Use international site (dashscope-intl)" = "使用国际站（dashscope-intl）";
+"Workspace ID — optional; uses the workspace endpoint when set" = "业务空间 ID——可选，填写后使用业务空间专属接入点";
+"Find your workspace ID" = "查找业务空间 ID";
+"Use Singapore (international) region" = "使用新加坡（国际）地域";
 "Paste your %@ key" = "粘贴你的 %@ 密钥";
 
 /* MARK: Voice companion opt-in (consent gate) */

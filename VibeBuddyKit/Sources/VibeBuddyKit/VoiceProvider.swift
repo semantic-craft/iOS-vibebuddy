@@ -27,8 +27,8 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
 
     public var defaultModel: String {
         switch self {
-        case .qwen:   return "qwen3.5-omni-plus-realtime"
-        case .openai: return "gpt-realtime"
+        case .qwen:   return "qwen-audio-3.0-realtime-plus"
+        case .openai: return "gpt-realtime-2.1"
         case .gemini: return "gemini-3.1-flash-live-preview"
         }
     }
@@ -45,7 +45,7 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
     /// names per provider; the user can override with a free-text Voice ID.
     public func defaultVoice(_ language: VoiceLanguage) -> String {
         switch self {
-        case .qwen:   return language == .chinese ? "Tina" : "Jennifer"
+        case .qwen:   return "longanqian"   // Qwen-Audio system voice (multilingual)
         case .openai: return "marin"
         case .gemini: return language == .chinese ? "Aoede" : "Puck"
         }
@@ -56,7 +56,7 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
     /// Where to browse this provider's available model IDs.
     public var modelsURL: URL {
         switch self {
-        case .qwen:   return URL(string: "https://help.aliyun.com/zh/model-studio/realtime")!
+        case .qwen:   return URL(string: "https://help.aliyun.com/zh/model-studio/qwen-audio-realtime-user-guides")!
         case .openai: return URL(string: "https://platform.openai.com/docs/models")!
         case .gemini: return URL(string: "https://ai.google.dev/gemini-api/docs/models")!
         }
@@ -65,11 +65,15 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
     /// Where to browse this provider's available voice IDs.
     public var voicesURL: URL {
         switch self {
-        case .qwen:   return URL(string: "https://help.aliyun.com/zh/model-studio/realtime")!
+        case .qwen:   return URL(string: "https://help.aliyun.com/zh/model-studio/qwen-audio-realtime-user-guides")!
         case .openai: return URL(string: "https://platform.openai.com/docs/guides/realtime")!
         case .gemini: return URL(string: "https://ai.google.dev/gemini-api/docs/speech-generation")!
         }
     }
+
+    /// Where to find the Bailian workspace ID (Qwen only; used for the
+    /// workspace-specific `maas.aliyuncs.com` endpoint).
+    public static let qwenWorkspaceIDURL = URL(string: "https://help.aliyun.com/zh/model-studio/obtain-the-app-id-and-workspace-id")!
 
     /// Where to get an API key for this provider.
     public var apiKeyURL: URL {

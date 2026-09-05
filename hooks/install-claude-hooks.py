@@ -27,6 +27,13 @@ FORWARDER_MARKER = "vibebuddy-forward.sh"
 APPROVAL_HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "approval-hook.sh")
 APPROVAL_COMMAND = f'"{APPROVAL_HOOK}"'
 APPROVAL_MARKER = "approval-hook.sh"
+# Remote approval (--approval) gates PermissionRequest: Claude fires it only when
+# it would stop and ask (a prompt in default mode, an uncertain classifier in
+# auto mode), and honours the hook's `decision.behavior` there. Gating every
+# PreToolUse instead — the original design, from before this event existed —
+# held every tool call for the phone; an old gate found there is migrated.
+APPROVAL_EVENT = "PermissionRequest"
+APPROVAL_TIMEOUT = 30   # the daemon answers within 25s; the hook's curl caps at 30s
 CAPTURE_HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "capture-terminal.sh")
 CAPTURE_MARKER = "capture-terminal.sh"
 TOOL_EVENTS = {"PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionDenied"}
@@ -101,15 +108,31 @@ def install(data):
     return added
 
 
+def has_approval(data):
+    hooks = data.get("hooks", {}) if isinstance(data.get("hooks", {}), dict) else {}
+    return any(has_marker(g, APPROVAL_MARKER) for arr in hooks.values() for g in arr)
+
+
 def install_approval(data):
     hooks = data.setdefault("hooks", {})
-    arr = hooks.setdefault("PreToolUse", [])
-    # Drop the fire-and-forget vibebuddy /hook group for PreToolUse; the blocking
-    # approval hook subsumes the working-status update via /approval.
+    # Retire the legacy PreToolUse gate; install() has already restored the
+    # asynchronous status forwarder there.
+    for ev in list(hooks):
+        if ev != APPROVAL_EVENT:
+            hooks[ev] = [g for g in hooks[ev] if not has_marker(g, APPROVAL_MARKER)]
+            if not hooks[ev]:
+                del hooks[ev]
+    arr = hooks.setdefault(APPROVAL_EVENT, [])
+    # The blocking gate replaces the fire-and-forget status group on this one
+    # event; the daemon still learns of the wait from the gate itself.
     arr[:] = [g for g in arr if not has_status_marker(g)]
-    if not any(has_marker(g, APPROVAL_MARKER) for g in arr):
-        arr.append({"matcher": "*", "hooks": [{"type": "command", "command": APPROVAL_COMMAND}]})
-    return ["PreToolUse(approval)"]
+    expected = {"matcher": "*", "hooks": [{"type": "command", "command": APPROVAL_COMMAND,
+                                            "timeout": APPROVAL_TIMEOUT}]}
+    owned = [g for g in arr if has_marker(g, APPROVAL_MARKER)]
+    if owned != [expected]:
+        arr[:] = [g for g in arr if not has_marker(g, APPROVAL_MARKER)]
+        arr.append(expected)
+    return [f"{APPROVAL_EVENT}(approval)"]
 
 
 def uninstall(data):
@@ -169,6 +192,10 @@ def main():
         return
 
     added = install(data)
+    if has_approval(data):
+        # A plain re-install (the Mac app's Repair button) keeps — and, for an
+        # old PreToolUse gate, migrates — the approval gate the user opted into.
+        added += install_approval(data)
     if mode == "--dry-run":
         print("would add vibebuddy hooks for:", added or "(already installed)")
         print("status events:", ", ".join(EVENTS))

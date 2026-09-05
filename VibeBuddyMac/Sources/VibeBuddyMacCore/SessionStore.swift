@@ -86,15 +86,25 @@ public actor SessionStore {
         needsResponseHandler = handler
     }
 
+    /// True when a session with this id is currently tracked.
+    public func hasSession(_ id: String) -> Bool {
+        reducer.sessions[id] != nil
+    }
+
     /// Parse a raw hook payload, apply it, enrich from the transcript, and push
     /// the new snapshot to every subscriber. Returns false if it wasn't a hook.
+    /// `announcesWait: false` applies the event without firing the
+    /// needs-response handler — for a wait the caller is about to announce
+    /// itself (a `PermissionRequest` gate that opens an unknown session right
+    /// before `beginApproval`), so one request never produces two pushes.
     @discardableResult
-    public func ingest(_ data: Data, agent: AgentKind = .claudeCode, receivedAt: Date) -> Bool {
+    public func ingest(_ data: Data, agent: AgentKind = .claudeCode, receivedAt: Date,
+                       announcesWait: Bool = true) -> Bool {
         // Source-aware decode: the `?agent=` value tags Claude-shaped lifecycle
         // hooks directly and selects a translator only for different envelopes.
         switch HookDecoder.decode(data, agent: agent, receivedAt: receivedAt) {
         case let .event(event):
-            ingest(event, observationSource: .hook)
+            ingest(event, observationSource: .hook, announcesWait: announcesWait)
             return true
         case .ignored:
             // Understood, but carries no progress (grok fires several such events
@@ -125,7 +135,8 @@ public actor SessionStore {
     private func ingest(
         _ event: HookEvent,
         observationSource: ObservationSource,
-        recordsEvidence: Bool = true
+        recordsEvidence: Bool = true,
+        announcesWait: Bool = true
     ) {
         let wasWaiting = reducer.sessions[event.sessionID]?.status == .needsResponse
         if let path = event.transcriptPath { transcriptPaths[event.sessionID] = path }
@@ -170,7 +181,7 @@ public actor SessionStore {
             at: event.timestamp
         )
         broadcast()
-        if !wasWaiting, let session = reducer.sessions[event.sessionID],
+        if announcesWait, !wasWaiting, let session = reducer.sessions[event.sessionID],
            session.status == .needsResponse, let handler = needsResponseHandler {
             Task { await handler(session) }
         }
