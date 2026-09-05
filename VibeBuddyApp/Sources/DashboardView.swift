@@ -1,10 +1,10 @@
 import SwiftUI
 import VibeBuddyKit
 
+/// The iPhone dashboard, Companion style (docs/design/mac-companion-redesign.md):
+/// the cat and its bubble on top, sessions in three state buckets, each row
+/// summary-first; the row that needs you carries its request card inline.
 struct DashboardView: View {
-    private let presentationStates: [TaskPresentationState] = [
-        .error, .requiresInput, .thinking, .completeUnread, .idle,
-    ]
     @EnvironmentObject private var connection: ConnectionStore
     @EnvironmentObject private var dashboard: DashboardStore
     @EnvironmentObject private var voice: VoiceChat
@@ -12,14 +12,18 @@ struct DashboardView: View {
     @State private var showSettings = false
     @State private var highlightId: String?
 
+    private var groups: StateGroups { StateGroups(dashboard.allSessions) }
+
     var body: some View {
         ScrollViewReader { proxy in
         List {
-            ForEach(presentationStates, id: \.self) { state in
-                section(state, sessions: dashboard.allSessions.filter { $0.presentationState == state })
+            ForEach(groups.buckets) { bucket in
+                section(bucket)
             }
         }
         .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(CompanionPalette.bg)
         .onChange(of: dashboard.focusedSessionId) { _, _ in focus(proxy) }
         .onChange(of: dashboard.groups) { _, _ in
             if dashboard.focusedSessionId != nil { focus(proxy) }
@@ -39,13 +43,17 @@ struct DashboardView: View {
                     PairedMacStrip(pairing: pairing, state: dashboard.state)
                 }
             }
-            .background(.background)
+            .background(CompanionPalette.bg)
         }
         .animation(.smooth, value: dashboard.groups)
         .overlay {
             if dashboard.groups.isEmpty { EmptyStateView(state: dashboard.state) }
         }
         .navigationTitle("vibebuddy")
+        // The cat's bubble is the header now; a large title above it only
+        // spends a screen's worth of blank space (and on iOS 26 hides behind
+        // the inset).
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { ConnectionDot(state: dashboard.state) }
             ToolbarItem(placement: .topBarTrailing) {
@@ -58,6 +66,7 @@ struct DashboardView: View {
                 .font(.subheadline)
             }
         }
+        .tint(CompanionPalette.accent)
         .sheet(isPresented: $showSettings) {
             // A sheet doesn't inherit the presenter's environment objects, so
             // re-inject `voice` — Settings restarts a live session on change.
@@ -69,11 +78,11 @@ struct DashboardView: View {
         .overlay(alignment: .bottom) {
             if let toast = dashboard.toast {
                 Text(toast)
-                    .font(.subheadline)
+                    .font(CompanionType.font(13, .bold))
+                    .foregroundStyle(CompanionPalette.ink)
                     .padding(.horizontal, 14).padding(.vertical, 10)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .overlay(Capsule().strokeBorder(.quaternary))
-                    .shadow(radius: 8, y: 2)
+                    .background(CompanionPalette.bg3, in: Capsule())
+                    .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
                     .padding(.bottom, 28)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
@@ -102,32 +111,31 @@ struct DashboardView: View {
         }
     }
 
-    @ViewBuilder
-    private func section(_ state: TaskPresentationState, sessions: [AgentSession]) -> some View {
-        let accent = Color(taskStatus: state.colorToken)
-        if !sessions.isEmpty {
-            Section {
-                ForEach(sessions) { session in
-                    SessionRow(session: session, isSelected: highlightId == session.id)
-                        .id(session.id)
-                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                            attentionSwipeButtons(session)
-                        }
-                        .contextMenu { attentionMenu(session) }
-                        .listRowInsets(.init(top: 6, leading: 0, bottom: 6, trailing: 16))
-                        .listRowBackground(highlightId == session.id
-                                           ? accent.opacity(0.15) : Color.clear)
-                }
-            } header: {
-                HStack(spacing: 6) {
-                    Image(systemName: state.symbolName)
-                    Text(state.label)
-                    Text("\(sessions.count)").monospacedDigit().opacity(0.7)
-                }
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(accent)
-                .textCase(nil)
+    /// One state bucket: a title row, then a card per session.
+    private func section(_ bucket: StateGroups.Bucket) -> some View {
+        Section {
+            ForEach(bucket.sessions) { session in
+                SessionRow(session: session, isSelected: highlightId == session.id)
+                    .id(session.id)
+                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                        attentionSwipeButtons(session)
+                    }
+                    .contextMenu { attentionMenu(session) }
+                    .listRowInsets(.init(top: 4, leading: 16, bottom: 4, trailing: 16))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
             }
+        } header: {
+            // Sticky while its bucket scrolls, so it needs its own solid ground.
+            BucketTitle(title: bucket.title, count: bucket.sessions.count)
+                .padding(.horizontal, 8).padding(.vertical, 6)
+                .background(bucket.warm ? CompanionPalette.status(.requiresInput).opacity(0.12) : CompanionPalette.bg2,
+                            in: Capsule())
+                .textCase(nil)
+                .padding(.vertical, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(CompanionPalette.bg)
+                .listRowInsets(.init(top: 0, leading: 16, bottom: 0, trailing: 16))
         }
     }
 }
@@ -195,6 +203,7 @@ extension SessionAttention {
     }
 }
 
+
 private struct PairedMacStrip: View {
     let pairing: PairingPayload
     let state: DashboardStore.ConnectionState
@@ -204,22 +213,17 @@ private struct PairedMacStrip: View {
             Image(systemName: "laptopcomputer.and.iphone")
                 .foregroundStyle(color)
                 .frame(width: 18)
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Connected to \(macName)")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                Text("\(pairing.host):\(pairing.port)")
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.secondary)
-            }
+            Text("Connected to \(macName)")
+                .font(CompanionType.font(11, .bold))
+                .foregroundStyle(CompanionPalette.ink2)
+                .lineLimit(1)
+            Text(verbatim: "\(pairing.host):\(String(pairing.port))")   // no "9,877" grouping
+                .font(CompanionType.mono(10))
+                .foregroundStyle(CompanionPalette.ink3)
             Spacer(minLength: 8)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 7)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(Color(.separator)).frame(height: 0.5)
-        }
+        .padding(.bottom, 6)
     }
 
     private var macName: String {
@@ -229,13 +233,16 @@ private struct PairedMacStrip: View {
 
     private var color: Color {
         switch state {
-        case .connected: .green
-        case .connecting: .yellow
-        case .failed: .red
+        case .connected: CompanionPalette.accent
+        case .connecting: CompanionPalette.status(.requiresInput)
+        case .failed: CompanionPalette.status(.error)
         }
     }
 }
 
+/// Summary-first row (round 3): the agent's last summary is the main line,
+/// the project is the eyebrow, the activity sits in small caps underneath.
+/// A pending approval or question is answered right here (round 4).
 private struct SessionRow: View {
     let session: AgentSession
     let isSelected: Bool
@@ -243,80 +250,30 @@ private struct SessionRow: View {
     @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
 
     private var included: Bool { dashboard.buddySessionIDs.contains(session.id) }
-    private var accent: Color { Color(taskStatus: session.presentationState.colorToken) }
+    private var state: TaskPresentationState { session.presentationState }
+    private var mainLine: String {
+        if let s = session.summary, !s.isEmpty { return s }
+        return ToolActivity.label(for: session)
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            TaskStatusIndicator(session.presentationState, isSelected: isSelected, size: 10)
-                .padding(.top, 5)
-
+            StateGlyph(state: state)
             VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(session.project).font(.headline)
-                    if let branch = session.branch {
-                        Text(branch)
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.secondary)
-                    }
-                    if session.effectiveAttention != .normal {
-                        Image(systemName: session.effectiveAttention == .followed ? "bell.badge.fill" : "bell.slash.fill")
-                            .font(.caption2)
-                            .foregroundStyle(session.effectiveAttention == .followed ? .orange : .secondary)
-                            .accessibilityLabel(session.effectiveAttention.stateTitle)
-                    }
-                    if session.isStuck {
-                        Label("Stuck", systemImage: "exclamationmark.triangle.fill")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(Color(taskStatus: TaskPresentationState.error.colorToken))
-                            .labelStyle(.titleAndIcon)
-                    }
-                    if companionEnabled {
-                        Spacer(minLength: 8)
-                        Button { dashboard.toggleBuddy(session.id) } label: {
-                            Image(systemName: included ? "waveform.circle.fill" : "waveform.circle")
-                                .foregroundStyle(included ? AnyShapeStyle(accent) : AnyShapeStyle(.tertiary))
-                        }
-                        .buttonStyle(.borderless)
-                        .accessibilityLabel(included ? "In the buddy's context" : "Add to the buddy's context")
-                    }
-                }
-
-                if let summary = session.summary {
-                    Text(summary)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
-
-                HStack(spacing: 6) {
-                    Text(session.agent.shortName)
-                    if let model = session.model { Text("· \(model)") }
-                    if let tokens = session.tokens {
-                        Text("· \(tokens.formatted()) tok").monospacedDigit()
-                    }
-                    if let cost = session.estimatedCostUSD {
-                        Text("· ≈ $\(cost, specifier: "%.2f")").monospacedDigit()
-                    }
-                    Spacer(minLength: 8)
-                    Label {
-                        Text(session.statusSince, style: .timer).monospacedDigit()
-                    } icon: {
-                        Image(systemName: session.status == .needsResponse ? "hourglass" : "clock")
-                    }
-                    .foregroundStyle(session.status == .needsResponse
-                                     ? AnyShapeStyle(accent) : AnyShapeStyle(.tertiary))
-                }
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-
+                eyebrow
+                Text(mainLine)
+                    .font(CompanionType.font(15, .heavy))
+                    .foregroundStyle(CompanionPalette.ink)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                activityLine
                 if let child = ToolActivity.childSummary(for: session) {
                     Text(child)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .font(CompanionType.font(11, .semibold))
+                        .foregroundStyle(CompanionPalette.ink2)
                         .monospacedDigit()
                         .lineLimit(1)
                 }
-
                 if let observation = session.observationDescription {
                     HStack(spacing: 5) {
                         Label(observation, systemImage: "waveform.path.ecg")
@@ -324,61 +281,153 @@ private struct SessionRow: View {
                             Text("· \(last, style: .relative)")
                         }
                     }
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                    .font(CompanionType.font(10, .semibold))
+                    .foregroundStyle(CompanionPalette.ink3)
                 }
-
                 if let used = session.contextTokens, let window = session.contextWindow, window > 0 {
                     ContextBar(used: used, window: window)
                 }
-
                 if let approval = session.pendingApproval {
-                    ApprovalCardView(approval: approval)
-                        .padding(.top, 2)
-                    HStack(spacing: 10) {
-                        Button("Deny") { dashboard.decide(approval.id, .deny) }
-                            .buttonStyle(.bordered).tint(.red)
-                        Button("Approve") { dashboard.decide(approval.id, .allow) }
-                            .buttonStyle(.borderedProminent).tint(.green)
-                    }
-                    .font(.subheadline)
-                    .padding(.top, 4)
-                    HStack(spacing: 10) {
-                        Button("Always allow this") { dashboard.decide(approval.id, .alwaysAllow) }
-                        Button("Allow all this session") { dashboard.decide(approval.id, .allowSession) }
-                    }
-                    .buttonStyle(.bordered).controlSize(.small).font(.caption)
-                    .padding(.top, 1)
-                    if session.agent == .grok, let mode = approval.permissionMode, mode != "bypassPermissions" {
-                        Label {
-                            Text("Grok will still ask in the terminal after Allow (permission mode: \(mode)). Set permission_mode = \"always-approve\" to approve from here.")
-                        } icon: {
-                            Image(systemName: "terminal")
-                        }
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .padding(.top, 3)
-                    }
+                    RequestCard(session: session, approval: approval)
+                        .padding(.top, 4)
                 }
-
                 if let question = session.pendingQuestion {
                     QuestionCardView(question: question) { answer in
                         dashboard.answer(session.id, answer: answer)
                     }
-                    .padding(.top, 2)
+                    .padding(.top, 4)
                 }
-
-                if session.canJump {
-                    Button(session.jumpsToDesktopThread
-                           ? "Open thread in ChatGPT" : "Jump to terminal") {
+                if session.canJump, session.pendingApproval == nil {
+                    Button(session.jumpsToDesktopThread ? "Open thread in ChatGPT" : "Jump to terminal") {
                         dashboard.jump(session.id)
                     }
-                    .buttonStyle(.bordered).font(.subheadline)
-                    .padding(.top, 4)
+                    .buttonStyle(PillButtonStyle(kind: .soft, size: .small))
+                    .padding(.top, 2)
                 }
             }
         }
-        .padding(.leading, 4)
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .companionCard()
+        .overlay {
+            if isSelected {
+                RoundedRectangle(cornerRadius: CompanionType.cardRadius, style: .continuous)
+                    .strokeBorder(CompanionPalette.accent, lineWidth: 2)
+            }
+        }
+    }
+
+    private var eyebrow: some View {
+        HStack(spacing: 6) {
+            Text(session.project)
+                .font(CompanionType.font(12, .bold))
+                .foregroundStyle(CompanionPalette.ink2)
+                .lineLimit(1)
+            AgentBadge(agent: session.agent)
+            if let branch = session.branch {
+                Text(branch)
+                    .font(CompanionType.mono(10))
+                    .foregroundStyle(CompanionPalette.ink3)
+                    .lineLimit(1)
+            }
+            if session.effectiveAttention != .normal {
+                Image(systemName: session.effectiveAttention == .followed ? "bell.badge.fill" : "bell.slash.fill")
+                    .font(.caption2)
+                    .foregroundStyle(session.effectiveAttention == .followed
+                                     ? CompanionPalette.status(.requiresInput) : CompanionPalette.ink3)
+                    .accessibilityLabel(session.effectiveAttention.stateTitle)
+            }
+            if session.isStuck {
+                Label("Stuck", systemImage: "exclamationmark.triangle.fill")
+                    .font(CompanionType.font(10, .heavy))
+                    .foregroundStyle(CompanionPalette.status(.error))
+                    .labelStyle(.titleAndIcon)
+            }
+            Spacer(minLength: 8)
+            if companionEnabled {
+                Button { dashboard.toggleBuddy(session.id) } label: {
+                    Image(systemName: included ? "waveform.circle.fill" : "waveform.circle")
+                        .foregroundStyle(included ? CompanionPalette.accent : CompanionPalette.ink3)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel(included ? "In the buddy's context" : "Add to the buddy's context")
+            }
+        }
+    }
+
+    private var activityLine: some View {
+        HStack(spacing: 6) {
+            Text(ToolActivity.label(for: session))
+                .font(CompanionType.font(10, .heavy)).textCase(.uppercase).kerning(0.6)
+                .foregroundStyle(CompanionPalette.status(state))
+                .layoutPriority(1)
+            if let model = session.model { Text(model).lineLimit(1).truncationMode(.tail) }
+            if let tokens = session.tokens {
+                Text("\(tokens.formatted()) tok").monospacedDigit()
+            }
+            if let cost = session.estimatedCostUSD {
+                Text("≈ $\(cost, specifier: "%.2f")").monospacedDigit()
+            }
+            Spacer(minLength: 8)
+            Label {
+                Text(session.statusSince, style: .timer).monospacedDigit()
+            } icon: {
+                Image(systemName: session.status == .needsResponse ? "hourglass" : "clock")
+            }
+            .foregroundStyle(session.status == .needsResponse
+                             ? CompanionPalette.status(.requiresInput) : CompanionPalette.ink3)
+        }
+        .font(CompanionType.font(10, .semibold))
+        .foregroundStyle(CompanionPalette.ink3)
+        .lineLimit(1)
+    }
+}
+
+/// Round 4 on the phone: the request as a card you can judge before answering —
+/// who asks, what for, the diff or command, then Approve ▾ / Deny / Jump.
+private struct RequestCard: View {
+    let session: AgentSession
+    let approval: PendingApproval
+    @EnvironmentObject private var dashboard: DashboardStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                AgentAvatar(agent: session.agent)
+                VStack(alignment: .leading, spacing: 1) {
+                    (Text(session.project).fontWeight(.black)
+                     + Text(" wants to \(CompanionCopy.requestVerb(approval))"))
+                        .font(CompanionType.font(13, .semibold))
+                        .foregroundStyle(CompanionPalette.ink)
+                    Text(approval.tool)
+                        .font(CompanionType.font(11, .semibold))
+                        .foregroundStyle(CompanionPalette.ink3)
+                        .lineLimit(1)
+                }
+            }
+            ApprovalBody(approval: approval)
+            HStack(spacing: 8) {
+                SplitApproveButton(
+                    approve: { dashboard.decide(approval.id, .allow) },
+                    always: { dashboard.decide(approval.id, .alwaysAllow) },
+                    session: { dashboard.decide(approval.id, .allowSession) })
+                Button("Deny") { dashboard.decide(approval.id, .deny) }
+                    .buttonStyle(PillButtonStyle(kind: .ghost))
+                if session.canJump {
+                    Button(session.jumpsToDesktopThread ? "Thread" : "Jump") { dashboard.jump(session.id) }
+                        .buttonStyle(PillButtonStyle(kind: .ghost))
+                }
+            }
+            if session.agent == .grok, let mode = approval.permissionMode, mode != "bypassPermissions" {
+                Label {
+                    Text("Grok will still ask in the terminal after Allow (permission mode: \(mode)). Set permission_mode = \"always-approve\" to approve from here.")
+                } icon: {
+                    Image(systemName: "terminal")
+                }
+                .font(CompanionType.font(10, .semibold))
+                .foregroundStyle(CompanionPalette.ink3)
+            }
+        }
     }
 }
 

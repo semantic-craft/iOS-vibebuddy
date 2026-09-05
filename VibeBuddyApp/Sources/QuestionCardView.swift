@@ -1,19 +1,21 @@
 import SwiftUI
 import VibeBuddyKit
 
+/// A question the agent asked, Companion style: the prompt as the line that
+/// matters, the offered answers as soft pills, or a free-text reply.
 struct QuestionCardView: View {
     let question: PendingQuestion
     let answer: (String) -> Void
     @State private var customAnswer = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("Question", systemImage: "questionmark.bubble")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(Color(taskStatus: TaskPresentationState.requiresInput.colorToken))
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Question")
+                .font(CompanionType.font(10, .heavy)).textCase(.uppercase).kerning(0.6)
+                .foregroundStyle(CompanionPalette.status(.requiresInput))
             Text(question.prompt)
-                .font(.subheadline)
-                .foregroundStyle(.primary)
+                .font(CompanionType.font(14, .heavy))
+                .foregroundStyle(CompanionPalette.ink)
                 .fixedSize(horizontal: false, vertical: true)
             if question.options.isEmpty {
                 manualAnswer
@@ -26,44 +28,51 @@ struct QuestionCardView: View {
                             HStack(spacing: 8) {
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(option.label)
-                                        .font(.subheadline.weight(.semibold))
                                     if let description = option.description {
                                         Text(description)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
+                                            .font(CompanionType.font(11, .semibold))
+                                            .foregroundStyle(CompanionPalette.ink2)
                                             .lineLimit(2)
                                     }
                                 }
                                 Spacer(minLength: 8)
                                 Image(systemName: "arrow.turn.down.left")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.secondary)
+                                    .font(.caption.weight(.bold))
+                                    .foregroundStyle(CompanionPalette.ink3)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(PillButtonStyle(kind: .soft))
                     }
                 }
             }
         }
-        .padding(10)
-        .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 8))
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(CompanionPalette.bg2, in: RoundedRectangle(cornerRadius: CompanionType.cardRadius, style: .continuous))
     }
 
     private var manualAnswer: some View {
         HStack(spacing: 8) {
             TextField("Answer", text: $customAnswer, axis: .vertical)
-                .textFieldStyle(.roundedBorder)
+                .font(CompanionType.font(13, .semibold))
                 .lineLimit(1...3)
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .background(CompanionPalette.bg3, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             Button {
                 let trimmed = customAnswer.trimmingCharacters(in: .whitespacesAndNewlines)
                 answer(trimmed)
                 customAnswer = ""
             } label: {
-                Image(systemName: "arrow.up.circle.fill")
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 14, weight: .black))
+                    .foregroundStyle(.white)
+                    .frame(width: 34, height: 34)
+                    .background(CompanionPalette.accent, in: Circle())
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.plain)
             .disabled(customAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .accessibilityLabel("Send answer")
         }
     }
 }
