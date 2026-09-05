@@ -208,8 +208,14 @@ struct MenuBarLabel: View {
     }
 }
 
+private struct SessionListHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
 struct MenuContent: View {
     @ObservedObject var model: MenuBarModel
+    @State private var listContentHeight: CGFloat = 0
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
 
@@ -300,9 +306,7 @@ struct MenuContent: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 2)
             } else {
-                VStack(spacing: 9) {
-                    ForEach(model.sessions) { row($0) }
-                }
+                sessionList
             }
 
             Divider()
@@ -359,6 +363,96 @@ struct MenuContent: View {
                          : AnyShapeStyle(.secondary))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(value) \(state.label)")
+    }
+
+    /// Height cap for the session list — about eight compact rows. A short list
+    /// takes its natural height; a long one scrolls inside the cap so the
+    /// buttons above and the footer below never move off screen.
+    private static let listMaxHeight: CGFloat = 320
+
+    /// A ScrollView inside a MenuBarExtra window collapses to zero height
+    /// unless it is given one explicitly, so the rows report their natural
+    /// height and the scroller is sized to that, capped.
+    private var sessionList: some View {
+        ScrollView(.vertical) {
+            sessionRows
+                .background(GeometryReader { geo in
+                    Color.clear.preference(key: SessionListHeightKey.self, value: geo.size.height)
+                })
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .onPreferenceChange(SessionListHeightKey.self) { listContentHeight = $0 }
+        .frame(height: min(max(listContentHeight, 1), Self.listMaxHeight))
+    }
+
+    /// Three layers (see `MenuSessionList`): sessions that need the user stay
+    /// pinned on top in the full two-line row; everything else is grouped by
+    /// agent in compact one-line rows, and a folded group hides only its
+    /// finished rows.
+    private var sessionRows: some View {
+        let list = model.menuSessionList
+        return VStack(alignment: .leading, spacing: 9) {
+            ForEach(list.pinned) { row($0) }
+            ForEach(list.groups) { group in
+                if list.showsGroupHeaders { groupHeader(group) }
+                ForEach(group.visibleSessions) { compactRow($0) }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func groupHeader(_ group: MenuSessionList.Group) -> some View {
+        Button {
+            model.toggleMenuGroup(group.agent)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(group.isCollapsed ? 0 : 90))
+                    .frame(width: 10)
+                Text(group.agent.displayName).font(.caption.weight(.semibold))
+                Spacer(minLength: 4)
+                HStack(spacing: 7) {
+                    ForEach([TaskPresentationState.thinking, .completeUnread, .idle], id: \.self) { state in
+                        let count = group.summary.count(for: state)
+                        if count > 0 {
+                            HStack(spacing: 3) {
+                                TaskStatusIndicator(state, size: 7)
+                                Text("\(count)").monospacedDigit()
+                            }
+                            .accessibilityLabel("\(count) \(state.label)")
+                        }
+                    }
+                }
+                .font(.caption2.weight(.medium)).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 7).padding(.vertical, 4)
+            .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(group.isCollapsed ? "Show finished sessions" : "Hide finished sessions")
+        .accessibilityLabel("\(group.agent.displayName), \(group.sessions.count) sessions")
+        .accessibilityValue(group.isCollapsed ? "collapsed" : "expanded")
+    }
+
+    /// One-line row for sessions that don't need the user: the dot carries the
+    /// state, the trailing text says what the agent is doing and since when.
+    private func compactRow(_ session: AgentSession) -> some View {
+        HStack(spacing: 8) {
+            TaskStatusIndicator(session.presentationState, size: 8)
+            Text(session.project)
+                .font(.system(size: 13, weight: .semibold))
+                .lineLimit(1).truncationMode(.middle)
+            Spacer(minLength: 6)
+            HStack(spacing: 4) {
+                Text(ToolActivity.label(for: session))
+                Text("·").foregroundStyle(.tertiary)
+                Text(session.updatedAt, style: .relative).monospacedDigit()
+            }
+            .font(.caption).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+        }
     }
 
     private func row(_ session: AgentSession) -> some View {
