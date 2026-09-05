@@ -36,6 +36,11 @@ public struct HookEvent: Sendable, Equatable {
     public let cwd: String?
     public let toolName: String?
     public let message: String?
+    /// For `.notification`: why the agent is waiting, when the CLI said so
+    /// itself (Claude's `notification_type`, a `PermissionRequest` hook). Nil
+    /// means the payload did not classify the wait and the reducer falls back
+    /// to reading the message.
+    public let waitKind: WaitKind?
     public let transcriptPath: String?
     public let model: String?
     /// Nil means the caller has not classified transport yet. Raw hook intake
@@ -77,6 +82,7 @@ public struct HookEvent: Sendable, Equatable {
         cwd: String? = nil,
         toolName: String? = nil,
         message: String? = nil,
+        waitKind: WaitKind? = nil,
         transcriptPath: String? = nil,
         model: String? = nil,
         observationSource: ObservationSource? = nil,
@@ -98,6 +104,7 @@ public struct HookEvent: Sendable, Equatable {
         self.cwd = cwd
         self.toolName = toolName
         self.message = message
+        self.waitKind = waitKind
         self.transcriptPath = transcriptPath
         self.model = model
         self.observationSource = observationSource

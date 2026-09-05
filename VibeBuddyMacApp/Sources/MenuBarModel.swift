@@ -229,7 +229,8 @@ final class MenuBarModel: ObservableObject {
                     snapshot.sessions,
                     appActive: NSApp.isActive,                 // user looking at VibeBuddy?
                     quietMode: Self.effectiveQuiet(),          // Focus mode (manual or nightly) → approvals only
-                    focusedSessionIDs: focused)                // …or looking at the session's own terminal
+                    focusedSessionIDs: focused,                // …or looking at the session's own terminal
+                    categories: NotificationCategoryPrefs.load()) // this Mac's own switches
                 await self.refreshNotificationDeliveryHealth()
                 await self.pushToPhones(snapshot.sessions)
                 await self.pushActivityUpdates(snapshot.sessions)
@@ -309,6 +310,9 @@ final class MenuBarModel: ObservableObject {
             let (title, body) = Self.pushCopy(for: alert)
             for device in devices {
                 guard let deviceToken = device.token else { continue }
+                // The phone's switches, uploaded with its registration; a phone
+                // that never said keeps the default set.
+                guard (device.categories ?? .default).isEnabled(alert.sound) else { continue }
                 if device.quietMode == true && !alert.sound.survivesQuietMode { continue }  // night: approvals only
                 let sound = device.playSound != false ? alert.sound.fileName : ""           // mute → silent banner
                 await pusher.send(title: title, body: body, to: deviceToken, sound: sound,

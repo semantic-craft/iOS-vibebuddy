@@ -110,3 +110,13 @@
 "Task complete" = "任务完成";
 "%@ stopped" = "%@ 已停止";
 "Might need a look" = "可能需要看一眼";
+
+/* Notification categories (Settings) */
+"Notify me about" = "通知我这些事";
+"Off means no banner on your iPhone or Apple Watch for that kind of event, even with sound on. What you keep still goes quiet in Focus mode, except permission prompts." = "关闭后，这类事件不会在 iPhone 和 Apple Watch 上弹出，即使声音是开着的。保留的类别在专注模式下仍会静音，权限请求除外。";
+"Permission requests" = "权限请求";
+"Questions and waiting for input" = "提问与等待输入";
+"Errors and stuck sessions" = "出错与卡住";
+"Task completed" = "任务完成";
+"Still-waiting reminders" = "久等催促";
+"Pairing confirmation" = "配对成功提示";

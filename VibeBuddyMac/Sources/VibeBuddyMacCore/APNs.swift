@@ -70,6 +70,7 @@ public actor DeviceTokens {
         if let v = payload.systemVersion { merged.systemVersion = v }
         if let v = payload.playSound { merged.playSound = v }
         if let v = payload.quietMode { merged.quietMode = v }
+        if let v = payload.categories { merged.categories = v }
         devicesByToken[token] = merged
     }
 

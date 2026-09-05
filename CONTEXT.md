@@ -87,6 +87,16 @@ code, and tests — don't drift to synonyms.
 - **LifecycleJournal** — the bounded (7 days / 250 entries, 0600) local log of
   normalized state changes used for daemon-restart recovery and diagnostics; no
   prompts, reasoning, or tool output.
+- **NotificationCategory / NotificationCategoryPrefs** — one category per
+  `NotificationSound`, switched on or off per device (iPhone Settings, Mac
+  Settings). Applied *after* `SoundPolicy` and before anything is posted, so a
+  disabled category never reaches the phone and therefore never the Watch that
+  mirrors it; Focus / Quiet mode stays a separate override that narrows what is
+  left to approvals. Defaults: approval, question, stuck, done on; long-wait
+  nudge and pairing off. The iPhone uploads its copy in
+  `DeviceRegistrationPayload` so the Mac's APNs push honours the phone's
+  switches. The Mac's `HookParser` reads Claude's `notification_type` to set
+  `waitKind` directly; the message keyword match is only the fallback.
 - **NotificationDelivery / NotificationDeliveryLog** — one record per local or
   APNs send with outcome `attempted` / `scheduled` / `accepted` / `failed`. Never
   `delivered`: an API result is not proof the device showed it.

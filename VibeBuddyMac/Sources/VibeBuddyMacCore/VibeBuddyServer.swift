@@ -149,7 +149,11 @@ public struct VibeBuddyServer: Sendable {
                         body = session.summary ?? "Waiting for your response"
                         sound = session.waitKind == .permission ? .needsApproval : .needsAnswer
                     }
-                    for deviceToken in await deviceTokens.all() {
+                    for device in await deviceTokens.devices() {
+                        // The phone's own switches decide what it wants pushed on
+                        // its behalf; a device that never said keeps the default.
+                        guard let deviceToken = device.token,
+                              (device.categories ?? .default).isEnabled(sound) else { continue }
                         await pusher.send(title: title, body: body, to: deviceToken,
                                           sound: sound.fileName,
                                           sessionID: session.id, soundCategory: sound.rawValue)

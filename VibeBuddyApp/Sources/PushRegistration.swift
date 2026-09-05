@@ -46,7 +46,8 @@ final class PushRegistration {
             model: UIDevice.current.model,
             systemVersion: "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)",
             playSound: SoundPrefs.playSound,
-            quietMode: SoundPrefs.effectiveQuiet()
+            quietMode: SoundPrefs.effectiveQuiet(),
+            categories: SoundPrefs.categories
         ))
         Task { _ = try? await URLSession.shared.data(for: request) }
     }

@@ -27,13 +27,18 @@ public final class NotificationCoordinator: @unchecked Sendable {
         self.delivery = delivery
     }
 
+    /// `categories` is this Mac's own switch set: a cue the policy earned but
+    /// the user turned off is dropped here and never posted. Quiet mode is
+    /// already applied inside the policy, so Focus narrows what is left to
+    /// approvals exactly as before.
     public func observe(_ sessions: [AgentSession], now: Date = Date(),
                         appActive: Bool, quietMode: Bool,
-                        focusedSessionIDs: Set<String> = []) async {
+                        focusedSessionIDs: Set<String> = [],
+                        categories: NotificationCategoryPrefs = .default) async {
         let input = SoundPolicyInput(sessions: sessions, now: now,
                                      appActive: appActive, quietMode: quietMode,
                                      focusedSessionIDs: focusedSessionIDs)
-        for alert in policy.evaluate(input) {
+        for alert in categories.filter(policy.evaluate(input)) {
             let attempt = await notifier.notify(alert)
             guard attempt.shouldRecord else { continue }
             await delivery?.record(NotificationDeliveryRecord(

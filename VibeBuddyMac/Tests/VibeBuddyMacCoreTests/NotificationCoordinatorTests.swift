@@ -43,6 +43,36 @@ struct NotificationCoordinatorTests {
         ])
     }
 
+    @Test("a category the Mac turned off is never forwarded; Focus still narrows to approvals")
+    func categoriesFilterBeforePosting() async {
+        let spy = SpyNotifier()
+        let c = NotificationCoordinator(notifier: spy)
+        var prefs = NotificationCategoryPrefs.default
+        prefs.set(.agentDone, enabled: false)
+        let t0 = Date(timeIntervalSince1970: 0)
+        await c.observe([session("done", .working, since: t0),
+                         session("ask", .working, since: t0),
+                         session("ok", .working, since: t0)],
+                        now: t0, appActive: false, quietMode: false, categories: prefs)
+        await c.observe([session("done", .done, since: t0.addingTimeInterval(60)),
+                         session("ask", .needsResponse, wait: .question, since: t0.addingTimeInterval(60)),
+                         session("ok", .needsResponse, wait: .permission, since: t0.addingTimeInterval(60))],
+                        now: t0.addingTimeInterval(60), appActive: false, quietMode: false, categories: prefs)
+        #expect(Set(spy.played.map { "\($0.id):\($0.sound.rawValue)" }) == [
+            "ask:needs_answer", "ok:needs_approval",
+        ])
+
+        // Focus mode on top of the categories: only the approval survives.
+        let quietSpy = SpyNotifier()
+        let q = NotificationCoordinator(notifier: quietSpy)
+        await q.observe([session("ask", .working, since: t0), session("ok", .working, since: t0)],
+                        now: t0, appActive: false, quietMode: true, categories: prefs)
+        await q.observe([session("ask", .needsResponse, wait: .question, since: t0.addingTimeInterval(60)),
+                         session("ok", .needsResponse, wait: .permission, since: t0.addingTimeInterval(60))],
+                        now: t0.addingTimeInterval(60), appActive: false, quietMode: true, categories: prefs)
+        #expect(quietSpy.played.map(\.id) == ["ok"])
+    }
+
     @Test("forwards a fresh question transition as needs_answer")
     func forwardsFreshQuestion() async {
         let spy = SpyNotifier()

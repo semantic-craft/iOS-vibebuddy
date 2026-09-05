@@ -497,16 +497,21 @@ public struct DeviceRegistrationPayload: Codable, Sendable, Equatable {
     /// Optional so older payloads decode unchanged.
     public var playSound: Bool?
     public var quietMode: Bool?
+    /// Which cue categories the phone wants at all. Optional so older payloads
+    /// decode unchanged; the Mac treats a missing value as the default set.
+    public var categories: NotificationCategoryPrefs?
 
     public init(token: String? = nil, name: String? = nil,
                 model: String? = nil, systemVersion: String? = nil,
-                playSound: Bool? = nil, quietMode: Bool? = nil) {
+                playSound: Bool? = nil, quietMode: Bool? = nil,
+                categories: NotificationCategoryPrefs? = nil) {
         self.token = token
         self.name = name
         self.model = model
         self.systemVersion = systemVersion
         self.playSound = playSound
         self.quietMode = quietMode
+        self.categories = categories
     }
 
     public var hasPushToken: Bool { token?.isEmpty == false }

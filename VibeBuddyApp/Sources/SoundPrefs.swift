@@ -30,6 +30,12 @@ enum SoundPrefs {
         }
     }
 
+    /// Which cue categories this phone wants at all (and, by mirroring, the Watch).
+    static var categories: NotificationCategoryPrefs {
+        get { NotificationCategoryPrefs.load() }
+        set { newValue.save() }
+    }
+
     /// Quiet right now if the user toggled it on, or the nightly window is active.
     static func effectiveQuiet(now: Date = Date()) -> Bool {
         manualQuiet || quietHours.isQuiet(at: now)

@@ -72,7 +72,7 @@ public struct SessionReducer: Sendable {
         case .notification:
             // The purpose-built "Claude wants your attention" signal.
             upsert(event, status: .needsResponse,
-                   waitKind: Self.waitKind(from: event.message),
+                   waitKind: event.waitKind ?? Self.waitKind(from: event.message),
                    summary: event.message)
             sessions[event.sessionID]?.failed = false       // waiting on you, not stuck
             sessions[event.sessionID]?.hasUnreadCompletion = false
