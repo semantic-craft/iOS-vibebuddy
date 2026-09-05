@@ -128,6 +128,44 @@ struct ObservationHealthDetectorTests {
         #expect(supportedResult.health(agent: .codex, source: .rollout) == .healthy)
     }
 
+    // Minimized from the H2-R Desktop rollout on 2026-09-05 (0.153.3).
+    // IDs, paths, model and tool content are synthetic; no user text is retained.
+    @Test("observed Desktop 0.153.3 progress is compatible even with runtime coverage")
+    func desktop1533Compatibility() throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let rollout = home.appendingPathComponent(".codex/sessions/rollout-h2.jsonl")
+        let meta = #"{"type":"session_meta","payload":{"id":"h2","cwd":"/test","originator":"Codex Desktop","source":"vscode","cli_version":"0.153.3"}}"#
+        try write(meta, to: rollout)
+        #expect(detect(home: home).health(agent: .codex, source: .rollout) == .eventsMissing)
+
+        let lines = [meta,
+            #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}"#,
+            #"{"type":"turn_context","payload":{"model":"test-model"}}"#,
+            #"{"type":"response_item","payload":{"type":"custom_tool_call","call_id":"c1","name":"exec","input":""}}"#,
+            #"{"type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"c1","output":""}}"#,
+            #"{"type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1"}}"#,
+        ]
+        var parser = CodexRolloutParser()
+        let events = lines.flatMap { parser.parseEvents(Data($0.utf8), receivedAt: now) }
+        #expect(events.map(\.kind) == [.userPromptSubmit, .sessionMetadataChanged,
+                                      .preToolUse, .postToolUse, .stop])
+        #expect(!parser.turnActive)
+        try write(lines.joined(separator: "\n"), to: rollout)
+        let signal = ObservationRuntimeSignal(agent: .codex, source: .rollout,
+            lastObservedAt: now, observedCoverage: [.lifecycle, .turn, .tool])
+        let result = detect(home: home, signals: [signal])
+        #expect(result.health(agent: .codex, source: .rollout) == .healthy)
+        #expect(result.diagnostic(agent: .codex, source: .rollout)?.observedCoverage
+            == signal.observedCoverage)
+        #expect(detect(home: home).health(agent: .codex, source: .rollout) == .healthy)
+
+        try write(lines.joined(separator: "\n").replacingOccurrences(of: "0.153.3", with: "0.153.4"),
+                  to: rollout)
+        #expect(detect(home: home, signals: [signal])
+            .health(agent: .codex, source: .rollout) == .unknownVersion)
+    }
+
     @Test("a rollout older than the recovery window still classifies as temporarily silent after a restart")
     func staleRolloutAfterRestartIsTemporarilySilent() throws {
         let home = try tempHome()

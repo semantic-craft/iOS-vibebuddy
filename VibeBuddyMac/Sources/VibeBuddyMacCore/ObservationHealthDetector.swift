@@ -379,6 +379,8 @@ public enum ObservationHealthDetector {
         guard components.count >= 2, let minor = Int(components[1]) else { return false }
         // Pre-1.0 minor versions may change the rollout schema. Keep this an
         // explicit allowlist so a future semver is not mistaken for evidence.
-        return major == 0 && minor == 151
+        // H2-R real Desktop replay verified 0.153.3 turn/tool/model/token shapes.
+        // Admit only that observed release, not every unverified 0.153 patch.
+        return (major == 0 && minor == 151) || version == "0.153.3"
     }
 }
