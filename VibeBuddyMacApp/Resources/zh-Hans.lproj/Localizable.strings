@@ -170,16 +170,17 @@
 "needs a modifier" = "需要修饰键";
 
 /* MARK: Notifications (macOS banners) */
-"%@ needs approval" = "%@ 需要批准";
+/* Banner copy shared with the phone and the push (PushCopy) */
+"%@ needs permission" = "%@ 需要权限";
 "Approve or deny" = "批准或拒绝";
 "%@ needs you" = "%@ 需要你";
-"Waiting for your response" = "等待你的回应";
+"Waiting for your input" = "等待你的输入";
 "%@ is still waiting" = "%@ 仍在等待";
-"%@ finished" = "%@ 已完成";
+"%@ is done" = "%@ 已完成";
 "Task complete" = "任务完成";
 "%@ stopped" = "%@ 已停止";
-"It may need a look" = "可能需要看一眼";
-"Paired" = "已配对";
+"Might need a look" = "可能需要看一眼";
+"Connected" = "已连接";
 "VibeBuddy is watching your sessions." = "VibeBuddy 正在盯着你的会话。";
 "Paired with %@" = "已与 %@ 配对";
 "%@ over budget" = "%@ 超出预算";
