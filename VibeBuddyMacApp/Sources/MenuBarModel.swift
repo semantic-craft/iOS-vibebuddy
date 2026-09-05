@@ -289,6 +289,9 @@ final class MenuBarModel: ObservableObject {
     }
 
     private func preparePairing() {
+        // Putting the QR on screen is the explicit intent to pair: lift any
+        // block a "forget phone" left on previously registered tokens.
+        Task { [deviceTokens] in await deviceTokens.acceptNewRegistrations() }
         let host = LANAddress.primaryIPv4() ?? "127.0.0.1"
         let payload = Pairing.payload(host: host, port: port, token: token, macName: macDisplayName)
         pairing = payload
@@ -724,10 +727,12 @@ final class MenuBarModel: ObservableObject {
         UserDefaults.standard.removeObject(forKey: Self.pairedPhoneInfoKey)
         UserDefaults.standard.removeObject(forKey: Self.legacyPairedPhoneKey)
         // The registry now outlives the process, so forgetting the phone has to
-        // drop its APNs token too — otherwise a "forgotten" phone keeps getting
-        // pushes until Apple answers 410 for it.
+        // drop its APNs token too — and block it: the phone still holds the
+        // bearer token and re-reports on its next reconnect, so a plain removal
+        // would last only until the next network blip. Showing the pairing QR
+        // again lifts the block (see preparePairing).
         Task {
-            await deviceTokens.removeAll()
+            await deviceTokens.forgetAll()
             deviceRegistry = await deviceTokens.summary()
         }
     }

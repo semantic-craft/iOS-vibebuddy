@@ -87,7 +87,16 @@ public actor DeviceTokens {
         registry.apply(result, token: token, now: now)
     }
 
-    /// Forget every device — the Mac side of "forget this phone".
+    /// Forget every device — the Mac side of "forget this phone". The phone
+    /// keeps its bearer token and re-reports on its next reconnect, so the
+    /// forgotten tokens are also blocked until the user shows the pairing QR
+    /// again (`acceptNewRegistrations`), which is the explicit intent to pair.
+    public func forgetAll() { registry.forgetAll() }
+
+    /// Lift the block set by `forgetAll`: the pairing QR is on screen.
+    public func acceptNewRegistrations() { registry.acceptNewRegistrations() }
+
+    /// Drop every device without blocking re-registration (tests, demo reset).
     public func removeAll() { registry.removeAll() }
 }
 
@@ -159,11 +168,12 @@ public actor APNsPusher {
         request.httpBody = Data(Self.alertPayload(title: title, body: body, sound: sound,
                                                   sessionID: sessionID, localized: localized).utf8)
         do {
-            let (_, response) = try await http.data(for: request)
+            let (data, response) = try await http.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode
             return await finish(
                 APNsDelivery.classify(status: status, error: nil),
-                status: status, now: now, sessionID: sessionID, sound: category)
+                status: status, now: now, sessionID: sessionID, sound: category,
+                reason: Self.errorReason(in: data))
         } catch {
             return await finish(
                 APNsDelivery.classify(status: nil, error: error),
@@ -196,15 +206,25 @@ public actor APNsPusher {
         return #"{"aps":{"alert":{\#(alert)}\#(soundField)\#(threadField)}\#(sessionField)}"#
     }
 
+    /// APNs answers every failure with `{"reason":"…"}`; success bodies are empty.
+    static func errorReason(in data: Data) -> String? {
+        guard !data.isEmpty,
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let reason = object["reason"] as? String, !reason.isEmpty else { return nil }
+        return reason
+    }
+
     private func finish(
         _ classified: NotificationDeliveryClassification,
         status: Int?,
         now: Date,
         sessionID: String?,
-        sound: String?
+        sound: String?,
+        reason: String? = nil
     ) async -> APNsSendResult {
         let result = APNsSendResult(
-            outcome: classified.outcome, status: status, failureReason: classified.failureReason)
+            outcome: classified.outcome, status: status, failureReason: classified.failureReason,
+            reason: reason)
         await recorder?.record(NotificationDeliveryRecord(
             channel: .apns,
             outcome: classified.outcome,

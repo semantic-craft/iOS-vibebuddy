@@ -62,6 +62,9 @@ struct DeviceRegistry {
     private struct Envelope: Codable {
         let schemaVersion: Int
         let entries: [DeviceRegistryEntry]
+        /// Tokens the user forgot. Optional so files written before the field
+        /// existed still decode.
+        var blocked: [String]? = nil
     }
 
     /// `nil` keeps the registry in memory — the default for tests and for the
@@ -69,6 +72,11 @@ struct DeviceRegistry {
     let url: URL?
     private let capacity: Int
     private(set) var entries: [DeviceRegistryEntry]
+    /// Tokens a "forget this phone" removed. A forgotten phone still holds the
+    /// bearer token and re-reports itself on every reconnect, so without this
+    /// the forget lasts only until the next network blip. Cleared when the user
+    /// shows the pairing QR again.
+    private(set) var blocked: Set<String>
 
     init(url: URL?, capacity: Int = DeviceRegistry.maxEntries) {
         self.url = url
@@ -78,10 +86,12 @@ struct DeviceRegistry {
               let envelope = try? JSONDecoder().decode(Envelope.self, from: data),
               envelope.schemaVersion == 1 else {
             entries = []
+            blocked = []
             return
         }
         entries = Self.pruned(envelope.entries.filter { $0.device.hasPushToken },
                               capacity: self.capacity)
+        blocked = Set(envelope.blocked ?? [])
     }
 
     var devices: [DeviceRegistrationPayload] { entries.map(\.device) }
@@ -95,7 +105,7 @@ struct DeviceRegistry {
     /// carries — a phone that reconnects before its APNs callback fires keeps
     /// the switches it uploaded last time.
     mutating func upsert(_ payload: DeviceRegistrationPayload, now: Date) {
-        guard let token = payload.token, !token.isEmpty else { return }
+        guard let token = payload.token, !token.isEmpty, !blocked.contains(token) else { return }
         let existing = entries.first { $0.device.token == token }
         var merged = existing?.device ?? DeviceRegistrationPayload(token: token)
         merged.token = token
@@ -119,7 +129,7 @@ struct DeviceRegistry {
     @discardableResult
     mutating func apply(_ result: APNsSendResult, token: String, now: Date) -> Bool {
         guard let index = entries.firstIndex(where: { $0.device.token == token }) else { return false }
-        switch APNsDelivery.tokenOutcome(status: result.status,
+        switch APNsDelivery.tokenOutcome(status: result.status, reason: result.reason,
                                          everAccepted: entries[index].lastAcceptedAt != nil) {
         case .accepted:
             entries[index].lastAcceptedAt = now
@@ -149,6 +159,19 @@ struct DeviceRegistry {
         persistBestEffort()
     }
 
+    /// Forget every device *and* refuse their tokens until `acceptNewRegistrations`.
+    mutating func forgetAll() {
+        blocked.formUnion(entries.compactMap(\.device.token))
+        entries = []
+        persistBestEffort()
+    }
+
+    mutating func acceptNewRegistrations() {
+        guard !blocked.isEmpty else { return }
+        blocked = []
+        persistBestEffort()
+    }
+
     /// Newest registration wins when the cap is hit.
     private static func pruned(
         _ entries: [DeviceRegistryEntry], capacity: Int
@@ -167,7 +190,8 @@ struct DeviceRegistry {
             )
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
-            let data = try encoder.encode(Envelope(schemaVersion: 1, entries: entries))
+            let data = try encoder.encode(Envelope(schemaVersion: 1, entries: entries,
+                                                   blocked: blocked.isEmpty ? nil : blocked.sorted()))
             try data.write(to: url, options: .atomic)
             try FileManager.default.setAttributes(
                 [.posixPermissions: 0o600], ofItemAtPath: url.path)

@@ -62,9 +62,9 @@ struct DeviceRegistryTests {
         #expect(await tokens.all().isEmpty)
     }
 
-    private func sent(_ status: Int?) -> APNsSendResult {
+    private func sent(_ status: Int?, reason: String? = nil) -> APNsSendResult {
         APNsSendResult(outcome: status.map { (200..<300).contains($0) ? .accepted : .failed } ?? .failed,
-                       status: status, failureReason: status.map { "apnsHTTP\($0)" })
+                       status: status, failureReason: status.map { "apnsHTTP\($0)" }, reason: reason)
     }
 
     @Test func unregisteredResponseEvictsTheToken() async throws {
@@ -85,9 +85,48 @@ struct DeviceRegistryTests {
         let tokens = DeviceTokens(url: url)
         await tokens.register(DeviceRegistrationPayload(token: "junk"))
 
-        #expect(await tokens.applySendResult(sent(400), token: "junk"))
+        #expect(await tokens.applySendResult(sent(400, reason: "BadDeviceToken"), token: "junk"))
         #expect(await tokens.all().isEmpty)
         #expect(await DeviceTokens(url: url).all().isEmpty)
+    }
+
+    /// APNs answers 400 for request faults too — a bad topic, a bad collapse id,
+    /// an empty payload. None of those say anything about the phone, so a token
+    /// that has never been accepted still survives them.
+    @Test func request400sNeverEvict() async throws {
+        let url = tempURL()
+        let tokens = DeviceTokens(url: url)
+        await tokens.register(DeviceRegistrationPayload(token: "fresh"))
+        for reason in ["BadTopic", "BadCollapseId", "PayloadEmpty", "TopicDisallowed"] {
+            #expect(await tokens.applySendResult(sent(400, reason: reason), token: "fresh") == false, Comment(rawValue: reason))
+        }
+        #expect(await tokens.applySendResult(sent(400), token: "fresh") == false)   // no reason at all
+        #expect(await tokens.all() == ["fresh"])
+    }
+
+    /// The phone keeps its bearer token and re-reports on every reconnect, so
+    /// "forget" must outlast the next `POST /device` — until the user shows the
+    /// pairing QR again, which is the explicit intent to pair.
+    @Test func forgetBlocksReRegistrationUntilPairingIsShownAgain() async throws {
+        let url = tempURL()
+        let tokens = DeviceTokens(url: url)
+        await tokens.register(DeviceRegistrationPayload(token: "abc", name: "Hermes"))
+        await tokens.forgetAll()
+        #expect(await tokens.all().isEmpty)
+
+        await tokens.register(DeviceRegistrationPayload(token: "abc", name: "Hermes"))   // the reconnect
+        #expect(await tokens.all().isEmpty)
+        // The block survives a restart.
+        let restarted = DeviceTokens(url: url)
+        await restarted.register(DeviceRegistrationPayload(token: "abc"))
+        #expect(await restarted.all().isEmpty)
+        // A different phone is not affected.
+        await restarted.register(DeviceRegistrationPayload(token: "xyz"))
+        #expect(await restarted.all() == ["xyz"])
+        // Showing the QR lifts the block.
+        await restarted.acceptNewRegistrations()
+        await restarted.register(DeviceRegistrationPayload(token: "abc"))
+        #expect(Set(await restarted.all()) == ["abc", "xyz"])
     }
 
     /// The same 400 on a token Apple *has* accepted points at this Mac being on
@@ -99,11 +138,11 @@ struct DeviceRegistryTests {
         await tokens.register(DeviceRegistrationPayload(token: "real"))
         await tokens.applySendResult(sent(200), token: "real")
 
-        #expect(await tokens.applySendResult(sent(400), token: "real") == false)
+        #expect(await tokens.applySendResult(sent(400, reason: "BadDeviceToken"), token: "real") == false)
         #expect(await tokens.all() == ["real"])
         // …and the standing survives a restart, so the next 400 does not evict either.
         let restarted = DeviceTokens(url: url)
-        #expect(await restarted.applySendResult(sent(400), token: "real") == false)
+        #expect(await restarted.applySendResult(sent(400, reason: "BadDeviceToken"), token: "real") == false)
         #expect(await restarted.all() == ["real"])
     }
 

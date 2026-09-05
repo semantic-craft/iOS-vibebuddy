@@ -682,6 +682,7 @@ private struct DeviceSettings: View {
                     } label: {
                         Label("Forget phone", systemImage: "iphone.slash")
                     }
+                    .help("Stops pushes to this phone and refuses its re-registration until you show the pairing QR again.")
                 } else {
                     Label("No phone paired", systemImage: "iphone.slash")
                         .foregroundStyle(.secondary)
