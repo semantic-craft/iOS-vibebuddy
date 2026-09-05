@@ -1,7 +1,34 @@
 # iOS pet is a pixel cat; Mac keeps the robot
 
-**Status:** Superseded in part (2026-06-06) — see *Amendment* below. Originally
-Accepted (2026-06-05), amends ADR-0006.
+**Status:** Superseded in part (2026-06-06, 2026-09-05) — see the *Amendments*
+below. Originally Accepted (2026-06-05), amends ADR-0006.
+
+> **Amendment 2 (2026-09-05): the pixel cat retires; the pet is the icon's cat.**
+> The app icon was redesigned as a white cat with green inner ears and eyes on
+> slate blue (Mac, iOS and Watch icons, commit `79d5e89`). The 13-wide pixel
+> cat no longer matched the character on the home screen, so every surface now
+> draws that cat instead, still **entirely in code**:
+> - One geometry lives in the Kit: `BuddyCatFace` / `BuddyCat`
+>   (`VibeBuddyKit/Sources/VibeBuddyKit/BuddyCat.swift`), a 52 × 60 unit canvas
+>   of ellipses and rounded ear wedges. The four former renderers (`PetFace` on
+>   iOS and Mac, `WatchCat`, `ActivityCat`) keep only size, clock and surface
+>   decisions and no longer carry their own grids.
+> - **Colour has two channels that never share a value.** `BuddyCat.accent`
+>   (inner ears, belly) is the identity colour, sampled from the icon and the one
+>   constant to change if the brand colour moves. The eyes carry the status colour
+>   only for attention states (`requiresInput`, `thinking`, `error` tokens);
+>   resting and done eyes, the mouth and the open-mouth cavity are a fixed ink
+>   (`#445571`), sleeping eyes the lid grey. `TaskStatusColorToken` is unchanged:
+>   its white `idle` would vanish on a white cat and `completeUnread`'s green
+>   fails contrast on it, so `done` is said with closed happy arcs, not colour.
+> - **Size ladder.** Below 34 pt the body and mouth are dropped (compact Dynamic
+>   Island, collapsed notch glance, Watch header); below 28 pt only head, ears and
+>   eyes remain. The menu-bar mark is the same head rendered once as a monochrome
+>   template `NSImage` with punched eyes.
+> - Motion is unchanged: iOS and Mac blink / flap / bob at 10 fps (Reduce Motion
+>   stops the blink and bob); Watch, widget and Live Activity stay static.
+> - Ears are rounded wedges, not triangles — pointed ears read as a different
+>   character next to the icon.
 
 > **Amendment (2026-06-06): the cat is now on _both_ platforms.** Per a product
 > call, macOS drops the robot and adopts the same pixel cat as iOS, so the pet

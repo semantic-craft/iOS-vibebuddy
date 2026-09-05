@@ -57,7 +57,7 @@ struct WatchNoDataView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 10) {
-                    WatchPixelCat(state: .sleeping)
+                    WatchCat(state: .sleeping)
                     Text("Waiting for iPhone")
                         .font(.headline)
                     Text("Open vibebuddy on your iPhone and pair it with your Mac. Sessions and weekly quota appear here.")
