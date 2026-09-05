@@ -302,6 +302,11 @@ public struct VibeBuddyServer: Sendable {
             if PermissionMatcher.decide(tool: tool, input: input, allow: [], deny: r.deny) == .deny {
                 return Self.permissionResponse("deny", agent: agent)
             }
+            // Nothing to decide: a bypass-mode call, or a tool that only reads.
+            // Answered here so it never becomes a pending card or a banner.
+            if ApprovalShortCircuit.autoAllows(tool: tool, permissionMode: call.permissionMode) {
+                return Self.permissionResponse("allow", agent: agent)
+            }
             // vibebuddy overlay: a session-wide allow, or an exact always-allow rule the
             // user set — both bypass the matcher's pattern heuristics since the user
             // explicitly approved this precise tool use.

@@ -170,8 +170,14 @@ python3 hooks/install-claude-hooks.py --approval   # add the blocking PreToolUse
 python3 hooks/install-claude-hooks.py --uninstall  # removes it too
 ```
 Commands not in your `permissions.allow` are sent to the phone to approve/deny.
-On timeout/unreachable, Claude proceeds with its normal behaviour. Useful only if
-your Mac actually prompts (prompting mode); auto-mode users gain nothing.
+On timeout/unreachable, Claude proceeds with its normal behaviour.
+
+The daemon answers some calls itself, so they never reach the phone or raise a
+Mac banner: every call from a `bypassPermissions` session; read-only tools
+(Read, Glob, Grep, LS, WebFetch, WebSearch, ToolSearch, TodoWrite, NotebookRead,
+AskUserQuestion) in any mode; and the edit tools (Edit, Write, MultiEdit,
+NotebookEdit) in `acceptEdits`. MCP tools are never treated as read-only. A
+native `permissions.deny` rule still wins over all of this.
 
 ## Terminal capture (jump-back)
 

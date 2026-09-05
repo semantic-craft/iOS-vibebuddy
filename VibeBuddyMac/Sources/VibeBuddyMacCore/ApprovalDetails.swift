@@ -47,8 +47,12 @@ public enum ApprovalPayload {
         public let tool: String
         public let input: [String: Any]
         public let sessionID: String
-        /// Grok only: `default | auto | plan | bypassPermissions` at the time of
-        /// the call. Outside `bypassPermissions` an `allow` from the phone only
+        /// The agent's permission mode at the time of the call. Claude Code
+        /// sends `permission_mode` (`default | plan | acceptEdits | auto |
+        /// dontAsk | bypassPermissions`); Grok sends `permissionMode`
+        /// (`default | auto | plan | bypassPermissions`). Drives
+        /// `ApprovalShortCircuit`: a `bypassPermissions` call is never held.
+        /// For Grok outside `bypassPermissions` an `allow` from the phone only
         /// means "the hook didn't block it" — Grok still raises its own local
         /// prompt, which no remote client can answer. A `deny` is authoritative
         /// in every mode, so the phone approval still runs; the mode rides along
@@ -61,14 +65,18 @@ public enum ApprovalPayload {
             return Call(tool: obj["tool_name"] as? String ?? "",
                         input: obj["tool_input"] as? [String: Any] ?? [:],
                         sessionID: obj["session_id"] as? String ?? "",
-                        permissionMode: nil)
+                        permissionMode: nonEmpty(obj["permission_mode"]))
         }
         let normalized = GrokToolVocabulary.normalize(
             tool: obj["toolName"] as? String ?? "",
             input: obj["toolInput"] as? [String: Any] ?? [:])
-        let mode = (obj["permissionMode"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let mode = nonEmpty(obj["permissionMode"])
         return Call(tool: normalized.tool, input: normalized.input,
                     sessionID: obj["sessionId"] as? String ?? "",
                     permissionMode: mode)
+    }
+
+    private static func nonEmpty(_ value: Any?) -> String? {
+        (value as? String).flatMap { $0.isEmpty ? nil : $0 }
     }
 }
