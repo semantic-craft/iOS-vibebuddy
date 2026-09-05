@@ -31,6 +31,8 @@ public actor SessionStore {
     private var runtimeSignals: [AgentKind: [ObservationSource: ObservationRuntimeSignal]] = [:]
     private var diagnosticCache: (at: Date, value: [AgentObservationDiagnostic])?
     private var lifecycleJournal: LifecycleJournal?
+    /// Missed `needsResponse` waits (Q13). Beside the journal; muted counts.
+    private var missedLedger: MissedLedger
     /// The user's hand-set attention levels, layered onto every snapshot.
     private var attention: AttentionOverrides
     /// When the user last drove each session (prompt, jump, decision, answer);
@@ -42,6 +44,7 @@ public actor SessionStore {
         diagnosticsHome: URL? = nil,
         journalURL: URL? = nil,
         attentionURL: URL? = nil,
+        missedURL: URL? = nil,
         grokHome: URL? = nil,
         now: Date = Date()
     ) {
@@ -53,6 +56,9 @@ public actor SessionStore {
             self.lifecycleJournal = journal
             reducer.restore(journal.restorableSessions(now: now, meaningfulFor: staleAfter))
         }
+        var missed = MissedLedger(url: missedURL, now: now)
+        missed.observe(Array(reducer.sessions.values), now: now)
+        self.missedLedger = missed
         var attention = AttentionOverrides(url: attentionURL)
         attention.prune(keeping: Set(reducer.sessions.keys))
         self.attention = attention
@@ -75,6 +81,7 @@ public actor SessionStore {
     public func recordInteraction(sessionID: String, at: Date = Date()) {
         guard reducer.sessions[sessionID] != nil else { return }
         lastInteractionAt[sessionID] = at
+        cancelMissedWait(sessionID: sessionID, now: at)
         broadcast()
     }
 
@@ -107,6 +114,7 @@ public actor SessionStore {
                 source: .recovery, at: now
             )
         }
+        evaluateMissed(now: now)
         if !removed.isEmpty { broadcast() }
     }
 
@@ -285,6 +293,7 @@ public actor SessionStore {
             source: observationSource,
             at: event.timestamp
         )
+        evaluateMissed(now: event.timestamp)
         broadcast()
         if announcesWait, !wasWaiting, let session = reducer.sessions[event.sessionID],
            session.status == .needsResponse, let handler = needsResponseHandler {
@@ -357,6 +366,7 @@ public actor SessionStore {
             appendJournal(sessionID: sessionID, agent: session.agent,
                           event: "approvalRequested", source: .hook, at: at)
         }
+        evaluateMissed(now: at)
         broadcast()
         if let session = reducer.sessions[sessionID], let handler = needsResponseHandler {
             Task { await handler(session) }
@@ -378,6 +388,7 @@ public actor SessionStore {
             appendJournal(sessionID: sessionID, agent: session.agent,
                           event: "questionAsked", source: .hook, at: at)
         }
+        evaluateMissed(now: at)
         broadcast()
         if let session = reducer.sessions[sessionID], let handler = needsResponseHandler {
             Task { await handler(session) }
@@ -428,9 +439,29 @@ public actor SessionStore {
     /// visibility never call this; only explicit selection/open/jump actions do.
     @discardableResult
     public func acknowledgeCompletion(sessionID: String) -> Bool {
+        cancelMissedWait(sessionID: sessionID, now: Date())
         let changed = reducer.acknowledgeCompletion(sessionID: sessionID)
         if changed { broadcast() }
         return changed
+    }
+
+    /// Record any wait that has sat in `needsResponse` for five minutes
+    /// without an acknowledgement. Safe to call on every poll.
+    public func evaluateMissed(now: Date) {
+        missedLedger.observe(Array(reducer.sessions.values), now: now)
+    }
+
+    /// This week's miss counts (Monday 06:00 local). Evaluates outstanding
+    /// waits first so a Settings refresh is current.
+    public func missedCounts(week: Date = Date(), now: Date = Date(),
+                             calendar: Calendar = .current) -> MissedCounts {
+        evaluateMissed(now: now)
+        return missedLedger.counts(weekContaining: week, now: now, calendar: calendar)
+    }
+
+    private func cancelMissedWait(sessionID: String, now: Date) {
+        evaluateMissed(now: now)
+        missedLedger.acknowledge(sessionID: sessionID, now: now)
     }
 
     public func snapshot(now: Date) -> Snapshot {

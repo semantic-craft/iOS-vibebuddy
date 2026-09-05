@@ -453,6 +453,25 @@ private struct NotificationSettings: View {
             }
 
             Section {
+                LabeledContent("Missed this week") {
+                    Text("\(model.missedThisWeek.count)")
+                        .monospacedDigit()
+                }
+                ForEach(model.missedThisWeek.agentRows, id: \.agent) { row in
+                    LabeledContent(row.agent.displayName) {
+                        Text("\(row.count)")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } header: {
+                Text("Reliability")
+            } footer: {
+                Text("A needs-response wait with no acknowledgement, decision, answer, or jump on any device for five minutes. Muted sessions count. This week's number is the 1.2 ship gate.")
+                    .font(.caption)
+            }
+
+            Section {
                 Toggle("Show notifications", isOn: $notify)
                 Toggle("Play sound", isOn: $sound).disabled(!notify)
             } footer: {
