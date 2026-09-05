@@ -405,18 +405,19 @@ final class DashboardStore: ObservableObject {
         Task { await decisionClient.acknowledge(pairing, sessionId: sessionId) }
     }
 
-    /// Follow a session so its completion is reminded about until read. The list
-    /// flips at once; the Mac stays authoritative and the next snapshot either
-    /// confirms it or puts it back. Demo Mode mirrors the flag locally.
-    func setFollowed(_ sessionId: String, _ followed: Bool) {
+    /// Set, or with `nil` return to automatic, how much a session may interrupt
+    /// you. The list flips at once; the Mac stays authoritative and the next
+    /// snapshot either confirms it or puts it back. Demo Mode mirrors it locally.
+    func setAttention(_ sessionId: String, _ level: SessionAttention?) {
         install(allSessions.map { session in
             guard session.id == sessionId else { return session }
             var session = session
-            session.followed = followed
+            session.attentionOverride = level
+            session.attention = level ?? .normal
             return session
         })
         guard !isDemo, let pairing else { return }
-        Task { await decisionClient.follow(pairing, sessionId: sessionId, followed: followed) }
+        Task { await decisionClient.setAttention(pairing, sessionId: sessionId, level: level) }
     }
 
     /// Honest feedback for a jump — success lands on the Mac, so the phone has to
@@ -483,9 +484,9 @@ final class DashboardStore: ObservableObject {
             quietMode: SoundPrefs.effectiveQuiet())))
         for alert in alerts {
             notifier.notify(alert)
-            Haptics.play(for: alert.sound)   // a tasteful tap to go with the cue
+            if alert.delivery.interrupts { Haptics.play(for: alert.sound) }   // a tasteful tap to go with the cue
         }
-        if !alerts.isEmpty { cuePulse += 1 }   // let the buddy react
+        if alerts.contains(where: \.delivery.interrupts) { cuePulse += 1 }   // let the buddy react
         // Answered on the Mac, or gone entirely: the banner it left on the phone
         // and on the wrist is describing something nobody is blocked on.
         notifications.record(alerts)

@@ -4,14 +4,14 @@ import VibeBuddyKit
 
 private actor DecisionRecorder: DecisionClient {
     private(set) var acknowledgedSessionIDs: [String] = []
-    private(set) var follows: [(sessionId: String, followed: Bool)] = []
+    private(set) var attentions: [(sessionId: String, level: SessionAttention?)] = []
 
     func acknowledge(_ pairing: PairingPayload, sessionId: String) async {
         acknowledgedSessionIDs.append(sessionId)
     }
 
-    func follow(_ pairing: PairingPayload, sessionId: String, followed: Bool) async {
-        follows.append((sessionId, followed))
+    func setAttention(_ pairing: PairingPayload, sessionId: String, level: SessionAttention?) async {
+        attentions.append((sessionId, level))
     }
 
     func decide(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> Bool { true }
@@ -54,17 +54,18 @@ final class DashboardStoreTests: XCTestCase {
             if !store.allSessions.isEmpty { break }
             try await Task.sleep(for: .milliseconds(10))
         }
-        XCTAssertEqual(store.allSessions.first?.isFollowed, false)
+        XCTAssertEqual(store.allSessions.first?.effectiveAttention, .normal)
 
-        store.setFollowed("s", true)
-        XCTAssertEqual(store.allSessions.first?.isFollowed, true)
+        store.setAttention("s", .followed)
+        XCTAssertEqual(store.allSessions.first?.effectiveAttention, .followed)
+        XCTAssertEqual(store.allSessions.first?.attentionOverride, .followed)
         for _ in 0..<50 {
-            if !(await decisions.follows).isEmpty { break }
+            if !(await decisions.attentions).isEmpty { break }
             try await Task.sleep(for: .milliseconds(10))
         }
-        let sent = await decisions.follows
+        let sent = await decisions.attentions
         XCTAssertEqual(sent.map(\.sessionId), ["s"])
-        XCTAssertEqual(sent.map(\.followed), [true])
+        XCTAssertEqual(sent.map(\.level), [.followed])
         store.stop()
     }
 }

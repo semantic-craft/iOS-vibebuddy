@@ -216,6 +216,15 @@ the phone. `--install` and `--approval` both migrate such a gate to
 `PermissionRequest`; the daemon still answers a `PreToolUse` payload in that
 event's `permissionDecision` contract (Grok's gate lives there by necessity).
 
+Because a `PreToolUse` gate fires for every call, the daemon answers the ones
+nobody needs to decide itself, so they never reach the phone or raise a Mac
+banner: every call from a `bypassPermissions` session; read-only tools (Read,
+Glob, Grep, LS, WebFetch, WebSearch, ToolSearch, TodoWrite, NotebookRead,
+AskUserQuestion) in any mode; and the edit tools (Edit, Write, MultiEdit,
+NotebookEdit) in `acceptEdits`. MCP tools are never treated as read-only, and a
+native `permissions.deny` rule still wins. A `PermissionRequest` is never
+short-circuited: by definition the agent would have asked.
+
 ## Terminal capture (jump-back)
 
 `capture-terminal.sh` is installed automatically as a second hook group on

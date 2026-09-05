@@ -31,7 +31,7 @@ struct LocalNotifier: AttentionNotifier {
         // The identifier the Mac's push uses as its collapse id: whichever
         // channel gets there first, iOS keeps one notification, and the Watch
         // mirrors one.
-        post(title: title, body: body, sound: alert.sound,
+        post(title: title, body: body, sound: alert.sound, delivery: alert.delivery,
              id: alert.notificationID, sessionID: alert.sessionID)
     }
 
@@ -50,13 +50,16 @@ struct LocalNotifier: AttentionNotifier {
     }
 
     private func post(title: String, body: String, sound: NotificationSound,
+                      delivery: DeliveryLevel = .bannerSound,
                       id: String, sessionID: String? = nil) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
-        content.sound = Self.soundOn
+        content.sound = delivery.makesSound && Self.soundOn
             ? UNNotificationSound(named: UNNotificationSoundName(rawValue: sound.fileName))
             : nil
+        // A list-only cue is filed in Notification Center without a banner.
+        if delivery == .list { content.interruptionLevel = .passive }
         // Everything said about one session groups and opens as that session,
         // on the phone and on the wrist alike.
         if let sessionID {
