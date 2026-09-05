@@ -55,11 +55,16 @@ public struct PendingApproval: Codable, Sendable, Equatable {
     /// remote answer channel. A remote *deny* is authoritative in every mode.
     /// Nil for agents that don't report a mode (Claude Code and friends).
     public let permissionMode: String?
+    /// The rule "Always allow" would persist, in the agent's own grammar
+    /// (`Bash(rm -rf node_modules)`), when the agent proposed one itself —
+    /// Claude Code's `permission_suggestions`. Nil means vibebuddy's own
+    /// conservative rule applies instead (ADR 0010).
+    public let suggestedRule: String?
 
     public init(id: String, tool: String, commandPreview: String,
                 command: String? = nil, filePath: String? = nil,
                 oldText: String? = nil, newText: String? = nil,
-                permissionMode: String? = nil) {
+                permissionMode: String? = nil, suggestedRule: String? = nil) {
         self.id = id
         self.tool = tool
         self.commandPreview = commandPreview
@@ -68,6 +73,7 @@ public struct PendingApproval: Codable, Sendable, Equatable {
         self.oldText = oldText
         self.newText = newText
         self.permissionMode = permissionMode
+        self.suggestedRule = suggestedRule
     }
 }
 

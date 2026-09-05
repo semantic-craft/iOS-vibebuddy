@@ -77,7 +77,16 @@ in default mode, an uncertain classifier in auto mode — and honours the hook's
 phone. Silence (no phone answer in 25s) leaves Claude's own prompt in place;
 `bypassPermissions` fires the event but ignores the answer. The `PreToolUse`
 status forwarder stays asynchronous. An older gate on `PreToolUse` (every call
-held) is migrated by `--install`.
+held) is migrated by `--install`; on a Claude Code older than 2.1.257 (which
+does not honour the `decision` reply) the installer keeps the gate on
+`PreToolUse` and says so (`VIBEBUDDY_CLAUDE_VERSION` overrides the probe).
+
+The daemon never re-runs Claude's `permissions.allow` on a `PermissionRequest`
+— Claude evaluated them and still asked — so the card is always a real wait;
+native `deny` rules and vibebuddy's own store/session allows still answer at
+once. "Always allow" on the phone echoes Claude's `permission_suggestions` back
+as `decision.updatedPermissions`, so Claude Code writes the rule itself
+(ADR-0010, amended).
 
 ### Codex CLI (`~/.codex/hooks.json`)
 

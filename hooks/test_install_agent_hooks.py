@@ -70,7 +70,9 @@ def seed_home(home):
 
 
 def run(mode, home):
-    env = {**os.environ, "HOME": home}
+    # Pin the Claude version probe so the assertions below do not depend on the
+    # `claude` binary (or its age) on the machine running this test.
+    env = {**os.environ, "HOME": home, "VIBEBUDDY_CLAUDE_VERSION": "2.1.261"}
     # An ambient $GROK_HOME would redirect the grok installer away from the
     # throwaway $HOME this pass asserts against.
     env.pop("GROK_HOME", None)
@@ -108,12 +110,50 @@ def check_grok_home(fails):
             fails.append("uninstall left vibebuddy.json under $GROK_HOME")
 
 
+def check_claude_old_cli_keeps_legacy_gate(fails):
+    """On a Claude Code older than 2.1.257 the PermissionRequest reply is not
+    honoured, so --approval must keep the gate on PreToolUse and say why; once
+    the CLI is updated a plain --install migrates it."""
+    installer = os.path.join(HOOKS, "install-claude-hooks.py")
+    with tempfile.TemporaryDirectory() as home:
+        settings = os.path.join(home, ".claude/settings.json")
+
+        def gates(event):
+            hooks = json.loads(open(settings).read()).get("hooks", {})
+            return [h.get("command", "") for g in hooks.get(event, []) for h in g.get("hooks", [])]
+
+        old = {**os.environ, "HOME": home, "VIBEBUDDY_CLAUDE_VERSION": "2.1.200 (Claude Code)"}
+        r = subprocess.run([sys.executable, installer, "--approval"], env=old,
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            fails.append(f"old-cli --approval exited {r.returncode}: {r.stderr}")
+            return
+        if not any("approval-hook.sh" in c for c in gates("PreToolUse")):
+            fails.append("old CLI: --approval did not keep the gate on PreToolUse")
+        if any("approval-hook.sh" in c for c in gates("PermissionRequest")):
+            fails.append("old CLI: --approval put the gate on PermissionRequest it cannot answer")
+        if "older than 2.1.257" not in r.stdout:
+            fails.append("old CLI: --approval did not warn about the legacy gate")
+        new = {**os.environ, "HOME": home, "VIBEBUDDY_CLAUDE_VERSION": "2.1.261"}
+        r2 = subprocess.run([sys.executable, installer, "--install"], env=new,
+                            capture_output=True, text=True)
+        if r2.returncode != 0:
+            fails.append(f"updated-cli --install exited {r2.returncode}: {r2.stderr}")
+            return
+        if any("approval-hook.sh" in c for c in gates("PreToolUse")):
+            fails.append("updated CLI: --install left the legacy gate on PreToolUse")
+        if not any("approval-hook.sh" in c for c in gates("PermissionRequest")):
+            fails.append("updated CLI: --install did not migrate the gate to PermissionRequest")
+        if "older than" in r2.stdout:
+            fails.append("updated CLI: --install still warned about the legacy gate")
+
+
 def check_claude_legacy_gate_migration(fails):
     """A pre-PermissionRequest install left the gate on PreToolUse, holding every
     tool call; a plain --install must move it to PermissionRequest."""
     installer = os.path.join(HOOKS, "install-claude-hooks.py")
     with tempfile.TemporaryDirectory() as home:
-        env = {**os.environ, "HOME": home}
+        env = {**os.environ, "HOME": home, "VIBEBUDDY_CLAUDE_VERSION": "2.1.261"}
         settings = os.path.join(home, ".claude/settings.json")
         os.makedirs(os.path.dirname(settings), exist_ok=True)
         gate = os.path.join(HOOKS, "approval-hook.sh")
@@ -392,6 +432,7 @@ def main():
 
     check_grok_home(fails)
     check_claude_legacy_gate_migration(fails)
+    check_claude_old_cli_keeps_legacy_gate(fails)
 
     if fails:
         print("FAIL:")

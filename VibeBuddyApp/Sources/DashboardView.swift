@@ -276,6 +276,11 @@ private struct SessionRow: View {
                     }
                     .buttonStyle(.bordered).controlSize(.small).font(.caption)
                     .padding(.top, 1)
+                    if let rule = approval.suggestedRule {
+                        Text("Always allow adds \(rule) to Claude's own rules.")
+                            .font(.caption2).foregroundStyle(.tertiary)
+                            .padding(.top, 2)
+                    }
                     if session.agent == .grok, let mode = approval.permissionMode, mode != "bypassPermissions" {
                         Label {
                             Text("Grok will still ask in the terminal after Allow (permission mode: \(mode)). Set permission_mode = \"always-approve\" to approve from here.")

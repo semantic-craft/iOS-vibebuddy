@@ -319,8 +319,18 @@ public struct VibeBuddyServer: Sendable {
             if sessionAllowed || storeAllowed {
                 return Self.permissionResponse("allow", agent: agent, event: call.event)
             }
-            // Otherwise the native allow/ask matching (composition-guarded).
-            switch PermissionMatcher.decide(tool: tool, input: input, allow: r.allow, deny: r.deny) {
+            // Otherwise the native allow/ask matching (composition-guarded) — but
+            // only for a PreToolUse gate, which fires before the agent's own
+            // permission check. A PermissionRequest means the agent has already
+            // evaluated its rules and still decided to ask (an ask rule, an
+            // uncertain auto-mode classifier); re-running our copy of its allow
+            // list here could only override that decision, so it is a real wait.
+            // Codex has no rule vocabulary of its own, so for it the user's path
+            // and command rules are only ever applied here; that stays.
+            let native: PermissionDecision = (agent == .claudeCode && call.event == .permissionRequest)
+                ? .ask
+                : PermissionMatcher.decide(tool: tool, input: input, allow: r.allow, deny: r.deny)
+            switch native {
             case .allow: return Self.permissionResponse("allow", agent: agent, event: call.event)
             case .deny:  return Self.permissionResponse("deny", agent: agent, event: call.event)
             case .ask:
@@ -335,18 +345,28 @@ public struct VibeBuddyServer: Sendable {
                 // Record what an "always allow" / "allow this session" would act
                 // on *before* the pending card is broadcast — a decision can only
                 // follow the card, so the context is always there when it lands.
+                // Claude's own allow-rule proposals ride along: "Always allow"
+                // echoes them back as `updatedPermissions` so Claude persists
+                // the rule itself, and the card shows the very text the terminal
+                // dialog would (ADR 0010, amended).
+                let suggestions = call.permissionSuggestions
                 await approvalContext.set(id: id, sessionID: sessionID,
-                                          rule: AllowRule.forApproval(tool: tool, input: input))
+                                          rule: AllowRule.forApproval(tool: tool, input: input),
+                                          nativeSuggestions: PermissionSuggestion.encode(suggestions))
                 await store.beginApproval(sessionID: sessionID,
                     PendingApproval(id: id, tool: tool,
                                     commandPreview: d.commandPreview.isEmpty ? tool : d.commandPreview,
                                     command: d.command, filePath: d.filePath,
                                     oldText: d.oldText, newText: d.newText,
-                                    permissionMode: call.permissionMode), at: Date())
+                                    permissionMode: call.permissionMode,
+                                    suggestedRule: PermissionSuggestion.describe(suggestions)), at: Date())
                 let outcome = await registry.wait(id: id, timeout: timeout)
                 await store.endApproval(sessionID: sessionID, at: Date())
                 switch outcome {
-                case .allow: return Self.permissionResponse("allow", agent: agent, event: call.event)
+                case .allow:
+                    let grant = await approvalContext.takeGrant(id: id)
+                    return Self.permissionResponse("allow", agent: agent, event: call.event,
+                                                   updatedPermissions: grant)
                 case .deny:  return Self.permissionResponse("deny", agent: agent, event: call.event)
                 case .pass:  return Response(status: .ok)
                 }
@@ -364,8 +384,15 @@ public struct VibeBuddyServer: Sendable {
             // "allowSession" also allows the rest of this session (ADR 0010). Unknown → deny.
             switch decision {
             case "alwaysAllow":
-                if let ctx = await approvalContext.take(id: id), let rule = ctx.rule {
-                    await allowStore.add(rule)
+                if let ctx = await approvalContext.take(id: id) {
+                    if let native = ctx.nativeSuggestions {
+                        // The agent proposed the rule: hand it back on the held
+                        // reply and let the agent persist it. Nothing is written
+                        // to the vibebuddy store, so the two never diverge.
+                        await approvalContext.grant(id: id, updatedPermissions: native)
+                    } else if let rule = ctx.rule {
+                        await allowStore.add(rule)
+                    }
                 }
                 await registry.resolve(id: id, with: .allow)
             case "allowSession":
@@ -461,7 +488,8 @@ public struct VibeBuddyServer: Sendable {
     /// unambiguous when read from a Grok transcript. Either way a timeout still
     /// answers with an empty 200 body, which both CLIs read as "no opinion".
     static func permissionResponse(_ decision: String, agent: AgentKind = .claudeCode,
-                                   event: ApprovalPayload.Event = .preToolUse) -> Response {
+                                   event: ApprovalPayload.Event = .preToolUse,
+                                   updatedPermissions: Data? = nil) -> Response {
         let json: String
         if agent == .grok {
             json = decision == "deny"
@@ -471,10 +499,16 @@ public struct VibeBuddyServer: Sendable {
             // Claude Code and Codex answer a `PermissionRequest` hook the same
             // way: `decision.behavior` is `allow`/`deny`, and a deny may carry a
             // message the model sees. Any other field fails closed on Codex's
-            // side, so send nothing beyond the contract.
-            json = decision == "deny"
-                ? #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"Denied from vibebuddy"}}}"#
-                : #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#
+            // side, so send nothing beyond the contract — except an allow that
+            // carries the agent's own `updatedPermissions` back (Claude only:
+            // the payload is the agent's serialized proposal, never composed here).
+            if decision == "deny" {
+                json = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"Denied from vibebuddy"}}}"#
+            } else if let updatedPermissions, let entries = String(data: updatedPermissions, encoding: .utf8) {
+                json = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","updatedPermissions":\#(entries)}}}"#
+            } else {
+                json = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#
+            }
         } else {
             json = #"{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"\#(decision)","permissionDecisionReason":"vibebuddy"}}"#
         }

@@ -11,7 +11,9 @@ Usage:
 """
 import json
 import os
+import re
 import shutil
+import subprocess
 import sys
 import tempfile
 
@@ -33,6 +35,10 @@ APPROVAL_MARKER = "approval-hook.sh"
 # PreToolUse instead — the original design, from before this event existed —
 # held every tool call for the phone; an old gate found there is migrated.
 APPROVAL_EVENT = "PermissionRequest"
+LEGACY_APPROVAL_EVENT = "PreToolUse"
+# Claude Code validates the `decision` reply on PermissionRequest from 2.1.257;
+# an older CLI waits silently on it, so the gate stays on PreToolUse there.
+MIN_PERMISSION_REQUEST_VERSION = (2, 1, 257)
 APPROVAL_TIMEOUT = 30   # the daemon answers within 25s; the hook's curl caps at 30s
 CAPTURE_HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "capture-terminal.sh")
 CAPTURE_MARKER = "capture-terminal.sh"
@@ -108,21 +114,48 @@ def install(data):
     return added
 
 
+def claude_version():
+    """The installed Claude Code version as a tuple, or None when unknown.
+
+    `VIBEBUDDY_CLAUDE_VERSION` overrides the probe (tests, air-gapped installs).
+    """
+    raw = os.environ.get("VIBEBUDDY_CLAUDE_VERSION")
+    if raw is None:
+        try:
+            raw = subprocess.run(["claude", "--version"], capture_output=True,
+                                 text=True, timeout=10).stdout
+        except (OSError, subprocess.SubprocessError):
+            return None
+    match = re.search(r"(\d+)\.(\d+)\.(\d+)", raw or "")
+    return tuple(int(part) for part in match.groups()) if match else None
+
+
+def approval_event(version=None):
+    """Where the blocking gate goes for this CLI. Unknown version → the
+    current contract (nothing runs at all without a CLI to probe)."""
+    if version is not None and version < MIN_PERMISSION_REQUEST_VERSION:
+        return LEGACY_APPROVAL_EVENT
+    return APPROVAL_EVENT
+
+
 def has_approval(data):
     hooks = data.get("hooks", {}) if isinstance(data.get("hooks", {}), dict) else {}
     return any(has_marker(g, APPROVAL_MARKER) for arr in hooks.values() for g in arr)
 
 
-def install_approval(data):
+def install_approval(data, version=None):
     hooks = data.setdefault("hooks", {})
-    # Retire the legacy PreToolUse gate; install() has already restored the
-    # asynchronous status forwarder there.
+    event = approval_event(version)
+    # The gate lives on exactly one event: retire it everywhere else (a legacy
+    # PreToolUse gate on a modern CLI, or a PermissionRequest gate after a
+    # downgrade). install() has already restored the asynchronous status
+    # forwarder on whichever event is being vacated.
     for ev in list(hooks):
-        if ev != APPROVAL_EVENT:
+        if ev != event:
             hooks[ev] = [g for g in hooks[ev] if not has_marker(g, APPROVAL_MARKER)]
             if not hooks[ev]:
                 del hooks[ev]
-    arr = hooks.setdefault(APPROVAL_EVENT, [])
+    arr = hooks.setdefault(event, [])
     # The blocking gate replaces the fire-and-forget status group on this one
     # event; the daemon still learns of the wait from the gate itself.
     arr[:] = [g for g in arr if not has_status_marker(g)]
@@ -132,7 +165,13 @@ def install_approval(data):
     if owned != [expected]:
         arr[:] = [g for g in arr if not has_marker(g, APPROVAL_MARKER)]
         arr.append(expected)
-    return [f"{APPROVAL_EVENT}(approval)"]
+    if event == LEGACY_APPROVAL_EVENT:
+        shown = ".".join(str(part) for part in version)
+        wanted = ".".join(str(part) for part in MIN_PERMISSION_REQUEST_VERSION)
+        print(f"warning: Claude Code {shown} is older than {wanted}; the approval gate "
+              f"stays on PreToolUse, so every tool call the daemon cannot match to a "
+              f"rule waits for the phone. Update Claude Code and run --install again.")
+    return [f"{event}(approval)"]
 
 
 def uninstall(data):
@@ -186,7 +225,7 @@ def main():
 
     if mode == "--approval":
         install(data)              # ensure base status hooks exist
-        added = install_approval(data)
+        added = install_approval(data, claude_version())
         write(data)
         print("installed vibebuddy approval hook:", added)
         return
@@ -194,8 +233,9 @@ def main():
     added = install(data)
     if has_approval(data):
         # A plain re-install (the Mac app's Repair button) keeps — and, for an
-        # old PreToolUse gate, migrates — the approval gate the user opted into.
-        added += install_approval(data)
+        # old PreToolUse gate on a current CLI, migrates — the approval gate the
+        # user opted into.
+        added += install_approval(data, claude_version())
     if mode == "--dry-run":
         print("would add vibebuddy hooks for:", added or "(already installed)")
         print("status events:", ", ".join(EVENTS))

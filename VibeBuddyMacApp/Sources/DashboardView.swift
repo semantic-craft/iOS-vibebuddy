@@ -385,6 +385,11 @@ private struct DetailView: View {
                     }
                     .buttonStyle(.bordered).controlSize(.small)
                     .help("Always allow: auto-approve this exact command in future. Allow all this session: stop asking for the rest of this run.")
+                    if let rule = approval.suggestedRule {
+                        Text("Always allow adds \(rule) to Claude's own permission rules — the same rule the terminal dialog offers.")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     if session.agent == .grok, let mode = approval.permissionMode, mode != "bypassPermissions" {
                         Label {
                             Text("Grok will still ask in the terminal after Allow (permission mode: \(mode)). Set permission_mode = \"always-approve\" to approve from here.")
