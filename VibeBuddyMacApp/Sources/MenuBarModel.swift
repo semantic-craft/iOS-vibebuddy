@@ -427,7 +427,7 @@ final class MenuBarModel: ObservableObject {
     @discardableResult
     private func push(_ alert: SoundAlert, to devices: [DeviceRegistrationPayload]) async -> Bool {
         guard let pusher else { return false }
-        let (title, body) = Self.pushCopy(for: alert)
+        let copy = PushCopy.copy(for: alert.sound, session: alert.session)
         var attempted = false
         for device in devices {
             guard let deviceToken = device.token,
@@ -439,8 +439,9 @@ final class MenuBarModel: ObservableObject {
             guard level.interrupts else { continue }
             let sound = level.makesSound && device.playSound != false ? alert.sound.fileName : ""
             attempted = true
-            await pusher.send(title: title, body: body, to: deviceToken, sound: sound,
-                              sessionID: alert.sessionID, soundCategory: alert.sound.rawValue)
+            await pusher.send(title: copy.title, body: copy.body, to: deviceToken, sound: sound,
+                              sessionID: alert.sessionID, soundCategory: alert.sound.rawValue,
+                              localized: PushLocalization(copy))
         }
         return attempted
     }
@@ -478,18 +479,6 @@ final class MenuBarModel: ObservableObject {
                                    body: "≈ \(cost) spent this session (estimate)",
                                    to: deviceToken, sound: sound)
             }
-        }
-    }
-
-    private static func pushCopy(for alert: SoundAlert) -> (title: String, body: String) {
-        let s = alert.session
-        switch alert.sound {
-        case .needsApproval: return ("\(s.project) needs approval", s.pendingApproval?.commandPreview ?? s.summary ?? "Approve or deny")
-        case .needsAnswer:   return ("\(s.project) needs you", s.summary ?? "Waiting for your response")
-        case .longWaitNudge: return ("\(s.project) is still waiting", s.summary ?? "Waiting for your response")
-        case .agentDone:     return ("\(s.project) finished", s.summary ?? "Task complete")
-        case .agentStuck:    return ("\(s.project) stopped", s.summary ?? "It may need a look")
-        case .pairSuccess:   return ("Paired", "VibeBuddy is watching your sessions.")
         }
     }
 
