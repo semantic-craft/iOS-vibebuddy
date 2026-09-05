@@ -59,16 +59,28 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
         self.useIntl = useIntl
     }
 
-    private var endpoint: URL { Self.endpoint(model: model, workspaceID: workspaceID, useIntl: useIntl) }
+    private var endpoint: URL? { Self.endpoint(model: model, workspaceID: workspaceID, useIntl: useIntl) }
 
-    static func endpoint(model: String, workspaceID: String?, useIntl: Bool) -> URL {
+    /// `nil` when the user-typed workspace ID is not a valid hostname label or
+    /// the model ID is not a plain identifier — both come from free-text
+    /// Settings fields, so they must never reach a force-unwrapped `URL`.
+    static func endpoint(model: String, workspaceID: String?, useIntl: Bool) -> URL? {
+        guard isIdentifier(model, extra: "._-") else { return nil }
         let host: String
         if let workspaceID {
+            guard isIdentifier(workspaceID, extra: "-") else { return nil }
             host = "\(workspaceID).\(useIntl ? "ap-southeast-1" : "cn-beijing").maas.aliyuncs.com"
         } else {
             host = useIntl ? "dashscope-intl.aliyuncs.com" : "dashscope.aliyuncs.com"
         }
-        return URL(string: "wss://\(host)/api-ws/v1/realtime?model=\(model)")!
+        return URL(string: "wss://\(host)/api-ws/v1/realtime?model=\(model)")
+    }
+
+    /// Non-empty ASCII letters/digits plus `extra` punctuation only.
+    private static func isIdentifier(_ s: String, extra: String) -> Bool {
+        !s.isEmpty && s.unicodeScalars.allSatisfy { c in
+            c.isASCII && (CharacterSet.alphanumerics.contains(c) || extra.unicodeScalars.contains(c))
+        }
     }
 
     public func start(instructions: String, voice: String, tools: [VoiceTool]) -> AsyncStream<RealtimeVoiceEvent> {
@@ -76,6 +88,11 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
         continuation = cont
         self.tools = tools
 
+        guard let endpoint else {
+            cont.yield(.failed("Invalid Qwen model ID or workspace ID — check Settings"))
+            cont.finish()
+            return stream
+        }
         var request = URLRequest(url: endpoint)
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         let socket = URLSession.shared.webSocketTask(with: request)
