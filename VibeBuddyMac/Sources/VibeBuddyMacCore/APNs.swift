@@ -144,7 +144,10 @@ public actor APNsPusher {
                      sound: String = "default", now: Date = Date(),
                      sessionID: String? = nil,
                      soundCategory: String? = nil,
-                     localized: PushLocalization? = nil) async -> APNsSendResult {
+                     localized: PushLocalization? = nil,
+                     category: String? = nil,
+                     timeSensitive: Bool = false,
+                     approvalId: String? = nil) async -> APNsSendResult {
         let category = soundCategory ?? sound.replacingOccurrences(of: ".caf", with: "")
         guard let url = URL(string: "https://\(config.host)/3/device/\(deviceToken)"),
               let auth = try? providerToken(now: now) else {
@@ -166,7 +169,9 @@ public actor APNsPusher {
                              forHTTPHeaderField: "apns-collapse-id")
         }
         request.httpBody = Data(Self.alertPayload(title: title, body: body, sound: sound,
-                                                  sessionID: sessionID, localized: localized).utf8)
+                                                  sessionID: sessionID, localized: localized,
+                                                  category: category, timeSensitive: timeSensitive,
+                                                  approvalId: approvalId).utf8)
         do {
             let (data, response) = try await http.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode
@@ -201,7 +206,10 @@ public actor APNsPusher {
     /// copy so the banner reads in the phone's language.
     nonisolated static func alertPayload(title: String, body: String, sound: String,
                                          sessionID: String?,
-                                         localized: PushLocalization? = nil) -> String {
+                                         localized: PushLocalization? = nil,
+                                         category: String? = nil,
+                                         timeSensitive: Bool = false,
+                                         approvalId: String? = nil) -> String {
         var alert = #""title":"\#(escape(title))","body":"\#(escape(body))""#
         if let localized {
             let args = localized.titleArgs.map { #""\#(escape($0))""# }.joined(separator: ",")
@@ -212,8 +220,11 @@ public actor APNsPusher {
         }
         let soundField = sound.isEmpty ? "" : #","sound":"\#(escape(sound))""#
         let threadField = sessionID.map { #","thread-id":"\#(escape($0))""# } ?? ""
+        let categoryField = category.map { #","category":"\#(escape($0))""# } ?? ""
+        let interruptionField = timeSensitive ? #","interruption-level":"time-sensitive""# : ""
         let sessionField = sessionID.map { #","sessionId":"\#(escape($0))""# } ?? ""
-        return #"{"aps":{"alert":{\#(alert)}\#(soundField)\#(threadField)}\#(sessionField)}"#
+        let approvalField = approvalId.map { #","approvalId":"\#(escape($0))""# } ?? ""
+        return #"{"aps":{"alert":{\#(alert)}\#(soundField)\#(threadField)\#(categoryField)\#(interruptionField)}\#(sessionField)\#(approvalField)}"#
     }
 
     /// APNs answers every failure with `{"reason":"…"}`; success bodies are empty.

@@ -82,6 +82,18 @@ final class NotificationRelayTests: XCTestCase {
     /// is a duplicate by construction, and it would have to re-derive quiet mode,
     /// the sound preference and the `needsResponse` boundary from a projection
     /// that deliberately does not carry them.
+    func testDemoPostsApprovalAndQuestionBanners() {
+        let notifier = RecordingNotifier()
+        let store = DashboardStore(
+            streamer: EmptyStreamer(),
+            notifier: notifier,
+            decisionClient: NullDecisionClient(),
+            watchRelay: nil)
+        store.startDemo()
+        XCTAssertTrue(notifier.posted.contains("demo-edit-needs_approval"))
+        XCTAssertTrue(notifier.posted.contains("demo-question-needs_answer"))
+    }
+
     func testTheWatchTargetSchedulesNoNotificationsOfItsOwn() throws {
         let watch = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()   // Tests

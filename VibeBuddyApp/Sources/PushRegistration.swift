@@ -1,4 +1,5 @@
 import UIKit
+import UserNotifications
 import VibeBuddyKit
 
 /// Registers for APNs, captures the device token, and uploads it to the Mac so
@@ -12,7 +13,7 @@ final class PushRegistration {
     static let shared = PushRegistration()
 
     private var deviceToken: String?
-    private var pairing: PairingPayload?
+    private(set) var pairing: PairingPayload?
 
     func registerForRemoteNotifications() {
         UIApplication.shared.registerForRemoteNotifications()
@@ -64,6 +65,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         // Present our cues while the app is foreground — otherwise iOS swallows
         // the sound, and the in-app sound pack would never be heard.
         UNUserNotificationCenter.current().delegate = self
+        LocalNotifier.registerCategories()
         return true
     }
 
@@ -86,11 +88,26 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
-        guard response.actionIdentifier == UNNotificationDefaultActionIdentifier,
-              let id = response.notification.request.content.userInfo["sessionId"] as? String,
-              !id.isEmpty else { return }
-        await MainActor.run {
-            _ = UIApplication.shared.open(VibeBuddyDeepLink.sessionURL(id: id))
+        let userInfo = response.notification.request.content.userInfo
+        if response.actionIdentifier == UNNotificationDefaultActionIdentifier {
+            guard let id = userInfo[NotificationUserInfoKey.sessionId] as? String, !id.isEmpty else { return }
+            await MainActor.run {
+                _ = UIApplication.shared.open(VibeBuddyDeepLink.sessionURL(id: id))
+            }
+            return
+        }
+        let text = (response as? UNTextInputNotificationResponse)?.userText
+        let pairing = await MainActor.run { PushRegistration.shared.pairing }
+        let outcome = await BannerActionRunner.perform(
+            actionIdentifier: response.actionIdentifier,
+            userInfo: userInfo,
+            text: text,
+            pairing: pairing,
+            client: HTTPDecisionClient())
+        if case .openSession(let id) = outcome {
+            await MainActor.run {
+                _ = UIApplication.shared.open(VibeBuddyDeepLink.sessionURL(id: id))
+            }
         }
     }
 

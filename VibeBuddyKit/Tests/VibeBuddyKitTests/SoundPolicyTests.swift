@@ -62,6 +62,37 @@ struct SoundPolicyTests {
         #expect(DeliveryLevel.bannerSound.makesSound && !DeliveryLevel.banner.makesSound)
     }
 
+    @Test("Time Sensitive is bannerSound × approval/question, never muted")
+    func timeSensitiveOnlyForLoudWaits() {
+        let waiting = session("a", .needsResponse, wait: .permission)
+        #expect(SoundAlert(session: waiting, sound: .needsApproval, delivery: .bannerSound).isTimeSensitive)
+        #expect(SoundAlert(session: waiting, sound: .needsAnswer, delivery: .bannerSound).isTimeSensitive)
+        #expect(!SoundAlert(session: waiting, sound: .needsApproval, delivery: .banner).isTimeSensitive)
+        #expect(!SoundAlert(session: waiting, sound: .needsAnswer, delivery: .list).isTimeSensitive)
+        #expect(!SoundAlert(session: waiting, sound: .agentDone, delivery: .bannerSound).isTimeSensitive)
+        #expect(!SoundAlert(session: waiting, sound: .agentStuck, delivery: .bannerSound).isTimeSensitive)
+    }
+
+    @Test("shared category and action ids cover approval and question only")
+    func notificationCategoryIDs() {
+        #expect(NotificationCategoryID.forSound(.needsApproval) == .approval)
+        #expect(NotificationCategoryID.forSound(.needsAnswer) == .question)
+        #expect(NotificationCategoryID.forSound(.agentDone) == nil)
+        #expect(NotificationCategoryID.approval.rawValue == "approval")
+        #expect(NotificationCategoryID.question.rawValue == "question")
+        #expect(NotificationActionID.approve.rawValue == "approve")
+        #expect(NotificationActionID.deny.rawValue == "deny")
+        #expect(NotificationActionID.answer.rawValue == "answer")
+        #expect(WaitActionResult(statusCode: 200) == .accepted)
+        #expect(WaitActionResult(statusCode: 404) == .alreadyResolved)
+        #expect(WaitActionResult(statusCode: 409) == .alreadyResolved)
+        #expect(WaitActionResult(statusCode: 500) == .failed)
+        #expect(WaitActionResult(statusCode: 404).shouldOpenSession)
+        #expect(!WaitActionResult(statusCode: 200).shouldOpenSession)
+        #expect(NotificationUserInfoKey.make(sessionId: "s", approvalId: "ap")
+            == [NotificationUserInfoKey.sessionId: "s", NotificationUserInfoKey.approvalId: "ap"])
+    }
+
     // MARK: First snapshot — no backlog noise
 
     @Test("the first snapshot's already-waiting sessions stay silent")

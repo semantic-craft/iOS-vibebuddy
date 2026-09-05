@@ -9,6 +9,11 @@ protocol DecisionClient: Sendable {
     @discardableResult
     func decide(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> Bool
     func answer(_ pairing: PairingPayload, sessionId: String, answer: String) async
+    /// Same POST as `decide`, but distinguishes 404/409 (wait already gone).
+    func decideResult(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> WaitActionResult
+    /// Same POST as `answer`, but distinguishes 404/409 (wait already gone).
+    @discardableResult
+    func answerResult(_ pairing: PairingPayload, sessionId: String, answer: String) async -> WaitActionResult
     /// Structured answers keyed by question id (option labels, or a typed
     /// reply), for the agents that take them through their own contract.
     func answer(_ pairing: PairingPayload, sessionId: String, answers: QuestionAnswers) async
@@ -24,6 +29,13 @@ protocol DecisionClient: Sendable {
 
 extension DecisionClient {
     func dispatch(_ pairing: PairingPayload, request: DispatchRequest) async -> DispatchOutcome? { nil }
+    func decideResult(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> WaitActionResult {
+        await decide(pairing, approvalId: approvalId, decision: decision) ? .accepted : .failed
+    }
+    func answerResult(_ pairing: PairingPayload, sessionId: String, answer text: String) async -> WaitActionResult {
+        await answer(pairing, sessionId: sessionId, answer: text)
+        return .accepted
+    }
 }
 
 extension DecisionClient {
@@ -61,27 +73,34 @@ struct HTTPDecisionClient: DecisionClient {
 
     @discardableResult
     func decide(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> Bool {
-        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/decision") else { return false }
+        await decideResult(pairing, approvalId: approvalId, decision: decision) == .accepted
+    }
+
+    func decideResult(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> WaitActionResult {
+        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/decision") else { return .failed }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let body = ["approvalId": approvalId, "decision": decision.rawValue]
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        guard let (_, response) = try? await URLSession.shared.data(for: req),
-              let http = response as? HTTPURLResponse,
-              (200..<300).contains(http.statusCode) else { return false }
-        return true
+        guard let (_, response) = try? await URLSession.shared.data(for: req) else { return .failed }
+        return WaitActionResult(statusCode: (response as? HTTPURLResponse)?.statusCode)
     }
 
     func answer(_ pairing: PairingPayload, sessionId: String, answer: String) async {
-        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/answer") else { return }
+        _ = await answerResult(pairing, sessionId: sessionId, answer: answer)
+    }
+
+    func answerResult(_ pairing: PairingPayload, sessionId: String, answer: String) async -> WaitActionResult {
+        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/answer") else { return .failed }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try? JSONSerialization.data(withJSONObject: ["sessionId": sessionId, "answer": answer])
-        _ = try? await URLSession.shared.data(for: req)
+        guard let (_, response) = try? await URLSession.shared.data(for: req) else { return .failed }
+        return WaitActionResult(statusCode: (response as? HTTPURLResponse)?.statusCode)
     }
 
     func answer(_ pairing: PairingPayload, sessionId: String, answers: QuestionAnswers) async {

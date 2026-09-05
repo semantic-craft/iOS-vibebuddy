@@ -196,6 +196,11 @@ final class MenuBarModel: ObservableObject {
             self?.objectWillChange.send()
         }
         Self.shared = self
+        notifier.onBannerAction = { [weak self] action, sessionId, approvalId, text in
+            Task { @MainActor in
+                self?.handleBannerAction(action, sessionId: sessionId, approvalId: approvalId, text: text)
+            }
+        }
         // Screenshot / exploration instance: seed sample sessions and skip the
         // server, polling, pairing, and notifications entirely. It never binds the
         // port or pushes to a phone, so it runs harmlessly alongside a real
@@ -232,8 +237,13 @@ final class MenuBarModel: ObservableObject {
             // The demo never polls, so no cue is ever earned: unfold the sample
             // approval as a card once the glance exists, for screenshots / QA.
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
-                guard let self, let demo = self.sessions.first(where: { $0.pendingApproval != nil }) else { return }
-                _ = self.presentGlanceCard(SoundAlert(session: demo, sound: .needsApproval))
+                guard let self else { return }
+                if let demo = self.sessions.first(where: { $0.pendingApproval != nil }) {
+                    _ = self.presentGlanceCard(SoundAlert(session: demo, sound: .needsApproval))
+                }
+                // Glance card replaces the banner when the glance is up; still
+                // post the sample banners so Demo mode shows Approve / Deny / Reply.
+                self.postDemoBanners()
             }
         }
     }
@@ -460,7 +470,10 @@ final class MenuBarModel: ObservableObject {
                 ? alert.sound.fileName : ""
             let result = await pusher.send(title: copy.title, body: copy.body, to: deviceToken, sound: sound,
                                            sessionID: alert.sessionID, soundCategory: alert.sound.rawValue,
-                                           localized: PushLocalization(copy))
+                                           localized: PushLocalization(copy),
+                                           category: NotificationCategoryID.forSound(alert.sound)?.rawValue,
+                                           timeSensitive: alert.isTimeSensitive,
+                                           approvalId: alert.session.pendingApproval?.id)
             await deviceTokens.applySendResult(result, token: deviceToken)
             sent = true
         }
@@ -512,6 +525,29 @@ final class MenuBarModel: ObservableObject {
                     body: "≈ \(cost) spent this session (estimate)",
                     to: deviceToken, sound: sound) else { continue }
                 await deviceTokens.applySendResult(result, token: deviceToken)
+            }
+        }
+    }
+
+    private func handleBannerAction(_ action: NotificationActionID, sessionId: String,
+                                    approvalId: String?, text: String?) {
+        switch action {
+        case .approve:
+            if let approvalId { decide(approvalId, .allow) }
+        case .deny:
+            if let approvalId { decide(approvalId, .deny) }
+        case .answer:
+            if let text { answer(sessionId, answers: [:], text: text) }
+        }
+    }
+
+    /// Sample approval / question banners carry the same actions a live cue does.
+    private func postDemoBanners() {
+        for session in sessions {
+            if session.pendingApproval != nil {
+                notifier.notifyDetached(SoundAlert(session: session, sound: .needsApproval))
+            } else if session.waitKind == .question {
+                notifier.notifyDetached(SoundAlert(session: session, sound: .needsAnswer))
             }
         }
     }

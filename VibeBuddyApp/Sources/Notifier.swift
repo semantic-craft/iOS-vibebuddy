@@ -22,8 +22,37 @@ protocol AttentionNotifier: Sendable {
 
 struct LocalNotifier: AttentionNotifier {
     func requestAuthorization() {
+        Self.registerCategories()
         UNUserNotificationCenter.current()
             .requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+    }
+
+    /// Approve / Deny on permission banners; a text field on questions.
+    /// Same identifiers the Mac registers and APNs puts in `aps.category`.
+    static func registerCategories() {
+        let approve = UNNotificationAction(
+            identifier: NotificationActionID.approve.rawValue,
+            title: String(localized: "Approve"),
+            options: [.authenticationRequired])
+        let deny = UNNotificationAction(
+            identifier: NotificationActionID.deny.rawValue,
+            title: String(localized: "Deny"),
+            options: [.destructive])
+        let approval = UNNotificationCategory(
+            identifier: NotificationCategoryID.approval.rawValue,
+            actions: [approve, deny],
+            intentIdentifiers: [])
+        let reply = UNTextInputNotificationAction(
+            identifier: NotificationActionID.answer.rawValue,
+            title: String(localized: "Reply"),
+            options: [],
+            textInputButtonTitle: String(localized: "Send"),
+            textInputPlaceholder: String(localized: "Answer"))
+        let question = UNNotificationCategory(
+            identifier: NotificationCategoryID.question.rawValue,
+            actions: [reply],
+            intentIdentifiers: [])
+        UNUserNotificationCenter.current().setNotificationCategories([approval, question])
     }
 
     func notify(_ alert: SoundAlert) {
@@ -32,7 +61,9 @@ struct LocalNotifier: AttentionNotifier {
         // channel gets there first, iOS keeps one notification, and the Watch
         // mirrors one.
         post(title: title, body: body, sound: alert.sound, delivery: alert.delivery,
-             id: alert.notificationID, sessionID: alert.sessionID)
+             id: alert.notificationID, sessionID: alert.sessionID,
+             approvalId: alert.session.pendingApproval?.id,
+             timeSensitive: alert.isTimeSensitive)
     }
 
     func withdraw(_ identifiers: [String]) {
@@ -51,21 +82,28 @@ struct LocalNotifier: AttentionNotifier {
 
     private func post(title: String, body: String, sound: NotificationSound,
                       delivery: DeliveryLevel = .bannerSound,
-                      id: String, sessionID: String? = nil) {
+                      id: String, sessionID: String? = nil,
+                      approvalId: String? = nil, timeSensitive: Bool = false) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = delivery.makesSound && Self.soundOn
             ? UNNotificationSound(named: UNNotificationSoundName(rawValue: sound.fileName))
             : nil
-        // A list-only cue is filed in Notification Center without a banner.
-        if delivery == .list { content.interruptionLevel = .passive }
+        if let category = NotificationCategoryID.forSound(sound) {
+            content.categoryIdentifier = category.rawValue
+        }
+        if timeSensitive {
+            content.interruptionLevel = .timeSensitive
+        } else if delivery == .list {
+            content.interruptionLevel = .passive
+        }
         // Everything said about one session groups and opens as that session,
         // on the phone and on the wrist alike.
         if let sessionID {
             content.threadIdentifier = sessionID
             content.targetContentIdentifier = sessionID
-            content.userInfo = ["sessionId": sessionID]
+            content.userInfo = NotificationUserInfoKey.make(sessionId: sessionID, approvalId: approvalId)
         }
         UNUserNotificationCenter.current()
             .add(UNNotificationRequest(identifier: id, content: content, trigger: nil))

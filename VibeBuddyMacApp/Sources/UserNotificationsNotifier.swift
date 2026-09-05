@@ -7,17 +7,52 @@ import VibeBuddyMacCore
 /// `UNUserNotificationCenter`; *which* cue, *when* and *how loud* are decided
 /// by `SoundPolicy` (unit-tested), so this type stays pure system I/O: it maps
 /// the alert's `DeliveryLevel` onto sound / banner / list-only presentation.
-final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotificationCenterDelegate {
+final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotificationCenterDelegate, @unchecked Sendable {
     private let center = UNUserNotificationCenter.current()
+    /// Approve / Deny / Reply from a banner. The Mac model hops to the main
+    /// actor; this property itself is not isolated.
+    var onBannerAction: ((NotificationActionID, String, String?, String?) -> Void)?
 
     override init() {
         super.init()
         center.delegate = self
+        Self.registerCategories(on: center)
     }
 
     /// Ask once for alert + sound permission. A denial just makes posting a no-op.
     func requestAuthorization() {
+        Self.registerCategories(on: center)
         center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    }
+
+    static func registerCategories(on center: UNUserNotificationCenter) {
+        let approve = UNNotificationAction(
+            identifier: NotificationActionID.approve.rawValue,
+            title: String(localized: "Approve"),
+            options: [.authenticationRequired])
+        let deny = UNNotificationAction(
+            identifier: NotificationActionID.deny.rawValue,
+            title: String(localized: "Deny"),
+            options: [.destructive])
+        let approval = UNNotificationCategory(
+            identifier: NotificationCategoryID.approval.rawValue,
+            actions: [approve, deny],
+            intentIdentifiers: [])
+        let reply = UNTextInputNotificationAction(
+            identifier: NotificationActionID.answer.rawValue,
+            title: String(localized: "Reply"),
+            options: [],
+            textInputButtonTitle: String(localized: "Send"),
+            textInputPlaceholder: String(localized: "Answer"))
+        let question = UNNotificationCategory(
+            identifier: NotificationCategoryID.question.rawValue,
+            actions: [reply],
+            intentIdentifiers: [])
+        center.setNotificationCategories([approval, question])
+    }
+
+    func notifyDetached(_ alert: SoundAlert) {
+        Task { _ = await self.notify(alert) }
     }
 
     func notify(_ alert: SoundAlert) async -> LocalNotificationAttempt {
@@ -31,7 +66,9 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
         do {
             // The same identifier the phone uses, so the ledger can name it.
             try await post(title: title, body: body, sound: alert.sound, delivery: alert.delivery,
-                           id: alert.notificationID)
+                           id: alert.notificationID, sessionID: alert.sessionID,
+                           approvalId: alert.session.pendingApproval?.id,
+                           timeSensitive: alert.isTimeSensitive)
             return .scheduled()
         } catch {
             return .failed(reason: LocalNotificationDelivery.classify(
@@ -103,17 +140,31 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
     private static let deliveryKey = "delivery"
 
     private func post(title: String, body: String, sound: NotificationSound,
-                      delivery: DeliveryLevel, id: String) async throws {
+                      delivery: DeliveryLevel, id: String,
+                      sessionID: String? = nil, approvalId: String? = nil,
+                      timeSensitive: Bool = false) async throws {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = delivery.makesSound && Self.flag("playNotificationSound")
             ? UNNotificationSound(named: UNNotificationSoundName(rawValue: sound.fileName))
             : nil
+        if let category = NotificationCategoryID.forSound(sound) {
+            content.categoryIdentifier = category.rawValue
+        }
         // Carried to `willPresent`, which is where an accessory app actually
-        // decides what the system shows.
-        content.userInfo = [Self.deliveryKey: delivery.rawValue]
-        if delivery == .list { content.interruptionLevel = .passive }
+        // decides what the system shows. Session / approval ids ride along so
+        // a banner button can resolve the wait in-process.
+        var info: [String: Any] = [Self.deliveryKey: delivery.rawValue]
+        for (key, value) in NotificationUserInfoKey.make(sessionId: sessionID, approvalId: approvalId) {
+            info[key] = value
+        }
+        content.userInfo = info
+        if timeSensitive {
+            content.interruptionLevel = .timeSensitive
+        } else if delivery == .list {
+            content.interruptionLevel = .passive
+        }
         try await center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
     }
 
@@ -136,6 +187,19 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
         case .bannerSound:
             return Self.flag("playNotificationSound") ? [.banner, .list, .sound] : [.banner, .list]
         }
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse
+    ) async {
+        guard let action = NotificationActionID(rawValue: response.actionIdentifier) else { return }
+        let info = response.notification.request.content.userInfo
+        guard let sessionId = info[NotificationUserInfoKey.sessionId] as? String, !sessionId.isEmpty else { return }
+        let approvalId = info[NotificationUserInfoKey.approvalId] as? String
+        let text = (response as? UNTextInputNotificationResponse)?.userText
+        let callback = onBannerAction
+        callback?(action, sessionId, approvalId, text)
     }
 
     /// A Bool default that treats an absent key as `true` (on by default).
