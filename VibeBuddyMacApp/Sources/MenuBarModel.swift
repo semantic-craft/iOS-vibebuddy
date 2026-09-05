@@ -254,6 +254,7 @@ final class MenuBarModel: ObservableObject {
         pollTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
+                await self.store.applyBackgroundSessions(ClaudeBackgroundSessions.load())
                 let snapshot = await self.store.snapshot(now: Date())
                 self.sessions = snapshot.sessions
                 self.observationDiagnostics = snapshot.observationDiagnostics ?? []
@@ -480,6 +481,14 @@ final class MenuBarModel: ObservableObject {
         } else if let thread = session.desktopThreadID {
             Task { [weak self] in
                 let outcome = await CodexDesktopJumper.jump(threadID: thread)
+                self?.showJumpFeedback(outcome, for: session.id)
+            }
+        } else if session.agent == .claudeCode,
+                  let job = ClaudeBackgroundSessions.find(sessionID: session.id) {
+            // A background session has no window: open one attached to it.
+            Task { [weak self, store] in
+                let term = await store.preferredTerminalProgram()
+                let outcome = await TerminalLauncher.attach(claudeJobID: job.id, preferring: term)
                 self?.showJumpFeedback(outcome, for: session.id)
             }
         } else {

@@ -163,6 +163,17 @@ public struct SessionReducer: Sendable {
         return true
     }
 
+    /// A background job's name and "needs" line fill an unnamed Claude row.
+    /// Returns whether anything changed.
+    public mutating func applyBackgroundSession(_ job: ClaudeBackgroundSession) -> Bool {
+        guard var s = sessions[job.sessionID], s.agent == .claudeCode else { return false }
+        var changed = false
+        if s.name == nil, let name = job.name { s.name = name; changed = true }
+        if s.summary == nil, let needs = job.needs { s.summary = needs; changed = true }
+        if changed { sessions[job.sessionID] = s }
+        return changed
+    }
+
     /// Update one stable source entry without touching session progress.
     public mutating func recordObservation(
         sessionID: String,

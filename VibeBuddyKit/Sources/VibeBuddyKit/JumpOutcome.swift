@@ -14,6 +14,9 @@ public enum JumpOutcome: String, Codable, Sendable {
     case activatedApp   // only its host application could be brought forward
     case unsupported    // a ref existed but nothing about it was actionable
     case noTerminal     // the session has no terminal ref to focus
+    /// A background Claude session (`claude --bg`, agent view, Dispatch) has no
+    /// terminal of its own; the Mac opened one running `claude attach <id>`.
+    case attached
 
     /// Decide the outcome from what the jump actually achieved. Pure so it can be
     /// unit-tested away from the route and the `Process`-running jumper.

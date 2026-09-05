@@ -153,6 +153,15 @@ public actor SessionStore {
         return applied
     }
 
+    /// Claude's background supervisor lends its job name and "needs" line to a
+    /// session the hooks opened but never named. Read-only enrichment: a job
+    /// never creates a row or moves its progress.
+    public func applyBackgroundSessions(_ jobs: [ClaudeBackgroundSession]) {
+        var changed = false
+        for job in jobs where reducer.applyBackgroundSession(job) { changed = true }
+        if changed { broadcast() }
+    }
+
     /// Record a source's liveness without any session event — the app-server
     /// monitor's connection state, for the Settings diagnostics.
     public func recordSourceSignal(agent: AgentKind, source: ObservationSource,
@@ -406,6 +415,15 @@ public actor SessionStore {
         var snapshot = reducer.snapshot(now: now, observationDiagnostics: diagnostics(now: now))
         snapshot.providerQuota = providerQuota.isEmpty ? nil : providerQuota
         return snapshot
+    }
+
+    /// The terminal program the user's most recent terminal-backed session
+    /// runs in — where a new window should open.
+    public func preferredTerminalProgram() -> String? {
+        reducer.sessions.values
+            .filter { $0.terminalRef?.termProgram != nil }
+            .max { $0.updatedAt < $1.updatedAt }?
+            .terminalRef?.termProgram
     }
 
     /// The session's recent output (user prompts + assistant prose / tool activity)

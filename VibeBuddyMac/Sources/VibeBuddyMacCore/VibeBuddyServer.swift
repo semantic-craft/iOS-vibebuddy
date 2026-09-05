@@ -51,6 +51,10 @@ public struct VibeBuddyServer: Sendable {
     public let onJumpToDesktopThread: @Sendable (String) async -> JumpOutcome
     public let onAnswer: @Sendable (TerminalRef, String) -> Void
     public let onDevicePaired: @Sendable (DeviceRegistrationPayload) -> Void
+    /// Claude background sessions on this Mac, for jumps into them.
+    public let backgroundSessions: @Sendable () -> [ClaudeBackgroundSession]
+    /// Open a terminal running `claude attach <job id>` in the preferred program.
+    public let onAttach: @Sendable (String, String?) async -> JumpOutcome
 
     public init(store: SessionStore, token: String, host: String = "0.0.0.0",
                 port: Int = 9876, pusher: APNsPusher? = nil,
@@ -71,7 +75,11 @@ public struct VibeBuddyServer: Sendable {
                 onJump: @escaping @Sendable (TerminalRef) async -> JumpOutcome = { await TerminalJumper.jump($0) },
                 onJumpToDesktopThread: @escaping @Sendable (String) async -> JumpOutcome = { await CodexDesktopJumper.jump(threadID: $0) },
                 onAnswer: @escaping @Sendable (TerminalRef, String) -> Void = { ref, answer in TerminalInjector.inject(answer, into: ref) },
-                onDevicePaired: @escaping @Sendable (DeviceRegistrationPayload) -> Void = { _ in }) {
+                onDevicePaired: @escaping @Sendable (DeviceRegistrationPayload) -> Void = { _ in },
+                backgroundSessions: @escaping @Sendable () -> [ClaudeBackgroundSession] = { ClaudeBackgroundSessions.load() },
+                onAttach: @escaping @Sendable (String, String?) async -> JumpOutcome = { id, term in
+                    await TerminalLauncher.attach(claudeJobID: id, preferring: term)
+                }) {
         self.store = store
         self.token = token
         self.host = host
@@ -94,6 +102,8 @@ public struct VibeBuddyServer: Sendable {
         self.onJump = onJump
         self.onJumpToDesktopThread = onJumpToDesktopThread
         self.onAnswer = onAnswer
+        self.backgroundSessions = backgroundSessions
+        self.onAttach = onAttach
         self.onDevicePaired = onDevicePaired
     }
 
@@ -267,6 +277,7 @@ public struct VibeBuddyServer: Sendable {
 
         // Full snapshot — bearer-token gated.
         authed.get("snapshot") { request, _ -> Response in
+            await store.applyBackgroundSessions(backgroundSessions())
             let snapshot = await store.snapshot(now: Date())
             let data = try JSONEncoder().encode(snapshot)
             return Response(
@@ -549,6 +560,10 @@ public struct VibeBuddyServer: Sendable {
                 // Codex Desktop runs no hook, so this session will never have a
                 // ref; its thread id is the target instead.
                 outcome = await onJumpToDesktopThread(thread)
+            } else if let job = backgroundSessions().first(where: { $0.sessionID == sid }) {
+                // A Claude background session has no window: open one attached
+                // to it, in the terminal the user's other sessions run in.
+                outcome = await onAttach(job.id, await store.preferredTerminalProgram())
             } else {
                 outcome = .noTerminal
             }

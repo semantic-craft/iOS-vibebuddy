@@ -70,6 +70,12 @@ code, and tests — don't drift to synonyms.
 - **Steer** — free text for a Codex thread sent through the app-server daemon:
   `turn/steer` while a turn runs, `turn/start` when idle (a cold thread is
   resumed first). Codex threads never take typed input through a terminal.
+- **Attach** — the jump for a Claude *background session* (`claude --bg`,
+  agent view, Desktop Dispatch): it has no window, so `ClaudeBackgroundSessions`
+  reads the supervisor's `~/.claude/jobs/<id>/state.json` (read-only) and
+  `TerminalLauncher` opens the user's preferred terminal running
+  `claude attach <id>` (`JumpOutcome.attached`). The job's name and "needs"
+  line also fill an unnamed Claude row.
 - **Question relay** — the agent's question answered from the phone or the Mac
   card through the agent's own contract: Claude's `AskUserQuestion` on a
   blocking PreToolUse hook (answered with `updatedInput.answers`, keyed by

@@ -428,6 +428,7 @@ final class DashboardStore: ObservableObject {
             case .activatedApp: return String(localized: "Opened ChatGPT on your Mac — find the thread there")
             case .unsupported:  return String(localized: "Couldn't open the thread — is ChatGPT running on your Mac?")
             case .noTerminal:   return String(localized: "No thread for this session")
+            case .attached:     return String(localized: "Opened a terminal on your Mac attached to this session")
             case nil:           return String(localized: "Couldn't reach your Mac")
             }
         }
@@ -436,6 +437,7 @@ final class DashboardStore: ObservableObject {
         case .activatedApp: return String(localized: "Opened the app on your Mac — find the tab there")
         case .unsupported:  return String(localized: "Can't focus this terminal type yet")
         case .noTerminal:   return String(localized: "No terminal for this session")
+        case .attached:     return String(localized: "Opened a terminal on your Mac attached to this session")
         case nil:           return String(localized: "Couldn't reach your Mac")
         }
     }
