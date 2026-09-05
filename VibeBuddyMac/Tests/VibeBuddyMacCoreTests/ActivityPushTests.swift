@@ -40,9 +40,35 @@ struct ActivityPushTests {
     func alertPayloadCarriesSession() {
         let payload = APNsPusher.alertPayload(title: "p needs \"you\"", body: "line\nbreak",
                                               sound: "agent_done.caf", sessionID: "claude/a\"b")
-        #expect(payload == #"{"aps":{"alert":{"title":"p needs \"you\"","body":"line break"},"sound":"agent_done.caf"},"sessionId":"claude/a\"b"}"#)
+        #expect(payload == #"{"aps":{"alert":{"title":"p needs \"you\"","body":"line break"},"sound":"agent_done.caf","thread-id":"claude/a\"b"},"sessionId":"claude/a\"b"}"#)
         let silent = APNsPusher.alertPayload(title: "t", body: "b", sound: "", sessionID: nil)
         #expect(silent == #"{"aps":{"alert":{"title":"t","body":"b"}}}"#)
+    }
+
+    @Test("a localized push carries the phone's string keys next to the English copy")
+    func alertPayloadLocalized() {
+        let free = APNsPusher.alertPayload(
+            title: "p needs permission", body: "rm -rf \"x\"", sound: "", sessionID: "s",
+            localized: PushLocalization(titleKey: "%@ needs permission", titleArgs: ["p"], bodyKey: nil))
+        #expect(free == #"{"aps":{"alert":{"title":"p needs permission","body":"rm -rf \"x\"","title-loc-key":"%@ needs permission","title-loc-args":["p"]},"thread-id":"s"},"sessionId":"s"}"#)
+        let fixed = APNsPusher.alertPayload(
+            title: "p is done", body: "Task complete", sound: "", sessionID: "s",
+            localized: PushLocalization(titleKey: "%@ is done", titleArgs: ["p"], bodyKey: "Task complete"))
+        #expect(fixed.contains(#""loc-key":"Task complete""#))
+    }
+
+    @Test("push copy says what the phone's own banner says")
+    func pushCopyMirrorsPhone() {
+        var s = AgentSession(id: "s", agent: .claudeCode, project: "proj", status: .needsResponse,
+                             statusSince: Date(timeIntervalSince1970: 0), updatedAt: Date(timeIntervalSince1970: 0))
+        s.summary = "Which file?"
+        let ask = PushCopy.copy(for: .needsAnswer, session: s)
+        #expect(ask == PushCopy(title: "proj needs you", body: "Which file?",
+                                titleKey: "%@ needs you", titleArgs: ["proj"], bodyKey: nil))
+        s.summary = nil
+        let done = PushCopy.copy(for: .agentDone, session: s)
+        #expect(done == PushCopy(title: "proj is done", body: "Task complete",
+                                 titleKey: "%@ is done", titleArgs: ["proj"], bodyKey: "Task complete"))
     }
 
     @Test("optional strings are included and escaped when present")
