@@ -324,6 +324,28 @@ public actor SessionStore {
         broadcast()
     }
 
+    public func beginQuestion(sessionID: String, _ question: PendingQuestion, at: Date) {
+        reducer.setPendingQuestion(sessionID: sessionID, question, at: at)
+        if let session = reducer.sessions[sessionID] {
+            appendJournal(sessionID: sessionID, agent: session.agent,
+                          event: "questionAsked", source: .hook, at: at)
+        }
+        broadcast()
+        if let session = reducer.sessions[sessionID], let handler = needsResponseHandler {
+            Task { await handler(session) }
+        }
+    }
+
+    /// Whether the app-server daemon reported this Codex session recently
+    /// enough to be carrying its approvals itself (the hook gate then steps
+    /// aside instead of raising a second card for the same request).
+    public func hasFreshAppServerEvidence(sessionID: String, now: Date) -> Bool {
+        guard let session = reducer.sessions[sessionID],
+              let evidence = session.observations?.first(where: { $0.source == .appserver }),
+              evidence.health.isHealthy else { return false }
+        return now.timeIntervalSince(evidence.lastObservedAt) < Self.appServerAuthorityWindow
+    }
+
     public func endQuestion(sessionID: String, at: Date) {
         reducer.clearPendingQuestion(sessionID: sessionID, at: at)
         if let session = reducer.sessions[sessionID] {

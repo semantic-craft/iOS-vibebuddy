@@ -178,7 +178,7 @@ struct VibeBuddyServerTests {
         }
     }
 
-    @Test("/answer without a terminal ref is a no-op")
+    @Test("/answer with nothing waiting and no terminal ref is accepted but not delivered")
     func answerWithoutTerminalRefNoOps() async throws {
         final class Box: @unchecked Sendable { var answers: [String] = [] }
         let box = Box()
@@ -192,7 +192,9 @@ struct VibeBuddyServerTests {
             try await client.execute(uri: "/answer", method: .post,
                                      headers: [.authorization: "Bearer t0k"],
                                      body: ByteBuffer(string: #"{"sessionId":"s","answer":"Use main"}"#)) { res in
-                #expect(res.status == .ok)
+                // Nothing waiting on the session and no pane to type into:
+                // accepted but not delivered, so the phone can say so.
+                #expect(res.status == .accepted)
             }
             #expect(box.answers.isEmpty)
         }

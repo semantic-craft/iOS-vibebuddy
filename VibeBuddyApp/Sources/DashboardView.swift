@@ -299,8 +299,8 @@ private struct SessionRow: View {
                 }
 
                 if let question = session.pendingQuestion {
-                    QuestionCardView(question: question) { answer in
-                        dashboard.answer(session.id, answer: answer)
+                    QuestionCardView(question: question) { answers in
+                        dashboard.answer(session.id, answers: answers)
                     }
                     .padding(.top, 2)
                 }

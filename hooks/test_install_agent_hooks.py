@@ -171,8 +171,11 @@ def check_claude_old_cli_keeps_legacy_gate(fails):
         settings = os.path.join(home, ".claude/settings.json")
 
         def gates(event):
+            # The AskUserQuestion group is a question relay, not the permission
+            # gate; it is expected on PreToolUse whenever the modern gate is.
             hooks = json.loads(open(settings).read()).get("hooks", {})
-            return [h.get("command", "") for g in hooks.get(event, []) for h in g.get("hooks", [])]
+            return [h.get("command", "") for g in hooks.get(event, [])
+                    if g.get("matcher") != "AskUserQuestion" for h in g.get("hooks", [])]
 
         old = {**os.environ, "HOME": home, "VIBEBUDDY_CLAUDE_VERSION": "2.1.200 (Claude Code)"}
         r = subprocess.run([sys.executable, installer, "--approval"], env=old,
@@ -217,7 +220,8 @@ def check_claude_legacy_gate_migration(fails):
             fails.append(f"claude legacy-gate --install exited {r.returncode}: {r.stderr}")
             return
         hooks = json.loads(open(settings).read())["hooks"]
-        pre_tool = [h.get("command", "") for g in hooks.get("PreToolUse", []) for h in g.get("hooks", [])]
+        pre_tool = [h.get("command", "") for g in hooks.get("PreToolUse", [])
+                    if g.get("matcher") != "AskUserQuestion" for h in g.get("hooks", [])]
         gate_now = [h.get("command", "") for g in hooks.get("PermissionRequest", []) for h in g.get("hooks", [])]
         if any("approval-hook.sh" in c for c in pre_tool):
             fails.append("plain --install left the legacy claude gate on PreToolUse")
@@ -369,9 +373,16 @@ def main():
                    if "approval-hook.sh" in hook.get("command", "")):
             fails.append("claude approval gate must allow 30s for the phone round trip")
         claude_pre_tool = [hook for group in claude_hooks.get("PreToolUse", [])
+                           if group.get("matcher") != "AskUserQuestion"
                            for hook in group.get("hooks", [])]
         if any("approval-hook.sh" in hook.get("command", "") for hook in claude_pre_tool):
             fails.append("claude approval gate must not sit on PreToolUse (it would hold every call)")
+        question_gate = [hook for group in claude_hooks.get("PreToolUse", [])
+                         if group.get("matcher") == "AskUserQuestion"
+                         for hook in group.get("hooks", [])]
+        if not any("approval-hook.sh" in hook.get("command", "") and hook.get("timeout") == 30
+                   for hook in question_gate):
+            fails.append("--approval did not add the blocking AskUserQuestion group on PreToolUse")
         if not any("vibebuddy-forward.sh" in hook.get("command", "") and hook.get("async") is True
                    for hook in claude_pre_tool):
             fails.append("--approval dropped the async claude PreToolUse status forwarder")

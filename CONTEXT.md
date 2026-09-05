@@ -59,6 +59,14 @@ code, and tests — don't drift to synonyms.
   layers consume.
 - **Conversation language** — the language the voice companion speaks (English /
   中文); independent of the **UI language** (English).
+- **Question relay** — the agent's question answered from the phone or the Mac
+  card through the agent's own contract: Claude's `AskUserQuestion` on a
+  blocking PreToolUse hook (answered with `updatedInput.answers`, keyed by
+  question text), Codex's `item/tool/requestUserInput` on the app-server
+  connection (answered per question id). `QuestionRegistry` holds the wait;
+  `AnswerDispatch` sends an answer there first and types into a tmux pane only
+  when nothing is waiting. A `PendingQuestion` now carries every question
+  (`items`), multi-select and "Other".
 - **Status line sample** — one status line JSON from Claude Code, copied to the
   daemon by `hooks/vibebuddy-statusline.sh` on every event (ObservationSource
   `statusline`). It fills a known session's name, effort, cost, context, PR and

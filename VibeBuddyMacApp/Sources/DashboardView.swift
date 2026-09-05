@@ -406,7 +406,15 @@ private struct DetailView: View {
                         .foregroundStyle(.secondary)
                     }
                 } else {
-                    if let s = session.summary { Text(s).foregroundStyle(.secondary) }
+                    if let question = session.pendingQuestion {
+                        QuestionCardView(question: question) { answers in
+                            model.answer(session.id, answers: answers)
+                        }
+                        if let feedback = model.answerFeedback[session.id] {
+                            Label(feedback, systemImage: "exclamationmark.bubble")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    } else if let s = session.summary { Text(s).foregroundStyle(.secondary) }
                     Button(session.jumpsToDesktopThread ? "Open thread in ChatGPT" : "Jump to terminal") {
                         model.jump(session)
                     }

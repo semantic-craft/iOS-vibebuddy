@@ -88,6 +88,17 @@ once. "Always allow" on the phone echoes Claude's `permission_suggestions` back
 as `decision.updatedPermissions`, so Claude Code writes the rule itself
 (ADR-0010, amended).
 
+#### Questions (`AskUserQuestion`)
+
+`--approval` also adds a blocking `PreToolUse` group with matcher
+`AskUserQuestion` (same `approval-hook.sh`, `timeout: 30`). The daemon shows the
+questions on the phone and Mac cards; an answer within 25s goes back as
+`hookSpecificOutput.updatedInput` — the original `questions` plus `answers`
+keyed by question text (an array for a multi-select, the typed text for
+"Other") — so Claude continues without its own prompt. Silence prints nothing:
+Claude shows its question UI, the card stays, and a later answer is typed into
+a tmux pane when the session has one.
+
 #### Status line (`statusLine`)
 
 `--install` also points Claude's `statusLine.command` at

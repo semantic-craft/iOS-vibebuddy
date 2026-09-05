@@ -9,9 +9,23 @@ protocol DecisionClient: Sendable {
     @discardableResult
     func decide(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> Bool
     func answer(_ pairing: PairingPayload, sessionId: String, answer: String) async
+    /// Structured answers keyed by question id (option labels, or a typed
+    /// reply), for the agents that take them through their own contract.
+    func answer(_ pairing: PairingPayload, sessionId: String, answers: QuestionAnswers) async
     /// Returns what the Mac reported, or `nil` if it couldn't be reached.
     func jump(_ pairing: PairingPayload, sessionId: String) async -> JumpOutcome?
     func acknowledge(_ pairing: PairingPayload, sessionId: String) async
+}
+
+extension DecisionClient {
+    /// Doubles that only speak plain text get the answers flattened.
+    func answer(_ pairing: PairingPayload, sessionId: String, answers: QuestionAnswers) async {
+        let flat = answers.keys.sorted().compactMap { key -> String? in
+            let values = answers[key] ?? []
+            return values.isEmpty ? nil : values.joined(separator: ", ")
+        }.joined(separator: "\n")
+        await answer(pairing, sessionId: sessionId, answer: flat)
+    }
 }
 
 struct HTTPDecisionClient: DecisionClient {
@@ -47,6 +61,16 @@ struct HTTPDecisionClient: DecisionClient {
         req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try? JSONSerialization.data(withJSONObject: ["sessionId": sessionId, "answer": answer])
+        _ = try? await URLSession.shared.data(for: req)
+    }
+
+    func answer(_ pairing: PairingPayload, sessionId: String, answers: QuestionAnswers) async {
+        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/answer") else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["sessionId": sessionId, "answers": answers])
         _ = try? await URLSession.shared.data(for: req)
     }
 

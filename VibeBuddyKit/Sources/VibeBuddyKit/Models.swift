@@ -93,17 +93,63 @@ public struct QuestionOption: Codable, Sendable, Equatable, Identifiable {
     }
 }
 
+/// One question inside a multi-question prompt (Claude's `AskUserQuestion`
+/// carries up to four, Codex's `request_user_input` up to three).
+public struct QuestionItem: Codable, Sendable, Equatable, Identifiable {
+    public let id: String
+    /// Short label (Claude's `header`), when the agent gave one.
+    public let header: String?
+    public let text: String
+    public let options: [QuestionOption]
+    public let multiSelect: Bool
+    /// Whether a typed answer is acceptable besides the options. Claude always
+    /// accepts one ("Other"); Codex says so per question (`isOther`).
+    public let allowsOther: Bool
+
+    public init(id: String, header: String? = nil, text: String, options: [QuestionOption] = [],
+                multiSelect: Bool = false, allowsOther: Bool = true) {
+        self.id = id
+        self.header = header
+        self.text = text
+        self.options = options
+        self.multiSelect = multiSelect
+        self.allowsOther = allowsOther
+    }
+}
+
 public struct PendingQuestion: Codable, Sendable, Equatable, Identifiable {
     public let id: String
+    /// The first (or only) question's text — what older cards render.
     public let prompt: String
+    /// The first (or only) question's options — what older cards render.
     public let options: [QuestionOption]
+    /// Every question when the agent asked several at once, in order. Nil for
+    /// a question read from a transcript, which only ever knows the first.
+    public let questions: [QuestionItem]?
+    /// False when the agent will move on by itself (Codex's non-blocking
+    /// `request_user_input`); the card then shows how long it stays open.
+    public let isBlocking: Bool?
+    public let expiresAt: Date?
 
-    public init(id: String, prompt: String, options: [QuestionOption] = []) {
+    public init(id: String, prompt: String, options: [QuestionOption] = [],
+                questions: [QuestionItem]? = nil, isBlocking: Bool? = nil, expiresAt: Date? = nil) {
         self.id = id
         self.prompt = prompt
         self.options = options
+        self.questions = questions
+        self.isBlocking = isBlocking
+        self.expiresAt = expiresAt
+    }
+
+    /// The questions to render: the structured list, else the single legacy one.
+    public var items: [QuestionItem] {
+        questions ?? [QuestionItem(id: id, text: prompt, options: options)]
     }
 }
+
+/// Answers from the phone or the Mac, keyed by question id: the chosen option
+/// labels (several for a multi-select), or one typed reply.
+public typealias QuestionAnswers = [String: [String]]
 
 /// Identifies the terminal a session runs in, so the Mac can jump to it.
 ///

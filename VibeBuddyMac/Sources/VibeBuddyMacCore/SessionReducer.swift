@@ -238,7 +238,10 @@ public struct SessionReducer: Sendable {
         if let activeTool = info.activeTool, s.activeTool == nil, s.status == .working {
             s.activeTool = activeTool
         }
-        if s.status == .needsResponse, let pendingQuestion = info.pendingQuestion {
+        if s.status == .needsResponse, let pendingQuestion = info.pendingQuestion,
+           s.pendingQuestion?.questions == nil {
+            // A transcript only ever sees the first question; it must not
+            // replace the full list a hook or app-server request delivered.
             s.pendingQuestion = pendingQuestion
             s.pendingApproval = nil
             s.waitKind = .question
@@ -287,6 +290,22 @@ public struct SessionReducer: Sendable {
         s.status = .working
         s.hasUnreadCompletion = false
         s.statusSince = at
+        s.updatedAt = at
+        sessions[sessionID] = s
+    }
+
+    /// Mark a known session as waiting on a question the agent asked through
+    /// its own contract (a blocking hook, an app-server request).
+    public mutating func setPendingQuestion(sessionID: String, _ question: PendingQuestion, at: Date) {
+        guard var s = sessions[sessionID] else { return }
+        if s.status != .needsResponse { s.statusSince = at }
+        s.status = .needsResponse
+        s.waitKind = .question
+        s.pendingQuestion = question
+        s.pendingApproval = nil
+        s.summary = question.prompt
+        s.hasUnreadCompletion = false
+        s.activeTool = nil
         s.updatedAt = at
         sessions[sessionID] = s
     }

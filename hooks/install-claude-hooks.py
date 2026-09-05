@@ -207,18 +207,40 @@ def has_approval(data):
     return any(has_marker(g, APPROVAL_MARKER) for arr in hooks.values() for g in arr)
 
 
+QUESTION_MATCHER = "AskUserQuestion"
+
+
+def is_question_gate(group):
+    return has_marker(group, APPROVAL_MARKER) and group.get("matcher") == QUESTION_MATCHER
+
+
 def install_approval(data, version=None):
     hooks = data.setdefault("hooks", {})
     event = approval_event(version)
     # The gate lives on exactly one event: retire it everywhere else (a legacy
     # PreToolUse gate on a modern CLI, or a PermissionRequest gate after a
     # downgrade). install() has already restored the asynchronous status
-    # forwarder on whichever event is being vacated.
+    # forwarder on whichever event is being vacated. The AskUserQuestion group
+    # below is the one blocking PreToolUse entry that stays: it answers
+    # Claude's questions, not permissions.
     for ev in list(hooks):
         if ev != event:
-            hooks[ev] = [g for g in hooks[ev] if not has_marker(g, APPROVAL_MARKER)]
+            hooks[ev] = [g for g in hooks[ev]
+                         if not has_marker(g, APPROVAL_MARKER) or is_question_gate(g)]
             if not hooks[ev]:
                 del hooks[ev]
+    if event == APPROVAL_EVENT:
+        # Claude answers AskUserQuestion from a PreToolUse hook's `updatedInput`,
+        # so the phone can answer it too. A legacy every-call gate already sees
+        # the tool; only the modern layout needs this dedicated group.
+        pre = hooks.setdefault("PreToolUse", [])
+        question = {"matcher": QUESTION_MATCHER,
+                    "hooks": [{"type": "command", "command": APPROVAL_COMMAND,
+                               "timeout": APPROVAL_TIMEOUT}]}
+        owned = [g for g in pre if is_question_gate(g)]
+        if owned != [question]:
+            pre[:] = [g for g in pre if not is_question_gate(g)]
+            pre.append(question)
     arr = hooks.setdefault(event, [])
     # The blocking gate replaces the fire-and-forget status group on this one
     # event; the daemon still learns of the wait from the gate itself.

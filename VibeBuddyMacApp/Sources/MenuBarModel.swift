@@ -38,6 +38,8 @@ final class MenuBarModel: ObservableObject {
     /// The outcome of the most recent jump per session id, shown transiently in
     /// the row that was clicked and cleared by `showJumpFeedback`.
     @Published private(set) var jumpFeedback: [String: JumpOutcome] = [:]
+    /// Why the last Mac-card answer for a session went nowhere, when it did.
+    @Published private(set) var answerFeedback: [String: String] = [:]
     private var jumpFeedbackClears: [String: Task<Void, Never>] = [:]
     /// Sessions the user has pointed the buddy at (in-memory, never persisted).
     /// Empty = the buddy sees all sessions; pruned to live IDs on every snapshot.
@@ -63,6 +65,7 @@ final class MenuBarModel: ObservableObject {
     private let allowStore = VibeBuddyAllowStore()
     private let sessionAllow = SessionAllowList()
     private let approvalContext = ApprovalContextStore()
+    private let questionRegistry = QuestionRegistry()
     private let codexAppServerMonitor: CodexAppServerMonitor
     /// Live account usage from Claude's status line and the Codex daemon,
     /// consumed by the usage coordinator ahead of its spawning collectors.
@@ -117,7 +120,10 @@ final class MenuBarModel: ObservableObject {
         showGlance = UserDefaults.standard.bool(forKey: "showGlance", default: true)
         let appServerOn = UserDefaults.standard.bool(forKey: Self.codexAppServerEnabledKey, default: true)
         codexAppServerEnabled = appServerOn
-        codexAppServerMonitor = CodexAppServerMonitor(enabled: appServerOn, usageFeed: usageFeed)
+        codexAppServerMonitor = CodexAppServerMonitor(
+            enabled: appServerOn, usageFeed: usageFeed,
+            approvalRegistry: approvalRegistry, allowStore: allowStore, sessionAllow: sessionAllow,
+            approvalContext: approvalContext, questionRegistry: questionRegistry)
         openDashboardHotkey = Hotkey.loadOpenDashboard()
         toggleGlanceHotkey = Hotkey.loadToggleGlance()
         usage = AccountUsageCoordinator(store: store, notifier: notifier, liveFeed: usageFeed)
@@ -202,6 +208,7 @@ final class MenuBarModel: ObservableObject {
                                      allowStore: allowStore,
                                      sessionAllow: sessionAllow,
                                      approvalContext: approvalContext,
+                                     questionRegistry: questionRegistry,
                                      onDevicePaired: { [weak self] device in
                                          Task { @MainActor in self?.recordPairedDevice(device) }
                                      })
@@ -401,6 +408,21 @@ final class MenuBarModel: ObservableObject {
     /// Back-compat for voice + existing callers.
     func decide(_ approvalId: String, approve: Bool) { decide(approvalId, approve ? .allow : .deny) }
 
+    /// Answer a session's question from the Mac card, the same way `/answer`
+    /// does for the phone: to the waiting agent through its own contract,
+    /// else typed into a tmux pane. Reports whether it had anywhere to go.
+    func answer(_ sessionID: String, answers: QuestionAnswers, text: String? = nil) {
+        let dispatch = AnswerDispatch(store: store, questions: questionRegistry,
+                                      inject: { ref, answer in TerminalInjector.inject(answer, into: ref) })
+        Task { [weak self] in
+            let delivered = await dispatch.deliver(sessionID: sessionID, text: text,
+                                                   answers: answers.isEmpty ? nil : answers)
+            await MainActor.run {
+                self?.answerFeedback[sessionID] = delivered ? nil : "Nothing was waiting for an answer, and there is no tmux pane to type into."
+            }
+        }
+    }
+
     /// Jump to where a session lives without blocking the UI: the click is
     /// acknowledged immediately and the AppleScript/`tmux`/LaunchServices work
     /// happens off the main actor, publishing what it actually achieved when it
@@ -476,8 +498,10 @@ final class MenuBarModel: ObservableObject {
             guard let s = match(project), let ap = s.pendingApproval else { return "No session to deny." }
             decide(ap.id, approve: false); return "Denied \(s.project)."
         case .answer(let project, let text):
-            guard let s = match(project), let ref = s.terminalRef else { return "No matching session, or it has no terminal." }
-            TerminalInjector.inject(text, into: ref); return "Replied to \(s.project)."
+            guard let s = match(project), s.pendingQuestion != nil || s.terminalRef != nil else {
+                return "No matching session, or it has nothing waiting and no terminal."
+            }
+            answer(s.id, answers: [:], text: text); return "Replied to \(s.project)."
         case .none:
             return ""
         }

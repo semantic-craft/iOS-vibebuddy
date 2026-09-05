@@ -264,6 +264,18 @@ final class DashboardStore: ObservableObject {
     /// Back-compat for the voice companion's approve/deny intents.
     func decide(_ approvalId: String, approve: Bool) { decide(approvalId, approve ? .allow : .deny) }
 
+    /// Answers from the question card, keyed by question id.
+    func answer(_ sessionId: String, answers: QuestionAnswers) {
+        guard !answers.isEmpty else { return }
+        if isDemo {
+            let flat = answers.values.flatMap { $0 }.joined(separator: ", ")
+            answer(sessionId, answer: flat)
+            return
+        }
+        guard let pairing else { return }
+        Task { await decisionClient.answer(pairing, sessionId: sessionId, answers: answers) }
+    }
+
     func answer(_ sessionId: String, answer: String) {
         guard !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         if isDemo {

@@ -35,6 +35,9 @@ public struct VibeBuddyServer: Sendable {
     public let sessionAllow: SessionAllowList
     /// Per-approval context so `/decision` can persist an always-allow rule.
     public let approvalContext: ApprovalContextStore
+    /// Questions an agent is waiting on (Claude's AskUserQuestion hook, Codex's
+    /// request_user_input), answered through `/answer` or the Mac card.
+    public let questionRegistry: QuestionRegistry
     public let approvalTimeout: Duration
     public let approvalID: @Sendable () -> String
     public let onJump: @Sendable (TerminalRef) async -> JumpOutcome
@@ -56,6 +59,7 @@ public struct VibeBuddyServer: Sendable {
                 allowStore: VibeBuddyAllowStore = VibeBuddyAllowStore(),
                 sessionAllow: SessionAllowList = SessionAllowList(),
                 approvalContext: ApprovalContextStore = ApprovalContextStore(),
+                questionRegistry: QuestionRegistry = QuestionRegistry(),
                 approvalTimeout: Duration = .seconds(25),
                 approvalID: @escaping @Sendable () -> String = { UUID().uuidString },
                 onJump: @escaping @Sendable (TerminalRef) async -> JumpOutcome = { await TerminalJumper.jump($0) },
@@ -79,6 +83,7 @@ public struct VibeBuddyServer: Sendable {
         self.approvalContext = approvalContext
         self.approvalTimeout = approvalTimeout
         self.approvalID = approvalID
+        self.questionRegistry = questionRegistry
         self.onJump = onJump
         self.onJumpToDesktopThread = onJumpToDesktopThread
         self.onAnswer = onAnswer
@@ -327,6 +332,31 @@ public struct VibeBuddyServer: Sendable {
             if call.event == .preToolUse {
                 await store.ingest(data, agent: agent, receivedAt: Date())
             }
+            // Claude asking the user something is not a permission: hold the
+            // hook while the phone answers, and reply with the answers in the
+            // tool's own `updatedInput` contract. Silence (no answer in time)
+            // prints nothing, so Claude shows its own question UI; the card
+            // stays, and a later answer types into the terminal instead.
+            if agent == .claudeCode, call.event == .preToolUse, tool == "AskUserQuestion" {
+                guard let question = AskUserQuestionInput.pendingQuestion(from: input, id: makeID()) else {
+                    return Response(status: .ok)
+                }
+                await store.beginQuestion(sessionID: sessionID, question, at: Date())
+                guard let answers = await questionRegistry.wait(sessionID: sessionID, timeout: timeout) else {
+                    return Response(status: .ok)
+                }
+                await store.endQuestion(sessionID: sessionID, at: Date())
+                let updated = AskUserQuestionInput.updatedInput(original: input, question: question, answers: answers)
+                return Self.questionResponse(updatedInput: updated)
+            }
+            // While the Codex app-server daemon reports this session, its own
+            // approval request reaches the phone through the monitor; the hook
+            // gate steps aside so one request never raises two cards. Empty
+            // means "no opinion": the CLI shows its own prompt as usual.
+            if agent == .codex, call.event == .permissionRequest,
+               await store.hasFreshAppServerEvidence(sessionID: sessionID, now: Date()) {
+                return Response(status: .ok)
+            }
             // Native deny always wins, over every vibebuddy overlay (ADR 0010).
             if PermissionMatcher.decide(tool: tool, input: input, allow: [], deny: r.deny) == .deny {
                 return Self.permissionResponse("deny", agent: agent, event: call.event)
@@ -501,23 +531,48 @@ public struct VibeBuddyServer: Sendable {
                             body: .init(byteBuffer: ByteBuffer(bytes: data)))
         }
 
-        let onAnswer = self.onAnswer
+        // `{"sessionId", "answer"?: text, "answers"?: {questionId: [labels]}}`.
+        // Structured answers reach a waiting agent through its own contract;
+        // plain text (voice, older phone builds) maps onto the first question,
+        // or is typed into the terminal when nothing is waiting. 202 says the
+        // answer had nowhere to go.
+        let dispatch = AnswerDispatch(store: store, questions: questionRegistry, inject: self.onAnswer)
         authed.post("answer") { request, _ -> HTTPResponse.Status in
-            let buffer = try await request.body.collect(upTo: 4096)
+            let buffer = try await request.body.collect(upTo: 64 * 1024)
             guard let o = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
-                  let sid = o["sessionId"] as? String,
-                  let rawAnswer = o["answer"] as? String
+                  let sid = o["sessionId"] as? String
             else { throw HTTPError(.badRequest) }
-            let answer = rawAnswer.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !answer.isEmpty else { throw HTTPError(.badRequest) }
-            if let ref = await store.terminalRef(for: sid) {
-                onAnswer(ref, answer)
-                await store.endQuestion(sessionID: sid, at: Date())
+            let text = (o["answer"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            var answers: QuestionAnswers = [:]
+            if let raw = o["answers"] as? [String: Any] {
+                for (key, value) in raw {
+                    if let list = value as? [String] { answers[key] = list }
+                    else if let one = value as? String { answers[key] = [one] }
+                }
             }
-            return .ok
+            guard !(text ?? "").isEmpty || !answers.isEmpty else { throw HTTPError(.badRequest) }
+            let delivered = await dispatch.deliver(sessionID: sid, text: text, answers: answers.isEmpty ? nil : answers)
+            return delivered ? .ok : .accepted
         }
 
         return router
+    }
+
+    /// A PreToolUse reply that answers `AskUserQuestion` on the user's behalf:
+    /// allow, with the tool's input replaced by the questions plus `answers`.
+    static func questionResponse(updatedInput: [String: Any]) -> Response {
+        let body: [String: Any] = ["hookSpecificOutput": [
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+            "permissionDecisionReason": "Answered from vibebuddy",
+            "updatedInput": updatedInput,
+        ]]
+        guard JSONSerialization.isValidJSONObject(body),
+              let data = try? JSONSerialization.data(withJSONObject: body) else {
+            return Response(status: .ok)
+        }
+        return Response(status: .ok, headers: [.contentType: "application/json"],
+                        body: .init(byteBuffer: ByteBuffer(bytes: data)))
     }
 
     /// The PreToolUse decision, in the shape the calling agent parses.
