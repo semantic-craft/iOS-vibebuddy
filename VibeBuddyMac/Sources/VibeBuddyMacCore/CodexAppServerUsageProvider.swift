@@ -2,6 +2,25 @@ import Darwin
 import Foundation
 
 public enum CodexUsageResponseDecoder {
+    /// The same mapping for results already received on a live app-server
+    /// connection (`account/rateLimits/read` and, when available,
+    /// `account/usage/read`), rather than raw JSON-RPC envelopes from a spawned
+    /// process. A missing usage result only leaves the token totals empty.
+    public static func decode(
+        rateLimits: [String: Any],
+        usage: [String: Any]?,
+        fetchedAt: Date
+    ) throws -> AccountUsageSnapshot {
+        let limitsEnvelope: [String: Any] = ["result": rateLimits]
+        let usageEnvelope: [String: Any] = ["result": usage ?? ["summary": [:]]]
+        guard JSONSerialization.isValidJSONObject(limitsEnvelope),
+              JSONSerialization.isValidJSONObject(usageEnvelope),
+              let limitsData = try? JSONSerialization.data(withJSONObject: limitsEnvelope),
+              let usageData = try? JSONSerialization.data(withJSONObject: usageEnvelope)
+        else { throw AccountUsageError.incompatibleFormat }
+        return try decode(rateLimitsResponse: limitsData, usageResponse: usageData, fetchedAt: fetchedAt)
+    }
+
     public static func decode(
         rateLimitsResponse: Data,
         usageResponse: Data,

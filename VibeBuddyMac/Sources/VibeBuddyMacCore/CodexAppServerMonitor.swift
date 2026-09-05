@@ -42,15 +42,24 @@ public actor CodexAppServerMonitor {
     }
 
     private let socketPath: String
-    private let makeClient: @Sendable (String) -> CodexAppServerClient
+    private let makeClient: @Sendable (String) -> any CodexAppServerConnecting
     private let discoveryLimit: Int
     private let minimumBackoff: Duration
     private let maximumBackoff: Duration
+    /// Where live account usage goes (ticket 02). Nil hosts read no quota here.
+    private let usageFeed: AccountUsageLiveFeed?
+    /// How often a connected monitor re-reads the rate limits so the live
+    /// sample stays fresh and the spawning collector stays idle.
+    private let usageRefreshInterval: Duration
     private var enabled: Bool
-    private var client: CodexAppServerClient?
+    private var client: (any CodexAppServerConnecting)?
     private var reducer = CodexAppServerReducer()
     private var subscribed: Set<String> = []
     private var state = Diagnostics()
+    /// The last full `account/rateLimits/read` result; sparse
+    /// `account/rateLimits/updated` notifications are merged into it.
+    private var lastRateLimits: [String: Any]?
+    private var lastUsage: [String: Any]?
 
     public init(
         enabled: Bool = true,
@@ -58,13 +67,17 @@ public actor CodexAppServerMonitor {
         discoveryLimit: Int = 50,
         minimumBackoff: Duration = .seconds(2),
         maximumBackoff: Duration = .seconds(30),
-        makeClient: @escaping @Sendable (String) -> CodexAppServerClient = { CodexAppServerClient(socketPath: $0) }
+        usageFeed: AccountUsageLiveFeed? = nil,
+        usageRefreshInterval: Duration = .seconds(10 * 60),
+        makeClient: @escaping @Sendable (String) -> any CodexAppServerConnecting = { CodexAppServerClient(socketPath: $0) }
     ) {
         self.enabled = enabled
         self.socketPath = socketPath
         self.discoveryLimit = discoveryLimit
         self.minimumBackoff = minimumBackoff
         self.maximumBackoff = maximumBackoff
+        self.usageFeed = usageFeed
+        self.usageRefreshInterval = usageRefreshInterval
         self.makeClient = makeClient
         state.enabled = enabled
     }
@@ -133,6 +146,18 @@ public actor CodexAppServerMonitor {
         await store.recordSourceSignal(agent: .codex, source: .appserver, health: .healthy, at: Date())
 
         try await discover(client: client, store: store)
+        await readUsage(client: client)
+        // Keep the live sample fresh while connected; the request doubles as
+        // a liveness check on an otherwise idle daemon.
+        let refresh = usageRefreshInterval
+        let keepalive = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: refresh)
+                guard !Task.isCancelled else { break }
+                await self?.readUsage(client: client)
+            }
+        }
+        defer { keepalive.cancel() }
 
         for await raw in client.messages {
             guard enabled, !Task.isCancelled else { break }
@@ -140,6 +165,10 @@ public actor CodexAppServerMonitor {
             if let method = CodexAppServerReducer.serverRequestMethod(message) {
                 state.serverRequestsSeen.append(method)
                 if state.serverRequestsSeen.count > 20 { state.serverRequestsSeen.removeFirst() }
+                continue
+            }
+            if message["method"] as? String == "account/rateLimits/updated" {
+                await mergeRateLimits(message["params"] as? [String: Any])
                 continue
             }
             let now = Date()
@@ -161,7 +190,7 @@ public actor CodexAppServerMonitor {
     }
 
     /// Page the daemon's stored threads once and subscribe to every loaded one.
-    private func discover(client: CodexAppServerClient, store: SessionStore) async throws {
+    private func discover(client: any CodexAppServerConnecting, store: SessionStore) async throws {
         var cursor: String?
         var pages = 0
         repeat {
@@ -188,7 +217,7 @@ public actor CodexAppServerMonitor {
     /// `thread/resume` with `excludeTurns` is how a second client subscribes to
     /// a loaded thread's notifications without replaying its history. The
     /// resume result carries the thread's current facts, so it is seeded again.
-    private func subscribe(_ threadID: String, client: CodexAppServerClient, store: SessionStore) async {
+    private func subscribe(_ threadID: String, client: any CodexAppServerConnecting, store: SessionStore) async {
         do {
             let result = try await client.request("thread/resume",
                                                   params: ["threadId": threadID, "excludeTurns": true])
@@ -205,6 +234,48 @@ public actor CodexAppServerMonitor {
             // A thread that unloaded between listing and resuming, or a
             // protocol mismatch on this one call: keep the connection, note it.
             state.lastError = "thread/resume \(threadID.suffix(8)): \(error)"
+        }
+    }
+
+    // MARK: - Account usage (ticket 02)
+
+    /// `account/rateLimits/read` plus, best effort, `account/usage/read`, into
+    /// the same snapshot the spawned adapter produces — published live.
+    private func readUsage(client: any CodexAppServerConnecting) async {
+        guard let usageFeed else { return }
+        do {
+            let limits = try await client.request("account/rateLimits/read", params: [:])
+            lastRateLimits = limits
+            if let usage = try? await client.request("account/usage/read", params: [:]) {
+                lastUsage = usage
+            }
+            let snapshot = try CodexUsageResponseDecoder.decode(
+                rateLimits: limits, usage: lastUsage, fetchedAt: Date())
+            await usageFeed.publish(snapshot)
+        } catch {
+            state.lastError = "rate limits: \(error)"
+        }
+    }
+
+    /// `account/rateLimits/updated` is a sparse rolling update: merge what it
+    /// carries into the last full read and publish the result.
+    private func mergeRateLimits(_ params: [String: Any]?) async {
+        guard let usageFeed, var merged = lastRateLimits,
+              let update = params?["rateLimits"] as? [String: Any] else { return }
+        var limits = merged["rateLimits"] as? [String: Any] ?? [:]
+        for (key, value) in update { limits[key] = value }
+        merged["rateLimits"] = limits
+        if let id = update["limitId"] as? String,
+           var byID = merged["rateLimitsByLimitId"] as? [String: Any] {
+            var entry = byID[id] as? [String: Any] ?? [:]
+            for (key, value) in update { entry[key] = value }
+            byID[id] = entry
+            merged["rateLimitsByLimitId"] = byID
+        }
+        lastRateLimits = merged
+        if let snapshot = try? CodexUsageResponseDecoder.decode(
+            rateLimits: merged, usage: lastUsage, fetchedAt: Date()) {
+            await usageFeed.publish(snapshot)
         }
     }
 

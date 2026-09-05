@@ -64,6 +64,9 @@ final class MenuBarModel: ObservableObject {
     private let sessionAllow = SessionAllowList()
     private let approvalContext = ApprovalContextStore()
     private let codexAppServerMonitor: CodexAppServerMonitor
+    /// Live account usage from Claude's status line and the Codex daemon,
+    /// consumed by the usage coordinator ahead of its spawning collectors.
+    private let usageFeed = AccountUsageLiveFeed()
     static let codexAppServerEnabledKey = "codexAppServerEnabled"
     // Live Activity push tokens + the last content we pushed, so we only push on change.
     private let activityTokens = ActivityTokens()
@@ -114,10 +117,10 @@ final class MenuBarModel: ObservableObject {
         showGlance = UserDefaults.standard.bool(forKey: "showGlance", default: true)
         let appServerOn = UserDefaults.standard.bool(forKey: Self.codexAppServerEnabledKey, default: true)
         codexAppServerEnabled = appServerOn
-        codexAppServerMonitor = CodexAppServerMonitor(enabled: appServerOn)
+        codexAppServerMonitor = CodexAppServerMonitor(enabled: appServerOn, usageFeed: usageFeed)
         openDashboardHotkey = Hotkey.loadOpenDashboard()
         toggleGlanceHotkey = Hotkey.loadToggleGlance()
-        usage = AccountUsageCoordinator(store: store, notifier: notifier)
+        usage = AccountUsageCoordinator(store: store, notifier: notifier, liveFeed: usageFeed)
         pairedPhone = Self.loadPairedPhone()
         let apnsConfig = APNsConfig.load()
         let deliveryURL = ProcessInfo.processInfo.environment["VIBEBUDDY_DELIVERY_LOG_PATH"].map {
@@ -194,6 +197,7 @@ final class MenuBarModel: ObservableObject {
                                      activityTokens: activityTokens,
                                      codexRolloutMonitor: CodexRolloutMonitor(),
                                      codexAppServerMonitor: codexAppServerMonitor,
+                                     usageFeed: usageFeed,
                                      approvalRegistry: approvalRegistry,
                                      allowStore: allowStore,
                                      sessionAllow: sessionAllow,

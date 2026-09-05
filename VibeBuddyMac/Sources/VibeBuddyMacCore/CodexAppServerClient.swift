@@ -16,7 +16,25 @@ import Foundation
 /// The client never answers a server-initiated request. Approval and
 /// user-input requests are left to the client that owns the thread (Desktop,
 /// the TUI); ticket 03 decides how vibebuddy joins that flow.
-public final class CodexAppServerClient: @unchecked Sendable {
+/// What the monitor needs from a daemon connection; `CodexAppServerClient` is
+/// the real one, tests script a fake.
+public protocol CodexAppServerConnecting: AnyObject, Sendable {
+    var messages: AsyncStream<Data> { get }
+    func connect() throws
+    func request(_ method: String, params: [String: Any], timeout: Duration) async throws -> [String: Any]
+    func notify(_ method: String, params: [String: Any]?)
+    func close()
+}
+
+public extension CodexAppServerConnecting {
+    func request(_ method: String, params: [String: Any] = [:]) async throws -> [String: Any] {
+        try await request(method, params: params, timeout: .seconds(15))
+    }
+
+    func notify(_ method: String) { notify(method, params: nil) }
+}
+
+public final class CodexAppServerClient: CodexAppServerConnecting, @unchecked Sendable {
     public enum ClientError: Error, Equatable, Sendable {
         case socketUnavailable(String)
         case handshakeRejected(String)
@@ -151,8 +169,8 @@ public final class CodexAppServerClient: @unchecked Sendable {
     // MARK: - RPC
 
     /// Send a request and await its `result`. A JSON-RPC `error` throws `.rpc`.
-    public func request(_ method: String, params: [String: Any] = [:],
-                        timeout: Duration = .seconds(15)) async throws -> [String: Any] {
+    public func request(_ method: String, params: [String: Any],
+                        timeout: Duration) async throws -> [String: Any] {
         let id = try allocateRequestID()
         let message: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": method, "params": params]
         return try await withCheckedThrowingContinuation { continuation in

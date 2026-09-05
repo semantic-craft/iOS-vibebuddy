@@ -22,6 +22,9 @@ public struct VibeBuddyServer: Sendable {
     /// The Codex app-server daemon connection (ADR-0011). Optional so the
     /// tests and hosts that only exercise routes need not open a socket.
     public let codexAppServerMonitor: CodexAppServerMonitor?
+    /// Live account usage published by `/statusline` (Claude) and the Codex
+    /// monitor; the Mac app's usage coordinator consumes it.
+    public let usageFeed: AccountUsageLiveFeed?
     public let approvalRegistry: ApprovalRegistry
     /// The native allow/deny rules for one agent — the sources differ per CLI
     /// (Grok also reads its own `config.toml`), so the lookup is agent-keyed.
@@ -47,6 +50,7 @@ public struct VibeBuddyServer: Sendable {
                 activityTokens: ActivityTokens = ActivityTokens(),
                 codexRolloutMonitor: CodexRolloutMonitor? = nil,
                 codexAppServerMonitor: CodexAppServerMonitor? = nil,
+                usageFeed: AccountUsageLiveFeed? = nil,
                 approvalRegistry: ApprovalRegistry = ApprovalRegistry(),
                 rules: @escaping @Sendable (AgentKind) -> PermissionRules = { PermissionRules.load(for: $0) },
                 allowStore: VibeBuddyAllowStore = VibeBuddyAllowStore(),
@@ -67,6 +71,7 @@ public struct VibeBuddyServer: Sendable {
         self.activityTokens = activityTokens
         self.codexRolloutMonitor = codexRolloutMonitor
         self.codexAppServerMonitor = codexAppServerMonitor
+        self.usageFeed = usageFeed
         self.approvalRegistry = approvalRegistry
         self.rules = rules
         self.allowStore = allowStore
