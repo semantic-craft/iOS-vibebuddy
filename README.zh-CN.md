@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="VibeBuddyMacApp/Sources/Assets.xcassets/AppIcon.appiconset/icon_256.png" width="112" alt="vibebuddy" />
+<img src="docs/screenshots/app-icon-256.png" width="112" alt="vibebuddy" />
 
 # vibebuddy
 
@@ -48,7 +48,17 @@
 
 </div>
 
-> 这只 buddy 是**同一只猫、纯代码绘制，在 iPhone、Mac 仪表盘和刘海概览上完全一致**——只有心情（眼睛和耳朵）和颜色（深色刘海上变白）会变。以上截图均为**演示模式**（示例数据），不含任何真实会话数据。
+<div align="center">
+
+<img src="docs/screenshots/app-icon.png" width="640" alt="vibebuddy 应用图标在 macOS、iPhone 与 Apple Watch 上的样子——石板蓝底上一只绿耳朵绿眼睛的小白猫" />
+
+<sub><b>一个图标，三个平台</b>——同一只小猫出现在 Mac、iPhone 和 Apple Watch 上，由各系统套上自己的遮罩。</sub>
+
+</div>
+
+> **应用图标**是一只绿耳朵、绿眼睛的小白猫，趴在柔和的石板蓝底上——一个柔软的剪影、三种颜色，缩到 16 px 仍能认出来。它用 [ip-as-logo](https://github.com/s1dashu/ip-as-logo-skill) 技能设计，从六张生成候选中选出；同一张 1024 px 原图同时用于 macOS、iOS 和 watchOS。
+>
+> App 里的 **buddy** 是另一只像素猫，**纯代码绘制，在 iPhone、Mac 仪表盘和刘海概览上完全一致**——只有心情（眼睛和耳朵）和颜色（深色刘海上变白）会变。以上截图均为**演示模式**（示例数据），不含任何真实会话数据。
 
 ---
 
