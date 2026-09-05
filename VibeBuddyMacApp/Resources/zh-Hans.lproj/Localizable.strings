@@ -185,6 +185,9 @@
 "%@ over budget" = "%@ 超出预算";
 "≈ %@ spent this session (estimate)" = "本会话已花费 ≈ %@（估算）";
 
+/* MARK: Glance — expanded / cards */
+"No agent sessions yet" = "还没有代理会话";
+
 /* Notification categories (Settings) */
 "Notify me about" = "通知我这些事";
 "A category that is off is never shown here, whether or not sound is on. Quiet mode still narrows what is left to approvals." = "关闭的类别不会在这台 Mac 上弹出，与声音开关无关。安静模式仍会把保留的类别收窄到仅批准。";
