@@ -22,7 +22,7 @@ Computer Use or another notifier keeps working. The per-CLI installers below
 remain available if you want to wire one CLI at a time.
 
 `--approval` installs the blocking phone-approval gate for the CLIs that have one
-(Claude and Grok); every other detected CLI gets a plain `--install`.
+(Claude, the Codex CLI, and Grok); every other detected CLI gets a plain `--install`.
 
 Claude-shape CLIs (Claude, Qwen, Kimi) need no daemon decoder; Codex / Grok /
 Antigravity are decoded per-source inside the daemon. (Note: Antigravity `agy`
@@ -71,6 +71,36 @@ python3 hooks/install-codex-hooks.py --install
 Codex requires explicit trust after `hooks.json` changes. Start a fresh Codex
 session, run `/hooks`, review the VibeBuddy entries, and trust them. The installer
 does not read or forge Codex's trust state.
+
+### Remote approval (`--approval`, Codex CLI only)
+
+```bash
+python3 hooks/install-codex-hooks.py --approval
+```
+
+Codex fires `PermissionRequest` only when it would prompt you — a shell
+escalation, a patch outside the sandbox, managed network access — and it honours
+a hook's `decision.behavior` there (`PreToolUse` accepts only `deny`). So
+`--approval` replaces the fire-and-forget `PermissionRequest` group with a
+blocking `hooks/approval-hook.sh codex` (`timeout: 30`) that posts to
+`/approval?agent=codex`, and leaves the `PreToolUse` status forwarder in place.
+The daemon answers in Codex's own contract:
+
+```json
+{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}
+```
+
+A phone `allow` is final; a `deny` carries a message the model sees. No decision
+within 25s prints nothing and Codex shows its own prompt as usual. `Bash` and
+`mcp__…` names are already the canonical vocabulary; `apply_patch` is decided as
+`Edit`, with a `file_path` derived from the patch when it touches exactly one file
+(so `Edit(<path>)` rules and "Always allow" apply) and path-less otherwise (always
+asks, persists no rule). A plain `--install` afterwards keeps the gate. Re-trust
+via `/hooks` after installing, as after any `hooks.json` change.
+
+**Codex Desktop is not covered**: it never runs `hooks.json`, and its approval
+prompts are not written to the rollout, so a Desktop wait stays invisible to the
+phone (see below).
 
 ### Codex Desktop
 
@@ -168,10 +198,14 @@ is listening.
 ```bash
 python3 hooks/install-claude-hooks.py --approval   # add the blocking PreToolUse approval hook
 python3 hooks/install-claude-hooks.py --uninstall  # removes it too
+python3 hooks/install-codex-hooks.py --approval    # Codex CLI: the gate on PermissionRequest
 ```
 Commands not in your `permissions.allow` are sent to the phone to approve/deny.
-On timeout/unreachable, Claude proceeds with its normal behaviour. Useful only if
-your Mac actually prompts (prompting mode); auto-mode users gain nothing.
+On timeout/unreachable, the agent proceeds with its normal behaviour. For Claude
+the gate sits on every `PreToolUse`, so it asks about every tool call the daemon
+cannot match to a rule — including calls Claude's own auto mode would have let
+through; "Allow session" on the phone is the relief valve. For the Codex CLI it
+sits on `PermissionRequest`, which only fires when Codex would prompt anyway.
 
 ## Terminal capture (jump-back)
 

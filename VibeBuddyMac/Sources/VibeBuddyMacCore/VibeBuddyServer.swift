@@ -273,11 +273,13 @@ public struct VibeBuddyServer: Sendable {
         }
 
         // Blocking approval intake — bearer-token gated (the approval hook reads
-        // the token file and sends it). Parse the PreToolUse hook payload, run the
-        // permission matcher, and either decide immediately (allow/deny) or hold
-        // until the phone responds via `/decision` or the timeout fires.
-        // `?agent=<source>` selects the envelope shape to decode and the decision
-        // contract to answer in; no parameter means Claude Code, as before.
+        // the token file and sends it). Parse the hook payload (Claude/Grok gate
+        // every PreToolUse; the Codex CLI gates only its PermissionRequest, which
+        // fires when Codex would prompt), run the permission matcher, and either
+        // decide immediately (allow/deny) or hold until the phone responds via
+        // `/decision` or the timeout fires. `?agent=<source>` selects the envelope
+        // shape to decode and the decision contract to answer in; no parameter
+        // means Claude Code, as before.
         let registry = self.approvalRegistry
         let rules = self.rules
         let allowStore = self.allowStore
@@ -295,8 +297,9 @@ public struct VibeBuddyServer: Sendable {
             let input = call.input
             let sessionID = call.sessionID
             let r = rules(agent)
-            // The blocking hook is also this agent's PreToolUse signal — ingesting
-            // it is what moves the session to `working` in the dashboard.
+            // The blocking hook is also this agent's lifecycle signal — ingesting
+            // it moves a Claude/Grok session to `working` (PreToolUse) and a Codex
+            // session to `needsResponse` (PermissionRequest) in the dashboard.
             await store.ingest(data, agent: agent, receivedAt: Date())
             // Native deny always wins, over every vibebuddy overlay (ADR 0010).
             if PermissionMatcher.decide(tool: tool, input: input, allow: [], deny: r.deny) == .deny {
@@ -452,6 +455,14 @@ public struct VibeBuddyServer: Sendable {
             json = decision == "deny"
                 ? #"{"decision":"deny","reason":"vibebuddy"}"#
                 : #"{"decision":"\#(decision)"}"#
+        } else if agent == .codex {
+            // Codex answers approvals through its `PermissionRequest` hook:
+            // `decision.behavior` is `allow`/`deny`, and a deny may carry a
+            // message the model sees. Any other field fails closed on Codex's
+            // side, so send nothing beyond the contract.
+            json = decision == "deny"
+                ? #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"Denied from vibebuddy"}}}"#
+                : #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#
         } else {
             json = #"{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"\#(decision)","permissionDecisionReason":"vibebuddy"}}"#
         }

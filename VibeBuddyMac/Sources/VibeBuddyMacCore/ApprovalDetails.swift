@@ -35,13 +35,14 @@ public struct ApprovalDetails: Equatable, Sendable {
     }
 }
 
-/// The fields the `/approval` route needs out of a blocking PreToolUse payload,
+/// The fields the `/approval` route needs out of a blocking hook payload,
 /// decoded per agent. Claude Code (and every Claude-shape CLI) sends snake_case
-/// `tool_name` / `tool_input` / `session_id`; Grok Build sends camelCase
-/// `toolName` / `toolInput` / `sessionId` and adds a `permissionMode`.
+/// `tool_name` / `tool_input` / `session_id` on `PreToolUse`; the Codex CLI
+/// sends the same snake_case shape on `PermissionRequest`; Grok Build sends
+/// camelCase `toolName` / `toolInput` / `sessionId` and adds a `permissionMode`.
 ///
-/// Grok's tool vocabulary is normalized here, at the boundary, so the matcher,
-/// the allow-store and `ApprovalDetails` all stay agent-agnostic.
+/// Grok's and Codex's tool vocabularies are normalized here, at the boundary,
+/// so the matcher, the allow-store and `ApprovalDetails` all stay agent-agnostic.
 public enum ApprovalPayload {
     public struct Call {
         public let tool: String
@@ -57,6 +58,17 @@ public enum ApprovalPayload {
     }
 
     public static func decode(_ obj: [String: Any], agent: AgentKind) -> Call {
+        if agent == .codex {
+            // Codex only fires `PermissionRequest` when it would prompt, and a
+            // hook `allow` is final there — so no `permissionMode` rides along
+            // (the UI would otherwise hedge the way it must for Grok).
+            let raw = obj["tool_name"] as? String ?? ""
+            let input = obj["tool_input"] as? [String: Any] ?? [:]
+            return Call(tool: CodexToolVocabulary.canonicalTool(raw),
+                        input: CodexToolVocabulary.canonicalInput(tool: raw, input),
+                        sessionID: obj["session_id"] as? String ?? "",
+                        permissionMode: nil)
+        }
         guard agent == .grok else {
             return Call(tool: obj["tool_name"] as? String ?? "",
                         input: obj["tool_input"] as? [String: Any] ?? [:],
