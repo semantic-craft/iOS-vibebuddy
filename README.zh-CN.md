@@ -73,7 +73,7 @@
 Mac 显示一个编码了 `host:port` + bearer token 的二维码。手机扫一次即可——无需手动输 IP。（同一个二维码以后可以承载 Tailscale `100.x` 地址，无需改代码。）
 
 ### 🖥️ 原生 Mac 菜单栏应用
-`MenuBarExtra` 实时计数概览、macOS 刘海概览、**跳转到终端**（一键打开对应会话）、开机自启，以及持久化在仅所有者可读写（`0600`）文件 `~/Library/Application Support/vibebuddy/token` 中的局域网 bearer token。还有 ⏎ / ⌘F 仪表盘快捷键。源码里已接 Sparkle，公开的 v1.0 构建尚未启用自动更新。
+`MenuBarExtra` 实时计数概览、macOS 刘海概览、**跳转到终端**（一键打开对应会话）、开机自启，以及持久化在仅所有者可读写（`0600`）文件 `~/Library/Application Support/vibebuddy/token` 中的局域网 bearer token。还有 ⏎ / ⌘F 仪表盘快捷键。v1.1 使用带签名的 Sparkle 更新源；原 v1.0 用户需要先手动安装一次新版。
 
 ### 🔒 本地优先，隐私至上
 vibebuddy 在你的 Mac 与手机之间**直接**通过你自己的网络通信。会话数据**绝不**经过 vibebuddy 服务器——没有 vibebuddy 云、没有账号、没有埋点、没有追踪。守护进程路由由 bearer token 把关。（可选语音伙伴只会在你开启后，把麦克风音频和所选会话上下文发往*你选择*的服务商，并使用*你自己*的 key。）
@@ -86,13 +86,11 @@ vibebuddy 在你的 Mac 与手机之间**直接**通过你自己的网络通信�
 ## ⬇️ 下载
 
 ### macOS 应用
-**[下载 vibebuddy-mac-v1.0.dmg →](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest)** · Apple Silicon · macOS 14+
+**[下载最新版 Mac Companion →](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest)** · Apple Silicon · macOS 14+
 
-> **首次打开（未签名版）。** 这个早期版本尚未公证，首次打开会被 macOS Gatekeeper 拦截。打开 `.dmg`，把 **vibebuddy** 拖进**应用程序**，然后**右键 → 打开 → 打开**，或在终端执行一次：
-> ```bash
-> xattr -dr com.apple.quarantine /Applications/vibebuddy.app
-> ```
-> 当前公开构建尚未签名。正式签名 + 公证版（双击即开、零警告）不在这个公开版本里。
+v1.1 DMG 已使用 Developer ID 签名并完成公证。打开后把 **VibeBuddyMacApp** 拖入**应用程序**，无需执行移除隔离属性的命令。
+
+**从 v1.0 更新：**请手动安装一次 v1.1。原 v1.0 内置更新地址无效，不能自动发现本次更新；v1.1 使用正式 Sparkle 更新源接收后续版本。源码构建和 GitHub 发布包是不同交付物，需要直接安装时请使用上方最新版 Release 资产。
 
 ### iPhone 应用
 目前请从源码构建——见 [构建与运行](#️-构建与运行)。装到你自己的 iPhone 上即可；没有公开的 iPhone 下载。
@@ -169,7 +167,7 @@ vibebuddy 站在两个聪明项目的肩膀上——它们最早证明了可以�
 
 ## 📍 状态
 
-当前公开的 Mac 版本是 **[v1.0](https://github.com/semantic-craft/iOS-vibebuddy/releases/tag/v1.0)**。v1 核心已实现三栏仪表盘、扫码配对、通知、远程批准、实时活动 / 灵动岛、语音伴侣，以及多 CLI hooks（Claude Code + Codex 已测试）。iPhone 应用已通过 Xcode 安装到个人设备，但真机验收仍不完整：Widget / 实时活动目视效果、总是允许 / 本次会话允许的批准流程、语音操作、iOS 语音能力对齐、OpenAI 路径，以及 Watch 伴侣应用仍待人工验证。见 [`真机验收清单`](docs/roadmap-checklist-2026-06-06.md)和[`路线图`](docs/planning/roadmap.md)。
+Mac v1.1 源码已包含 Codex Desktop 0.153.3 观测、UTF-8 截断处理、守护进程正常退出、观测诊断和 Watch 伴侣支持。Mac、iPhone、Apple Watch 已在本地安装，真实手机审批、恢复及手机到手表的状态传递已验证。完整腕上审批、通知感知、语音与可访问性体验仍留待实际使用确认。App Store 上架与 Mac GitHub 发布分别推进。见[最新 Mac Release](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest)和[路线图](docs/planning/roadmap.md)。
 
 ## 📄 许可
 
