@@ -218,6 +218,13 @@ WATCH_ARCHIVED_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$WA
   || die "the archived Watch app's bundle id is \"$WATCH_ARCHIVED_ID\", expected \"$WATCH_BUNDLE_ID\""
 note "watch app:                  $WATCH_ARCHIVED_ID"
 
+# A signed Watch bundle without compiled icons passes local export but is
+# rejected by App Store Connect (90391 / missing CFBundleIconName).
+WATCH_ICON_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName' "$WATCH_IN_ARCHIVE/Info.plist" 2>/dev/null || true)"
+[[ "$WATCH_ICON_NAME" == "AppIcon" ]] || die "the archived Watch app is missing its compiled AppIcon metadata"
+[[ -f "$WATCH_IN_ARCHIVE/Assets.car" ]] || die "the archived Watch app is missing its compiled asset catalog"
+
+
 if (( SKIP_EXPORT )); then
   step "export skipped (--skip-export)"
   note "archive: $ARCHIVE"
