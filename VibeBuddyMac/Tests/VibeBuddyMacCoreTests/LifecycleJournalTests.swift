@@ -43,6 +43,9 @@ struct LifecycleJournalTests {
         #expect(!persisted.contains("reasoning"))
         #expect(!persisted.contains("tool_input"))
         #expect(!persisted.contains("tool_response"))
+        // The project label is the folder name only; the full path stays off disk.
+        #expect(!persisted.contains("/tmp/project"))
+        #expect(persisted.contains(#""project":"project""#))
         #expect(await store.recentLifecycle().first?.status == .needsResponse)
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
@@ -119,6 +122,7 @@ struct LifecycleJournalTests {
         #expect(Set(sessions.map(\.id)) == ["working", "waiting"])
         #expect(sessions.first(where: { $0.id == "working" })?.status == .working)
         #expect(sessions.first(where: { $0.id == "waiting" })?.status == .needsResponse)
+        #expect(sessions.first(where: { $0.id == "working" })?.project == "work")
         #expect(sessions.allSatisfy { $0.summary == nil && $0.pendingApproval == nil && $0.pendingQuestion == nil })
         #expect(sessions.allSatisfy { $0.observations?.map(\.source) == [.recovery] })
 

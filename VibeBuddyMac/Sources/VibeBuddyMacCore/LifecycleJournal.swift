@@ -18,6 +18,11 @@ public struct LifecycleJournalEntry: Codable, Sendable, Equatable, Identifiable 
     /// restart can restore the follow along with the session. Optional so
     /// journals written before the flag existed still decode.
     public let followed: Bool?
+    /// The project label the row was showing — the working directory's last
+    /// path component only, never the full path — so a restored session has a
+    /// name instead of a placeholder until its next event arrives. Optional so
+    /// journals written before the field existed still decode.
+    public let project: String?
 
     public init(
         id: UUID = UUID(),
@@ -28,7 +33,8 @@ public struct LifecycleJournalEntry: Codable, Sendable, Equatable, Identifiable 
         timestamp: Date,
         status: SessionStatus?,
         waitKind: WaitKind?,
-        followed: Bool? = nil
+        followed: Bool? = nil,
+        project: String? = nil
     ) {
         self.id = id
         self.sessionID = sessionID
@@ -39,6 +45,7 @@ public struct LifecycleJournalEntry: Codable, Sendable, Equatable, Identifiable 
         self.status = status
         self.waitKind = waitKind
         self.followed = followed
+        self.project = project
     }
 }
 public enum LifecycleJournalLocation {
@@ -113,7 +120,7 @@ struct LifecycleJournal {
             return AgentSession(
                 id: entry.sessionID,
                 agent: entry.agent,
-                project: "—",
+                project: entry.project ?? "—",
                 status: status,
                 waitKind: entry.waitKind,
                 observations: [ObservationEvidence(

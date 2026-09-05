@@ -412,7 +412,9 @@ public actor SessionStore {
             timestamp: timestamp,
             status: result?.status,
             waitKind: result?.waitKind,
-            followed: result?.followed
+            followed: result?.followed,
+            // The reducer's "—" placeholder means no cwd yet; don't persist it.
+            project: result.flatMap { $0.project == "—" ? nil : $0.project }
         ), now: timestamp)
         lifecycleJournal = journal
     }
