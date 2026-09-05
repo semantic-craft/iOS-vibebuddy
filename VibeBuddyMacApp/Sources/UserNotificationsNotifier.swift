@@ -48,39 +48,63 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
     /// A phone just paired — the one chrome cue that isn't tied to a session.
     func confirmPairing(deviceName: String) {
         guard Self.flag("notifyOnNeedsResponse"),
-              NotificationCategoryPrefs.load().isEnabled(.pairSuccess) else { return }
+              NotificationCategoryPrefs.loadMac().isEnabled(NotificationSound.pairSuccess) else { return }
         enqueue(title: String(localized: "Paired with \(deviceName)"),
                 body: String(localized: "VibeBuddy is watching your sessions."),
                 sound: .pairSuccess, id: "pair-success")
     }
 
     /// A session crossed the spend budget — a gentle heads-up (estimate).
-    func notifyBudget(project: String, cost: String) {
-        guard Self.flag("notifyOnNeedsResponse") else { return }
-        enqueue(title: String(localized: "\(project) over budget"),
-                body: String(localized: "≈ \(cost) spent this session (estimate)"),
-                sound: .longWaitNudge, id: "budget-\(project)")
+    /// Returns whether a banner was posted; the caller records delivery.
+    @discardableResult
+    func notifyBudget(project: String, cost: String) -> Bool {
+        notifyQuota(
+            title: String(localized: "\(project) over budget"),
+            body: String(localized: "≈ \(cost) spent this session (estimate)"),
+            id: "budget-\(project)")
     }
 
     /// Account quota alert. This is separate from session-state sounds and is
     /// only called for a fresh, non-stale threshold crossing.
+    @discardableResult
     func notifyUsage(
         provider: AccountUsageProvider,
         window: AccountUsageWindow,
         threshold: Int
-    ) {
-        guard Self.flag("notifyOnNeedsResponse"),
-              !NotificationQuietMode.isEffective() else { return }
-        let duration = window.windowDurationMinutes.map(Self.durationText) ?? String(localized: "quota")
+    ) -> Bool {
+        let copy = Self.usageCopy(provider: provider, window: window, threshold: threshold)
+        return notifyQuota(title: copy.title, body: copy.body, id: copy.id)
+    }
+
+    static func usageCopy(
+        provider: AccountUsageProvider,
+        window: AccountUsageWindow,
+        threshold: Int
+    ) -> (title: String, body: String, id: String) {
+        let duration = window.windowDurationMinutes.map(durationText) ?? String(localized: "quota")
         let reset = window.resetsAt.map {
             String(localized: " Resets \($0.formatted(date: .abbreviated, time: .shortened)).")
         } ?? ""
-        enqueue(
+        return (
             title: String(localized: "\(provider.displayName) usage reached \(threshold)%"),
             body: String(localized: "\(window.usedPercent)% used in the \(duration) window.\(reset)"),
-            sound: .longWaitNudge,
             id: "\(provider.rawValue)-usage-\(window.kind.rawValue)-\(window.resetsAt?.timeIntervalSince1970 ?? 0)"
         )
+    }
+
+    /// Chrome quota / budget banner. No session sound file — the system
+    /// default plays when sound is on, rather than borrowing `longWaitNudge`.
+    @discardableResult
+    func notifyQuota(title: String, body: String, id: String) -> Bool {
+        guard Self.flag("notifyOnNeedsResponse"),
+              QuotaNoticeFanout.localSkip(categories: NotificationCategoryPrefs.loadMac()) == nil
+        else { return false }
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = Self.flag("playNotificationSound") ? .default : nil
+        center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
+        return true
     }
 
     private func enqueue(title: String, body: String, sound: NotificationSound, id: String) {
@@ -121,7 +145,8 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
     /// app runs as an accessory: a list-only cue lands in Notification Center
     /// without a banner; everything else banners *and* stays in the list, so
     /// what was said can still be found later. Chrome cues (pairing, budget,
-    /// usage) carry no level and are shown in full.
+    /// usage) carry no delivery level and are shown in full. Budget / usage
+    /// no longer borrow `longWaitNudge`.
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification

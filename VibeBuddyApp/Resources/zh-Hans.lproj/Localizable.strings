@@ -122,6 +122,7 @@
 "Task completed" = "任务完成";
 "Still-waiting reminders" = "久等催促";
 "Pairing confirmation" = "配对成功提示";
+"Usage and budget" = "配额与预算";
 
 /* Attention level (Dashboard swipe / long-press) */
 "Attention" = "关注度";

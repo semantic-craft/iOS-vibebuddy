@@ -102,3 +102,39 @@ public struct PushFanout: Equatable, Sendable {
         return PushFanout(recipients: [], skip: refusals.count == 1 ? refusals.first : .mixed)
     }
 }
+
+/// Who hears a budget / usage notice. Independent of `DeliveryMatrix`: only the
+/// `quota` category switch applies, and Quiet mode does not drop it. Missing
+/// phone prefs are the phone default (quota off).
+public struct QuotaPushPlan: Equatable, Sendable {
+    public let recipients: [DeviceRegistrationPayload]
+    public let skip: CueSkipReason?
+
+    public init(recipients: [DeviceRegistrationPayload], skip: CueSkipReason?) {
+        self.recipients = recipients
+        self.skip = skip
+    }
+}
+
+public enum QuotaNoticeFanout {
+    /// `nil` means this Mac's quota switch is on; otherwise the skip to log.
+    public static func localSkip(categories: NotificationCategoryPrefs) -> CueSkipReason? {
+        categories.isEnabled(.quota) ? nil : .category
+    }
+
+    public static func plan(devices: [DeviceRegistrationPayload],
+                            apnsConfigured: Bool) -> QuotaPushPlan {
+        guard apnsConfigured else {
+            return QuotaPushPlan(recipients: [], skip: .apnsNotConfigured)
+        }
+        let registered = devices.filter { $0.token?.isEmpty == false }
+        guard !registered.isEmpty else {
+            return QuotaPushPlan(recipients: [], skip: .noRegisteredDevice)
+        }
+        let wanted = registered.filter { ($0.categories ?? .default).isEnabled(.quota) }
+        if wanted.isEmpty {
+            return QuotaPushPlan(recipients: [], skip: .category)
+        }
+        return QuotaPushPlan(recipients: wanted, skip: nil)
+    }
+}

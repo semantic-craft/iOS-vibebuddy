@@ -60,10 +60,10 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    ForEach(NotificationCategoryPrefs.displayOrder, id: \.rawValue) { sound in
-                        Toggle(sound.categoryTitle, isOn: Binding(
-                            get: { categories.isEnabled(sound) },
-                            set: { categories.set(sound, enabled: $0) }))
+                    ForEach(NotificationCategoryPrefs.displayOrder, id: \.rawValue) { category in
+                        Toggle(category.categoryTitle, isOn: Binding(
+                            get: { categories.isEnabled(category) },
+                            set: { categories.set(category, enabled: $0) }))
                     }
                 } header: {
                     Text("Notify me about")
