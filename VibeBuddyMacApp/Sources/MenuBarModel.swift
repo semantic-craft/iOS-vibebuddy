@@ -44,6 +44,10 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var lifecycleJournalClearFailed = false
     @Published private(set) var notificationDeliveryHealth = NotificationDeliveryHealth()
     @Published private(set) var recentNotificationDeliveries: [NotificationDeliveryRecord] = []
+    /// How many phones the Mac can push to right now, and when the newest of
+    /// them last registered. Zero with APNs configured means every push is
+    /// going nowhere — the state that used to be invisible.
+    @Published private(set) var deviceRegistry = DeviceRegistrySummary()
     /// The outcome of the most recent jump per session id, shown transiently in
     /// the row that was clicked and cleared by `showJumpFeedback`.
     @Published private(set) var jumpFeedback: [String: JumpOutcome] = [:]
@@ -105,7 +109,7 @@ final class MenuBarModel: ObservableObject {
     // Phone push: the same SoundPolicy engine, run from the Mac's perspective of
     // a backgrounded phone, so the phone hears the full pack (not just needs-you).
     private let pusher: APNsPusher?
-    private let deviceTokens = DeviceTokens()
+    private let deviceTokens: DeviceTokens
     private let budgetMonitor = BudgetMonitor()
     /// Account usage is intentionally separate from `sessions`; refresh errors
     /// never enter SessionStore or the progress notification pipeline.
@@ -176,6 +180,15 @@ final class MenuBarModel: ObservableObject {
         deliveryRecorder = recorder
         pusher = apnsConfig.flatMap { try? APNsPusher(config: $0, recorder: recorder) }
         notificationDeliveryHealth = NotificationDeliveryHealth(apnsConfigured: apnsConfig != nil)
+        // The APNs registry outlives this process. Without the file, every Mac
+        // restart emptied it and no push reached a closed phone until the phone
+        // happened to cold-launch. The demo instance stays in memory so it can
+        // never touch (or push to) the real user's phones.
+        deviceTokens = DeviceTokens(url: ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1"
+            ? nil
+            : (ProcessInfo.processInfo.environment["VIBEBUDDY_DEVICE_REGISTRY_PATH"].map {
+                URL(fileURLWithPath: $0)
+            } ?? DeviceRegistryLocation.defaultURL()))
         // The views read usage through this model's facades, so the coordinator's
         // changes have to reach the same `objectWillChange` they observe. Set up
         // after every stored property is initialized: the capture needs `self`.
@@ -276,6 +289,9 @@ final class MenuBarModel: ObservableObject {
     }
 
     private func preparePairing() {
+        // Putting the QR on screen is the explicit intent to pair: lift any
+        // block a "forget phone" left on previously registered tokens.
+        Task { [deviceTokens] in await deviceTokens.acceptNewRegistrations() }
         let host = LANAddress.primaryIPv4() ?? "127.0.0.1"
         let payload = Pairing.payload(host: host, port: port, token: token, macName: macDisplayName)
         pairing = payload
@@ -334,6 +350,7 @@ final class MenuBarModel: ObservableObject {
         await deliveryRecorder.updateAPNsConfigured(pusher != nil)
         notificationDeliveryHealth = await deliveryRecorder.health()
         recentNotificationDeliveries = await deliveryRecorder.recent(limit: 8)
+        deviceRegistry = await deviceTokens.summary()
     }
 
     func setAlwaysAskPhone(_ on: Bool) {
@@ -439,9 +456,10 @@ final class MenuBarModel: ObservableObject {
             guard level.interrupts else { continue }
             let sound = level.makesSound && device.playSound != false ? alert.sound.fileName : ""
             attempted = true
-            await pusher.send(title: copy.title, body: copy.body, to: deviceToken, sound: sound,
-                              sessionID: alert.sessionID, soundCategory: alert.sound.rawValue,
-                              localized: PushLocalization(copy))
+            let result = await pusher.send(title: copy.title, body: copy.body, to: deviceToken, sound: sound,
+                                           sessionID: alert.sessionID, soundCategory: alert.sound.rawValue,
+                                           localized: PushLocalization(copy))
+            await deviceTokens.applySendResult(result, token: deviceToken)
         }
         return attempted
     }
@@ -475,9 +493,11 @@ final class MenuBarModel: ObservableObject {
             for device in devices {
                 guard let deviceToken = device.token, device.quietMode != true else { continue }  // not an approval → quiet suppresses
                 let sound = device.playSound != false ? NotificationSound.longWaitNudge.fileName : ""
-                await pusher?.send(title: "\(alert.session.project) over budget",
-                                   body: "≈ \(cost) spent this session (estimate)",
-                                   to: deviceToken, sound: sound)
+                guard let result = await pusher?.send(
+                    title: "\(alert.session.project) over budget",
+                    body: "≈ \(cost) spent this session (estimate)",
+                    to: deviceToken, sound: sound) else { continue }
+                await deviceTokens.applySendResult(result, token: deviceToken)
             }
         }
     }
@@ -706,6 +726,15 @@ final class MenuBarModel: ObservableObject {
         pairedPhone = nil
         UserDefaults.standard.removeObject(forKey: Self.pairedPhoneInfoKey)
         UserDefaults.standard.removeObject(forKey: Self.legacyPairedPhoneKey)
+        // The registry now outlives the process, so forgetting the phone has to
+        // drop its APNs token too — and block it: the phone still holds the
+        // bearer token and re-reports on its next reconnect, so a plain removal
+        // would last only until the next network blip. Showing the pairing QR
+        // again lifts the block (see preparePairing).
+        Task {
+            await deviceTokens.forgetAll()
+            deviceRegistry = await deviceTokens.summary()
+        }
     }
 
     var menuSessionList: MenuSessionList {

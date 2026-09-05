@@ -238,10 +238,11 @@ public struct VibeBuddyServer: Sendable {
                         }
                         guard deviceLevel.interrupts else { continue }
                         let soundFile = deviceLevel.makesSound && device.playSound != false ? sound.fileName : ""
-                        await pusher.send(title: copy.title, body: copy.body, to: deviceToken,
-                                          sound: soundFile,
-                                          sessionID: session.id, soundCategory: sound.rawValue,
-                                          localized: PushLocalization(copy))
+                        let result = await pusher.send(title: copy.title, body: copy.body, to: deviceToken,
+                                                       sound: soundFile,
+                                                       sessionID: session.id, soundCategory: sound.rawValue,
+                                                       localized: PushLocalization(copy))
+                        await deviceTokens.applySendResult(result, token: deviceToken)
                     }
                 }
             }
@@ -284,10 +285,11 @@ public struct VibeBuddyServer: Sendable {
                   device.quietMode != true else { continue }
             attempted = true
             let copy = PushCopy.copy(for: sound, session: session)
-            await pusher.send(title: copy.title, body: copy.body,
-                              to: token, sound: device.playSound != false ? sound.fileName : "",
-                              now: now, sessionID: session.id, soundCategory: sound.rawValue,
-                              localized: PushLocalization(copy))
+            let result = await pusher.send(title: copy.title, body: copy.body,
+                                           to: token, sound: device.playSound != false ? sound.fileName : "",
+                                           now: now, sessionID: session.id, soundCategory: sound.rawValue,
+                                           localized: PushLocalization(copy))
+            await deviceTokens.applySendResult(result, token: token)
         }
         return attempted
     }
