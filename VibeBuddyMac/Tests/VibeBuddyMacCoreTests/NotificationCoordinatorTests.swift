@@ -43,6 +43,53 @@ struct NotificationCoordinatorTests {
         ])
     }
 
+    @Test("a category the Mac turned off is never forwarded; Focus still narrows to approvals")
+    func categoriesFilterBeforePosting() async {
+        let spy = SpyNotifier()
+        let c = NotificationCoordinator(notifier: spy)
+        var prefs = NotificationCategoryPrefs.default
+        prefs.set(.agentDone, enabled: false)
+        let t0 = Date(timeIntervalSince1970: 0)
+        await c.observe([session("done", .working, since: t0),
+                         session("ask", .working, since: t0),
+                         session("ok", .working, since: t0)],
+                        now: t0, appActive: false, quietMode: false, categories: prefs)
+        await c.observe([session("done", .done, since: t0.addingTimeInterval(60)),
+                         session("ask", .needsResponse, wait: .question, since: t0.addingTimeInterval(60)),
+                         session("ok", .needsResponse, wait: .permission, since: t0.addingTimeInterval(60))],
+                        now: t0.addingTimeInterval(60), appActive: false, quietMode: false, categories: prefs)
+        #expect(Set(spy.played.map { "\($0.id):\($0.sound.rawValue)" }) == [
+            "ask:needs_answer", "ok:needs_approval",
+        ])
+
+        // Focus mode on top of the categories: only the approval survives.
+        let quietSpy = SpyNotifier()
+        let q = NotificationCoordinator(notifier: quietSpy)
+        await q.observe([session("ask", .working, since: t0), session("ok", .working, since: t0)],
+                        now: t0, appActive: false, quietMode: true, categories: prefs)
+        await q.observe([session("ask", .needsResponse, wait: .question, since: t0.addingTimeInterval(60)),
+                         session("ok", .needsResponse, wait: .permission, since: t0.addingTimeInterval(60))],
+                        now: t0.addingTimeInterval(60), appActive: false, quietMode: true, categories: prefs)
+        #expect(quietSpy.played.map(\.id) == ["ok"])
+    }
+
+    @Test("a reminder re-posts agent_done, but not with the category off or in Focus mode")
+    func remindHonoursCategoriesAndFocus() async {
+        let spy = SpyNotifier()
+        let c = NotificationCoordinator(notifier: spy)
+        var done = session("s", .done)
+        done.hasUnreadCompletion = true
+        done.followed = true
+        #expect(await c.remind(done, quietMode: false))
+        #expect(spy.played.map { "\($0.id):\($0.sound.rawValue)" } == ["s:agent_done"])
+
+        var off = NotificationCategoryPrefs.default
+        off.set(.agentDone, enabled: false)
+        #expect(await c.remind(done, quietMode: false, categories: off) == false)
+        #expect(await c.remind(done, quietMode: true) == false)
+        #expect(spy.played.count == 1)
+    }
+
     @Test("forwards a fresh question transition as needs_answer")
     func forwardsFreshQuestion() async {
         let spy = SpyNotifier()

@@ -366,6 +366,10 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     /// snapshots decode as a normal completion. Distinct from a real stop
     /// whose last message happened to be "Abandoned".
     public var probeRetired: Bool?
+    /// The user asked to be reminded about this session until its completion
+    /// is read. Authoritative on the Mac, toggled from any device. Optional so
+    /// older payloads decode as "not followed".
+    public var followed: Bool?
     public var statusSince: Date
     public var updatedAt: Date
 
@@ -393,6 +397,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         childAgents: [ChildAgent]? = nil,
         childTopologyDegraded: Bool? = nil,
         probeRetired: Bool? = nil,
+        followed: Bool? = nil,
         statusSince: Date,
         updatedAt: Date
     ) {
@@ -419,6 +424,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         self.childAgents = childAgents
         self.childTopologyDegraded = childTopologyDegraded
         self.probeRetired = probeRetired
+        self.followed = followed
         self.statusSince = statusSince
         self.updatedAt = updatedAt
     }
@@ -497,16 +503,21 @@ public struct DeviceRegistrationPayload: Codable, Sendable, Equatable {
     /// Optional so older payloads decode unchanged.
     public var playSound: Bool?
     public var quietMode: Bool?
+    /// Which cue categories the phone wants at all. Optional so older payloads
+    /// decode unchanged; the Mac treats a missing value as the default set.
+    public var categories: NotificationCategoryPrefs?
 
     public init(token: String? = nil, name: String? = nil,
                 model: String? = nil, systemVersion: String? = nil,
-                playSound: Bool? = nil, quietMode: Bool? = nil) {
+                playSound: Bool? = nil, quietMode: Bool? = nil,
+                categories: NotificationCategoryPrefs? = nil) {
         self.token = token
         self.name = name
         self.model = model
         self.systemVersion = systemVersion
         self.playSound = playSound
         self.quietMode = quietMode
+        self.categories = categories
     }
 
     public var hasPushToken: Bool { token?.isEmpty == false }
@@ -514,4 +525,9 @@ public struct DeviceRegistrationPayload: Codable, Sendable, Equatable {
     public var hasVisibleDeviceInfo: Bool {
         hasPushToken || name?.isEmpty == false || model?.isEmpty == false || systemVersion?.isEmpty == false
     }
+}
+
+public extension AgentSession {
+    /// Whether the user asked to be reminded about this session until read.
+    var isFollowed: Bool { followed == true }
 }

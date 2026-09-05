@@ -39,7 +39,8 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
 
     /// A phone just paired — the one chrome cue that isn't tied to a session.
     func confirmPairing(deviceName: String) {
-        guard Self.flag("notifyOnNeedsResponse") else { return }
+        guard Self.flag("notifyOnNeedsResponse"),
+              NotificationCategoryPrefs.load().isEnabled(.pairSuccess) else { return }
         enqueue(title: String(localized: "Paired with \(deviceName)"),
                 body: String(localized: "VibeBuddy is watching your sessions."),
                 sound: .pairSuccess, id: "pair-success")

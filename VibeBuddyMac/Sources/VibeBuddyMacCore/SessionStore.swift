@@ -306,6 +306,21 @@ public actor SessionStore {
         return changed
     }
 
+    /// Follow or unfollow a session so its completion is reminded about until
+    /// read. Returns false when the session is unknown.
+    @discardableResult
+    public func setFollowed(sessionID: String, _ followed: Bool, now: Date = Date()) -> Bool {
+        guard let session = reducer.sessions[sessionID] else { return false }
+        if reducer.setFollowed(sessionID: sessionID, followed) {
+            // Journaled so a daemon restart restores the follow with the session.
+            appendJournal(sessionID: sessionID, agent: session.agent,
+                          event: followed ? "follow" : "unfollow",
+                          source: session.observations?.last?.source ?? .hook, at: now)
+            broadcast()
+        }
+        return true
+    }
+
     public func snapshot(now: Date) -> Snapshot {
         currentSnapshot(now: now)
     }
@@ -396,7 +411,8 @@ public actor SessionStore {
             source: source,
             timestamp: timestamp,
             status: result?.status,
-            waitKind: result?.waitKind
+            waitKind: result?.waitKind,
+            followed: result?.followed
         ), now: timestamp)
         lifecycleJournal = journal
     }

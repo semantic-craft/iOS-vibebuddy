@@ -262,6 +262,41 @@ struct HookParserTests {
         """) == nil)
     }
 
+    @Test("notification_type classifies the wait without reading the message")
+    func notificationTypeClassifies() {
+        let permission = parse(#"{"hook_event_name":"Notification","session_id":"s","notification_type":"permission_prompt","message":"Claude is waiting"}"#)
+        #expect(permission?.kind == .notification)
+        #expect(permission?.waitKind == .permission)
+        let idle = parse(#"{"hook_event_name":"Notification","session_id":"s","notification_type":"idle_prompt","message":"needs your permission"}"#)
+        #expect(idle?.waitKind == .question)
+        let elicitation = parse(#"{"hook_event_name":"Notification","session_id":"s","notification_type":"elicitation_dialog"}"#)
+        #expect(elicitation?.waitKind == .question)
+        // No type: the reducer's message heuristic stays in charge.
+        let untyped = parse(#"{"hook_event_name":"Notification","session_id":"s","message":"needs your permission"}"#)
+        #expect(untyped?.waitKind == nil)
+        // A PermissionRequest hook is a permission by definition.
+        let request = parse(#"{"hook_event_name":"PermissionRequest","session_id":"s","tool_name":"Bash"}"#)
+        #expect(request?.waitKind == .permission)
+    }
+
+    @Test("auth_success is a login confirmation, not a wait, and is dropped")
+    func authSuccessIgnored() {
+        #expect(parse(#"{"hook_event_name":"Notification","session_id":"s","notification_type":"auth_success","message":"Logged in"}"#) == nil)
+    }
+
+    @Test("the CLI's classification beats the message heuristic in the reducer")
+    func typedNotificationDrivesReducer() {
+        var r = SessionReducer()
+        let events = [
+            parse(#"{"hook_event_name":"SessionStart","session_id":"s","cwd":"/x/proj"}"#),
+            // The prose mentions permission, but Claude says it is only waiting for input.
+            parse(#"{"hook_event_name":"Notification","session_id":"s","notification_type":"idle_prompt","message":"Claude is waiting for your permission decision"}"#),
+        ].compactMap { $0 }
+        for e in events { r.apply(e) }
+        #expect(r.sessions["s"]?.status == .needsResponse)
+        #expect(r.sessions["s"]?.waitKind == .question)
+    }
+
     @Test("parsed events drive the reducer end-to-end")
     func parseThenReduce() {
         var r = SessionReducer()

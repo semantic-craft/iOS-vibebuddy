@@ -189,6 +189,10 @@ final class MenuBarModel: ObservableObject {
                                      approvalContext: approvalContext,
                                      onDevicePaired: { [weak self] device in
                                          Task { @MainActor in self?.recordPairedDevice(device) }
+                                     },
+                                     onCompletionReminder: { [weak self] session in
+                                         guard let self else { return false }
+                                         return await self.deliverCompletionReminder(session)
                                      })
         Task.detached(priority: .utility) {
             do {
@@ -229,7 +233,8 @@ final class MenuBarModel: ObservableObject {
                     snapshot.sessions,
                     appActive: NSApp.isActive,                 // user looking at VibeBuddy?
                     quietMode: Self.effectiveQuiet(),          // Focus mode (manual or nightly) → approvals only
-                    focusedSessionIDs: focused)                // …or looking at the session's own terminal
+                    focusedSessionIDs: focused,                // …or looking at the session's own terminal
+                    categories: NotificationCategoryPrefs.load()) // this Mac's own switches
                 await self.refreshNotificationDeliveryHealth()
                 await self.pushToPhones(snapshot.sessions)
                 await self.pushActivityUpdates(snapshot.sessions)
@@ -305,17 +310,44 @@ final class MenuBarModel: ObservableObject {
             sessions: sessions, now: Date(), appActive: false, quietMode: false))
         guard !alerts.isEmpty else { return }
         let devices = await deviceTokens.devices()
-        for alert in alerts {
-            let (title, body) = Self.pushCopy(for: alert)
-            for device in devices {
-                guard let deviceToken = device.token else { continue }
-                if device.quietMode == true && !alert.sound.survivesQuietMode { continue }  // night: approvals only
-                let sound = device.playSound != false ? alert.sound.fileName : ""           // mute → silent banner
-                await pusher.send(title: title, body: body, to: deviceToken, sound: sound,
-                                  sessionID: alert.sessionID, soundCategory: alert.sound.rawValue)
-            }
-        }
+        for alert in alerts { await push(alert, to: devices) }
         await refreshNotificationDeliveryHealth()
+    }
+
+    /// One cue to every paired phone, each device respecting its own switches.
+    /// Returns whether any phone was actually sent to.
+    @discardableResult
+    private func push(_ alert: SoundAlert, to devices: [DeviceRegistrationPayload]) async -> Bool {
+        guard let pusher else { return false }
+        let (title, body) = Self.pushCopy(for: alert)
+        var attempted = false
+        for device in devices {
+            guard let deviceToken = device.token else { continue }
+            // The phone's switches, uploaded with its registration; a phone
+            // that never said keeps the default set.
+            guard (device.categories ?? .default).isEnabled(alert.sound) else { continue }
+            if device.quietMode == true && !alert.sound.survivesQuietMode { continue }  // night: approvals only
+            let sound = device.playSound != false ? alert.sound.fileName : ""           // mute → silent banner
+            attempted = true
+            await pusher.send(title: title, body: body, to: deviceToken, sound: sound,
+                              sessionID: alert.sessionID, soundCategory: alert.sound.rawValue)
+        }
+        return attempted
+    }
+
+    /// The server's reminder schedule asks this to deliver one `agentDone`
+    /// reminder for a followed, unread completion: a local banner (this Mac's
+    /// categories and Focus mode permitting) and a push to every paired phone
+    /// whose switches allow it. Returns whether any channel took it — a
+    /// reminder nobody could show does not spend one of the session's slots.
+    @MainActor
+    private func deliverCompletionReminder(_ session: AgentSession) async -> Bool {
+        let local = await notificationCoordinator.remind(
+            session, quietMode: Self.effectiveQuiet(), categories: NotificationCategoryPrefs.load())
+        let devices = pusher == nil ? [] : await deviceTokens.devices()
+        let pushed = await push(SoundAlert(session: session, sound: .agentDone), to: devices)
+        if local || pushed { await refreshNotificationDeliveryHealth() }
+        return local || pushed
     }
 
     /// Fire a one-time budget heads-up (local + push) for sessions that just
@@ -429,6 +461,17 @@ final class MenuBarModel: ObservableObject {
             return
         }
         Task { [store] in await store.acknowledgeCompletion(sessionID: sessionID) }
+    }
+
+    /// Follow a session to be reminded about its completion until it is read.
+    /// Demo sessions flip the flag locally without touching the store.
+    func setFollowed(_ sessionID: String, _ followed: Bool) {
+        if ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1" {
+            guard let index = sessions.firstIndex(where: { $0.id == sessionID }) else { return }
+            sessions[index].followed = followed
+            return
+        }
+        Task { [store] in await store.setFollowed(sessionID: sessionID, followed) }
     }
 
     /// Include/exclude a session from the buddy's context (ephemeral). Takes effect

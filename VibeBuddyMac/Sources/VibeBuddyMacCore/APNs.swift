@@ -70,6 +70,7 @@ public actor DeviceTokens {
         if let v = payload.systemVersion { merged.systemVersion = v }
         if let v = payload.playSound { merged.playSound = v }
         if let v = payload.quietMode { merged.quietMode = v }
+        if let v = payload.categories { merged.categories = v }
         devicesByToken[token] = merged
     }
 
@@ -125,10 +126,8 @@ public actor APNsPusher {
             request.setValue(NotificationIdentity.id(sessionID: sessionID, sound: sound),
                              forHTTPHeaderField: "apns-collapse-id")
         }
-        // An empty sound means a silent (banner-only) push.
-        let soundField = sound.isEmpty ? "" : #","sound":"\#(Self.escape(sound))""#
-        let payload = #"{"aps":{"alert":{"title":"\#(Self.escape(title))","body":"\#(Self.escape(body))"}\#(soundField)}}"#
-        request.httpBody = Data(payload.utf8)
+        request.httpBody = Data(Self.alertPayload(title: title, body: body, sound: sound,
+                                                  sessionID: sessionID).utf8)
         do {
             let (_, response) = try await http.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode
@@ -140,6 +139,17 @@ public actor APNsPusher {
                 APNsDelivery.classify(status: nil, error: error),
                 status: nil, now: now, sessionID: sessionID, sound: category)
         }
+    }
+
+    /// The `alert` push body. An empty sound means a silent (banner-only) push.
+    /// The session id rides outside `aps` so the phone's `userInfo["sessionId"]`
+    /// reads the same for a push as for its own local notification, and a tapped
+    /// banner can open the session either way.
+    nonisolated static func alertPayload(title: String, body: String, sound: String,
+                                         sessionID: String?) -> String {
+        let soundField = sound.isEmpty ? "" : #","sound":"\#(escape(sound))""#
+        let sessionField = sessionID.map { #","sessionId":"\#(escape($0))""# } ?? ""
+        return #"{"aps":{"alert":{"title":"\#(escape(title))","body":"\#(escape(body))"}\#(soundField)}\#(sessionField)}"#
     }
 
     private func finish(
