@@ -12,6 +12,21 @@ private func bash(_ cmd: String) -> String {
     #"{"hook_event_name":"PreToolUse","session_id":"s","cwd":"/x/p","tool_name":"Bash","tool_input":{"command":"\#(cmd)"}}"#
 }
 
+/// A Codex CLI PermissionRequest payload: Claude-shaped keys, fired only when
+/// Codex would prompt. `tool_input.command` carries the shell command (Bash)
+/// or the whole patch (apply_patch).
+private func codexRequest(_ command: String, tool: String = "Bash",
+                          mode: String = "default") -> String {
+    let escaped = command.replacingOccurrences(of: "\\", with: "\\\\")
+        .replacingOccurrences(of: "\n", with: "\\n")
+    return #"{"hook_event_name":"PermissionRequest","session_id":"cs","cwd":"/x/p","model":"gpt","#
+        + #""permission_mode":"\#(mode)","turn_id":"t1","transcript_path":null,"#
+        + #""tool_name":"\#(tool)","tool_input":{"command":"\#(escaped)"}}"#
+}
+
+private let codexAllow = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#
+private let codexDeny = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"Denied from vibebuddy"}}}"#
+
 /// A Grok Build PreToolUse envelope: camelCase keys, snake_case event value.
 private func grokBash(_ cmd: String, tool: String = "run_terminal_command",
                       mode: String = "bypassPermissions") -> String {
@@ -266,6 +281,173 @@ struct ApprovalRoutesTests {
         }
     }
 
+    // MARK: - Codex CLI (?agent=codex)
+    //
+    // Claude-shaped envelope on PermissionRequest (Codex fires it only when it
+    // would prompt), answered in Codex's own contract: hookSpecificOutput with
+    // `decision.behavior` allow/deny. An `allow` is final on Codex's side.
+
+    @Test("an allow-listed codex request answers allow at once and raises no wait")
+    func codexAllowImmediate() async throws {
+        let store = SessionStore()
+        try await server(allow: ["Bash(ls:*)"], store: store).buildApplication().test(.router) { client in
+            let text = try await approve(client, body: codexRequest("ls -la"), agent: "codex")
+            #expect(text == codexAllow)
+            // A decided request is not a wait: nothing is marked needsResponse
+            // (and so no "needs you" push fires) for an immediate outcome.
+            #expect(await store.snapshot(now: Date()).sessions.first { $0.id == "cs" } == nil)
+        }
+    }
+
+    /// A Codex session the status forwarders have already opened (working).
+    private func seedCodexSession(_ store: SessionStore) async {
+        let prompt = #"{"hook_event_name":"UserPromptSubmit","session_id":"cs","cwd":"/x/p","prompt":"go"}"#
+        await store.ingest(Data(prompt.utf8), agent: .codex, receivedAt: Date())
+    }
+
+    @Test("a held codex request puts the card on the known session, and a phone deny returns it to working")
+    func codexHoldOnKnownSession() async throws {
+        let store = SessionStore()
+        await seedCodexSession(store)
+        let srv = server(store: store)   // empty allow → .ask
+        try await srv.buildApplication().test(.router) { client in
+            async let held = approve(client, body: codexRequest("rm -rf build"), agent: "codex")
+            try await waitForPendingApproval(store, session: "cs")
+            let session = try #require(await store.snapshot(now: Date()).sessions.first { $0.id == "cs" })
+            #expect(session.agent == .codex)
+            #expect(session.status == .needsResponse)
+            #expect(session.pendingApproval?.tool == "Bash")
+            #expect(session.pendingApproval?.command == "rm -rf build")
+            // Codex's allow is final, so no hedging mode rides on the card.
+            #expect(session.pendingApproval?.permissionMode == nil)
+            try await client.execute(uri: "/decision", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"approvalId":"s","decision":"deny"}"#)) { res in
+                #expect(res.status == .ok)
+            }
+            #expect(try await held == codexDeny)
+            let after = try #require(await store.snapshot(now: Date()).sessions.first { $0.id == "cs" })
+            #expect(after.pendingApproval == nil)
+            #expect(after.status == .working)   // denied is not stuck waiting
+        }
+    }
+
+    @Test("a held codex request on an unknown session opens it from the payload so the card has a row")
+    func codexHoldOnUnknownSessionOpensIt() async throws {
+        let store = SessionStore()
+        let srv = server(store: store)
+        try await srv.buildApplication().test(.router) { client in
+            async let held = approve(client, body: codexRequest("rm -rf build"), agent: "codex")
+            try await waitForPendingApproval(store, session: "cs")
+            let session = try #require(await store.snapshot(now: Date()).sessions.first { $0.id == "cs" })
+            #expect(session.status == .needsResponse)
+            #expect(session.pendingApproval?.command == "rm -rf build")
+            try await client.execute(uri: "/decision", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"approvalId":"s","decision":"allow"}"#)) { res in
+                #expect(res.status == .ok)
+            }
+            #expect(try await held == codexAllow)
+        }
+    }
+
+    @Test("no decision on a codex request times out to an empty body — Codex then prompts itself")
+    func codexTimesOutEmpty() async throws {
+        try await server(approvalTimeout: .milliseconds(200)).buildApplication().test(.router) { client in
+            let text = try await approve(client, body: codexRequest("rm -rf build"), agent: "codex")
+            #expect(text.isEmpty)
+        }
+    }
+
+    @Test("a native deny rule short-circuits a codex request without holding or a wait")
+    func codexNativeDeny() async throws {
+        let store = SessionStore()
+        await seedCodexSession(store)
+        try await server(deny: ["Bash(rm:*)"], store: store).buildApplication().test(.router) { client in
+            let text = try await approve(client, body: codexRequest("rm -rf build"), agent: "codex")
+            #expect(text == codexDeny)
+            let session = try #require(await store.snapshot(now: Date()).sessions.first { $0.id == "cs" })
+            #expect(session.status == .working)      // still the working session it was
+            #expect(session.pendingApproval == nil)
+        }
+    }
+
+    @Test("a rename out of an allowed scope holds — the destination counts as touched")
+    func codexRenameAcrossScopesHolds() async throws {
+        let patch = "*** Begin Patch\n*** Update File: /x/p/allowed/a.swift\n*** Move to: /x/p/denied/b.swift\n@@\n-a\n+b\n*** End Patch"
+        let store = SessionStore()
+        let srv = server(allow: ["Edit(/x/p/allowed/**)"], store: store)
+        try await srv.buildApplication().test(.router) { client in
+            async let held = approve(client, body: codexRequest(patch, tool: "apply_patch"), agent: "codex")
+            try await waitForPendingApproval(store, session: "cs")
+            let pending = await store.snapshot(now: Date()).sessions.first { $0.id == "cs" }?.pendingApproval
+            #expect(pending?.tool == "Edit")
+            #expect(pending?.filePath == nil)
+            try await client.execute(uri: "/decision", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"approvalId":"s","decision":"deny"}"#)) { res in
+                #expect(res.status == .ok)
+            }
+            #expect(try await held == codexDeny)
+        }
+    }
+
+    @Test("apply_patch on one file is an Edit the user's path rules can allow")
+    func codexApplyPatchSingleFile() async throws {
+        let patch = "*** Begin Patch\n*** Update File: /x/p/src/app.swift\n@@\n-a\n+b\n*** End Patch"
+        try await server(allow: ["Edit(/x/p/src/**)"]).buildApplication().test(.router) { client in
+            let text = try await approve(client, body: codexRequest(patch, tool: "apply_patch"), agent: "codex")
+            #expect(text == codexAllow)
+        }
+    }
+
+    @Test("apply_patch across files holds as an Edit card and alwaysAllow persists no rule")
+    func codexApplyPatchMultiFileHolds() async throws {
+        let patch = "*** Begin Patch\n*** Update File: /x/p/a.swift\n@@\n-a\n+b\n*** Add File: /x/p/b.swift\n+c\n*** End Patch"
+        let store = SessionStore()
+        let storeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vbapproval-\(UUID().uuidString).json")
+        let allowStore = VibeBuddyAllowStore(url: storeURL)
+        let srv = VibeBuddyServer(store: store, token: "t0k", host: "0.0.0.0", port: 9876,
+                                  approvalRegistry: ApprovalRegistry(),
+                                  rules: { _ in PermissionRules(allow: ["Edit(/x/p/src/**)"], deny: []) },
+                                  allowStore: allowStore, approvalTimeout: .seconds(5),
+                                  approvalID: { "s" })
+        try await srv.buildApplication().test(.router) { client in
+            async let held = approve(client, body: codexRequest(patch, tool: "apply_patch"), agent: "codex")
+            try await waitForPendingApproval(store, session: "cs")
+            let pending = await store.snapshot(now: Date()).sessions.first { $0.id == "cs" }?.pendingApproval
+            #expect(pending?.tool == "Edit")
+            #expect(pending?.filePath == nil)
+            #expect(pending?.command == patch)
+            try await client.execute(uri: "/decision", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"approvalId":"s","decision":"alwaysAllow"}"#)) { res in
+                #expect(res.status == .ok)
+            }
+            #expect(try await held == codexAllow)
+            // A path-less Edit yields no rule: the next multi-file patch asks again.
+            #expect(await allowStore.all().isEmpty)
+        }
+    }
+
+    @Test("alwaysAllow from a codex approval matches the next identical codex command")
+    func codexAlwaysAllowPersists() async throws {
+        let store = SessionStore()
+        try await server(store: store).buildApplication().test(.router) { client in
+            async let first = approve(client, body: codexRequest("git status"), agent: "codex")
+            try await waitForPendingApproval(store, session: "cs")
+            try await client.execute(uri: "/decision", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"approvalId":"s","decision":"alwaysAllow"}"#)) { res in
+                #expect(res.status == .ok)
+            }
+            #expect(try await first == codexAllow)
+            let again = try await approve(client, body: codexRequest("git status"), agent: "codex")
+            #expect(again == codexAllow)
+        }
+    }
+
     // MARK: - end-to-end through hooks/approval-hook.sh
 
     @Test("hooks/approval-hook.sh grok posts, and prints the daemon's JSON verbatim")
@@ -284,6 +466,11 @@ struct ApprovalRoutesTests {
         let claude = try await runApprovalHook(source: nil, port: port, token: "t0k",
                                                stdin: bash("ls -la"))
         #expect(claude.contains("\"permissionDecision\":\"allow\""))
+
+        // `codex` answers in the PermissionRequest contract, byte for byte.
+        let codex = try await runApprovalHook(source: "codex", port: port, token: "t0k",
+                                              stdin: codexRequest("ls -la"))
+        #expect(codex == codexAllow)
 
         // A wrong token is a 401 → nothing on stdout → the agent fails open.
         let unauthorized = try await runApprovalHook(source: "grok", port: port, token: "wrong",

@@ -86,6 +86,11 @@ public actor SessionStore {
         needsResponseHandler = handler
     }
 
+    /// True when a session with this id is currently tracked.
+    public func hasSession(_ id: String) -> Bool {
+        reducer.sessions[id] != nil
+    }
+
     /// Parse a raw hook payload, apply it, enrich from the transcript, and push
     /// the new snapshot to every subscriber. Returns false if it wasn't a hook.
     @discardableResult

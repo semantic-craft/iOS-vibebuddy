@@ -30,7 +30,7 @@ The CLI pipes its event JSON on stdin. VibeBuddy reads `hook_event_name`,
 | CLI | source | config | hook style | status |
 |-----|--------|--------|-----------|--------|
 | Claude Code | `claude` | `~/.claude/settings.json` | JSON `hooks` array | ✅ tested |
-| Codex | `codex` | `~/.codex/hooks.json` (`notify` untouched) | JSON `hooks` array | ✅ tested |
+| Codex CLI | `codex` | `~/.codex/hooks.json` (`notify` untouched) | JSON `hooks` array; `--approval` gates `PermissionRequest` | ✅ tested |
 | OpenCode | `opencode` | `~/.config/opencode/` plugin | Claude-compatible hooks | ⚠️ template |
 | Qwen Code | `qwen` | `~/.qwen/` | Claude-compatible hooks | ⚠️ template |
 | Kimi | `kimi` | `~/.kimi/config.toml` | TOML hooks | ⚠️ template |
@@ -62,9 +62,34 @@ workspace.
 ```
 
 Other hook-compatible CLIs (OpenCode, Qwen) follow the same shape with
-`agent=<their source>`. Kimi/Codex use their TOML hook tables; Antigravity uses
+`agent=<their source>`. Kimi uses its TOML hook table; Antigravity uses
 a Gemini plugin that shells out to the same curl. Copilot has no hook surface
 yet — it appears once a future watcher observes it.
+
+### Codex CLI (`~/.codex/hooks.json`)
+
+```bash
+python3 hooks/install-codex-hooks.py --install     # status hooks (12 events) + terminal capture
+python3 hooks/install-codex-hooks.py --approval    # + the blocking phone-approval gate
+python3 hooks/install-codex-hooks.py --uninstall   # revert
+```
+
+Codex reads a Claude-compatible `hooks` object and pipes Claude-shaped JSON to
+each command, so the forwarder is the same script with `codex` as its argument.
+Re-trust the entries via `/hooks` in a fresh session after any change.
+
+#### Remote approval (`--approval`)
+
+Codex honours a hook `allow` only on `PermissionRequest` — its `PreToolUse`
+accepts `deny` alone — and it fires `PermissionRequest` only when it would prompt
+(shell escalation, a patch outside the sandbox, managed network). `--approval`
+therefore replaces just that group with a blocking `hooks/approval-hook.sh codex`
+(`timeout: 30`) posting to `/approval?agent=codex`; the daemon replies
+`{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"|"deny"}}}`,
+and a phone decision is final. Silence (no phone answer in 25s) falls back to
+Codex's own prompt. `apply_patch` is decided as `Edit`, with a `file_path` from
+the patch when it names one file. **Codex Desktop never runs `hooks.json`**, so
+this covers the CLI only.
 
 ### Grok Build (`~/.grok/hooks/vibebuddy.json`)
 

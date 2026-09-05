@@ -10,7 +10,7 @@ rather than duplicated.
   --dry-run    list detected CLIs and what each would do
   --install    install vibebuddy hooks into every detected CLI
   --approval   install, and add the blocking phone-approval gate where the CLI
-               supports one (Claude, Grok); every other CLI gets --install
+               supports one (Claude, Codex CLI, Grok); every other CLI gets --install
   --uninstall  remove vibebuddy hooks from every detected CLI
 
 Idempotent: every per-CLI installer is idempotent, so a re-run is a no-op.
@@ -35,9 +35,10 @@ CLIS = [
 ]
 
 
-# CLIs whose installer understands `--approval` (a blocking PreToolUse gate that
-# asks the phone). Everything else is installed status-only.
-APPROVAL_CAPABLE = {"claude", "grok"}
+# CLIs whose installer understands `--approval` (a blocking gate that asks the
+# phone: PreToolUse for Claude and Grok, PermissionRequest for the Codex CLI).
+# Everything else is installed status-only.
+APPROVAL_CAPABLE = {"claude", "codex", "grok"}
 
 
 def present(path):
