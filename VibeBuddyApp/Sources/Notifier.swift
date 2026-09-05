@@ -62,9 +62,12 @@ struct LocalNotifier: AttentionNotifier {
         let sound = alert.sound
         let delivery = alert.delivery
         let sessionID = alert.sessionID
+        // The Mac is told off this path: the answer is what was posted, not
+        // whether the report round trip finished, and the dashboard behind
+        // `apply` should not wait on the network for it.
         let posted = Self.chain.enqueue { () -> Bool in
             if sound.isWaitingCue, await PushCoverage.shared.covers(cue.identifier, since: cue.since) {
-                await PushRegistration.shared.report(coveredByPush: [cue])
+                Task { await PushRegistration.shared.report(coveredByPush: [cue]) }
                 return false
             }
             do {
@@ -73,7 +76,7 @@ struct LocalNotifier: AttentionNotifier {
             } catch {
                 return false   // nothing shown, so nothing for the Mac to stand down for
             }
-            await PushRegistration.shared.report(posted: [cue])
+            Task { await PushRegistration.shared.report(posted: [cue]) }
             return true
         }
         return await posted.value
