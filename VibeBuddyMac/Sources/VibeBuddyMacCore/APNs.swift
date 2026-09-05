@@ -145,7 +145,7 @@ public actor APNsPusher {
     /// goes near APNs — but it is the only trace that cue leaves on this channel,
     /// so it belongs with the sends rather than in a caller's own bookkeeping.
     public func recordSkip(sessionID: String?, sound: NotificationSound,
-                           reason: PushSkipReason, now: Date = Date()) async {
+                           reason: CueSkipReason, now: Date = Date()) async {
         await recorder?.record(NotificationDeliveryRecord(
             channel: .apns, outcome: .skipped, sessionID: sessionID,
             sound: sound.rawValue, failureReason: reason.rawValue, timestamp: now))

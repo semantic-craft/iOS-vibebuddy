@@ -313,7 +313,7 @@ final class MenuBarModel: ObservableObject {
                     focusedSessionIDs: focused,                // …or looking at the session's own terminal
                     categories: NotificationCategoryPrefs.load()) // this Mac's own switches
                 await self.refreshNotificationDeliveryHealth()
-                await self.pushToPhones(alerts)
+                await self.pushToPhones(alerts, focused: focused)
                 await self.pushActivityUpdates(snapshot.sessions)
                 await self.checkBudget(snapshot.sessions)
                 try? await Task.sleep(for: .seconds(2))
@@ -411,10 +411,10 @@ final class MenuBarModel: ObservableObject {
     /// its Quiet mode reads the cue through the `muted` column, never louder
     /// than the Mac decided, and mute drops the sound. When the phone is in the
     /// foreground it suppresses the remote push itself (see willPresent).
-    private func pushToPhones(_ alerts: [SoundAlert]) async {
+    private func pushToPhones(_ alerts: [SoundAlert], focused: Set<String>) async {
         guard !alerts.isEmpty else { return }
         let devices = await deviceTokens.devices()
-        for alert in alerts { await push(alert, to: devices) }
+        for alert in alerts { await push(alert, to: devices, focused: focused) }
         await refreshNotificationDeliveryHealth()
     }
 
@@ -427,8 +427,10 @@ final class MenuBarModel: ObservableObject {
     /// deliberate somewhere — but a silence you cannot tell apart from a bug is
     /// how "the Mac banners and the phone never hears about it" went unexplained.
     @discardableResult
-    private func push(_ alert: SoundAlert, to devices: [DeviceRegistrationPayload]) async -> Bool {
-        let fanout = PushFanout.plan(alert, devices: devices, apnsConfigured: pusher != nil)
+    private func push(_ alert: SoundAlert, to devices: [DeviceRegistrationPayload],
+                      focused: Set<String> = []) async -> Bool {
+        let fanout = PushFanout.plan(alert, devices: devices, apnsConfigured: pusher != nil,
+                                     focusedSessionIDs: focused)
         guard let pusher, !fanout.recipients.isEmpty else {
             await recordPushSkip(alert, reason: fanout.skip)
             return false
@@ -446,7 +448,7 @@ final class MenuBarModel: ObservableObject {
         return sent
     }
 
-    private func recordPushSkip(_ alert: SoundAlert, reason: PushSkipReason?) async {
+    private func recordPushSkip(_ alert: SoundAlert, reason: CueSkipReason?) async {
         guard let reason else { return }
         await deliveryRecorder.record(NotificationDeliveryRecord(
             channel: .apns, outcome: .skipped, sessionID: alert.sessionID,

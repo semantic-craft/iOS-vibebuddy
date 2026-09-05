@@ -82,6 +82,24 @@ struct NotificationCoordinatorTests {
         #expect(quiet.map(\.delivery) == [.banner, .banner])
     }
 
+    @Test("a category the Mac turned off leaves a skipped record, not an absence")
+    func macSwitchesRecordWhyTheyWereSilent() async {
+        let spy = SpyNotifier()
+        let delivery = SpyDelivery()
+        let c = NotificationCoordinator(notifier: spy, delivery: delivery)
+        var prefs = NotificationCategoryPrefs.default
+        prefs.set(.agentDone, enabled: false)
+        let t0 = Date(timeIntervalSince1970: 0)
+        _ = await c.observe([session("done", .working, since: t0)], now: t0,
+                            appActive: false, quietMode: false, categories: prefs)
+        _ = await c.observe([session("done", .done, since: t0.addingTimeInterval(60))],
+                            now: t0.addingTimeInterval(60),
+                            appActive: false, quietMode: false, categories: prefs)
+        #expect(spy.played.isEmpty)   // the switch is off: nothing is posted
+        #expect(delivery.records.map { "\($0.channel.rawValue):\($0.outcome.rawValue):\($0.failureReason ?? "")" }
+            == ["local:skipped:category"])
+    }
+
     @Test("a category the Mac turned off is still returned for the phones, which apply their own switches")
     func macSwitchesDoNotSilenceThePhone() async {
         let spy = SpyNotifier()

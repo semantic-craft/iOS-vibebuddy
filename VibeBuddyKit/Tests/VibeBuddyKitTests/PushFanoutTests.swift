@@ -36,11 +36,18 @@ struct PushFanoutTests {
         #expect(plan.skip == .apnsNotConfigured)
     }
 
-    @Test("a list-only cue stays on the Mac by design — and says so")
-    func notLoudEnough() {
+    @Test("a list-only cue stays on the Mac by design — and says the attention level did it")
+    func notLoudEnoughIsAttention() {
         let plan = PushFanout.plan(alert(delivery: .list), devices: [device()], apnsConfigured: true)
         #expect(plan.recipients.isEmpty)
-        #expect(plan.skip == .notLoudEnough)
+        #expect(plan.skip == .attention)
+    }
+
+    @Test("the same silence names the terminal instead when you are looking at it")
+    func notLoudEnoughIsTheFocusedTerminal() {
+        let plan = PushFanout.plan(alert(delivery: .list), devices: [device()],
+                                   apnsConfigured: true, focusedSessionIDs: ["a"])
+        #expect(plan.skip == .focusedTerminal)
     }
 
     @Test("an empty registry is a reason, not silence — this is a Mac that restarted")
@@ -59,14 +66,14 @@ struct PushFanoutTests {
         let off = NotificationCategoryPrefs(enabled: [.needsApproval])
         let plan = PushFanout.plan(alert(), devices: [device(categories: off)], apnsConfigured: true)
         #expect(plan.recipients.isEmpty)
-        #expect(plan.skip == .categoryOff)
+        #expect(plan.skip == .category)
     }
 
     @Test("a phone in Quiet mode drops a completion — the muted column is a drop")
     func quietDropsCompletion() {
         let plan = PushFanout.plan(alert(), devices: [device(quiet: true)], apnsConfigured: true)
         #expect(plan.recipients.isEmpty)
-        #expect(plan.skip == .deviceQuietMode)
+        #expect(plan.skip == .quiet)
     }
 
     @Test("a phone in Quiet mode still takes an approval, one level quieter")

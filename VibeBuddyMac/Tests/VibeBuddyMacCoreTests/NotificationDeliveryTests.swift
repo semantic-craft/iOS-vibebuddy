@@ -27,7 +27,7 @@ struct NotificationDeliveryTests {
         var tracker = NotificationDeliveryHealthTracker()
         let skip = NotificationDeliveryRecord(
             channel: .apns, outcome: .skipped, sessionID: "a", sound: "agent_done",
-            failureReason: PushSkipReason.noRegisteredDevice.rawValue, timestamp: now)
+            failureReason: CueSkipReason.noRegisteredDevice.rawValue, timestamp: now)
         let surfaced = tracker.apply(skip, now: now)
         #expect(surfaced == false)
         #expect(tracker.latchedFailure == nil)
