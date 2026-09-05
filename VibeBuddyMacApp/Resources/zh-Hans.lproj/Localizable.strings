@@ -192,3 +192,7 @@
 "Task completed" = "任务完成";
 "Still-waiting reminders" = "久等催促";
 "Pairing confirmation" = "配对成功提示";
+
+/* Follow until done (Dashboard) */
+"Follow until done" = "关注到完成";
+"When this session finishes, remind you every 5 minutes (up to an hour) until you open it here or on your iPhone." = "这个会话完成后，每 5 分钟提醒一次（最多一小时），直到你在这里或 iPhone 上打开它。";

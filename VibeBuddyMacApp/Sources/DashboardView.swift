@@ -400,6 +400,14 @@ private struct DetailView: View {
                         model.jump(session)
                     }
                 }
+                // Keep reminding about this session's completion until it is read.
+                Toggle(isOn: Binding(
+                    get: { session.isFollowed },
+                    set: { model.setFollowed(session.id, $0) })) {
+                    Label("Follow until done", systemImage: session.isFollowed ? "bell.badge.fill" : "bell")
+                }
+                .toggleStyle(.button)
+                .help("When this session finishes, remind you every 5 minutes (up to an hour) until you open it here or on your iPhone.")
                 // What the last jump actually achieved — focused the pane, only
                 // raised the app, or found nothing to raise. Same wording as the
                 // glance rows.

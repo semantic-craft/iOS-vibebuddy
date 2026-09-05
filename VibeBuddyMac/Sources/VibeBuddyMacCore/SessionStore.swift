@@ -295,6 +295,15 @@ public actor SessionStore {
         return changed
     }
 
+    /// Follow or unfollow a session so its completion is reminded about until
+    /// read. Returns false when the session is unknown.
+    @discardableResult
+    public func setFollowed(sessionID: String, _ followed: Bool) -> Bool {
+        guard reducer.sessions[sessionID] != nil else { return false }
+        if reducer.setFollowed(sessionID: sessionID, followed) { broadcast() }
+        return true
+    }
+
     public func snapshot(now: Date) -> Snapshot {
         currentSnapshot(now: now)
     }

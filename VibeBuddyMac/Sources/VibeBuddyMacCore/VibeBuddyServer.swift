@@ -276,6 +276,17 @@ public struct VibeBuddyServer: Sendable {
             return .ok
         }
 
+        // Follow / unfollow a session: keep reminding about its completion until
+        // it is read. Body `{"sessionId","followed"}`; 404 for an unknown session.
+        authed.post("follow") { request, _ -> HTTPResponse.Status in
+            let buffer = try await request.body.collect(upTo: 4096)
+            guard let object = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
+                  let sessionID = object["sessionId"] as? String, !sessionID.isEmpty,
+                  let followed = object["followed"] as? Bool else { throw HTTPError(.badRequest) }
+            guard await store.setFollowed(sessionID: sessionID, followed) else { throw HTTPError(.notFound) }
+            return .ok
+        }
+
         // Blocking approval intake — bearer-token gated (the approval hook reads
         // the token file and sends it). Parse the PreToolUse hook payload, run the
         // permission matcher, and either decide immediately (allow/deny) or hold

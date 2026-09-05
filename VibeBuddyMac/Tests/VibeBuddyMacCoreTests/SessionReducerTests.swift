@@ -90,6 +90,24 @@ struct SessionReducerTests {
         #expect(!secondAcknowledgement)
     }
 
+    @Test("following survives new turns and is unknown-session safe")
+    func followed() {
+        var r = SessionReducer()
+        let unknown = r.setFollowed(sessionID: "s1", true)
+        #expect(!unknown)
+        r.apply(ev(.userPromptSubmit, at: 0))
+        let first = r.setFollowed(sessionID: "s1", true)
+        #expect(first)
+        let repeated = r.setFollowed(sessionID: "s1", true)   // already followed: no change
+        #expect(!repeated)
+        r.apply(ev(.stop, at: 1))
+        r.apply(ev(.userPromptSubmit, at: 2))
+        #expect(r.sessions["s1"]?.isFollowed == true)
+        let cleared = r.setFollowed(sessionID: "s1", false)
+        #expect(cleared)
+        #expect(r.sessions["s1"]?.isFollowed == false)
+    }
+
     @Test("new work clears an unread completion")
     func newRoundClearsUnread() {
         var r = SessionReducer()

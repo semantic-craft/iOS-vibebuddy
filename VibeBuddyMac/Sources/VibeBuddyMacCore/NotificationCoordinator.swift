@@ -27,6 +27,26 @@ public final class NotificationCoordinator: @unchecked Sendable {
         self.delivery = delivery
     }
 
+    /// Say "finished, still unread" again for a followed session. The same
+    /// `agentDone` cue as the completion itself, so the notifier replaces the
+    /// earlier banner rather than stacking a new one. Nothing is posted when the
+    /// Mac has the completion category off or Focus mode is on (a completion
+    /// never survives Quiet mode). Returns whether a post was attempted.
+    @discardableResult
+    public func remind(_ session: AgentSession, now: Date = Date(), quietMode: Bool,
+                       categories: NotificationCategoryPrefs = .default) async -> Bool {
+        let alert = SoundAlert(session: session, sound: .agentDone)
+        guard categories.isEnabled(alert.sound),
+              !quietMode || alert.sound.survivesQuietMode else { return false }
+        let attempt = await notifier.notify(alert)
+        if attempt.shouldRecord {
+            await delivery?.record(NotificationDeliveryRecord(
+                channel: .local, outcome: attempt.outcome, sessionID: alert.sessionID,
+                sound: alert.sound.rawValue, failureReason: attempt.failureReason, timestamp: now))
+        }
+        return true
+    }
+
     /// `categories` is this Mac's own switch set: a cue the policy earned but
     /// the user turned off is dropped here and never posted. Quiet mode is
     /// already applied inside the policy, so Focus narrows what is left to
