@@ -88,6 +88,20 @@ once. "Always allow" on the phone echoes Claude's `permission_suggestions` back
 as `decision.updatedPermissions`, so Claude Code writes the rule itself
 (ADR-0010, amended).
 
+#### Status line (`statusLine`)
+
+`--install` also points Claude's `statusLine.command` at
+`hooks/vibebuddy-statusline.sh`. Claude runs it on every event with its session
+JSON on stdin; the wrapper copies that JSON to the daemon's `/statusline`
+(background, 1s cap, bearer token, fail-open) and then runs the status line
+command that was configured before, with the same stdin, printing its output —
+the terminal display is unchanged. The original object is saved under
+`~/Library/Application Support/vibebuddy/statusline-original.{json,cmd}` and
+`--uninstall` restores it (or removes the key when there was none). The daemon
+uses the sample for context, cost, session name, effort, PR and worktree on the
+session row, and for the 5-hour / 7-day allowance; `claude -p /usage` only runs
+when no sample has arrived for 15 minutes.
+
 ### Codex CLI (`~/.codex/hooks.json`)
 
 ```bash

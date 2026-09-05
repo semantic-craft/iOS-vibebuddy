@@ -431,6 +431,25 @@ public struct VibeBuddyServer: Sendable {
             return .ok
         }
 
+        // Claude's status line JSON, forwarded by hooks/vibebuddy-statusline.sh
+        // on every event — bearer-token gated like the other CLI routes. It
+        // fills fields on a known session and feeds the live quota; it never
+        // creates a session or moves progress, so an unknown session id is
+        // still a 200 (the forwarder is fail-open and never retries).
+        let usageFeed = self.usageFeed
+        hookAuthed.post("statusline") { request, _ -> HTTPResponse.Status in
+            let buffer = try await request.body.collect(upTo: 256 * 1024)
+            guard let obj = (try? JSONSerialization.jsonObject(with: Data(buffer: buffer))) as? [String: Any],
+                  let sample = StatusLineSample.decode(obj)
+            else { throw HTTPError(.badRequest) }
+            let now = Date()
+            await store.applyStatusLine(sample, at: now)
+            if let usageFeed, let snapshot = sample.usageSnapshot(fetchedAt: now) {
+                await usageFeed.publish(snapshot)
+            }
+            return .ok
+        }
+
         let onJump = self.onJump
         let onJumpToDesktopThread = self.onJumpToDesktopThread
         // Terminal-ref capture — bearer-token gated (the capture hook reads the

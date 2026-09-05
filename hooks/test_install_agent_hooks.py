@@ -110,6 +110,58 @@ def check_grok_home(fails):
             fails.append("uninstall left vibebuddy.json under $GROK_HOME")
 
 
+def check_claude_statusline_wrapper(fails):
+    """--install wraps the user's status line (keeping its other fields and
+    saving the original command for the wrapper to run), --uninstall restores
+    it exactly; with no original, --install adds one and --uninstall removes it."""
+    installer = os.path.join(HOOKS, "install-claude-hooks.py")
+    with tempfile.TemporaryDirectory() as home:
+        settings = os.path.join(home, ".claude/settings.json")
+        os.makedirs(os.path.dirname(settings), exist_ok=True)
+        support = os.path.join(home, "Library/Application Support/vibebuddy")
+        env = {**os.environ, "HOME": home, "VIBEBUDDY_CLAUDE_VERSION": "2.1.261",
+               "VIBEBUDDY_SUPPORT_DIR": support}
+        original = {"type": "command", "command": "~/.claude/statusline.sh", "padding": 1}
+        open(settings, "w").write(json.dumps({"statusLine": original}))
+        r = subprocess.run([sys.executable, installer, "--install"], env=env,
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            fails.append(f"statusline --install exited {r.returncode}: {r.stderr}")
+            return
+        line = json.loads(open(settings).read()).get("statusLine", {})
+        if "vibebuddy-statusline.sh" not in line.get("command", ""):
+            fails.append("--install did not wrap the claude status line")
+        if line.get("padding") != 1:
+            fails.append("status line wrapper dropped the original's other fields")
+        cmd_file = os.path.join(support, "statusline-original.cmd")
+        if not os.path.exists(cmd_file) or open(cmd_file).read() != "~/.claude/statusline.sh":
+            fails.append("status line install did not save the original command for the wrapper")
+        # Re-install is idempotent and must not overwrite the saved original.
+        subprocess.run([sys.executable, installer, "--install"], env=env, capture_output=True, text=True)
+        if open(cmd_file).read() != "~/.claude/statusline.sh":
+            fails.append("re-install overwrote the saved original status line command")
+        ru = subprocess.run([sys.executable, installer, "--uninstall"], env=env,
+                            capture_output=True, text=True)
+        if ru.returncode != 0:
+            fails.append(f"statusline --uninstall exited {ru.returncode}: {ru.stderr}")
+        if json.loads(open(settings).read()).get("statusLine") != original:
+            fails.append("--uninstall did not restore the original status line")
+        if os.path.exists(cmd_file):
+            fails.append("--uninstall left the saved original status line command")
+
+        # No original: install adds the wrapper alone, uninstall removes the key.
+        open(settings, "w").write("{}")
+        subprocess.run([sys.executable, installer, "--install"], env=env, capture_output=True, text=True)
+        line = json.loads(open(settings).read()).get("statusLine", {})
+        if "vibebuddy-statusline.sh" not in line.get("command", ""):
+            fails.append("--install did not add a status line when there was none")
+        if open(cmd_file).read() != "":
+            fails.append("status line install with no original saved a command")
+        subprocess.run([sys.executable, installer, "--uninstall"], env=env, capture_output=True, text=True)
+        if "statusLine" in json.loads(open(settings).read()):
+            fails.append("--uninstall left a status line that was not there before")
+
+
 def check_claude_old_cli_keeps_legacy_gate(fails):
     """On a Claude Code older than 2.1.257 the PermissionRequest reply is not
     honoured, so --approval must keep the gate on PreToolUse and say why; once
@@ -433,6 +485,7 @@ def main():
     check_grok_home(fails)
     check_claude_legacy_gate_migration(fails)
     check_claude_old_cli_keeps_legacy_gate(fails)
+    check_claude_statusline_wrapper(fails)
 
     if fails:
         print("FAIL:")

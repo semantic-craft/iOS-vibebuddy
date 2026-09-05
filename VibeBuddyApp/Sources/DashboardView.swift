@@ -185,7 +185,10 @@ private struct SessionRow: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Text(session.project).font(.headline)
+                    Text(session.displayTitle).font(.headline)
+                    if session.name != nil {
+                        Text(session.project).font(.caption).foregroundStyle(.secondary)
+                    }
                     if let branch = session.branch {
                         Text(branch)
                             .font(.caption.monospaced())
@@ -222,8 +225,10 @@ private struct SessionRow: View {
                         Text("· \(tokens.formatted()) tok").monospacedDigit()
                     }
                     if let cost = session.estimatedCostUSD {
-                        Text("· ≈ $\(cost, specifier: "%.2f")").monospacedDigit()
+                        Text("· \(session.costUSD == nil ? "≈ " : "")$\(cost, specifier: "%.2f")").monospacedDigit()
                     }
+                    if let effort = session.effort { Text("· \(effort)") }
+                    if let pr = session.prNumber { Text("· PR #\(pr)").monospacedDigit() }
                     Spacer(minLength: 8)
                     Label {
                         Text(session.statusSince, style: .timer).monospacedDigit()

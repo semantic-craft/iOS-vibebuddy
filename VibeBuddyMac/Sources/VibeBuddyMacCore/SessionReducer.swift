@@ -138,6 +138,31 @@ public struct SessionReducer: Sendable {
         }
     }
 
+    /// Facts from Claude's status line. Never creates a session and never
+    /// touches status, wait kind, tools or summary; the status line's own
+    /// context figure outranks the transcript estimate.
+    public mutating func applyStatusLine(_ sample: StatusLineSample) -> Bool {
+        guard var s = sessions[sample.sessionID] else { return false }
+        if let model = sample.model { s.model = model }
+        if let cwd = sample.cwd { s.project = Self.projectName(cwd) }
+        if let name = sample.sessionName { s.name = name }
+        if let effort = sample.effort { s.effort = effort }
+        if let cost = sample.costUSD { s.costUSD = cost }
+        if let tokens = sample.contextTokens {
+            s.contextTokens = tokens
+            s.contextWindow = sample.contextWindow ?? s.contextWindow ?? Self.contextWindow(for: s.model)
+        } else if let window = sample.contextWindow {
+            s.contextWindow = window
+        }
+        if sample.prNumber != nil || sample.prURL != nil {
+            s.prNumber = sample.prNumber
+            s.prURL = sample.prURL
+        }
+        if let worktree = sample.worktree { s.worktree = worktree }
+        sessions[sample.sessionID] = s
+        return true
+    }
+
     /// Update one stable source entry without touching session progress.
     public mutating func recordObservation(
         sessionID: String,
@@ -387,6 +412,10 @@ public struct SessionReducer: Sendable {
         }
         if let cwd = event.cwd { session.project = Self.projectName(cwd) }
         if let model = event.model { session.model = model }
+        // A metadata event may carry a line worth showing (Claude waiting for
+        // its usage limit to reset); it replaces the summary without touching
+        // progress, and the next turn clears it as usual.
+        if let message = event.message, !message.isEmpty { session.summary = message }
         session.updatedAt = event.timestamp
         sessions[event.sessionID] = session
     }

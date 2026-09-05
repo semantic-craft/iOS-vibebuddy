@@ -136,6 +136,23 @@ public actor SessionStore {
     /// its evidence to outrank the rollout tailer and hooks on that thread.
     public static let appServerAuthorityWindow: TimeInterval = 5 * 60
 
+    /// Claude's status line: fills the session's name, effort, cost, context,
+    /// PR and worktree. Only a session the hooks already opened is touched — a
+    /// sample never creates one or moves its progress. Returns whether one was.
+    @discardableResult
+    public func applyStatusLine(_ sample: StatusLineSample, at date: Date) -> Bool {
+        let applied = reducer.applyStatusLine(sample)
+        if applied {
+            if let path = sample.transcriptPath { transcriptPaths[sample.sessionID] = path }
+            reducer.recordObservation(sessionID: sample.sessionID, source: .statusline,
+                                      at: date, health: .healthy)
+        }
+        // The forwarder is demonstrably wired even when the session is unknown.
+        recordSignal(agent: .claudeCode, source: .statusline, at: date, health: .healthy, coverage: nil)
+        broadcast()
+        return applied
+    }
+
     /// Record a source's liveness without any session event — the app-server
     /// monitor's connection state, for the Settings diagnostics.
     public func recordSourceSignal(agent: AgentKind, source: ObservationSource,

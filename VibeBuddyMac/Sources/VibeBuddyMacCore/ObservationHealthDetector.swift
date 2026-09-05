@@ -55,6 +55,12 @@ public enum ObservationHealthDetector {
     ) -> [AgentObservationDiagnostic] {
         let claude = agentDiagnostic(
             agent: .claudeCode,
+            daemon: statusLineEvidence(
+                config: home?.appendingPathComponent(".claude/settings.json"),
+                signals: signals,
+                now: now,
+                staleAfter: staleAfter,
+                fileManager: fm),
             hook: hookEvidence(
                 config: home?.appendingPathComponent(".claude/settings.json"),
                 installMarker: home?.appendingPathComponent(".claude", isDirectory: true),
@@ -137,6 +143,30 @@ public enum ObservationHealthDetector {
         passive: ObservationSourceDiagnostic
     ) -> AgentObservationDiagnostic {
         AgentObservationDiagnostic(agent: agent, sources: [daemon, hook, passive].compactMap { $0 })
+    }
+
+    /// Claude's status line forwarder: healthy while samples arrive, "events
+    /// missing" when the wrapper is configured but silent, "not installed"
+    /// when Claude's settings name no vibebuddy status line.
+    private static func statusLineEvidence(
+        config: URL?,
+        signals: [ObservationRuntimeSignal],
+        now: Date,
+        staleAfter: TimeInterval,
+        fileManager fm: FileManager
+    ) -> ObservationSourceDiagnostic {
+        let signal = latestSignal(agent: .claudeCode, source: .statusline, in: signals)
+        var configured = false
+        if let config, let data = readData(at: config, upToCount: 1 << 20, fileManager: fm),
+           let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+           let statusLine = root["statusLine"] as? [String: Any],
+           (statusLine["command"] as? String)?.contains("vibebuddy-statusline.sh") == true {
+            configured = true
+        }
+        return diagnostic(source: .statusline, signal: signal,
+                          fallback: configured ? .eventsMissing : .notInstalled,
+                          now: now, staleAfter: staleAfter,
+                          forceFallback: !configured && signal == nil)
     }
 
     /// The Codex app-server daemon: healthy while the monitor's connection

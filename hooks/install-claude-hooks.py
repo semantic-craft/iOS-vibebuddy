@@ -42,6 +42,17 @@ MIN_PERMISSION_REQUEST_VERSION = (2, 1, 257)
 APPROVAL_TIMEOUT = 30   # the daemon answers within 25s; the hook's curl caps at 30s
 CAPTURE_HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "capture-terminal.sh")
 CAPTURE_MARKER = "capture-terminal.sh"
+# Status line forwarding: Claude runs one `statusLine.command` per event with
+# its session JSON on stdin. The wrapper copies it to the daemon and then runs
+# whatever command was configured before, so the terminal display is unchanged.
+# The original object is kept beside the daemon token for --uninstall; the bare
+# command also goes into a plain file the wrapper can `cat` without parsing.
+STATUSLINE_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vibebuddy-statusline.sh")
+STATUSLINE_MARKER = "vibebuddy-statusline.sh"
+SUPPORT_DIR = os.environ.get("VIBEBUDDY_SUPPORT_DIR") or os.path.expanduser(
+    "~/Library/Application Support/vibebuddy")
+STATUSLINE_ORIGINAL = os.path.join(SUPPORT_DIR, "statusline-original.json")
+STATUSLINE_ORIGINAL_CMD = os.path.join(SUPPORT_DIR, "statusline-original.cmd")
 TOOL_EVENTS = {"PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionDenied"}
 # High-signal lifecycle events used by current maintained monitors. Deliberately
 # omit display/file/config telemetry that adds process churn without changing a
@@ -112,6 +123,59 @@ def install(data):
             arr[:] = [g for g in arr if not has_marker(g, CAPTURE_MARKER)]
             arr.append(expected)
     return added
+
+
+def is_statusline_wrapper(value):
+    return isinstance(value, dict) and STATUSLINE_MARKER in str(value.get("command", ""))
+
+
+def install_statusline(data):
+    """Wrap the user's status line (or install ours when there is none).
+
+    Idempotent: a settings file that already names the wrapper is left alone,
+    and the saved original is never overwritten by the wrapper itself.
+    """
+    existing = data.get("statusLine")
+    if is_statusline_wrapper(existing):
+        return False
+    os.makedirs(SUPPORT_DIR, exist_ok=True)
+    os.chmod(SUPPORT_DIR, 0o700)
+    original = existing if isinstance(existing, dict) else None
+    with open(STATUSLINE_ORIGINAL, "w") as handle:
+        json.dump({"statusLine": original}, handle)
+    os.chmod(STATUSLINE_ORIGINAL, 0o600)
+    command = ""
+    if original and original.get("type", "command") == "command":
+        command = str(original.get("command", "") or "")
+    with open(STATUSLINE_ORIGINAL_CMD, "w") as handle:
+        handle.write(command)
+    os.chmod(STATUSLINE_ORIGINAL_CMD, 0o600)
+    wrapper = dict(original) if original else {}
+    wrapper["type"] = "command"
+    wrapper["command"] = f'"{STATUSLINE_SCRIPT}"'
+    data["statusLine"] = wrapper
+    return True
+
+
+def uninstall_statusline(data):
+    """Put back whatever status line was there before the wrapper."""
+    if not is_statusline_wrapper(data.get("statusLine")):
+        return False
+    original = None
+    if os.path.exists(STATUSLINE_ORIGINAL):
+        try:
+            with open(STATUSLINE_ORIGINAL) as handle:
+                original = json.load(handle).get("statusLine")
+        except (OSError, ValueError):
+            original = None
+    if isinstance(original, dict):
+        data["statusLine"] = original
+    else:
+        data.pop("statusLine", None)
+    for path in (STATUSLINE_ORIGINAL, STATUSLINE_ORIGINAL_CMD):
+        if os.path.exists(path):
+            os.unlink(path)
+    return True
 
 
 def claude_version():
@@ -219,18 +283,23 @@ def main():
 
     if mode == "--uninstall":
         removed = uninstall(data)
+        if uninstall_statusline(data):
+            removed.append("statusLine")
         write(data)
         print("removed vibebuddy hooks from:", removed or "(none)")
         return
 
     if mode == "--approval":
         install(data)              # ensure base status hooks exist
+        install_statusline(data)
         added = install_approval(data, claude_version())
         write(data)
         print("installed vibebuddy approval hook:", added)
         return
 
     added = install(data)
+    if mode == "--install" and install_statusline(data):
+        added.append("statusLine")
     if has_approval(data):
         # A plain re-install (the Mac app's Repair button) keeps — and, for an
         # old PreToolUse gate on a current CLI, migrates — the approval gate the

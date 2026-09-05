@@ -59,6 +59,15 @@ code, and tests — don't drift to synonyms.
   layers consume.
 - **Conversation language** — the language the voice companion speaks (English /
   中文); independent of the **UI language** (English).
+- **Status line sample** — one status line JSON from Claude Code, copied to the
+  daemon by `hooks/vibebuddy-statusline.sh` on every event (ObservationSource
+  `statusline`). It fills a known session's name, effort, cost, context, PR and
+  worktree and feeds Claude's live quota (`rate_limits`); it never creates a
+  session or moves the three states.
+- **Live usage feed** — `AccountUsageLiveFeed`: quota that arrives on its own
+  (status line `rate_limits`, the Codex daemon's `account/rateLimits/*`). The
+  usage coordinator treats a live sample like a fetch and holds the spawning
+  collector off while samples stay fresh (Claude 15 min, Codex 20 min).
 - **Native always-allow** — a phone "Always allow" on a Claude Code approval
   echoes Claude's own `permission_suggestions` back as `updatedPermissions`, so
   Claude Code persists the rule where its terminal dialog would; the card shows

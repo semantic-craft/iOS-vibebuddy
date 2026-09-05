@@ -276,7 +276,10 @@ private struct SessionRowView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
                 TaskStatusIndicator(session.presentationState, isSelected: isSelected, size: 9)
-                Text(session.project).font(.headline)   // row subject = .headline (matches iOS)
+                Text(session.displayTitle).font(.headline)   // row subject = .headline (matches iOS)
+                if session.name != nil {
+                    Text(session.project).font(.caption).foregroundStyle(.secondary)
+                }
                 AgentSourceBadge(agent: session.agent)
                 if session.isStuck {
                     Label("Stuck", systemImage: "exclamationmark.triangle.fill")
@@ -311,8 +314,11 @@ private struct SessionRowView: View {
             HStack(spacing: 6) {
                 Text(session.updatedAt, style: .relative).monospacedDigit()
                 if let cost = session.estimatedCostUSD {
-                    Text("≈ $\(cost, specifier: "%.2f")").monospacedDigit()
+                    Text("\(session.costUSD == nil ? "≈ " : "")$\(cost, specifier: "%.2f")").monospacedDigit()
                 }
+                if let effort = session.effort { Text("· effort \(effort)") }
+                if let pr = session.prNumber { Text("· PR #\(pr)").monospacedDigit() }
+                if let worktree = session.worktree { Text("· \(worktree)").lineLimit(1) }
             }
             .font(.caption2).foregroundStyle(.tertiary)
             if let observation = session.observationDescription {

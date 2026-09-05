@@ -372,8 +372,24 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     /// snapshots decode as a normal completion. Distinct from a real stop
     /// whose last message happened to be "Abandoned".
     public var probeRetired: Bool?
+    /// Facts Claude Code's status line reports about the session (all optional
+    /// so older snapshots decode unchanged): the `--name` / `/rename` or
+    /// generated title, the effort level, the client-side cost estimate, the
+    /// open pull request and the worktree the session runs in.
+    public var name: String?
+    public var effort: String?
+    public var costUSD: Double?
+    public var prNumber: Int?
+    public var prURL: String?
+    public var worktree: String?
     public var statusSince: Date
     public var updatedAt: Date
+
+    /// The row title: the session's own name when it has one, else the project.
+    public var displayTitle: String {
+        if let name, !name.trimmingCharacters(in: .whitespaces).isEmpty { return name }
+        return project
+    }
 
     public init(
         id: String,
@@ -399,6 +415,12 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         childAgents: [ChildAgent]? = nil,
         childTopologyDegraded: Bool? = nil,
         probeRetired: Bool? = nil,
+        name: String? = nil,
+        effort: String? = nil,
+        costUSD: Double? = nil,
+        prNumber: Int? = nil,
+        prURL: String? = nil,
+        worktree: String? = nil,
         statusSince: Date,
         updatedAt: Date
     ) {
@@ -425,6 +447,12 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         self.childAgents = childAgents
         self.childTopologyDegraded = childTopologyDegraded
         self.probeRetired = probeRetired
+        self.name = name
+        self.effort = effort
+        self.costUSD = costUSD
+        self.prNumber = prNumber
+        self.prURL = prURL
+        self.worktree = worktree
         self.statusSince = statusSince
         self.updatedAt = updatedAt
     }
