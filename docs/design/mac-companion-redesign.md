@@ -110,11 +110,8 @@ Companion.swift` and `CompanionViews.swift` (palette, type, `CompanionCopy`,
 `BucketTitle`, `SpeechBubble`, `SplitApproveButton`, `ApprovalBody`); the Mac's
 `MacTheme` is a thin alias over them.
 
-- **iPhone dashboard**: cat (64 pt) + speech bubble with the mood line and the
-  second line in the header; the three state panels; summary-first rows; the
-  selected needs-you row expands inline into the same request card as the Mac
-  detail pane (there is no detail column on the phone). Question rows keep the
-  existing option buttons inside the card.
+- **iPhone dashboard**: superseded by rounds 6–8 below — the message stream
+  replaced the three panels on 2026-09-06.
 - **Dynamic Island expanded / lock-screen Live Activity**: cat + mood line +
   second line; the leading session (project + state) underneath. Compact
   island: cat leading, needs-you badge trailing (working count in blue when
@@ -157,3 +154,11 @@ Rules that follow:
   Mac…") is a plain line inside the bubble, no keys.
 - Dark and light follow the shared tokens; the cat in the header uses the icon
   geometry (rounded ears, green inner ears and belly).
+
+Implemented on 2026-09-06 in `VibeBuddyApp/Sources/DashboardView.swift`:
+`MessageRow` (bubble), `StreamComposer` (reply banner + field, the send button
+names the meaning), `ReplyMeaning` (answer / instruction / continue / new
+task, from the target's state; instructions only reach Codex sessions and the
+banner says so otherwise), `SessionDetailSheet` (the numbers behind the
+avatar, the attention picker, jump). A composer send with no target opens the
+existing new-task sheet with the draft filled in.
