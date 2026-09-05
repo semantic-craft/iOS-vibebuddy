@@ -403,6 +403,20 @@ final class DashboardStore: ObservableObject {
         Task { await decisionClient.acknowledge(pairing, sessionId: sessionId) }
     }
 
+    /// Follow a session so its completion is reminded about until read. The list
+    /// flips at once; the Mac stays authoritative and the next snapshot either
+    /// confirms it or puts it back. Demo Mode mirrors the flag locally.
+    func setFollowed(_ sessionId: String, _ followed: Bool) {
+        install(allSessions.map { session in
+            guard session.id == sessionId else { return session }
+            var session = session
+            session.followed = followed
+            return session
+        })
+        guard !isDemo, let pairing else { return }
+        Task { await decisionClient.follow(pairing, sessionId: sessionId, followed: followed) }
+    }
+
     /// Honest feedback for a jump — success lands on the Mac, so the phone has to
     /// say so; `nil` means the Mac wasn't reachable. `activatedApp` is the case
     /// worth naming: the right app is now in front, but the session's own window

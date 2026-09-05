@@ -120,3 +120,8 @@
 "Task completed" = "任务完成";
 "Still-waiting reminders" = "久等催促";
 "Pairing confirmation" = "配对成功提示";
+
+/* Follow until done (Dashboard) */
+"Follow until done" = "关注到完成";
+"Unfollow" = "取消关注";
+"Following until done" = "已关注，完成前持续提醒";

@@ -97,6 +97,15 @@ code, and tests — don't drift to synonyms.
   `DeviceRegistrationPayload` so the Mac's APNs push honours the phone's
   switches. The Mac's `HookParser` reads Claude's `notification_type` to set
   `waitKind` directly; the message keyword match is only the fallback.
+- **Followed / Completion reminder** — `AgentSession.followed` marks a session
+  the user wants to be reminded about until its completion is read. Toggled from
+  the iPhone (swipe / long-press) or the Mac detail pane through `POST /follow`;
+  authoritative on the Mac like `hasUnreadCompletion`, and it survives new turns.
+  `CompletionReminderSchedule` re-issues the `agentDone` cue for a followed,
+  `done`, unread session every 5 minutes, at most 12 times per completion
+  (keyed by `statusSince`), on the Mac and over APNs; any acknowledgement stops
+  it. Same notification id and collapse id as the original cue, so one banner
+  is replaced, not stacked. The Watch carries no follow state.
 - **NotificationDelivery / NotificationDeliveryLog** — one record per local or
   APNs send with outcome `attempted` / `scheduled` / `accepted` / `failed`. Never
   `delivered`: an API result is not proof the device showed it.
