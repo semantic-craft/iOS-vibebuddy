@@ -37,6 +37,12 @@ public struct VibeBuddyServer: Sendable {
     public let onJumpToDesktopThread: @Sendable (String) async -> JumpOutcome
     public let onAnswer: @Sendable (TerminalRef, String) -> Void
     public let onDevicePaired: @Sendable (DeviceRegistrationPayload) -> Void
+    /// Deliver one completion reminder for a followed, unread, done session.
+    /// Returns whether any channel actually took it, so a reminder every
+    /// channel suppressed does not spend one of the session's slots. The
+    /// default pushes to paired phones over APNs (the headless daemon); the
+    /// menu-bar app supplies its own that also posts a local banner.
+    public let onCompletionReminder: (@Sendable (AgentSession) async -> Bool)?
 
     public init(store: SessionStore, token: String, host: String = "0.0.0.0",
                 port: Int = 9876, pusher: APNsPusher? = nil,
@@ -53,7 +59,8 @@ public struct VibeBuddyServer: Sendable {
                 onJump: @escaping @Sendable (TerminalRef) async -> JumpOutcome = { await TerminalJumper.jump($0) },
                 onJumpToDesktopThread: @escaping @Sendable (String) async -> JumpOutcome = { await CodexDesktopJumper.jump(threadID: $0) },
                 onAnswer: @escaping @Sendable (TerminalRef, String) -> Void = { ref, answer in TerminalInjector.inject(answer, into: ref) },
-                onDevicePaired: @escaping @Sendable (DeviceRegistrationPayload) -> Void = { _ in }) {
+                onDevicePaired: @escaping @Sendable (DeviceRegistrationPayload) -> Void = { _ in },
+                onCompletionReminder: (@Sendable (AgentSession) async -> Bool)? = nil) {
         self.store = store
         self.token = token
         self.host = host
@@ -73,6 +80,7 @@ public struct VibeBuddyServer: Sendable {
         self.onJumpToDesktopThread = onJumpToDesktopThread
         self.onAnswer = onAnswer
         self.onDevicePaired = onDevicePaired
+        self.onCompletionReminder = onCompletionReminder
     }
 
     /// Run the HTTP service and its Codex rollout source under one lifetime.
@@ -131,6 +139,18 @@ public struct VibeBuddyServer: Sendable {
             }
         }
 
+        // Followed completions: propose reminders on a schedule, deliver through
+        // the app's handler or the daemon's own APNs push, and count only what
+        // was actually handed to a channel.
+        let reminderServer = self
+        Task {
+            var schedule = CompletionReminderSchedule()
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                await reminderServer.remindFollowedCompletions(&schedule, now: Date())
+            }
+        }
+
         // APNs: push a "needs you" alert to registered devices on each fresh
         // needsResponse transition. Off until a pusher is configured.
         if let pusher = self.pusher {
@@ -170,6 +190,42 @@ public struct VibeBuddyServer: Sendable {
     }
 
     /// Built separately so in-process tests can exercise routes via `app.test(.router)`.
+    /// One reminder pass: ask the schedule what is owed, deliver each, and spend a
+    /// slot only for a session at least one channel took.
+    public func remindFollowedCompletions(_ schedule: inout CompletionReminderSchedule,
+                                          now: Date) async {
+        let sessions = await store.snapshot(now: now).sessions
+        for session in schedule.due(sessions, now: now) {
+            let delivered: Bool
+            if let onCompletionReminder {
+                delivered = await onCompletionReminder(session)
+            } else {
+                delivered = await pushCompletionReminder(session, now: now)
+            }
+            if delivered { schedule.markReminded(session.id, now: now) }
+        }
+    }
+
+    /// The daemon's own channel: the `agentDone` cue again, to every phone whose
+    /// switches allow it and that is not in Quiet mode. Same collapse id as the
+    /// completion, so the banner is replaced rather than stacked.
+    private func pushCompletionReminder(_ session: AgentSession, now: Date) async -> Bool {
+        guard let pusher else { return false }
+        let sound = NotificationSound.agentDone
+        var attempted = false
+        for device in await deviceTokens.devices() {
+            guard let token = device.token,
+                  (device.categories ?? .default).isEnabled(sound),
+                  device.quietMode != true else { continue }
+            attempted = true
+            await pusher.send(title: "\(session.project) finished",
+                              body: session.summary ?? "Task complete",
+                              to: token, sound: device.playSound != false ? sound.fileName : "",
+                              now: now, sessionID: session.id, soundCategory: sound.rawValue)
+        }
+        return attempted
+    }
+
     public func router() -> Router<BasicRequestContext> {
         let router = Router()
         let store = self.store

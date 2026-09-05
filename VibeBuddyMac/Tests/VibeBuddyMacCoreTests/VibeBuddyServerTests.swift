@@ -148,6 +148,45 @@ struct VibeBuddyServerTests {
         }
     }
 
+    @Test("a followed unread completion is reminded about on schedule, and only a delivered reminder spends a slot")
+    func completionRemindersCountOnlyDeliveries() async throws {
+        final class Box: @unchecked Sendable { var deliver = false; var asked: [String] = [] }
+        let box = Box()
+        let store = SessionStore()
+        let t0 = Date(timeIntervalSince1970: 1_000)
+        await store.ingest(Data(#"{"hook_event_name":"UserPromptSubmit","session_id":"s","cwd":"/x/demo"}"#.utf8),
+                           receivedAt: t0)
+        await store.ingest(Data(#"{"hook_event_name":"Stop","session_id":"s","cwd":"/x/demo"}"#.utf8),
+                           receivedAt: t0.addingTimeInterval(60))
+        await store.setFollowed(sessionID: "s", true)
+        let server = VibeBuddyServer(store: store, token: "t0k",
+                                     onCompletionReminder: { session in
+                                         box.asked.append(session.id); return box.deliver })
+        var schedule = CompletionReminderSchedule()
+        let completedAt = t0.addingTimeInterval(60)
+
+        await server.remindFollowedCompletions(&schedule, now: completedAt.addingTimeInterval(10))
+        #expect(box.asked.isEmpty)                       // not yet one interval in
+
+        // Due, but nobody could deliver: asked, not counted, asked again next pass.
+        await server.remindFollowedCompletions(&schedule, now: completedAt.addingTimeInterval(300))
+        await server.remindFollowedCompletions(&schedule, now: completedAt.addingTimeInterval(330))
+        #expect(box.asked == ["s", "s"])
+        #expect(schedule.remindersSent(for: "s") == 0)
+
+        // Delivered: counted, and quiet until the next interval.
+        box.deliver = true
+        await server.remindFollowedCompletions(&schedule, now: completedAt.addingTimeInterval(360))
+        await server.remindFollowedCompletions(&schedule, now: completedAt.addingTimeInterval(400))
+        #expect(box.asked.count == 3)
+        #expect(schedule.remindersSent(for: "s") == 1)
+
+        // Read anywhere: nothing further is asked.
+        await store.acknowledgeCompletion(sessionID: "s")
+        await server.remindFollowedCompletions(&schedule, now: completedAt.addingTimeInterval(700))
+        #expect(box.asked.count == 3)
+    }
+
     @Test("/answer injects text into the session terminal")
     func answerInjectsIntoTerminal() async throws {
         final class Box: @unchecked Sendable { var answers: [(String, String)] = [] }

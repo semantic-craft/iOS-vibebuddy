@@ -69,8 +69,6 @@ final class MenuBarModel: ObservableObject {
     private let pusher: APNsPusher?
     private let deviceTokens = DeviceTokens()
     private let phonePolicy = SoundPolicy()
-    /// Followed completions still unread: reminded every 5 minutes, up to an hour.
-    private var reminders = CompletionReminderSchedule()
     private let budgetMonitor = BudgetMonitor()
     /// Account usage is intentionally separate from `sessions`; refresh errors
     /// never enter SessionStore or the progress notification pipeline.
@@ -191,6 +189,10 @@ final class MenuBarModel: ObservableObject {
                                      approvalContext: approvalContext,
                                      onDevicePaired: { [weak self] device in
                                          Task { @MainActor in self?.recordPairedDevice(device) }
+                                     },
+                                     onCompletionReminder: { [weak self] session in
+                                         guard let self else { return false }
+                                         return await self.deliverCompletionReminder(session)
                                      })
         Task.detached(priority: .utility) {
             do {
@@ -235,7 +237,6 @@ final class MenuBarModel: ObservableObject {
                     categories: NotificationCategoryPrefs.load()) // this Mac's own switches
                 await self.refreshNotificationDeliveryHealth()
                 await self.pushToPhones(snapshot.sessions)
-                await self.remindFollowed(snapshot.sessions)
                 await self.pushActivityUpdates(snapshot.sessions)
                 await self.checkBudget(snapshot.sessions)
                 try? await Task.sleep(for: .seconds(2))
@@ -314,9 +315,12 @@ final class MenuBarModel: ObservableObject {
     }
 
     /// One cue to every paired phone, each device respecting its own switches.
-    private func push(_ alert: SoundAlert, to devices: [DeviceRegistrationPayload]) async {
-        guard let pusher else { return }
+    /// Returns whether any phone was actually sent to.
+    @discardableResult
+    private func push(_ alert: SoundAlert, to devices: [DeviceRegistrationPayload]) async -> Bool {
+        guard let pusher else { return false }
         let (title, body) = Self.pushCopy(for: alert)
+        var attempted = false
         for device in devices {
             guard let deviceToken = device.token else { continue }
             // The phone's switches, uploaded with its registration; a phone
@@ -324,26 +328,26 @@ final class MenuBarModel: ObservableObject {
             guard (device.categories ?? .default).isEnabled(alert.sound) else { continue }
             if device.quietMode == true && !alert.sound.survivesQuietMode { continue }  // night: approvals only
             let sound = device.playSound != false ? alert.sound.fileName : ""           // mute → silent banner
+            attempted = true
             await pusher.send(title: title, body: body, to: deviceToken, sound: sound,
                               sessionID: alert.sessionID, soundCategory: alert.sound.rawValue)
         }
+        return attempted
     }
 
-    /// Followed sessions whose completion is still unread get the `agentDone`
-    /// cue again — here, and on every paired phone — every 5 minutes for up to
-    /// an hour. Reading the completion anywhere clears the unread bit through
-    /// the store, and the schedule forgets the session on its next pass.
-    private func remindFollowed(_ sessions: [AgentSession]) async {
-        let due = reminders.due(sessions, now: Date())
-        guard !due.isEmpty else { return }
-        let quiet = Self.effectiveQuiet()
-        let categories = NotificationCategoryPrefs.load()
+    /// The server's reminder schedule asks this to deliver one `agentDone`
+    /// reminder for a followed, unread completion: a local banner (this Mac's
+    /// categories and Focus mode permitting) and a push to every paired phone
+    /// whose switches allow it. Returns whether any channel took it — a
+    /// reminder nobody could show does not spend one of the session's slots.
+    @MainActor
+    private func deliverCompletionReminder(_ session: AgentSession) async -> Bool {
+        let local = await notificationCoordinator.remind(
+            session, quietMode: Self.effectiveQuiet(), categories: NotificationCategoryPrefs.load())
         let devices = pusher == nil ? [] : await deviceTokens.devices()
-        for session in due {
-            await notificationCoordinator.remind(session, quietMode: quiet, categories: categories)
-            await push(SoundAlert(session: session, sound: .agentDone), to: devices)
-        }
-        await refreshNotificationDeliveryHealth()
+        let pushed = await push(SoundAlert(session: session, sound: .agentDone), to: devices)
+        if local || pushed { await refreshNotificationDeliveryHealth() }
+        return local || pushed
     }
 
     /// Fire a one-time budget heads-up (local + push) for sessions that just

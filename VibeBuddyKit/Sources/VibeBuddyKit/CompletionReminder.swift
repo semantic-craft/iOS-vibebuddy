@@ -10,8 +10,11 @@ import Foundation
 /// due and forgets the session. A new completion has a new `statusSince`, which
 /// starts the count over.
 ///
-/// Pure and clock-injected: the Mac's poll loop feeds it the current snapshot
-/// and posts whatever comes back.
+/// Pure and clock-injected. `due` proposes; the caller posts and then calls
+/// `markReminded` only when at least one channel actually took the cue. A
+/// reminder that every channel suppressed (Focus mode, category off, no phone)
+/// therefore does not spend one of the twelve slots: the completion is still
+/// unread, and the next eligible moment says so.
 public struct CompletionReminderSchedule: Sendable, Equatable {
     public static let interval: TimeInterval = 5 * 60
     public static let maxReminders = 12
@@ -26,28 +29,35 @@ public struct CompletionReminderSchedule: Sendable, Equatable {
 
     public init() {}
 
-    /// The sessions owed a reminder right now. Calling this records them as
-    /// reminded, so the next call within `interval` returns nothing for them.
+    /// The sessions owed a reminder right now. Nothing is counted here: call
+    /// `markReminded` for each one that was actually delivered somewhere.
     public mutating func due(_ sessions: [AgentSession], now: Date) -> [AgentSession] {
         var due: [AgentSession] = []
         var eligible = Set<String>()
         for session in sessions where Self.isEligible(session) {
             eligible.insert(session.id)
-            // First sight of a completion starts its count. The completion itself
+            // First sight of a completion starts its clock. The completion itself
             // already rang (or was filtered); the first reminder is one interval
             // after it, which may be right now if we only just noticed it.
-            var p = progress[session.id].flatMap { $0.completedAt == session.statusSince ? $0 : nil }
+            let p = progress[session.id].flatMap { $0.completedAt == session.statusSince ? $0 : nil }
                 ?? Progress(completedAt: session.statusSince, count: 0, lastAt: session.statusSince)
+            progress[session.id] = p
             if p.count < Self.maxReminders, now.timeIntervalSince(p.lastAt) >= Self.interval {
-                p.count += 1
-                p.lastAt = now
                 due.append(session)
             }
-            progress[session.id] = p
         }
         // Read, unfollowed, working again, or gone: nothing left to remind about.
         progress = progress.filter { eligible.contains($0.key) }
         return due
+    }
+
+    /// A reminder for this session was handed to at least one channel: spend a
+    /// slot and start the next interval from now.
+    public mutating func markReminded(_ sessionID: String, now: Date) {
+        guard var p = progress[sessionID] else { return }
+        p.count += 1
+        p.lastAt = now
+        progress[sessionID] = p
     }
 
     /// How many reminders this session's current completion has had.
