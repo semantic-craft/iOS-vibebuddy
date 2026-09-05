@@ -438,7 +438,10 @@ public actor SessionStore {
             source: source,
             timestamp: timestamp,
             status: result?.status,
-            waitKind: result?.waitKind
+            waitKind: result?.waitKind,
+            // The reducer's "—" placeholder means no cwd yet; don't persist it.
+            // The entry itself bounds the label (LifecycleJournalEntry.maxProjectBytes).
+            project: result.flatMap { $0.project == "—" ? nil : $0.project }
         ), now: timestamp)
         lifecycleJournal = journal
     }
