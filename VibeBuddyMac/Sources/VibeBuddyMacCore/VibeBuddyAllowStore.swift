@@ -107,11 +107,26 @@ public actor SessionAllowList {
 /// candidate rule to persist. Registered when an approval starts holding,
 /// consumed when the phone decides.
 public actor ApprovalContextStore {
-    public struct Context: Sendable { public let sessionID: String; public let rule: String? }
+    public struct Context: Sendable {
+        public let sessionID: String
+        /// The conservative vibebuddy-store rule "Always allow" would add
+        /// (ADR 0010) when the agent proposes none of its own.
+        public let rule: String?
+        /// Claude's own allow-rule proposals (`permission_suggestions`),
+        /// serialized for `updatedPermissions`. When present, "Always allow"
+        /// echoes these back instead of writing the vibebuddy store, so Claude
+        /// persists the rule where its terminal dialog would (ADR 0010, amended).
+        public let nativeSuggestions: Data?
+    }
     private var contexts: [String: Context] = [:]
+    /// Grants chosen on `/decision` and waiting to ride on the `/approval`
+    /// reply that is still held for the same id.
+    private var grants: [String: Data] = [:]
     public init() {}
-    public func set(id: String, sessionID: String, rule: String?) {
-        contexts[id] = Context(sessionID: sessionID, rule: rule)
+    public func set(id: String, sessionID: String, rule: String?, nativeSuggestions: Data? = nil) {
+        contexts[id] = Context(sessionID: sessionID, rule: rule, nativeSuggestions: nativeSuggestions)
     }
     public func take(id: String) -> Context? { contexts.removeValue(forKey: id) }
+    public func grant(id: String, updatedPermissions: Data) { grants[id] = updatedPermissions }
+    public func takeGrant(id: String) -> Data? { grants.removeValue(forKey: id) }
 }

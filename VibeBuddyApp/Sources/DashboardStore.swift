@@ -14,6 +14,10 @@ final class DashboardStore: ObservableObject {
 
     @Published private(set) var groups = SessionGroups([])
     @Published private(set) var observationDiagnostics: [AgentObservationDiagnostic] = []
+    /// Directories the Mac has seen sessions run in — where a new task may start.
+    @Published private(set) var recentDirectories: [String] = []
+    /// Agents the Mac can start a new task for right now.
+    @Published private(set) var dispatchAgents: [AgentKind] = []
     /// Sessions the user has pointed the buddy at (in-memory, never persisted).
     /// Empty = the buddy sees all sessions; pruned to live IDs on every snapshot.
     @Published private(set) var buddySessionIDs: Set<String> = []
@@ -55,15 +59,24 @@ final class DashboardStore: ObservableObject {
     /// actually holds. The Watch's screen is a memory of a snapshot; this is the
     /// only copy that was ever authenticated.
     private var watchApprovals = WatchApprovalGate()
+    /// Tells the Mac who this phone is and how to push to it. Run once per
+    /// connection attempt, not once per launch: the Mac's device registry is
+    /// repaired by the next reconnection after a Mac restart, without the user
+    /// having to cold-launch this app.
+    private let reportDevice: @MainActor (PairingPayload) -> Void
 
     init(streamer: SnapshotStreaming = WebSocketSnapshotClient(),
          notifier: AttentionNotifier = LocalNotifier(),
          decisionClient: DecisionClient = HTTPDecisionClient(),
-         watchRelay: WatchRelay? = WatchRelay(transport: WatchConnectivityTransport())) {
+         watchRelay: WatchRelay? = WatchRelay(transport: WatchConnectivityTransport()),
+         reportDevice: @escaping @MainActor (PairingPayload) -> Void = {
+             PushRegistration.shared.update(pairing: $0)
+         }) {
         self.streamer = streamer
         self.notifier = notifier
         self.decisionClient = decisionClient
         self.watchRelay = watchRelay
+        self.reportDevice = reportDevice
         if ProcessInfo.processInfo.environment["VIBEBUDDY_SKIP_NOTIFICATIONS"] != "1" {
             notifier.requestAuthorization()
         }
@@ -132,13 +145,15 @@ final class DashboardStore: ObservableObject {
         for sessionId in pendingAcknowledgements {
             Task { await decisionClient.acknowledge(pairing, sessionId: sessionId) }
         }
-        let phoneName = UIDevice.current.name        // tell the Mac which phone paired
-        Task { await Self.sendDeviceName(pairing, name: phoneName) }
         state = .connecting
         policy = SoundPolicy()                        // fresh connection → suppress the backlog
         runTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
+                // Every attempt, not just the first: the Mac may have restarted
+                // (emptying its registry) while this app stayed alive in the
+                // background, and nothing else re-uploads the APNs token.
+                self.reportDevice(pairing)
                 for await snapshot in self.streamer.stream(pairing) {
                     if Task.isCancelled { return }
                     await self.apply(snapshot)
@@ -267,6 +282,18 @@ final class DashboardStore: ObservableObject {
     /// Back-compat for the voice companion's approve/deny intents.
     func decide(_ approvalId: String, approve: Bool) { decide(approvalId, approve ? .allow : .deny) }
 
+    /// Answers from the question card, keyed by question id.
+    func answer(_ sessionId: String, answers: QuestionAnswers) {
+        guard !answers.isEmpty else { return }
+        if isDemo {
+            let flat = answers.values.flatMap { $0 }.joined(separator: ", ")
+            answer(sessionId, answer: flat)
+            return
+        }
+        guard let pairing else { return }
+        Task { await decisionClient.answer(pairing, sessionId: sessionId, answers: answers) }
+    }
+
     func answer(_ sessionId: String, answer: String) {
         guard !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         if isDemo {
@@ -375,6 +402,23 @@ final class DashboardStore: ObservableObject {
     @Published var toast: String?
     private var toastTask: Task<Void, Never>?
 
+    /// Start a new task on the Mac. Returns the Mac's answer as a toast-ready
+    /// line; nil when it could not be reached.
+    func dispatch(_ request: DispatchRequest) async -> String? {
+        if isDemo {
+            showToast(String(localized: "Demo mode: nothing was started"))
+            return nil
+        }
+        guard let pairing else { showToast(String(localized: "Couldn't reach your Mac")); return nil }
+        let result = await decisionClient.dispatch(pairing, request: request)
+        switch result {
+        case .started: showToast(String(localized: "Started — it will appear in Working"))
+        case .rejected(let why), .unsupported(let why), .unavailable(let why): showToast(why)
+        case nil: showToast(String(localized: "Couldn't reach your Mac"))
+        }
+        return result.map { "\($0)" }
+    }
+
     func jump(_ sessionId: String) {
         guard let pairing else { showToast(String(localized: "Couldn't reach your Mac")); return }
         let desktopThread = allSessions.first { $0.id == sessionId }?.jumpsToDesktopThread ?? false
@@ -434,6 +478,7 @@ final class DashboardStore: ObservableObject {
             case .activatedApp: return String(localized: "Opened ChatGPT on your Mac — find the thread there")
             case .unsupported:  return String(localized: "Couldn't open the thread — is ChatGPT running on your Mac?")
             case .noTerminal:   return String(localized: "No thread for this session")
+            case .attached:     return String(localized: "Opened a terminal on your Mac attached to this session")
             case nil:           return String(localized: "Couldn't reach your Mac")
             }
         }
@@ -442,6 +487,7 @@ final class DashboardStore: ObservableObject {
         case .activatedApp: return String(localized: "Opened the app on your Mac — find the tab there")
         case .unsupported:  return String(localized: "Can't focus this terminal type yet")
         case .noTerminal:   return String(localized: "No terminal for this session")
+        case .attached:     return String(localized: "Opened a terminal on your Mac attached to this session")
         case nil:           return String(localized: "Couldn't reach your Mac")
         }
     }
@@ -453,24 +499,6 @@ final class DashboardStore: ObservableObject {
             try? await Task.sleep(for: .seconds(2.5))
             self?.toast = nil
         }
-    }
-
-    /// Tell the Mac this phone's name so it can show "Paired: <name>". Best-effort.
-    private static func sendDeviceName(_ pairing: PairingPayload, name: String) async {
-        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/device") else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONEncoder().encode(DeviceRegistrationPayload(
-            name: name,
-            model: UIDevice.current.model,
-            systemVersion: "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)",
-            playSound: SoundPrefs.playSound,
-            quietMode: SoundPrefs.effectiveQuiet(),
-            categories: SoundPrefs.categories
-        ))
-        _ = try? await URLSession.shared.data(for: request)
     }
 
     private func apply(_ snapshot: Snapshot) async {
@@ -492,6 +520,8 @@ final class DashboardStore: ObservableObject {
         notifications.record(alerts)
         notifier.withdraw(notifications.withdrawals(for: snapshot.sessions))
         observationDiagnostics = snapshot.observationDiagnostics ?? []
+        recentDirectories = snapshot.recentDirectories ?? []
+        dispatchAgents = snapshot.dispatchAgents ?? []
         lastProviderQuota = snapshot.providerQuota ?? []
         buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: snapshot.sessions)
         state = .connected

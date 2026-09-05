@@ -67,3 +67,30 @@ Both Mac and iOS send the same `/decision` values, so both benefit.
 - Does **not** retro-suppress Claude's *native* prompts for the same command (those
   never reach vibebuddy); that would require writing `settings.json`, explicitly out
   of scope here.
+
+## Amendment (2026-09-05): Claude persists its own rule via `updatedPermissions`
+
+The premise "a hook cannot write Claude's native rules" no longer holds. Claude
+Code's `PermissionRequest` hook (the gate since PR #31) receives
+`permission_suggestions` — the very `addRules` entries its terminal dialog builds
+its "Always allow" options from — and accepts them back as
+`decision.updatedPermissions`, whereupon Claude Code writes the rule to the
+destination the suggestion names (`.claude/settings.local.json` by default).
+
+Decision, revised:
+
+- For **Claude Code**, "Always allow" on the phone echoes Claude's own allow
+  suggestion back as `updatedPermissions` and writes **nothing** to the vibebuddy
+  store. The card shows the suggested rule text (`Bash(rm -rf node_modules)`) so
+  the phone offers exactly what the terminal would. vibebuddy still never edits
+  `~/.claude/settings.json` itself — Claude Code does the writing.
+- The **vibebuddy-owned store** narrows to: every other agent routed through the
+  gate (Codex, Grok, …), Claude requests that carry no suggestion (older CLIs),
+  and "Allow all this session", which stays in daemon memory.
+- Native `deny` rules still win over everything; the daemon no longer re-runs
+  Claude's *allow* rules on a `PermissionRequest` (Claude already evaluated them
+  and chose to ask), so a phone card there is always a real wait.
+
+Consequences: a rule granted from the phone now also suppresses Claude's native
+prompt for the same command in future sessions — the gap the original
+consequences section called out — because it lives where Claude reads it.

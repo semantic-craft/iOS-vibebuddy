@@ -52,30 +52,68 @@ public struct APNsConfig: Sendable {
 
 /// Registered iOS devices (uploaded by the app via POST /device), keyed by APNs
 /// token, with the phone's sound preferences so the Mac's push respects them.
+/// Backed by an owner-only file when given a `url`, so a Mac restart no longer
+/// empties the registry and silently stops every push to a closed phone.
 public actor DeviceTokens {
-    private var devicesByToken: [String: DeviceRegistrationPayload] = [:]
-    public init() {}
+    private var registry: DeviceRegistry
 
-    public func add(_ token: String) {
-        if devicesByToken[token] == nil { devicesByToken[token] = DeviceRegistrationPayload(token: token) }
+    /// `url` nil = in-memory only (tests, demo instance). The real entry points
+    /// pass `DeviceRegistryLocation.defaultURL()`.
+    public init(url: URL? = nil) {
+        registry = DeviceRegistry(url: url)
+    }
+
+    public func add(_ token: String, now: Date = Date()) {
+        register(DeviceRegistrationPayload(token: token), now: now)
     }
 
     /// Upsert a device, merging in any preference fields the payload carries.
-    public func register(_ payload: DeviceRegistrationPayload) {
-        guard let token = payload.token, !token.isEmpty else { return }
-        var merged = devicesByToken[token] ?? DeviceRegistrationPayload(token: token)
-        merged.token = token
-        if let v = payload.name { merged.name = v }
-        if let v = payload.model { merged.model = v }
-        if let v = payload.systemVersion { merged.systemVersion = v }
-        if let v = payload.playSound { merged.playSound = v }
-        if let v = payload.quietMode { merged.quietMode = v }
-        if let v = payload.categories { merged.categories = v }
-        devicesByToken[token] = merged
+    public func register(_ payload: DeviceRegistrationPayload, now: Date = Date()) {
+        registry.upsert(payload, now: now)
     }
 
-    public func all() -> [String] { Array(devicesByToken.keys) }
-    public func devices() -> [DeviceRegistrationPayload] { Array(devicesByToken.values) }
+    public func all() -> [String] { registry.entries.compactMap(\.device.token) }
+    public func devices() -> [DeviceRegistrationPayload] { registry.devices }
+    public func summary() -> DeviceRegistrySummary { registry.summary }
+
+    /// Feed back what Apple said about one send. Call after *every* send: this
+    /// is where a dead device (410) and a never-valid token (400 on a token
+    /// Apple has never accepted) leave the registry, and where a token that
+    /// Apple does accept earns the standing that protects it from a later 400.
+    /// Returns true when the device was dropped.
+    @discardableResult
+    public func applySendResult(_ result: APNsSendResult, token: String,
+                                now: Date = Date()) -> Bool {
+        registry.apply(result, token: token, now: now)
+    }
+
+    /// Forget every device — the Mac side of "forget this phone". The phone
+    /// keeps its bearer token and re-reports on its next reconnect, so the
+    /// forgotten tokens are also blocked until the user shows the pairing QR
+    /// again (`acceptNewRegistrations`), which is the explicit intent to pair.
+    public func forgetAll() { registry.forgetAll() }
+
+    /// Lift the block set by `forgetAll`: the pairing QR is on screen.
+    public func acceptNewRegistrations() { registry.acceptNewRegistrations() }
+
+    /// Drop every device without blocking re-registration (tests, demo reset).
+    public func removeAll() { registry.removeAll() }
+}
+
+/// The phone's string-table keys for a push, so the banner reads in the
+/// phone's language. See `PushCopy`.
+public struct PushLocalization: Equatable, Sendable {
+    public var titleKey: String
+    public var titleArgs: [String]
+    public var bodyKey: String?
+    public init(titleKey: String, titleArgs: [String], bodyKey: String?) {
+        self.titleKey = titleKey
+        self.titleArgs = titleArgs
+        self.bodyKey = bodyKey
+    }
+    public init(_ copy: PushCopy) {
+        self.init(titleKey: copy.titleKey, titleArgs: copy.titleArgs, bodyKey: copy.bodyKey)
+    }
 }
 
 /// Sends "needs you" alerts to registered devices over APNs (HTTP/2 + cached
@@ -105,7 +143,8 @@ public actor APNsPusher {
     public func send(title: String, body: String, to deviceToken: String,
                      sound: String = "default", now: Date = Date(),
                      sessionID: String? = nil,
-                     soundCategory: String? = nil) async -> APNsSendResult {
+                     soundCategory: String? = nil,
+                     localized: PushLocalization? = nil) async -> APNsSendResult {
         let category = soundCategory ?? sound.replacingOccurrences(of: ".caf", with: "")
         guard let url = URL(string: "https://\(config.host)/3/device/\(deviceToken)"),
               let auth = try? providerToken(now: now) else {
@@ -127,13 +166,14 @@ public actor APNsPusher {
                              forHTTPHeaderField: "apns-collapse-id")
         }
         request.httpBody = Data(Self.alertPayload(title: title, body: body, sound: sound,
-                                                  sessionID: sessionID).utf8)
+                                                  sessionID: sessionID, localized: localized).utf8)
         do {
-            let (_, response) = try await http.data(for: request)
+            let (data, response) = try await http.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode
             return await finish(
                 APNsDelivery.classify(status: status, error: nil),
-                status: status, now: now, sessionID: sessionID, sound: category)
+                status: status, now: now, sessionID: sessionID, sound: category,
+                reason: Self.errorReason(in: data))
         } catch {
             return await finish(
                 APNsDelivery.classify(status: nil, error: error),
@@ -141,15 +181,47 @@ public actor APNsPusher {
         }
     }
 
+    /// Record a cue that was earned but sent to nobody. Not a send, so it never
+    /// goes near APNs — but it is the only trace that cue leaves on this channel,
+    /// so it belongs with the sends rather than in a caller's own bookkeeping.
+    public func recordSkip(sessionID: String?, sound: NotificationSound,
+                           reason: CueSkipReason, now: Date = Date()) async {
+        await recorder?.record(NotificationDeliveryRecord(
+            channel: .apns, outcome: .skipped, sessionID: sessionID,
+            sound: sound.rawValue, failureReason: reason.rawValue, timestamp: now))
+    }
+
     /// The `alert` push body. An empty sound means a silent (banner-only) push.
     /// The session id rides outside `aps` so the phone's `userInfo["sessionId"]`
     /// reads the same for a push as for its own local notification, and a tapped
-    /// banner can open the session either way.
+    /// banner can open the session either way. It also goes in as `thread-id`,
+    /// the phone's `threadIdentifier` for the same session, so the push files
+    /// into that session's group instead of the app-wide stack.
+    /// `localized` adds the phone's string-table keys next to the English
+    /// copy so the banner reads in the phone's language.
     nonisolated static func alertPayload(title: String, body: String, sound: String,
-                                         sessionID: String?) -> String {
+                                         sessionID: String?,
+                                         localized: PushLocalization? = nil) -> String {
+        var alert = #""title":"\#(escape(title))","body":"\#(escape(body))""#
+        if let localized {
+            let args = localized.titleArgs.map { #""\#(escape($0))""# }.joined(separator: ",")
+            alert += #","title-loc-key":"\#(escape(localized.titleKey))","title-loc-args":[\#(args)]"#
+            if let bodyKey = localized.bodyKey {
+                alert += #","loc-key":"\#(escape(bodyKey))""#
+            }
+        }
         let soundField = sound.isEmpty ? "" : #","sound":"\#(escape(sound))""#
+        let threadField = sessionID.map { #","thread-id":"\#(escape($0))""# } ?? ""
         let sessionField = sessionID.map { #","sessionId":"\#(escape($0))""# } ?? ""
-        return #"{"aps":{"alert":{"title":"\#(escape(title))","body":"\#(escape(body))"}\#(soundField)}\#(sessionField)}"#
+        return #"{"aps":{"alert":{\#(alert)}\#(soundField)\#(threadField)}\#(sessionField)}"#
+    }
+
+    /// APNs answers every failure with `{"reason":"…"}`; success bodies are empty.
+    static func errorReason(in data: Data) -> String? {
+        guard !data.isEmpty,
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let reason = object["reason"] as? String, !reason.isEmpty else { return nil }
+        return reason
     }
 
     private func finish(
@@ -157,10 +229,12 @@ public actor APNsPusher {
         status: Int?,
         now: Date,
         sessionID: String?,
-        sound: String?
+        sound: String?,
+        reason: String? = nil
     ) async -> APNsSendResult {
         let result = APNsSendResult(
-            outcome: classified.outcome, status: status, failureReason: classified.failureReason)
+            outcome: classified.outcome, status: status, failureReason: classified.failureReason,
+            reason: reason)
         await recorder?.record(NotificationDeliveryRecord(
             channel: .apns,
             outcome: classified.outcome,

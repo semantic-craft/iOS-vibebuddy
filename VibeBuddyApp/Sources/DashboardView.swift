@@ -10,6 +10,7 @@ struct DashboardView: View {
     @EnvironmentObject private var voice: VoiceChat
     @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
     @State private var showSettings = false
+    @State private var showNewTask = false
     @State private var highlightId: String?
 
     private var groups: StateGroups { StateGroups(dashboard.allSessions) }
@@ -57,6 +58,11 @@ struct DashboardView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { ConnectionDot(state: dashboard.state) }
             ToolbarItem(placement: .topBarTrailing) {
+                Button { showNewTask = true } label: { Image(systemName: "plus.bubble") }
+                    .disabled(dashboard.recentDirectories.isEmpty || dashboard.dispatchAgents.isEmpty)
+                    .accessibilityLabel("New task")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 Button { showSettings = true } label: { Image(systemName: "gearshape") }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -67,6 +73,7 @@ struct DashboardView: View {
             }
         }
         .tint(CompanionPalette.accent)
+        .sheet(isPresented: $showNewTask) { NewTaskSheet(dashboard: dashboard) }
         .sheet(isPresented: $showSettings) {
             // A sheet doesn't inherit the presenter's environment objects, so
             // re-inject `voice` — Settings restarts a live session on change.
@@ -246,6 +253,7 @@ private struct PairedMacStrip: View {
 private struct SessionRow: View {
     let session: AgentSession
     let isSelected: Bool
+    @State private var showComposer = false
     @EnvironmentObject private var dashboard: DashboardStore
     @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
 
@@ -292,10 +300,35 @@ private struct SessionRow: View {
                         .padding(.top, 4)
                 }
                 if let question = session.pendingQuestion {
-                    QuestionCardView(question: question) { answer in
-                        dashboard.answer(session.id, answer: answer)
+                    if question.isAnswerable {
+                        QuestionCardView(question: question) { answers in
+                            dashboard.answer(session.id, answers: answers)
+                        }
+                        .padding(.top, 4)
+                    } else {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(question.prompt).font(CompanionType.font(14, .heavy)).foregroundStyle(CompanionPalette.ink)
+                            Label("You're at the Mac — answer this in the agent's own prompt.", systemImage: "keyboard")
+                                .font(CompanionType.font(11, .semibold)).foregroundStyle(CompanionPalette.ink2)
+                        }
+                        .padding(.top, 4)
                     }
-                    .padding(.top, 4)
+                }
+                if session.agent == .codex {
+                    // Free text for a Codex thread: joins the running turn or
+                    // opens a new one, through the Mac's app-server connection.
+                    if showComposer {
+                        InstructionComposer(placeholder: session.status == .done
+                                            ? "Start a new turn…" : "Add to the current turn…") { text in
+                            dashboard.answer(session.id, answer: text)
+                            showComposer = false
+                        }
+                        .padding(.top, 6)
+                    } else {
+                        Button { showComposer = true } label: { Label("Send instruction", systemImage: "text.bubble") }
+                            .buttonStyle(PillButtonStyle(kind: .soft, size: .small))
+                            .padding(.top, 2)
+                    }
                 }
                 if session.canJump, session.pendingApproval == nil {
                     Button(session.jumpsToDesktopThread ? "Open thread in ChatGPT" : "Jump to terminal") {
@@ -319,10 +352,13 @@ private struct SessionRow: View {
 
     private var eyebrow: some View {
         HStack(spacing: 6) {
-            Text(session.project)
+            Text(session.displayTitle)
                 .font(CompanionType.font(12, .bold))
                 .foregroundStyle(CompanionPalette.ink2)
                 .lineLimit(1)
+            if session.name != nil {
+                Text(session.project).font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3).lineLimit(1)
+            }
             AgentBadge(agent: session.agent)
             if let branch = session.branch {
                 Text(branch)
@@ -366,8 +402,10 @@ private struct SessionRow: View {
                 Text("\(tokens.formatted()) tok").monospacedDigit()
             }
             if let cost = session.estimatedCostUSD {
-                Text("≈ $\(cost, specifier: "%.2f")").monospacedDigit()
+                Text("\(session.costUSD == nil ? "≈ " : "")$\(cost, specifier: "%.2f")").monospacedDigit()
             }
+            if let effort = session.effort { Text("effort \(effort)") }
+            if let pr = session.prNumber { Text("PR #\(pr)").monospacedDigit() }
             Spacer(minLength: 8)
             Label {
                 Text(session.statusSince, style: .timer).monospacedDigit()
@@ -406,6 +444,10 @@ private struct RequestCard: View {
                 }
             }
             ApprovalBody(approval: approval)
+            if !approval.isAnswerable {
+                Label("You're at the Mac — answer this in the agent's own prompt.", systemImage: "keyboard")
+                    .font(CompanionType.font(11, .semibold)).foregroundStyle(CompanionPalette.ink2)
+            } else {
             HStack(spacing: 8) {
                 SplitApproveButton(
                     approve: { dashboard.decide(approval.id, .allow) },
@@ -418,6 +460,11 @@ private struct RequestCard: View {
                         .buttonStyle(PillButtonStyle(kind: .ghost))
                 }
             }
+            if let rule = approval.suggestedRule {
+                Text("Always allow adds \(rule) to Claude's own rules.")
+                    .font(CompanionType.font(10, .semibold)).foregroundStyle(CompanionPalette.ink3)
+            }
+            }
             if session.agent == .grok, let mode = approval.permissionMode, mode != "bypassPermissions" {
                 Label {
                     Text("Grok will still ask in the terminal after Allow (permission mode: \(mode)). Set permission_mode = \"always-approve\" to approve from here.")
@@ -428,6 +475,41 @@ private struct RequestCard: View {
                 .foregroundStyle(CompanionPalette.ink3)
             }
         }
+    }
+}
+
+/// One line of free text for a session, sent with the button or the return key.
+private struct InstructionComposer: View {
+    let placeholder: String
+    let send: (String) -> Void
+    @State private var draft = ""
+
+    var body: some View {
+        HStack(spacing: 8) {
+            TextField(placeholder, text: $draft, axis: .vertical)
+                .font(CompanionType.font(13, .semibold))
+                .lineLimit(1...3)
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .background(CompanionPalette.bg2, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .onSubmit(submit)
+            Button(action: submit) {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 14, weight: .black))
+                    .foregroundStyle(.white)
+                    .frame(width: 34, height: 34)
+                    .background(CompanionPalette.accent, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .accessibilityLabel("Send instruction")
+        }
+    }
+
+    private func submit() {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        send(text)
+        draft = ""
     }
 }
 

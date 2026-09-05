@@ -76,6 +76,15 @@ public final class NotificationCoordinator: @unchecked Sendable {
                                      focusedSessionIDs: focusedSessionIDs)
         let earned = policy.evaluate(input)
         let alerts = categories.filter(earned)
+        // A cue this Mac's switches dropped is a decision, not an absence: say so,
+        // the same way the push path says why a phone heard nothing.
+        for dropped in earned where !alerts.contains(where: { $0.sessionID == dropped.sessionID
+                                                             && $0.sound == dropped.sound }) {
+            await delivery?.record(NotificationDeliveryRecord(
+                channel: .local, outcome: .skipped, sessionID: dropped.sessionID,
+                sound: dropped.sound.rawValue, failureReason: CueSkipReason.category.rawValue,
+                timestamp: now))
+        }
         // Withdraw before posting: a session that left one wait and entered
         // another in the same snapshot keeps only the new cue.
         let stale = ledger.withdrawals(for: sessions)

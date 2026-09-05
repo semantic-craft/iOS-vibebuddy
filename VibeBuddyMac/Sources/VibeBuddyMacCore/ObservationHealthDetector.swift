@@ -55,6 +55,12 @@ public enum ObservationHealthDetector {
     ) -> [AgentObservationDiagnostic] {
         let claude = agentDiagnostic(
             agent: .claudeCode,
+            daemon: statusLineEvidence(
+                config: home?.appendingPathComponent(".claude/settings.json"),
+                signals: signals,
+                now: now,
+                staleAfter: staleAfter,
+                fileManager: fm),
             hook: hookEvidence(
                 config: home?.appendingPathComponent(".claude/settings.json"),
                 installMarker: home?.appendingPathComponent(".claude", isDirectory: true),
@@ -79,6 +85,12 @@ public enum ObservationHealthDetector {
         }
         let codex = agentDiagnostic(
             agent: .codex,
+            daemon: appServerEvidence(
+                socket: home?.appendingPathComponent(".codex/app-server-control/app-server-control.sock"),
+                signals: signals,
+                now: now,
+                staleAfter: staleAfter,
+                fileManager: fm),
             hook: hookEvidence(
                 config: home?.appendingPathComponent(".codex/hooks.json"),
                 installMarker: home?.appendingPathComponent(".codex", isDirectory: true),
@@ -126,10 +138,53 @@ public enum ObservationHealthDetector {
 
     private static func agentDiagnostic(
         agent: AgentKind,
+        daemon: ObservationSourceDiagnostic? = nil,
         hook: ObservationSourceDiagnostic,
         passive: ObservationSourceDiagnostic
     ) -> AgentObservationDiagnostic {
-        AgentObservationDiagnostic(agent: agent, sources: [hook, passive])
+        AgentObservationDiagnostic(agent: agent, sources: [daemon, hook, passive].compactMap { $0 })
+    }
+
+    /// Claude's status line forwarder: healthy while samples arrive, "events
+    /// missing" when the wrapper is configured but silent, "not installed"
+    /// when Claude's settings name no vibebuddy status line.
+    private static func statusLineEvidence(
+        config: URL?,
+        signals: [ObservationRuntimeSignal],
+        now: Date,
+        staleAfter: TimeInterval,
+        fileManager fm: FileManager
+    ) -> ObservationSourceDiagnostic {
+        let signal = latestSignal(agent: .claudeCode, source: .statusline, in: signals)
+        var configured = false
+        if let config, let data = readData(at: config, upToCount: 1 << 20, fileManager: fm),
+           let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+           let statusLine = root["statusLine"] as? [String: Any],
+           (statusLine["command"] as? String)?.contains("vibebuddy-statusline.sh") == true {
+            configured = true
+        }
+        return diagnostic(source: .statusline, signal: signal,
+                          fallback: configured ? .eventsMissing : .notInstalled,
+                          now: now, staleAfter: staleAfter,
+                          forceFallback: !configured && signal == nil)
+    }
+
+    /// The Codex app-server daemon: healthy while the monitor's connection
+    /// reports, "events missing" when its control socket exists but nothing has
+    /// been read from it yet, "not installed" when there is no socket at all.
+    private static func appServerEvidence(
+        socket: URL?,
+        signals: [ObservationRuntimeSignal],
+        now: Date,
+        staleAfter: TimeInterval,
+        fileManager fm: FileManager
+    ) -> ObservationSourceDiagnostic {
+        let signal = latestSignal(agent: .codex, source: .appserver, in: signals)
+        let socketExists = socket.map { fm.fileExists(atPath: $0.path) } ?? false
+        return diagnostic(source: .appserver, signal: signal,
+                          fallback: socketExists ? .eventsMissing : .notInstalled,
+                          now: now, staleAfter: staleAfter,
+                          forceFallback: !socketExists && signal == nil)
     }
 
     private static func hookEvidence(

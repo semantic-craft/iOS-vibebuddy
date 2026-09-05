@@ -54,6 +54,17 @@ struct CompletionReminderTests {
         #expect(s.remindersSent(for: "s") == 1)
     }
 
+    @Test("a skipped proposal waits one interval before it is offered again, and spends no slot")
+    func skippedProposalWaitsAnInterval() {
+        var s = CompletionReminderSchedule()
+        let done = session(since: 0)
+        #expect(s.due([done], now: at(300)).map(\.id) == ["s"])
+        s.markSkipped("s", now: at(300))                     // nobody could take it
+        #expect(s.due([done], now: at(330)).isEmpty)           // not on the next 30 s pass
+        #expect(s.due([done], now: at(600)).map(\.id) == ["s"])  // but one interval later
+        #expect(s.remindersSent(for: "s") == 0)
+    }
+
     @Test("a completion first seen long after it happened is reminded about right away")
     func lateFirstSight() {
         var s = CompletionReminderSchedule()

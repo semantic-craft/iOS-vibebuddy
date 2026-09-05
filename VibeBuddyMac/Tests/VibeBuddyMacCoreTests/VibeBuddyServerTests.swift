@@ -132,23 +132,48 @@ struct VibeBuddyServerTests {
         await server.remindFollowedCompletions(&schedule, now: completedAt.addingTimeInterval(10))
         #expect(box.asked.isEmpty)                       // not yet one interval in
 
-        // Due, but nobody could deliver: asked, not counted, asked again next pass.
+        // Due, but nobody could deliver: asked, not counted — and not asked
+        // again on the next 30-second pass, only one interval later.
         await server.remindFollowedCompletions(&schedule, now: completedAt.addingTimeInterval(300))
         await server.remindFollowedCompletions(&schedule, now: completedAt.addingTimeInterval(330))
+        #expect(box.asked == ["s"])
+        await server.remindFollowedCompletions(&schedule, now: completedAt.addingTimeInterval(600))
         #expect(box.asked == ["s", "s"])
         #expect(schedule.remindersSent(for: "s") == 0)
 
         // Delivered: counted, and quiet until the next interval.
         box.deliver = true
-        await server.remindFollowedCompletions(&schedule, now: completedAt.addingTimeInterval(360))
-        await server.remindFollowedCompletions(&schedule, now: completedAt.addingTimeInterval(400))
+        await server.remindFollowedCompletions(&schedule, now: completedAt.addingTimeInterval(900))
+        await server.remindFollowedCompletions(&schedule, now: completedAt.addingTimeInterval(940))
         #expect(box.asked.count == 3)
         #expect(schedule.remindersSent(for: "s") == 1)
 
         // Read anywhere: nothing further is asked.
         await store.acknowledgeCompletion(sessionID: "s")
-        await server.remindFollowedCompletions(&schedule, now: completedAt.addingTimeInterval(700))
+        await server.remindFollowedCompletions(&schedule, now: completedAt.addingTimeInterval(1300))
         #expect(box.asked.count == 3)
+    }
+
+    @Test("without an APNs key the daemon records why a due reminder went nowhere, once per interval")
+    func noAPNsReminderIsRecordedAsSkipped() async throws {
+        let store = SessionStore()
+        let t0 = Date(timeIntervalSince1970: 1_000)
+        await store.ingest(Data(#"{"hook_event_name":"UserPromptSubmit","session_id":"s","cwd":"/x/demo"}"#.utf8),
+                           receivedAt: t0)
+        await store.ingest(Data(#"{"hook_event_name":"Stop","session_id":"s","cwd":"/x/demo"}"#.utf8),
+                           receivedAt: t0.addingTimeInterval(60))
+        await store.setAttention(sessionID: "s", .followed)
+        let spy = SpyDelivery()
+        let server = VibeBuddyServer(store: store, token: "t0k", pusher: nil, deliveryRecorder: spy)
+        var schedule = CompletionReminderSchedule()
+        let completedAt = t0.addingTimeInterval(60)
+        await server.remindFollowedCompletions(&schedule, now: completedAt.addingTimeInterval(300))
+        await server.remindFollowedCompletions(&schedule, now: completedAt.addingTimeInterval(330))
+        #expect(spy.records.map(\.outcome) == [.skipped])
+        #expect(spy.records.first?.failureReason == CueSkipReason.apnsNotConfigured.rawValue)
+        #expect(spy.records.first?.channel == .apns)
+        await server.remindFollowedCompletions(&schedule, now: completedAt.addingTimeInterval(600))
+        #expect(spy.records.count == 2)
     }
 
     @Test("/answer injects text into the session terminal")
@@ -217,7 +242,7 @@ struct VibeBuddyServerTests {
         }
     }
 
-    @Test("/answer without a terminal ref is a no-op")
+    @Test("/answer with nothing waiting and no terminal ref is accepted but not delivered")
     func answerWithoutTerminalRefNoOps() async throws {
         final class Box: @unchecked Sendable { var answers: [String] = [] }
         let box = Box()
@@ -231,7 +256,9 @@ struct VibeBuddyServerTests {
             try await client.execute(uri: "/answer", method: .post,
                                      headers: [.authorization: "Bearer t0k"],
                                      body: ByteBuffer(string: #"{"sessionId":"s","answer":"Use main"}"#)) { res in
-                #expect(res.status == .ok)
+                // Nothing waiting on the session and no pane to type into:
+                // accepted but not delivered, so the phone can say so.
+                #expect(res.status == .accepted)
             }
             #expect(box.answers.isEmpty)
         }

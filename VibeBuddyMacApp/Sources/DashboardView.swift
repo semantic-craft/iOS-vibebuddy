@@ -10,6 +10,7 @@ struct DashboardView: View {
     @Environment(\.openSettings) private var openSettings
     @State private var statusFilter: TaskPresentationState? = nil
     @State private var query: String = ""
+    @State private var showNewTask = false
     // Demo instance pre-selects the approval session so the detail pane (diff +
     // Approve/Deny) is shown for screenshots; nil in normal use.
     @State private var selection: String? =
@@ -40,10 +41,16 @@ struct DashboardView: View {
         .background(MacTheme.bg)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
+                Button { showNewTask = true } label: { Image(systemName: "plus.bubble") }
+                    .help("Start a new task in a directory a session has run in")
+                    .disabled(model.recentDirectories.isEmpty || model.dispatchAgents.isEmpty)
+            }
+            ToolbarItem(placement: .primaryAction) {
                 Button { openSettings() } label: { Image(systemName: "gearshape") }
                     .help("Settings")
             }
         }
+        .sheet(isPresented: $showNewTask) { NewTaskSheet(model: model) }
         .background {
             Group {
                 Button("") { statusFilter = .error }.keyboardShortcut("1", modifiers: .command)
@@ -272,7 +279,10 @@ private struct SummaryRow: View {
             StateGlyph(state: state)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(session.project).font(MacTheme.font(12, .bold)).foregroundStyle(MacTheme.ink2)
+                    Text(session.displayTitle).font(MacTheme.font(12, .bold)).foregroundStyle(MacTheme.ink2)
+                    if session.name != nil {
+                        Text(session.project).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink3)
+                    }
                     AgentBadge(agent: session.agent)
                     if let branch = session.branch {
                         Text(branch).font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink3).lineLimit(1)
@@ -305,8 +315,17 @@ private struct SummaryRow: View {
                         .font(MacTheme.font(10, .heavy)).textCase(.uppercase).kerning(0.6)
                         .foregroundStyle(MacTheme.status(state))
                     if let cost = session.estimatedCostUSD {
-                        Text("≈ $\(cost, specifier: "%.2f")").font(MacTheme.font(10, .semibold))
+                        Text("\(session.costUSD == nil ? "≈ " : "")$\(cost, specifier: "%.2f")").font(MacTheme.font(10, .semibold))
                             .foregroundStyle(MacTheme.ink3).monospacedDigit()
+                    }
+                    if let effort = session.effort {
+                        Text("effort \(effort)").font(MacTheme.font(10, .semibold)).foregroundStyle(MacTheme.ink3)
+                    }
+                    if let pr = session.prNumber {
+                        Text("PR #\(pr)").font(MacTheme.font(10, .heavy)).foregroundStyle(MacTheme.ink2).monospacedDigit()
+                    }
+                    if let worktree = session.worktree {
+                        Text(worktree).font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink3).lineLimit(1)
                     }
                     if let observation = session.observationDescription {
                         Text(observation).font(MacTheme.font(10, .semibold)).foregroundStyle(MacTheme.ink3)
@@ -343,8 +362,11 @@ private struct DetailCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(session.project).font(MacTheme.font(26, .black)).foregroundStyle(MacTheme.ink)
+            Text(session.displayTitle).font(MacTheme.font(26, .black)).foregroundStyle(MacTheme.ink)
                 .lineLimit(1).minimumScaleFactor(0.7)
+            if session.name != nil {
+                Text(session.project).font(MacTheme.font(12, .bold)).foregroundStyle(MacTheme.ink3)
+            }
             HStack(spacing: 6) {
                 Image(systemName: session.presentationState.symbolName).font(.system(size: 10, weight: .bold))
                 Text(session.presentationState.label)
@@ -357,9 +379,32 @@ private struct DetailCard: View {
             if let approval = session.pendingApproval {
                 RequestCard(session: session, approval: approval, model: model)
             } else {
-                if let s = session.summary, !s.isEmpty {
+                if let question = session.pendingQuestion {
+                    if question.isAnswerable {
+                        QuestionCardView(question: question) { answers in
+                            model.answer(session.id, answers: answers)
+                        }
+                    } else {
+                        Text(question.prompt).font(MacTheme.font(14, .heavy)).foregroundStyle(MacTheme.ink)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Label("You're at the Mac — answer this in the agent's own prompt.", systemImage: "keyboard")
+                            .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink2)
+                    }
+                } else if let s = session.summary, !s.isEmpty {
                     Text(s).font(MacTheme.font(14, .semibold)).foregroundStyle(MacTheme.ink2)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+                if session.agent == .codex {
+                    // Free text for a Codex thread: joins the running turn or
+                    // opens a new one, through the app-server daemon.
+                    InstructionComposer(placeholder: session.status == .done
+                                        ? "Start a new turn…" : "Add to the current turn…") { text in
+                        model.answer(session.id, answers: [:], text: text)
+                    }
+                }
+                if let feedback = model.answerFeedback[session.id] {
+                    Label(feedback, systemImage: "exclamationmark.bubble")
+                        .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink2)
                 }
                 HStack(spacing: 8) {
                     Button(session.jumpsToDesktopThread ? "Open thread in ChatGPT" : "Jump to terminal") { model.jump(session) }
@@ -426,6 +471,13 @@ private struct RequestCard: View {
                 }
             }
             ApprovalBody(approval: approval)
+            if !approval.isAnswerable {
+                // Presence: the agent's own prompt is taking this one.
+                Label("You're at the Mac — answer this in the agent's own prompt.", systemImage: "keyboard")
+                    .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink2)
+                Button(session.jumpsToDesktopThread ? "Open thread" : "Jump ⏎") { model.jump(session) }
+                    .buttonStyle(PillButtonStyle(kind: .filled(MacTheme.accent)))
+            } else {
             HStack(spacing: 8) {
                 SplitApproveButton(
                     approve: { model.decide(approval.id, .allow) },
@@ -437,6 +489,12 @@ private struct RequestCard: View {
                     .keyboardShortcut("d", modifiers: [])
                 Button(session.jumpsToDesktopThread ? "Open thread" : "Jump ⏎") { model.jump(session) }
                     .buttonStyle(PillButtonStyle(kind: .ghost))
+            }
+            if let rule = approval.suggestedRule {
+                Text("Always allow adds \(rule) to Claude's own permission rules — the same rule the terminal dialog offers.")
+                    .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             }
             if session.agent == .grok, let mode = approval.permissionMode, mode != "bypassPermissions" {
                 Label {
@@ -529,6 +587,36 @@ private struct TranscriptSheet: View {
                 .padding()
             }
         }
+    }
+}
+
+/// One line of free text for a session, sent with ⌘↩ or the button.
+struct InstructionComposer: View {
+    let placeholder: String
+    let send: (String) -> Void
+    @State private var draft = ""
+
+    var body: some View {
+        HStack(spacing: 8) {
+            TextField(placeholder, text: $draft, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(MacTheme.font(13, .semibold))
+                .lineLimit(1...4)
+                .padding(.horizontal, 12).padding(.vertical, 7)
+                .background(MacTheme.bg2, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .onSubmit(submit)
+            Button("Send", action: submit)
+                .buttonStyle(PillButtonStyle(kind: .filled(MacTheme.accent)))
+                .keyboardShortcut(.return, modifiers: .command)
+                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+    }
+
+    private func submit() {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        send(text)
+        draft = ""
     }
 }
 
