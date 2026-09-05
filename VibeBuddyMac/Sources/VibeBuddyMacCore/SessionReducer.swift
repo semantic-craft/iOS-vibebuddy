@@ -356,16 +356,6 @@ public struct SessionReducer: Sendable {
         return true
     }
 
-    /// Follow or unfollow a session. Returns whether authoritative state changed;
-    /// false for a session the reducer does not know.
-    @discardableResult
-    public mutating func setFollowed(sessionID: String, _ followed: Bool) -> Bool {
-        guard var session = sessions[sessionID], session.isFollowed != followed else { return false }
-        session.followed = followed
-        sessions[sessionID] = session
-        return true
-    }
-
     /// A sorted snapshot for broadcast: most-urgent first, then most-recent.
     public func snapshot(
         now: Date,
@@ -416,12 +406,14 @@ public struct SessionReducer: Sendable {
                 s.summary = nil
             }
             if status != .needsResponse {
-                s.pendingQuestion = nil
                 // A read-only card (the person answered at the Mac) has no
                 // resolver of its own: the agent moving on is its end. A card
-                // the phone can still answer outlives a stray progress event
-                // until the hook holding it resolves.
+                // the phone can still answer — an approval held by a hook, or a
+                // question held by QuestionRegistry — outlives a stray progress
+                // event (the async PreToolUse forwarder, a Codex status
+                // notification) until whatever holds it resolves.
                 if s.pendingApproval?.isAnswerable == false { s.pendingApproval = nil }
+                if s.pendingQuestion?.isAnswerable == false { s.pendingQuestion = nil }
             }
             if let cwd = event.cwd { s.project = Self.projectName(cwd) }
             if let model = event.model { s.model = model }

@@ -15,6 +15,11 @@ struct QuestionCardView: View {
     private var sendsOnTap: Bool {
         items.count == 1 && !items[0].multiSelect && !items[0].options.isEmpty
     }
+    /// A typed "Other" reply needs a way out even when options send on tap.
+    private var hasTypedText: Bool {
+        items.contains { !(typed[$0.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+    private var showsSendButton: Bool { !sendsOnTap || hasTypedText }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -62,10 +67,11 @@ struct QuestionCardView: View {
                         TextField(item.options.isEmpty ? "Answer" : "Other…", text: binding(for: item.id), axis: .vertical)
                             .textFieldStyle(.roundedBorder)
                             .lineLimit(1...3)
+                            .onSubmit { if complete { send() } }
                     }
                 }
             }
-            if !sendsOnTap {
+            if showsSendButton {
                 Button {
                     send()
                 } label: {

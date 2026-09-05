@@ -38,7 +38,8 @@ struct VibeBuddyDaemon {
         let server = VibeBuddyServer(
             store: SessionStore(
                 diagnosticsHome: FileManager.default.homeDirectoryForCurrentUser,
-                journalURL: journalURL
+                journalURL: journalURL,
+                attentionURL: AttentionOverrides.defaultURL()
             ),
             token: token, port: port, pusher: pusher,
             codexRolloutMonitor: CodexRolloutMonitor(),

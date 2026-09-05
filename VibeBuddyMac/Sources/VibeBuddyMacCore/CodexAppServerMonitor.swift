@@ -75,6 +75,9 @@ public actor CodexAppServerMonitor {
     /// keyed by thread + request id, so `serverRequest/resolved` (someone
     /// answered in Desktop or the TUI) can withdraw the card silently.
     private var openRequests: [String: OpenRequest] = [:]
+    /// The store `run(store:)` was given, so a disconnect can withdraw the
+    /// cards of requests this connection was holding.
+    private var boundStore: SessionStore?
     /// The items behind pending approvals: `item/started` carries the command
     /// or the file changes, the approval request only their ids.
     private var recentItems: [String: [String: Any]] = [:]
@@ -135,11 +138,12 @@ public actor CodexAppServerMonitor {
     public func setEnabled(_ on: Bool) {
         enabled = on
         state.enabled = on
-        if !on { disconnect(reason: nil) }
+        if !on { Task { await disconnect(reason: nil) } }
     }
 
     /// Runs until cancelled. Safe to call once per monitor.
     public func run(store: SessionStore) async {
+        boundStore = store
         var backoff = minimumBackoff
         while !Task.isCancelled {
             guard enabled else {
@@ -158,7 +162,7 @@ public actor CodexAppServerMonitor {
                 try await session(store: store)
                 backoff = minimumBackoff
             } catch {
-                disconnect(reason: "\(error)")
+                await disconnect(reason: "\(error)")
                 await store.recordSourceSignal(agent: .codex, source: .appserver,
                                                health: Self.health(for: error), at: Date())
             }
@@ -166,7 +170,7 @@ public actor CodexAppServerMonitor {
             try? await Task.sleep(for: backoff)
             backoff = min(backoff * 2, maximumBackoff)
         }
-        disconnect(reason: nil)
+        await disconnect(reason: nil)
     }
 
     // MARK: - One connection
@@ -568,13 +572,35 @@ public actor CodexAppServerMonitor {
         }
     }
 
-    private func disconnect(reason: String?) {
+    private func disconnect(reason: String?) async {
         client?.close()
         client = nil
         subscribed = []
         state.connected = false
         state.subscribedThreads = 0
         if let reason { state.lastError = reason }
+        await withdrawOpenRequests()
+    }
+
+    /// A request this connection was holding cannot be answered once the
+    /// socket is gone: the reply would go to a closed client and Codex would
+    /// stay blocked on its own dialog. Stop every wait and take the cards down,
+    /// so a later phone tap lands nowhere and a reconnect starts clean.
+    private func withdrawOpenRequests() async {
+        guard !openRequests.isEmpty else { return }
+        let open = openRequests
+        openRequests = [:]
+        for request in open.values {
+            switch request.kind {
+            case .approval(let approvalID):
+                _ = await approvalContext.take(id: approvalID)
+                await approvalRegistry.resolve(id: approvalID, with: .pass)
+                await boundStore?.endApproval(sessionID: request.threadID, at: Date())
+            case .question:
+                await questionRegistry.cancel(sessionID: request.threadID)
+                await boundStore?.endQuestion(sessionID: request.threadID, at: Date())
+            }
+        }
     }
 
     private static func health(for error: Error) -> ObservationHealth {

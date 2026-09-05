@@ -127,6 +127,24 @@ struct CodexAppServerApprovalTests {
         #expect(h.connection.decisions.isEmpty)
     }
 
+    @Test("losing the socket withdraws a held approval: the card goes down and nothing is sent later")
+    func disconnectWithdrawsHeldRequests() async throws {
+        let h = await Harness()
+        defer { h.stop() }
+        await h.startThread("thr-dc")
+        h.pushCommandApproval(thread: "thr-dc", requestID: 9, command: "npm test")
+        #expect(await waitFor { await h.session("thr-dc")?.pendingApproval != nil })
+
+        h.connection.close()   // the daemon went away with the request still open
+        #expect(await waitFor { await h.session("thr-dc")?.pendingApproval == nil })
+        #expect(await h.session("thr-dc")?.status == .working)
+
+        // A phone tap that arrives afterwards has nothing to resolve and reaches no client.
+        await h.registry.resolve(id: "card-1", with: .allow)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(h.connection.decisions.isEmpty)
+    }
+
     @Test("a file change approval carries the paths and diff of the item that asked")
     func fileChange() async throws {
         let h = await Harness()

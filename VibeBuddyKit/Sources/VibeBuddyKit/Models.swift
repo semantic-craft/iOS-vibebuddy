@@ -36,6 +36,17 @@ public enum WaitKind: String, Codable, Sendable {
     case question        // asked something / idle waiting for input
 }
 
+/// How much of your attention a session has earned. Decides, together with
+/// the cue, whether a notification interrupts you, sits in the list, or is
+/// never posted (see `DeliveryMatrix`). The daemon owns the value: a manual
+/// choice from the Mac or the phone overrides whatever the automatic signals
+/// would have said, and the choice lives exactly as long as the session.
+public enum SessionAttention: String, Codable, Sendable, CaseIterable {
+    case followed   // you are driving this one — everything interrupts
+    case normal     // the default — only what blocks or breaks interrupts
+    case muted      // you chose to stop hearing from it — approvals only, silently
+}
+
 /// A tool use awaiting the user's approval from the phone. Present only while a
 /// session is blocked on a remote approve/deny.
 public struct PendingApproval: Codable, Sendable, Equatable {
@@ -443,10 +454,13 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     public var prNumber: Int?
     public var prURL: String?
     public var worktree: String?
-    /// The user asked to be reminded about this session until its completion
-    /// is read. Authoritative on the Mac, toggled from any device. Optional so
-    /// older payloads decode as "not followed".
-    public var followed: Bool?
+    /// The attention level in effect for this session: the user's own choice
+    /// when there is one, else what the daemon inferred from recent
+    /// interaction. Absent means `normal`. Only the daemon writes it.
+    public var attention: SessionAttention?
+    /// The level the user set by hand (via `/attention`), if any. Absent means
+    /// the level is automatic — the UI shows this so a choice can be undone.
+    public var attentionOverride: SessionAttention?
     public var statusSince: Date
     public var updatedAt: Date
 
@@ -486,7 +500,8 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         prNumber: Int? = nil,
         prURL: String? = nil,
         worktree: String? = nil,
-        followed: Bool? = nil,
+        attention: SessionAttention? = nil,
+        attentionOverride: SessionAttention? = nil,
         statusSince: Date,
         updatedAt: Date
     ) {
@@ -519,7 +534,8 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         self.prNumber = prNumber
         self.prURL = prURL
         self.worktree = worktree
-        self.followed = followed
+        self.attention = attention
+        self.attentionOverride = attentionOverride
         self.statusSince = statusSince
         self.updatedAt = updatedAt
     }
@@ -536,6 +552,9 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
 
     /// Whether to treat this session as failed/stuck (Optional `failed` is "no").
     public var isStuck: Bool { failed == true }
+
+    /// The attention level to apply: an unset value is `normal`.
+    public var effectiveAttention: SessionAttention { attention ?? .normal }
 
     public var runningChildAgents: [ChildAgent] {
         (childAgents ?? []).filter { $0.status == .running }
@@ -673,9 +692,4 @@ public enum DispatchOutcome: Sendable, Equatable {
     case unsupported(String)
     /// The request was refused (unknown directory, empty prompt).
     case rejected(String)
-}
-
-public extension AgentSession {
-    /// Whether the user asked to be reminded about this session until read.
-    var isFollowed: Bool { followed == true }
 }

@@ -68,8 +68,13 @@ public enum ApprovalPayload {
         /// "Always allow" lands exactly where a terminal one would. Empty for
         /// every other event and agent.
         public let permissionSuggestions: [[String: Any]]
-        /// Grok only: `default | auto | plan | bypassPermissions` at the time of
-        /// the call. Outside `bypassPermissions` an `allow` from the phone only
+        /// The agent's permission mode at the time of the call. Claude Code
+        /// sends `permission_mode` (`default | plan | acceptEdits | auto |
+        /// dontAsk | bypassPermissions`); Grok sends `permissionMode`
+        /// (`default | auto | plan | bypassPermissions`). On a `PreToolUse`
+        /// gate it drives `ApprovalShortCircuit`; a `PermissionRequest` already
+        /// means the agent would ask, so the mode only rides along there.
+        /// For Grok outside `bypassPermissions` an `allow` from the phone only
         /// means "the hook didn't block it" — Grok still raises its own local
         /// prompt, which no remote client can answer. A `deny` is authoritative
         /// in every mode, so the phone approval still runs; the mode rides along
@@ -89,9 +94,10 @@ public enum ApprovalPayload {
 
     public static func decode(_ obj: [String: Any], agent: AgentKind) -> Call {
         guard agent == .grok else {
-            // Claude-shape envelope. A `PermissionRequest` allow is final on
-            // both Claude Code and Codex, so no `permissionMode` rides along
-            // (the UI would otherwise hedge the way it must for Grok).
+            // Claude-shape envelope. The mode matters only on a `PreToolUse`
+            // gate, where it drives the short-circuit; a `PermissionRequest`
+            // allow is final on both Claude Code and Codex, so nothing rides
+            // along there (the UI would otherwise hedge the way it must for Grok).
             let event: Event = obj["hook_event_name"] as? String == "PermissionRequest"
                 ? .permissionRequest : .preToolUse
             let raw = obj["tool_name"] as? String ?? ""
@@ -108,16 +114,21 @@ public enum ApprovalPayload {
                 : []
             return Call(tool: tool, input: input,
                         sessionID: obj["session_id"] as? String ?? "",
-                        event: event, permissionSuggestions: suggestions, permissionMode: nil)
+                        event: event, permissionSuggestions: suggestions,
+                        permissionMode: event == .preToolUse ? nonEmpty(obj["permission_mode"]) : nil)
         }
         // Grok has no PermissionRequest hook; its gate is PreToolUse only.
         let normalized = GrokToolVocabulary.normalize(
             tool: obj["toolName"] as? String ?? "",
             input: obj["toolInput"] as? [String: Any] ?? [:])
-        let mode = (obj["permissionMode"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let mode = nonEmpty(obj["permissionMode"])
         return Call(tool: normalized.tool, input: normalized.input,
                     sessionID: obj["sessionId"] as? String ?? "",
                     event: .preToolUse, permissionMode: mode)
+    }
+
+    private static func nonEmpty(_ value: Any?) -> String? {
+        (value as? String).flatMap { $0.isEmpty ? nil : $0 }
     }
 }
 

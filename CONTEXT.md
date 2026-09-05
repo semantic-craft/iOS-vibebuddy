@@ -154,21 +154,33 @@ code, and tests — don't drift to synonyms.
   `NotificationSound`, switched on or off per device (iPhone Settings, Mac
   Settings). Applied *after* `SoundPolicy` and before anything is posted, so a
   disabled category never reaches the phone and therefore never the Watch that
-  mirrors it; Focus / Quiet mode stays a separate override that narrows what is
-  left to approvals. Defaults: approval, question, stuck, done on; long-wait
+  mirrors it. The switch says *whether at all*; `SessionAttention` (below) says
+  *how loud*. Defaults: approval, question, stuck, done on; long-wait
   nudge and pairing off. The iPhone uploads its copy in
   `DeviceRegistrationPayload` so the Mac's APNs push honours the phone's
   switches. The Mac's `HookParser` reads Claude's `notification_type` to set
   `waitKind` directly; the message keyword match is only the fallback.
-- **Followed / Completion reminder** — `AgentSession.followed` marks a session
-  the user wants to be reminded about until its completion is read. Toggled from
-  the iPhone (swipe / long-press) or the Mac detail pane through `POST /follow`;
-  authoritative on the Mac like `hasUnreadCompletion`, and it survives new turns.
-  `CompletionReminderSchedule` re-issues the `agentDone` cue for a followed,
-  `done`, unread session every 5 minutes, at most 12 times per completion
-  (keyed by `statusSince`), on the Mac and over APNs; any acknowledgement stops
-  it. Same notification id and collapse id as the original cue, so one banner
-  is replaced, not stacked. The Watch carries no follow state.
+- **SessionAttention** — how much of your attention a session has earned:
+  `followed` / `normal` / `muted`. The daemon owns it: automatic `followed` for
+  ten minutes after you drove the session (prompt, jump, decision, answer),
+  `normal` otherwise, never automatically `muted`; a hand-set level
+  (`attentionOverride`, via `POST /attention {sessionId, attention|null}` from
+  the iPhone swipe / long-press or the Mac row menu / detail pane) wins and lives
+  as long as the session. `effectiveAttention` is the level in force.
+- **DeliveryLevel / DeliveryMatrix** — the one table from (cue × attention) to
+  `bannerSound` / `banner` / `list` / `drop`, shared by the Mac's local
+  notification, its APNs push and the phone's own local notification so the
+  three surfaces agree. Approvals and questions interrupt at every level (a
+  muted session shows them silently); a completion banners for followed and
+  normal, is dropped for muted; the nudge is list-only unless followed. Quiet /
+  Focus mode reads every session as `muted`; a session whose own terminal is
+  frontmost is capped to `list`. `list` and `drop` never push.
+- **Completion reminder** — `CompletionReminderSchedule` re-issues the
+  `agentDone` cue for a `done`, unread session whose effective attention is
+  `followed`, every 5 minutes, at most 12 times per completion (keyed by
+  `statusSince`), on the Mac and over APNs; any acknowledgement stops it. Same
+  notification id and collapse id as the original cue, so one banner is
+  replaced, not stacked. The Watch carries no attention state.
 - **NotificationDelivery / NotificationDeliveryLog** — one record per local or
   APNs send with outcome `attempted` / `scheduled` / `accepted` / `failed`. Never
   `delivered`: an API result is not proof the device showed it.
