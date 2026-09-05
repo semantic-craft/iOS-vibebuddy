@@ -352,6 +352,7 @@ private struct NotificationSettings: View {
     @AppStorage("quietMode") private var quiet = false
     @AppStorage("sessionBudgetUSD") private var budgetUSD = 0.0
     @State private var quietHours = NotificationSettings.loadQuietHours()
+    @State private var categories = NotificationCategoryPrefs.load()
 
     var body: some View {
         Form {
@@ -429,6 +430,19 @@ private struct NotificationSettings: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {
+                ForEach(NotificationCategoryPrefs.displayOrder, id: \.rawValue) { sound in
+                    Toggle(sound.categoryTitle, isOn: Binding(
+                        get: { categories.isEnabled(sound) },
+                        set: { categories.set(sound, enabled: $0) }))
+                }
+            } header: {
+                Text("Notify me about")
+            } footer: {
+                Text("A category that is off is never shown here, whether or not sound is on. Quiet mode still narrows what is left to approvals.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .disabled(!notify)
+            Section {
                 Toggle("Quiet mode (approvals only)", isOn: $quiet).disabled(!notify)
             } footer: {
                 Text("For night or focus time: only security approvals make a sound. Everything else stays silent.")
@@ -460,6 +474,7 @@ private struct NotificationSettings: View {
         }
         .formStyle(.grouped)
         .onChange(of: quietHours) { _, q in NotificationSettings.saveQuietHours(q) }
+        .onChange(of: categories) { _, c in c.save() }
     }
 
     private var hourTags: some View {

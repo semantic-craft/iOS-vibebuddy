@@ -1,72 +1,49 @@
 import SwiftUI
 import VibeBuddyKit
 
-/// The Mac buddy: the **same pixel black-and-white cat as iOS** (ADR-0007,
-/// amended — the pet is a cat on *both* platforms now). Drawn entirely in code
-/// (SwiftUI `Canvas`, a 13-wide pixel grid), so zero bundled art. The body is
-/// `Color.primary` on a card and white in `bare` mode (the dark notch glance);
-/// the eyes carry the status accent. Ears + eyes change with mood, the muzzle
-/// flaps while the companion speaks, and the ears perk + a tinted ring shows
-/// while it listens — the same sprite the iPhone shows in-app.
+/// The Mac buddy: the same icon cat as iPhone and Watch, drawn by the Kit's
+/// `BuddyCatFace` and moved by `BuddyCatMotion` (ADR-0007, second amendment).
+/// This view owns the clock and the two Mac-only decisions: `bare` for the
+/// black notch glance (no card, no shadow) and `scale` for the glance's
+/// collapsed / expanded sizes. Under 34 pt wide the cat drops its body and
+/// mouth, and under 28 pt only the jump survives of the motion, so the head
+/// still reads at menu-bar height instead of shimmering.
 struct PetFace: View {
     let state: BuddyState
-    var speaking: Bool = false
-    var listening: Bool = false
+    var voice: BuddyCatMotion.Voice = .none
+    /// Bump to make the cat wave (tap, panel opened).
+    var greet: Int = 0
     var bare: Bool = false
     var scale: CGFloat = 1
 
-    @Environment(\.displayScale) private var displayScale
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var moodChangedAt = Date()
+    @State private var speakingEndedAt: Date?
+    @State private var greetedAt: Date?
+    @State private var active = false
 
-    private var accent: Color { Color(taskStatus: state.presentationState.colorToken) }
-    private var ink: Color { bare ? .white : .primary }
+    private var width: CGFloat { 50 * scale }
+    private var showsBody: Bool { width >= BuddyCat.bodyThreshold }
 
-    private enum Mood { case calm, alert, worry, happy, sleep }
-    private var mood: Mood {
-        switch state {
-        case .done:                 return .happy
-        case .sleeping:             return .sleep
-        case .idle:                 return .calm
-        case .stuck:                return .worry
-        case .approval, .question:  return .alert
-        default:                    return .calm   // working, longWait
-        }
+    private var input: BuddyCatMotion.Input {
+        .init(mood: BuddyCat.Mood(state), moodChangedAt: moodChangedAt, voice: voice,
+              speakingEndedAt: speakingEndedAt, greetedAt: greetedAt)
     }
 
     var body: some View {
-        // ~10 fps is plenty for the blink/talk animation and easy on the battery
-        // (the glance is always on screen).
-        TimelineView(.periodic(from: .now, by: 0.1)) { tl in
-            let t = tl.date.timeIntervalSinceReferenceDate
-            let blink = mood != .sleep && t.truncatingRemainder(dividingBy: 3.2) < 0.13
-            let mouthOpen = speaking && Int(t / 0.16) % 2 == 0
-            Canvas { ctx, size in
-                let grid = rows(blink: blink, mouthOpen: mouthOpen)
-                let cw = size.width / 13
-                let ch = size.height / CGFloat(grid.count)
-                // Snap every cell edge to the display grid instead of padding each
-                // rect by 0.6pt: shared edges land on the same device pixel, so the
-                // sprite stays crisp (and seam-free) even at the small collapsed
-                // glance size, where a cell is only ~1.5pt wide.
-                let dp = max(displayScale, 1)
-                func snap(_ v: CGFloat) -> CGFloat { (v * dp).rounded() / dp }
-                for (r, line) in grid.enumerated() {
-                    let y0 = snap(CGFloat(r) * ch), y1 = snap(CGFloat(r + 1) * ch)
-                    for (c, char) in line.enumerated() {
-                        guard let color = fill(char) else { continue }
-                        let x0 = snap(CGFloat(c) * cw), x1 = snap(CGFloat(c + 1) * cw)
-                        let rect = CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0)
-                        ctx.fill(Path(rect), with: .color(color))
-                    }
-                }
-            }
-            .frame(width: 50 * scale, height: 58 * scale)
-            .offset(y: speaking ? CGFloat(sin(t * 11)) * 0.8 * scale : 0)
-            .overlay {
-                if listening {
-                    RoundedRectangle(cornerRadius: 9 * scale, style: .continuous)
-                        .stroke(accent.opacity(0.8), lineWidth: 2 * scale)
-                }
-            }
+        // 10 fps at rest is easy on the battery (the glance is always on screen);
+        // 20 fps only while something is actually moving.
+        TimelineView(.animation(minimumInterval: active ? 1 / 20 : 1 / 10,
+                                paused: reduceMotion && voice != .speaking)) { tl in
+            let f = BuddyCatMotion.frame(input, now: tl.date, reduceMotion: reduceMotion)
+            BuddyCatFace(mood: f.mood, speaking: f.mouthOpen, listening: f.listening, blink: f.blink,
+                         showsBody: showsBody,
+                         showsMouth: width >= BuddyCat.mouthThreshold,
+                         shadow: !bare && colorScheme == .light,
+                         onDark: bare || colorScheme == .dark,
+                         pose: f.pose.reduced(forWidth: width))
+                .frame(width: width, height: BuddyCat.height(forWidth: width, showsBody: showsBody))
         }
         .frame(width: 54 * scale, height: 60 * scale)
         .background {
@@ -76,62 +53,31 @@ struct PetFace: View {
             }
         }
         .accessibilityHidden(true)
+        .onChange(of: state) { _, _ in moodChangedAt = Date(); wake() }
+        .onChange(of: voice) { old, new in
+            if old == .speaking, new == .none { speakingEndedAt = Date() }
+            wake()
+        }
+        .onChange(of: greet) { _, _ in greetedAt = Date(); wake() }
+        .onAppear { greetedAt = Date(); wake() }
     }
 
-    // MARK: pixel rows (13 wide) — identical sprite to the iOS `PetFace`.
-
-    private func rows(blink: Bool, mouthOpen: Bool) -> [String] {
-        if mood == .sleep { return Self.sleeping }
-        let eyesOpen = !blink
-        let ears = (listening || mood == .alert) ? Self.alertEars
-                 : (mood == .worry ? Self.worryEars : Self.calmEars)
-        let eyeRow = eyesOpen ? "#.o#.....#o.#" : "#.-#.....#-.#"
-        let mouthRow = mouthOpen ? "####.....####" : "#####.#.#####"
-        return ears + [
-            ".###########.",
-            "#############",
-            eyeRow,
-            mouthRow,
-            "#############",
-            ".###########.",
-            ".###########.",
-            ".###########.",
-            ".###########.",
-            ".####...####.",
-            ".###########.",
-            "#####...#####",
-            "..........##.",
-        ]
+    private func wake() {
+        active = true
+        Task {
+            try? await Task.sleep(for: .seconds(3.5))
+            active = BuddyCatMotion.isActive(input, now: Date())
+        }
     }
+}
 
-    private static let calmEars  = [".##.......##.", ".###.....###."]
-    private static let alertEars = ["#.#.......#.#", "#.#.......#.#"]
-    private static let worryEars = ["#...........#", "##.........##"]
-
-    private static let sleeping = [
-        ".............",
-        "...#######...",
-        "..#########..",
-        ".###########.",
-        ".###########.",
-        ".#--.....--#.",
-        ".###########.",
-        ".###########.",
-        ".###########.",
-        "..#########..",
-        "...#######...",
-        ".....###.....",
-        ".............",
-        ".............",
-        ".............",
-    ]
-
-    private func fill(_ char: Character) -> Color? {
-        switch char {
-        case "#":      return ink                       // black on a card, white on the glance
-        case "o", "O": return accent                    // status colour in the eyes
-        case "-":      return bare ? .white.opacity(0.5) : .secondary   // closed / sleeping eyes
-        default:       return nil                        // "." → empty (and open-mouth gap)
+extension BuddyCatMotion.Voice {
+    init(_ phase: VoiceChat.Phase) {
+        switch phase {
+        case .idle:      self = .none
+        case .listening: self = .listening
+        case .thinking:  self = .thinking
+        case .speaking:  self = .speaking
         }
     }
 }

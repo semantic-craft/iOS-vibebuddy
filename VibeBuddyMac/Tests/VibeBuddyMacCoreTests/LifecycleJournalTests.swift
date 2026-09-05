@@ -131,6 +131,23 @@ struct LifecycleJournalTests {
         #expect(!(await shorterWindow.snapshot(now: now).sessions.contains { $0.id == "long-window" }))
     }
 
+    @Test("a follow survives a restart with the session it belongs to")
+    func restoresFollowedFlag() async {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vibebuddy-journal-follow-\(UUID().uuidString)")
+        let url = directory.appendingPathComponent("journal.json")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let first = SessionStore(staleAfter: 3_600, journalURL: url, now: now)
+        await first.ingest(Data(#"{"hook_event_name":"UserPromptSubmit","session_id":"followed","cwd":"/x/a"}"#.utf8), receivedAt: now)
+        await first.ingest(Data(#"{"hook_event_name":"UserPromptSubmit","session_id":"plain","cwd":"/x/b"}"#.utf8), receivedAt: now)
+        await first.setFollowed(sessionID: "followed", true, now: now.addingTimeInterval(1))
+
+        let restarted = SessionStore(staleAfter: 3_600, journalURL: url, now: now.addingTimeInterval(2))
+        let sessions = await restarted.snapshot(now: now.addingTimeInterval(2)).sessions
+        #expect(sessions.first { $0.id == "followed" }?.isFollowed == true)
+        #expect(sessions.first { $0.id == "plain" }?.isFollowed == false)
+    }
+
     private func entry(_ sessionID: String, at date: Date) -> LifecycleJournalEntry {
         LifecycleJournalEntry(
             sessionID: sessionID,

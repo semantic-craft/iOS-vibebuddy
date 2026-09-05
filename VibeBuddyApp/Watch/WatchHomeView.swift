@@ -46,7 +46,7 @@ private struct WatchCalmHeader: View {
         if state.counts.isEmpty {
             // Nothing known is not the same as nothing running: say which.
             VStack(spacing: 6) {
-                WatchPixelCat(state: state.buddyState)
+                WatchCat(state: state.buddyState)
                 Text(connection.isCurrent ? "No sessions" : "No recent update")
                     .font(.headline)
                     .multilineTextAlignment(.center)
@@ -58,7 +58,7 @@ private struct WatchCalmHeader: View {
             .frame(maxWidth: .infinity)
         } else {
             HStack(spacing: 8) {
-                WatchPixelCat(state: state.buddyState, size: CGSize(width: 36, height: 42))
+                WatchCat(state: state.buddyState, width: 36)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Nobody's waiting")
                         .font(.headline)

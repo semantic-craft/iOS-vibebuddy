@@ -6,6 +6,7 @@ struct GlanceView: View {
     @ObservedObject var model: MenuBarModel
     @ObservedObject var voice: VoiceChat
     let mode: GlanceMode
+    @State private var greet = 0
 
     private var s: CGFloat { model.glanceScale }
     private var expanded: Bool { model.glanceExpanded }
@@ -118,8 +119,8 @@ struct GlanceView: View {
     private var counts: some View {
         HStack(spacing: (expanded ? 14 : 10) * s) {
             PetFace(state: BuddyState.from(groups, now: Date()),
-                    speaking: voice.isSpeaking, listening: voice.isListening, bare: true, scale: petScale)
-                .onTapGesture { voice.toggle() }   // tap the buddy to talk
+                    voice: .init(voice.phase), greet: greet, bare: true, scale: petScale)
+                .onTapGesture { greet += 1; voice.toggle() }   // tap the buddy to talk
             if voice.isActive { voiceBadge } else {
                 ForEach([TaskPresentationState.error, .requiresInput, .thinking, .completeUnread, .idle], id: \.self) { state in
                     if model.presentationSummary.count(for: state) > 0 {

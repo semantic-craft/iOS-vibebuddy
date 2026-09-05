@@ -17,6 +17,13 @@ public enum HookParser {
               let sessionID = raw.sessionId,
               let kind = mapKind(raw.hookEventName)
         else { return nil }
+        // Claude's Notification hook names its own reason. Only some of those
+        // reasons are a wait: `auth_success` is a login confirmation, and turning
+        // it into a needsResponse session would ring for nothing.
+        if raw.hookEventName == "Notification",
+           let type = raw.notificationType, !Self.isWait(notificationType: type) {
+            return nil
+        }
 
         // Claude pausing on a usage limit and auto-resuming later is not a
         // wait on the user: it rides as metadata with a line for the row.
@@ -74,6 +81,7 @@ public enum HookParser {
             cwd: raw.newCwd ?? raw.cwd,
             toolName: toolName,
             message: message,
+            waitKind: waitKind(raw),
             transcriptPath: raw.transcriptPath,
             model: raw.toModel ?? raw.model,
             toolError: kind == .postToolUse && (explicitToolFailure || detectToolError(data)),
@@ -109,6 +117,31 @@ public enum HookParser {
         case let n as NSNumber: return n.boolValue
         default: return false
         }
+    }
+
+    /// The CLI's own classification of a wait, when it gave one.
+    /// `permission_prompt` → permission; `idle_prompt` / `elicitation_dialog`
+    /// → question. A `PermissionRequest` hook is a permission by definition and
+    /// an `Elicitation` hook a question. Anything else is left for the reducer's
+    /// message heuristic.
+    static func waitKind(_ raw: RawHook) -> WaitKind? {
+        switch raw.hookEventName {
+        case "PermissionRequest": return .permission
+        case "Elicitation": return .question
+        case "Notification":
+            switch raw.notificationType {
+            case "permission_prompt": return .permission
+            case "idle_prompt", "elicitation_dialog": return .question
+            default: return nil
+            }
+        default: return nil
+        }
+    }
+
+    /// Whether a named Claude notification describes the agent waiting on you.
+    /// Unknown types are treated as waits so a new CLI type is not silently lost.
+    static func isWait(notificationType: String) -> Bool {
+        notificationType != "auth_success"
     }
 
     private static func mapKind(_ name: String) -> HookEvent.Kind? {
@@ -185,7 +218,7 @@ public enum HookParser {
         return value
     }
 
-    private struct RawHook: Decodable {
+    struct RawHook: Decodable {
         let hookEventName: String
         let sessionId: String?
         let cwd: String?

@@ -36,6 +36,15 @@ struct ActivityPushTests {
         #expect(!p.contains("topProject"))   // omitted when nil
     }
 
+    @Test("an alert push names its session outside aps, escaped, and can be silent")
+    func alertPayloadCarriesSession() {
+        let payload = APNsPusher.alertPayload(title: "p needs \"you\"", body: "line\nbreak",
+                                              sound: "agent_done.caf", sessionID: "claude/a\"b")
+        #expect(payload == #"{"aps":{"alert":{"title":"p needs \"you\"","body":"line break"},"sound":"agent_done.caf"},"sessionId":"claude/a\"b"}"#)
+        let silent = APNsPusher.alertPayload(title: "t", body: "b", sound: "", sessionID: nil)
+        #expect(silent == #"{"aps":{"alert":{"title":"t","body":"b"}}}"#)
+    }
+
     @Test("optional strings are included and escaped when present")
     func payloadOptionals() {
         let p = APNsPusher.activityPayload(summary: TaskPresentationSummary(completeUnread: 1),

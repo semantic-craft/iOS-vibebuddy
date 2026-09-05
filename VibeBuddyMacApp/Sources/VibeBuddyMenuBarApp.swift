@@ -125,10 +125,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 /// The cat-head menu-bar mark. A SwiftUI `Canvas` doesn't render reliably in a
-/// `MenuBarExtra` label, so the head is drawn once into a **template** `NSImage`
-/// (eyes punched out with `destinationOut`); the system then tints it for
-/// light/dark menu bars and selection — the same cat identity as the pet and the
-/// app icon (ADR-0007, amended: cat on both platforms).
+/// `MenuBarExtra` label, so the head is rendered once into a **template**
+/// `NSImage` from the same `BuddyCatFace` geometry as the pet (monochrome: one
+/// colour, eyes punched to transparent); the system then tints it for
+/// light/dark menu bars and selection — the same cat as the pet and the app
+/// icon (ADR-0007, second amendment).
 struct CatHeadIcon: View {
     var body: some View {
         Image(nsImage: MenuBarGlyph.cat)
@@ -138,41 +139,15 @@ struct CatHeadIcon: View {
 }
 
 enum MenuBarGlyph {
-    static let cat: NSImage = {
-        let s: CGFloat = 18
-        let img = NSImage(size: NSSize(width: s, height: s), flipped: true) { rect in
-            let w = rect.width, h = rect.height
-            // y grows downward (flipped): ears on top, rounded head below.
-            let solid = NSBezierPath()
-            // Triangular ears.
-            let leftEar = NSBezierPath()
-            leftEar.move(to: NSPoint(x: 0.22 * w, y: 0.40 * h))
-            leftEar.line(to: NSPoint(x: 0.30 * w, y: 0.04 * h))
-            leftEar.line(to: NSPoint(x: 0.50 * w, y: 0.36 * h))
-            leftEar.close()
-            let rightEar = NSBezierPath()
-            rightEar.move(to: NSPoint(x: 0.78 * w, y: 0.40 * h))
-            rightEar.line(to: NSPoint(x: 0.70 * w, y: 0.04 * h))
-            rightEar.line(to: NSPoint(x: 0.50 * w, y: 0.36 * h))
-            rightEar.close()
-            solid.append(leftEar)
-            solid.append(rightEar)
-            // Rounded head.
-            solid.append(NSBezierPath(roundedRect: NSRect(x: 0.17 * w, y: 0.32 * h, width: 0.66 * w, height: 0.62 * h),
-                                      xRadius: 0.22 * w, yRadius: 0.22 * w))
-            NSColor.black.setFill()
-            solid.fill()
-            // Punch out the two eyes so the system tint shows through cleanly.
-            NSGraphicsContext.current?.compositingOperation = .destinationOut
-            let eyes = NSBezierPath()
-            let r: CGFloat = 0.085 * w
-            for ex in [0.38, 0.62] as [CGFloat] {
-                eyes.appendOval(in: NSRect(x: ex * w - r, y: 0.62 * h - r, width: r * 2, height: r * 2))
-            }
-            eyes.fill()
-            NSGraphicsContext.current?.compositingOperation = .sourceOver
-            return true
-        }
+    @MainActor static let cat: NSImage = {
+        let side: CGFloat = 18
+        let renderer = ImageRenderer(content:
+            BuddyCatFace(mood: .calm, showsBody: false, monochrome: true)
+                .frame(width: side, height: BuddyCat.height(forWidth: side, showsBody: false))
+                .frame(width: side, height: side))
+        renderer.scale = 2
+        let img = renderer.nsImage ?? NSImage(size: NSSize(width: side, height: side))
+        img.size = NSSize(width: side, height: side)
         img.isTemplate = true
         return img
     }()
@@ -233,8 +208,14 @@ struct MenuBarLabel: View {
     }
 }
 
+private struct SessionListHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
 struct MenuContent: View {
     @ObservedObject var model: MenuBarModel
+    @State private var listContentHeight: CGFloat = 0
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
 
@@ -325,9 +306,7 @@ struct MenuContent: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 2)
             } else {
-                VStack(spacing: 9) {
-                    ForEach(model.sessions) { row($0) }
-                }
+                sessionList
             }
 
             Divider()
@@ -384,6 +363,96 @@ struct MenuContent: View {
                          : AnyShapeStyle(.secondary))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(value) \(state.label)")
+    }
+
+    /// Height cap for the session list — about eight compact rows. A short list
+    /// takes its natural height; a long one scrolls inside the cap so the
+    /// buttons above and the footer below never move off screen.
+    private static let listMaxHeight: CGFloat = 320
+
+    /// A ScrollView inside a MenuBarExtra window collapses to zero height
+    /// unless it is given one explicitly, so the rows report their natural
+    /// height and the scroller is sized to that, capped.
+    private var sessionList: some View {
+        ScrollView(.vertical) {
+            sessionRows
+                .background(GeometryReader { geo in
+                    Color.clear.preference(key: SessionListHeightKey.self, value: geo.size.height)
+                })
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .onPreferenceChange(SessionListHeightKey.self) { listContentHeight = $0 }
+        .frame(height: min(max(listContentHeight, 1), Self.listMaxHeight))
+    }
+
+    /// Three layers (see `MenuSessionList`): sessions that need the user stay
+    /// pinned on top in the full two-line row; everything else is grouped by
+    /// agent in compact one-line rows, and a folded group hides only its
+    /// finished rows.
+    private var sessionRows: some View {
+        let list = model.menuSessionList
+        return VStack(alignment: .leading, spacing: 9) {
+            ForEach(list.pinned) { row($0) }
+            ForEach(list.groups) { group in
+                if list.showsGroupHeaders { groupHeader(group) }
+                ForEach(group.visibleSessions) { compactRow($0) }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func groupHeader(_ group: MenuSessionList.Group) -> some View {
+        Button {
+            model.toggleMenuGroup(group.agent)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(group.isCollapsed ? 0 : 90))
+                    .frame(width: 10)
+                Text(group.agent.displayName).font(.caption.weight(.semibold))
+                Spacer(minLength: 4)
+                HStack(spacing: 7) {
+                    ForEach([TaskPresentationState.thinking, .completeUnread, .idle], id: \.self) { state in
+                        let count = group.summary.count(for: state)
+                        if count > 0 {
+                            HStack(spacing: 3) {
+                                TaskStatusIndicator(state, size: 7)
+                                Text("\(count)").monospacedDigit()
+                            }
+                            .accessibilityLabel("\(count) \(state.label)")
+                        }
+                    }
+                }
+                .font(.caption2.weight(.medium)).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 7).padding(.vertical, 4)
+            .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(group.isCollapsed ? "Show finished sessions" : "Hide finished sessions")
+        .accessibilityLabel("\(group.agent.displayName), \(group.sessions.count) sessions")
+        .accessibilityValue(group.isCollapsed ? "collapsed" : "expanded")
+    }
+
+    /// One-line row for sessions that don't need the user: the dot carries the
+    /// state, the trailing text says what the agent is doing and since when.
+    private func compactRow(_ session: AgentSession) -> some View {
+        HStack(spacing: 8) {
+            TaskStatusIndicator(session.presentationState, size: 8)
+            Text(session.project)
+                .font(.system(size: 13, weight: .semibold))
+                .lineLimit(1).truncationMode(.tail)
+            Spacer(minLength: 6)
+            HStack(spacing: 4) {
+                Text(ToolActivity.label(for: session))
+                Text("·").foregroundStyle(.tertiary)
+                Text(session.updatedAt, style: .relative).monospacedDigit()
+            }
+            .font(.caption).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+        }
     }
 
     private func row(_ session: AgentSession) -> some View {

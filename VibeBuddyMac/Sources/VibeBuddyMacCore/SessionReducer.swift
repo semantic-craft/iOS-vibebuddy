@@ -72,7 +72,7 @@ public struct SessionReducer: Sendable {
         case .notification:
             // The purpose-built "Claude wants your attention" signal.
             upsert(event, status: .needsResponse,
-                   waitKind: Self.waitKind(from: event.message),
+                   waitKind: event.waitKind ?? Self.waitKind(from: event.message),
                    summary: event.message)
             sessions[event.sessionID]?.failed = false       // waiting on you, not stuck
             sessions[event.sessionID]?.hasUnreadCompletion = false
@@ -352,6 +352,16 @@ public struct SessionReducer: Sendable {
     public mutating func acknowledgeCompletion(sessionID: String) -> Bool {
         guard var session = sessions[sessionID], session.hasUnreadCompletion else { return false }
         session.hasUnreadCompletion = false
+        sessions[sessionID] = session
+        return true
+    }
+
+    /// Follow or unfollow a session. Returns whether authoritative state changed;
+    /// false for a session the reducer does not know.
+    @discardableResult
+    public mutating func setFollowed(sessionID: String, _ followed: Bool) -> Bool {
+        guard var session = sessions[sessionID], session.isFollowed != followed else { return false }
+        session.followed = followed
         sessions[sessionID] = session
         return true
     }
