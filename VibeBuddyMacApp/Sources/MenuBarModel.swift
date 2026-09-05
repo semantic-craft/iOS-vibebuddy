@@ -191,7 +191,13 @@ final class MenuBarModel: ObservableObject {
                                          Task { @MainActor in self?.recordPairedDevice(device) }
                                      })
         Task.detached(priority: .utility) {
-            do { try await server.runService() }
+            do {
+                try await server.runService()
+                // Hummingbird consumes SIGTERM/SIGINT and returns after shutting
+                // down the server and joining its rollout monitor. Finish the
+                // app lifetime too, so a later open can start a healthy instance.
+                await MainActor.run { NSApplication.shared.terminate(nil) }
+            }
             catch { FileHandle.standardError.write(Data("server error: \(error)\n".utf8)) }
         }
     }
