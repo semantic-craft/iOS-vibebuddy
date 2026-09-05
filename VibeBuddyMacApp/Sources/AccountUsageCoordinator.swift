@@ -18,15 +18,29 @@ final class AccountUsageCoordinator: ObservableObject {
 
     private let store: SessionStore
     private let notifier: UserNotificationsNotifier
+    private let liveFeed: AccountUsageLiveFeed?
+    private var liveTask: Task<Void, Never>?
+    /// How long a live sample keeps the spawning collector idle. Claude's
+    /// status line reports on every event, so 15 minutes of silence means no
+    /// session is running; the Codex monitor re-reads every 10 minutes while
+    /// connected, so 20 minutes of silence means it disconnected.
+    static func liveHold(for provider: AccountUsageProvider) -> TimeInterval {
+        switch provider {
+        case .claude: 15 * 60
+        case .codex: 20 * 60
+        case .grok: 15 * 60
+        }
+    }
     private let collectors: [AccountUsageProvider: AccountUsageCollector]
     private var alertMonitor: AccountUsageAlertMonitor
     private var tasks: [AccountUsageProvider: Task<Void, Never>] = [:]
     private var generations: [AccountUsageProvider: UInt64] = [:]
     private static let alertedWindowsKey = "accountUsageAlertedWindows"
 
-    init(store: SessionStore, notifier: UserNotificationsNotifier) {
+    init(store: SessionStore, notifier: UserNotificationsNotifier, liveFeed: AccountUsageLiveFeed? = nil) {
         self.store = store
         self.notifier = notifier
+        self.liveFeed = liveFeed
         let codexEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey(for: .codex), default: true)
         let claudeEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey(for: .claude), default: true)
         let grokEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey(for: .grok), default: true)
@@ -78,6 +92,22 @@ final class AccountUsageCoordinator: ObservableObject {
     func start() {
         for provider in AccountUsageProvider.allCases where isCollectionEnabled(provider) {
             startCollection(provider)
+        }
+        guard let liveFeed, liveTask == nil else { return }
+        // Live samples take the same path a fetch does — state, cache, alert,
+        // quota publish — and push the provider's next fetch out by the hold.
+        liveTask = Task { [weak self] in
+            let subscription = await liveFeed.subscribe()
+            defer { Task { await liveFeed.unsubscribe(subscription.id) } }
+            for await snapshot in subscription.stream {
+                guard !Task.isCancelled, let self else { return }
+                let provider = snapshot.provider
+                guard self.isCollectionEnabled(provider), let collector = self.collectors[provider] else { continue }
+                let state = await collector.acceptLive(snapshot, holdFor: Self.liveHold(for: provider))
+                guard !Task.isCancelled, self.isCollectionEnabled(provider) else { continue }
+                self.states[provider] = state
+                self.checkAlert(state)
+            }
         }
     }
 
@@ -200,5 +230,6 @@ final class AccountUsageCoordinator: ObservableObject {
 
     deinit {
         for task in tasks.values { task.cancel() }
+        liveTask?.cancel()
     }
 }

@@ -36,9 +36,10 @@
 
 <br><br>
 
-<img src="docs/screenshots/mac/glance.png" width="360" alt="vibebuddy 刘海概览——小猫加实时橙/蓝/绿计数" />
+<img src="docs/screenshots/mac/glance.png" width="360" alt="vibebuddy 刘海概览——小猫和最要紧的一个计数分列刘海两侧" />
+<img src="docs/screenshots/mac/glance-card.png" width="360" alt="从刘海下方展开的审批卡片，带批准 / 拒绝 / 跳转" />
 
-<sub><b>常驻刘海概览</b>——同一只猫 + 实时 🟠 / 🔵 / 🟢 计数。</sub>
+<sub><b>刘海概览</b>——像灵动岛一样贴着刘海：空闲时什么都不显示，有事时小猫 + 最要紧的计数分列两侧，悬停展开，审批直接以卡片从刘海下方掉出来就地处理。</sub>
 
 <br><br>
 

@@ -43,6 +43,9 @@ struct LifecycleJournalTests {
         #expect(!persisted.contains("reasoning"))
         #expect(!persisted.contains("tool_input"))
         #expect(!persisted.contains("tool_response"))
+        // The project label is the folder name only; the full path stays off disk.
+        #expect(!persisted.contains("/tmp/project"))
+        #expect(persisted.contains(#""project":"project""#))
         #expect(await store.recentLifecycle().first?.status == .needsResponse)
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
@@ -119,6 +122,7 @@ struct LifecycleJournalTests {
         #expect(Set(sessions.map(\.id)) == ["working", "waiting"])
         #expect(sessions.first(where: { $0.id == "working" })?.status == .working)
         #expect(sessions.first(where: { $0.id == "waiting" })?.status == .needsResponse)
+        #expect(sessions.first(where: { $0.id == "working" })?.project == "work")
         #expect(sessions.allSatisfy { $0.summary == nil && $0.pendingApproval == nil && $0.pendingQuestion == nil })
         #expect(sessions.allSatisfy { $0.observations?.map(\.source) == [.recovery] })
 
@@ -129,6 +133,22 @@ struct LifecycleJournalTests {
         let shorterWindow = SessionStore(staleAfter: 30 * 60, journalURL: url,
                                          now: now.addingTimeInterval(2))
         #expect(!(await shorterWindow.snapshot(now: now).sessions.contains { $0.id == "long-window" }))
+    }
+
+    @Test("an oversized project label is cut to the journal's byte bound before it is persisted")
+    func boundsProjectLabel() {
+        let huge = String(repeating: "x", count: 10_000)
+        let e = LifecycleJournalEntry(sessionID: "s", agent: .claudeCode, event: "prompt", source: .hook,
+                                      timestamp: now, status: .working, waitKind: nil, project: huge)
+        #expect(e.project?.utf8.count == LifecycleJournalEntry.maxProjectBytes)
+        let cjk = String(repeating: "项", count: 100)   // 3 bytes each: cut on a character boundary
+        let c = LifecycleJournalEntry(sessionID: "s", agent: .claudeCode, event: "prompt", source: .hook,
+                                      timestamp: now, status: .working, waitKind: nil, project: cjk)
+        #expect(c.project!.utf8.count <= LifecycleJournalEntry.maxProjectBytes)
+        #expect(c.project!.allSatisfy { $0 == "项" })
+        let short = LifecycleJournalEntry(sessionID: "s", agent: .claudeCode, event: "prompt", source: .hook,
+                                          timestamp: now, status: .working, waitKind: nil, project: "vibebuddy")
+        #expect(short.project == "vibebuddy")
     }
 
     private func entry(_ sessionID: String, at date: Date) -> LifecycleJournalEntry {

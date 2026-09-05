@@ -70,7 +70,9 @@ def seed_home(home):
 
 
 def run(mode, home):
-    env = {**os.environ, "HOME": home}
+    # Pin the Claude version probe so the assertions below do not depend on the
+    # `claude` binary (or its age) on the machine running this test.
+    env = {**os.environ, "HOME": home, "VIBEBUDDY_CLAUDE_VERSION": "2.1.261"}
     # An ambient $GROK_HOME would redirect the grok installer away from the
     # throwaway $HOME this pass asserts against.
     env.pop("GROK_HOME", None)
@@ -108,12 +110,105 @@ def check_grok_home(fails):
             fails.append("uninstall left vibebuddy.json under $GROK_HOME")
 
 
+def check_claude_statusline_wrapper(fails):
+    """--install wraps the user's status line (keeping its other fields and
+    saving the original command for the wrapper to run), --uninstall restores
+    it exactly; with no original, --install adds one and --uninstall removes it."""
+    installer = os.path.join(HOOKS, "install-claude-hooks.py")
+    with tempfile.TemporaryDirectory() as home:
+        settings = os.path.join(home, ".claude/settings.json")
+        os.makedirs(os.path.dirname(settings), exist_ok=True)
+        support = os.path.join(home, "Library/Application Support/vibebuddy")
+        env = {**os.environ, "HOME": home, "VIBEBUDDY_CLAUDE_VERSION": "2.1.261",
+               "VIBEBUDDY_SUPPORT_DIR": support}
+        original = {"type": "command", "command": "~/.claude/statusline.sh", "padding": 1}
+        open(settings, "w").write(json.dumps({"statusLine": original}))
+        r = subprocess.run([sys.executable, installer, "--install"], env=env,
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            fails.append(f"statusline --install exited {r.returncode}: {r.stderr}")
+            return
+        line = json.loads(open(settings).read()).get("statusLine", {})
+        if "vibebuddy-statusline.sh" not in line.get("command", ""):
+            fails.append("--install did not wrap the claude status line")
+        if line.get("padding") != 1:
+            fails.append("status line wrapper dropped the original's other fields")
+        cmd_file = os.path.join(support, "statusline-original.cmd")
+        if not os.path.exists(cmd_file) or open(cmd_file).read() != "~/.claude/statusline.sh":
+            fails.append("status line install did not save the original command for the wrapper")
+        # Re-install is idempotent and must not overwrite the saved original.
+        subprocess.run([sys.executable, installer, "--install"], env=env, capture_output=True, text=True)
+        if open(cmd_file).read() != "~/.claude/statusline.sh":
+            fails.append("re-install overwrote the saved original status line command")
+        ru = subprocess.run([sys.executable, installer, "--uninstall"], env=env,
+                            capture_output=True, text=True)
+        if ru.returncode != 0:
+            fails.append(f"statusline --uninstall exited {ru.returncode}: {ru.stderr}")
+        if json.loads(open(settings).read()).get("statusLine") != original:
+            fails.append("--uninstall did not restore the original status line")
+        if os.path.exists(cmd_file):
+            fails.append("--uninstall left the saved original status line command")
+
+        # No original: install adds the wrapper alone, uninstall removes the key.
+        open(settings, "w").write("{}")
+        subprocess.run([sys.executable, installer, "--install"], env=env, capture_output=True, text=True)
+        line = json.loads(open(settings).read()).get("statusLine", {})
+        if "vibebuddy-statusline.sh" not in line.get("command", ""):
+            fails.append("--install did not add a status line when there was none")
+        if open(cmd_file).read() != "":
+            fails.append("status line install with no original saved a command")
+        subprocess.run([sys.executable, installer, "--uninstall"], env=env, capture_output=True, text=True)
+        if "statusLine" in json.loads(open(settings).read()):
+            fails.append("--uninstall left a status line that was not there before")
+
+
+def check_claude_old_cli_keeps_legacy_gate(fails):
+    """On a Claude Code older than 2.1.257 the PermissionRequest reply is not
+    honoured, so --approval must keep the gate on PreToolUse and say why; once
+    the CLI is updated a plain --install migrates it."""
+    installer = os.path.join(HOOKS, "install-claude-hooks.py")
+    with tempfile.TemporaryDirectory() as home:
+        settings = os.path.join(home, ".claude/settings.json")
+
+        def gates(event):
+            # The AskUserQuestion group is a question relay, not the permission
+            # gate; it is expected on PreToolUse whenever the modern gate is.
+            hooks = json.loads(open(settings).read()).get("hooks", {})
+            return [h.get("command", "") for g in hooks.get(event, [])
+                    if g.get("matcher") != "AskUserQuestion" for h in g.get("hooks", [])]
+
+        old = {**os.environ, "HOME": home, "VIBEBUDDY_CLAUDE_VERSION": "2.1.200 (Claude Code)"}
+        r = subprocess.run([sys.executable, installer, "--approval"], env=old,
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            fails.append(f"old-cli --approval exited {r.returncode}: {r.stderr}")
+            return
+        if not any("approval-hook.sh" in c for c in gates("PreToolUse")):
+            fails.append("old CLI: --approval did not keep the gate on PreToolUse")
+        if any("approval-hook.sh" in c for c in gates("PermissionRequest")):
+            fails.append("old CLI: --approval put the gate on PermissionRequest it cannot answer")
+        if "older than 2.1.257" not in r.stdout:
+            fails.append("old CLI: --approval did not warn about the legacy gate")
+        new = {**os.environ, "HOME": home, "VIBEBUDDY_CLAUDE_VERSION": "2.1.261"}
+        r2 = subprocess.run([sys.executable, installer, "--install"], env=new,
+                            capture_output=True, text=True)
+        if r2.returncode != 0:
+            fails.append(f"updated-cli --install exited {r2.returncode}: {r2.stderr}")
+            return
+        if any("approval-hook.sh" in c for c in gates("PreToolUse")):
+            fails.append("updated CLI: --install left the legacy gate on PreToolUse")
+        if not any("approval-hook.sh" in c for c in gates("PermissionRequest")):
+            fails.append("updated CLI: --install did not migrate the gate to PermissionRequest")
+        if "older than" in r2.stdout:
+            fails.append("updated CLI: --install still warned about the legacy gate")
+
+
 def check_claude_legacy_gate_migration(fails):
     """A pre-PermissionRequest install left the gate on PreToolUse, holding every
     tool call; a plain --install must move it to PermissionRequest."""
     installer = os.path.join(HOOKS, "install-claude-hooks.py")
     with tempfile.TemporaryDirectory() as home:
-        env = {**os.environ, "HOME": home}
+        env = {**os.environ, "HOME": home, "VIBEBUDDY_CLAUDE_VERSION": "2.1.261"}
         settings = os.path.join(home, ".claude/settings.json")
         os.makedirs(os.path.dirname(settings), exist_ok=True)
         gate = os.path.join(HOOKS, "approval-hook.sh")
@@ -125,7 +220,8 @@ def check_claude_legacy_gate_migration(fails):
             fails.append(f"claude legacy-gate --install exited {r.returncode}: {r.stderr}")
             return
         hooks = json.loads(open(settings).read())["hooks"]
-        pre_tool = [h.get("command", "") for g in hooks.get("PreToolUse", []) for h in g.get("hooks", [])]
+        pre_tool = [h.get("command", "") for g in hooks.get("PreToolUse", [])
+                    if g.get("matcher") != "AskUserQuestion" for h in g.get("hooks", [])]
         gate_now = [h.get("command", "") for g in hooks.get("PermissionRequest", []) for h in g.get("hooks", [])]
         if any("approval-hook.sh" in c for c in pre_tool):
             fails.append("plain --install left the legacy claude gate on PreToolUse")
@@ -277,9 +373,16 @@ def main():
                    if "approval-hook.sh" in hook.get("command", "")):
             fails.append("claude approval gate must allow 30s for the phone round trip")
         claude_pre_tool = [hook for group in claude_hooks.get("PreToolUse", [])
+                           if group.get("matcher") != "AskUserQuestion"
                            for hook in group.get("hooks", [])]
         if any("approval-hook.sh" in hook.get("command", "") for hook in claude_pre_tool):
             fails.append("claude approval gate must not sit on PreToolUse (it would hold every call)")
+        question_gate = [hook for group in claude_hooks.get("PreToolUse", [])
+                         if group.get("matcher") == "AskUserQuestion"
+                         for hook in group.get("hooks", [])]
+        if not any("approval-hook.sh" in hook.get("command", "") and hook.get("timeout") == 30
+                   for hook in question_gate):
+            fails.append("--approval did not add the blocking AskUserQuestion group on PreToolUse")
         if not any("vibebuddy-forward.sh" in hook.get("command", "") and hook.get("async") is True
                    for hook in claude_pre_tool):
             fails.append("--approval dropped the async claude PreToolUse status forwarder")
@@ -392,6 +495,8 @@ def main():
 
     check_grok_home(fails)
     check_claude_legacy_gate_migration(fails)
+    check_claude_old_cli_keeps_legacy_gate(fails)
+    check_claude_statusline_wrapper(fails)
 
     if fails:
         print("FAIL:")
