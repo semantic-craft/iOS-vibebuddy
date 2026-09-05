@@ -22,6 +22,39 @@ struct NotificationDeliveryTests {
         #expect(!NotificationDeliveryHealth.summary(for: .scheduled).contains("delivered"))
     }
 
+    @Test("a standing failure survives a restart even when skips came after it")
+    func latchedFailureSurvivesReload() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("delivery-reload-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let first = NotificationDeliveryRecorder(url: url, now: now)
+        await first.record(NotificationDeliveryRecord(
+            channel: .apns, outcome: .failed, sessionID: "a", sound: "agent_done",
+            failureReason: "apnsHTTP400", timestamp: now))
+        // …then the ordinary traffic that follows a failure: cues nobody was sent
+        // to. Seeding a fresh tracker from the last record alone would read one of
+        // these and forget the failure entirely.
+        for i in 1...3 {
+            await first.record(NotificationDeliveryRecord(
+                channel: .apns, outcome: .skipped, sessionID: "b\(i)", sound: "agent_done",
+                failureReason: CueSkipReason.noRegisteredDevice.rawValue,
+                timestamp: now.addingTimeInterval(Double(i))))
+        }
+
+        let reloaded = NotificationDeliveryRecorder(url: url, now: now.addingTimeInterval(10))
+        let health = await reloaded.health()
+        #expect(health.latchedFailure?.failureReason == "apnsHTTP400")
+        #expect(health.lastAttempt?.outcome == .skipped)
+
+        // An accepted send still clears it, before and after a reload.
+        await reloaded.record(NotificationDeliveryRecord(
+            channel: .apns, outcome: .accepted, sessionID: "c", sound: "agent_done",
+            failureReason: nil, timestamp: now.addingTimeInterval(11)))
+        let cleared = NotificationDeliveryRecorder(url: url, now: now.addingTimeInterval(12))
+        #expect(await cleared.health().latchedFailure == nil)
+    }
+
     @Test("a skipped push is not a failure — it never latches a health diagnostic")
     func skippedIsNotAFailure() {
         var tracker = NotificationDeliveryHealthTracker()

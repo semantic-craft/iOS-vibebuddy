@@ -223,21 +223,28 @@ public struct VibeBuddyServer: Sendable {
                     let sound: NotificationSound = session.pendingApproval != nil || session.waitKind == .permission
                         ? .needsApproval : .needsAnswer
                     let copy = PushCopy.copy(for: sound, session: session)
-                    // Same two axes as the menu-bar app's push: the session's
+                    // Same plan as the menu-bar app's push: the session's
                     // attention level says how loud (a muted session's wait is a
                     // silent banner), each phone's switches say whether at all,
                     // and a phone in Quiet mode reads the cue through `muted`.
-                    let level = DeliveryMatrix.level(for: sound, attention: session.effectiveAttention)
-                    guard level.interrupts else { return }
-                    for device in await deviceTokens.devices() {
-                        guard let deviceToken = device.token,
-                              (device.categories ?? .default).isEnabled(sound) else { continue }
-                        var deviceLevel = level
-                        if device.quietMode == true {
-                            deviceLevel = min(deviceLevel, DeliveryMatrix.level(for: sound, attention: .muted))
+                    // A cue that reaches nobody records why — this is the
+                    // headless daemon's only channel, so the alternative is that
+                    // it leaves no trace whatsoever.
+                    let alert = SoundAlert(
+                        session: session, sound: sound,
+                        delivery: DeliveryMatrix.level(for: sound, attention: session.effectiveAttention))
+                    let fanout = PushFanout.plan(alert, devices: await deviceTokens.devices(),
+                                                 apnsConfigured: true)
+                    guard !fanout.recipients.isEmpty else {
+                        if let skip = fanout.skip {
+                            await pusher.recordSkip(sessionID: session.id, sound: sound, reason: skip)
                         }
-                        guard deviceLevel.interrupts else { continue }
-                        let soundFile = deviceLevel.makesSound && device.playSound != false ? sound.fileName : ""
+                        return
+                    }
+                    for recipient in fanout.recipients {
+                        guard let deviceToken = recipient.device.token else { continue }
+                        let soundFile = recipient.level.makesSound && recipient.device.playSound != false
+                            ? sound.fileName : ""
                         await pusher.send(title: copy.title, body: copy.body, to: deviceToken,
                                           sound: soundFile,
                                           sessionID: session.id, soundCategory: sound.rawValue,
@@ -282,13 +289,13 @@ public struct VibeBuddyServer: Sendable {
             delivery: DeliveryMatrix.level(for: .agentDone, attention: session.effectiveAttention))
         let fanout = PushFanout.plan(alert, devices: await deviceTokens.devices(),
                                      apnsConfigured: true)
-        guard !fanout.recipients.isEmpty else {
-            if let skip = fanout.skip {
-                await pusher.recordSkip(sessionID: session.id, sound: alert.sound,
-                                        reason: skip, now: now)
-            }
-            return false
-        }
+        // No skip record here, deliberately. A reminder nobody could take does
+        // not spend one of the session's slots, so `remindFollowedCompletions`
+        // re-proposes it on every 30s pass until something does — recording each
+        // one would fill the 250-entry log in about two hours over a single
+        // unread completion. The reason is already in the log once, against the
+        // completion's own cue, and it has not changed.
+        guard !fanout.recipients.isEmpty else { return false }
         let copy = PushCopy.copy(for: alert.sound, session: session)
         for recipient in fanout.recipients {
             guard let token = recipient.device.token else { continue }

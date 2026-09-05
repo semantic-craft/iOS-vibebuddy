@@ -97,6 +97,27 @@ struct PushFanoutTests {
                                 apnsConfigured: true).recipients.count == 1)
     }
 
+    @Test("devices refusing for different reasons report mixed, not whichever came first")
+    func mixedRefusals() {
+        let off = NotificationCategoryPrefs(enabled: [.needsApproval])
+        let plan = PushFanout.plan(
+            alert(),
+            devices: [device("switched-off", categories: off), device("in-focus", quiet: true)],
+            apnsConfigured: true)
+        #expect(plan.recipients.isEmpty)
+        #expect(plan.skip == .mixed)
+    }
+
+    @Test("devices refusing for the same reason still name it")
+    func agreedRefusal() {
+        let off = NotificationCategoryPrefs(enabled: [.needsApproval])
+        let plan = PushFanout.plan(
+            alert(),
+            devices: [device("a", categories: off), device("b", categories: off)],
+            apnsConfigured: true)
+        #expect(plan.skip == .category)
+    }
+
     @Test("one phone wanting it is enough — no reason is recorded when anyone was sent to")
     func partialFanout() {
         let plan = PushFanout.plan(
