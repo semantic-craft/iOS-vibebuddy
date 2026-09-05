@@ -14,10 +14,6 @@ public struct LifecycleJournalEntry: Codable, Sendable, Equatable, Identifiable 
     public let timestamp: Date
     public let status: SessionStatus?
     public let waitKind: WaitKind?
-    /// Whether the session was followed when this entry was written, so a
-    /// restart can restore the follow along with the session. Optional so
-    /// journals written before the flag existed still decode.
-    public let followed: Bool?
 
     public init(
         id: UUID = UUID(),
@@ -27,8 +23,7 @@ public struct LifecycleJournalEntry: Codable, Sendable, Equatable, Identifiable 
         source: ObservationSource,
         timestamp: Date,
         status: SessionStatus?,
-        waitKind: WaitKind?,
-        followed: Bool? = nil
+        waitKind: WaitKind?
     ) {
         self.id = id
         self.sessionID = sessionID
@@ -38,7 +33,6 @@ public struct LifecycleJournalEntry: Codable, Sendable, Equatable, Identifiable 
         self.timestamp = timestamp
         self.status = status
         self.waitKind = waitKind
-        self.followed = followed
     }
 }
 public enum LifecycleJournalLocation {
@@ -121,7 +115,6 @@ struct LifecycleJournal {
                     lastObservedAt: entry.timestamp,
                     health: .healthy
                 )],
-                followed: entry.followed,
                 statusSince: entry.timestamp,
                 updatedAt: entry.timestamp
             )

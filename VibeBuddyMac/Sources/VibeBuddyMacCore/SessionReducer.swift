@@ -301,16 +301,6 @@ public struct SessionReducer: Sendable {
         return true
     }
 
-    /// Follow or unfollow a session. Returns whether authoritative state changed;
-    /// false for a session the reducer does not know.
-    @discardableResult
-    public mutating func setFollowed(sessionID: String, _ followed: Bool) -> Bool {
-        guard var session = sessions[sessionID], session.isFollowed != followed else { return false }
-        session.followed = followed
-        sessions[sessionID] = session
-        return true
-    }
-
     /// A sorted snapshot for broadcast: most-urgent first, then most-recent.
     public func snapshot(
         now: Date,

@@ -1,6 +1,8 @@
 import Foundation
 
-/// When to say "still finished, still unread" again for a followed session.
+/// When to say "still finished, still unread" again for a followed session —
+/// one whose effective `SessionAttention` is `followed`, whether the user set
+/// that by hand or the daemon inferred it from recent interaction.
 ///
 /// A followed session that reaches `done` gets its one `agentDone` cue from
 /// `SoundPolicy` like any other. This schedule adds the reminders behind it:
@@ -66,7 +68,7 @@ public struct CompletionReminderSchedule: Sendable, Equatable {
     }
 
     private static func isEligible(_ session: AgentSession) -> Bool {
-        session.isFollowed && session.status == .done && session.hasUnreadCompletion
+        session.effectiveAttention == .followed && session.status == .done && session.hasUnreadCompletion
             && session.probeRetired != true
     }
 }

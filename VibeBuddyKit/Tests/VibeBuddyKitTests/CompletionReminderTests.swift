@@ -8,10 +8,10 @@ import Foundation
 struct CompletionReminderTests {
 
     private func session(_ id: String = "s", _ status: SessionStatus = .done,
-                         followed: Bool? = true, unread: Bool = true,
+                         attention: SessionAttention? = .followed, unread: Bool = true,
                          since: TimeInterval = 0, probeRetired: Bool? = nil) -> AgentSession {
         AgentSession(id: id, agent: .claudeCode, project: id, status: status,
-                     hasUnreadCompletion: unread, probeRetired: probeRetired, followed: followed,
+                     hasUnreadCompletion: unread, probeRetired: probeRetired, attention: attention,
                      statusSince: Date(timeIntervalSince1970: since),
                      updatedAt: Date(timeIntervalSince1970: since))
     }
@@ -89,8 +89,9 @@ struct CompletionReminderTests {
     func eligibility() {
         var s = CompletionReminderSchedule()
         let candidates = [
-            session("unfollowed", followed: false),
-            session("legacy", followed: nil),
+            session("normal", attention: .normal),
+            session("muted", attention: .muted),
+            session("legacy", attention: nil),
             session("working", .working),
             session("waiting", .needsResponse),
             session("read", unread: false),

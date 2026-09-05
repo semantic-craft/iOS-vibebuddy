@@ -14,10 +14,6 @@ public enum NotificationSound: String, Sendable, CaseIterable, Equatable, Codabl
     /// The bundled CAF resource name (`needs_approval.caf`, …).
     public var fileName: String { "\(rawValue).caf" }
 
-    /// In Quiet / Focus mode only the security-decision cue survives; everything
-    /// else falls silent (the visual surfaces — banner, Live Activity — remain).
-    public var survivesQuietMode: Bool { self == .needsApproval }
-
     /// Whether this cue describes a session that is *still waiting*. Only these
     /// stop being true when the session moves on, so only these are withdrawn;
     /// a completion is history and stays until the user clears it.

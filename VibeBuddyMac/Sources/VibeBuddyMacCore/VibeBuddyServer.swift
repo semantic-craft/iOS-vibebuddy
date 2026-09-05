@@ -139,7 +139,8 @@ public struct VibeBuddyServer: Sendable {
             }
         }
 
-        // Followed completions: propose reminders on a schedule, deliver through
+        // Followed completions (effective attention `followed`, set by hand or
+        // inferred): propose reminders on a schedule, deliver through
         // the app's handler or the daemon's own APNs push, and count only what
         // was actually handed to a channel.
         let reminderServer = self
@@ -332,17 +333,6 @@ public struct VibeBuddyServer: Sendable {
             return .ok
         }
 
-        // Follow / unfollow a session: keep reminding about its completion until
-        // it is read. Body `{"sessionId","followed"}`; 404 for an unknown session.
-        authed.post("follow") { request, _ -> HTTPResponse.Status in
-            let buffer = try await request.body.collect(upTo: 4096)
-            guard let object = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
-                  let sessionID = object["sessionId"] as? String, !sessionID.isEmpty,
-                  let followed = object["followed"] as? Bool else { throw HTTPError(.badRequest) }
-            guard await store.setFollowed(sessionID: sessionID, followed) else { throw HTTPError(.notFound) }
-            return .ok
-        }
-
         // Blocking approval intake — bearer-token gated (the approval hook reads
         // the token file and sends it). Parse the gate payload, run the
         // permission matcher, and either decide immediately (allow/deny) or hold
@@ -380,6 +370,14 @@ public struct VibeBuddyServer: Sendable {
             // Native deny always wins, over every vibebuddy overlay (ADR 0010).
             if PermissionMatcher.decide(tool: tool, input: input, allow: [], deny: r.deny) == .deny {
                 return Self.permissionResponse("deny", agent: agent, event: call.event)
+            }
+            // A PreToolUse gate fires for every call, so answer the ones nobody
+            // needs to decide — a bypass-mode call, or a tool that only reads —
+            // before they become a card or a banner. A PermissionRequest only
+            // fires when the agent would ask, so it is never short-circuited.
+            if call.event == .preToolUse,
+               ApprovalShortCircuit.autoAllows(tool: tool, permissionMode: call.permissionMode) {
+                return Self.permissionResponse("allow", agent: agent, event: call.event)
             }
             // vibebuddy overlay: a session-wide allow, or an exact always-allow rule the
             // user set — both bypass the matcher's pattern heuristics since the user
@@ -433,24 +431,42 @@ public struct VibeBuddyServer: Sendable {
             else { throw HTTPError(.badRequest) }
             // "allow"/"deny" resolve this one prompt; "alwaysAllow" also persists a rule;
             // "allowSession" also allows the rest of this session (ADR 0010). Unknown → deny.
+            let ctx = await approvalContext.take(id: id)
             switch decision {
             case "alwaysAllow":
-                if let ctx = await approvalContext.take(id: id), let rule = ctx.rule {
-                    await allowStore.add(rule)
-                }
+                if let rule = ctx?.rule { await allowStore.add(rule) }
                 await registry.resolve(id: id, with: .allow)
             case "allowSession":
-                if let ctx = await approvalContext.take(id: id) {
-                    await sessionAllow.add(ctx.sessionID)
-                }
+                if let ctx { await sessionAllow.add(ctx.sessionID) }
                 await registry.resolve(id: id, with: .allow)
             case "allow":
-                _ = await approvalContext.take(id: id)
                 await registry.resolve(id: id, with: .allow)
             default:
-                _ = await approvalContext.take(id: id)
                 await registry.resolve(id: id, with: .deny)
             }
+            // Deciding is driving: the session stays followed for a while.
+            if let ctx { await store.recordInteraction(sessionID: ctx.sessionID) }
+            return .ok
+        }
+
+        // The user's attention choice for one session — bearer-token gated (the
+        // phone and the Mac UI both send this). `attention: null` returns the
+        // session to the automatic default.
+        authed.post("attention") { request, _ -> HTTPResponse.Status in
+            let buffer = try await request.body.collect(upTo: 4096)
+            guard let o = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
+                  let sid = o["sessionId"] as? String else { throw HTTPError(.badRequest) }
+            let level: SessionAttention?
+            switch o["attention"] {
+            case nil, is NSNull:
+                level = nil
+            case let raw as String:
+                guard let parsed = SessionAttention(rawValue: raw) else { throw HTTPError(.badRequest) }
+                level = parsed
+            default:
+                throw HTTPError(.badRequest)
+            }
+            guard await store.setAttention(sessionID: sid, level) else { throw HTTPError(.notFound) }
             return .ok
         }
 
@@ -487,6 +503,7 @@ public struct VibeBuddyServer: Sendable {
             // Jumping is an explicit return to the task, even if this terminal
             // type cannot ultimately be focused.
             await store.acknowledgeCompletion(sessionID: sid)
+            await store.recordInteraction(sessionID: sid)
             // Report what actually happened so the phone can give honest feedback.
             // The jumper answers after it has run, so `focused` means the exact
             // pane/tab really came forward — not merely that a command existed.
@@ -517,6 +534,7 @@ public struct VibeBuddyServer: Sendable {
             if let ref = await store.terminalRef(for: sid) {
                 onAnswer(ref, answer)
                 await store.endQuestion(sessionID: sid, at: Date())
+                await store.recordInteraction(sessionID: sid)
             }
             return .ok
         }
