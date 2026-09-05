@@ -3,7 +3,7 @@ import Foundation
 /// The built-in sound pack: one short, restrained cue per *state boundary*.
 /// Raw values are the bundled file stems. The guiding rule is that only state
 /// changes ring — never the process noise in between.
-public enum NotificationSound: String, Sendable, CaseIterable, Equatable {
+public enum NotificationSound: String, Sendable, CaseIterable, Equatable, Codable {
     case pairSuccess   = "pair_success"     // a phone just paired
     case needsAnswer   = "needs_answer"     // the agent asked a question
     case needsApproval = "needs_approval"   // a permission / approval is blocking
@@ -13,10 +13,6 @@ public enum NotificationSound: String, Sendable, CaseIterable, Equatable {
 
     /// The bundled CAF resource name (`needs_approval.caf`, …).
     public var fileName: String { "\(rawValue).caf" }
-
-    /// In Quiet / Focus mode only the security-decision cue survives; everything
-    /// else falls silent (the visual surfaces — banner, Live Activity — remain).
-    public var survivesQuietMode: Bool { self == .needsApproval }
 
     /// Whether this cue describes a session that is *still waiting*. Only these
     /// stop being true when the session moves on, so only these are withdrawn;

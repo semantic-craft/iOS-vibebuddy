@@ -36,6 +36,17 @@ public enum WaitKind: String, Codable, Sendable {
     case question        // asked something / idle waiting for input
 }
 
+/// How much of your attention a session has earned. Decides, together with
+/// the cue, whether a notification interrupts you, sits in the list, or is
+/// never posted (see `DeliveryMatrix`). The daemon owns the value: a manual
+/// choice from the Mac or the phone overrides whatever the automatic signals
+/// would have said, and the choice lives exactly as long as the session.
+public enum SessionAttention: String, Codable, Sendable, CaseIterable {
+    case followed   // you are driving this one — everything interrupts
+    case normal     // the default — only what blocks or breaks interrupts
+    case muted      // you chose to stop hearing from it — approvals only, silently
+}
+
 /// A tool use awaiting the user's approval from the phone. Present only while a
 /// session is blocked on a remote approve/deny.
 public struct PendingApproval: Codable, Sendable, Equatable {
@@ -366,6 +377,13 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     /// snapshots decode as a normal completion. Distinct from a real stop
     /// whose last message happened to be "Abandoned".
     public var probeRetired: Bool?
+    /// The attention level in effect for this session: the user's own choice
+    /// when there is one, else what the daemon inferred from recent
+    /// interaction. Absent means `normal`. Only the daemon writes it.
+    public var attention: SessionAttention?
+    /// The level the user set by hand (via `/attention`), if any. Absent means
+    /// the level is automatic — the UI shows this so a choice can be undone.
+    public var attentionOverride: SessionAttention?
     public var statusSince: Date
     public var updatedAt: Date
 
@@ -393,6 +411,8 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         childAgents: [ChildAgent]? = nil,
         childTopologyDegraded: Bool? = nil,
         probeRetired: Bool? = nil,
+        attention: SessionAttention? = nil,
+        attentionOverride: SessionAttention? = nil,
         statusSince: Date,
         updatedAt: Date
     ) {
@@ -419,6 +439,8 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         self.childAgents = childAgents
         self.childTopologyDegraded = childTopologyDegraded
         self.probeRetired = probeRetired
+        self.attention = attention
+        self.attentionOverride = attentionOverride
         self.statusSince = statusSince
         self.updatedAt = updatedAt
     }
@@ -435,6 +457,9 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
 
     /// Whether to treat this session as failed/stuck (Optional `failed` is "no").
     public var isStuck: Bool { failed == true }
+
+    /// The attention level to apply: an unset value is `normal`.
+    public var effectiveAttention: SessionAttention { attention ?? .normal }
 
     public var runningChildAgents: [ChildAgent] {
         (childAgents ?? []).filter { $0.status == .running }
@@ -497,16 +522,21 @@ public struct DeviceRegistrationPayload: Codable, Sendable, Equatable {
     /// Optional so older payloads decode unchanged.
     public var playSound: Bool?
     public var quietMode: Bool?
+    /// Which cue categories the phone wants at all. Optional so older payloads
+    /// decode unchanged; the Mac treats a missing value as the default set.
+    public var categories: NotificationCategoryPrefs?
 
     public init(token: String? = nil, name: String? = nil,
                 model: String? = nil, systemVersion: String? = nil,
-                playSound: Bool? = nil, quietMode: Bool? = nil) {
+                playSound: Bool? = nil, quietMode: Bool? = nil,
+                categories: NotificationCategoryPrefs? = nil) {
         self.token = token
         self.name = name
         self.model = model
         self.systemVersion = systemVersion
         self.playSound = playSound
         self.quietMode = quietMode
+        self.categories = categories
     }
 
     public var hasPushToken: Bool { token?.isEmpty == false }
@@ -515,3 +545,4 @@ public struct DeviceRegistrationPayload: Codable, Sendable, Equatable {
         hasPushToken || name?.isEmpty == false || model?.isEmpty == false || systemVersion?.isEmpty == false
     }
 }
+

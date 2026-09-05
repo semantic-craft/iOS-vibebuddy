@@ -29,11 +29,17 @@ public actor SessionStore {
     private var runtimeSignals: [AgentKind: [ObservationSource: ObservationRuntimeSignal]] = [:]
     private var diagnosticCache: (at: Date, value: [AgentObservationDiagnostic])?
     private var lifecycleJournal: LifecycleJournal?
+    /// The user's hand-set attention levels, layered onto every snapshot.
+    private var attention: AttentionOverrides
+    /// When the user last drove each session (prompt, jump, decision, answer);
+    /// what `AutoAttention` reads when there is no hand-set level.
+    private var lastInteractionAt: [String: Date] = [:]
 
     public init(
         staleAfter: TimeInterval = 2 * 60 * 60,
         diagnosticsHome: URL? = nil,
         journalURL: URL? = nil,
+        attentionURL: URL? = nil,
         grokHome: URL? = nil,
         now: Date = Date()
     ) {
@@ -45,6 +51,29 @@ public actor SessionStore {
             self.lifecycleJournal = journal
             reducer.restore(journal.restorableSessions(now: now, meaningfulFor: staleAfter))
         }
+        var attention = AttentionOverrides(url: attentionURL)
+        attention.prune(keeping: Set(reducer.sessions.keys))
+        self.attention = attention
+    }
+
+    /// Set (or with `nil` clear) the user's attention choice for a live session.
+    /// Returns false when no such session exists — there is nothing to attach
+    /// the choice to, and it would never be pruned.
+    @discardableResult
+    public func setAttention(sessionID: String, _ level: SessionAttention?) -> Bool {
+        guard reducer.sessions[sessionID] != nil else { return false }
+        attention.set(level, for: sessionID)
+        broadcast()
+        return true
+    }
+
+    /// The user just acted on this session — typed a prompt, jumped to it,
+    /// decided its approval, answered its question. Keeps it `followed` for
+    /// `AutoAttention.window` unless a hand-set level says otherwise.
+    public func recordInteraction(sessionID: String, at: Date = Date()) {
+        guard reducer.sessions[sessionID] != nil else { return }
+        lastInteractionAt[sessionID] = at
+        broadcast()
     }
 
     /// Change the idle-cleanup window at runtime (from Settings).
@@ -66,7 +95,9 @@ public actor SessionStore {
         for id in removed {
             transcriptPaths[id] = nil
             grokDirectories[id] = nil
+            lastInteractionAt[id] = nil
         }
+        attention.prune(keeping: Set(reducer.sessions.keys))
         for id in removed {
             guard let session = before[id] else { continue }
             appendJournal(
@@ -93,13 +124,18 @@ public actor SessionStore {
 
     /// Parse a raw hook payload, apply it, enrich from the transcript, and push
     /// the new snapshot to every subscriber. Returns false if it wasn't a hook.
+    /// `announcesWait: false` applies the event without firing the
+    /// needs-response handler — for a wait the caller is about to announce
+    /// itself (a `PermissionRequest` gate that opens an unknown session right
+    /// before `beginApproval`), so one request never produces two pushes.
     @discardableResult
-    public func ingest(_ data: Data, agent: AgentKind = .claudeCode, receivedAt: Date) -> Bool {
+    public func ingest(_ data: Data, agent: AgentKind = .claudeCode, receivedAt: Date,
+                       announcesWait: Bool = true) -> Bool {
         // Source-aware decode: the `?agent=` value tags Claude-shaped lifecycle
         // hooks directly and selects a translator only for different envelopes.
         switch HookDecoder.decode(data, agent: agent, receivedAt: receivedAt) {
         case let .event(event):
-            ingest(event, observationSource: .hook)
+            ingest(event, observationSource: .hook, announcesWait: announcesWait)
             return true
         case .ignored:
             // Understood, but carries no progress (grok fires several such events
@@ -130,11 +166,14 @@ public actor SessionStore {
     private func ingest(
         _ event: HookEvent,
         observationSource: ObservationSource,
-        recordsEvidence: Bool = true
+        recordsEvidence: Bool = true,
+        announcesWait: Bool = true
     ) {
         let wasWaiting = reducer.sessions[event.sessionID]?.status == .needsResponse
         if let path = event.transcriptPath { transcriptPaths[event.sessionID] = path }
         reducer.apply(event, observationSource: observationSource, recordsEvidence: recordsEvidence)
+        // A prompt is the user driving the session in person.
+        if event.kind == .userPromptSubmit { lastInteractionAt[event.sessionID] = event.timestamp }
         if let enrichment = event.enrichment {
             reducer.enrich(sessionID: event.sessionID, with: enrichment)
         }
@@ -147,6 +186,8 @@ public actor SessionStore {
             transcriptPaths[event.sessionID] = nil
             pendingTerminalRefs[event.sessionID] = nil
             grokDirectories[event.sessionID] = nil
+            lastInteractionAt[event.sessionID] = nil
+            attention.set(nil, for: event.sessionID)
         } else {
             // Grok keeps a session's facts in a directory of files rather than
             // one transcript, so it enriches from that directory instead.
@@ -175,7 +216,7 @@ public actor SessionStore {
             at: event.timestamp
         )
         broadcast()
-        if !wasWaiting, let session = reducer.sessions[event.sessionID],
+        if announcesWait, !wasWaiting, let session = reducer.sessions[event.sessionID],
            session.status == .needsResponse, let handler = needsResponseHandler {
             Task { await handler(session) }
         }
@@ -320,6 +361,13 @@ public actor SessionStore {
     private func currentSnapshot(now: Date) -> Snapshot {
         var snapshot = reducer.snapshot(now: now, observationDiagnostics: diagnostics(now: now))
         snapshot.providerQuota = providerQuota.isEmpty ? nil : providerQuota
+        snapshot.sessions = snapshot.sessions.map { session in
+            var session = session
+            session.attentionOverride = attention[session.id]
+            session.attention = attention[session.id]
+                ?? AutoAttention.level(lastInteractionAt: lastInteractionAt[session.id], now: now)
+            return session
+        }
         return snapshot
     }
 
@@ -390,7 +438,10 @@ public actor SessionStore {
             source: source,
             timestamp: timestamp,
             status: result?.status,
-            waitKind: result?.waitKind
+            waitKind: result?.waitKind,
+            // The reducer's "—" placeholder means no cwd yet; don't persist it.
+            // The entry itself bounds the label (LifecycleJournalEntry.maxProjectBytes).
+            project: result.flatMap { $0.project == "—" ? nil : $0.project }
         ), now: timestamp)
         lifecycleJournal = journal
     }

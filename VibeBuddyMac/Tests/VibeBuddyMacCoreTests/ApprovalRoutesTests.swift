@@ -12,6 +12,13 @@ private func bash(_ cmd: String) -> String {
     #"{"hook_event_name":"PreToolUse","session_id":"s","cwd":"/x/p","tool_name":"Bash","tool_input":{"command":"\#(cmd)"}}"#
 }
 
+/// A Claude Code PermissionRequest payload: fired only when Claude would stop
+/// and ask (a prompt in default mode, an uncertain classifier in auto mode).
+private func claudeRequest(_ cmd: String, tool: String = "Bash") -> String {
+    #"{"hook_event_name":"PermissionRequest","session_id":"ps","cwd":"/x/p","permission_mode":"default","#
+        + #""tool_use_id":"toolu_1","tool_name":"\#(tool)","tool_input":{"command":"\#(cmd)"}}"#
+}
+
 /// A Codex CLI PermissionRequest payload: Claude-shaped keys, fired only when
 /// Codex would prompt. `tool_input.command` carries the shell command (Bash)
 /// or the whole patch (apply_patch).
@@ -27,6 +34,13 @@ private func codexRequest(_ command: String, tool: String = "Bash",
 private let codexAllow = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#
 private let codexDeny = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"Denied from vibebuddy"}}}"#
 
+/// A legacy Claude PreToolUse gate payload (the shape Grok's gate still uses),
+/// carrying a permission mode. Only this event is ever short-circuited.
+private func claude(tool: String, input: String = #"{"command":"rm -rf build"}"#,
+                    mode: String?) -> String {
+    let modeField = mode.map { #","permission_mode":"\#($0)""# } ?? ""
+    return #"{"hook_event_name":"PreToolUse","session_id":"s","cwd":"/x/p"\#(modeField),"tool_name":"\#(tool)","tool_input":\#(input)}"#
+}
 /// A Grok Build PreToolUse envelope: camelCase keys, snake_case event value.
 private func grokBash(_ cmd: String, tool: String = "run_terminal_command",
                       mode: String = "bypassPermissions") -> String {
@@ -191,6 +205,101 @@ struct ApprovalRoutesTests {
         }
     }
 
+    // MARK: permission-mode / read-only short circuit (notification-filtering/01)
+
+    private func expectImmediateAllow(_ srv: VibeBuddyServer, store: SessionStore,
+                                      body: String) async throws {
+        try await srv.buildApplication().test(.router) { client in
+            try await client.execute(uri: "/approval", method: .post,
+                headers: [.authorization: "Bearer t0k"], body: ByteBuffer(string: body)) { res in
+                #expect(res.status == .ok)
+                #expect(String(buffer: res.body).contains("\"permissionDecision\":\"allow\""))
+            }
+        }
+        let session = await store.snapshot(now: Date()).sessions.first { $0.id == "s" }
+        #expect(session?.pendingApproval == nil)
+        #expect(session?.status == .working)   // the hook is still the PreToolUse signal
+    }
+
+    @Test("a bypassPermissions Bash call allows at once, holds nothing, still goes working")
+    func bypassModeShortCircuits() async throws {
+        let store = SessionStore()
+        try await expectImmediateAllow(server(store: store), store: store,
+                                       body: claude(tool: "Bash", mode: "bypassPermissions"))
+    }
+
+    @Test("a default-mode Read allows at once without a card")
+    func defaultModeReadShortCircuits() async throws {
+        let store = SessionStore()
+        try await expectImmediateAllow(server(store: store), store: store,
+            body: claude(tool: "Read", input: #"{"file_path":"/x/p/a.swift"}"#, mode: "default"))
+    }
+
+    @Test("an acceptEdits Edit allows at once without a card")
+    func acceptEditsEditShortCircuits() async throws {
+        let store = SessionStore()
+        try await expectImmediateAllow(server(store: store), store: store,
+            body: claude(tool: "Edit", input: #"{"file_path":"/x/p/a.swift","old_string":"a","new_string":"b"}"#,
+                         mode: "acceptEdits"))
+    }
+
+    @Test("a default-mode Edit still holds for the phone")
+    func defaultModeEditHolds() async throws {
+        let store = SessionStore()
+        let srv = server(store: store, approvalTimeout: .milliseconds(300))
+        try await srv.buildApplication().test(.router) { client in
+            async let held = client.execute(uri: "/approval", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: claude(tool: "Edit",
+                    input: #"{"file_path":"/x/p/a.swift","old_string":"a","new_string":"b"}"#,
+                    mode: "default"))) { res -> String in String(buffer: res.body) }
+            try await waitForPendingApproval(store, session: "s")
+            #expect(try await held.isEmpty)   // timed out → fail-open, empty body
+        }
+    }
+
+    @Test("a PermissionRequest is never short-circuited — even a bypassPermissions Bash holds")
+    func permissionRequestIsNeverShortCircuited() async throws {
+        let store = SessionStore()
+        let srv = server(store: store, approvalTimeout: .milliseconds(300))
+        try await srv.buildApplication().test(.router) { client in
+            async let held = client.execute(uri: "/approval", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string:
+                    #"{"hook_event_name":"PermissionRequest","session_id":"s","cwd":"/x/p","permission_mode":"bypassPermissions","#
+                    + #""tool_name":"Bash","tool_input":{"command":"rm -rf build"}}"#)) { res -> String in String(buffer: res.body) }
+            try await waitForPendingApproval(store, session: "s")
+            #expect(try await held.isEmpty)   // timed out → fail-open, empty body
+        }
+    }
+
+    @Test("a default-mode MCP tool still holds — MCP is never read-only")
+    func defaultModeMCPHolds() async throws {
+        let store = SessionStore()
+        let srv = server(store: store, approvalTimeout: .milliseconds(300))
+        try await srv.buildApplication().test(.router) { client in
+            async let held = client.execute(uri: "/approval", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: claude(tool: "mcp__filesystem__read_file",
+                    input: #"{"path":"/x/p/a.swift"}"#, mode: "default"))) { res -> String in
+                String(buffer: res.body)
+            }
+            try await waitForPendingApproval(store, session: "s")
+            #expect(try await held.isEmpty)
+        }
+    }
+
+    @Test("a native deny rule beats bypassPermissions")
+    func denyBeatsBypass() async throws {
+        try await server(deny: ["Bash(rm:*)"]).buildApplication().test(.router) { client in
+            try await client.execute(uri: "/approval", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: claude(tool: "Bash", mode: "bypassPermissions"))) { res in
+                #expect(String(buffer: res.body).contains("\"permissionDecision\":\"deny\""))
+            }
+        }
+    }
+
     @Test("an allow-listed grok call answers in grok's decision contract")
     func grokAllowImmediate() async throws {
         try await server(allow: ["Bash(ls:*)"]).buildApplication().test(.router) { client in
@@ -237,7 +346,8 @@ struct ApprovalRoutesTests {
     @Test("no decision on a grok call times out to an empty body (fail-open)")
     func grokTimesOutEmpty() async throws {
         try await server(approvalTimeout: .milliseconds(200)).buildApplication().test(.router) { client in
-            let text = try await approve(client, body: grokBash("rm -rf build"), agent: "grok")
+            // `default` mode: a bypass-mode call would short-circuit to allow instead of holding.
+            let text = try await approve(client, body: grokBash("rm -rf build", mode: "default"), agent: "grok")
             #expect(text.isEmpty)
         }
     }
@@ -264,7 +374,7 @@ struct ApprovalRoutesTests {
     func grokAlwaysAllowPersists() async throws {
         let store = SessionStore()
         try await server(store: store).buildApplication().test(.router) { client in
-            async let first = approve(client, body: grokBash("git status"), agent: "grok")
+            async let first = approve(client, body: grokBash("git status", mode: "default"), agent: "grok")
             try await waitForPendingApproval(store, session: "gs")
             try await client.execute(uri: "/decision", method: .post,
                 headers: [.authorization: "Bearer t0k"],
@@ -275,9 +385,70 @@ struct ApprovalRoutesTests {
 
             // Same command again — and under grok's older tool spelling, which
             // canonicalizes to the same `Bash(git status)` rule.
-            let again = try await approve(client, body: grokBash("git status", tool: "run_terminal_cmd"),
+            let again = try await approve(client, body: grokBash("git status", tool: "run_terminal_cmd", mode: "default"),
                                           agent: "grok")
             #expect(again == #"{"decision":"allow"}"#)
+        }
+    }
+
+    // MARK: - Claude Code PermissionRequest (the gate `--approval` installs)
+    //
+    // Same envelope as Claude's PreToolUse, but it only fires when Claude would
+    // prompt, and it is answered with `decision.behavior` — the very contract
+    // Codex adopted. A PreToolUse payload keeps the `permissionDecision` reply.
+
+    @Test("an allow-listed claude PermissionRequest answers allow in the decision contract, with no wait")
+    func claudePermissionRequestAllowImmediate() async throws {
+        let store = SessionStore()
+        try await server(allow: ["Bash(ls:*)"], store: store).buildApplication().test(.router) { client in
+            let text = try await approve(client, body: claudeRequest("ls -la"))
+            #expect(text == codexAllow)
+            #expect(await store.snapshot(now: Date()).sessions.first { $0.id == "ps" } == nil)
+        }
+    }
+
+    @Test("a held claude PermissionRequest shows the card on the known session; a phone deny answers deny + message")
+    func claudePermissionRequestHoldThenDeny() async throws {
+        let store = SessionStore()
+        let prompt = #"{"hook_event_name":"UserPromptSubmit","session_id":"ps","cwd":"/x/p","prompt":"go"}"#
+        await store.ingest(Data(prompt.utf8), receivedAt: Date())
+        let srv = server(store: store)   // empty allow → .ask
+        try await srv.buildApplication().test(.router) { client in
+            async let held = approve(client, body: claudeRequest("rm -rf build"))
+            try await waitForPendingApproval(store, session: "ps")
+            let session = try #require(await store.snapshot(now: Date()).sessions.first { $0.id == "ps" })
+            #expect(session.agent == .claudeCode)
+            #expect(session.status == .needsResponse)
+            #expect(session.pendingApproval?.command == "rm -rf build")
+            #expect(session.pendingApproval?.permissionMode == nil)
+            try await client.execute(uri: "/decision", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"approvalId":"s","decision":"deny"}"#)) { res in
+                #expect(res.status == .ok)
+            }
+            #expect(try await held == codexDeny)
+            let after = try #require(await store.snapshot(now: Date()).sessions.first { $0.id == "ps" })
+            #expect(after.pendingApproval == nil)
+            #expect(after.status == .working)
+        }
+    }
+
+    @Test("alwaysAllow from a claude PermissionRequest also auto-allows the same call on a PreToolUse gate")
+    func claudePermissionRequestAlwaysAllowSharesRules() async throws {
+        let store = SessionStore()
+        try await server(store: store).buildApplication().test(.router) { client in
+            async let first = approve(client, body: claudeRequest("git status"))
+            try await waitForPendingApproval(store, session: "ps")
+            try await client.execute(uri: "/decision", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"approvalId":"s","decision":"alwaysAllow"}"#)) { res in
+                #expect(res.status == .ok)
+            }
+            #expect(try await first == codexAllow)
+            // The persisted rule is event-agnostic: a legacy PreToolUse gate
+            // reads it too, in its own contract.
+            let legacy = try await approve(client, body: bash("git status"))
+            #expect(legacy.contains("\"permissionDecision\":\"allow\""))
         }
     }
 
@@ -332,9 +503,18 @@ struct ApprovalRoutesTests {
         }
     }
 
-    @Test("a held codex request on an unknown session opens it from the payload so the card has a row")
+    /// Counts needs-response announcements (the APNs push path) and remembers
+    /// whether each carried the approval card.
+    private actor WaitAnnouncements {
+        var cards: [Bool] = []
+        func record(_ session: AgentSession) { cards.append(session.pendingApproval != nil) }
+    }
+
+    @Test("a held request on an unknown session opens it from the payload and announces the wait once, with the card")
     func codexHoldOnUnknownSessionOpensIt() async throws {
         let store = SessionStore()
+        let announced = WaitAnnouncements()
+        await store.setNeedsResponseHandler { session in await announced.record(session) }
         let srv = server(store: store)
         try await srv.buildApplication().test(.router) { client in
             async let held = approve(client, body: codexRequest("rm -rf build"), agent: "codex")
@@ -342,6 +522,10 @@ struct ApprovalRoutesTests {
             let session = try #require(await store.snapshot(now: Date()).sessions.first { $0.id == "cs" })
             #expect(session.status == .needsResponse)
             #expect(session.pendingApproval?.command == "rm -rf build")
+            // One push, and it is the approval push — not a generic "needs you"
+            // from opening the session followed by a second one for the card.
+            try await Task.sleep(for: .milliseconds(50))
+            #expect(await announced.cards == [true])
             try await client.execute(uri: "/decision", method: .post,
                 headers: [.authorization: "Bearer t0k"],
                 body: ByteBuffer(string: #"{"approvalId":"s","decision":"allow"}"#)) { res in
@@ -471,6 +655,11 @@ struct ApprovalRoutesTests {
         let codex = try await runApprovalHook(source: "codex", port: port, token: "t0k",
                                               stdin: codexRequest("ls -la"))
         #expect(codex == codexAllow)
+
+        // So does Claude's PermissionRequest gate (no source argument).
+        let request = try await runApprovalHook(source: nil, port: port, token: "t0k",
+                                                stdin: claudeRequest("ls -la"))
+        #expect(request == codexAllow)
 
         // A wrong token is a 401 → nothing on stdout → the agent fails open.
         let unauthorized = try await runApprovalHook(source: "grok", port: port, token: "wrong",

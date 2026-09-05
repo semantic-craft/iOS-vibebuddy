@@ -27,7 +27,7 @@ struct DashboardView: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
                 BuddyView(groups: dashboard.groups, pulse: dashboard.cuePulse,
-                          speaking: voice.isSpeaking, listening: voice.isListening,
+                          voice: .init(voice.phase),
                           companionEnabled: companionEnabled,
                           buddyScopeCount: dashboard.buddySessionIDs.count) {
                     voice.toggle()
@@ -110,6 +110,10 @@ struct DashboardView: View {
                 ForEach(sessions) { session in
                     SessionRow(session: session, isSelected: highlightId == session.id)
                         .id(session.id)
+                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                            attentionSwipeButtons(session)
+                        }
+                        .contextMenu { attentionMenu(session) }
                         .listRowInsets(.init(top: 6, leading: 0, bottom: 6, trailing: 16))
                         .listRowBackground(highlightId == session.id
                                            ? accent.opacity(0.15) : Color.clear)
@@ -124,6 +128,69 @@ struct DashboardView: View {
                 .foregroundStyle(accent)
                 .textCase(nil)
             }
+        }
+    }
+}
+
+extension DashboardView {
+    /// The swipe offers the two levels the row is not already at: Follow (be
+    /// reminded until its completion is read; everything interrupts) and Mute
+    /// (approvals and questions show silently; nothing else interrupts).
+    @ViewBuilder
+    fileprivate func attentionSwipeButtons(_ session: AgentSession) -> some View {
+        if session.effectiveAttention != .followed {
+            Button { dashboard.setAttention(session.id, .followed) } label: {
+                Label(SessionAttention.followed.actionTitle, systemImage: SessionAttention.followed.symbol)
+            }
+            .tint(.orange)
+        }
+        if session.effectiveAttention != .muted {
+            Button { dashboard.setAttention(session.id, .muted) } label: {
+                Label(SessionAttention.muted.actionTitle, systemImage: SessionAttention.muted.symbol)
+            }
+            .tint(.gray)
+        }
+    }
+
+    /// The long-press shows all three plus Automatic, the current choice checked.
+    /// Automatic is the daemon's own inference: followed for ten minutes after
+    /// you drove the session, normal otherwise.
+    fileprivate func attentionMenu(_ session: AgentSession) -> some View {
+        Picker(selection: Binding(get: { session.attentionOverride },
+                                  set: { dashboard.setAttention(session.id, $0) })) {
+            Label(String(localized: "Automatic"), systemImage: "wand.and.stars")
+                .tag(SessionAttention?.none)
+            ForEach(SessionAttention.allCases, id: \.self) { level in
+                Label(level.actionTitle, systemImage: level.symbol).tag(SessionAttention?.some(level))
+            }
+        } label: {
+            Label(String(localized: "Attention"), systemImage: session.effectiveAttention.symbol)
+        }
+        .pickerStyle(.menu)
+    }
+}
+
+extension SessionAttention {
+    /// The verb on a swipe / menu item, and the noun in the row's accessibility label.
+    var actionTitle: String {
+        switch self {
+        case .followed: String(localized: "Follow")
+        case .normal: String(localized: "Normal")
+        case .muted: String(localized: "Mute")
+        }
+    }
+    var stateTitle: String {
+        switch self {
+        case .followed: String(localized: "Followed")
+        case .normal: String(localized: "Normal")
+        case .muted: String(localized: "Muted")
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .followed: "bell.badge"
+        case .normal: "bell"
+        case .muted: "bell.slash"
         }
     }
 }
@@ -190,6 +257,12 @@ private struct SessionRow: View {
                         Text(branch)
                             .font(.caption.monospaced())
                             .foregroundStyle(.secondary)
+                    }
+                    if session.effectiveAttention != .normal {
+                        Image(systemName: session.effectiveAttention == .followed ? "bell.badge.fill" : "bell.slash.fill")
+                            .font(.caption2)
+                            .foregroundStyle(session.effectiveAttention == .followed ? .orange : .secondary)
+                            .accessibilityLabel(session.effectiveAttention.stateTitle)
                     }
                     if session.isStuck {
                         Label("Stuck", systemImage: "exclamationmark.triangle.fill")

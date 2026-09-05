@@ -29,7 +29,7 @@ The CLI pipes its event JSON on stdin. VibeBuddy reads `hook_event_name`,
 
 | CLI | source | config | hook style | status |
 |-----|--------|--------|-----------|--------|
-| Claude Code | `claude` | `~/.claude/settings.json` | JSON `hooks` array | ✅ tested |
+| Claude Code | `claude` | `~/.claude/settings.json` | JSON `hooks` array; `--approval` gates `PermissionRequest` | ✅ tested |
 | Codex CLI | `codex` | `~/.codex/hooks.json` (`notify` untouched) | JSON `hooks` array; `--approval` gates `PermissionRequest` | ✅ tested |
 | OpenCode | `opencode` | `~/.config/opencode/` plugin | Claude-compatible hooks | ⚠️ template |
 | Qwen Code | `qwen` | `~/.qwen/` | Claude-compatible hooks | ⚠️ template |
@@ -65,6 +65,19 @@ Other hook-compatible CLIs (OpenCode, Qwen) follow the same shape with
 `agent=<their source>`. Kimi uses its TOML hook table; Antigravity uses
 a Gemini plugin that shells out to the same curl. Copilot has no hook surface
 yet — it appears once a future watcher observes it.
+
+#### Remote approval (`--approval`)
+
+`install-claude-hooks.py --approval` replaces the asynchronous `PermissionRequest`
+status group with a blocking `hooks/approval-hook.sh` (`timeout: 30`, matcher
+`*`). Claude fires `PermissionRequest` only when it would stop and ask — a prompt
+in default mode, an uncertain classifier in auto mode — and honours the hook's
+`hookSpecificOutput.decision.behavior` (`allow` / `deny` + `message`); Claude Code
+2.1.261 validates exactly that shape. Every other tool call never reaches the
+phone. Silence (no phone answer in 25s) leaves Claude's own prompt in place;
+`bypassPermissions` fires the event but ignores the answer. The `PreToolUse`
+status forwarder stays asynchronous. An older gate on `PreToolUse` (every call
+held) is migrated by `--install`.
 
 ### Codex CLI (`~/.codex/hooks.json`)
 

@@ -36,7 +36,7 @@ CLIS = [
 
 
 # CLIs whose installer understands `--approval` (a blocking gate that asks the
-# phone: PreToolUse for Claude and Grok, PermissionRequest for the Codex CLI).
+# phone: PermissionRequest for Claude and the Codex CLI, PreToolUse for Grok).
 # Everything else is installed status-only.
 APPROVAL_CAPABLE = {"claude", "codex", "grok"}
 

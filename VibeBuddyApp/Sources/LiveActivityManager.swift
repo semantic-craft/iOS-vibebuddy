@@ -33,20 +33,20 @@ final class LiveActivityManager {
         } else {
             guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
             // Demo/visual QA must not trigger a notification permission prompt.
-            // Its Live Activity is local-only; paired production sessions still
-            // request a push token for Mac-originated background updates.
+            // Its Live Activity is local-only; paired sessions ask for a push
+            // token so the Mac can update the banner while the app is in the
+            // background. When the push request is refused (no aps-environment
+            // entitlement: Simulator and unsigned builds), fall back to a
+            // local-only activity rather than leaving the lock screen empty.
             let isDemo = ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1"
-            let started: Activity<VibeBuddyActivityAttributes>?
-            if isDemo {
-                started = try? Activity.request(
-                    attributes: VibeBuddyActivityAttributes(), content: content)
-            } else {
-                started = try? Activity.request(
-                    attributes: VibeBuddyActivityAttributes(), content: content, pushType: .token)
+            let attributes = VibeBuddyActivityAttributes()
+            if !isDemo,
+               let started = try? Activity.request(attributes: attributes, content: content, pushType: .token) {
+                activity = started
+                observePushToken(started)
+            } else if let started = try? Activity.request(attributes: attributes, content: content) {
+                activity = started
             }
-            guard let started else { return }
-            activity = started
-            if !isDemo { observePushToken(started) }
         }
     }
 

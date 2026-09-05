@@ -196,16 +196,34 @@ is listening.
 ## Remote approval (opt-in)
 
 ```bash
-python3 hooks/install-claude-hooks.py --approval   # add the blocking PreToolUse approval hook
+python3 hooks/install-claude-hooks.py --approval   # the blocking gate on PermissionRequest
 python3 hooks/install-claude-hooks.py --uninstall  # removes it too
-python3 hooks/install-codex-hooks.py --approval    # Codex CLI: the gate on PermissionRequest
+python3 hooks/install-codex-hooks.py --approval    # Codex CLI: same gate, same event
 ```
-Commands not in your `permissions.allow` are sent to the phone to approve/deny.
-On timeout/unreachable, the agent proceeds with its normal behaviour. For Claude
-the gate sits on every `PreToolUse`, so it asks about every tool call the daemon
-cannot match to a rule — including calls Claude's own auto mode would have let
-through; "Allow session" on the phone is the relief valve. For the Codex CLI it
-sits on `PermissionRequest`, which only fires when Codex would prompt anyway.
+Both gates sit on `PermissionRequest`, which fires only when the agent would stop
+and ask — for Claude that is a permission prompt in default mode, or an uncertain
+classifier in auto mode; tool calls the agent runs on its own never reach the
+phone. The gate is a synchronous `hooks/approval-hook.sh` (`timeout: 30`) that
+posts to `/approval`; the daemon first tries your `permissions.allow` / `deny`
+rules and vibebuddy's own always-allow store, and only otherwise shows the card.
+It answers `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":
+{"behavior":"allow"|"deny"}}}`; a phone decision is final, and no decision within
+25s prints nothing, so the agent falls back to its own prompt. `bypassPermissions`
+still fires the event but ignores the answer.
+
+An older install put Claude's gate on `PreToolUse` — every tool call, held for
+the phone. `--install` and `--approval` both migrate such a gate to
+`PermissionRequest`; the daemon still answers a `PreToolUse` payload in that
+event's `permissionDecision` contract (Grok's gate lives there by necessity).
+
+Because a `PreToolUse` gate fires for every call, the daemon answers the ones
+nobody needs to decide itself, so they never reach the phone or raise a Mac
+banner: every call from a `bypassPermissions` session; read-only tools (Read,
+Glob, Grep, LS, WebFetch, WebSearch, ToolSearch, TodoWrite, NotebookRead,
+AskUserQuestion) in any mode; and the edit tools (Edit, Write, MultiEdit,
+NotebookEdit) in `acceptEdits`. MCP tools are never treated as read-only, and a
+native `permissions.deny` rule still wins. A `PermissionRequest` is never
+short-circuited: by definition the agent would have asked.
 
 ## Terminal capture (jump-back)
 

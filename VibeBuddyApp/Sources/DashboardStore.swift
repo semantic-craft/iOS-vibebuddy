@@ -160,6 +160,7 @@ final class DashboardStore: ObservableObject {
     /// Play the pairing-success cue. Called once when a fresh pairing is saved
     /// (a QR scan or manual connect), not on automatic reconnects.
     func confirmPairing() {
+        guard SoundPrefs.categories.isEnabled(.pairSuccess) else { return }
         notifier.confirmPairing()
     }
 
@@ -173,6 +174,14 @@ final class DashboardStore: ObservableObject {
         groups = SessionGroups(sessions)
         WidgetSnapshotStore.save(sessions: sessions)
         relayToWatch(sessions)
+        // Live Activities trigger a system authorization sheet on a fresh
+        // simulator. Keep dashboard/demo acceptance deterministic and opt in
+        // explicitly when the Live Activity itself is under review; once opted
+        // in, every demo transition (approve, answer, open) reaches the banner
+        // exactly as a Mac snapshot would.
+        if isDemo, ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO_LIVE_ACTIVITY"] == "1" {
+            Task { await liveActivity.sync(sessions: sessions) }
+        }
     }
 
     /// Project the dashboard for the Watch. Demo Mode supplies sample allowance;
@@ -237,12 +246,6 @@ final class DashboardStore: ObservableObject {
         let pendingAcknowledgements = pendingAcknowledgementIDs
         pendingAcknowledgementIDs.removeAll()
         for sessionId in pendingAcknowledgements { acknowledge(sessionId) }
-        // Live Activities trigger a system authorization sheet on a fresh
-        // simulator. Keep dashboard/demo acceptance deterministic and opt in
-        // explicitly when the Live Activity itself is under review.
-        if ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO_LIVE_ACTIVITY"] == "1" {
-            Task { await liveActivity.sync(sessions: demo) }
-        }
     }
 
     func decide(_ approvalId: String, _ decision: ApprovalDecision) {
@@ -402,6 +405,21 @@ final class DashboardStore: ObservableObject {
         Task { await decisionClient.acknowledge(pairing, sessionId: sessionId) }
     }
 
+    /// Set, or with `nil` return to automatic, how much a session may interrupt
+    /// you. The list flips at once; the Mac stays authoritative and the next
+    /// snapshot either confirms it or puts it back. Demo Mode mirrors it locally.
+    func setAttention(_ sessionId: String, _ level: SessionAttention?) {
+        install(allSessions.map { session in
+            guard session.id == sessionId else { return session }
+            var session = session
+            session.attentionOverride = level
+            session.attention = level ?? .normal
+            return session
+        })
+        guard !isDemo, let pairing else { return }
+        Task { await decisionClient.setAttention(pairing, sessionId: sessionId, level: level) }
+    }
+
     /// Honest feedback for a jump — success lands on the Mac, so the phone has to
     /// say so; `nil` means the Mac wasn't reachable. `activatedApp` is the case
     /// worth naming: the right app is now in front, but the session's own window
@@ -449,23 +467,26 @@ final class DashboardStore: ObservableObject {
             model: UIDevice.current.model,
             systemVersion: "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)",
             playSound: SoundPrefs.playSound,
-            quietMode: SoundPrefs.effectiveQuiet()
+            quietMode: SoundPrefs.effectiveQuiet(),
+            categories: SoundPrefs.categories
         ))
         _ = try? await URLSession.shared.data(for: request)
     }
 
     private func apply(_ snapshot: Snapshot) async {
         // The shared policy owns all the sounding rules; we just supply context.
-        let alerts = policy.evaluate(SoundPolicyInput(
+        // The category switches then drop whatever this phone does not want to
+        // hear about — and what the phone never posts, the Watch never mirrors.
+        let alerts = SoundPrefs.categories.filter(policy.evaluate(SoundPolicyInput(
             sessions: snapshot.sessions,
             now: Date(),
             appActive: UIApplication.shared.applicationState == .active,
-            quietMode: SoundPrefs.effectiveQuiet()))
+            quietMode: SoundPrefs.effectiveQuiet())))
         for alert in alerts {
             notifier.notify(alert)
-            Haptics.play(for: alert.sound)   // a tasteful tap to go with the cue
+            if alert.delivery.interrupts { Haptics.play(for: alert.sound) }   // a tasteful tap to go with the cue
         }
-        if !alerts.isEmpty { cuePulse += 1 }   // let the buddy react
+        if alerts.contains(where: \.delivery.interrupts) { cuePulse += 1 }   // let the buddy react
         // Answered on the Mac, or gone entirely: the banner it left on the phone
         // and on the wrist is describing something nobody is blocked on.
         notifications.record(alerts)

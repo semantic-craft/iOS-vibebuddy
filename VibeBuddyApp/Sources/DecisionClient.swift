@@ -12,6 +12,9 @@ protocol DecisionClient: Sendable {
     /// Returns what the Mac reported, or `nil` if it couldn't be reached.
     func jump(_ pairing: PairingPayload, sessionId: String) async -> JumpOutcome?
     func acknowledge(_ pairing: PairingPayload, sessionId: String) async
+    /// Set how much a session may interrupt you, or `nil` to return it to the
+    /// daemon's automatic level. The Mac owns the value.
+    func setAttention(_ pairing: PairingPayload, sessionId: String, level: SessionAttention?) async
 }
 
 struct HTTPDecisionClient: DecisionClient {
@@ -22,6 +25,17 @@ struct HTTPDecisionClient: DecisionClient {
         req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try? JSONSerialization.data(withJSONObject: ["sessionId": sessionId])
+        _ = try? await URLSession.shared.data(for: req)
+    }
+
+    func setAttention(_ pairing: PairingPayload, sessionId: String, level: SessionAttention?) async {
+        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/attention") else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: Any] = ["sessionId": sessionId, "attention": level?.rawValue ?? NSNull()]
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
         _ = try? await URLSession.shared.data(for: req)
     }
 

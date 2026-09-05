@@ -9,6 +9,7 @@ import VibeBuddyMacCore
 /// content hangs under the menu bar as a capsule.
 struct GlanceView: View {
     @ObservedObject var model: MenuBarModel
+    @State private var greet = 0
     @ObservedObject var voice: VoiceChat
     let layout: GlanceLayout
 
@@ -94,9 +95,9 @@ struct GlanceView: View {
         if mode == .compact {
             Group {
                 if leading {
-                    PetFace(state: model.buddyState, speaking: voice.isSpeaking, listening: voice.isListening,
+                    PetFace(state: model.buddyState, voice: .init(voice.phase), greet: greet,
                             bare: true, scale: (height - 10) / 60)
-                        .onTapGesture { voice.toggle() }   // tap the buddy to talk
+                        .onTapGesture { greet += 1; voice.toggle() }   // tap the buddy to talk
                         .padding(.leading, 8).padding(.trailing, 4)
                 } else if voice.isActive {
                     voiceBadge.padding(.leading, 6).padding(.trailing, 12)
@@ -124,9 +125,9 @@ struct GlanceView: View {
                 expanded.frame(width: cardWidth).padding(.top, 8 * s)
             } else {
                 HStack(spacing: 10) {
-                    PetFace(state: model.buddyState, speaking: voice.isSpeaking, listening: voice.isListening,
+                    PetFace(state: model.buddyState, voice: .init(voice.phase), greet: greet,
                             bare: true, scale: 0.36)
-                        .onTapGesture { voice.toggle() }
+                        .onTapGesture { greet += 1; voice.toggle() }
                     if voice.isActive { voiceBadge } else {
                         ForEach([TaskPresentationState.error, .requiresInput, .thinking, .completeUnread], id: \.self) { state in
                             if summary.count(for: state) > 0 { countPill(summary.count(for: state), state) }
@@ -220,9 +221,9 @@ struct GlanceView: View {
     private var expanded: some View {
         VStack(alignment: .leading, spacing: 8 * s) {
             HStack(spacing: 12 * s) {
-                PetFace(state: model.buddyState, speaking: voice.isSpeaking, listening: voice.isListening,
+                PetFace(state: model.buddyState, voice: .init(voice.phase), greet: greet,
                         bare: true, scale: 0.55 * s)
-                    .onTapGesture { voice.toggle() }
+                    .onTapGesture { greet += 1; voice.toggle() }
                 if voice.isActive { voiceBadge } else {
                     ForEach([TaskPresentationState.error, .requiresInput, .thinking, .completeUnread, .idle], id: \.self) { state in
                         if summary.count(for: state) > 0 { countPill(summary.count(for: state), state, scale: s) }

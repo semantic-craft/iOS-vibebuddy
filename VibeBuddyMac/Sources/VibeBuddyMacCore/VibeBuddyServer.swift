@@ -37,6 +37,12 @@ public struct VibeBuddyServer: Sendable {
     public let onJumpToDesktopThread: @Sendable (String) async -> JumpOutcome
     public let onAnswer: @Sendable (TerminalRef, String) -> Void
     public let onDevicePaired: @Sendable (DeviceRegistrationPayload) -> Void
+    /// Deliver one completion reminder for a followed, unread, done session.
+    /// Returns whether any channel actually took it, so a reminder every
+    /// channel suppressed does not spend one of the session's slots. The
+    /// default pushes to paired phones over APNs (the headless daemon); the
+    /// menu-bar app supplies its own that also posts a local banner.
+    public let onCompletionReminder: (@Sendable (AgentSession) async -> Bool)?
 
     public init(store: SessionStore, token: String, host: String = "0.0.0.0",
                 port: Int = 9876, pusher: APNsPusher? = nil,
@@ -53,7 +59,8 @@ public struct VibeBuddyServer: Sendable {
                 onJump: @escaping @Sendable (TerminalRef) async -> JumpOutcome = { await TerminalJumper.jump($0) },
                 onJumpToDesktopThread: @escaping @Sendable (String) async -> JumpOutcome = { await CodexDesktopJumper.jump(threadID: $0) },
                 onAnswer: @escaping @Sendable (TerminalRef, String) -> Void = { ref, answer in TerminalInjector.inject(answer, into: ref) },
-                onDevicePaired: @escaping @Sendable (DeviceRegistrationPayload) -> Void = { _ in }) {
+                onDevicePaired: @escaping @Sendable (DeviceRegistrationPayload) -> Void = { _ in },
+                onCompletionReminder: (@Sendable (AgentSession) async -> Bool)? = nil) {
         self.store = store
         self.token = token
         self.host = host
@@ -73,6 +80,7 @@ public struct VibeBuddyServer: Sendable {
         self.onJumpToDesktopThread = onJumpToDesktopThread
         self.onAnswer = onAnswer
         self.onDevicePaired = onDevicePaired
+        self.onCompletionReminder = onCompletionReminder
     }
 
     /// Run the HTTP service and its Codex rollout source under one lifetime.
@@ -131,6 +139,19 @@ public struct VibeBuddyServer: Sendable {
             }
         }
 
+        // Followed completions (effective attention `followed`, set by hand or
+        // inferred): propose reminders on a schedule, deliver through
+        // the app's handler or the daemon's own APNs push, and count only what
+        // was actually handed to a channel.
+        let reminderServer = self
+        Task {
+            var schedule = CompletionReminderSchedule()
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                await reminderServer.remindFollowedCompletions(&schedule, now: Date())
+            }
+        }
+
         // APNs: push a "needs you" alert to registered devices on each fresh
         // needsResponse transition. Off until a pusher is configured.
         if let pusher = self.pusher {
@@ -149,9 +170,23 @@ public struct VibeBuddyServer: Sendable {
                         body = session.summary ?? "Waiting for your response"
                         sound = session.waitKind == .permission ? .needsApproval : .needsAnswer
                     }
-                    for deviceToken in await deviceTokens.all() {
+                    // Same two axes as the menu-bar app's push: the session's
+                    // attention level says how loud (a muted session's wait is a
+                    // silent banner), each phone's switches say whether at all,
+                    // and a phone in Quiet mode reads the cue through `muted`.
+                    let level = DeliveryMatrix.level(for: sound, attention: session.effectiveAttention)
+                    guard level.interrupts else { return }
+                    for device in await deviceTokens.devices() {
+                        guard let deviceToken = device.token,
+                              (device.categories ?? .default).isEnabled(sound) else { continue }
+                        var deviceLevel = level
+                        if device.quietMode == true {
+                            deviceLevel = min(deviceLevel, DeliveryMatrix.level(for: sound, attention: .muted))
+                        }
+                        guard deviceLevel.interrupts else { continue }
+                        let soundFile = deviceLevel.makesSound && device.playSound != false ? sound.fileName : ""
                         await pusher.send(title: title, body: body, to: deviceToken,
-                                          sound: sound.fileName,
+                                          sound: soundFile,
                                           sessionID: session.id, soundCategory: sound.rawValue)
                     }
                 }
@@ -166,6 +201,42 @@ public struct VibeBuddyServer: Sendable {
     }
 
     /// Built separately so in-process tests can exercise routes via `app.test(.router)`.
+    /// One reminder pass: ask the schedule what is owed, deliver each, and spend a
+    /// slot only for a session at least one channel took.
+    public func remindFollowedCompletions(_ schedule: inout CompletionReminderSchedule,
+                                          now: Date) async {
+        let sessions = await store.snapshot(now: now).sessions
+        for session in schedule.due(sessions, now: now) {
+            let delivered: Bool
+            if let onCompletionReminder {
+                delivered = await onCompletionReminder(session)
+            } else {
+                delivered = await pushCompletionReminder(session, now: now)
+            }
+            if delivered { schedule.markReminded(session.id, now: now) }
+        }
+    }
+
+    /// The daemon's own channel: the `agentDone` cue again, to every phone whose
+    /// switches allow it and that is not in Quiet mode. Same collapse id as the
+    /// completion, so the banner is replaced rather than stacked.
+    private func pushCompletionReminder(_ session: AgentSession, now: Date) async -> Bool {
+        guard let pusher else { return false }
+        let sound = NotificationSound.agentDone
+        var attempted = false
+        for device in await deviceTokens.devices() {
+            guard let token = device.token,
+                  (device.categories ?? .default).isEnabled(sound),
+                  device.quietMode != true else { continue }
+            attempted = true
+            await pusher.send(title: "\(session.project) finished",
+                              body: session.summary ?? "Task complete",
+                              to: token, sound: device.playSound != false ? sound.fileName : "",
+                              now: now, sessionID: session.id, soundCategory: sound.rawValue)
+        }
+        return attempted
+    }
+
     public func router() -> Router<BasicRequestContext> {
         let router = Router()
         let store = self.store
@@ -273,13 +344,13 @@ public struct VibeBuddyServer: Sendable {
         }
 
         // Blocking approval intake — bearer-token gated (the approval hook reads
-        // the token file and sends it). Parse the hook payload (Claude/Grok gate
-        // every PreToolUse; the Codex CLI gates only its PermissionRequest, which
-        // fires when Codex would prompt), run the permission matcher, and either
-        // decide immediately (allow/deny) or hold until the phone responds via
-        // `/decision` or the timeout fires. `?agent=<source>` selects the envelope
-        // shape to decode and the decision contract to answer in; no parameter
-        // means Claude Code, as before.
+        // the token file and sends it). Parse the gate payload, run the
+        // permission matcher, and either decide immediately (allow/deny) or hold
+        // until the phone responds via `/decision` or the timeout fires.
+        // `?agent=<source>` selects the envelope shape to decode; the event the
+        // payload arrived on (`PermissionRequest` — only when the agent would
+        // prompt — or a `PreToolUse` gate on every call) selects the decision
+        // contract to answer in. No parameter means Claude Code, as before.
         let registry = self.approvalRegistry
         let rules = self.rules
         let allowStore = self.allowStore
@@ -297,18 +368,26 @@ public struct VibeBuddyServer: Sendable {
             let input = call.input
             let sessionID = call.sessionID
             let r = rules(agent)
-            // Claude and Grok gate every PreToolUse, so the blocking hook doubles
-            // as the tool signal — ingesting it moves the session to `working`.
-            // The Codex CLI gates only PermissionRequest, a *wait* signal: ingesting
-            // it would mark the session `needsResponse` and push a "needs you"
-            // alert even when a rule decides at once, so Codex is ingested only
-            // when the wait is real (the `.ask` arm) and the session is unknown.
-            if agent != .codex {
+            // A PreToolUse gate doubles as the tool signal — ingesting it moves
+            // the session to `working`. A PermissionRequest is a *wait* signal:
+            // ingesting it would mark the session `needsResponse` and push a
+            // "needs you" alert even when a rule decides at once, so it is
+            // ingested only when the wait is real (the `.ask` arm) and the
+            // session is not yet known.
+            if call.event == .preToolUse {
                 await store.ingest(data, agent: agent, receivedAt: Date())
             }
             // Native deny always wins, over every vibebuddy overlay (ADR 0010).
             if PermissionMatcher.decide(tool: tool, input: input, allow: [], deny: r.deny) == .deny {
-                return Self.permissionResponse("deny", agent: agent)
+                return Self.permissionResponse("deny", agent: agent, event: call.event)
+            }
+            // A PreToolUse gate fires for every call, so answer the ones nobody
+            // needs to decide — a bypass-mode call, or a tool that only reads —
+            // before they become a card or a banner. A PermissionRequest only
+            // fires when the agent would ask, so it is never short-circuited.
+            if call.event == .preToolUse,
+               ApprovalShortCircuit.autoAllows(tool: tool, permissionMode: call.permissionMode) {
+                return Self.permissionResponse("allow", agent: agent, event: call.event)
             }
             // vibebuddy overlay: a session-wide allow, or an exact always-allow rule the
             // user set — both bypass the matcher's pattern heuristics since the user
@@ -317,17 +396,18 @@ public struct VibeBuddyServer: Sendable {
             let storeRules = await allowStore.all()   // [String] is Sendable; match locally
             let storeAllowed = storeRules.contains { AllowRule.matchesExactly($0, tool: tool, input: input) }
             if sessionAllowed || storeAllowed {
-                return Self.permissionResponse("allow", agent: agent)
+                return Self.permissionResponse("allow", agent: agent, event: call.event)
             }
             // Otherwise the native allow/ask matching (composition-guarded).
             switch PermissionMatcher.decide(tool: tool, input: input, allow: r.allow, deny: r.deny) {
-            case .allow: return Self.permissionResponse("allow", agent: agent)
-            case .deny:  return Self.permissionResponse("deny", agent: agent)
+            case .allow: return Self.permissionResponse("allow", agent: agent, event: call.event)
+            case .deny:  return Self.permissionResponse("deny", agent: agent, event: call.event)
             case .ask:
-                if agent == .codex, !(await store.hasSession(sessionID)) {
-                    // Only the gate is trusted (no status forwarders yet): open the
-                    // session from this payload so the card has a row to land on.
-                    await store.ingest(data, agent: agent, receivedAt: Date())
+                if call.event == .permissionRequest, !(await store.hasSession(sessionID)) {
+                    // Only the gate is installed (no status forwarders yet): open
+                    // the session from this payload so the card has a row to land
+                    // on. `beginApproval` below announces the wait — once.
+                    await store.ingest(data, agent: agent, receivedAt: Date(), announcesWait: false)
                 }
                 let id = makeID()
                 let d = ApprovalDetails.from(tool: tool, input: input)
@@ -345,8 +425,8 @@ public struct VibeBuddyServer: Sendable {
                 let outcome = await registry.wait(id: id, timeout: timeout)
                 await store.endApproval(sessionID: sessionID, at: Date())
                 switch outcome {
-                case .allow: return Self.permissionResponse("allow", agent: agent)
-                case .deny:  return Self.permissionResponse("deny", agent: agent)
+                case .allow: return Self.permissionResponse("allow", agent: agent, event: call.event)
+                case .deny:  return Self.permissionResponse("deny", agent: agent, event: call.event)
                 case .pass:  return Response(status: .ok)
                 }
             }
@@ -361,24 +441,42 @@ public struct VibeBuddyServer: Sendable {
             else { throw HTTPError(.badRequest) }
             // "allow"/"deny" resolve this one prompt; "alwaysAllow" also persists a rule;
             // "allowSession" also allows the rest of this session (ADR 0010). Unknown → deny.
+            let ctx = await approvalContext.take(id: id)
             switch decision {
             case "alwaysAllow":
-                if let ctx = await approvalContext.take(id: id), let rule = ctx.rule {
-                    await allowStore.add(rule)
-                }
+                if let rule = ctx?.rule { await allowStore.add(rule) }
                 await registry.resolve(id: id, with: .allow)
             case "allowSession":
-                if let ctx = await approvalContext.take(id: id) {
-                    await sessionAllow.add(ctx.sessionID)
-                }
+                if let ctx { await sessionAllow.add(ctx.sessionID) }
                 await registry.resolve(id: id, with: .allow)
             case "allow":
-                _ = await approvalContext.take(id: id)
                 await registry.resolve(id: id, with: .allow)
             default:
-                _ = await approvalContext.take(id: id)
                 await registry.resolve(id: id, with: .deny)
             }
+            // Deciding is driving: the session stays followed for a while.
+            if let ctx { await store.recordInteraction(sessionID: ctx.sessionID) }
+            return .ok
+        }
+
+        // The user's attention choice for one session — bearer-token gated (the
+        // phone and the Mac UI both send this). `attention: null` returns the
+        // session to the automatic default.
+        authed.post("attention") { request, _ -> HTTPResponse.Status in
+            let buffer = try await request.body.collect(upTo: 4096)
+            guard let o = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
+                  let sid = o["sessionId"] as? String else { throw HTTPError(.badRequest) }
+            let level: SessionAttention?
+            switch o["attention"] {
+            case nil, is NSNull:
+                level = nil
+            case let raw as String:
+                guard let parsed = SessionAttention(rawValue: raw) else { throw HTTPError(.badRequest) }
+                level = parsed
+            default:
+                throw HTTPError(.badRequest)
+            }
+            guard await store.setAttention(sessionID: sid, level) else { throw HTTPError(.notFound) }
             return .ok
         }
 
@@ -415,6 +513,7 @@ public struct VibeBuddyServer: Sendable {
             // Jumping is an explicit return to the task, even if this terminal
             // type cannot ultimately be focused.
             await store.acknowledgeCompletion(sessionID: sid)
+            await store.recordInteraction(sessionID: sid)
             // Report what actually happened so the phone can give honest feedback.
             // The jumper answers after it has run, so `focused` means the exact
             // pane/tab really came forward — not merely that a command existed.
@@ -445,6 +544,7 @@ public struct VibeBuddyServer: Sendable {
             if let ref = await store.terminalRef(for: sid) {
                 onAnswer(ref, answer)
                 await store.endQuestion(sessionID: sid, at: Date())
+                await store.recordInteraction(sessionID: sid)
             }
             return .ok
         }
@@ -459,15 +559,16 @@ public struct VibeBuddyServer: Sendable {
     /// `{"decision":…,"reason":…}` — that is what we emit for it, so the wire is
     /// unambiguous when read from a Grok transcript. Either way a timeout still
     /// answers with an empty 200 body, which both CLIs read as "no opinion".
-    static func permissionResponse(_ decision: String, agent: AgentKind = .claudeCode) -> Response {
+    static func permissionResponse(_ decision: String, agent: AgentKind = .claudeCode,
+                                   event: ApprovalPayload.Event = .preToolUse) -> Response {
         let json: String
         if agent == .grok {
             json = decision == "deny"
                 ? #"{"decision":"deny","reason":"vibebuddy"}"#
                 : #"{"decision":"\#(decision)"}"#
-        } else if agent == .codex {
-            // Codex answers approvals through its `PermissionRequest` hook:
-            // `decision.behavior` is `allow`/`deny`, and a deny may carry a
+        } else if event == .permissionRequest {
+            // Claude Code and Codex answer a `PermissionRequest` hook the same
+            // way: `decision.behavior` is `allow`/`deny`, and a deny may carry a
             // message the model sees. Any other field fails closed on Codex's
             // side, so send nothing beyond the contract.
             json = decision == "deny"

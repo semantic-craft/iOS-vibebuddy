@@ -5,7 +5,7 @@ import VibeBuddyKit
 
 private let rtAudioLog = Logger(subsystem: "com.vibebuddy.app", category: "realtime-audio")
 
-/// Full-duplex audio for the omni-realtime voice session on the phone, on one
+/// Full-duplex audio for the realtime voice session on the phone, on one
 /// `AVAudioEngine`: the mic tap is converted to **16/24 kHz mono PCM16** (the rate
 /// the chosen provider expects) and handed to `onAudioFrame`; incoming **24 kHz
 /// mono PCM16** is converted to float and streamed out a player node.

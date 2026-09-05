@@ -153,17 +153,24 @@ else
   note "watch app: no entitlements file (WatchConnectivity-only design; no shared App Group)"
 fi
 
-ICON="$APP_PROJ/Sources/Assets.xcassets/AppIcon.appiconset/icon_1024.png"
-if [[ -f "$ICON" ]]; then
-  DIMS="$(sips -g pixelWidth -g pixelHeight "$ICON" 2>/dev/null | awk '/pixel/ {print $2}' | paste -sd x -)"
-  check "1024 app icon" "1024x1024" "$DIMS"
-  # A marketing icon with an alpha channel is rejected on upload, every time.
-  if sips -g hasAlpha "$ICON" 2>/dev/null | grep -q 'hasAlpha: yes'; then
-    FAILED+=("the 1024 app icon has an alpha channel — App Store Connect rejects that")
+for ICON in "$APP_PROJ/Sources/Assets.xcassets/AppIcon.appiconset/icon_1024.png" \
+            "$APP_PROJ/Watch/Assets.xcassets/AppIcon.appiconset/icon_1024.png"; do
+  if [[ -f "$ICON" ]]; then
+    DIMS="$(sips -g pixelWidth -g pixelHeight "$ICON" 2>/dev/null | awk '/pixel/ {print $2}' | paste -sd x -)"
+    check "1024 app icon ($(basename "$(dirname "$(dirname "$(dirname "$ICON")")")"))" "1024x1024" "$DIMS"
+    # App Store Connect wants a real PNG: sips happily decodes a JPEG named .png,
+    # so check the file signature, not the extension.
+    if [[ "$(head -c 8 "$ICON" | xxd -p)" != "89504e470d0a1a0a" ]]; then
+      FAILED+=("$ICON is not a PNG (bytes say otherwise) — re-encode it")
+    fi
+    # A marketing icon with an alpha channel is rejected on upload, every time.
+    if sips -g hasAlpha "$ICON" 2>/dev/null | grep -q 'hasAlpha: yes'; then
+      FAILED+=("$ICON has an alpha channel — App Store Connect rejects that")
+    fi
+  else
+    FAILED+=("missing $ICON")
   fi
-else
-  FAILED+=("missing $ICON")
-fi
+done
 
 if ((${#FAILED[@]})); then
   printf '\n\033[31m✗ Release configuration problems:\033[0m\n' >&2

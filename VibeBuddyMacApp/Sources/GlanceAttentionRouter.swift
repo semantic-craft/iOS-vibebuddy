@@ -27,6 +27,13 @@ final class GlanceAttentionRouter: AttentionNotifier, @unchecked Sendable {
         return .scheduled()
     }
 
+    /// A withdrawal names Notification Center identifiers. A card under the
+    /// notch needs no telling: `GlanceCardQueue.tick` already drops a card whose
+    /// session stopped waiting, so only the banner side is forwarded.
+    func withdraw(_ identifiers: [String]) async {
+        await banners.withdraw(identifiers)
+    }
+
     private static var notificationsEnabled: Bool { flag("notifyOnNeedsResponse") }
     private static var soundEnabled: Bool { flag("playNotificationSound") }
 

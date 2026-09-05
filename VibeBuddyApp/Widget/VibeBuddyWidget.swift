@@ -84,7 +84,7 @@ private struct StatusWidgetView: View {
     private var systemSmallContent: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                ActivityPixelCat(state: snapshot.summary.primaryState, size: 34)
+                ActivityCat(state: snapshot.summary.primaryState, size: 34)
                     .padding(5)
                     .background(.black, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                 VStack(alignment: .leading, spacing: 2) {
@@ -142,29 +142,25 @@ struct VibeBuddyLiveActivity: Widget {
         ActivityConfiguration(for: VibeBuddyActivityAttributes.self) { context in
             LockScreenView(state: context.state)
                 .padding()
-                .activityBackgroundTint(Color.black.opacity(0.5))
+                .activityBackgroundTint(Color.black.opacity(0.78))
                 .widgetURL(tapTarget(context.state))
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    ActivityPixelCat(state: context.state.summary.primaryState, size: 40)
+                    ActivityCat(state: context.state.summary.primaryState, size: 40)
                 }
-                DynamicIslandExpandedRegion(.trailing) {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        ForEach(Array(nonzeroStates(context.state).prefix(3)), id: \.self) { state in
-                            counter(context.state.summary.count(for: state), state)
-                        }
-                    }
+                DynamicIslandExpandedRegion(.center) {
+                    ActivityHeadline(state: context.state)
+                        .widgetURL(tapTarget(context.state))
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    let state = context.state.summary.primaryState
-                    HStack(spacing: 5) {
-                        Image(systemName: state.symbolName)
-                        Text(context.state.topProject.map { "\(state.label) · \($0)" } ?? state.label)
+                    HStack(spacing: 14) {
+                        ForEach(nonzeroStates(context.state), id: \.self) { status in
+                            StateCount(value: context.state.summary.count(for: status), state: status)
+                        }
                     }
-                    .font(.caption)
-                    .foregroundStyle(Color(taskStatus: state.colorToken))
-                    .widgetURL(tapTarget(context.state))
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 4)
                 }
             } compactLeading: {
                 let state = context.state.summary.primaryState
@@ -184,16 +180,25 @@ struct VibeBuddyLiveActivity: Widget {
     }
 }
 
-@MainActor
-private func counter(_ value: Int, _ state: TaskPresentationState) -> some View {
-    HStack(spacing: 5) {
-        TaskStatusIndicator(state, size: 9)
-        Image(systemName: state.symbolName)
-        Text("\(value)").monospacedDigit()
+/// One state's count: the shared status dot plus a digit. The dot already
+/// carries the state (and swaps to a symbol under Differentiate Without Color),
+/// so no second glyph. The digit stays neutral so several counts read as one
+/// row, and the dot scales with the digit under Dynamic Type.
+private struct StateCount: View {
+    let value: Int
+    let state: TaskPresentationState
+    @ScaledMetric(relativeTo: .caption) private var dotSize: CGFloat = 9
+
+    var body: some View {
+        HStack(spacing: 4) {
+            TaskStatusIndicator(state, size: dotSize)
+            Text("\(value)")
+                .font(.caption.weight(.semibold).monospacedDigit())
+                .foregroundStyle(.primary)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(value) \(state.label)")
     }
-    .foregroundStyle(Color(taskStatus: state.colorToken))
-    .accessibilityElement(children: .ignore)
-    .accessibilityLabel("\(value) \(state.label)")
 }
 
 private func nonzeroStates(_ state: VibeBuddyActivityAttributes.ContentState) -> [TaskPresentationState] {
@@ -206,22 +211,46 @@ private func tapTarget(_ state: VibeBuddyActivityAttributes.ContentState) -> URL
     state.topSessionId.flatMap(activitySessionURL(id:))
 }
 
+/// Project name over the primary state, in that state's color. Shared by the
+/// lock screen banner and the expanded Dynamic Island so both read the same.
+struct ActivityHeadline: View {
+    let state: VibeBuddyActivityAttributes.ContentState
+
+    var body: some View {
+        let primary = state.summary.primaryState
+        let count = state.summary.count(for: primary)
+        VStack(alignment: .leading, spacing: 3) {
+            Text(state.topProject ?? "VibeBuddy")
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+            HStack(spacing: 5) {
+                Image(systemName: primary.symbolName)
+                    .font(.caption2.weight(.bold))
+                Text("\(primary.label) · \(count) \(count == 1 ? "session" : "sessions")")
+                    .lineLimit(1)
+            }
+            .font(.caption)
+            .foregroundStyle(Color(taskStatus: primary.colorToken))
+        }
+    }
+}
+
+/// Lock screen banner: the shared headline on the left, a dot-plus-digit strip
+/// for every non-zero state on the right.
 struct LockScreenView: View {
     let state: VibeBuddyActivityAttributes.ContentState
 
     var body: some View {
-        HStack(spacing: 14) {
-            ActivityPixelCat(state: state.summary.primaryState, size: 40)
+        HStack(spacing: 12) {
+            ActivityCat(state: state.summary.primaryState, size: 40)
+            ActivityHeadline(state: state)
+            Spacer(minLength: 8)
             HStack(spacing: 10) {
                 ForEach(nonzeroStates(state), id: \.self) { status in
-                    counter(state.summary.count(for: status), status)
+                    StateCount(value: state.summary.count(for: status), state: status)
                 }
             }
-            Spacer()
-            if let project = state.topProject {
-                Text(project).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            }
+            .layoutPriority(1)
         }
-        .font(.headline)
     }
 }

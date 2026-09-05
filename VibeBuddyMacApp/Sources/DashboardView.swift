@@ -37,6 +37,9 @@ struct DashboardView: View {
                                showInclude: companionEnabled,
                                onToggleInclude: { model.toggleBuddy(s.id) })
                     .tag(s.id)
+                    .contextMenu {
+                        AttentionPicker(session: s, model: model, style: .menu)
+                    }
             }
             .searchable(text: $query, prompt: "Search sessions")
             .searchFocusedCompat($searchFocused)
@@ -185,6 +188,7 @@ private struct MacBuddyBar: View {
     @ObservedObject var model: MenuBarModel
     @ObservedObject var voice: VoiceChat
     @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
+    @State private var greet = 0
 
     /// The buddy header reads "off" until the companion is opted in; otherwise the
     /// live Listening/Speaking/idle status.
@@ -203,8 +207,8 @@ private struct MacBuddyBar: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            PetFace(state: model.buddyState, speaking: voice.isSpeaking, listening: voice.isListening)
-                .onTapGesture { voice.toggle() }
+            PetFace(state: model.buddyState, voice: .init(voice.phase), greet: greet)
+                .onTapGesture { greet += 1; voice.toggle() }
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 6) {
                     if !companionEnabled {
@@ -282,6 +286,12 @@ private struct SessionRowView: View {
                     Label("Stuck", systemImage: "exclamationmark.triangle.fill")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(Color(taskStatus: TaskPresentationState.error.colorToken))
+                }
+                if let glyph = session.effectiveAttention.rowGlyph {
+                    Image(systemName: glyph)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .help(session.effectiveAttention.title)
                 }
                 if showInclude {
                     Spacer(minLength: 8)
@@ -413,6 +423,14 @@ private struct DetailView: View {
                 Button { showTranscript = true } label: {
                     Label("Recent output", systemImage: "text.alignleft")
                 }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Notifications").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    AttentionPicker(session: session, model: model, style: .segmented)
+                    Text(session.attentionOverride == nil
+                         ? "Automatic: \(session.effectiveAttention.title.lowercased()) — followed while you're driving it, normal otherwise."
+                         : session.effectiveAttention.explanation)
+                        .font(.caption2).foregroundStyle(.tertiary)
+                }
                 if let m = session.model {
                     Label(m, systemImage: "cpu").font(.caption).foregroundStyle(.secondary)
                 }
@@ -483,6 +501,73 @@ private struct TranscriptSheet: View {
                 }
                 .padding()
             }
+        }
+    }
+}
+
+/// The one control for how much a session may interrupt you, in two shapes:
+/// a segmented picker in the detail pane and radio items in a row's context
+/// menu. `nil` is "automatic" — the daemon's own reading of recent interaction.
+private struct AttentionPicker: View {
+    enum Style { case segmented, menu }
+    let session: AgentSession
+    @ObservedObject var model: MenuBarModel
+    let style: Style
+
+    private var selection: Binding<SessionAttention?> {
+        Binding(get: { session.attentionOverride },
+                set: { model.setAttention(session.id, $0) })
+    }
+
+    var body: some View {
+        switch style {
+        case .segmented: picker.pickerStyle(.segmented)
+        case .menu: picker.pickerStyle(.inline)
+        }
+    }
+
+    private var picker: some View {
+        Picker("Notifications", selection: selection) {
+            Text(style == .menu
+                 ? "Automatic (\(autoLevel.title.lowercased()))"
+                 : "Auto").tag(SessionAttention?.none)
+            ForEach(SessionAttention.allCases, id: \.self) { level in
+                Label(level.title, systemImage: level.symbol).tag(SessionAttention?.some(level))
+            }
+        }
+        .labelsHidden()
+    }
+
+    /// What automatic would give right now: the effective level while no
+    /// override is set, else the daemon's `attention` still reflects the
+    /// override, so fall back to `normal` as the honest default.
+    private var autoLevel: SessionAttention {
+        session.attentionOverride == nil ? session.effectiveAttention : .normal
+    }
+}
+
+extension SessionAttention {
+    var title: String {
+        switch self {
+        case .followed: "Followed"
+        case .normal: "Normal"
+        case .muted: "Muted"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .followed: "bell.badge"
+        case .normal: "bell"
+        case .muted: "bell.slash"
+        }
+    }
+    /// A glyph on the row only when the session is not at the default.
+    var rowGlyph: String? { self == .normal ? nil : symbol }
+    var explanation: String {
+        switch self {
+        case .followed: "Everything about this session interrupts you."
+        case .normal: "Only approvals and failures interrupt; the rest waits in Notification Center."
+        case .muted: "Approvals show silently; nothing else interrupts."
         }
     }
 }
