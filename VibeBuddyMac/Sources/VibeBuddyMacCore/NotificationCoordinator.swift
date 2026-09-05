@@ -59,9 +59,13 @@ public final class NotificationCoordinator: @unchecked Sendable {
     }
 
     /// Two axes: `categories` is this Mac's own switch set (a cue the user
-    /// turned off is dropped here and never posted), and the policy has already
-    /// reduced each surviving cue through `DeliveryMatrix` from the session's
-    /// attention level, with Quiet mode reading every session as `muted`.
+    /// turned off is not posted here), and the policy has already reduced each
+    /// cue through `DeliveryMatrix` from the session's attention level, with
+    /// Quiet mode reading every session as `muted`.
+    ///
+    /// Returns every cue the policy earned, *before* this Mac's switches: the
+    /// caller pushes from that list so each phone applies its own switches. A
+    /// category the Mac turned off must not silence a phone that wants it.
     @discardableResult
     public func observe(_ sessions: [AgentSession], now: Date = Date(),
                         appActive: Bool, quietMode: Bool,
@@ -70,7 +74,8 @@ public final class NotificationCoordinator: @unchecked Sendable {
         let input = SoundPolicyInput(sessions: sessions, now: now,
                                      appActive: appActive, quietMode: quietMode,
                                      focusedSessionIDs: focusedSessionIDs)
-        let alerts = categories.filter(policy.evaluate(input))
+        let earned = policy.evaluate(input)
+        let alerts = categories.filter(earned)
         // Withdraw before posting: a session that left one wait and entered
         // another in the same snapshot keeps only the new cue.
         let stale = ledger.withdrawals(for: sessions)
@@ -88,6 +93,6 @@ public final class NotificationCoordinator: @unchecked Sendable {
                 timestamp: now
             ))
         }
-        return alerts
+        return earned
     }
 }

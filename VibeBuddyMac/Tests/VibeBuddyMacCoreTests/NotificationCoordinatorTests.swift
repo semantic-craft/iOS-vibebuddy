@@ -82,6 +82,22 @@ struct NotificationCoordinatorTests {
         #expect(quiet.map(\.delivery) == [.banner, .banner])
     }
 
+    @Test("a category the Mac turned off is still returned for the phones, which apply their own switches")
+    func macSwitchesDoNotSilenceThePhone() async {
+        let spy = SpyNotifier()
+        let c = NotificationCoordinator(notifier: spy)
+        var prefs = NotificationCategoryPrefs.default
+        prefs.set(.agentDone, enabled: false)
+        let t0 = Date(timeIntervalSince1970: 0)
+        await c.observe([session("done", .working, since: t0)], now: t0,
+                        appActive: false, quietMode: false, categories: prefs)
+        let earned = await c.observe([session("done", .done, since: t0.addingTimeInterval(60))],
+                                     now: t0.addingTimeInterval(60),
+                                     appActive: false, quietMode: false, categories: prefs)
+        #expect(spy.played.isEmpty)                                   // this Mac: switch off, nothing posted
+        #expect(earned.map { "\($0.sessionID):\($0.sound.rawValue)" } == ["done:agent_done"])  // phones decide for themselves
+    }
+
     @Test("a reminder re-posts agent_done, but not with the category off or in Focus mode")
     func remindHonoursCategoriesAndFocus() async {
         let spy = SpyNotifier()

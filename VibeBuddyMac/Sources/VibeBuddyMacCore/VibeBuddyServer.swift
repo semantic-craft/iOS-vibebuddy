@@ -170,13 +170,23 @@ public struct VibeBuddyServer: Sendable {
                         body = session.summary ?? "Waiting for your response"
                         sound = session.waitKind == .permission ? .needsApproval : .needsAnswer
                     }
+                    // Same two axes as the menu-bar app's push: the session's
+                    // attention level says how loud (a muted session's wait is a
+                    // silent banner), each phone's switches say whether at all,
+                    // and a phone in Quiet mode reads the cue through `muted`.
+                    let level = DeliveryMatrix.level(for: sound, attention: session.effectiveAttention)
+                    guard level.interrupts else { return }
                     for device in await deviceTokens.devices() {
-                        // The phone's own switches decide what it wants pushed on
-                        // its behalf; a device that never said keeps the default.
                         guard let deviceToken = device.token,
                               (device.categories ?? .default).isEnabled(sound) else { continue }
+                        var deviceLevel = level
+                        if device.quietMode == true {
+                            deviceLevel = min(deviceLevel, DeliveryMatrix.level(for: sound, attention: .muted))
+                        }
+                        guard deviceLevel.interrupts else { continue }
+                        let soundFile = deviceLevel.makesSound && device.playSound != false ? sound.fileName : ""
                         await pusher.send(title: title, body: body, to: deviceToken,
-                                          sound: sound.fileName,
+                                          sound: soundFile,
                                           sessionID: session.id, soundCategory: sound.rawValue)
                     }
                 }
