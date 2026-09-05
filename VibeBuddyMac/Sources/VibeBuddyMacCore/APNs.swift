@@ -52,30 +52,43 @@ public struct APNsConfig: Sendable {
 
 /// Registered iOS devices (uploaded by the app via POST /device), keyed by APNs
 /// token, with the phone's sound preferences so the Mac's push respects them.
+/// Backed by an owner-only file when given a `url`, so a Mac restart no longer
+/// empties the registry and silently stops every push to a closed phone.
 public actor DeviceTokens {
-    private var devicesByToken: [String: DeviceRegistrationPayload] = [:]
-    public init() {}
+    private var registry: DeviceRegistry
 
-    public func add(_ token: String) {
-        if devicesByToken[token] == nil { devicesByToken[token] = DeviceRegistrationPayload(token: token) }
+    /// `url` nil = in-memory only (tests, demo instance). The real entry points
+    /// pass `DeviceRegistryLocation.defaultURL()`.
+    public init(url: URL? = nil) {
+        registry = DeviceRegistry(url: url)
+    }
+
+    public func add(_ token: String, now: Date = Date()) {
+        register(DeviceRegistrationPayload(token: token), now: now)
     }
 
     /// Upsert a device, merging in any preference fields the payload carries.
-    public func register(_ payload: DeviceRegistrationPayload) {
-        guard let token = payload.token, !token.isEmpty else { return }
-        var merged = devicesByToken[token] ?? DeviceRegistrationPayload(token: token)
-        merged.token = token
-        if let v = payload.name { merged.name = v }
-        if let v = payload.model { merged.model = v }
-        if let v = payload.systemVersion { merged.systemVersion = v }
-        if let v = payload.playSound { merged.playSound = v }
-        if let v = payload.quietMode { merged.quietMode = v }
-        if let v = payload.categories { merged.categories = v }
-        devicesByToken[token] = merged
+    public func register(_ payload: DeviceRegistrationPayload, now: Date = Date()) {
+        registry.upsert(payload, now: now)
     }
 
-    public func all() -> [String] { Array(devicesByToken.keys) }
-    public func devices() -> [DeviceRegistrationPayload] { Array(devicesByToken.values) }
+    public func all() -> [String] { registry.entries.compactMap(\.device.token) }
+    public func devices() -> [DeviceRegistrationPayload] { registry.devices }
+    public func summary() -> DeviceRegistrySummary { registry.summary }
+
+    /// Feed back what Apple said about one send. Call after *every* send: this
+    /// is where a dead device (410) and a never-valid token (400 on a token
+    /// Apple has never accepted) leave the registry, and where a token that
+    /// Apple does accept earns the standing that protects it from a later 400.
+    /// Returns true when the device was dropped.
+    @discardableResult
+    public func applySendResult(_ result: APNsSendResult, token: String,
+                                now: Date = Date()) -> Bool {
+        registry.apply(result, token: token, now: now)
+    }
+
+    /// Forget every device — the Mac side of "forget this phone".
+    public func removeAll() { registry.removeAll() }
 }
 
 /// Sends "needs you" alerts to registered devices over APNs (HTTP/2 + cached

@@ -328,6 +328,28 @@ private struct NotificationSettings: View {
                     Text(model.notificationDeliveryHealth.apnsConfigured ? "configured" : "not configured")
                         .foregroundStyle(.secondary)
                 }
+                // Configured but with nothing registered is the silent failure:
+                // every push goes nowhere and only the missing `apns` rows below
+                // would ever say so. Call it out where it is read.
+                LabeledContent("Registered devices") {
+                    let count = model.deviceRegistry.count
+                    let dead = count == 0 && model.notificationDeliveryHealth.apnsConfigured
+                    Text(count == 0 ? "none" : "\(count)")
+                        .foregroundStyle(dead ? Color.orange : .secondary)
+                }
+                if let last = model.deviceRegistry.lastRegisteredAt {
+                    HStack(spacing: 4) {
+                        Text("Last registered")
+                        Text(last, style: .relative)
+                            .monospacedDigit()
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                } else if model.notificationDeliveryHealth.apnsConfigured {
+                    Text("No phone has uploaded a push token. Open the iPhone app on the same network; it re-registers on every connection.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
                 if let last = model.notificationDeliveryHealth.lastAttempt {
                     LabeledContent("Last attempt") {
                         Text(last.outcome.rawValue)

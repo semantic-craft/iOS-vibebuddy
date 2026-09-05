@@ -55,15 +55,24 @@ final class DashboardStore: ObservableObject {
     /// actually holds. The Watch's screen is a memory of a snapshot; this is the
     /// only copy that was ever authenticated.
     private var watchApprovals = WatchApprovalGate()
+    /// Tells the Mac who this phone is and how to push to it. Run once per
+    /// connection attempt, not once per launch: the Mac's device registry is
+    /// repaired by the next reconnection after a Mac restart, without the user
+    /// having to cold-launch this app.
+    private let reportDevice: @MainActor (PairingPayload) -> Void
 
     init(streamer: SnapshotStreaming = WebSocketSnapshotClient(),
          notifier: AttentionNotifier = LocalNotifier(),
          decisionClient: DecisionClient = HTTPDecisionClient(),
-         watchRelay: WatchRelay? = WatchRelay(transport: WatchConnectivityTransport())) {
+         watchRelay: WatchRelay? = WatchRelay(transport: WatchConnectivityTransport()),
+         reportDevice: @escaping @MainActor (PairingPayload) -> Void = {
+             PushRegistration.shared.update(pairing: $0)
+         }) {
         self.streamer = streamer
         self.notifier = notifier
         self.decisionClient = decisionClient
         self.watchRelay = watchRelay
+        self.reportDevice = reportDevice
         if ProcessInfo.processInfo.environment["VIBEBUDDY_SKIP_NOTIFICATIONS"] != "1" {
             notifier.requestAuthorization()
         }
@@ -132,13 +141,15 @@ final class DashboardStore: ObservableObject {
         for sessionId in pendingAcknowledgements {
             Task { await decisionClient.acknowledge(pairing, sessionId: sessionId) }
         }
-        let phoneName = UIDevice.current.name        // tell the Mac which phone paired
-        Task { await Self.sendDeviceName(pairing, name: phoneName) }
         state = .connecting
         policy = SoundPolicy()                        // fresh connection → suppress the backlog
         runTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
+                // Every attempt, not just the first: the Mac may have restarted
+                // (emptying its registry) while this app stayed alive in the
+                // background, and nothing else re-uploads the APNs token.
+                self.reportDevice(pairing)
                 for await snapshot in self.streamer.stream(pairing) {
                     if Task.isCancelled { return }
                     await self.apply(snapshot)
@@ -450,24 +461,6 @@ final class DashboardStore: ObservableObject {
             try? await Task.sleep(for: .seconds(2.5))
             self?.toast = nil
         }
-    }
-
-    /// Tell the Mac this phone's name so it can show "Paired: <name>". Best-effort.
-    private static func sendDeviceName(_ pairing: PairingPayload, name: String) async {
-        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/device") else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONEncoder().encode(DeviceRegistrationPayload(
-            name: name,
-            model: UIDevice.current.model,
-            systemVersion: "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)",
-            playSound: SoundPrefs.playSound,
-            quietMode: SoundPrefs.effectiveQuiet(),
-            categories: SoundPrefs.categories
-        ))
-        _ = try? await URLSession.shared.data(for: request)
     }
 
     private func apply(_ snapshot: Snapshot) async {

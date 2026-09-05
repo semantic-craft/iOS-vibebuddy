@@ -28,14 +28,19 @@ final class PushRegistration {
         upload()
     }
 
-    /// Re-report current sound prefs to the Mac (call when the user changes them),
-    /// so the Mac's background push respects play-sound / quiet mode.
+    /// Re-report this device to the Mac: on a preference change, and on every
+    /// dashboard (re)connection. The Mac's registry can have been emptied by a
+    /// restart while this app never relaunched, and this is what repairs it.
     func reportPrefs() { upload() }
 
+    /// The single `POST /device` path. The APNs token is included once it is
+    /// known and omitted before that, so an un-entitled build still reports its
+    /// name for the Mac's "Paired: <name>" display.
     private func upload() {
-        guard let token = deviceToken, let pairing,
+        guard let pairing,
               let url = URL(string: "http://\(pairing.host):\(pairing.port)/device")
         else { return }
+        let token = deviceToken
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")

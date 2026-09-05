@@ -174,9 +174,11 @@ public struct VibeBuddyServer: Sendable {
                         // its behalf; a device that never said keeps the default.
                         guard let deviceToken = device.token,
                               (device.categories ?? .default).isEnabled(sound) else { continue }
-                        await pusher.send(title: title, body: body, to: deviceToken,
-                                          sound: sound.fileName,
-                                          sessionID: session.id, soundCategory: sound.rawValue)
+                        let result = await pusher.send(
+                            title: title, body: body, to: deviceToken,
+                            sound: sound.fileName,
+                            sessionID: session.id, soundCategory: sound.rawValue)
+                        await deviceTokens.applySendResult(result, token: deviceToken)
                     }
                 }
             }
@@ -218,10 +220,12 @@ public struct VibeBuddyServer: Sendable {
                   (device.categories ?? .default).isEnabled(sound),
                   device.quietMode != true else { continue }
             attempted = true
-            await pusher.send(title: "\(session.project) finished",
-                              body: session.summary ?? "Task complete",
-                              to: token, sound: device.playSound != false ? sound.fileName : "",
-                              now: now, sessionID: session.id, soundCategory: sound.rawValue)
+            let result = await pusher.send(
+                title: "\(session.project) finished",
+                body: session.summary ?? "Task complete",
+                to: token, sound: device.playSound != false ? sound.fileName : "",
+                now: now, sessionID: session.id, soundCategory: sound.rawValue)
+            await deviceTokens.applySendResult(result, token: token)
         }
         return attempted
     }
