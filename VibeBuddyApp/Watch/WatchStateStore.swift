@@ -173,4 +173,10 @@ extension WatchStateStore: WCSessionDelegate {
         let reachable = session.isReachable
         Task { @MainActor [weak self] in self?.linkChanged(reachable: reachable) }
     }
+
+    // Both are iOS-only (`__WATCHOS_UNAVAILABLE` in the SDK) and never fire on
+    // the Watch, but Swift 6.3 insists on witnesses for them all the same.
+    nonisolated func sessionDidBecomeInactive(_ session: WCSession) {}
+
+    nonisolated func sessionDidDeactivate(_ session: WCSession) {}
 }
