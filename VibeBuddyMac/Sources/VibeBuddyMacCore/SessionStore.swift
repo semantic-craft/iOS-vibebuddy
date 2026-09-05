@@ -12,6 +12,8 @@ public actor SessionStore {
     private var subscribers: [UUID: AsyncStream<Snapshot>.Continuation] = [:]
     private var needsResponseHandler: (@Sendable (AgentSession) async -> Void)?
     private var staleAfter: TimeInterval
+    private var directorySeen: [String: Date] = [:]
+    private static let recentDirectoryLimit = 50
     /// Per-session transcript path, remembered so `sweep` can check whether a
     /// waiting session's transcript advanced (i.e. the prompt was answered).
     private var transcriptPaths: [String: String] = [:]
@@ -142,6 +144,7 @@ public actor SessionStore {
     @discardableResult
     public func applyStatusLine(_ sample: StatusLineSample, at date: Date) -> Bool {
         let applied = reducer.applyStatusLine(sample)
+        rememberDirectory(sample.cwd, at: date)
         if applied {
             if let path = sample.transcriptPath { transcriptPaths[sample.sessionID] = path }
             reducer.recordObservation(sessionID: sample.sessionID, source: .statusline,
@@ -206,6 +209,7 @@ public actor SessionStore {
         }
         let wasWaiting = reducer.sessions[event.sessionID]?.status == .needsResponse
         if let path = event.transcriptPath { transcriptPaths[event.sessionID] = path }
+        rememberDirectory(event.cwd, at: event.timestamp)
         reducer.apply(event, observationSource: observationSource, recordsEvidence: recordsEvidence)
         if let enrichment = event.enrichment {
             reducer.enrich(sessionID: event.sessionID, with: enrichment)
@@ -414,7 +418,26 @@ public actor SessionStore {
     private func currentSnapshot(now: Date) -> Snapshot {
         var snapshot = reducer.snapshot(now: now, observationDiagnostics: diagnostics(now: now))
         snapshot.providerQuota = providerQuota.isEmpty ? nil : providerQuota
+        let directories = recentDirectories()
+        snapshot.recentDirectories = directories.isEmpty ? nil : directories
         return snapshot
+    }
+
+    /// Directories sessions have run in, newest first (bounded). A phone may
+    /// only start a task in one of these.
+    public func recentDirectories() -> [String] {
+        directorySeen.sorted { $0.value > $1.value }.map(\.key)
+    }
+
+    public func isKnownDirectory(_ path: String) -> Bool { directorySeen[path] != nil }
+
+    private func rememberDirectory(_ cwd: String?, at date: Date) {
+        guard let cwd, cwd.hasPrefix("/"), !cwd.isEmpty else { return }
+        directorySeen[cwd] = date
+        if directorySeen.count > Self.recentDirectoryLimit,
+           let oldest = directorySeen.min(by: { $0.value < $1.value }) {
+            directorySeen.removeValue(forKey: oldest.key)
+        }
     }
 
     /// The terminal program the user's most recent terminal-backed session

@@ -76,6 +76,13 @@ code, and tests — don't drift to synonyms.
   `TerminalLauncher` opens the user's preferred terminal running
   `claude attach <id>` (`JumpOutcome.attached`). The job's name and "needs"
   line also fill an unnamed Claude row.
+- **Dispatch** — a new task started from the phone or the Mac's "New task"
+  sheet: `POST /dispatch {agent, cwd, prompt, name?}`. `cwd` must be one of the
+  snapshot's `recentDirectories` (directories a session already ran in), so a
+  phone can never point an agent at an arbitrary path. Codex goes through the
+  app-server daemon (`thread/start` → `thread/name/set` → `turn/start`, the
+  user's own model/approval/sandbox defaults); other agents answer 501 until
+  they have a launcher.
 - **Question relay** — the agent's question answered from the phone or the Mac
   card through the agent's own contract: Claude's `AskUserQuestion` on a
   blocking PreToolUse hook (answered with `updatedInput.answers`, keyed by

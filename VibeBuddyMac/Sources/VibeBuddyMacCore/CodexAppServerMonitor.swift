@@ -466,6 +466,37 @@ public actor CodexAppServerMonitor {
         }
     }
 
+    /// Start a new thread in `cwd` and give it its first turn (ticket 05). The
+    /// thread inherits the user's own defaults for model, approval policy and
+    /// sandbox; `thread/start` auto-subscribes this connection, so the session
+    /// surfaces through the normal notifications. Desktop lists it too.
+    public func dispatch(_ request: DispatchRequest) async -> DispatchOutcome {
+        guard let client, state.connected else {
+            return .unavailable("The Codex app-server daemon is not connected")
+        }
+        do {
+            let started = try await client.request("thread/start", params: ["cwd": request.cwd])
+            guard let thread = started["thread"] as? [String: Any], let threadID = thread["id"] as? String else {
+                return .unavailable("thread/start returned no thread")
+            }
+            subscribed.insert(threadID)
+            state.subscribedThreads = subscribed.count
+            _ = reducer.seed(thread: thread, receivedAt: Date())
+            if let name = request.name {
+                // A name is a courtesy; a daemon without the method still runs the task.
+                _ = try? await client.request("thread/name/set", params: ["threadId": threadID, "name": name])
+            }
+            _ = try await client.request("turn/start", params: [
+                "threadId": threadID,
+                "input": [["type": "text", "text": request.prompt]],
+            ])
+            return .started(sessionID: threadID)
+        } catch {
+            state.lastError = "dispatch: \(error)"
+            return .unavailable("\(error)")
+        }
+    }
+
     /// Someone else answered (or the turn moved on): withdraw the card without
     /// a second notification and stop waiting.
     private func requestResolved(_ params: [String: Any]?, store: SessionStore) async {

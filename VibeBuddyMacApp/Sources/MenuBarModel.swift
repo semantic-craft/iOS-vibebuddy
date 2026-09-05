@@ -26,6 +26,8 @@ struct PairedPhone: Codable, Equatable {
 final class MenuBarModel: ObservableObject {
     @Published private(set) var sessions: [AgentSession] = []
     @Published private(set) var observationDiagnostics: [AgentObservationDiagnostic] = []
+    /// Directories sessions have run in, newest first — where a new task may start.
+    @Published private(set) var recentDirectories: [String] = []
     /// The Codex app-server daemon connection (ADR-0011): on by default, and
     /// the rollout tailer + hooks keep covering Codex whenever it is off or
     /// the daemon is not running.
@@ -258,6 +260,7 @@ final class MenuBarModel: ObservableObject {
                 let snapshot = await self.store.snapshot(now: Date())
                 self.sessions = snapshot.sessions
                 self.observationDiagnostics = snapshot.observationDiagnostics ?? []
+                self.recentDirectories = snapshot.recentDirectories ?? []
                 self.codexAppServerDiagnostics = await self.codexAppServerMonitor.diagnostics()
                 self.lifecycleTimeline = await self.store.recentLifecycle()
                 self.buddySessionIDs = BuddyScope.pruned(self.buddySessionIDs, toLive: snapshot.sessions)
@@ -493,6 +496,19 @@ final class MenuBarModel: ObservableObject {
             }
         } else {
             showJumpFeedback(.noTerminal, for: session.id)
+        }
+    }
+
+    /// Start a new task from the Mac, the same way `/dispatch` does for the
+    /// phone: Codex through the app-server daemon; other agents once they have
+    /// a launcher. The directory must be one a session has run in.
+    func dispatch(_ request: DispatchRequest) async -> DispatchOutcome {
+        guard await store.isKnownDirectory(request.cwd) else {
+            return .rejected("Pick a directory a session has already run in.")
+        }
+        switch request.agent {
+        case .codex: return await codexAppServerMonitor.dispatch(request)
+        default: return .unsupported("vibebuddy cannot start \(request.agent.displayName) sessions yet.")
         }
     }
 

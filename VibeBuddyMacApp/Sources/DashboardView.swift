@@ -8,6 +8,7 @@ struct DashboardView: View {
     @State private var statusFilter: TaskPresentationState? = nil
     @State private var agentFilter: AgentKind? = nil
     @State private var query: String = ""
+    @State private var showNewTask = false
     // Demo instance pre-selects the approval session so the detail pane (diff +
     // Approve/Deny) is shown for screenshots; nil in normal use.
     @State private var selection: String? =
@@ -64,10 +65,16 @@ struct DashboardView: View {
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
+                Button { showNewTask = true } label: { Image(systemName: "plus.bubble") }
+                    .help("Start a new task in a directory a session has run in")
+                    .disabled(model.recentDirectories.isEmpty)
+            }
+            ToolbarItem(placement: .primaryAction) {
                 Button { openSettings() } label: { Image(systemName: "gearshape") }
                     .help("Settings")
             }
         }
+        .sheet(isPresented: $showNewTask) { NewTaskSheet(model: model) }
         .background {
             Group {
                 Button("") { statusFilter = .error }.keyboardShortcut("1", modifiers: .command)

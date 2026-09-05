@@ -10,6 +10,7 @@ struct DashboardView: View {
     @EnvironmentObject private var voice: VoiceChat
     @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
     @State private var showSettings = false
+    @State private var showNewTask = false
     @State private var highlightId: String?
 
     var body: some View {
@@ -49,6 +50,11 @@ struct DashboardView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { ConnectionDot(state: dashboard.state) }
             ToolbarItem(placement: .topBarTrailing) {
+                Button { showNewTask = true } label: { Image(systemName: "plus.bubble") }
+                    .disabled(dashboard.recentDirectories.isEmpty)
+                    .accessibilityLabel("New task")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 Button { showSettings = true } label: { Image(systemName: "gearshape") }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -58,6 +64,7 @@ struct DashboardView: View {
                 .font(.subheadline)
             }
         }
+        .sheet(isPresented: $showNewTask) { NewTaskSheet(dashboard: dashboard) }
         .sheet(isPresented: $showSettings) {
             // A sheet doesn't inherit the presenter's environment objects, so
             // re-inject `voice` — Settings restarts a live session on change.

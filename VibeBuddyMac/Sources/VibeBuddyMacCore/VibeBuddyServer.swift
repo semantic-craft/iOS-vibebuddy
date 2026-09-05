@@ -55,6 +55,9 @@ public struct VibeBuddyServer: Sendable {
     public let backgroundSessions: @Sendable () -> [ClaudeBackgroundSession]
     /// Open a terminal running `claude attach <job id>` in the preferred program.
     public let onAttach: @Sendable (String, String?) async -> JumpOutcome
+    /// Start a new task. Nil means: Codex through the app-server monitor, every
+    /// other agent unsupported until it has a launcher of its own.
+    public let onDispatch: (@Sendable (DispatchRequest) async -> DispatchOutcome)?
 
     public init(store: SessionStore, token: String, host: String = "0.0.0.0",
                 port: Int = 9876, pusher: APNsPusher? = nil,
@@ -79,7 +82,8 @@ public struct VibeBuddyServer: Sendable {
                 backgroundSessions: @escaping @Sendable () -> [ClaudeBackgroundSession] = { ClaudeBackgroundSessions.load() },
                 onAttach: @escaping @Sendable (String, String?) async -> JumpOutcome = { id, term in
                     await TerminalLauncher.attach(claudeJobID: id, preferring: term)
-                }) {
+                },
+                onDispatch: (@Sendable (DispatchRequest) async -> DispatchOutcome)? = nil) {
         self.store = store
         self.token = token
         self.host = host
@@ -104,6 +108,7 @@ public struct VibeBuddyServer: Sendable {
         self.onAnswer = onAnswer
         self.backgroundSessions = backgroundSessions
         self.onAttach = onAttach
+        self.onDispatch = onDispatch
         self.onDevicePaired = onDevicePaired
     }
 
@@ -570,6 +575,47 @@ public struct VibeBuddyServer: Sendable {
             let data = try JSONEncoder().encode(["outcome": outcome.rawValue])
             return Response(status: .ok, headers: [.contentType: "application/json"],
                             body: .init(byteBuffer: ByteBuffer(bytes: data)))
+        }
+
+        // Start a new task from the phone — bearer-token gated. The directory
+        // must be one a session already ran in (the snapshot's
+        // `recentDirectories`), so a phone can never point an agent at an
+        // arbitrary path. 200 `{sessionId}`, 400 refused, 501 unsupported
+        // agent, 503 launcher unavailable.
+        let dispatcher = self.onDispatch
+        let dispatchMonitor = self.codexAppServerMonitor
+        authed.post("dispatch") { request, _ -> Response in
+            let buffer = try await request.body.collect(upTo: 64 * 1024)
+            guard let o = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
+                  let cwd = o["cwd"] as? String, let prompt = o["prompt"] as? String
+            else { throw HTTPError(.badRequest) }
+            let agent = AgentKind.fromSource(o["agent"] as? String)
+            let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+            func reply(_ status: HTTPResponse.Status, _ body: [String: String]) -> Response {
+                let data = (try? JSONEncoder().encode(body)) ?? Data()
+                return Response(status: status, headers: [.contentType: "application/json"],
+                                body: .init(byteBuffer: ByteBuffer(bytes: data)))
+            }
+            guard !text.isEmpty else { return reply(.badRequest, ["error": "empty prompt"]) }
+            guard await store.isKnownDirectory(cwd) else {
+                return reply(.badRequest, ["error": "not a directory a session has run in"])
+            }
+            let req = DispatchRequest(agent: agent, cwd: cwd, prompt: text,
+                                      name: (o["name"] as? String).flatMap { $0.isEmpty ? nil : $0 })
+            let outcome: DispatchOutcome
+            if let dispatcher {
+                outcome = await dispatcher(req)
+            } else if agent == .codex, let dispatchMonitor {
+                outcome = await dispatchMonitor.dispatch(req)
+            } else {
+                outcome = .unsupported("vibebuddy cannot start \(agent.displayName) sessions yet")
+            }
+            switch outcome {
+            case .started(let id): return reply(.ok, ["sessionId": id])
+            case .rejected(let why): return reply(.badRequest, ["error": why])
+            case .unsupported(let why): return reply(.notImplemented, ["error": why])
+            case .unavailable(let why): return reply(.serviceUnavailable, ["error": why])
+            }
         }
 
         // `{"sessionId", "answer"?: text, "answers"?: {questionId: [labels]}}`.

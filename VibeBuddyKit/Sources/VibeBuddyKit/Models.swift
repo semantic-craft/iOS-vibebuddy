@@ -550,17 +550,22 @@ public struct Snapshot: Codable, Sendable, Equatable {
     /// Mac-to-iPhone state path, but it is composed *outside* the session
     /// reducer: quota is account state, not session progress.
     public var providerQuota: [ProviderQuota]?
+    /// Working directories the Mac has seen sessions run in, newest first —
+    /// the only places a phone may start a new task in.
+    public var recentDirectories: [String]?
 
     public init(
         sessions: [AgentSession],
         serverTime: Date,
         observationDiagnostics: [AgentObservationDiagnostic]? = nil,
-        providerQuota: [ProviderQuota]? = nil
+        providerQuota: [ProviderQuota]? = nil,
+        recentDirectories: [String]? = nil
     ) {
         self.sessions = sessions
         self.serverTime = serverTime
         self.observationDiagnostics = observationDiagnostics
         self.providerQuota = providerQuota
+        self.recentDirectories = recentDirectories
     }
 }
 
@@ -625,4 +630,31 @@ public extension PendingApproval {
                         filePath: filePath, oldText: oldText, newText: newText,
                         permissionMode: permissionMode, suggestedRule: suggestedRule, answerable: false)
     }
+}
+
+/// A request to start a new agent task from the phone or the Mac, in a
+/// directory the Mac has already seen a session run in.
+public struct DispatchRequest: Codable, Sendable, Equatable {
+    public var agent: AgentKind
+    public var cwd: String
+    public var prompt: String
+    public var name: String?
+
+    public init(agent: AgentKind, cwd: String, prompt: String, name: String? = nil) {
+        self.agent = agent
+        self.cwd = cwd
+        self.prompt = prompt
+        self.name = name
+    }
+}
+
+public enum DispatchOutcome: Sendable, Equatable {
+    /// The agent started; the session appears through its usual signals.
+    case started(sessionID: String)
+    /// The agent's launcher is not reachable right now (no Codex daemon).
+    case unavailable(String)
+    /// vibebuddy cannot start this agent kind yet.
+    case unsupported(String)
+    /// The request was refused (unknown directory, empty prompt).
+    case rejected(String)
 }

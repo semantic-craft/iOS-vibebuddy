@@ -87,3 +87,17 @@ CLI's PermissionRequest hook gate returns no opinion for it, so one request
 never raises two cards. "Read-mostly" therefore now means: no turn is ever
 started, steered or interrupted from here; requests the agent itself opened
 are the only writes.
+
+## Amendment (2026-09-05): new threads are started on this connection
+
+Implements `.scratch/codex-official-surfaces/issues/05`. `POST /dispatch` with
+`agent = codex` asks the monitor to start a thread: `thread/start {cwd}` with
+no model, approval policy or sandbox override (the daemon applies the user's
+own defaults), the new thread is seeded into the reducer and subscribed at
+once, `thread/name/set` when a name was given, then `turn/start` with the
+prompt. The thread therefore appears in Codex Desktop, `codex agents` and
+vibebuddy's buckets the same way a Desktop-started one does, and its approvals
+and questions follow the first amendment. The route only accepts a `cwd` the
+daemon has already seen a session run in (`Snapshot.recentDirectories`), which
+is the whole of the "cwd whitelist"; vibebuddy never creates directories or
+starts a thread outside them. Without a connected daemon the route answers 503.
