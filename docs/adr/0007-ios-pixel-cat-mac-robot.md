@@ -12,13 +12,14 @@ Accepted (2026-06-05), amends ADR-0006.
 > - **macOS menu-bar mark** (`MenuBarGlyph.cat` in `VibeBuddyMenuBarApp.swift`) is a
 >   cat-head template silhouette (rounded head + triangle ears + punched eyes),
 >   replacing the robot-head glyph.
-> - **iOS app icon** (`VibeBuddyApp/Tools/make_app_icon.py` → `AppIcon.appiconset`)
->   is a code-drawn kawaii cat (white cat, green eyes, dark slate), replacing the
->   three-bar mark that read as a paw print on the home screen.
+> - **App icon** (iOS, macOS, watchOS) is one 1024 px raster: the white cat with
+>   green ears and eyes on slate blue, designed with the ip-as-logo skill (PR #30).
+>   The iOS `icon_1024.png` is the master; `VibeBuddyApp/Tools/make_app_icon.py`
+>   derives the macOS size ladder, the Watch icon and the README renders from it.
 >
 > Everything below describes the original iOS-only decision; the "Mac keeps the
 > robot" rationale no longer holds. Still **0 bundled artwork** except the app
-> icon raster (required by the platform), which is itself generated from code.
+> icon raster (required by the platform), which is no longer drawn in code.
 
 ADR-0006 made the pet an all-code-drawn **robot** on both platforms. We now
 diverge the pet's *identity per platform*: **iOS** renders a **pixel
