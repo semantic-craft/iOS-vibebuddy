@@ -273,11 +273,13 @@ public struct VibeBuddyServer: Sendable {
         }
 
         // Blocking approval intake — bearer-token gated (the approval hook reads
-        // the token file and sends it). Parse the PreToolUse hook payload, run the
-        // permission matcher, and either decide immediately (allow/deny) or hold
-        // until the phone responds via `/decision` or the timeout fires.
-        // `?agent=<source>` selects the envelope shape to decode and the decision
-        // contract to answer in; no parameter means Claude Code, as before.
+        // the token file and sends it). Parse the hook payload (Claude/Grok gate
+        // every PreToolUse; the Codex CLI gates only its PermissionRequest, which
+        // fires when Codex would prompt), run the permission matcher, and either
+        // decide immediately (allow/deny) or hold until the phone responds via
+        // `/decision` or the timeout fires. `?agent=<source>` selects the envelope
+        // shape to decode and the decision contract to answer in; no parameter
+        // means Claude Code, as before.
         let registry = self.approvalRegistry
         let rules = self.rules
         let allowStore = self.allowStore
@@ -295,9 +297,15 @@ public struct VibeBuddyServer: Sendable {
             let input = call.input
             let sessionID = call.sessionID
             let r = rules(agent)
-            // The blocking hook is also this agent's PreToolUse signal — ingesting
-            // it is what moves the session to `working` in the dashboard.
-            await store.ingest(data, agent: agent, receivedAt: Date())
+            // Claude and Grok gate every PreToolUse, so the blocking hook doubles
+            // as the tool signal — ingesting it moves the session to `working`.
+            // The Codex CLI gates only PermissionRequest, a *wait* signal: ingesting
+            // it would mark the session `needsResponse` and push a "needs you"
+            // alert even when a rule decides at once, so Codex is ingested only
+            // when the wait is real (the `.ask` arm) and the session is unknown.
+            if agent != .codex {
+                await store.ingest(data, agent: agent, receivedAt: Date())
+            }
             // Native deny always wins, over every vibebuddy overlay (ADR 0010).
             if PermissionMatcher.decide(tool: tool, input: input, allow: [], deny: r.deny) == .deny {
                 return Self.permissionResponse("deny", agent: agent)
@@ -316,6 +324,11 @@ public struct VibeBuddyServer: Sendable {
             case .allow: return Self.permissionResponse("allow", agent: agent)
             case .deny:  return Self.permissionResponse("deny", agent: agent)
             case .ask:
+                if agent == .codex, !(await store.hasSession(sessionID)) {
+                    // Only the gate is trusted (no status forwarders yet): open the
+                    // session from this payload so the card has a row to land on.
+                    await store.ingest(data, agent: agent, receivedAt: Date())
+                }
                 let id = makeID()
                 let d = ApprovalDetails.from(tool: tool, input: input)
                 // Record what an "always allow" / "allow this session" would act
@@ -452,6 +465,14 @@ public struct VibeBuddyServer: Sendable {
             json = decision == "deny"
                 ? #"{"decision":"deny","reason":"vibebuddy"}"#
                 : #"{"decision":"\#(decision)"}"#
+        } else if agent == .codex {
+            // Codex answers approvals through its `PermissionRequest` hook:
+            // `decision.behavior` is `allow`/`deny`, and a deny may carry a
+            // message the model sees. Any other field fails closed on Codex's
+            // side, so send nothing beyond the contract.
+            json = decision == "deny"
+                ? #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"Denied from vibebuddy"}}}"#
+                : #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#
         } else {
             json = #"{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"\#(decision)","permissionDecisionReason":"vibebuddy"}}"#
         }

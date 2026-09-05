@@ -248,6 +248,32 @@ def main():
         if "Stop" not in grok_hooks:
             fails.append("--approval dropped the grok status hooks")
 
+        # codex: the gate sits on PermissionRequest (the only event whose hook
+        # decision Codex honours for an allow); PreToolUse keeps its status
+        # forwarder so the session still goes `working` once the tool runs.
+        codex_hooks = json.loads(open(os.path.join(home, ".codex/hooks.json")).read())["hooks"]
+        codex_gate = [hook for group in codex_hooks.get("PermissionRequest", [])
+                      for hook in group.get("hooks", [])]
+        if not any("approval-hook.sh" in hook.get("command", "") for hook in codex_gate):
+            fails.append("--approval did not add the codex approval gate on PermissionRequest")
+        if any("vibebuddy-forward.sh" in hook.get("command", "") for hook in codex_gate):
+            fails.append("--approval left the fire-and-forget codex PermissionRequest group")
+        if not all(hook.get("timeout") == 30 for hook in codex_gate
+                   if "approval-hook.sh" in hook.get("command", "")):
+            fails.append("codex approval gate must allow 30s for the phone round trip")
+        if not any(hook.get("command", "").endswith('" codex') for hook in codex_gate):
+            fails.append("codex approval gate must pass the codex source argument")
+        codex_pre_tool = [hook.get("command", "") for group in codex_hooks.get("PreToolUse", [])
+                          for hook in group.get("hooks", [])]
+        if not any('vibebuddy-forward.sh" codex' in command for command in codex_pre_tool):
+            fails.append("--approval dropped the codex PreToolUse status forwarder")
+        if any("approval-hook.sh" in command for command in codex_pre_tool):
+            fails.append("codex approval gate must not sit on PreToolUse (Codex rejects allow there)")
+        if USER_CODEX_HOOK not in [hook.get("command", "")
+                                   for group in codex_hooks.get("SessionStart", [])
+                                   for hook in group.get("hooks", [])]:
+            fails.append("--approval dropped the user's codex lifecycle hook")
+
         # A plain re-install (the Mac app's Repair button) rewrites the grok file
         # wholesale; it must not silently drop the gate the user opted into.
         rr = run("--install", home)
@@ -266,6 +292,13 @@ def main():
                            for hook in group.get("hooks", [])]
         if not any("approval-hook.sh" in hook.get("command", "") for hook in claude_pre_tool):
             fails.append("plain --install dropped the existing claude approval gate")
+        codex_hooks = json.loads(open(os.path.join(home, ".codex/hooks.json")).read())["hooks"]
+        codex_gate = [hook.get("command", "") for group in codex_hooks.get("PermissionRequest", [])
+                      for hook in group.get("hooks", [])]
+        if not any("approval-hook.sh" in command for command in codex_gate):
+            fails.append("plain --install dropped the existing codex approval gate")
+        if any("vibebuddy-forward.sh" in command for command in codex_gate):
+            fails.append("re-install after --approval re-added the codex PermissionRequest forwarder")
 
         # Grok imports ~/.claude/settings.json hooks and resolves a quoted,
         # argument-less command as a literal path, so the Claude capture hook
@@ -305,6 +338,8 @@ def main():
                                     for group in groups for hook in group.get("hooks", [])]
         if any("vibebuddy-forward.sh" in command for command in remaining_codex_commands):
             fails.append("uninstall left vibebuddy codex lifecycle hooks")
+        if any("approval-hook.sh" in command for command in remaining_codex_commands):
+            fails.append("uninstall left the codex approval gate")
         if USER_CODEX_HOOK not in remaining_codex_commands:
             fails.append("uninstall removed the user's codex lifecycle hook")
         if "vibebuddy-forward.sh" in kimi or "vibebuddy:" in kimi:

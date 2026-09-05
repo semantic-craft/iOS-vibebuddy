@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Install/uninstall VibeBuddy lifecycle hooks in ~/.codex/hooks.json.
 
+    --dry-run    preview (default)
+    --install    status hooks (plus terminal capture); keeps an existing approval gate
+    --approval   --install, with the blocking phone-approval gate on PermissionRequest
+    --uninstall  remove every VibeBuddy entry
+
 The Codex ``notify`` command is deliberately untouched: it may already belong
 to Codex Computer Use or another notifier. Lifecycle progress belongs in
 ``hooks.json``, where multiple consumers can coexist.
@@ -16,6 +21,14 @@ HOOKS = os.path.expanduser("~/.codex/hooks.json")
 BACKUP = os.path.expanduser("~/.codex/hooks.json.vibebuddy-backup")
 FORWARDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vibebuddy-forward.sh")
 COMMAND = f'"{FORWARDER}" codex'
+# Remote approval (--approval): Codex fires PermissionRequest only when it would
+# prompt, and honours the hook's `decision.behavior` there — so the blocking gate
+# replaces the fire-and-forget PermissionRequest group and nothing else. The
+# daemon answers within 25s; 30s leaves the hook's own curl cap (30s) room.
+APPROVAL_HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "approval-hook.sh")
+APPROVAL_COMMAND = f'"{APPROVAL_HOOK}" codex'
+APPROVAL_EVENT = "PermissionRequest"
+APPROVAL_TIMEOUT = 30
 EVENTS = [
     "SessionStart",
     "UserPromptSubmit",
@@ -75,6 +88,17 @@ def is_forwarder(hook):
             and argv[1] == "codex")
 
 
+def is_approval(hook):
+    if not isinstance(hook, dict) or not isinstance(hook.get("command"), str):
+        return False
+    try:
+        argv = shlex.split(hook["command"])
+    except ValueError:
+        return False
+    return (len(argv) == 2 and os.path.basename(argv[0]) == "approval-hook.sh"
+            and argv[1] == "codex")
+
+
 def is_capture(hook):
     if not isinstance(hook, dict) or not isinstance(hook.get("command"), str):
         return False
@@ -86,7 +110,14 @@ def is_capture(hook):
 
 
 def is_vibebuddy(hook):
-    return is_forwarder(hook) or is_capture(hook)
+    return is_forwarder(hook) or is_capture(hook) or is_approval(hook)
+
+
+def has_approval(root):
+    hooks = root.get("hooks") if isinstance(root.get("hooks"), dict) else {}
+    return any(is_approval(hook)
+               for group in hooks.get(APPROVAL_EVENT, []) if isinstance(group, dict)
+               for hook in group.get("hooks", []))
 
 
 def without_vibebuddy(groups):
@@ -100,18 +131,28 @@ def without_vibebuddy(groups):
     return cleaned
 
 
-def install(root):
+def install(root, approval=False):
+    # A plain re-install (the Mac app's Repair button) must not silently drop a
+    # gate the user opted into, so an existing gate is carried forward.
+    approval = approval or has_approval(root)
     hooks = root.get("hooks") if isinstance(root.get("hooks"), dict) else {}
     for event in list(hooks):
         hooks[event] = without_vibebuddy(hooks[event])
         if not hooks[event]:
             del hooks[event]
     for event in EVENTS:
-        command = {
-            "type": "command",
-            "command": COMMAND,
-            "timeout": 3,
-        }
+        if approval and event == APPROVAL_EVENT:
+            command = {
+                "type": "command",
+                "command": APPROVAL_COMMAND,
+                "timeout": APPROVAL_TIMEOUT,
+            }
+        else:
+            command = {
+                "type": "command",
+                "command": COMMAND,
+                "timeout": 3,
+            }
         # Released Codex builds currently skip command hooks carrying
         # `async: true`; SessionEnd is synchronous by design as well. Keep all
         # handlers synchronous and bounded, while the forwarder caps its local
@@ -167,7 +208,7 @@ def write(data):
 
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "--dry-run"
-    if mode not in {"--dry-run", "--install", "--uninstall"}:
+    if mode not in {"--dry-run", "--install", "--uninstall", "--approval"}:
         print("unknown mode:", mode)
         sys.exit(2)
     try:
@@ -177,7 +218,10 @@ def main():
         sys.exit(1)
 
     before = encoded(root)
-    updated = uninstall(root) if mode == "--uninstall" else install(root)
+    if mode == "--uninstall":
+        updated = uninstall(root)
+    else:
+        updated = install(root, approval=(mode == "--approval"))
     after = encoded(updated)
     changed = before != after
 
@@ -191,7 +235,9 @@ def main():
         write(after)
         action = "removed" if mode == "--uninstall" else "installed"
         print(f"{action} VibeBuddy Codex lifecycle hooks; preserved all other hooks and notify")
-        if mode == "--install":
+        if mode == "--approval":
+            print("installed the blocking phone-approval gate on PermissionRequest")
+        if mode in {"--install", "--approval"}:
             print("next: start a fresh Codex session, run /hooks, and trust the VibeBuddy entries")
 
 
