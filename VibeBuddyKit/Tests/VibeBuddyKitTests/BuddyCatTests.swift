@@ -26,10 +26,10 @@ struct BuddyCatTests {
         #expect(BuddyCat.Mood(BuddyState.longWait.presentationState) == .alert)
     }
 
-    @Test("the unit canvas is 52×60 with the body and square for the head alone")
+    @Test("the unit canvas is 52×60 with the body and 52×48 for the head alone")
     func sizing() {
         #expect(BuddyCat.height(forWidth: 52, showsBody: true) == 60)
-        #expect(BuddyCat.height(forWidth: 36, showsBody: false) == 36)
+        #expect(BuddyCat.height(forWidth: 52, showsBody: false) == 48)
         #expect(BuddyCat.bodyThreshold > BuddyCat.mouthThreshold)
     }
 }

@@ -143,6 +143,7 @@ enum MenuBarGlyph {
         let side: CGFloat = 18
         let renderer = ImageRenderer(content:
             BuddyCatFace(mood: .calm, showsBody: false, monochrome: true)
+                .frame(width: side, height: BuddyCat.height(forWidth: side, showsBody: false))
                 .frame(width: side, height: side))
         renderer.scale = 2
         let img = renderer.nsImage ?? NSImage(size: NSSize(width: side, height: side))

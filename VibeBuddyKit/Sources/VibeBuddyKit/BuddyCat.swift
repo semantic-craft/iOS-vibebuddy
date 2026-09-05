@@ -28,9 +28,12 @@ public enum BuddyCat {
     /// Below this width the mouth is dropped as well (head, ears, eyes only).
     public static let mouthThreshold: CGFloat = 28
 
-    /// Unit canvas: 52 × 60 with the body, 46 × 46 for the head alone.
+    /// Unit canvas: 52 × 60 with the body, 52 × 48 for the head alone. The
+    /// head window is sized to the widest and lowest moods (worry's flattened
+    /// ears reach x ≈ 0.3 and 51.7 with their stroke; the sleeping head's chin
+    /// reaches y = 48), so no compact state clips.
     public static func height(forWidth width: CGFloat, showsBody: Bool) -> CGFloat {
-        showsBody ? width * 60 / 52 : width
+        showsBody ? width * 60 / 52 : width * 48 / 52
     }
 
     public enum Mood: String, Sendable, Equatable, CaseIterable {
@@ -55,7 +58,7 @@ public struct BuddyCatFace: View {
     public var listening: Bool
     /// This frame shows closed eyes.
     public var blink: Bool
-    /// Draw the body and belly under the head (52 × 60); off → head only (46 × 46).
+    /// Draw the body and belly under the head (52 × 60); off → head only (52 × 48).
     public var showsBody: Bool
     public var showsMouth: Bool
     /// A 1 pt ink shadow so the white cat separates from a light card.
@@ -98,15 +101,10 @@ public struct BuddyCatFace: View {
         .accessibilityHidden(true)
     }
 
-    // MARK: drawing (unit space: 52 × 60, or the head's 46 × 46 window at x 3…49)
+    // MARK: drawing (unit space: 52 × 60, or the head's 52 × 48 window)
 
     private func draw(_ ctx: inout GraphicsContext, size: CGSize) {
-        if showsBody {
-            ctx.scaleBy(x: size.width / 52, y: size.height / 60)
-        } else {
-            ctx.scaleBy(x: size.width / 46, y: size.height / 46)
-            ctx.translateBy(x: -3, y: 0)
-        }
+        ctx.scaleBy(x: size.width / 52, y: size.height / (showsBody ? 60 : 48))
 
         let sleep = mood == .sleep
         let fur: Color = monochrome ? .black : BuddyCat.body
@@ -282,7 +280,7 @@ public struct BuddyCatFace: View {
         // Listening ring, pulsing about its centre.
         if listening, !monochrome {
             let rect = showsBody ? CGRect(x: 1.5, y: 1.5, width: 49, height: 57)
-                                 : CGRect(x: 4.5, y: 1.5, width: 43, height: 43)
+                                 : CGRect(x: 1.5, y: 1.5, width: 49, height: 45)
             let c = CGPoint(x: rect.midX, y: rect.midY)
             ctx.translateBy(x: c.x, y: c.y); ctx.scaleBy(x: pose.ring, y: pose.ring); ctx.translateBy(x: -c.x, y: -c.y)
             let ring = Path(roundedRect: rect, cornerRadius: showsBody ? 9 : 8, style: .continuous)
