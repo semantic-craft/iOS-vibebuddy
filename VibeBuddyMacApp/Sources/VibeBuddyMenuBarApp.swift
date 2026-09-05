@@ -444,7 +444,7 @@ struct MenuContent: View {
             TaskStatusIndicator(session.presentationState, size: 8)
             Text(session.project)
                 .font(.system(size: 13, weight: .semibold))
-                .lineLimit(1).truncationMode(.middle)
+                .lineLimit(1).truncationMode(.tail)
             Spacer(minLength: 6)
             HStack(spacing: 4) {
                 Text(ToolActivity.label(for: session))
