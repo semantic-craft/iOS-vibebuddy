@@ -213,14 +213,20 @@ private struct SessionListHeightKey: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
+/// The menu-bar dropdown, Companion style: the cat says how things are, the two
+/// big actions, pairing, then the sessions in the same three state groups as
+/// the dashboard (docs/design/mac-companion-redesign.md).
 struct MenuContent: View {
     @ObservedObject var model: MenuBarModel
     @State private var listContentHeight: CGFloat = 0
+    @State private var greet = 0
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            summaryHead
+
             Button {
                 AppActivationPolicy.enter()
                 openWindow(id: "dashboard")
@@ -229,14 +235,11 @@ struct MenuContent: View {
                     Label("Open Dashboard", systemImage: "macwindow")
                     Spacer()
                     Text(model.openDashboardHotkey.displayString)
-                        .font(.callout.weight(.medium).monospaced())
-                        .foregroundStyle(.secondary)
+                        .font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink3)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
+            .buttonStyle(PillButtonStyle(kind: .filled(MacTheme.accent)))
 
             Button {
                 model.setShowGlance(!model.showGlance)
@@ -244,72 +247,52 @@ struct MenuContent: View {
                 HStack(spacing: 8) {
                     Label(model.showGlance ? "Hide Glance" as LocalizedStringKey : "Show Glance",
                           systemImage: model.showGlance ? "eye.slash.fill" : "eye.fill")
-                        .fontWeight(.medium)
                     Spacer()
                     Text(model.toggleGlanceHotkey.displayString)
-                        .font(.callout.weight(.medium).monospaced())
-                        .foregroundStyle(.secondary)
+                        .font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink3)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .tint(model.showGlance ? .secondary : .blue)
-
-            HStack {
-                Text("vibebuddy").font(.headline)
-                Spacer()
-                Text(model.pairingAddress)
-                    .font(.caption.monospaced()).foregroundStyle(.secondary)
-            }
+            .buttonStyle(PillButtonStyle(kind: .soft))
 
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: model.pairedPhone != nil ? "iphone.gen3" : "iphone.slash")
-                    .foregroundStyle(model.pairedPhone != nil ? .green : .secondary)
+                    .foregroundStyle(model.pairedPhone != nil ? MacTheme.accent : MacTheme.ink3)
                     .frame(width: 18)
                 if let phone = model.pairedPhone {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Paired: \(phone.name)")
-                            .foregroundStyle(.primary)
+                        Text("Paired: \(phone.name)").foregroundStyle(MacTheme.ink)
                         if !phone.subtitle.isEmpty {
-                            Text(phone.subtitle)
-                                .foregroundStyle(.secondary)
+                            Text(phone.subtitle).foregroundStyle(MacTheme.ink2)
                         }
                         HStack(spacing: 6) {
                             Text("Last seen \(phone.lastSeen.formatted(date: .omitted, time: .shortened))")
                             Text(phone.pushRegistered ? "Push ready" as LocalizedStringKey : "Push pending")
                         }
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(MacTheme.ink3)
                     }
                 } else {
-                    Text("No phone paired")
-                        .foregroundStyle(.secondary)
+                    Text("No phone paired").foregroundStyle(MacTheme.ink2)
                 }
                 Spacer()
+                Text(model.pairingAddress).font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink3)
             }
-            .font(.caption)
+            .font(MacTheme.font(11, .semibold))
 
-            HStack(spacing: 12) {
-                ForEach([TaskPresentationState.error, .requiresInput, .thinking, .completeUnread, .idle], id: \.self) { state in
-                    counter(model.presentationSummary.count(for: state), state)
-                }
-            }
-
-            Divider()
+            Divider().overlay(MacTheme.line)
 
             if model.sessions.isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("No sessions reporting").font(.caption.weight(.medium))
+                    Text("No sessions reporting").font(MacTheme.font(12, .heavy)).foregroundStyle(MacTheme.ink)
                     Text("Start a turn or repair hooks in Settings.")
-                        .font(.caption2).foregroundStyle(.secondary)
+                        .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink2)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 2)
             } else {
                 sessionList
             }
 
-            Divider()
+            Divider().overlay(MacTheme.line)
 
             DisclosureGroup("Pair a phone") {
                 if let qr = model.qrImage {
@@ -319,12 +302,13 @@ struct MenuContent: View {
                         .background(.white)
                         .clipShape(.rect(cornerRadius: 8))
                     Text("Scan this in the vibebuddy iOS app")
-                        .font(.caption2).foregroundStyle(.secondary)
+                        .font(MacTheme.font(10, .semibold)).foregroundStyle(MacTheme.ink2)
                 }
             }
-            .font(.callout)
+            .font(MacTheme.font(12, .heavy))
+            .foregroundStyle(MacTheme.ink)
 
-            Divider()
+            Divider().overlay(MacTheme.line)
 
             HStack {
                 Button {
@@ -345,30 +329,36 @@ struct MenuContent: View {
                 Button("Quit vibebuddy") { NSApplication.shared.terminate(nil) }
                     .buttonStyle(.borderless)
             }
-            .font(.callout)
+            .font(MacTheme.font(12, .heavy))
+            .foregroundStyle(MacTheme.ink2)
         }
-        .padding(14)
-        .frame(width: 300)
+        .padding(16)
+        .frame(width: 310)
+        .background(MacTheme.bg)
     }
 
-    private func counter(_ value: Int, _ state: TaskPresentationState) -> some View {
-        HStack(spacing: 5) {
-            TaskStatusIndicator(state, size: 8)
-            Image(systemName: state.symbolName)
-            Text("\(value)").monospacedDigit()
+    /// Round 5: the cat says one line, the second line carries the rest.
+    private var summaryHead: some View {
+        let summary = model.presentationSummary
+        return HStack(spacing: 10) {
+            PetFace(state: model.buddyState, voice: .init(model.voiceChat.phase), greet: greet, bare: true, scale: 0.7)
+                .onTapGesture { greet += 1; model.voiceChat.toggle() }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(MacSummaryCopy.moodLine(summary)).font(MacTheme.font(15, .black)).foregroundStyle(MacTheme.ink)
+                let rest = MacSummaryCopy.restLine(summary)
+                if !rest.isEmpty {
+                    Text(rest).font(MacTheme.font(11, .bold)).foregroundStyle(MacTheme.ink2)
+                }
+            }
+            Spacer(minLength: 0)
         }
-        .font(.callout.weight(.medium))
-        .foregroundStyle(value > 0
-                         ? AnyShapeStyle(Color(taskStatus: state.colorToken))
-                         : AnyShapeStyle(.secondary))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(value) \(state.label)")
+        .accessibilityElement(children: .combine)
     }
 
     /// Height cap for the session list — about eight compact rows. A short list
     /// takes its natural height; a long one scrolls inside the cap so the
     /// buttons above and the footer below never move off screen.
-    private static let listMaxHeight: CGFloat = 320
+    private static let listMaxHeight: CGFloat = 340
 
     /// A ScrollView inside a MenuBarExtra window collapses to zero height
     /// unless it is given one explicitly, so the rows report their natural
@@ -385,98 +375,65 @@ struct MenuContent: View {
         .frame(height: min(max(listContentHeight, 1), Self.listMaxHeight))
     }
 
-    /// Three layers (see `MenuSessionList`): sessions that need the user stay
-    /// pinned on top in the full two-line row; everything else is grouped by
-    /// agent in compact one-line rows, and a folded group hides only its
-    /// finished rows.
+    /// The same three buckets as the dashboard. Needs-you rows keep the full
+    /// summary-first row; the other groups use the compact one-liner.
     private var sessionRows: some View {
-        let list = model.menuSessionList
-        return VStack(alignment: .leading, spacing: 9) {
-            ForEach(list.pinned) { row($0) }
-            ForEach(list.groups) { group in
-                if list.showsGroupHeaders { groupHeader(group) }
-                ForEach(group.visibleSessions) { compactRow($0) }
+        let groups = StateGroups(model.sessions)
+        return VStack(alignment: .leading, spacing: 8) {
+            ForEach(groups.buckets) { group in
+                HStack(spacing: 6) {
+                    Text(group.title).font(MacTheme.font(11, .black)).foregroundStyle(MacTheme.ink)
+                    Text("\(group.sessions.count)").font(MacTheme.font(11, .heavy)).foregroundStyle(MacTheme.ink2)
+                    Spacer()
+                }
+                .padding(.horizontal, 10).padding(.vertical, 4)
+                .background(MacTheme.bg2, in: Capsule())
+                ForEach(group.sessions) { s in
+                    if group.warm { fullRow(s) } else { compactRow(s) }
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func groupHeader(_ group: MenuSessionList.Group) -> some View {
-        Button {
-            model.toggleMenuGroup(group.agent)
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .rotationEffect(.degrees(group.isCollapsed ? 0 : 90))
-                    .frame(width: 10)
-                Text(group.agent.displayName).font(.caption.weight(.semibold))
-                Spacer(minLength: 4)
-                HStack(spacing: 7) {
-                    ForEach([TaskPresentationState.thinking, .completeUnread, .idle], id: \.self) { state in
-                        let count = group.summary.count(for: state)
-                        if count > 0 {
-                            HStack(spacing: 3) {
-                                TaskStatusIndicator(state, size: 7)
-                                Text("\(count)").monospacedDigit()
-                            }
-                            .accessibilityLabel("\(count) \(state.label)")
-                        }
-                    }
+    private func fullRow(_ session: AgentSession) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            StateGlyph(state: session.presentationState, size: 26)
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 5) {
+                    Text(session.project).font(MacTheme.font(11, .bold)).foregroundStyle(MacTheme.ink2)
+                    AgentBadge(agent: session.agent)
+                    Spacer(minLength: 4)
+                    Text(session.updatedAt, style: .relative).font(MacTheme.font(10, .semibold))
+                        .foregroundStyle(MacTheme.ink3).monospacedDigit()
                 }
-                .font(.caption2.weight(.medium)).foregroundStyle(.secondary)
+                Text(session.summary ?? ToolActivity.label(for: session))
+                    .font(MacTheme.font(13, .heavy)).foregroundStyle(MacTheme.ink).lineLimit(1)
+                Text(ToolActivity.label(for: session))
+                    .font(MacTheme.font(9, .heavy)).textCase(.uppercase).kerning(0.5)
+                    .foregroundStyle(MacTheme.status(session.presentationState))
             }
-            .padding(.horizontal, 7).padding(.vertical, 4)
-            .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .help(group.isCollapsed ? "Show finished sessions" : "Hide finished sessions")
-        .accessibilityLabel("\(group.agent.displayName), \(group.sessions.count) sessions")
-        .accessibilityValue(group.isCollapsed ? "collapsed" : "expanded")
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .companionCard(radius: 10)
     }
 
-    /// One-line row for sessions that don't need the user: the dot carries the
+    /// One-line row for sessions that don't need the user: the glyph carries the
     /// state, the trailing text says what the agent is doing and since when.
     private func compactRow(_ session: AgentSession) -> some View {
         HStack(spacing: 8) {
-            TaskStatusIndicator(session.presentationState, size: 8)
-            Text(session.project)
-                .font(.system(size: 13, weight: .semibold))
+            StateGlyph(state: session.presentationState, size: 18)
+            Text(session.project).font(MacTheme.font(12, .heavy)).foregroundStyle(MacTheme.ink)
                 .lineLimit(1).truncationMode(.tail)
             Spacer(minLength: 6)
             HStack(spacing: 4) {
                 Text(ToolActivity.label(for: session))
-                Text("·").foregroundStyle(.tertiary)
+                Text("·").foregroundStyle(MacTheme.ink3)
                 Text(session.updatedAt, style: .relative).monospacedDigit()
             }
-            .font(.caption).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+            .font(MacTheme.font(10, .semibold)).foregroundStyle(MacTheme.ink2).lineLimit(1).fixedSize()
         }
+        .padding(.horizontal, 4)
     }
-
-    private func row(_ session: AgentSession) -> some View {
-        HStack(alignment: .top, spacing: 9) {
-            TaskStatusIndicator(session.presentationState, size: 9)
-                .padding(.top, 3)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 5) {
-                    Text(session.project).font(.callout.weight(.semibold))
-                    AgentSourceBadge(agent: session.agent)
-                    if let branch = session.branch {
-                        Text(branch).font(.caption2.monospaced()).foregroundStyle(.secondary)
-                    }
-                }
-                HStack(spacing: 5) {
-                    Text(ToolActivity.label(for: session)).fontWeight(.medium)
-                    Text("·").foregroundStyle(.tertiary)
-                    Text(session.updatedAt, style: .relative).monospacedDigit()
-                }
-                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            }
-            Spacer(minLength: 0)
-        }
-        .fixedSize(horizontal: false, vertical: true)
-    }
-
 }
