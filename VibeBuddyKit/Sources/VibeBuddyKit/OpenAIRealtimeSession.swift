@@ -3,7 +3,7 @@ import Foundation
 /// OpenAI Realtime (GA) speech-to-speech over `wss://api.openai.com/v1/realtime`.
 /// The GA API nests audio config under `session.audio.input/output` and renames
 /// the audio events to `response.output_audio.*` (the beta shape is disabled).
-/// Audio is 24 kHz PCM16 in **and** out. Verified against `gpt-realtime`.
+/// Audio is 24 kHz PCM16 in **and** out. Verified against `gpt-realtime`; `gpt-realtime-2.1` (2026-07) uses the same GA schema.
 public actor OpenAIRealtimeSession: RealtimeVoiceProvider {
     private let apiKey: String
     private let model: String
@@ -12,7 +12,7 @@ public actor OpenAIRealtimeSession: RealtimeVoiceProvider {
     private var continuation: AsyncStream<RealtimeVoiceEvent>.Continuation?
     private var tools: [VoiceTool] = []
 
-    public init(apiKey: String, model: String = "gpt-realtime") {
+    public init(apiKey: String, model: String = "gpt-realtime-2.1") {
         self.apiKey = apiKey
         self.model = model
     }

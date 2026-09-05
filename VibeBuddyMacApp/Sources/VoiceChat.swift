@@ -62,7 +62,7 @@ final class VoiceChat: ObservableObject {
     /// The master switch was turned off in Settings — end any live call.
     func companionDisabled() { if isActive { stopRealtime() } }
 
-    // MARK: Omni-realtime speech-to-speech (active path)
+    // MARK: Realtime speech-to-speech (active path)
 
     private func startRealtime() {
         errorText = nil
@@ -93,7 +93,7 @@ final class VoiceChat: ObservableObject {
 
         let session: any RealtimeVoiceProvider
         switch provider {
-        case .qwen:   session = QwenRealtimeSession(apiKey: key, model: model, useIntl: VoiceSettings.useIntl)
+        case .qwen:   session = QwenRealtimeSession(apiKey: key, model: model, workspaceID: VoiceSettings.qwenWorkspaceID, useIntl: VoiceSettings.useIntl)
         case .openai: session = OpenAIRealtimeSession(apiKey: key, model: model)
         case .gemini: session = GeminiRealtimeSession(apiKey: key, model: model)
         }
