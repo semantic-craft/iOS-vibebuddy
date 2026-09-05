@@ -55,3 +55,19 @@
 "%@, stale" = "%@，已过期";
 "No quota sources" = "没有额度来源";
 "Sign in to Codex or Claude Code on your Mac to see weekly allowance here." = "在 Mac 上登录 Codex 或 Claude Code，这里就会显示周额度。";
+
+/* MARK: Mirrored push banners
+   The Mac's APNs push names the iPhone's notification keys (title-loc-key /
+   loc-key); a banner mirrored to the Watch resolves them here. Same strings
+   as the iPhone app's Notifier copy. */
+"%@ needs permission" = "%@ 需要权限";
+"Approve or deny" = "批准或拒绝";
+"%@ needs you" = "%@ 需要你";
+"Waiting for your input" = "等待你的输入";
+"%@ is still waiting" = "%@ 仍在等待";
+"%@ is done" = "%@ 已完成";
+"Task complete" = "任务完成";
+"%@ stopped" = "%@ 已停止";
+"Might need a look" = "可能需要看一眼";
+"Connected" = "已连接";
+"VibeBuddy is watching your sessions." = "VibeBuddy 正在盯着你的会话。";

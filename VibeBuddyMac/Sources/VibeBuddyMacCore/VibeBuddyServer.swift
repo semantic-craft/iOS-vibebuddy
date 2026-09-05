@@ -219,18 +219,10 @@ public struct VibeBuddyServer: Sendable {
             let deviceTokens = self.deviceTokens
             Task {
                 await store.setNeedsResponseHandler { session in
-                    let title: String
-                    let body: String
-                    let sound: NotificationSound
-                    if let approval = session.pendingApproval {
-                        title = "\(session.project) needs approval"
-                        body = approval.commandPreview
-                        sound = .needsApproval
-                    } else {
-                        title = "\(session.project) needs you"
-                        body = session.summary ?? "Waiting for your response"
-                        sound = session.waitKind == .permission ? .needsApproval : .needsAnswer
-                    }
+                    // Same words the phone puts on its own banner for this cue.
+                    let sound: NotificationSound = session.pendingApproval != nil || session.waitKind == .permission
+                        ? .needsApproval : .needsAnswer
+                    let copy = PushCopy.copy(for: sound, session: session)
                     // Same two axes as the menu-bar app's push: the session's
                     // attention level says how loud (a muted session's wait is a
                     // silent banner), each phone's switches say whether at all,
@@ -246,9 +238,10 @@ public struct VibeBuddyServer: Sendable {
                         }
                         guard deviceLevel.interrupts else { continue }
                         let soundFile = deviceLevel.makesSound && device.playSound != false ? sound.fileName : ""
-                        await pusher.send(title: title, body: body, to: deviceToken,
+                        await pusher.send(title: copy.title, body: copy.body, to: deviceToken,
                                           sound: soundFile,
-                                          sessionID: session.id, soundCategory: sound.rawValue)
+                                          sessionID: session.id, soundCategory: sound.rawValue,
+                                          localized: PushLocalization(copy))
                     }
                 }
             }
@@ -296,14 +289,15 @@ public struct VibeBuddyServer: Sendable {
             }
             return false
         }
+        let copy = PushCopy.copy(for: alert.sound, session: session)
         for recipient in fanout.recipients {
             guard let token = recipient.device.token else { continue }
             let sound = recipient.level.makesSound && recipient.device.playSound != false
                 ? alert.sound.fileName : ""
-            await pusher.send(title: "\(session.project) finished",
-                              body: session.summary ?? "Task complete",
+            await pusher.send(title: copy.title, body: copy.body,
                               to: token, sound: sound,
-                              now: now, sessionID: session.id, soundCategory: alert.sound.rawValue)
+                              now: now, sessionID: session.id, soundCategory: alert.sound.rawValue,
+                              localized: PushLocalization(copy))
         }
         return true
     }

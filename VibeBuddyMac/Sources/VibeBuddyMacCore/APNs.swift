@@ -78,6 +78,22 @@ public actor DeviceTokens {
     public func devices() -> [DeviceRegistrationPayload] { Array(devicesByToken.values) }
 }
 
+/// The phone's string-table keys for a push, so the banner reads in the
+/// phone's language. See `PushCopy`.
+public struct PushLocalization: Equatable, Sendable {
+    public var titleKey: String
+    public var titleArgs: [String]
+    public var bodyKey: String?
+    public init(titleKey: String, titleArgs: [String], bodyKey: String?) {
+        self.titleKey = titleKey
+        self.titleArgs = titleArgs
+        self.bodyKey = bodyKey
+    }
+    public init(_ copy: PushCopy) {
+        self.init(titleKey: copy.titleKey, titleArgs: copy.titleArgs, bodyKey: copy.bodyKey)
+    }
+}
+
 /// Sends "needs you" alerts to registered devices over APNs (HTTP/2 + cached
 /// ES256 JWT). Failures are recorded as `failed`; 2xx is `accepted` by Apple.
 public actor APNsPusher {
@@ -105,7 +121,8 @@ public actor APNsPusher {
     public func send(title: String, body: String, to deviceToken: String,
                      sound: String = "default", now: Date = Date(),
                      sessionID: String? = nil,
-                     soundCategory: String? = nil) async -> APNsSendResult {
+                     soundCategory: String? = nil,
+                     localized: PushLocalization? = nil) async -> APNsSendResult {
         let category = soundCategory ?? sound.replacingOccurrences(of: ".caf", with: "")
         guard let url = URL(string: "https://\(config.host)/3/device/\(deviceToken)"),
               let auth = try? providerToken(now: now) else {
@@ -127,7 +144,7 @@ public actor APNsPusher {
                              forHTTPHeaderField: "apns-collapse-id")
         }
         request.httpBody = Data(Self.alertPayload(title: title, body: body, sound: sound,
-                                                  sessionID: sessionID).utf8)
+                                                  sessionID: sessionID, localized: localized).utf8)
         do {
             let (_, response) = try await http.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode
@@ -154,12 +171,26 @@ public actor APNsPusher {
     /// The `alert` push body. An empty sound means a silent (banner-only) push.
     /// The session id rides outside `aps` so the phone's `userInfo["sessionId"]`
     /// reads the same for a push as for its own local notification, and a tapped
-    /// banner can open the session either way.
+    /// banner can open the session either way. It also goes in as `thread-id`,
+    /// the phone's `threadIdentifier` for the same session, so the push files
+    /// into that session's group instead of the app-wide stack.
+    /// `localized` adds the phone's string-table keys next to the English
+    /// copy so the banner reads in the phone's language.
     nonisolated static func alertPayload(title: String, body: String, sound: String,
-                                         sessionID: String?) -> String {
+                                         sessionID: String?,
+                                         localized: PushLocalization? = nil) -> String {
+        var alert = #""title":"\#(escape(title))","body":"\#(escape(body))""#
+        if let localized {
+            let args = localized.titleArgs.map { #""\#(escape($0))""# }.joined(separator: ",")
+            alert += #","title-loc-key":"\#(escape(localized.titleKey))","title-loc-args":[\#(args)]"#
+            if let bodyKey = localized.bodyKey {
+                alert += #","loc-key":"\#(escape(bodyKey))""#
+            }
+        }
         let soundField = sound.isEmpty ? "" : #","sound":"\#(escape(sound))""#
+        let threadField = sessionID.map { #","thread-id":"\#(escape($0))""# } ?? ""
         let sessionField = sessionID.map { #","sessionId":"\#(escape($0))""# } ?? ""
-        return #"{"aps":{"alert":{"title":"\#(escape(title))","body":"\#(escape(body))"}\#(soundField)}\#(sessionField)}"#
+        return #"{"aps":{"alert":{\#(alert)}\#(soundField)\#(threadField)}\#(sessionField)}"#
     }
 
     private func finish(
