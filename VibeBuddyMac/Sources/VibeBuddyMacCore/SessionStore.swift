@@ -31,6 +31,9 @@ public actor SessionStore {
     private var lifecycleJournal: LifecycleJournal?
     /// The user's hand-set attention levels, layered onto every snapshot.
     private var attention: AttentionOverrides
+    /// When the user last drove each session (prompt, jump, decision, answer);
+    /// what `AutoAttention` reads when there is no hand-set level.
+    private var lastInteractionAt: [String: Date] = [:]
 
     public init(
         staleAfter: TimeInterval = 2 * 60 * 60,
@@ -64,6 +67,15 @@ public actor SessionStore {
         return true
     }
 
+    /// The user just acted on this session — typed a prompt, jumped to it,
+    /// decided its approval, answered its question. Keeps it `followed` for
+    /// `AutoAttention.window` unless a hand-set level says otherwise.
+    public func recordInteraction(sessionID: String, at: Date = Date()) {
+        guard reducer.sessions[sessionID] != nil else { return }
+        lastInteractionAt[sessionID] = at
+        broadcast()
+    }
+
     /// Change the idle-cleanup window at runtime (from Settings).
     public func setStaleAfter(_ interval: TimeInterval) { staleAfter = interval }
 
@@ -83,6 +95,7 @@ public actor SessionStore {
         for id in removed {
             transcriptPaths[id] = nil
             grokDirectories[id] = nil
+            lastInteractionAt[id] = nil
         }
         attention.prune(keeping: Set(reducer.sessions.keys))
         for id in removed {
@@ -148,6 +161,8 @@ public actor SessionStore {
         let wasWaiting = reducer.sessions[event.sessionID]?.status == .needsResponse
         if let path = event.transcriptPath { transcriptPaths[event.sessionID] = path }
         reducer.apply(event, observationSource: observationSource, recordsEvidence: recordsEvidence)
+        // A prompt is the user driving the session in person.
+        if event.kind == .userPromptSubmit { lastInteractionAt[event.sessionID] = event.timestamp }
         if let enrichment = event.enrichment {
             reducer.enrich(sessionID: event.sessionID, with: enrichment)
         }
@@ -160,6 +175,7 @@ public actor SessionStore {
             transcriptPaths[event.sessionID] = nil
             pendingTerminalRefs[event.sessionID] = nil
             grokDirectories[event.sessionID] = nil
+            lastInteractionAt[event.sessionID] = nil
             attention.set(nil, for: event.sessionID)
         } else {
             // Grok keeps a session's facts in a directory of files rather than
@@ -336,7 +352,9 @@ public actor SessionStore {
         snapshot.providerQuota = providerQuota.isEmpty ? nil : providerQuota
         snapshot.sessions = snapshot.sessions.map { session in
             var session = session
+            session.attentionOverride = attention[session.id]
             session.attention = attention[session.id]
+                ?? AutoAttention.level(lastInteractionAt: lastInteractionAt[session.id], now: now)
             return session
         }
         return snapshot

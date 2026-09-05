@@ -56,3 +56,17 @@ public struct AttentionOverrides: Sendable, Equatable {
         }
     }
 }
+
+/// The level a session gets when the user has not chosen one: `followed`
+/// while they were recently *driving* it — typed a prompt, jumped to it,
+/// answered its approval or question — and `normal` otherwise. Never
+/// `muted`: silence is only ever a choice.
+public enum AutoAttention {
+    /// How long one interaction keeps a session followed.
+    public static let window: TimeInterval = 10 * 60
+
+    public static func level(lastInteractionAt: Date?, now: Date) -> SessionAttention {
+        guard let lastInteractionAt, now.timeIntervalSince(lastInteractionAt) < window else { return .normal }
+        return .followed
+    }
+}

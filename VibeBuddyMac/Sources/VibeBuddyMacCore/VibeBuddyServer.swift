@@ -353,24 +353,21 @@ public struct VibeBuddyServer: Sendable {
             else { throw HTTPError(.badRequest) }
             // "allow"/"deny" resolve this one prompt; "alwaysAllow" also persists a rule;
             // "allowSession" also allows the rest of this session (ADR 0010). Unknown → deny.
+            let ctx = await approvalContext.take(id: id)
             switch decision {
             case "alwaysAllow":
-                if let ctx = await approvalContext.take(id: id), let rule = ctx.rule {
-                    await allowStore.add(rule)
-                }
+                if let rule = ctx?.rule { await allowStore.add(rule) }
                 await registry.resolve(id: id, with: .allow)
             case "allowSession":
-                if let ctx = await approvalContext.take(id: id) {
-                    await sessionAllow.add(ctx.sessionID)
-                }
+                if let ctx { await sessionAllow.add(ctx.sessionID) }
                 await registry.resolve(id: id, with: .allow)
             case "allow":
-                _ = await approvalContext.take(id: id)
                 await registry.resolve(id: id, with: .allow)
             default:
-                _ = await approvalContext.take(id: id)
                 await registry.resolve(id: id, with: .deny)
             }
+            // Deciding is driving: the session stays followed for a while.
+            if let ctx { await store.recordInteraction(sessionID: ctx.sessionID) }
             return .ok
         }
 
@@ -428,6 +425,7 @@ public struct VibeBuddyServer: Sendable {
             // Jumping is an explicit return to the task, even if this terminal
             // type cannot ultimately be focused.
             await store.acknowledgeCompletion(sessionID: sid)
+            await store.recordInteraction(sessionID: sid)
             // Report what actually happened so the phone can give honest feedback.
             // The jumper answers after it has run, so `focused` means the exact
             // pane/tab really came forward — not merely that a command existed.
@@ -458,6 +456,7 @@ public struct VibeBuddyServer: Sendable {
             if let ref = await store.terminalRef(for: sid) {
                 onAnswer(ref, answer)
                 await store.endQuestion(sessionID: sid, at: Date())
+                await store.recordInteraction(sessionID: sid)
             }
             return .ok
         }

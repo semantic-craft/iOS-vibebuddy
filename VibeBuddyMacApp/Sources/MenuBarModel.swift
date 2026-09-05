@@ -359,24 +359,20 @@ final class MenuBarModel: ObservableObject {
     /// so "always allow" / "allow this session" behave identically to the phone.
     func decide(_ approvalId: String, _ choice: ApprovalDecision) {
         Task {
+            let ctx = await approvalContext.take(id: approvalId)
             switch choice {
             case .alwaysAllow:
-                if let ctx = await approvalContext.take(id: approvalId), let rule = ctx.rule {
-                    await allowStore.add(rule)
-                }
+                if let rule = ctx?.rule { await allowStore.add(rule) }
                 await approvalRegistry.resolve(id: approvalId, with: .allow)
             case .allowSession:
-                if let ctx = await approvalContext.take(id: approvalId) {
-                    await sessionAllow.add(ctx.sessionID)
-                }
+                if let ctx { await sessionAllow.add(ctx.sessionID) }
                 await approvalRegistry.resolve(id: approvalId, with: .allow)
             case .allow:
-                _ = await approvalContext.take(id: approvalId)
                 await approvalRegistry.resolve(id: approvalId, with: .allow)
             case .deny:
-                _ = await approvalContext.take(id: approvalId)
                 await approvalRegistry.resolve(id: approvalId, with: .deny)
             }
+            if let ctx { await store.recordInteraction(sessionID: ctx.sessionID) }
         }
     }
 
@@ -394,6 +390,7 @@ final class MenuBarModel: ObservableObject {
     /// ("no terminal recorded"), not a dead control — that silence was the bug.
     func jump(_ session: AgentSession) {
         acknowledge(session.id)
+        Task { [store] in await store.recordInteraction(sessionID: session.id) }
         if let ref = session.terminalRef {
             Task { [weak self] in
                 let outcome = await TerminalJumper.jump(ref)
@@ -435,6 +432,18 @@ final class MenuBarModel: ObservableObject {
         Task { [store] in await store.acknowledgeCompletion(sessionID: sessionID) }
     }
 
+    /// Set, or with `nil` return to automatic, how much this session may
+    /// interrupt you. The daemon owns the value; demo mode mirrors it locally.
+    func setAttention(_ sessionID: String, _ level: SessionAttention?) {
+        if ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1" {
+            guard let index = sessions.firstIndex(where: { $0.id == sessionID }) else { return }
+            sessions[index].attentionOverride = level
+            sessions[index].attention = level ?? .normal
+            return
+        }
+        Task { [store] in await store.setAttention(sessionID: sessionID, level) }
+    }
+
     /// Include/exclude a session from the buddy's context (ephemeral). Takes effect
     /// on the next call — a live call keeps the snapshot it started with.
     func toggleBuddy(_ id: String) {
@@ -459,7 +468,9 @@ final class MenuBarModel: ObservableObject {
             decide(ap.id, approve: false); return "Denied \(s.project)."
         case .answer(let project, let text):
             guard let s = match(project), let ref = s.terminalRef else { return "No matching session, or it has no terminal." }
-            TerminalInjector.inject(text, into: ref); return "Replied to \(s.project)."
+            TerminalInjector.inject(text, into: ref)
+            Task { [store] in await store.recordInteraction(sessionID: s.id) }
+            return "Replied to \(s.project)."
         case .none:
             return ""
         }

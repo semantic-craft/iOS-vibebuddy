@@ -377,9 +377,13 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     /// snapshots decode as a normal completion. Distinct from a real stop
     /// whose last message happened to be "Abandoned".
     public var probeRetired: Bool?
-    /// The attention level the daemon settled on for this session. Absent means
-    /// `normal`; only the daemon writes it (via `/attention`), clients read it.
+    /// The attention level in effect for this session: the user's own choice
+    /// when there is one, else what the daemon inferred from recent
+    /// interaction. Absent means `normal`. Only the daemon writes it.
     public var attention: SessionAttention?
+    /// The level the user set by hand (via `/attention`), if any. Absent means
+    /// the level is automatic — the UI shows this so a choice can be undone.
+    public var attentionOverride: SessionAttention?
     public var statusSince: Date
     public var updatedAt: Date
 
@@ -408,6 +412,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         childTopologyDegraded: Bool? = nil,
         probeRetired: Bool? = nil,
         attention: SessionAttention? = nil,
+        attentionOverride: SessionAttention? = nil,
         statusSince: Date,
         updatedAt: Date
     ) {
@@ -435,6 +440,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         self.childTopologyDegraded = childTopologyDegraded
         self.probeRetired = probeRetired
         self.attention = attention
+        self.attentionOverride = attentionOverride
         self.statusSince = statusSince
         self.updatedAt = updatedAt
     }
