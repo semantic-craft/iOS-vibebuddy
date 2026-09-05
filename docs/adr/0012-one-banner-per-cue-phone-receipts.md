@@ -29,15 +29,17 @@ today, and nothing new may be unreliable. A duplicate is tolerable; a missed
 ### Measured on the real device (2026-09-06, Hermes + `vibebuddyd` on this Mac)
 
 Hooks were posted at known times to an isolated daemon on `:9877`; the delivery
-log records the decision and its clock. `filtered … phonePosted` means the phone
+log records the decision and its clock. `skipped … phonePosted` means the phone
 sent a receipt and the push was dropped; `accepted` with a timestamp inside the
 hook's own round trip means the daemon had no `/ws` subscriber and pushed at once.
+The app states in the table came from a diagnostic field the experiment build
+carried in the receipt; the shipped payload does not.
 
 | App state when the wait began | Phone posted locally | Push | Result |
 |---|---|---|---|
-| Foreground (5 runs, daemon and menu-bar app) | yes (`active`), receipt 70–450 ms after the hook | filtered | one banner (foreground presentation) |
-| Backgrounded 0.3–0.5 s earlier (4 runs) | yes (`inactive`) | filtered | one banner |
-| Backgrounded 5–8 s earlier, app not yet suspended (3 runs) | yes (`background`) | filtered | one banner |
+| Foreground (5 runs, daemon and menu-bar app) | yes (`active`), receipt 70–450 ms after the hook | skipped | one banner (foreground presentation) |
+| Backgrounded 0.3–0.5 s earlier (4 runs) | yes (`inactive`) | skipped | one banner |
+| Backgrounded 5–8 s earlier, app not yet suspended (3 runs) | yes (`background`) | skipped | one banner |
 | Backgrounded 2.6 s / 5.6 s / 10 s / 20 s / 40 s earlier, app suspended (5 runs) | no — no `/ws` subscriber left | accepted immediately | one banner (push) |
 | Backgrounded 5 min earlier | no | accepted immediately | one banner (push) |
 | Backgrounded 39 s earlier, app briefly reconnected on its own | declined: push for that wait already in Notification Center (`pushCovered`) | (already sent) | one banner |
@@ -71,14 +73,15 @@ Two rules, one per direction, both failing toward "push":
 
 1. **The Mac holds its push for a phone's receipt.** When the phone posts a cue
    it sends `POST /notified` (`NotifiedPayload`: device token, the cue's
-   identifier, the wait's start as the Mac reported it, the app state). The
+   identifier, the wait's start as the Mac reported it). The
    pusher (`APNsPusher.send`, both the daemon's `setNeedsResponseHandler` path
    and the menu-bar app's `pushToPhones` path) asks `PhoneReceipts` for a
    receipt matching *that phone, that identifier, that wait* (±1 s). If the
    store has a `/ws` subscriber it waits up to 3 s for one; with no subscriber
    nobody can be about to report, so it decides at once. A receipt means the
-   push is `filtered`; none means it is sent exactly as before, at most 3 s
-   later. Matching on the wait's start means a receipt for one wait can never
+   push is `skipped` (`phonePosted`); none means it is sent exactly as
+   before, at most 3 s later. A completion *reminder* never consults
+   receipts: it says the same cue again on purpose. Matching on the wait's start means a receipt for one wait can never
    silence the push for the next wait of the same session (the phone debounces
    re-entries for 90 s and would stay silent for it).
 2. **The phone leaves a waiting cue to a push that already delivered it.** Before
@@ -86,15 +89,16 @@ Two rules, one per direction, both failing toward "push":
    checks Notification Center for a delivered *remote* notification with the
    same identifier dated at or after the wait's start (5 s clock tolerance), or
    a tapped one whose `didReceive` just brought the app forward. If found, the
-   cue is not posted and the Mac is told (`coveredByPush`, logged as
-   `phone filtered pushCovered`). Completions are not covered: they are never
+   cue is not posted — with no haptic and no buddy reaction either — and
+   the Mac is told (`coveredByPush`, logged as `phone skipped pushCovered`). Completions are not covered: they are never
    withdrawn, so a stale one could not be told apart from a new one, and the
    phone never posts a completion in the foreground anyway.
 
 Everything the phone reports and everything the Mac decides lands in the
-notification delivery log (`phone scheduled phonePosted:<state>`,
-`phone filtered pushCovered:<state>`, `apns filtered phonePosted:<state>`), so
-"why did my phone show this once / twice" is answerable from Mac Settings.
+notification delivery log, in the one skip vocabulary both channels share
+(`CueSkipReason`): `phone scheduled`, `phone skipped pushCovered`,
+`apns skipped phonePosted`. "Why did my phone show this once / twice" is
+answerable from Mac Settings.
 
 ## Why not the other candidates
 
@@ -122,9 +126,8 @@ notification delivery log (`phone scheduled phonePosted:<state>`,
   3 s later than today. A phone with no socket (the common closed-app case) is
   pushed with no delay.
 - The wire gains `POST /notified` (bearer token) and the Kit gains
-  `NotifiedPayload`; the delivery log gains the `phone` channel and the
-  `filtered` outcome (Q26). `SettingsView`'s help text still lists the four
-  older outcomes; it was out of scope for this change.
+  `NotifiedPayload`; the delivery log gains the `phone` channel and two
+  `CueSkipReason`s, `phonePosted` and `pushCovered` (Q26).
 - `VIBEBUDDY_HOST/PORT/TOKEN` in the iOS app's environment now win over the
   saved pairing for that launch (never saved), so a device build can be
   pointed at a second Mac instance from `devicectl` during acceptance without

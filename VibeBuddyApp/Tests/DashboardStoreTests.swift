@@ -68,4 +68,26 @@ final class DashboardStoreTests: XCTestCase {
         XCTAssertEqual(sent.map(\.level), [.followed])
         store.stop()
     }
+
+    /// The Mac's device registry can be emptied by a Mac restart while this app
+    /// is only backgrounded. Reporting once per launch left the Mac unable to
+    /// push until the phone next cold-launched; every reconnect must repair it.
+    func testEveryReconnectReReportsTheDeviceToTheMac() async throws {
+        var reports: [PairingPayload] = []
+        let store = DashboardStore(
+            streamer: EmptyStreamer(),      // finishes at once → the reconnect loop
+            notifier: SilentNotifier(), decisionClient: NullDecisionClient(),
+            watchRelay: nil, reportDevice: { reports.append($0) })
+
+        let pairing = PairingPayload(host: "127.0.0.1", port: 9, token: "test")
+        store.start(pairing)
+        for _ in 0..<500 {
+            if reports.count >= 2 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        store.stop()
+
+        XCTAssertGreaterThanOrEqual(reports.count, 2)
+        XCTAssertEqual(reports.first?.host, "127.0.0.1")
+    }
 }

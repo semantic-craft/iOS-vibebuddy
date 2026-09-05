@@ -15,10 +15,8 @@ struct PhoneReceiptsTests {
     private let waitSince = Date(timeIntervalSince1970: 1_799_999_990)
 
     private func payload(_ identifier: String = "s1-needs_approval", token: String = "tok",
-                         since: Date? = nil, state: String = "background") -> NotifiedPayload {
-        NotifiedPayload(token: token,
-                        posted: [.init(identifier: identifier, since: since ?? waitSince)],
-                        appState: state)
+                         since: Date? = nil) -> NotifiedPayload {
+        NotifiedPayload(token: token, posted: [.init(identifier: identifier, since: since ?? waitSince)])
     }
 
     @Test("a receipt already in hand answers at once, hold or not")
@@ -29,7 +27,7 @@ struct PhoneReceiptsTests {
         let started = clock.now
         let found = await receipts.receipt(for: "s1-needs_approval", since: waitSince,
                                            from: "tok", hold: true, now: now)
-        #expect(found?.appState == "background")
+        #expect(found?.identifier == "s1-needs_approval")
         #expect(clock.now - started < .milliseconds(500))
     }
 
@@ -108,11 +106,10 @@ struct PhoneReceiptsTests {
         await receipts.record(NotifiedPayload(
             token: "tok",
             posted: [.init(identifier: "s1-needs_approval", since: waitSince)],
-            coveredByPush: [.init(identifier: "s2-needs_answer", since: waitSince)],
-            appState: "background"), now: now)
+            coveredByPush: [.init(identifier: "s2-needs_answer", since: waitSince)]), now: now)
         #expect(spy.records.map(\.channel) == [.phone, .phone])
-        #expect(spy.records.map(\.outcome) == [.scheduled, .filtered])
-        #expect(spy.records.map(\.failureReason) == ["phonePosted:background", "pushCovered:background"])
+        #expect(spy.records.map(\.outcome) == [.scheduled, .skipped])
+        #expect(spy.records.map(\.failureReason) == [nil, "pushCovered"])
         #expect(spy.records.map(\.sound) == ["needs_approval", "needs_answer"])
 
         var tracker = NotificationDeliveryHealthTracker()
@@ -132,16 +129,16 @@ struct PhoneReceiptsTests {
         let receipts = PhoneReceipts(grace: .milliseconds(100), recorder: spy)
         let http = CountingAPNsHTTP()
         let pusher = try pusher(http: http, recorder: spy, receipts: receipts)
-        await receipts.record(payload(token: "abc", state: "active"), now: now)
+        await receipts.record(payload(token: "abc"), now: now)
 
         let filtered = await pusher.send(title: "t", body: "b", to: "abc", sound: "needs_approval.caf",
                                          now: now, sessionID: "s1", soundCategory: "needs_approval",
                                          waitSince: waitSince, holdForPhone: true)
-        #expect(filtered.outcome == .filtered)
-        #expect(filtered.failureReason == "phonePosted:active")
+        #expect(filtered.outcome == .skipped)
+        #expect(filtered.failureReason == "phonePosted")
         #expect(await http.calls == 0)
         #expect(spy.records.last?.channel == .apns)
-        #expect(spy.records.last?.outcome == .filtered)
+        #expect(spy.records.last?.outcome == .skipped)
 
         // The same cue for the next wait, unreported: sent as before.
         let sent = await pusher.send(title: "t", body: "b", to: "abc", sound: "needs_approval.caf",

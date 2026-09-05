@@ -18,7 +18,6 @@ public actor PhoneReceipts {
         public let token: String
         public let identifier: String
         public let since: Date
-        public let appState: String?
         public let receivedAt: Date
     }
 
@@ -48,23 +47,22 @@ public actor PhoneReceipts {
 
     /// A phone reported what it did about some cues. Both kinds go into the
     /// delivery log on the `phone` channel: it is where the user looks to see
-    /// why a banner did or did not appear, and Q26 wants filtered cues named.
+    /// why a banner did or did not appear, and Q26 wants skipped cues named.
     public func record(_ payload: NotifiedPayload, now: Date = Date()) async {
         prune(now: now)
-        let state = payload.appState ?? "unknown"
         for cue in payload.posted {
             receipts.append(Receipt(token: payload.token, identifier: cue.identifier,
-                                    since: cue.since, appState: payload.appState, receivedAt: now))
+                                    since: cue.since, receivedAt: now))
             await recorder?.record(NotificationDeliveryRecord(
                 channel: .phone, outcome: .scheduled,
                 sessionID: nil, sound: NotificationIdentity.sound(of: cue.identifier)?.rawValue,
-                failureReason: "phonePosted:\(state)", timestamp: now))
+                failureReason: nil, timestamp: now))
         }
         for cue in payload.coveredByPush {
             await recorder?.record(NotificationDeliveryRecord(
-                channel: .phone, outcome: .filtered,
+                channel: .phone, outcome: .skipped,
                 sessionID: nil, sound: NotificationIdentity.sound(of: cue.identifier)?.rawValue,
-                failureReason: "pushCovered:\(state)", timestamp: now))
+                failureReason: CueSkipReason.pushCovered.rawValue, timestamp: now))
         }
     }
 

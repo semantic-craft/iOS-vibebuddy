@@ -44,6 +44,10 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var lifecycleJournalClearFailed = false
     @Published private(set) var notificationDeliveryHealth = NotificationDeliveryHealth()
     @Published private(set) var recentNotificationDeliveries: [NotificationDeliveryRecord] = []
+    /// How many phones the Mac can push to right now, and when the newest of
+    /// them last registered. Zero with APNs configured means every push is
+    /// going nowhere — the state that used to be invisible.
+    @Published private(set) var deviceRegistry = DeviceRegistrySummary()
     /// The outcome of the most recent jump per session id, shown transiently in
     /// the row that was clicked and cleared by `showJumpFeedback`.
     @Published private(set) var jumpFeedback: [String: JumpOutcome] = [:]
@@ -105,7 +109,7 @@ final class MenuBarModel: ObservableObject {
     // Phone push: the same SoundPolicy engine, run from the Mac's perspective of
     // a backgrounded phone, so the phone hears the full pack (not just needs-you).
     private let pusher: APNsPusher?
-    private let deviceTokens = DeviceTokens()
+    private let deviceTokens: DeviceTokens
     /// What each phone said it posted itself (`POST /notified`); the pusher
     /// stands its own push down for those (ADR-0012).
     private let phoneReceipts: PhoneReceipts
@@ -181,6 +185,15 @@ final class MenuBarModel: ObservableObject {
         phoneReceipts = receipts
         pusher = apnsConfig.flatMap { try? APNsPusher(config: $0, recorder: recorder, receipts: receipts) }
         notificationDeliveryHealth = NotificationDeliveryHealth(apnsConfigured: apnsConfig != nil)
+        // The APNs registry outlives this process. Without the file, every Mac
+        // restart emptied it and no push reached a closed phone until the phone
+        // happened to cold-launch. The demo instance stays in memory so it can
+        // never touch (or push to) the real user's phones.
+        deviceTokens = DeviceTokens(url: ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1"
+            ? nil
+            : (ProcessInfo.processInfo.environment["VIBEBUDDY_DEVICE_REGISTRY_PATH"].map {
+                URL(fileURLWithPath: $0)
+            } ?? DeviceRegistryLocation.defaultURL()))
         // The views read usage through this model's facades, so the coordinator's
         // changes have to reach the same `objectWillChange` they observe. Set up
         // after every stored property is initialized: the capture needs `self`.
@@ -282,6 +295,9 @@ final class MenuBarModel: ObservableObject {
     }
 
     private func preparePairing() {
+        // Putting the QR on screen is the explicit intent to pair: lift any
+        // block a "forget phone" left on previously registered tokens.
+        Task { [deviceTokens] in await deviceTokens.acceptNewRegistrations() }
         let host = LANAddress.primaryIPv4() ?? "127.0.0.1"
         let payload = Pairing.payload(host: host, port: port, token: token, macName: macDisplayName)
         pairing = payload
@@ -321,7 +337,7 @@ final class MenuBarModel: ObservableObject {
                 await self.refreshNotificationDeliveryHealth()
                 // Off the loop: a push may hold for the phone's receipt, and the
                 // glance must not wait with it.
-                Task { await self.pushToPhones(alerts) }
+                Task { await self.pushToPhones(alerts, focused: focused) }
                 await self.pushActivityUpdates(snapshot.sessions)
                 await self.checkBudget(snapshot.sessions)
                 try? await Task.sleep(for: .seconds(2))
@@ -342,6 +358,7 @@ final class MenuBarModel: ObservableObject {
         await deliveryRecorder.updateAPNsConfigured(pusher != nil)
         notificationDeliveryHealth = await deliveryRecorder.health()
         recentNotificationDeliveries = await deliveryRecorder.recent(limit: 8)
+        deviceRegistry = await deviceTokens.summary()
     }
 
     func setAlwaysAskPhone(_ on: Bool) {
@@ -419,49 +436,63 @@ final class MenuBarModel: ObservableObject {
     /// its Quiet mode reads the cue through the `muted` column, never louder
     /// than the Mac decided, and mute drops the sound. When the phone is in the
     /// foreground it suppresses the remote push itself (see willPresent).
-    private func pushToPhones(_ alerts: [SoundAlert]) async {
-        guard let pusher, !alerts.isEmpty else { return }
+    private func pushToPhones(_ alerts: [SoundAlert], focused: Set<String>) async {
+        guard !alerts.isEmpty else { return }
         let devices = await deviceTokens.devices()
-        for alert in alerts where alert.delivery.interrupts { await push(alert, to: devices) }
+        for alert in alerts { await push(alert, to: devices, focused: focused) }
         await refreshNotificationDeliveryHealth()
     }
 
-    /// One cue to every paired phone. Two axes per device: its own category
-    /// switches (uploaded with its registration; a phone that never said keeps
-    /// the default set) decide whether at all, and the alert's delivery level —
-    /// capped to the `muted` column when the phone is in Quiet mode — decides
-    /// how loud. A list-only or dropped cue never pushes. Returns whether any
-    /// phone was actually sent to.
+    /// One cue to every paired phone, planned by `PushFanout`: its own category
+    /// switches decide whether at all, and its Quiet mode how loud, never louder
+    /// than the Mac decided. Returns whether any phone was actually sent to.
+    ///
+    /// A cue that reaches no phone records a `skipped` delivery saying why,
+    /// rather than leaving nothing behind. Every one of these silences is
+    /// deliberate somewhere — but a silence you cannot tell apart from a bug is
+    /// how "the Mac banners and the phone never hears about it" went unexplained.
     @discardableResult
-    private func push(_ alert: SoundAlert, to devices: [DeviceRegistrationPayload]) async -> Bool {
-        guard let pusher else { return false }
+    private func push(_ alert: SoundAlert, to devices: [DeviceRegistrationPayload],
+                      focused: Set<String> = [], recordSkips: Bool = true,
+                      standDownForPhone: Bool = true) async -> Bool {
+        let fanout = PushFanout.plan(alert, devices: devices, apnsConfigured: pusher != nil,
+                                     focusedSessionIDs: focused)
+        guard let pusher, !fanout.recipients.isEmpty else {
+            if recordSkips { await recordPushSkip(alert, reason: fanout.skip) }
+            return false
+        }
         let copy = PushCopy.copy(for: alert.sound, session: alert.session)
         // A phone with a live stream may be posting this cue itself right now:
         // hold each push briefly for its receipt (ADR-0012), all devices side
-        // by side. A cue the phone did not report goes out as before.
-        let hold = await store.subscriberCount > 0
-        let waitSince = alert.session.statusSince
-        var attempted = false
+        // by side. A reminder says the same cue again on purpose, so it never
+        // stands down (`standDownForPhone: false`).
+        let hold: Bool = if standDownForPhone { await store.subscriberCount > 0 } else { false }
+        let waitSince: Date? = standDownForPhone ? alert.session.statusSince : nil
+        let registry = deviceTokens
+        var sent = false
         await withTaskGroup(of: Void.self) { group in
-            for device in devices {
-                guard let deviceToken = device.token,
-                      (device.categories ?? .default).isEnabled(alert.sound) else { continue }
-                var level = alert.delivery
-                if device.quietMode == true {
-                    level = min(level, DeliveryMatrix.level(for: alert.sound, attention: .muted))
-                }
-                guard level.interrupts else { continue }
-                let sound = level.makesSound && device.playSound != false ? alert.sound.fileName : ""
-                attempted = true
+            for recipient in fanout.recipients {
+                guard let deviceToken = recipient.device.token else { continue }
+                let sound = recipient.level.makesSound && recipient.device.playSound != false
+                    ? alert.sound.fileName : ""
+                sent = true
                 group.addTask {
-                    await pusher.send(title: copy.title, body: copy.body, to: deviceToken, sound: sound,
-                                      sessionID: alert.sessionID, soundCategory: alert.sound.rawValue,
-                                      localized: PushLocalization(copy),
-                                      waitSince: waitSince, holdForPhone: hold)
+                    let result = await pusher.send(title: copy.title, body: copy.body, to: deviceToken, sound: sound,
+                                                   sessionID: alert.sessionID, soundCategory: alert.sound.rawValue,
+                                                   localized: PushLocalization(copy),
+                                                   waitSince: waitSince, holdForPhone: hold)
+                    await registry.applySendResult(result, token: deviceToken)
                 }
             }
         }
-        return attempted
+        return sent
+    }
+
+    private func recordPushSkip(_ alert: SoundAlert, reason: CueSkipReason?) async {
+        guard let reason else { return }
+        await deliveryRecorder.record(NotificationDeliveryRecord(
+            channel: .apns, outcome: .skipped, sessionID: alert.sessionID,
+            sound: alert.sound.rawValue, failureReason: reason.rawValue, timestamp: Date()))
     }
 
     /// The server's reminder schedule asks this to deliver one `agentDone`
@@ -473,9 +504,13 @@ final class MenuBarModel: ObservableObject {
     private func deliverCompletionReminder(_ session: AgentSession) async -> Bool {
         let local = await notificationCoordinator.remind(
             session, quietMode: Self.effectiveQuiet(), categories: NotificationCategoryPrefs.load())
-        let devices = pusher == nil ? [] : await deviceTokens.devices()
+        let devices = await deviceTokens.devices()
         let level = DeliveryMatrix.level(for: .agentDone, attention: session.effectiveAttention)
-        let pushed = await push(SoundAlert(session: session, sound: .agentDone, delivery: level), to: devices)
+        // `recordSkips: false`: an undelivered reminder is re-proposed on every
+        // pass of the server's 30s loop until something takes it, so recording
+        // each one would bury the log. The completion's own cue already said why.
+        let pushed = await push(SoundAlert(session: session, sound: .agentDone, delivery: level),
+                                to: devices, recordSkips: false, standDownForPhone: false)
         if local || pushed { await refreshNotificationDeliveryHealth() }
         return local || pushed
     }
@@ -493,9 +528,11 @@ final class MenuBarModel: ObservableObject {
             for device in devices {
                 guard let deviceToken = device.token, device.quietMode != true else { continue }  // not an approval → quiet suppresses
                 let sound = device.playSound != false ? NotificationSound.longWaitNudge.fileName : ""
-                await pusher?.send(title: "\(alert.session.project) over budget",
-                                   body: "≈ \(cost) spent this session (estimate)",
-                                   to: deviceToken, sound: sound)
+                guard let result = await pusher?.send(
+                    title: "\(alert.session.project) over budget",
+                    body: "≈ \(cost) spent this session (estimate)",
+                    to: deviceToken, sound: sound) else { continue }
+                await deviceTokens.applySendResult(result, token: deviceToken)
             }
         }
     }
@@ -724,6 +761,15 @@ final class MenuBarModel: ObservableObject {
         pairedPhone = nil
         UserDefaults.standard.removeObject(forKey: Self.pairedPhoneInfoKey)
         UserDefaults.standard.removeObject(forKey: Self.legacyPairedPhoneKey)
+        // The registry now outlives the process, so forgetting the phone has to
+        // drop its APNs token too — and block it: the phone still holds the
+        // bearer token and re-reports on its next reconnect, so a plain removal
+        // would last only until the next network blip. Showing the pairing QR
+        // again lifts the block (see preparePairing).
+        Task {
+            await deviceTokens.forgetAll()
+            deviceRegistry = await deviceTokens.summary()
+        }
     }
 
     var menuSessionList: MenuSessionList {

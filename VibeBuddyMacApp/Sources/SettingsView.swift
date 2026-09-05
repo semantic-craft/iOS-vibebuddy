@@ -365,6 +365,28 @@ private struct NotificationSettings: View {
                     Text(model.notificationDeliveryHealth.apnsConfigured ? "configured" : "not configured")
                         .foregroundStyle(.secondary)
                 }
+                // Configured but with nothing registered is the silent failure:
+                // every push goes nowhere and only the missing `apns` rows below
+                // would ever say so. Call it out where it is read.
+                LabeledContent("Registered devices") {
+                    let count = model.deviceRegistry.count
+                    let dead = count == 0 && model.notificationDeliveryHealth.apnsConfigured
+                    Text(count == 0 ? "none" : "\(count)")
+                        .foregroundStyle(dead ? Color.orange : .secondary)
+                }
+                if let last = model.deviceRegistry.lastRegisteredAt {
+                    HStack(spacing: 4) {
+                        Text("Last registered")
+                        Text(last, style: .relative)
+                            .monospacedDigit()
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                } else if model.notificationDeliveryHealth.apnsConfigured {
+                    Text("No phone has uploaded a push token. Open the iPhone app on the same network; it re-registers on every connection.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
                 if let last = model.notificationDeliveryHealth.lastAttempt {
                     LabeledContent("Last attempt") {
                         Text(last.outcome.rawValue)
@@ -400,6 +422,7 @@ private struct NotificationSettings: View {
                     HStack(spacing: 6) {
                         Text(entry.outcome.rawValue)
                             .fontWeight(.semibold)
+                            .foregroundStyle(entry.outcome == .skipped ? Color.secondary : .primary)
                         Text(entry.channel.rawValue)
                             .foregroundStyle(.secondary)
                         if let sound = entry.sound {
@@ -407,12 +430,12 @@ private struct NotificationSettings: View {
                             Text(sound)
                                 .foregroundStyle(.secondary)
                         }
-                        // A filtered cue is the one row whose reason is the
-                        // whole story: which channel said it instead.
-                        if entry.outcome == .filtered, let reason = entry.failureReason {
+                        // A skip is only useful if it says which switch, or which
+                        // missing phone, kept the cue from going out.
+                        if let reason = entry.failureReason {
                             Text("·")
                             Text(reason)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(entry.outcome == .failed ? Color.orange : .secondary)
                         }
                         Spacer(minLength: 4)
                         Text(entry.timestamp, style: .relative)
@@ -425,7 +448,7 @@ private struct NotificationSettings: View {
             } header: {
                 Text("Delivery health")
             } footer: {
-                Text("Honest outcomes only: attempted, scheduled, accepted, failed, filtered. A local banner is scheduled; APNs 2xx is accepted by Apple's servers. Neither is proof the device showed it. Filtered means another channel already said it — a push the phone had posted itself, or a phone cue a push had already delivered; phone rows are what the phone reported.")
+                Text("Honest outcomes only: attempted, scheduled, accepted, failed, skipped. A local banner is scheduled; APNs 2xx is accepted by Apple's servers. Neither is proof the device showed it. Skipped means the cue was earned and deliberately not said here — the reason beside it says which switch, which missing phone, or which attention level; phonePosted means the phone had already shown it itself, and phone rows are what the phone reported.")
                     .font(.caption)
             }
 
@@ -667,6 +690,7 @@ private struct DeviceSettings: View {
                     } label: {
                         Label("Forget phone", systemImage: "iphone.slash")
                     }
+                    .help("Stops pushes to this phone and refuses its re-registration until you show the pairing QR again.")
                 } else {
                     Label("No phone paired", systemImage: "iphone.slash")
                         .foregroundStyle(.secondary)

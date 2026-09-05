@@ -33,14 +33,10 @@ public struct NotifiedPayload: Codable, Sendable, Equatable {
     /// Waiting cues this phone did not post because a push with the same
     /// identifier had already been delivered for that wait.
     public var coveredByPush: [Cue]
-    /// `active` / `inactive` / `background`: where the phone was when it
-    /// decided. Diagnostic only; it lands in the Mac's delivery log.
-    public var appState: String?
 
-    public init(token: String, posted: [Cue] = [], coveredByPush: [Cue] = [], appState: String? = nil) {
+    public init(token: String, posted: [Cue] = [], coveredByPush: [Cue] = []) {
         self.token = token
         self.posted = posted
         self.coveredByPush = coveredByPush
-        self.appState = appState
     }
 }

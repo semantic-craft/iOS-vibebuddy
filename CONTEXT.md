@@ -124,7 +124,8 @@ code, and tests — don't drift to synonyms.
 - **Receipt** — the phone's report (`POST /notified`, `NotifiedPayload`) that it
   posted a cue's local notification itself, naming the cue's identifier and
   the wait it announced. `PhoneReceipts` holds them on the Mac; a push for a
-  cue with a receipt from that phone is `filtered` instead of sent (ADR-0012).
+  cue with a receipt from that phone is `skipped` (`phonePosted`) instead of
+  sent (ADR-0012).
 - **Push coverage** — the phone's check, before posting a *waiting* cue, that a
   delivered (or just-tapped) push with the same identifier already announced
   this wait; if so the cue is left to the push and reported as `coveredByPush`.
@@ -197,8 +198,27 @@ code, and tests — don't drift to synonyms.
   notification id and collapse id as the original cue, so one banner is
   replaced, not stacked. The Watch carries no attention state.
 - **NotificationDelivery / NotificationDeliveryLog** — one record per local or
-  APNs send with outcome `attempted` / `scheduled` / `accepted` / `failed`. Never
-  `delivered`: an API result is not proof the device showed it.
+  APNs send with outcome `attempted` / `scheduled` / `accepted` / `failed` /
+  `skipped`. Never `delivered`: an API result is not proof the device showed it.
+  `skipped` is a cue that was earned and then not said on that channel, carrying a
+  `CueSkipReason` in `failureReason` — `category`, `attention`, `quiet`,
+  `focusedTerminal`, `apnsNotConfigured`, `noRegisteredDevice`, `mixed` (several
+  devices, excluded for different reasons). One outcome and
+  one vocabulary for both channels, so an earned cue is never simply absent from
+  the log; on the push side it is decided by `PushFanout.plan`, the same pure rule
+  that picks the recipients. It is not a failure and never latches the health
+  diagnostic.
+- **DeviceRegistry** — the Mac's owner-only, restart-surviving record of which
+  iPhones it can push to: one `DeviceRegistrationPayload` per APNs token plus
+  when the phone last reported itself, bounded at 16 by newest registration.
+  Held by `DeviceTokens`, written through on every `POST /device`. A token
+  leaves on **410 Unregistered**, and on **400 BadDeviceToken only if Apple has
+  never once accepted a push for it** (junk: a typo, a test fixture, the wrong
+  APNs environment) — a 400 on a previously accepted token means *this Mac* is
+  misconfigured and the device is kept. Never on age, since a phone that has
+  been off for a month still has a valid token. The phone
+  re-reports on every dashboard connection, not once per launch, so a Mac
+  restart is repaired by the next reconnect rather than by a cold launch.
 - **AccountUsage** — provider quota (Codex app-server RPC, Claude `/usage` CLI):
   window, remaining, reset, freshness, `stale` / unavailable reason. Collected by
   isolated, individually switchable adapters that can never move session state.

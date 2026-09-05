@@ -12,7 +12,10 @@ enum NotificationID {
 /// *when* is decided by the shared `SoundPolicy`; this only renders it.
 protocol AttentionNotifier: Sendable {
     func requestAuthorization()
-    func notify(_ alert: SoundAlert)
+    /// Post the cue. Returns whether a notification was actually posted: a
+    /// waiting cue a push already delivered is left to it (ADR-0012), and then
+    /// nothing else — no tap, no buddy reaction — should act as if it rang.
+    func notify(_ alert: SoundAlert) async -> Bool
     /// Take back notifications whose session is no longer waiting. They are
     /// mirrored on the Watch, where a banner for an answered request is worse
     /// than no banner: it opens onto a session the wrist no longer lists.
@@ -27,13 +30,16 @@ private final class SerialTaskChain: @unchecked Sendable {
     private let lock = NSLock()
     private var last: Task<Void, Never>?
 
-    func enqueue(_ operation: @escaping @Sendable () async -> Void) {
+    @discardableResult
+    func enqueue<T: Sendable>(_ operation: @escaping @Sendable () async -> T) -> Task<T, Never> {
         lock.withLock {
             let previous = last
-            last = Task {
+            let task = Task<T, Never> {
                 await previous?.value
-                await operation()
+                return await operation()
             }
+            last = Task { _ = await task.value }
+            return task
         }
     }
 }
@@ -50,25 +56,27 @@ struct LocalNotifier: AttentionNotifier {
     /// wait has already been delivered here (ADR-0012). Either way the Mac is
     /// told: a receipt for what was posted lets it drop the push it is holding,
     /// and a note of what was left to the push keeps the delivery log honest.
-    func notify(_ alert: SoundAlert) {
+    func notify(_ alert: SoundAlert) async -> Bool {
         let (title, body) = Self.copy(for: alert)
         let cue = NotifiedPayload.Cue(identifier: alert.notificationID, since: alert.session.statusSince)
         let sound = alert.sound
         let delivery = alert.delivery
         let sessionID = alert.sessionID
-        Self.chain.enqueue {
+        let posted = Self.chain.enqueue { () -> Bool in
             if sound.isWaitingCue, await PushCoverage.shared.covers(cue.identifier, since: cue.since) {
                 await PushRegistration.shared.report(coveredByPush: [cue])
-                return
+                return false
             }
             do {
                 try await Self.post(title: title, body: body, sound: sound, delivery: delivery,
                                     id: cue.identifier, sessionID: sessionID)
             } catch {
-                return   // nothing shown, so nothing for the Mac to stand down for
+                return false   // nothing shown, so nothing for the Mac to stand down for
             }
             await PushRegistration.shared.report(posted: [cue])
+            return true
         }
+        return await posted.value
     }
 
     func withdraw(_ identifiers: [String]) {
