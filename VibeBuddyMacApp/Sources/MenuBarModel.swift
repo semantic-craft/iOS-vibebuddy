@@ -49,9 +49,6 @@ final class MenuBarModel: ObservableObject {
     @Published var toggleGlanceHotkey: Hotkey = .toggleGlanceDefault
     /// Idle-cleanup window in hours; 0 means never. Default 2h.
     @Published var idleTimeoutHours: Double = 2
-    /// Agent groups the user folded in the menu bar list (persisted). A folded
-    /// group still shows its working rows — see `MenuSessionList`.
-    @Published private(set) var collapsedMenuAgents: Set<AgentKind> = []
     let port: Int
     private let token: String
     private let store: SessionStore
@@ -86,7 +83,6 @@ final class MenuBarModel: ObservableObject {
     private var pollTask: Task<Void, Never>?
     private var glance: GlanceWindow?
     private static let pairedPhoneInfoKey = "pairedPhoneInfo"
-    private static let collapsedMenuAgentsKey = "menuCollapsedAgents"
     private static let legacyPairedPhoneKey = "pairedPhone"
 
     init(runtimeEnabled: Bool = true) {
@@ -109,8 +105,6 @@ final class MenuBarModel: ObservableObject {
         // Snap to one of the 3 presets so the menu Picker selection always matches.
         glanceScale = [0.8, 1.0, 1.2].min(by: { abs($0 - base) < abs($1 - base) }) ?? 1.0
         showGlance = UserDefaults.standard.bool(forKey: "showGlance", default: true)
-        collapsedMenuAgents = Set((UserDefaults.standard.stringArray(forKey: Self.collapsedMenuAgentsKey) ?? [])
-            .compactMap(AgentKind.init(rawValue:)))
         openDashboardHotkey = Hotkey.loadOpenDashboard()
         toggleGlanceHotkey = Hotkey.loadToggleGlance()
         usage = AccountUsageCoordinator(store: store, notifier: notifier)
@@ -298,12 +292,19 @@ final class MenuBarModel: ObservableObject {
         let leading = sessions.leadingPresentationSession
         let topProject = leading?.project
         let topSession = leading?.id
-        let key = "\(summary)|\(topProject ?? "")|\(topSession ?? "")"
+        // The first pending approval, not necessarily the leading session (an
+        // error outranks it) — the island's keys answer this one.
+        let asking = sessions.first { $0.pendingApproval != nil }
+        let approval = asking?.pendingApproval
+        let approvalTitle = approval.map { "\(asking?.project ?? "") wants to \(CompanionCopy.requestVerb($0))" }
+        let key = "\(summary)|\(topProject ?? "")|\(topSession ?? "")|\(approval?.id ?? "")"
         guard key != lastActivityKey else { return }
         lastActivityKey = key
         for t in tokens {
             await pusher.sendActivityUpdate(summary: summary,
-                topProject: topProject, topSessionId: topSession, to: t)
+                topProject: topProject, topSessionId: topSession,
+                approvalId: approval?.id, approvalTitle: approvalTitle,
+                approvalDetail: approval?.commandPreview, to: t)
         }
     }
 
@@ -580,19 +581,6 @@ final class MenuBarModel: ObservableObject {
         pairedPhone = nil
         UserDefaults.standard.removeObject(forKey: Self.pairedPhoneInfoKey)
         UserDefaults.standard.removeObject(forKey: Self.legacyPairedPhoneKey)
-    }
-
-    var menuSessionList: MenuSessionList {
-        MenuSessionList(sessions, collapsedAgents: collapsedMenuAgents)
-    }
-
-    func toggleMenuGroup(_ agent: AgentKind) {
-        if collapsedMenuAgents.contains(agent) {
-            collapsedMenuAgents.remove(agent)
-        } else {
-            collapsedMenuAgents.insert(agent)
-        }
-        UserDefaults.standard.set(collapsedMenuAgents.map(\.rawValue).sorted(), forKey: Self.collapsedMenuAgentsKey)
     }
 
     func setShowGlance(_ on: Bool) {
