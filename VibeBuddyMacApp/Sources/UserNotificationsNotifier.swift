@@ -151,23 +151,14 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
     }
 
     /// Banner copy per cue, drawing on the session's own detail where it helps.
+    /// The same words the phone puts on its banner and the push carries:
+    /// one `PushCopy` for all three surfaces, localized here through this
+    /// app's own string table (the keys are the English source text).
     private static func copy(for alert: SoundAlert) -> (title: String, body: String) {
-        let session = alert.session
-        let project = session.project
-        switch alert.sound {
-        case .needsApproval:
-            return (String(localized: "\(project) needs approval"),
-                    session.pendingApproval?.commandPreview ?? session.summary ?? String(localized: "Approve or deny"))
-        case .needsAnswer:
-            return (String(localized: "\(project) needs you"), session.summary ?? String(localized: "Waiting for your response"))
-        case .longWaitNudge:
-            return (String(localized: "\(project) is still waiting"), session.summary ?? String(localized: "Waiting for your response"))
-        case .agentDone:
-            return (String(localized: "\(project) finished"), session.summary ?? String(localized: "Task complete"))
-        case .agentStuck:
-            return (String(localized: "\(project) stopped"), session.summary ?? String(localized: "It may need a look"))
-        case .pairSuccess:
-            return (String(localized: "Paired"), String(localized: "VibeBuddy is watching your sessions."))
-        }
+        let c = PushCopy.copy(for: alert.sound, session: alert.session)
+        let title = String(format: NSLocalizedString(c.titleKey, comment: ""), locale: .current,
+                           arguments: c.titleArgs)
+        let body = c.bodyKey.map { NSLocalizedString($0, comment: "") } ?? c.body
+        return (title, body)
     }
 }
