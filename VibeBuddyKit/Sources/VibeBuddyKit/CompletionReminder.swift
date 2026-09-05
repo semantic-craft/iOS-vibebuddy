@@ -62,6 +62,15 @@ public struct CompletionReminderSchedule: Sendable, Equatable {
         progress[sessionID] = p
     }
 
+    /// Nobody could take the reminder: wait one interval before proposing it
+    /// again, without spending a slot. Keeps an undeliverable completion from
+    /// being re-proposed — and re-logged as skipped — on every service pass.
+    public mutating func markSkipped(_ sessionID: String, now: Date) {
+        guard var p = progress[sessionID] else { return }
+        p.lastAt = now
+        progress[sessionID] = p
+    }
+
     /// How many reminders this session's current completion has had.
     public func remindersSent(for sessionID: String) -> Int {
         progress[sessionID]?.count ?? 0

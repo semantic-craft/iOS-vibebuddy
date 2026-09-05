@@ -422,12 +422,20 @@ private struct NotificationSettings: View {
                     HStack(spacing: 6) {
                         Text(entry.outcome.rawValue)
                             .fontWeight(.semibold)
+                            .foregroundStyle(entry.outcome == .skipped ? Color.secondary : .primary)
                         Text(entry.channel.rawValue)
                             .foregroundStyle(.secondary)
                         if let sound = entry.sound {
                             Text("·")
                             Text(sound)
                                 .foregroundStyle(.secondary)
+                        }
+                        // A skip is only useful if it says which switch, or which
+                        // missing phone, kept the cue from going out.
+                        if let reason = entry.failureReason {
+                            Text("·")
+                            Text(reason)
+                                .foregroundStyle(entry.outcome == .failed ? Color.orange : .secondary)
                         }
                         Spacer(minLength: 4)
                         Text(entry.timestamp, style: .relative)
@@ -440,7 +448,7 @@ private struct NotificationSettings: View {
             } header: {
                 Text("Delivery health")
             } footer: {
-                Text("Honest outcomes only: attempted, scheduled, accepted, failed. A local banner is scheduled; APNs 2xx is accepted by Apple's servers. Neither is proof the device showed it.")
+                Text("Honest outcomes only: attempted, scheduled, accepted, failed, skipped. A local banner is scheduled; APNs 2xx is accepted by Apple's servers. Neither is proof the device showed it. Skipped means the cue was earned and deliberately not said here — the reason beside it says which switch, which missing phone, or which attention level.")
                     .font(.caption)
             }
 

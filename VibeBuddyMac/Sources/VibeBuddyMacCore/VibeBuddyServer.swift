@@ -13,6 +13,7 @@ public struct VibeBuddyServer: Sendable {
     public let host: String
     public let port: Int
     public let pusher: APNsPusher?
+    private let deliveryRecorder: (any NotificationDeliveryRecording)?
     public let deviceTokens: DeviceTokens
     /// Live Activity push tokens registered by phones (dynamic-island/02).
     public let activityTokens: ActivityTokens
@@ -69,6 +70,7 @@ public struct VibeBuddyServer: Sendable {
 
     public init(store: SessionStore, token: String, host: String = "0.0.0.0",
                 port: Int = 9876, pusher: APNsPusher? = nil,
+                deliveryRecorder: (any NotificationDeliveryRecording)? = nil,
                 deviceTokens: DeviceTokens = DeviceTokens(),
                 activityTokens: ActivityTokens = ActivityTokens(),
                 codexRolloutMonitor: CodexRolloutMonitor? = nil,
@@ -99,6 +101,7 @@ public struct VibeBuddyServer: Sendable {
         self.host = host
         self.port = port
         self.pusher = pusher
+        self.deliveryRecorder = deliveryRecorder
         self.deviceTokens = deviceTokens
         self.activityTokens = activityTokens
         self.codexRolloutMonitor = codexRolloutMonitor
@@ -223,21 +226,28 @@ public struct VibeBuddyServer: Sendable {
                     let sound: NotificationSound = session.pendingApproval != nil || session.waitKind == .permission
                         ? .needsApproval : .needsAnswer
                     let copy = PushCopy.copy(for: sound, session: session)
-                    // Same two axes as the menu-bar app's push: the session's
+                    // Same plan as the menu-bar app's push: the session's
                     // attention level says how loud (a muted session's wait is a
                     // silent banner), each phone's switches say whether at all,
                     // and a phone in Quiet mode reads the cue through `muted`.
-                    let level = DeliveryMatrix.level(for: sound, attention: session.effectiveAttention)
-                    guard level.interrupts else { return }
-                    for device in await deviceTokens.devices() {
-                        guard let deviceToken = device.token,
-                              (device.categories ?? .default).isEnabled(sound) else { continue }
-                        var deviceLevel = level
-                        if device.quietMode == true {
-                            deviceLevel = min(deviceLevel, DeliveryMatrix.level(for: sound, attention: .muted))
+                    // A cue that reaches nobody records why — this is the
+                    // headless daemon's only channel, so the alternative is that
+                    // it leaves no trace whatsoever.
+                    let alert = SoundAlert(
+                        session: session, sound: sound,
+                        delivery: DeliveryMatrix.level(for: sound, attention: session.effectiveAttention))
+                    let fanout = PushFanout.plan(alert, devices: await deviceTokens.devices(),
+                                                 apnsConfigured: true)
+                    guard !fanout.recipients.isEmpty else {
+                        if let skip = fanout.skip {
+                            await pusher.recordSkip(sessionID: session.id, sound: sound, reason: skip)
                         }
-                        guard deviceLevel.interrupts else { continue }
-                        let soundFile = deviceLevel.makesSound && device.playSound != false ? sound.fileName : ""
+                        return
+                    }
+                    for recipient in fanout.recipients {
+                        guard let deviceToken = recipient.device.token else { continue }
+                        let soundFile = recipient.level.makesSound && recipient.device.playSound != false
+                            ? sound.fileName : ""
                         let result = await pusher.send(title: copy.title, body: copy.body, to: deviceToken,
                                                        sound: soundFile,
                                                        sessionID: session.id, soundCategory: sound.rawValue,
@@ -268,30 +278,54 @@ public struct VibeBuddyServer: Sendable {
             } else {
                 delivered = await pushCompletionReminder(session, now: now)
             }
-            if delivered { schedule.markReminded(session.id, now: now) }
+            if delivered {
+                schedule.markReminded(session.id, now: now)
+            } else {
+                // Nobody took it: try again one interval from now, not on the
+                // next 30-second pass — otherwise one unread completion writes
+                // the same skip into the delivery log every pass.
+                schedule.markSkipped(session.id, now: now)
+            }
         }
     }
 
     /// The daemon's own channel: the `agentDone` cue again, to every phone whose
     /// switches allow it and that is not in Quiet mode. Same collapse id as the
-    /// completion, so the banner is replaced rather than stacked.
+    /// completion, so the banner is replaced rather than stacked. A reminder that
+    /// reaches nobody records why, so it is not simply missing from the log.
     private func pushCompletionReminder(_ session: AgentSession, now: Date) async -> Bool {
-        guard let pusher else { return false }
-        let sound = NotificationSound.agentDone
-        var attempted = false
-        for device in await deviceTokens.devices() {
-            guard let token = device.token,
-                  (device.categories ?? .default).isEnabled(sound),
-                  device.quietMode != true else { continue }
-            attempted = true
-            let copy = PushCopy.copy(for: sound, session: session)
+        guard let pusher else {
+            // No APNs key on this Mac: a supported state, and one the log should
+            // show rather than leave as silence.
+            await deliveryRecorder?.record(NotificationDeliveryRecord(
+                channel: .apns, outcome: .skipped, sessionID: session.id,
+                sound: NotificationSound.agentDone.rawValue,
+                failureReason: CueSkipReason.apnsNotConfigured.rawValue, timestamp: now))
+            return false
+        }
+        let alert = SoundAlert(
+            session: session, sound: .agentDone,
+            delivery: DeliveryMatrix.level(for: .agentDone, attention: session.effectiveAttention))
+        let fanout = PushFanout.plan(alert, devices: await deviceTokens.devices(),
+                                     apnsConfigured: true)
+        // No skip record here, deliberately: the reason is already in the log
+        // once, against the completion's own cue, and it has not changed. A
+        // reminder nobody could take spends no slot; `remindFollowedCompletions`
+        // marks it skipped so it is proposed again one interval later, not on
+        // every 30 s pass.
+        guard !fanout.recipients.isEmpty else { return false }
+        let copy = PushCopy.copy(for: alert.sound, session: session)
+        for recipient in fanout.recipients {
+            guard let token = recipient.device.token else { continue }
+            let sound = recipient.level.makesSound && recipient.device.playSound != false
+                ? alert.sound.fileName : ""
             let result = await pusher.send(title: copy.title, body: copy.body,
-                                           to: token, sound: device.playSound != false ? sound.fileName : "",
-                                           now: now, sessionID: session.id, soundCategory: sound.rawValue,
+                                           to: token, sound: sound,
+                                           now: now, sessionID: session.id, soundCategory: alert.sound.rawValue,
                                            localized: PushLocalization(copy))
             await deviceTokens.applySendResult(result, token: token)
         }
-        return attempted
+        return true
     }
 
     public func router() -> Router<BasicRequestContext> {

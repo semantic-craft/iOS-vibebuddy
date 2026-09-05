@@ -7,6 +7,11 @@ public enum NotificationDeliveryOutcome: String, Codable, Sendable, CaseIterable
     case scheduled
     case accepted
     case failed
+    /// The cue was earned but nothing was sent — no key, nobody registered, not
+    /// loud enough to interrupt, or every device had it switched off.
+    /// `failureReason` carries which one. Not a failure: nothing broke, so it
+    /// never latches a health diagnostic and never clears a standing one.
+    case skipped
 }
 
 public enum NotificationDeliveryChannel: String, Codable, Sendable, Equatable {
@@ -197,7 +202,7 @@ public struct NotificationDeliveryHealthTracker: Equatable, Sendable {
             latchedFailure = record
             lastFailurePromptAt = now
             return true
-        case .attempted:
+        case .attempted, .skipped:
             return false
         }
     }

@@ -329,7 +329,7 @@ final class MenuBarModel: ObservableObject {
                     focusedSessionIDs: focused,                // …or looking at the session's own terminal
                     categories: NotificationCategoryPrefs.load()) // this Mac's own switches
                 await self.refreshNotificationDeliveryHealth()
-                await self.pushToPhones(alerts)
+                await self.pushToPhones(alerts, focused: focused)
                 await self.pushActivityUpdates(snapshot.sessions)
                 await self.checkBudget(snapshot.sessions)
                 try? await Task.sleep(for: .seconds(2))
@@ -428,40 +428,50 @@ final class MenuBarModel: ObservableObject {
     /// its Quiet mode reads the cue through the `muted` column, never louder
     /// than the Mac decided, and mute drops the sound. When the phone is in the
     /// foreground it suppresses the remote push itself (see willPresent).
-    private func pushToPhones(_ alerts: [SoundAlert]) async {
-        guard let pusher, !alerts.isEmpty else { return }
+    private func pushToPhones(_ alerts: [SoundAlert], focused: Set<String>) async {
+        guard !alerts.isEmpty else { return }
         let devices = await deviceTokens.devices()
-        for alert in alerts where alert.delivery.interrupts { await push(alert, to: devices) }
+        for alert in alerts { await push(alert, to: devices, focused: focused) }
         await refreshNotificationDeliveryHealth()
     }
 
-    /// One cue to every paired phone. Two axes per device: its own category
-    /// switches (uploaded with its registration; a phone that never said keeps
-    /// the default set) decide whether at all, and the alert's delivery level —
-    /// capped to the `muted` column when the phone is in Quiet mode — decides
-    /// how loud. A list-only or dropped cue never pushes. Returns whether any
-    /// phone was actually sent to.
+    /// One cue to every paired phone, planned by `PushFanout`: its own category
+    /// switches decide whether at all, and its Quiet mode how loud, never louder
+    /// than the Mac decided. Returns whether any phone was actually sent to.
+    ///
+    /// A cue that reaches no phone records a `skipped` delivery saying why,
+    /// rather than leaving nothing behind. Every one of these silences is
+    /// deliberate somewhere — but a silence you cannot tell apart from a bug is
+    /// how "the Mac banners and the phone never hears about it" went unexplained.
     @discardableResult
-    private func push(_ alert: SoundAlert, to devices: [DeviceRegistrationPayload]) async -> Bool {
-        guard let pusher else { return false }
+    private func push(_ alert: SoundAlert, to devices: [DeviceRegistrationPayload],
+                      focused: Set<String> = [], recordSkips: Bool = true) async -> Bool {
+        let fanout = PushFanout.plan(alert, devices: devices, apnsConfigured: pusher != nil,
+                                     focusedSessionIDs: focused)
+        guard let pusher, !fanout.recipients.isEmpty else {
+            if recordSkips { await recordPushSkip(alert, reason: fanout.skip) }
+            return false
+        }
         let copy = PushCopy.copy(for: alert.sound, session: alert.session)
-        var attempted = false
-        for device in devices {
-            guard let deviceToken = device.token,
-                  (device.categories ?? .default).isEnabled(alert.sound) else { continue }
-            var level = alert.delivery
-            if device.quietMode == true {
-                level = min(level, DeliveryMatrix.level(for: alert.sound, attention: .muted))
-            }
-            guard level.interrupts else { continue }
-            let sound = level.makesSound && device.playSound != false ? alert.sound.fileName : ""
-            attempted = true
+        var sent = false
+        for recipient in fanout.recipients {
+            guard let deviceToken = recipient.device.token else { continue }
+            let sound = recipient.level.makesSound && recipient.device.playSound != false
+                ? alert.sound.fileName : ""
             let result = await pusher.send(title: copy.title, body: copy.body, to: deviceToken, sound: sound,
                                            sessionID: alert.sessionID, soundCategory: alert.sound.rawValue,
                                            localized: PushLocalization(copy))
             await deviceTokens.applySendResult(result, token: deviceToken)
+            sent = true
         }
-        return attempted
+        return sent
+    }
+
+    private func recordPushSkip(_ alert: SoundAlert, reason: CueSkipReason?) async {
+        guard let reason else { return }
+        await deliveryRecorder.record(NotificationDeliveryRecord(
+            channel: .apns, outcome: .skipped, sessionID: alert.sessionID,
+            sound: alert.sound.rawValue, failureReason: reason.rawValue, timestamp: Date()))
     }
 
     /// The server's reminder schedule asks this to deliver one `agentDone`
@@ -473,9 +483,13 @@ final class MenuBarModel: ObservableObject {
     private func deliverCompletionReminder(_ session: AgentSession) async -> Bool {
         let local = await notificationCoordinator.remind(
             session, quietMode: Self.effectiveQuiet(), categories: NotificationCategoryPrefs.load())
-        let devices = pusher == nil ? [] : await deviceTokens.devices()
+        let devices = await deviceTokens.devices()
         let level = DeliveryMatrix.level(for: .agentDone, attention: session.effectiveAttention)
-        let pushed = await push(SoundAlert(session: session, sound: .agentDone, delivery: level), to: devices)
+        // `recordSkips: false`: an undelivered reminder is re-proposed on every
+        // pass of the server's 30s loop until something takes it, so recording
+        // each one would bury the log. The completion's own cue already said why.
+        let pushed = await push(SoundAlert(session: session, sound: .agentDone, delivery: level),
+                                to: devices, recordSkips: false)
         if local || pushed { await refreshNotificationDeliveryHealth() }
         return local || pushed
     }

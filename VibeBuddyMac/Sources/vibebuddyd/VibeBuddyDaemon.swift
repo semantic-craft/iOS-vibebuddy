@@ -47,6 +47,7 @@ struct VibeBuddyDaemon {
                 attentionURL: AttentionOverrides.defaultURL()
             ),
             token: token, port: port, pusher: pusher,
+            deliveryRecorder: deliveryRecorder,
             deviceTokens: DeviceTokens(url: registryURL),
             codexRolloutMonitor: CodexRolloutMonitor(),
             codexAppServerMonitor: CodexAppServerMonitor(
