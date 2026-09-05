@@ -14,15 +14,17 @@ public struct LifecycleJournalEntry: Codable, Sendable, Equatable, Identifiable 
     public let timestamp: Date
     public let status: SessionStatus?
     public let waitKind: WaitKind?
-    /// Whether the session was followed when this entry was written, so a
-    /// restart can restore the follow along with the session. Optional so
-    /// journals written before the flag existed still decode.
-    public let followed: Bool?
     /// The project label the row was showing — the working directory's last
-    /// path component only, never the full path — so a restored session has a
-    /// name instead of a placeholder until its next event arrives. Optional so
-    /// journals written before the field existed still decode.
+    /// path component only, never the full path, and never longer than
+    /// `maxProjectBytes` — so a restored session has a name instead of a
+    /// placeholder until its next event arrives. Optional so journals written
+    /// before the field existed still decode.
     public let project: String?
+
+    /// A hook may hand the reducer an arbitrarily long slash-free `cwd`, which
+    /// becomes the whole project label; persisting that unbounded would let one
+    /// event blow the journal past its practical byte bound. Labels are cut here.
+    public static let maxProjectBytes = 128
 
     public init(
         id: UUID = UUID(),
@@ -33,7 +35,6 @@ public struct LifecycleJournalEntry: Codable, Sendable, Equatable, Identifiable 
         timestamp: Date,
         status: SessionStatus?,
         waitKind: WaitKind?,
-        followed: Bool? = nil,
         project: String? = nil
     ) {
         self.id = id
@@ -44,8 +45,18 @@ public struct LifecycleJournalEntry: Codable, Sendable, Equatable, Identifiable 
         self.timestamp = timestamp
         self.status = status
         self.waitKind = waitKind
-        self.followed = followed
-        self.project = project
+        self.project = project.map(Self.boundedProject)
+    }
+
+    /// The label cut to `maxProjectBytes` of UTF-8 on a character boundary.
+    static func boundedProject(_ label: String) -> String {
+        guard label.utf8.count > maxProjectBytes else { return label }
+        var out = ""
+        for ch in label {
+            if (out + String(ch)).utf8.count > maxProjectBytes { break }
+            out.append(ch)
+        }
+        return out
     }
 }
 public enum LifecycleJournalLocation {
@@ -128,7 +139,6 @@ struct LifecycleJournal {
                     lastObservedAt: entry.timestamp,
                     health: .healthy
                 )],
-                followed: entry.followed,
                 statusSince: entry.timestamp,
                 updatedAt: entry.timestamp
             )

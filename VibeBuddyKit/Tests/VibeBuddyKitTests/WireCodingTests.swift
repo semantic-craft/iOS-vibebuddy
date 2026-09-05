@@ -70,11 +70,13 @@ struct WireCodingTests {
         var withPrefs = p
         withPrefs.categories = NotificationCategoryPrefs(enabled: [.needsApproval, .agentDone])
         #expect(try roundTrip(withPrefs) == withPrefs)
-        // The follow flag rides on the session wire model and is optional.
+        // The attention level rides on the session wire model and is optional.
         let followed = AgentSession(id: "f", agent: .codex, project: "p", status: .done,
-                                    followed: true, statusSince: .init(timeIntervalSince1970: 0),
+                                    attention: .followed, attentionOverride: .followed,
+                                    statusSince: .init(timeIntervalSince1970: 0),
                                     updatedAt: .init(timeIntervalSince1970: 0))
-        #expect(try roundTrip(followed).isFollowed)
+        #expect(try roundTrip(followed).effectiveAttention == .followed)
+        #expect(try roundTrip(followed).attentionOverride == .followed)
         // A payload from a build before the switches existed still decodes.
         let legacy = try JSONDecoder().decode(DeviceRegistrationPayload.self,
                                               from: Data(#"{"token":"t","playSound":true}"#.utf8))
