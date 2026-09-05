@@ -1,5 +1,5 @@
 {
- "generatedAt": "2026-09-06T19:30+08:00",
+ "generatedAt": "2026-09-06T05:02+08:00",
  "main": "7b41256",
  "howToUse": "status 是快照，以仓库事实为准：agent 节点 done = PR 已合并（描述第一行为节点 id）或票 Status done；pr-open = 有开放 PR（pr 字段）；可派 = deps 全 done 且自身非 done/in-progress/pr-open 且 owner A；并发上限 4；优先级 S > A > M > 其余 1.2 > 1.3。票的 Status 只用仓库规定的标签与 done；工作流状态只写本文件。合并顺序提醒：#57 → #56 → #55（三者都改 Kit 通知类型与 Mac Settings / MenuBarModel，每合一个让下一个合 main）；#53 与 #54 都建了 docs/adr/0012-*，后合者改 0013；S-2 以 #54 为准，codex/notification-dedup 弃用。",
  "vision": {
