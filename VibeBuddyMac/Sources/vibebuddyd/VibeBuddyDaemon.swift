@@ -28,6 +28,13 @@ struct VibeBuddyDaemon {
         let deliveryRecorder = NotificationDeliveryRecorder(
             url: deliveryURL, apnsConfigured: apnsConfig != nil)
         let pusher = apnsConfig.flatMap { try? APNsPusher(config: $0, recorder: deliveryRecorder) }
+        // The app-server monitor raises cards the phone answers through the
+        // same routes as hook-raised ones, so the two share every registry.
+        let approvalRegistry = ApprovalRegistry()
+        let allowStore = VibeBuddyAllowStore()
+        let sessionAllow = SessionAllowList()
+        let approvalContext = ApprovalContextStore()
+        let questionRegistry = QuestionRegistry()
         let server = VibeBuddyServer(
             store: SessionStore(
                 diagnosticsHome: FileManager.default.homeDirectoryForCurrentUser,
@@ -35,7 +42,14 @@ struct VibeBuddyDaemon {
                 attentionURL: AttentionOverrides.defaultURL()
             ),
             token: token, port: port, pusher: pusher,
-            codexRolloutMonitor: CodexRolloutMonitor())
+            codexRolloutMonitor: CodexRolloutMonitor(),
+            codexAppServerMonitor: CodexAppServerMonitor(
+                approvalRegistry: approvalRegistry, allowStore: allowStore,
+                sessionAllow: sessionAllow, approvalContext: approvalContext,
+                questionRegistry: questionRegistry),
+            approvalRegistry: approvalRegistry, allowStore: allowStore,
+            sessionAllow: sessionAllow, approvalContext: approvalContext,
+            questionRegistry: questionRegistry)
         FileHandle.standardError.write(Data(
             "vibebuddyd: listening on 0.0.0.0:\(port) (apns: \(pusher != nil ? "on" : "off"), token: \(tokenSource))\n".utf8))
         try await server.runService()

@@ -225,6 +225,9 @@ public enum TranscriptReader {
     }
 
     private static func pendingQuestion(fromInput input: [String: Any], fallbackID: String?) -> PendingQuestion? {
+        if let structured = AskUserQuestionInput.pendingQuestion(from: input, id: fallbackID ?? "question") {
+            return structured
+        }
         let questionObject: [String: Any]
         if let questions = input["questions"] as? [[String: Any]], let first = questions.first {
             questionObject = first

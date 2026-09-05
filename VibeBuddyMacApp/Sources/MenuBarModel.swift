@@ -26,6 +26,20 @@ struct PairedPhone: Codable, Equatable {
 final class MenuBarModel: ObservableObject {
     @Published private(set) var sessions: [AgentSession] = []
     @Published private(set) var observationDiagnostics: [AgentObservationDiagnostic] = []
+    /// Directories sessions have run in, newest first — where a new task may start.
+    @Published private(set) var recentDirectories: [String] = []
+    /// Agents a new task can be started for from this Mac.
+    @Published private(set) var dispatchAgents: [AgentKind] = []
+    private let claudeLauncher = ClaudeBackgroundLauncher()
+    /// The Codex app-server daemon connection (ADR-0011): on by default, and
+    /// the rollout tailer + hooks keep covering Codex whenever it is off or
+    /// the daemon is not running.
+    @Published var codexAppServerEnabled: Bool = true
+    /// Settings override for the presence policy: hold every prompt for the
+    /// phone even while the person is at the Mac. Off by default.
+    @Published var alwaysAskPhone: Bool = false
+    static let alwaysAskPhoneKey = "alwaysAskPhone"
+    @Published private(set) var codexAppServerDiagnostics = CodexAppServerMonitor.Diagnostics()
     @Published private(set) var lifecycleTimeline: [LifecycleJournalEntry] = []
     @Published private(set) var lifecycleJournalClearFailed = false
     @Published private(set) var notificationDeliveryHealth = NotificationDeliveryHealth()
@@ -33,6 +47,8 @@ final class MenuBarModel: ObservableObject {
     /// The outcome of the most recent jump per session id, shown transiently in
     /// the row that was clicked and cleared by `showJumpFeedback`.
     @Published private(set) var jumpFeedback: [String: JumpOutcome] = [:]
+    /// Why the last Mac-card answer for a session went nowhere, when it did.
+    @Published private(set) var answerFeedback: [String: String] = [:]
     private var jumpFeedbackClears: [String: Task<Void, Never>] = [:]
     /// Sessions the user has pointed the buddy at (in-memory, never persisted).
     /// Empty = the buddy sees all sessions; pruned to live IDs on every snapshot.
@@ -61,6 +77,12 @@ final class MenuBarModel: ObservableObject {
     private let allowStore = VibeBuddyAllowStore()
     private let sessionAllow = SessionAllowList()
     private let approvalContext = ApprovalContextStore()
+    private let questionRegistry = QuestionRegistry()
+    private let codexAppServerMonitor: CodexAppServerMonitor
+    /// Live account usage from Claude's status line and the Codex daemon,
+    /// consumed by the usage coordinator ahead of its spawning collectors.
+    private let usageFeed = AccountUsageLiveFeed()
+    static let codexAppServerEnabledKey = "codexAppServerEnabled"
     // Live Activity push tokens + the last content we pushed, so we only push on change.
     private let activityTokens = ActivityTokens()
     private var lastActivityKey: String?
@@ -89,6 +111,11 @@ final class MenuBarModel: ObservableObject {
     private static let collapsedMenuAgentsKey = "menuCollapsedAgents"
     private static let legacyPairedPhoneKey = "pairedPhone"
 
+    /// The live model, for callers that only hold a `@Sendable` closure (the
+    /// daemon's presence check). Weak: the model owns the app's lifetime, not
+    /// the other way round.
+    private(set) static weak var shared: MenuBarModel?
+
     init(runtimeEnabled: Bool = true) {
         port = ProcessInfo.processInfo.environment["VIBEBUDDY_PORT"].flatMap(Int.init) ?? 9876
         let savedIdleTimeout = UserDefaults.standard.object(forKey: "idleTimeoutHours") as? Double ?? 2
@@ -109,11 +136,23 @@ final class MenuBarModel: ObservableObject {
         // Snap to one of the 3 presets so the menu Picker selection always matches.
         glanceScale = [0.8, 1.0, 1.2].min(by: { abs($0 - base) < abs($1 - base) }) ?? 1.0
         showGlance = UserDefaults.standard.bool(forKey: "showGlance", default: true)
+        let appServerOn = UserDefaults.standard.bool(forKey: Self.codexAppServerEnabledKey, default: true)
+        codexAppServerEnabled = appServerOn
+        alwaysAskPhone = UserDefaults.standard.bool(forKey: Self.alwaysAskPhoneKey)
+        // Presence is read on the main actor from the live snapshot; the
+        // daemon and the monitor ask through this closure right before they
+        // would hold a prompt for the phone.
+        let presence = Presence.evaluator()
+        codexAppServerMonitor = CodexAppServerMonitor(
+            enabled: appServerOn, usageFeed: usageFeed,
+            approvalRegistry: approvalRegistry, allowStore: allowStore, sessionAllow: sessionAllow,
+            approvalContext: approvalContext, questionRegistry: questionRegistry,
+            presence: presence)
         collapsedMenuAgents = Set((UserDefaults.standard.stringArray(forKey: Self.collapsedMenuAgentsKey) ?? [])
             .compactMap(AgentKind.init(rawValue:)))
         openDashboardHotkey = Hotkey.loadOpenDashboard()
         toggleGlanceHotkey = Hotkey.loadToggleGlance()
-        usage = AccountUsageCoordinator(store: store, notifier: notifier)
+        usage = AccountUsageCoordinator(store: store, notifier: notifier, liveFeed: usageFeed)
         pairedPhone = Self.loadPairedPhone()
         let apnsConfig = APNsConfig.load()
         let deliveryURL = ProcessInfo.processInfo.environment["VIBEBUDDY_DELIVERY_LOG_PATH"].map {
@@ -131,6 +170,7 @@ final class MenuBarModel: ObservableObject {
         usageObserver = usage.objectWillChange.sink { [weak self] in
             self?.objectWillChange.send()
         }
+        Self.shared = self
         // Screenshot / exploration instance: seed sample sessions and skip the
         // server, polling, pairing, and notifications entirely. It never binds the
         // port or pushes to a phone, so it runs harmlessly alongside a real
@@ -189,13 +229,18 @@ final class MenuBarModel: ObservableObject {
                                      pusher: nil, deviceTokens: deviceTokens,
                                      activityTokens: activityTokens,
                                      codexRolloutMonitor: CodexRolloutMonitor(),
+                                     codexAppServerMonitor: codexAppServerMonitor,
+                                     usageFeed: usageFeed,
                                      approvalRegistry: approvalRegistry,
                                      allowStore: allowStore,
                                      sessionAllow: sessionAllow,
                                      approvalContext: approvalContext,
+                                     questionRegistry: questionRegistry,
+                                     presence: Presence.evaluator(),
                                      onDevicePaired: { [weak self] device in
                                          Task { @MainActor in self?.recordPairedDevice(device) }
                                      },
+                                     claudeLauncher: claudeLauncher,
                                      onCompletionReminder: { [weak self] session in
                                          guard let self else { return false }
                                          return await self.deliverCompletionReminder(session)
@@ -225,9 +270,16 @@ final class MenuBarModel: ObservableObject {
         pollTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
+                await self.store.applyBackgroundSessions(ClaudeBackgroundSessions.load())
                 let snapshot = await self.store.snapshot(now: Date())
                 self.sessions = snapshot.sessions
                 self.observationDiagnostics = snapshot.observationDiagnostics ?? []
+                self.recentDirectories = snapshot.recentDirectories ?? []
+                self.codexAppServerDiagnostics = await self.codexAppServerMonitor.diagnostics()
+                var agents: [AgentKind] = []
+                if await self.claudeLauncher.isSupported() { agents.append(.claudeCode) }
+                if self.codexAppServerDiagnostics.connected { agents.append(.codex) }
+                self.dispatchAgents = agents
                 self.lifecycleTimeline = await self.store.recentLifecycle()
                 self.buddySessionIDs = BuddyScope.pruned(self.buddySessionIDs, toLive: snapshot.sessions)
                 // Precise suppression: a finishing session stays silent when *its
@@ -263,6 +315,33 @@ final class MenuBarModel: ObservableObject {
         await deliveryRecorder.updateAPNsConfigured(pusher != nil)
         notificationDeliveryHealth = await deliveryRecorder.health()
         recentNotificationDeliveries = await deliveryRecorder.recent(limit: 8)
+    }
+
+    func setAlwaysAskPhone(_ on: Bool) {
+        alwaysAskPhone = on
+        UserDefaults.standard.set(on, forKey: Self.alwaysAskPhoneKey)
+    }
+
+    /// The presence policy's inputs for one session, from what this model can
+    /// see: the frontmost app against the session's terminal (or Codex Desktop
+    /// for a Desktop thread), the screen lock, and the system idle time.
+    func presenceInput(for sessionID: String) -> PresencePolicy.Input {
+        let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        var focused = ForegroundTerminal.focusedSessionIDs(among: sessions, frontmostBundleID: front).contains(sessionID)
+        if let session = sessions.first(where: { $0.id == sessionID }),
+           session.jumpsToDesktopThread, front == CodexDesktopJumper.chatGPTBundleID {
+            focused = true
+        }
+        return PresencePolicy.Input(sessionSurfaceFocused: focused,
+                                    screenLocked: Presence.screenIsLocked(),
+                                    idleSeconds: Presence.idleSeconds(),
+                                    alwaysAskPhone: alwaysAskPhone)
+    }
+
+    func setCodexAppServerEnabled(_ on: Bool) {
+        codexAppServerEnabled = on
+        UserDefaults.standard.set(on, forKey: Self.codexAppServerEnabledKey)
+        Task { [codexAppServerMonitor] in await codexAppServerMonitor.setEnabled(on) }
     }
 
     func clearLifecycleJournal() {
@@ -420,6 +499,21 @@ final class MenuBarModel: ObservableObject {
     /// Back-compat for voice + existing callers.
     func decide(_ approvalId: String, approve: Bool) { decide(approvalId, approve ? .allow : .deny) }
 
+    /// Answer a session's question from the Mac card, the same way `/answer`
+    /// does for the phone: to the waiting agent through its own contract,
+    /// else typed into a tmux pane. Reports whether it had anywhere to go.
+    func answer(_ sessionID: String, answers: QuestionAnswers, text: String? = nil) {
+        let dispatch = AnswerDispatch(store: store, questions: questionRegistry,
+                                      inject: { ref, answer in TerminalInjector.inject(answer, into: ref) })
+        Task { [weak self] in
+            let delivered = await dispatch.deliver(sessionID: sessionID, text: text,
+                                                   answers: answers.isEmpty ? nil : answers)
+            await MainActor.run {
+                self?.answerFeedback[sessionID] = delivered ? nil : "Nothing was waiting for an answer, and there is no tmux pane to type into."
+            }
+        }
+    }
+
     /// Jump to where a session lives without blocking the UI: the click is
     /// acknowledged immediately and the AppleScript/`tmux`/LaunchServices work
     /// happens off the main actor, publishing what it actually achieved when it
@@ -442,8 +536,30 @@ final class MenuBarModel: ObservableObject {
                 let outcome = await CodexDesktopJumper.jump(threadID: thread)
                 self?.showJumpFeedback(outcome, for: session.id)
             }
+        } else if session.agent == .claudeCode,
+                  let job = ClaudeBackgroundSessions.find(sessionID: session.id) {
+            // A background session has no window: open one attached to it.
+            Task { [weak self, store] in
+                let term = await store.preferredTerminalProgram()
+                let outcome = await TerminalLauncher.attach(claudeJobID: job.id, preferring: term)
+                self?.showJumpFeedback(outcome, for: session.id)
+            }
         } else {
             showJumpFeedback(.noTerminal, for: session.id)
+        }
+    }
+
+    /// Start a new task from the Mac, the same way `/dispatch` does for the
+    /// phone: Codex through the app-server daemon; other agents once they have
+    /// a launcher. The directory must be one a session has run in.
+    func dispatch(_ request: DispatchRequest) async -> DispatchOutcome {
+        guard await store.isKnownDirectory(request.cwd) else {
+            return .rejected("Pick a directory a session has already run in.")
+        }
+        switch request.agent {
+        case .codex: return await codexAppServerMonitor.dispatch(request)
+        case .claudeCode: return await claudeLauncher.dispatch(request)
+        default: return .unsupported("vibebuddy cannot start \(request.agent.displayName) sessions yet.")
         }
     }
 
@@ -508,8 +624,10 @@ final class MenuBarModel: ObservableObject {
             guard let s = match(project), let ap = s.pendingApproval else { return "No session to deny." }
             decide(ap.id, approve: false); return "Denied \(s.project)."
         case .answer(let project, let text):
-            guard let s = match(project), let ref = s.terminalRef else { return "No matching session, or it has no terminal." }
-            TerminalInjector.inject(text, into: ref)
+            guard let s = match(project), s.pendingQuestion != nil || s.terminalRef != nil else {
+                return "No matching session, or it has nothing waiting and no terminal."
+            }
+            answer(s.id, answers: [:], text: text)
             Task { [store] in await store.recordInteraction(sessionID: s.id) }
             return "Replied to \(s.project)."
         case .none:

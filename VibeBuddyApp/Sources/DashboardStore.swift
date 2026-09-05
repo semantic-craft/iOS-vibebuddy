@@ -14,6 +14,10 @@ final class DashboardStore: ObservableObject {
 
     @Published private(set) var groups = SessionGroups([])
     @Published private(set) var observationDiagnostics: [AgentObservationDiagnostic] = []
+    /// Directories the Mac has seen sessions run in — where a new task may start.
+    @Published private(set) var recentDirectories: [String] = []
+    /// Agents the Mac can start a new task for right now.
+    @Published private(set) var dispatchAgents: [AgentKind] = []
     /// Sessions the user has pointed the buddy at (in-memory, never persisted).
     /// Empty = the buddy sees all sessions; pruned to live IDs on every snapshot.
     @Published private(set) var buddySessionIDs: Set<String> = []
@@ -267,6 +271,18 @@ final class DashboardStore: ObservableObject {
     /// Back-compat for the voice companion's approve/deny intents.
     func decide(_ approvalId: String, approve: Bool) { decide(approvalId, approve ? .allow : .deny) }
 
+    /// Answers from the question card, keyed by question id.
+    func answer(_ sessionId: String, answers: QuestionAnswers) {
+        guard !answers.isEmpty else { return }
+        if isDemo {
+            let flat = answers.values.flatMap { $0 }.joined(separator: ", ")
+            answer(sessionId, answer: flat)
+            return
+        }
+        guard let pairing else { return }
+        Task { await decisionClient.answer(pairing, sessionId: sessionId, answers: answers) }
+    }
+
     func answer(_ sessionId: String, answer: String) {
         guard !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         if isDemo {
@@ -375,6 +391,23 @@ final class DashboardStore: ObservableObject {
     @Published var toast: String?
     private var toastTask: Task<Void, Never>?
 
+    /// Start a new task on the Mac. Returns the Mac's answer as a toast-ready
+    /// line; nil when it could not be reached.
+    func dispatch(_ request: DispatchRequest) async -> String? {
+        if isDemo {
+            showToast(String(localized: "Demo mode: nothing was started"))
+            return nil
+        }
+        guard let pairing else { showToast(String(localized: "Couldn't reach your Mac")); return nil }
+        let result = await decisionClient.dispatch(pairing, request: request)
+        switch result {
+        case .started: showToast(String(localized: "Started — it will appear in Working"))
+        case .rejected(let why), .unsupported(let why), .unavailable(let why): showToast(why)
+        case nil: showToast(String(localized: "Couldn't reach your Mac"))
+        }
+        return result.map { "\($0)" }
+    }
+
     func jump(_ sessionId: String) {
         guard let pairing else { showToast(String(localized: "Couldn't reach your Mac")); return }
         let desktopThread = allSessions.first { $0.id == sessionId }?.jumpsToDesktopThread ?? false
@@ -434,6 +467,7 @@ final class DashboardStore: ObservableObject {
             case .activatedApp: return String(localized: "Opened ChatGPT on your Mac — find the thread there")
             case .unsupported:  return String(localized: "Couldn't open the thread — is ChatGPT running on your Mac?")
             case .noTerminal:   return String(localized: "No thread for this session")
+            case .attached:     return String(localized: "Opened a terminal on your Mac attached to this session")
             case nil:           return String(localized: "Couldn't reach your Mac")
             }
         }
@@ -442,6 +476,7 @@ final class DashboardStore: ObservableObject {
         case .activatedApp: return String(localized: "Opened the app on your Mac — find the tab there")
         case .unsupported:  return String(localized: "Can't focus this terminal type yet")
         case .noTerminal:   return String(localized: "No terminal for this session")
+        case .attached:     return String(localized: "Opened a terminal on your Mac attached to this session")
         case nil:           return String(localized: "Couldn't reach your Mac")
         }
     }
@@ -492,6 +527,8 @@ final class DashboardStore: ObservableObject {
         notifications.record(alerts)
         notifier.withdraw(notifications.withdrawals(for: snapshot.sessions))
         observationDiagnostics = snapshot.observationDiagnostics ?? []
+        recentDirectories = snapshot.recentDirectories ?? []
+        dispatchAgents = snapshot.dispatchAgents ?? []
         lastProviderQuota = snapshot.providerQuota ?? []
         buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: snapshot.sessions)
         state = .connected

@@ -79,6 +79,7 @@ struct GlanceView: View {
                     Text(a.commandPreview).font(.system(size: 11 * s, design: .monospaced))
                         .foregroundStyle(.white.opacity(0.8)).lineLimit(2)
                     HStack(spacing: 8 * s) {
+                        if a.isAnswerable {
                         Button("Approve") { model.decide(a.id, .allow) }
                             .tint(.green).buttonStyle(.borderedProminent).controlSize(.regular)
                         Button("Deny") { model.decide(a.id, .deny) }
@@ -86,6 +87,10 @@ struct GlanceView: View {
                         Button("Always") { model.decide(a.id, .alwaysAllow) }
                             .tint(.white).buttonStyle(.bordered).controlSize(.regular)
                             .help("Always allow this exact command in future")
+                        } else {
+                            Label("Answer in the prompt", systemImage: "keyboard")
+                                .font(.system(size: 11 * s)).foregroundStyle(.white.opacity(0.8))
+                        }
                         Button { model.jump(p) } label: {
                             Label("Jump", systemImage: p.jumpsToDesktopThread ? "bubble.left" : "terminal")
                         }

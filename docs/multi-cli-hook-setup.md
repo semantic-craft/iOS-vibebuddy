@@ -77,7 +77,51 @@ in default mode, an uncertain classifier in auto mode — and honours the hook's
 phone. Silence (no phone answer in 25s) leaves Claude's own prompt in place;
 `bypassPermissions` fires the event but ignores the answer. The `PreToolUse`
 status forwarder stays asynchronous. An older gate on `PreToolUse` (every call
-held) is migrated by `--install`.
+held) is migrated by `--install`; on a Claude Code older than 2.1.257 (which
+does not honour the `decision` reply) the installer keeps the gate on
+`PreToolUse` and says so (`VIBEBUDDY_CLAUDE_VERSION` overrides the probe).
+
+The daemon never re-runs Claude's `permissions.allow` on a `PermissionRequest`
+— Claude evaluated them and still asked — so the card is always a real wait;
+native `deny` rules and vibebuddy's own store/session allows still answer at
+once. "Always allow" on the phone echoes Claude's `permission_suggestions` back
+as `decision.updatedPermissions`, so Claude Code writes the rule itself
+(ADR-0010, amended).
+
+#### Questions (`AskUserQuestion`)
+
+`--approval` also adds a blocking `PreToolUse` group with matcher
+`AskUserQuestion` (same `approval-hook.sh`, `timeout: 30`). The daemon shows the
+questions on the phone and Mac cards; an answer within 25s goes back as
+`hookSpecificOutput.updatedInput` — the original `questions` plus `answers`
+keyed by question text (an array for a multi-select, the typed text for
+"Other") — so Claude continues without its own prompt. Silence prints nothing:
+Claude shows its question UI, the card stays, and a later answer is typed into
+a tmux pane when the session has one.
+
+#### Presence
+
+Both blocking paths (the PermissionRequest gate and the AskUserQuestion relay)
+first ask the Mac app whether you are at the keyboard for that session — its
+terminal in front, screen unlocked, input within two minutes. If so the hook
+prints nothing at once so Claude's own prompt takes the answer, and the phone
+shows the request as a read-only card that clears when Claude moves on.
+Settings → "Always ask the phone first" turns this off. A headless
+`vibebuddyd` never claims presence.
+
+#### Status line (`statusLine`)
+
+`--install` also points Claude's `statusLine.command` at
+`hooks/vibebuddy-statusline.sh`. Claude runs it on every event with its session
+JSON on stdin; the wrapper copies that JSON to the daemon's `/statusline`
+(background, 1s cap, bearer token, fail-open) and then runs the status line
+command that was configured before, with the same stdin, printing its output —
+the terminal display is unchanged. The original object is saved under
+`~/Library/Application Support/vibebuddy/statusline-original.{json,cmd}` and
+`--uninstall` restores it (or removes the key when there was none). The daemon
+uses the sample for context, cost, session name, effort, PR and worktree on the
+session row, and for the 5-hour / 7-day allowance; `claude -p /usage` only runs
+when no sample has arrived for 15 minutes.
 
 ### Codex CLI (`~/.codex/hooks.json`)
 
