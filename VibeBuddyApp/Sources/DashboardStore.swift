@@ -174,6 +174,14 @@ final class DashboardStore: ObservableObject {
         groups = SessionGroups(sessions)
         WidgetSnapshotStore.save(sessions: sessions)
         relayToWatch(sessions)
+        // Live Activities trigger a system authorization sheet on a fresh
+        // simulator. Keep dashboard/demo acceptance deterministic and opt in
+        // explicitly when the Live Activity itself is under review; once opted
+        // in, every demo transition (approve, answer, open) reaches the banner
+        // exactly as a Mac snapshot would.
+        if isDemo, ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO_LIVE_ACTIVITY"] == "1" {
+            Task { await liveActivity.sync(sessions: sessions) }
+        }
     }
 
     /// Project the dashboard for the Watch. Demo Mode supplies sample allowance;
@@ -238,12 +246,6 @@ final class DashboardStore: ObservableObject {
         let pendingAcknowledgements = pendingAcknowledgementIDs
         pendingAcknowledgementIDs.removeAll()
         for sessionId in pendingAcknowledgements { acknowledge(sessionId) }
-        // Live Activities trigger a system authorization sheet on a fresh
-        // simulator. Keep dashboard/demo acceptance deterministic and opt in
-        // explicitly when the Live Activity itself is under review.
-        if ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO_LIVE_ACTIVITY"] == "1" {
-            Task { await liveActivity.sync(sessions: demo) }
-        }
     }
 
     func decide(_ approvalId: String, _ decision: ApprovalDecision) {
