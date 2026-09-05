@@ -8,6 +8,7 @@ struct DashboardView: View {
     @State private var statusFilter: TaskPresentationState? = nil
     @State private var agentFilter: AgentKind? = nil
     @State private var query: String = ""
+    @State private var showNewTask = false
     // Demo instance pre-selects the approval session so the detail pane (diff +
     // Approve/Deny) is shown for screenshots; nil in normal use.
     @State private var selection: String? =
@@ -37,6 +38,9 @@ struct DashboardView: View {
                                showInclude: companionEnabled,
                                onToggleInclude: { model.toggleBuddy(s.id) })
                     .tag(s.id)
+                    .contextMenu {
+                        AttentionPicker(session: s, model: model, style: .menu)
+                    }
             }
             .searchable(text: $query, prompt: "Search sessions")
             .searchFocusedCompat($searchFocused)
@@ -64,10 +68,16 @@ struct DashboardView: View {
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
+                Button { showNewTask = true } label: { Image(systemName: "plus.bubble") }
+                    .help("Start a new task in a directory a session has run in")
+                    .disabled(model.recentDirectories.isEmpty || model.dispatchAgents.isEmpty)
+            }
+            ToolbarItem(placement: .primaryAction) {
                 Button { openSettings() } label: { Image(systemName: "gearshape") }
                     .help("Settings")
             }
         }
+        .sheet(isPresented: $showNewTask) { NewTaskSheet(model: model) }
         .background {
             Group {
                 Button("") { statusFilter = .error }.keyboardShortcut("1", modifiers: .command)
@@ -277,12 +287,21 @@ private struct SessionRowView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
                 TaskStatusIndicator(session.presentationState, isSelected: isSelected, size: 9)
-                Text(session.project).font(.headline)   // row subject = .headline (matches iOS)
+                Text(session.displayTitle).font(.headline)   // row subject = .headline (matches iOS)
+                if session.name != nil {
+                    Text(session.project).font(.caption).foregroundStyle(.secondary)
+                }
                 AgentSourceBadge(agent: session.agent)
                 if session.isStuck {
                     Label("Stuck", systemImage: "exclamationmark.triangle.fill")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(Color(taskStatus: TaskPresentationState.error.colorToken))
+                }
+                if let glyph = session.effectiveAttention.rowGlyph {
+                    Image(systemName: glyph)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .help(session.effectiveAttention.title)
                 }
                 if showInclude {
                     Spacer(minLength: 8)
@@ -312,8 +331,11 @@ private struct SessionRowView: View {
             HStack(spacing: 6) {
                 Text(session.updatedAt, style: .relative).monospacedDigit()
                 if let cost = session.estimatedCostUSD {
-                    Text("≈ $\(cost, specifier: "%.2f")").monospacedDigit()
+                    Text("\(session.costUSD == nil ? "≈ " : "")$\(cost, specifier: "%.2f")").monospacedDigit()
                 }
+                if let effort = session.effort { Text("· effort \(effort)") }
+                if let pr = session.prNumber { Text("· PR #\(pr)").monospacedDigit() }
+                if let worktree = session.worktree { Text("· \(worktree)").lineLimit(1) }
             }
             .font(.caption2).foregroundStyle(.tertiary)
             if let observation = session.observationDescription {
@@ -370,22 +392,36 @@ private struct DetailView: View {
                         .padding(10)
                         .background(Color(nsColor: .textBackgroundColor))
                         .cornerRadius(8)
-                    HStack(spacing: 10) {
-                        Button("Approve") { model.decide(approval.id, .allow) }
-                            .keyboardShortcut("a", modifiers: []).tint(.green)
-                        Button("Deny") { model.decide(approval.id, .deny) }
-                            .keyboardShortcut("d", modifiers: []).tint(.red)
+                    if approval.isAnswerable {
+                        HStack(spacing: 10) {
+                            Button("Approve") { model.decide(approval.id, .allow) }
+                                .keyboardShortcut("a", modifiers: []).tint(.green)
+                            Button("Deny") { model.decide(approval.id, .deny) }
+                                .keyboardShortcut("d", modifiers: []).tint(.red)
+                            Button(session.jumpsToDesktopThread ? "Open thread in ChatGPT" : "Jump to terminal") {
+                                model.jump(session)
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        HStack(spacing: 10) {
+                            Button("Always allow this") { model.decide(approval.id, .alwaysAllow) }
+                            Button("Allow all this session") { model.decide(approval.id, .allowSession) }
+                        }
+                        .buttonStyle(.bordered).controlSize(.small)
+                        .help("Always allow: auto-approve this exact command in future. Allow all this session: stop asking for the rest of this run.")
+                    } else {
+                        Label("You're at the Mac — answer this in the agent's own prompt.", systemImage: "keyboard")
+                            .font(.caption).foregroundStyle(.secondary)
                         Button(session.jumpsToDesktopThread ? "Open thread in ChatGPT" : "Jump to terminal") {
                             model.jump(session)
                         }
+                        .buttonStyle(.borderedProminent)
                     }
-                    .buttonStyle(.borderedProminent)
-                    HStack(spacing: 10) {
-                        Button("Always allow this") { model.decide(approval.id, .alwaysAllow) }
-                        Button("Allow all this session") { model.decide(approval.id, .allowSession) }
+                    if let rule = approval.suggestedRule, approval.isAnswerable {
+                        Text("Always allow adds \(rule) to Claude's own permission rules — the same rule the terminal dialog offers.")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    .buttonStyle(.bordered).controlSize(.small)
-                    .help("Always allow: auto-approve this exact command in future. Allow all this session: stop asking for the rest of this run.")
                     if session.agent == .grok, let mode = approval.permissionMode, mode != "bypassPermissions" {
                         Label {
                             Text("Grok will still ask in the terminal after Allow (permission mode: \(mode)). Set permission_mode = \"always-approve\" to approve from here.")
@@ -396,19 +432,37 @@ private struct DetailView: View {
                         .foregroundStyle(.secondary)
                     }
                 } else {
-                    if let s = session.summary { Text(s).foregroundStyle(.secondary) }
+                    if let question = session.pendingQuestion {
+                        if question.isAnswerable {
+                            QuestionCardView(question: question) { answers in
+                                model.answer(session.id, answers: answers)
+                            }
+                        } else {
+                            Text(question.prompt)
+                            Label("You're at the Mac — answer this in the agent's own prompt.", systemImage: "keyboard")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        if let feedback = model.answerFeedback[session.id] {
+                            Label(feedback, systemImage: "exclamationmark.bubble")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    } else if let s = session.summary { Text(s).foregroundStyle(.secondary) }
+                    if session.agent == .codex {
+                        // Free text for a Codex thread: joins the running turn or
+                        // opens a new one, through the app-server daemon.
+                        InstructionComposer(placeholder: session.status == .done
+                                            ? "Start a new turn…" : "Add to the current turn…") { text in
+                            model.answer(session.id, answers: [:], text: text)
+                        }
+                        if session.pendingQuestion == nil, let feedback = model.answerFeedback[session.id] {
+                            Label(feedback, systemImage: "exclamationmark.bubble")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
                     Button(session.jumpsToDesktopThread ? "Open thread in ChatGPT" : "Jump to terminal") {
                         model.jump(session)
                     }
                 }
-                // Keep reminding about this session's completion until it is read.
-                Toggle(isOn: Binding(
-                    get: { session.isFollowed },
-                    set: { model.setFollowed(session.id, $0) })) {
-                    Label("Follow until done", systemImage: session.isFollowed ? "bell.badge.fill" : "bell")
-                }
-                .toggleStyle(.button)
-                .help("When this session finishes, remind you every 5 minutes (up to an hour) until you open it here or on your iPhone.")
                 // What the last jump actually achieved — focused the pane, only
                 // raised the app, or found nothing to raise. Same wording as the
                 // glance rows.
@@ -421,6 +475,14 @@ private struct DetailView: View {
                 // Peek at what the agent has been doing without leaving the app.
                 Button { showTranscript = true } label: {
                     Label("Recent output", systemImage: "text.alignleft")
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Notifications").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    AttentionPicker(session: session, model: model, style: .segmented)
+                    Text(session.attentionOverride == nil
+                         ? "Automatic: \(session.effectiveAttention.title.lowercased()) — followed while you're driving it, normal otherwise."
+                         : session.effectiveAttention.explanation)
+                        .font(.caption2).foregroundStyle(.tertiary)
                 }
                 if let m = session.model {
                     Label(m, systemImage: "cpu").font(.caption).foregroundStyle(.secondary)
@@ -492,6 +554,99 @@ private struct TranscriptSheet: View {
                 }
                 .padding()
             }
+        }
+    }
+}
+
+/// One line of free text for a session, sent with ⌘↩ or the button.
+struct InstructionComposer: View {
+    let placeholder: String
+    let send: (String) -> Void
+    @State private var draft = ""
+
+    var body: some View {
+        HStack(spacing: 8) {
+            TextField(placeholder, text: $draft, axis: .vertical)
+                .textFieldStyle(.roundedBorder)
+                .lineLimit(1...4)
+                .onSubmit(submit)
+            Button("Send", action: submit)
+                .keyboardShortcut(.return, modifiers: .command)
+                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+    }
+
+    private func submit() {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        send(text)
+        draft = ""
+    }
+}
+
+/// The one control for how much a session may interrupt you, in two shapes:
+/// a segmented picker in the detail pane and radio items in a row's context
+/// menu. `nil` is "automatic" — the daemon's own reading of recent interaction.
+private struct AttentionPicker: View {
+    enum Style { case segmented, menu }
+    let session: AgentSession
+    @ObservedObject var model: MenuBarModel
+    let style: Style
+
+    private var selection: Binding<SessionAttention?> {
+        Binding(get: { session.attentionOverride },
+                set: { model.setAttention(session.id, $0) })
+    }
+
+    var body: some View {
+        switch style {
+        case .segmented: picker.pickerStyle(.segmented)
+        case .menu: picker.pickerStyle(.inline)
+        }
+    }
+
+    private var picker: some View {
+        Picker("Notifications", selection: selection) {
+            Text(style == .menu
+                 ? "Automatic (\(autoLevel.title.lowercased()))"
+                 : "Auto").tag(SessionAttention?.none)
+            ForEach(SessionAttention.allCases, id: \.self) { level in
+                Label(level.title, systemImage: level.symbol).tag(SessionAttention?.some(level))
+            }
+        }
+        .labelsHidden()
+    }
+
+    /// What automatic would give right now: the effective level while no
+    /// override is set, else the daemon's `attention` still reflects the
+    /// override, so fall back to `normal` as the honest default.
+    private var autoLevel: SessionAttention {
+        session.attentionOverride == nil ? session.effectiveAttention : .normal
+    }
+}
+
+extension SessionAttention {
+    var title: String {
+        switch self {
+        case .followed: "Followed"
+        case .normal: "Normal"
+        case .muted: "Muted"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .followed: "bell.badge"
+        case .normal: "bell"
+        case .muted: "bell.slash"
+        }
+    }
+    /// A glyph on the row only when the session is not at the default.
+    var rowGlyph: String? { self == .normal ? nil : symbol }
+    var explanation: String {
+        switch self {
+        case .followed: "Everything about this session interrupts you."
+        case .normal: "Only approvals and failures interrupt; the rest waits in Notification Center."
+        case .muted: "Approvals show silently; nothing else interrupts."
         }
     }
 }

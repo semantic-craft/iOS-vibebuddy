@@ -90,22 +90,19 @@ struct SessionReducerTests {
         #expect(!secondAcknowledgement)
     }
 
-    @Test("following survives new turns and is unknown-session safe")
-    func followed() {
+    @Test("an answerable question survives a progress event; a read-only one is cleared by it")
+    func answerableQuestionOutlivesProgress() {
         var r = SessionReducer()
-        let unknown = r.setFollowed(sessionID: "s1", true)
-        #expect(!unknown)
         r.apply(ev(.userPromptSubmit, at: 0))
-        let first = r.setFollowed(sessionID: "s1", true)
-        #expect(first)
-        let repeated = r.setFollowed(sessionID: "s1", true)   // already followed: no change
-        #expect(!repeated)
-        r.apply(ev(.stop, at: 1))
-        r.apply(ev(.userPromptSubmit, at: 2))
-        #expect(r.sessions["s1"]?.isFollowed == true)
-        let cleared = r.setFollowed(sessionID: "s1", false)
-        #expect(cleared)
-        #expect(r.sessions["s1"]?.isFollowed == false)
+        let live = PendingQuestion(id: "q1", prompt: "Which branch?", options: [], answerable: nil)
+        r.setPendingQuestion(sessionID: "s1", live, at: Date(timeIntervalSince1970: 1))
+        r.apply(ev(.preToolUse, tool: "Read", at: 2))   // the async forwarder, after the hook began the wait
+        #expect(r.sessions["s1"]?.pendingQuestion?.id == "q1")
+
+        let readOnly = PendingQuestion(id: "q2", prompt: "Which branch?", options: [], answerable: false)
+        r.setPendingQuestion(sessionID: "s1", readOnly, at: Date(timeIntervalSince1970: 3))
+        r.apply(ev(.preToolUse, tool: "Read", at: 4))
+        #expect(r.sessions["s1"]?.pendingQuestion == nil)
     }
 
     @Test("new work clears an unread completion")

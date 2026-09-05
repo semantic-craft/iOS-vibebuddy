@@ -61,20 +61,43 @@ public enum ApprovalPayload {
         public let input: [String: Any]
         public let sessionID: String
         public let event: Event
-        /// Grok only: `default | auto | plan | bypassPermissions` at the time of
-        /// the call. Outside `bypassPermissions` an `allow` from the phone only
+        /// Claude Code's own "always allow" proposals for this request
+        /// (`permission_suggestions` on `PermissionRequest`): the same entries the
+        /// terminal dialog builds its options from. Echoing one back as
+        /// `updatedPermissions` makes Claude persist the rule itself, so a phone
+        /// "Always allow" lands exactly where a terminal one would. Empty for
+        /// every other event and agent.
+        public let permissionSuggestions: [[String: Any]]
+        /// The agent's permission mode at the time of the call. Claude Code
+        /// sends `permission_mode` (`default | plan | acceptEdits | auto |
+        /// dontAsk | bypassPermissions`); Grok sends `permissionMode`
+        /// (`default | auto | plan | bypassPermissions`). On a `PreToolUse`
+        /// gate it drives `ApprovalShortCircuit`; a `PermissionRequest` already
+        /// means the agent would ask, so the mode only rides along there.
+        /// For Grok outside `bypassPermissions` an `allow` from the phone only
         /// means "the hook didn't block it" — Grok still raises its own local
         /// prompt, which no remote client can answer. A `deny` is authoritative
         /// in every mode, so the phone approval still runs; the mode rides along
         /// on the approval so the UI can say so.
         public let permissionMode: String?
+
+        public init(tool: String, input: [String: Any], sessionID: String, event: Event,
+                    permissionSuggestions: [[String: Any]] = [], permissionMode: String?) {
+            self.tool = tool
+            self.input = input
+            self.sessionID = sessionID
+            self.event = event
+            self.permissionSuggestions = permissionSuggestions
+            self.permissionMode = permissionMode
+        }
     }
 
     public static func decode(_ obj: [String: Any], agent: AgentKind) -> Call {
         guard agent == .grok else {
-            // Claude-shape envelope. A `PermissionRequest` allow is final on
-            // both Claude Code and Codex, so no `permissionMode` rides along
-            // (the UI would otherwise hedge the way it must for Grok).
+            // Claude-shape envelope. The mode matters only on a `PreToolUse`
+            // gate, where it drives the short-circuit; a `PermissionRequest`
+            // allow is final on both Claude Code and Codex, so nothing rides
+            // along there (the UI would otherwise hedge the way it must for Grok).
             let event: Event = obj["hook_event_name"] as? String == "PermissionRequest"
                 ? .permissionRequest : .preToolUse
             let raw = obj["tool_name"] as? String ?? ""
@@ -84,17 +107,64 @@ public enum ApprovalPayload {
                 tool = CodexToolVocabulary.canonicalTool(raw)
                 input = CodexToolVocabulary.canonicalInput(tool: raw, input)
             }
+            // Only Claude Code proposes rules; Codex sends none, and a foreign
+            // suggestion shape must never be echoed back as a permission grant.
+            let suggestions = (agent == .claudeCode && event == .permissionRequest)
+                ? PermissionSuggestion.allowRules(in: obj["permission_suggestions"] as? [[String: Any]] ?? [])
+                : []
             return Call(tool: tool, input: input,
                         sessionID: obj["session_id"] as? String ?? "",
-                        event: event, permissionMode: nil)
+                        event: event, permissionSuggestions: suggestions,
+                        permissionMode: event == .preToolUse ? nonEmpty(obj["permission_mode"]) : nil)
         }
         // Grok has no PermissionRequest hook; its gate is PreToolUse only.
         let normalized = GrokToolVocabulary.normalize(
             tool: obj["toolName"] as? String ?? "",
             input: obj["toolInput"] as? [String: Any] ?? [:])
-        let mode = (obj["permissionMode"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let mode = nonEmpty(obj["permissionMode"])
         return Call(tool: normalized.tool, input: normalized.input,
                     sessionID: obj["sessionId"] as? String ?? "",
                     event: .preToolUse, permissionMode: mode)
+    }
+
+    private static func nonEmpty(_ value: Any?) -> String? {
+        (value as? String).flatMap { $0.isEmpty ? nil : $0 }
+    }
+}
+
+/// Claude Code's `permission_suggestions` / `updatedPermissions` entries
+/// (`{type: addRules, rules: [{toolName, ruleContent?}], behavior, destination}`).
+/// vibebuddy never invents one: it only keeps the allow-rule proposals Claude
+/// sent, shows them on the card, and echoes the chosen ones back verbatim.
+public enum PermissionSuggestion {
+    /// The `addRules` + `allow` entries, in Claude's order; everything else
+    /// (mode switches, directory grants, deny rules) is dropped — a phone tap
+    /// must only ever add an allow rule.
+    public static func allowRules(in suggestions: [[String: Any]]) -> [[String: Any]] {
+        suggestions.filter { entry in
+            entry["type"] as? String == "addRules"
+                && entry["behavior"] as? String == "allow"
+                && !((entry["rules"] as? [[String: Any]]) ?? []).isEmpty
+        }
+    }
+
+    /// Human-readable rule text in Claude's own `Tool(content)` grammar, e.g.
+    /// `Bash(rm -rf node_modules)` or `Edit` — what the terminal dialog shows.
+    public static func describe(_ suggestions: [[String: Any]]) -> String? {
+        let rules = suggestions.flatMap { ($0["rules"] as? [[String: Any]]) ?? [] }
+            .compactMap { rule -> String? in
+                guard let tool = rule["toolName"] as? String, !tool.isEmpty else { return nil }
+                if let content = rule["ruleContent"] as? String, !content.isEmpty {
+                    return "\(tool)(\(content))"
+                }
+                return tool
+            }
+        return rules.isEmpty ? nil : rules.joined(separator: ", ")
+    }
+
+    /// The entries serialized for the `updatedPermissions` reply.
+    public static func encode(_ suggestions: [[String: Any]]) -> Data? {
+        guard !suggestions.isEmpty, JSONSerialization.isValidJSONObject(suggestions) else { return nil }
+        return try? JSONSerialization.data(withJSONObject: suggestions)
     }
 }

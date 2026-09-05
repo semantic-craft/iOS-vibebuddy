@@ -112,42 +112,6 @@ struct VibeBuddyServerTests {
         }
     }
 
-    @Test("/follow flags a known session and 404s an unknown one")
-    func followRoute() async throws {
-        let store = SessionStore()
-        await store.ingest(Data(#"{"hook_event_name":"UserPromptSubmit","session_id":"s","cwd":"/x/demo"}"#.utf8),
-                           receivedAt: Date(timeIntervalSince1970: 1))
-        let server = VibeBuddyServer(store: store, token: "t0k")
-        try await server.buildApplication().test(.router) { client in
-            try await client.execute(uri: "/follow", method: .post,
-                                     body: ByteBuffer(string: #"{"sessionId":"s","followed":true}"#)) { response in
-                #expect(response.status == .unauthorized)
-            }
-            try await client.execute(uri: "/follow", method: .post,
-                                     headers: [.authorization: "Bearer t0k"],
-                                     body: ByteBuffer(string: #"{"sessionId":"nope","followed":true}"#)) { response in
-                #expect(response.status == .notFound)
-            }
-            try await client.execute(uri: "/follow", method: .post,
-                                     headers: [.authorization: "Bearer t0k"],
-                                     body: ByteBuffer(string: #"{"sessionId":"s"}"#)) { response in
-                #expect(response.status == .badRequest)
-            }
-            try await client.execute(uri: "/follow", method: .post,
-                                     headers: [.authorization: "Bearer t0k"],
-                                     body: ByteBuffer(string: #"{"sessionId":"s","followed":true}"#)) { response in
-                #expect(response.status == .ok)
-            }
-            #expect(await store.snapshot(now: .now).sessions.first?.isFollowed == true)
-            try await client.execute(uri: "/follow", method: .post,
-                                     headers: [.authorization: "Bearer t0k"],
-                                     body: ByteBuffer(string: #"{"sessionId":"s","followed":false}"#)) { response in
-                #expect(response.status == .ok)
-            }
-            #expect(await store.snapshot(now: .now).sessions.first?.isFollowed == false)
-        }
-    }
-
     @Test("a followed unread completion is reminded about on schedule, and only a delivered reminder spends a slot")
     func completionRemindersCountOnlyDeliveries() async throws {
         final class Box: @unchecked Sendable { var deliver = false; var asked: [String] = [] }
@@ -158,7 +122,7 @@ struct VibeBuddyServerTests {
                            receivedAt: t0)
         await store.ingest(Data(#"{"hook_event_name":"Stop","session_id":"s","cwd":"/x/demo"}"#.utf8),
                            receivedAt: t0.addingTimeInterval(60))
-        await store.setFollowed(sessionID: "s", true)
+        await store.setAttention(sessionID: "s", .followed)
         let server = VibeBuddyServer(store: store, token: "t0k",
                                      onCompletionReminder: { session in
                                          box.asked.append(session.id); return box.deliver })
@@ -253,7 +217,7 @@ struct VibeBuddyServerTests {
         }
     }
 
-    @Test("/answer without a terminal ref is a no-op")
+    @Test("/answer with nothing waiting and no terminal ref is accepted but not delivered")
     func answerWithoutTerminalRefNoOps() async throws {
         final class Box: @unchecked Sendable { var answers: [String] = [] }
         let box = Box()
@@ -267,7 +231,9 @@ struct VibeBuddyServerTests {
             try await client.execute(uri: "/answer", method: .post,
                                      headers: [.authorization: "Bearer t0k"],
                                      body: ByteBuffer(string: #"{"sessionId":"s","answer":"Use main"}"#)) { res in
-                #expect(res.status == .ok)
+                // Nothing waiting on the session and no pane to type into:
+                // accepted but not delivered, so the phone can say so.
+                #expect(res.status == .accepted)
             }
             #expect(box.answers.isEmpty)
         }

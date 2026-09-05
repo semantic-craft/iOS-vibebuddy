@@ -3,7 +3,15 @@ import Foundation
 /// Stable identities for the evidence that supports a session state. These raw
 /// values are part of the Mac-to-phone wire contract.
 public enum ObservationSource: String, Codable, Sendable, CaseIterable, Comparable {
+    /// The Codex app-server daemon's own JSON-RPC notifications, read over its
+    /// local control socket. Authoritative for Codex when fresh; rollout and
+    /// hook evidence for the same thread then only corroborates.
+    case appserver
     case hook
+    /// Claude Code's status line JSON, forwarded by vibebuddy's wrapper script
+    /// on every event: context, cost, session name, effort, PR, worktree and
+    /// rate limits. Only ever fills fields on a known session.
+    case statusline
     case rollout
     case transcript
     case recovery
@@ -16,7 +24,9 @@ public enum ObservationSource: String, Codable, Sendable, CaseIterable, Comparab
 
     public var displayName: String {
         switch self {
+        case .appserver: "App server"
         case .hook: "Hook"
+        case .statusline: "Status line"
         case .rollout: "Rollout"
         case .transcript: "Transcript"
         case .recovery: "Recovery"
@@ -61,6 +71,8 @@ public enum ObservationHealth: String, Codable, Sendable, CaseIterable {
             return "Codex ignores asynchronous command hooks in this version."
         case .sourceUnreadable:
             switch source {
+            case .appserver: return "The Codex app-server control socket cannot be reached."
+            case .statusline: return "The status line forwarder is not installed in Claude's settings."
             case .rollout: return "The rollout stream cannot be read."
             case .transcript: return "The transcript cannot be read."
             case .hook: return "The hook configuration cannot be read."

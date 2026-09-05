@@ -123,7 +123,11 @@
 "Still-waiting reminders" = "久等催促";
 "Pairing confirmation" = "配对成功提示";
 
-/* Follow until done (Dashboard) */
-"Follow until done" = "关注到完成";
-"Unfollow" = "取消关注";
-"Following until done" = "已关注，完成前持续提醒";
+/* Attention level (Dashboard swipe / long-press) */
+"Attention" = "关注度";
+"Automatic" = "自动";
+"Follow" = "关注";
+"Mute" = "静音";
+"Normal" = "普通";
+"Followed" = "已关注";
+"Muted" = "已静音";

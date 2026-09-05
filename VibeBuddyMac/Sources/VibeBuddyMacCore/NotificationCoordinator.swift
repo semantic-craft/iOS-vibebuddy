@@ -5,17 +5,25 @@ import VibeBuddyKit
 /// implementation posts a local notification with the cue's sound; tests use a spy.
 public protocol AttentionNotifier {
     func notify(_ alert: SoundAlert) async -> LocalNotificationAttempt
+    /// Take back notifications whose session is no longer waiting: a banner or
+    /// a list entry for an answered approval describes something nobody is
+    /// blocked on any more. Identifiers are `SoundAlert.notificationID`.
+    func withdraw(_ identifiers: [String]) async
 }
 
 /// Feeds each snapshot through the shared `SoundPolicy` and forwards the cues it
-/// earns to `notifier`. All the *when to ring* logic lives in `SoundPolicy`
-/// (unit-tested in VibeBuddyKit); this type only supplies the ambient context
-/// (clock, app-active, Quiet mode), fans the decisions out, and records delivery
-/// *after* those existing rules.
+/// earns to `notifier`. All the *when to ring* and *how loud* logic lives in
+/// `SoundPolicy` (unit-tested in VibeBuddyKit); this type only supplies the
+/// ambient context (clock, app-active, Quiet mode, focused terminals), fans the
+/// decisions out, records delivery, and hands the same cues back so the push to
+/// the phone is built from one decision rather than a second policy.
 public final class NotificationCoordinator: @unchecked Sendable {
     private let notifier: AttentionNotifier
     private let policy: SoundPolicy
     private let delivery: (any NotificationDeliveryRecording)?
+    /// What was posted for each waiting session, so it can be withdrawn the
+    /// moment the session stops waiting. Completions are never tracked.
+    private var ledger = WaitingNotificationLedger()
 
     public init(
         notifier: AttentionNotifier,
@@ -30,14 +38,17 @@ public final class NotificationCoordinator: @unchecked Sendable {
     /// Say "finished, still unread" again for a followed session. The same
     /// `agentDone` cue as the completion itself, so the notifier replaces the
     /// earlier banner rather than stacking a new one. Nothing is posted when the
-    /// Mac has the completion category off or Focus mode is on (a completion
-    /// never survives Quiet mode). Returns whether a post was attempted.
+    /// Mac has the completion category off, or when the matrix drops it — Quiet
+    /// mode reads the session as `muted`, and a muted completion is dropped.
+    /// Returns whether a post was attempted.
     @discardableResult
     public func remind(_ session: AgentSession, now: Date = Date(), quietMode: Bool,
                        categories: NotificationCategoryPrefs = .default) async -> Bool {
-        let alert = SoundAlert(session: session, sound: .agentDone)
-        guard categories.isEnabled(alert.sound),
-              !quietMode || alert.sound.survivesQuietMode else { return false }
+        let sound = NotificationSound.agentDone
+        let attention: SessionAttention = quietMode ? .muted : session.effectiveAttention
+        let level = DeliveryMatrix.level(for: sound, attention: attention)
+        guard categories.isEnabled(sound), level != .drop else { return false }
+        let alert = SoundAlert(session: session, sound: sound, delivery: level)
         let attempt = await notifier.notify(alert)
         if attempt.shouldRecord {
             await delivery?.record(NotificationDeliveryRecord(
@@ -47,18 +58,30 @@ public final class NotificationCoordinator: @unchecked Sendable {
         return true
     }
 
-    /// `categories` is this Mac's own switch set: a cue the policy earned but
-    /// the user turned off is dropped here and never posted. Quiet mode is
-    /// already applied inside the policy, so Focus narrows what is left to
-    /// approvals exactly as before.
+    /// Two axes: `categories` is this Mac's own switch set (a cue the user
+    /// turned off is not posted here), and the policy has already reduced each
+    /// cue through `DeliveryMatrix` from the session's attention level, with
+    /// Quiet mode reading every session as `muted`.
+    ///
+    /// Returns every cue the policy earned, *before* this Mac's switches: the
+    /// caller pushes from that list so each phone applies its own switches. A
+    /// category the Mac turned off must not silence a phone that wants it.
+    @discardableResult
     public func observe(_ sessions: [AgentSession], now: Date = Date(),
                         appActive: Bool, quietMode: Bool,
                         focusedSessionIDs: Set<String> = [],
-                        categories: NotificationCategoryPrefs = .default) async {
+                        categories: NotificationCategoryPrefs = .default) async -> [SoundAlert] {
         let input = SoundPolicyInput(sessions: sessions, now: now,
                                      appActive: appActive, quietMode: quietMode,
                                      focusedSessionIDs: focusedSessionIDs)
-        for alert in categories.filter(policy.evaluate(input)) {
+        let earned = policy.evaluate(input)
+        let alerts = categories.filter(earned)
+        // Withdraw before posting: a session that left one wait and entered
+        // another in the same snapshot keeps only the new cue.
+        let stale = ledger.withdrawals(for: sessions)
+        if !stale.isEmpty { await notifier.withdraw(stale) }
+        ledger.record(alerts)
+        for alert in alerts {
             let attempt = await notifier.notify(alert)
             guard attempt.shouldRecord else { continue }
             await delivery?.record(NotificationDeliveryRecord(
@@ -70,5 +93,6 @@ public final class NotificationCoordinator: @unchecked Sendable {
                 timestamp: now
             ))
         }
+        return earned
     }
 }

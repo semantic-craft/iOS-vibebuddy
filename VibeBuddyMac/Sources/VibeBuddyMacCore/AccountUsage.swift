@@ -444,6 +444,27 @@ public actor AccountUsageCollector {
         return state
     }
 
+    /// A snapshot that arrived on its own (the status line, the app-server
+    /// stream). It is as good as a fetch: it becomes the current state, is
+    /// cached, and pushes the next scheduled fetch out by `holdFor`, so the
+    /// spawning provider stays idle while live samples keep coming.
+    public func acceptLive(_ snapshot: AccountUsageSnapshot, holdFor: TimeInterval,
+                           now: Date = Date()) async -> AccountUsageState {
+        guard isEnabled else { return .disabled }
+        if !didBootstrap { _ = await bootstrap(now: now) }
+        guard isEnabled else { return state }
+        let currentGeneration = generation
+        failureCount = 0
+        let live = snapshot.fetched(at: now)
+        state = .available(live, nextRefreshAt: now.addingTimeInterval(holdFor))
+        do {
+            try await cache.save(live, permit: cacheCommitGate.permit(generation: currentGeneration))
+        } catch {
+            // A cache write failure must not discard a fresh, trustworthy read.
+        }
+        return state
+    }
+
     public func setEnabled(_ enabled: Bool, now: Date = Date()) async -> AccountUsageState {
         generation &+= 1
         isEnabled = enabled

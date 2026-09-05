@@ -36,6 +36,17 @@ public enum WaitKind: String, Codable, Sendable {
     case question        // asked something / idle waiting for input
 }
 
+/// How much of your attention a session has earned. Decides, together with
+/// the cue, whether a notification interrupts you, sits in the list, or is
+/// never posted (see `DeliveryMatrix`). The daemon owns the value: a manual
+/// choice from the Mac or the phone overrides whatever the automatic signals
+/// would have said, and the choice lives exactly as long as the session.
+public enum SessionAttention: String, Codable, Sendable, CaseIterable {
+    case followed   // you are driving this one — everything interrupts
+    case normal     // the default — only what blocks or breaks interrupts
+    case muted      // you chose to stop hearing from it — approvals only, silently
+}
+
 /// A tool use awaiting the user's approval from the phone. Present only while a
 /// session is blocked on a remote approve/deny.
 public struct PendingApproval: Codable, Sendable, Equatable {
@@ -55,11 +66,21 @@ public struct PendingApproval: Codable, Sendable, Equatable {
     /// remote answer channel. A remote *deny* is authoritative in every mode.
     /// Nil for agents that don't report a mode (Claude Code and friends).
     public let permissionMode: String?
+    /// The rule "Always allow" would persist, in the agent's own grammar
+    /// (`Bash(rm -rf node_modules)`), when the agent proposed one itself —
+    /// Claude Code's `permission_suggestions`. Nil means vibebuddy's own
+    /// conservative rule applies instead (ADR 0010).
+    public let suggestedRule: String?
+    /// False when the Mac decided the user is at the keyboard and let the
+    /// agent's own prompt take the answer: the card is for reading, the
+    /// buttons do nothing. Nil (older Macs) means answerable.
+    public let answerable: Bool?
 
     public init(id: String, tool: String, commandPreview: String,
                 command: String? = nil, filePath: String? = nil,
                 oldText: String? = nil, newText: String? = nil,
-                permissionMode: String? = nil) {
+                permissionMode: String? = nil, suggestedRule: String? = nil,
+                answerable: Bool? = nil) {
         self.id = id
         self.tool = tool
         self.commandPreview = commandPreview
@@ -68,7 +89,11 @@ public struct PendingApproval: Codable, Sendable, Equatable {
         self.oldText = oldText
         self.newText = newText
         self.permissionMode = permissionMode
+        self.suggestedRule = suggestedRule
+        self.answerable = answerable
     }
+
+    public var isAnswerable: Bool { answerable ?? true }
 }
 
 /// A question the agent asked in the terminal, with optional pre-defined answers
@@ -87,17 +112,70 @@ public struct QuestionOption: Codable, Sendable, Equatable, Identifiable {
     }
 }
 
+/// One question inside a multi-question prompt (Claude's `AskUserQuestion`
+/// carries up to four, Codex's `request_user_input` up to three).
+public struct QuestionItem: Codable, Sendable, Equatable, Identifiable {
+    public let id: String
+    /// Short label (Claude's `header`), when the agent gave one.
+    public let header: String?
+    public let text: String
+    public let options: [QuestionOption]
+    public let multiSelect: Bool
+    /// Whether a typed answer is acceptable besides the options. Claude always
+    /// accepts one ("Other"); Codex says so per question (`isOther`).
+    public let allowsOther: Bool
+
+    public init(id: String, header: String? = nil, text: String, options: [QuestionOption] = [],
+                multiSelect: Bool = false, allowsOther: Bool = true) {
+        self.id = id
+        self.header = header
+        self.text = text
+        self.options = options
+        self.multiSelect = multiSelect
+        self.allowsOther = allowsOther
+    }
+}
+
 public struct PendingQuestion: Codable, Sendable, Equatable, Identifiable {
     public let id: String
+    /// The first (or only) question's text — what older cards render.
     public let prompt: String
+    /// The first (or only) question's options — what older cards render.
     public let options: [QuestionOption]
+    /// Every question when the agent asked several at once, in order. Nil for
+    /// a question read from a transcript, which only ever knows the first.
+    public let questions: [QuestionItem]?
+    /// False when the agent will move on by itself (Codex's non-blocking
+    /// `request_user_input`); the card then shows how long it stays open.
+    public let isBlocking: Bool?
+    public let expiresAt: Date?
+    /// False when the user is at the Mac and the agent's own prompt takes the
+    /// answer; the card is then read-only. Nil means answerable.
+    public let answerable: Bool?
 
-    public init(id: String, prompt: String, options: [QuestionOption] = []) {
+    public init(id: String, prompt: String, options: [QuestionOption] = [],
+                questions: [QuestionItem]? = nil, isBlocking: Bool? = nil, expiresAt: Date? = nil,
+                answerable: Bool? = nil) {
         self.id = id
         self.prompt = prompt
         self.options = options
+        self.questions = questions
+        self.isBlocking = isBlocking
+        self.expiresAt = expiresAt
+        self.answerable = answerable
+    }
+
+    public var isAnswerable: Bool { answerable ?? true }
+
+    /// The questions to render: the structured list, else the single legacy one.
+    public var items: [QuestionItem] {
+        questions ?? [QuestionItem(id: id, text: prompt, options: options)]
     }
 }
+
+/// Answers from the phone or the Mac, keyed by question id: the chosen option
+/// labels (several for a multi-select), or one typed reply.
+public typealias QuestionAnswers = [String: [String]]
 
 /// Identifies the terminal a session runs in, so the Mac can jump to it.
 ///
@@ -366,12 +444,31 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     /// snapshots decode as a normal completion. Distinct from a real stop
     /// whose last message happened to be "Abandoned".
     public var probeRetired: Bool?
-    /// The user asked to be reminded about this session until its completion
-    /// is read. Authoritative on the Mac, toggled from any device. Optional so
-    /// older payloads decode as "not followed".
-    public var followed: Bool?
+    /// Facts Claude Code's status line reports about the session (all optional
+    /// so older snapshots decode unchanged): the `--name` / `/rename` or
+    /// generated title, the effort level, the client-side cost estimate, the
+    /// open pull request and the worktree the session runs in.
+    public var name: String?
+    public var effort: String?
+    public var costUSD: Double?
+    public var prNumber: Int?
+    public var prURL: String?
+    public var worktree: String?
+    /// The attention level in effect for this session: the user's own choice
+    /// when there is one, else what the daemon inferred from recent
+    /// interaction. Absent means `normal`. Only the daemon writes it.
+    public var attention: SessionAttention?
+    /// The level the user set by hand (via `/attention`), if any. Absent means
+    /// the level is automatic — the UI shows this so a choice can be undone.
+    public var attentionOverride: SessionAttention?
     public var statusSince: Date
     public var updatedAt: Date
+
+    /// The row title: the session's own name when it has one, else the project.
+    public var displayTitle: String {
+        if let name, !name.trimmingCharacters(in: .whitespaces).isEmpty { return name }
+        return project
+    }
 
     public init(
         id: String,
@@ -397,7 +494,14 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         childAgents: [ChildAgent]? = nil,
         childTopologyDegraded: Bool? = nil,
         probeRetired: Bool? = nil,
-        followed: Bool? = nil,
+        name: String? = nil,
+        effort: String? = nil,
+        costUSD: Double? = nil,
+        prNumber: Int? = nil,
+        prURL: String? = nil,
+        worktree: String? = nil,
+        attention: SessionAttention? = nil,
+        attentionOverride: SessionAttention? = nil,
         statusSince: Date,
         updatedAt: Date
     ) {
@@ -424,7 +528,14 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         self.childAgents = childAgents
         self.childTopologyDegraded = childTopologyDegraded
         self.probeRetired = probeRetired
-        self.followed = followed
+        self.name = name
+        self.effort = effort
+        self.costUSD = costUSD
+        self.prNumber = prNumber
+        self.prURL = prURL
+        self.worktree = worktree
+        self.attention = attention
+        self.attentionOverride = attentionOverride
         self.statusSince = statusSince
         self.updatedAt = updatedAt
     }
@@ -441,6 +552,9 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
 
     /// Whether to treat this session as failed/stuck (Optional `failed` is "no").
     public var isStuck: Bool { failed == true }
+
+    /// The attention level to apply: an unset value is `normal`.
+    public var effectiveAttention: SessionAttention { attention ?? .normal }
 
     public var runningChildAgents: [ChildAgent] {
         (childAgents ?? []).filter { $0.status == .running }
@@ -461,17 +575,27 @@ public struct Snapshot: Codable, Sendable, Equatable {
     /// Mac-to-iPhone state path, but it is composed *outside* the session
     /// reducer: quota is account state, not session progress.
     public var providerQuota: [ProviderQuota]?
+    /// Working directories the Mac has seen sessions run in, newest first —
+    /// the only places a phone may start a new task in.
+    public var recentDirectories: [String]?
+    /// Agents the Mac can start a new task for right now (Claude Code when the
+    /// CLI supports `--bg`, Codex when the app-server daemon is connected).
+    public var dispatchAgents: [AgentKind]?
 
     public init(
         sessions: [AgentSession],
         serverTime: Date,
         observationDiagnostics: [AgentObservationDiagnostic]? = nil,
-        providerQuota: [ProviderQuota]? = nil
+        providerQuota: [ProviderQuota]? = nil,
+        recentDirectories: [String]? = nil,
+        dispatchAgents: [AgentKind]? = nil
     ) {
         self.sessions = sessions
         self.serverTime = serverTime
         self.observationDiagnostics = observationDiagnostics
         self.providerQuota = providerQuota
+        self.recentDirectories = recentDirectories
+        self.dispatchAgents = dispatchAgents
     }
 }
 
@@ -527,7 +651,45 @@ public struct DeviceRegistrationPayload: Codable, Sendable, Equatable {
     }
 }
 
-public extension AgentSession {
-    /// Whether the user asked to be reminded about this session until read.
-    var isFollowed: Bool { followed == true }
+public extension PendingQuestion {
+    /// The same question, marked as answered elsewhere (read-only on the phone).
+    var readOnly: PendingQuestion {
+        PendingQuestion(id: id, prompt: prompt, options: options, questions: questions,
+                        isBlocking: isBlocking, expiresAt: expiresAt, answerable: false)
+    }
+}
+
+public extension PendingApproval {
+    var readOnly: PendingApproval {
+        PendingApproval(id: id, tool: tool, commandPreview: commandPreview, command: command,
+                        filePath: filePath, oldText: oldText, newText: newText,
+                        permissionMode: permissionMode, suggestedRule: suggestedRule, answerable: false)
+    }
+}
+
+/// A request to start a new agent task from the phone or the Mac, in a
+/// directory the Mac has already seen a session run in.
+public struct DispatchRequest: Codable, Sendable, Equatable {
+    public var agent: AgentKind
+    public var cwd: String
+    public var prompt: String
+    public var name: String?
+
+    public init(agent: AgentKind, cwd: String, prompt: String, name: String? = nil) {
+        self.agent = agent
+        self.cwd = cwd
+        self.prompt = prompt
+        self.name = name
+    }
+}
+
+public enum DispatchOutcome: Sendable, Equatable {
+    /// The agent started; the session appears through its usual signals.
+    case started(sessionID: String)
+    /// The agent's launcher is not reachable right now (no Codex daemon).
+    case unavailable(String)
+    /// vibebuddy cannot start this agent kind yet.
+    case unsupported(String)
+    /// The request was refused (unknown directory, empty prompt).
+    case rejected(String)
 }

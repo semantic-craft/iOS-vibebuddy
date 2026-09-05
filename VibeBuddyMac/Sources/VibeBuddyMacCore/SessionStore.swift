@@ -12,6 +12,8 @@ public actor SessionStore {
     private var subscribers: [UUID: AsyncStream<Snapshot>.Continuation] = [:]
     private var needsResponseHandler: (@Sendable (AgentSession) async -> Void)?
     private var staleAfter: TimeInterval
+    private var directorySeen: [String: Date] = [:]
+    private static let recentDirectoryLimit = 50
     /// Per-session transcript path, remembered so `sweep` can check whether a
     /// waiting session's transcript advanced (i.e. the prompt was answered).
     private var transcriptPaths: [String: String] = [:]
@@ -29,11 +31,17 @@ public actor SessionStore {
     private var runtimeSignals: [AgentKind: [ObservationSource: ObservationRuntimeSignal]] = [:]
     private var diagnosticCache: (at: Date, value: [AgentObservationDiagnostic])?
     private var lifecycleJournal: LifecycleJournal?
+    /// The user's hand-set attention levels, layered onto every snapshot.
+    private var attention: AttentionOverrides
+    /// When the user last drove each session (prompt, jump, decision, answer);
+    /// what `AutoAttention` reads when there is no hand-set level.
+    private var lastInteractionAt: [String: Date] = [:]
 
     public init(
         staleAfter: TimeInterval = 2 * 60 * 60,
         diagnosticsHome: URL? = nil,
         journalURL: URL? = nil,
+        attentionURL: URL? = nil,
         grokHome: URL? = nil,
         now: Date = Date()
     ) {
@@ -45,6 +53,29 @@ public actor SessionStore {
             self.lifecycleJournal = journal
             reducer.restore(journal.restorableSessions(now: now, meaningfulFor: staleAfter))
         }
+        var attention = AttentionOverrides(url: attentionURL)
+        attention.prune(keeping: Set(reducer.sessions.keys))
+        self.attention = attention
+    }
+
+    /// Set (or with `nil` clear) the user's attention choice for a live session.
+    /// Returns false when no such session exists — there is nothing to attach
+    /// the choice to, and it would never be pruned.
+    @discardableResult
+    public func setAttention(sessionID: String, _ level: SessionAttention?) -> Bool {
+        guard reducer.sessions[sessionID] != nil else { return false }
+        attention.set(level, for: sessionID)
+        broadcast()
+        return true
+    }
+
+    /// The user just acted on this session — typed a prompt, jumped to it,
+    /// decided its approval, answered its question. Keeps it `followed` for
+    /// `AutoAttention.window` unless a hand-set level says otherwise.
+    public func recordInteraction(sessionID: String, at: Date = Date()) {
+        guard reducer.sessions[sessionID] != nil else { return }
+        lastInteractionAt[sessionID] = at
+        broadcast()
     }
 
     /// Change the idle-cleanup window at runtime (from Settings).
@@ -66,7 +97,9 @@ public actor SessionStore {
         for id in removed {
             transcriptPaths[id] = nil
             grokDirectories[id] = nil
+            lastInteractionAt[id] = nil
         }
+        attention.prune(keeping: Set(reducer.sessions.keys))
         for id in removed {
             guard let session = before[id] else { continue }
             appendJournal(
@@ -132,15 +165,85 @@ public actor SessionStore {
         ingest(event, observationSource: inferredSource, recordsEvidence: recordsEvidence)
     }
 
+    /// How recently the app-server daemon must have reported a Codex thread for
+    /// its evidence to outrank the rollout tailer and hooks on that thread.
+    public static let appServerAuthorityWindow: TimeInterval = 5 * 60
+
+    /// Claude's status line: fills the session's name, effort, cost, context,
+    /// PR and worktree. Only a session the hooks already opened is touched — a
+    /// sample never creates one or moves its progress. Returns whether one was.
+    @discardableResult
+    public func applyStatusLine(_ sample: StatusLineSample, at date: Date) -> Bool {
+        let applied = reducer.applyStatusLine(sample)
+        rememberDirectory(sample.cwd, at: date)
+        if applied {
+            if let path = sample.transcriptPath { transcriptPaths[sample.sessionID] = path }
+            reducer.recordObservation(sessionID: sample.sessionID, source: .statusline,
+                                      at: date, health: .healthy)
+        }
+        // The forwarder is demonstrably wired even when the session is unknown.
+        recordSignal(agent: .claudeCode, source: .statusline, at: date, health: .healthy, coverage: nil)
+        broadcast()
+        return applied
+    }
+
+    /// Claude's background supervisor lends its job name and "needs" line to a
+    /// session the hooks opened but never named. Read-only enrichment: a job
+    /// never creates a row or moves its progress.
+    public func applyBackgroundSessions(_ jobs: [ClaudeBackgroundSession]) {
+        var changed = false
+        for job in jobs where reducer.applyBackgroundSession(job) { changed = true }
+        if changed { broadcast() }
+    }
+
+    /// Record a source's liveness without any session event — the app-server
+    /// monitor's connection state, for the Settings diagnostics.
+    public func recordSourceSignal(agent: AgentKind, source: ObservationSource,
+                                   health: ObservationHealth, at date: Date) {
+        recordSignal(agent: agent, source: source, at: date, health: health, coverage: nil)
+        broadcast()
+    }
+
+    /// While the app-server daemon is reporting a Codex thread itself, a
+    /// rollout or hook event for the same thread may only corroborate: it is
+    /// recorded as evidence (and still enriches token facts) but does not move
+    /// the three-state progress, so two sources never fight over one row.
+    /// `sessionEnd` still passes — a CLI exit is a fact the daemon lacks.
+    private func appServerOutranks(_ event: HookEvent, from source: ObservationSource) -> Bool {
+        guard event.agent == .codex, source != .appserver, event.kind != .sessionEnd,
+              let session = reducer.sessions[event.sessionID],
+              let fresh = session.observations?.first(where: { $0.source == .appserver }),
+              fresh.health.isHealthy,
+              event.timestamp.timeIntervalSince(fresh.lastObservedAt) < Self.appServerAuthorityWindow
+        else { return false }
+        return true
+    }
+
     private func ingest(
         _ event: HookEvent,
         observationSource: ObservationSource,
         recordsEvidence: Bool = true,
         announcesWait: Bool = true
     ) {
+        if appServerOutranks(event, from: observationSource) {
+            if let enrichment = event.enrichment {
+                reducer.enrich(sessionID: event.sessionID, with: enrichment)
+            }
+            if recordsEvidence {
+                reducer.recordObservation(sessionID: event.sessionID, source: observationSource,
+                                          at: event.timestamp, health: .healthy)
+                recordSignal(agent: event.agent, source: observationSource, at: event.timestamp,
+                             health: .healthy, coverage: Self.coverage(for: event.kind))
+            }
+            broadcast()
+            return
+        }
         let wasWaiting = reducer.sessions[event.sessionID]?.status == .needsResponse
         if let path = event.transcriptPath { transcriptPaths[event.sessionID] = path }
+        rememberDirectory(event.cwd, at: event.timestamp)
         reducer.apply(event, observationSource: observationSource, recordsEvidence: recordsEvidence)
+        // A prompt is the user driving the session in person.
+        if event.kind == .userPromptSubmit { lastInteractionAt[event.sessionID] = event.timestamp }
         if let enrichment = event.enrichment {
             reducer.enrich(sessionID: event.sessionID, with: enrichment)
         }
@@ -153,6 +256,8 @@ public actor SessionStore {
             transcriptPaths[event.sessionID] = nil
             pendingTerminalRefs[event.sessionID] = nil
             grokDirectories[event.sessionID] = nil
+            lastInteractionAt[event.sessionID] = nil
+            attention.set(nil, for: event.sessionID)
         } else {
             // Grok keeps a session's facts in a directory of files rather than
             // one transcript, so it enriches from that directory instead.
@@ -267,6 +372,28 @@ public actor SessionStore {
         broadcast()
     }
 
+    public func beginQuestion(sessionID: String, _ question: PendingQuestion, at: Date) {
+        reducer.setPendingQuestion(sessionID: sessionID, question, at: at)
+        if let session = reducer.sessions[sessionID] {
+            appendJournal(sessionID: sessionID, agent: session.agent,
+                          event: "questionAsked", source: .hook, at: at)
+        }
+        broadcast()
+        if let session = reducer.sessions[sessionID], let handler = needsResponseHandler {
+            Task { await handler(session) }
+        }
+    }
+
+    /// Whether the app-server daemon reported this Codex session recently
+    /// enough to be carrying its approvals itself (the hook gate then steps
+    /// aside instead of raising a second card for the same request).
+    public func hasFreshAppServerEvidence(sessionID: String, now: Date) -> Bool {
+        guard let session = reducer.sessions[sessionID],
+              let evidence = session.observations?.first(where: { $0.source == .appserver }),
+              evidence.health.isHealthy else { return false }
+        return now.timeIntervalSince(evidence.lastObservedAt) < Self.appServerAuthorityWindow
+    }
+
     public func endQuestion(sessionID: String, at: Date) {
         reducer.clearPendingQuestion(sessionID: sessionID, at: at)
         if let session = reducer.sessions[sessionID] {
@@ -306,21 +433,6 @@ public actor SessionStore {
         return changed
     }
 
-    /// Follow or unfollow a session so its completion is reminded about until
-    /// read. Returns false when the session is unknown.
-    @discardableResult
-    public func setFollowed(sessionID: String, _ followed: Bool, now: Date = Date()) -> Bool {
-        guard let session = reducer.sessions[sessionID] else { return false }
-        if reducer.setFollowed(sessionID: sessionID, followed) {
-            // Journaled so a daemon restart restores the follow with the session.
-            appendJournal(sessionID: sessionID, agent: session.agent,
-                          event: followed ? "follow" : "unfollow",
-                          source: session.observations?.last?.source ?? .hook, at: now)
-            broadcast()
-        }
-        return true
-    }
-
     public func snapshot(now: Date) -> Snapshot {
         currentSnapshot(now: now)
     }
@@ -341,7 +453,42 @@ public actor SessionStore {
     private func currentSnapshot(now: Date) -> Snapshot {
         var snapshot = reducer.snapshot(now: now, observationDiagnostics: diagnostics(now: now))
         snapshot.providerQuota = providerQuota.isEmpty ? nil : providerQuota
+        let directories = recentDirectories()
+        snapshot.recentDirectories = directories.isEmpty ? nil : directories
+        snapshot.sessions = snapshot.sessions.map { session in
+            var session = session
+            session.attentionOverride = attention[session.id]
+            session.attention = attention[session.id]
+                ?? AutoAttention.level(lastInteractionAt: lastInteractionAt[session.id], now: now)
+            return session
+        }
         return snapshot
+    }
+
+    /// Directories sessions have run in, newest first (bounded). A phone may
+    /// only start a task in one of these.
+    public func recentDirectories() -> [String] {
+        directorySeen.sorted { $0.value > $1.value }.map(\.key)
+    }
+
+    public func isKnownDirectory(_ path: String) -> Bool { directorySeen[path] != nil }
+
+    private func rememberDirectory(_ cwd: String?, at date: Date) {
+        guard let cwd, cwd.hasPrefix("/"), !cwd.isEmpty else { return }
+        directorySeen[cwd] = date
+        if directorySeen.count > Self.recentDirectoryLimit,
+           let oldest = directorySeen.min(by: { $0.value < $1.value }) {
+            directorySeen.removeValue(forKey: oldest.key)
+        }
+    }
+
+    /// The terminal program the user's most recent terminal-backed session
+    /// runs in — where a new window should open.
+    public func preferredTerminalProgram() -> String? {
+        reducer.sessions.values
+            .filter { $0.terminalRef?.termProgram != nil }
+            .max { $0.updatedAt < $1.updatedAt }?
+            .terminalRef?.termProgram
     }
 
     /// The session's recent output (user prompts + assistant prose / tool activity)
@@ -412,7 +559,9 @@ public actor SessionStore {
             timestamp: timestamp,
             status: result?.status,
             waitKind: result?.waitKind,
-            followed: result?.followed
+            // The reducer's "—" placeholder means no cwd yet; don't persist it.
+            // The entry itself bounds the label (LifecycleJournalEntry.maxProjectBytes).
+            project: result.flatMap { $0.project == "—" ? nil : $0.project }
         ), now: timestamp)
         lifecycleJournal = journal
     }

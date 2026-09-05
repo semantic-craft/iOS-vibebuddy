@@ -138,6 +138,42 @@ public struct SessionReducer: Sendable {
         }
     }
 
+    /// Facts from Claude's status line. Never creates a session and never
+    /// touches status, wait kind, tools or summary; the status line's own
+    /// context figure outranks the transcript estimate.
+    public mutating func applyStatusLine(_ sample: StatusLineSample) -> Bool {
+        guard var s = sessions[sample.sessionID] else { return false }
+        if let model = sample.model { s.model = model }
+        if let cwd = sample.cwd { s.project = Self.projectName(cwd) }
+        if let name = sample.sessionName { s.name = name }
+        if let effort = sample.effort { s.effort = effort }
+        if let cost = sample.costUSD { s.costUSD = cost }
+        if let tokens = sample.contextTokens {
+            s.contextTokens = tokens
+            s.contextWindow = sample.contextWindow ?? s.contextWindow ?? Self.contextWindow(for: s.model)
+        } else if let window = sample.contextWindow {
+            s.contextWindow = window
+        }
+        if sample.prNumber != nil || sample.prURL != nil {
+            s.prNumber = sample.prNumber
+            s.prURL = sample.prURL
+        }
+        if let worktree = sample.worktree { s.worktree = worktree }
+        sessions[sample.sessionID] = s
+        return true
+    }
+
+    /// A background job's name and "needs" line fill an unnamed Claude row.
+    /// Returns whether anything changed.
+    public mutating func applyBackgroundSession(_ job: ClaudeBackgroundSession) -> Bool {
+        guard var s = sessions[job.sessionID], s.agent == .claudeCode else { return false }
+        var changed = false
+        if s.name == nil, let name = job.name { s.name = name; changed = true }
+        if s.summary == nil, let needs = job.needs { s.summary = needs; changed = true }
+        if changed { sessions[job.sessionID] = s }
+        return changed
+    }
+
     /// Update one stable source entry without touching session progress.
     public mutating func recordObservation(
         sessionID: String,
@@ -213,7 +249,10 @@ public struct SessionReducer: Sendable {
         if let activeTool = info.activeTool, s.activeTool == nil, s.status == .working {
             s.activeTool = activeTool
         }
-        if s.status == .needsResponse, let pendingQuestion = info.pendingQuestion {
+        if s.status == .needsResponse, let pendingQuestion = info.pendingQuestion,
+           s.pendingQuestion?.questions == nil {
+            // A transcript only ever sees the first question; it must not
+            // replace the full list a hook or app-server request delivered.
             s.pendingQuestion = pendingQuestion
             s.pendingApproval = nil
             s.waitKind = .question
@@ -266,6 +305,22 @@ public struct SessionReducer: Sendable {
         sessions[sessionID] = s
     }
 
+    /// Mark a known session as waiting on a question the agent asked through
+    /// its own contract (a blocking hook, an app-server request).
+    public mutating func setPendingQuestion(sessionID: String, _ question: PendingQuestion, at: Date) {
+        guard var s = sessions[sessionID] else { return }
+        if s.status != .needsResponse { s.statusSince = at }
+        s.status = .needsResponse
+        s.waitKind = .question
+        s.pendingQuestion = question
+        s.pendingApproval = nil
+        s.summary = question.prompt
+        s.hasUnreadCompletion = false
+        s.activeTool = nil
+        s.updatedAt = at
+        sessions[sessionID] = s
+    }
+
     /// Clear an answered question and return the session to working.
     public mutating func clearPendingQuestion(sessionID: String, at: Date) {
         guard var s = sessions[sessionID], s.pendingQuestion != nil else { return }
@@ -297,16 +352,6 @@ public struct SessionReducer: Sendable {
     public mutating func acknowledgeCompletion(sessionID: String) -> Bool {
         guard var session = sessions[sessionID], session.hasUnreadCompletion else { return false }
         session.hasUnreadCompletion = false
-        sessions[sessionID] = session
-        return true
-    }
-
-    /// Follow or unfollow a session. Returns whether authoritative state changed;
-    /// false for a session the reducer does not know.
-    @discardableResult
-    public mutating func setFollowed(sessionID: String, _ followed: Bool) -> Bool {
-        guard var session = sessions[sessionID], session.isFollowed != followed else { return false }
-        session.followed = followed
         sessions[sessionID] = session
         return true
     }
@@ -361,7 +406,14 @@ public struct SessionReducer: Sendable {
                 s.summary = nil
             }
             if status != .needsResponse {
-                s.pendingQuestion = nil
+                // A read-only card (the person answered at the Mac) has no
+                // resolver of its own: the agent moving on is its end. A card
+                // the phone can still answer — an approval held by a hook, or a
+                // question held by QuestionRegistry — outlives a stray progress
+                // event (the async PreToolUse forwarder, a Codex status
+                // notification) until whatever holds it resolves.
+                if s.pendingApproval?.isAnswerable == false { s.pendingApproval = nil }
+                if s.pendingQuestion?.isAnswerable == false { s.pendingQuestion = nil }
             }
             if let cwd = event.cwd { s.project = Self.projectName(cwd) }
             if let model = event.model { s.model = model }
@@ -397,6 +449,10 @@ public struct SessionReducer: Sendable {
         }
         if let cwd = event.cwd { session.project = Self.projectName(cwd) }
         if let model = event.model { session.model = model }
+        // A metadata event may carry a line worth showing (Claude waiting for
+        // its usage limit to reset); it replaces the summary without touching
+        // progress, and the next turn clears it as usual.
+        if let message = event.message, !message.isEmpty { session.summary = message }
         session.updatedAt = event.timestamp
         sessions[event.sessionID] = session
     }
