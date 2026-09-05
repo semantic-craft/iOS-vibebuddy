@@ -73,7 +73,7 @@ Source-agnostic from day one. **Claude Code and Codex** are tested end-to-end; a
 The Mac shows a QR encoding `host:port` + a bearer token. The phone scans it once — no manual IP entry. (The same QR can carry a Tailscale `100.x` address later, with no code change.)
 
 ### 🖥️ Native Mac menu-bar app
-A `MenuBarExtra` glance with live counts, a macOS notch glance, **jump-to-terminal** (open the right session with one click), launch-at-login, and a LAN bearer token persisted in the owner-only (`0600`) file `~/Library/Application Support/vibebuddy/token`. ⏎ / ⌘F dashboard shortcuts included. Sparkle update plumbing is in source; it is not live on the public v1.0 build.
+A `MenuBarExtra` glance with live counts, a macOS notch glance, **jump-to-terminal** (open the right session with one click), launch-at-login, and a LAN bearer token persisted in the owner-only (`0600`) file `~/Library/Application Support/vibebuddy/token`. ⏎ / ⌘F dashboard shortcuts included. v1.1 uses a signed Sparkle update feed; original v1.0 users need a one-time manual installation.
 
 ### 🔒 Local-first & private by design
 vibebuddy talks **directly** between your Mac and your phone over your own network. Session data **never** touches a vibebuddy server — there is no vibebuddy cloud, no account, no analytics, no tracking. Daemon routes are bearer-token gated. (The optional voice companion sends microphone audio and selected session context only to the provider *you* chose, with *your* key, when you turn it on.)
@@ -86,13 +86,11 @@ Full English and Simplified-Chinese UI on both apps. Plus a **Demo mode** that l
 ## ⬇️ Download
 
 ### macOS app
-**[Download vibebuddy-mac-v1.0.dmg →](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest)** · Apple Silicon · macOS 14+
+**[Download the latest Mac Companion →](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest)** · Apple Silicon · macOS 14+
 
-> **First launch (unsigned build).** This early build isn't notarized yet, so Gatekeeper will warn the first time. Open the `.dmg`, drag **vibebuddy** to **Applications**, then either **right-click → Open → Open**, or run once:
-> ```bash
-> xattr -dr com.apple.quarantine /Applications/vibebuddy.app
-> ```
-> The current public build is unsigned. A signed + notarized (double-click-to-open, zero-warning) build is not in this release.
+The v1.1 DMG is Developer ID signed and notarized. Open it and drag **VibeBuddyMacApp** to **Applications**. No quarantine-removal command is needed.
+
+**Updating from v1.0:** install v1.1 manually once. The original v1.0 shipped with an invalid update URL, so it cannot discover this release automatically. v1.1 uses the published Sparkle feed for future releases. The installed source build and the GitHub release are separate: use the latest release asset for the supported download.
 
 ### iPhone app
 Build it from source for now — see [Build & run](#️-build--run). Install on your own iPhone; there is no public iPhone download.
@@ -169,7 +167,7 @@ vibebuddy stands on the shoulders of two clever projects that first proved you c
 
 ## 📍 Status
 
-The public Mac release is **[v1.0](https://github.com/semantic-craft/iOS-vibebuddy/releases/tag/v1.0)**. v1 core implements the 3-bucket dashboard, QR pairing, notifications, remote approvals, Live Activity / Dynamic Island, the voice companion, and multi-CLI hooks (Claude Code + Codex tested). The iPhone app is installed from Xcode on a personal device, but real-device acceptance is still partial: Widget / Live Activity visuals, always-allow / allow-session approval flows, voice actions, iOS voice parity, the OpenAI path, and the Watch companion remain pending human verification. See the [`real-device acceptance checklist`](docs/roadmap-checklist-2026-06-06.md) and [`roadmap`](docs/planning/roadmap.md).
+The Mac v1.1 source includes Codex Desktop 0.153.3 monitoring, bounded UTF-8 rollout handling, graceful daemon shutdown, observation diagnostics and Watch companion support. Mac, iPhone and Apple Watch have been installed locally; real phone approvals, recovery and phone-to-Watch state relay were verified. Full wrist approval, notification perception, voice and accessibility acceptance remain user follow-ups. App Store availability is separate from the Mac GitHub release. See the [latest Mac release](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest) and [roadmap](docs/planning/roadmap.md).
 
 ## 📄 License
 

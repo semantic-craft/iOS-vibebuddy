@@ -48,3 +48,17 @@ once its signed appcast is published.
 - Consistent status wording across the Mac app, the iPhone app, and Codex Micro.
 
 **Requires macOS 14 or later. Apple Silicon.**
+
+### Reliability fixes
+
+- Recognizes verified Codex Desktop 0.153.3 rollout files.
+- Avoids a false unknown-version warning when the bounded rollout read splits a UTF-8 character.
+- Exits the Mac app after graceful daemon shutdown, allowing an ordinary reopen to restore the service.
+
+### iPhone and Apple Watch companion
+
+The source includes the paired Watch companion and phone-to-Watch session-state relay. The Mac download is the companion server; iPhone and Watch App Store updates are distributed separately. Full wrist interaction and notification experience remain real-use follow-ups.
+
+### Updating from v1.0
+
+Install this DMG manually once. The original v1.0 update URL was invalid and cannot discover v1.1. This release uses the official signed feed for future updates; the one-time manual installation is not an automatic v1.0-to-v1.1 upgrade test.

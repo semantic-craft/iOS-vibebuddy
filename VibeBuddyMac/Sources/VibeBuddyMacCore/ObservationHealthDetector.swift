@@ -338,12 +338,18 @@ public enum ObservationHealthDetector {
         fileManager fm: FileManager
     ) -> RolloutInspection {
         let limit = 1 << 20
-        guard let data = readData(at: url, upToCount: limit, fileManager: fm),
-              let text = String(data: data, encoding: .utf8) else { return .unsupported }
+        guard var data = readData(at: url, upToCount: limit, fileManager: fm) else { return .unsupported }
         let fileSize = ((try? fm.attributesOfItem(atPath: url.path))?[.size] as? NSNumber)?.intValue
         let truncated = (fileSize ?? data.count) > data.count
-        var lines = text.split(separator: "\n", omittingEmptySubsequences: true)
-        if truncated, data.last != 0x0A, !lines.isEmpty { lines.removeLast() }
+        // The byte limit can split a UTF-8 character as well as a JSON record.
+        // Drop the incomplete record before strict decoding, so a valid stream
+        // is not rejected merely because its 1 MiB boundary falls inside text.
+        if truncated, data.last != 0x0A {
+            guard let newline = data.lastIndex(of: 0x0A) else { return .unsupported }
+            data = data.prefix(through: newline)
+        }
+        guard let text = String(data: data, encoding: .utf8) else { return .unsupported }
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: true)
 
         var version: String?
         var hasSupportedEvent = false
@@ -379,6 +385,8 @@ public enum ObservationHealthDetector {
         guard components.count >= 2, let minor = Int(components[1]) else { return false }
         // Pre-1.0 minor versions may change the rollout schema. Keep this an
         // explicit allowlist so a future semver is not mistaken for evidence.
-        return major == 0 && minor == 151
+        // H2-R real Desktop replay verified 0.153.3 turn/tool/model/token shapes.
+        // Admit only that observed release, not every unverified 0.153 patch.
+        return (major == 0 && minor == 151) || version == "0.153.3"
     }
 }
