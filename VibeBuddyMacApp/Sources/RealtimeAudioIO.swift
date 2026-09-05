@@ -5,7 +5,7 @@ import VibeBuddyKit
 
 private let rtAudioLog = Logger(subsystem: "com.vibebuddy.mac", category: "realtime-audio")
 
-/// Full-duplex audio for the omni-realtime voice session, on one `AVAudioEngine`:
+/// Full-duplex audio for the realtime voice session, on one `AVAudioEngine`:
 /// the mic tap is converted to **16 kHz mono PCM16** and handed to `onAudioFrame`;
 /// incoming **24 kHz mono PCM16** is converted to float and streamed out a player
 /// node. Deliberately NOT `@MainActor` — the tap runs on the audio render thread,

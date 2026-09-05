@@ -109,7 +109,7 @@ final class VoiceChat: ObservableObject {
 
         let session: any RealtimeVoiceProvider
         switch provider {
-        case .qwen:   session = QwenRealtimeSession(apiKey: key, model: model, useIntl: VoiceSettings.useIntl)
+        case .qwen:   session = QwenRealtimeSession(apiKey: key, model: model, workspaceID: VoiceSettings.qwenWorkspaceID, useIntl: VoiceSettings.useIntl)
         case .openai: session = OpenAIRealtimeSession(apiKey: key, model: model)
         case .gemini: session = GeminiRealtimeSession(apiKey: key, model: model)
         }

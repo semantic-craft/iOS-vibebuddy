@@ -31,26 +31,43 @@ public protocol RealtimeVoiceProvider: Actor {
     func close()
 }
 
-/// Alibaba Bailian / DashScope Qwen-Omni-Realtime over its OpenAI-Realtime-style
-/// WebSocket (`wss://…/api-ws/v1/realtime`). One model handles ears + brain +
-/// mouth: 16 kHz PCM in, 24 kHz PCM out, server-side semantic VAD.
+/// Alibaba Bailian / DashScope **Qwen-Audio 3.0 Realtime** over its
+/// OpenAI-Realtime-style WebSocket (`wss://…/api-ws/v1/realtime`). One duplex
+/// speech model handles ears + brain + mouth: 16 kHz PCM in, 24 kHz PCM out,
+/// server-side `smart_turn` turn detection, input transcription always on.
+/// Verified against `qwen-audio-3.0-realtime-plus`.
 public actor QwenRealtimeSession: RealtimeVoiceProvider {
     private let apiKey: String
     private let model: String
+    private let workspaceID: String?
     private let useIntl: Bool
 
     private var task: URLSessionWebSocketTask?
     private var continuation: AsyncStream<RealtimeVoiceEvent>.Continuation?
     private var tools: [VoiceTool] = []
 
-    public init(apiKey: String, model: String = "qwen3.5-omni-plus-realtime", useIntl: Bool = false) {
+    /// - Parameters:
+    ///   - workspaceID: Bailian workspace ID. When given, connects through the
+    ///     workspace-specific `{id}.<region>.maas.aliyuncs.com` endpoint that
+    ///     Alibaba recommends; `nil` uses the shared `dashscope` domain.
+    ///   - useIntl: Singapore (international) region instead of Beijing.
+    public init(apiKey: String, model: String = "qwen-audio-3.0-realtime-plus",
+                workspaceID: String? = nil, useIntl: Bool = false) {
         self.apiKey = apiKey
         self.model = model
+        self.workspaceID = workspaceID
         self.useIntl = useIntl
     }
 
-    private var endpoint: URL {
-        let host = useIntl ? "dashscope-intl.aliyuncs.com" : "dashscope.aliyuncs.com"
+    private var endpoint: URL { Self.endpoint(model: model, workspaceID: workspaceID, useIntl: useIntl) }
+
+    static func endpoint(model: String, workspaceID: String?, useIntl: Bool) -> URL {
+        let host: String
+        if let workspaceID {
+            host = "\(workspaceID).\(useIntl ? "ap-southeast-1" : "cn-beijing").maas.aliyuncs.com"
+        } else {
+            host = useIntl ? "dashscope-intl.aliyuncs.com" : "dashscope.aliyuncs.com"
+        }
         return URL(string: "wss://\(host)/api-ws/v1/realtime?model=\(model)")!
     }
 
@@ -71,25 +88,27 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
     }
 
     private func configureSession(instructions: String, voice: String) {
+        send(["event_id": "ev_\(UUID().uuidString)", "type": "session.update",
+              "session": Self.sessionConfig(instructions: instructions, voice: voice, tools: tools)])
+        continuation?.yield(.connected)
+    }
+
+    /// Audio format is fixed by the model (PCM 16 kHz in / 24 kHz out) and input
+    /// transcription is on by default, so neither is declared. `smart_turn` fuses
+    /// acoustics + semantics so filler and noise don't end the user's turn; it
+    /// takes no threshold / silence fields.
+    static func sessionConfig(instructions: String, voice: String, tools: [VoiceTool]) -> [String: Any] {
         var session: [String: Any] = [
             "modalities": ["text", "audio"],
             "voice": voice,
-            "input_audio_format": "pcm",
-            "output_audio_format": "pcm",
             "instructions": instructions,
-            "input_audio_transcription": ["enable": true],
-            "turn_detection": [
-                "type": "semantic_vad",
-                "threshold": 0.5,
-                "silence_duration_ms": 800,
-            ],
+            "turn_detection": ["type": "smart_turn"],
         ]
         if !tools.isEmpty {
             session["tools"] = tools.map { $0.functionSchema() }
             session["tool_choice"] = "auto"
         }
-        send(["event_id": "ev_\(UUID().uuidString)", "type": "session.update", "session": session])
-        continuation?.yield(.connected)
+        return session
     }
 
     public func appendAudio(_ pcm16k: Data) {

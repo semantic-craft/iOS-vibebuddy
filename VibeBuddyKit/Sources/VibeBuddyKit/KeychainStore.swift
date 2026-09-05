@@ -73,10 +73,8 @@ public enum VoiceLanguage: String, CaseIterable, Sendable {
 /// Keychain (user-provided, BYO); the rest are plain UserDefaults values. The
 /// companion is available whenever a key is present — no separate enable toggle.
 public enum VoiceSettings {
-    /// Legacy alias for the Qwen key account (kept so existing keys still load).
-    public static let apiKeyKeychain = "dashscope.apiKey"
-    public static let modelKey = "voiceModel"
     public static let regionIntlKey = "voiceRegionIntl"
+    public static let qwenWorkspaceIDKey = "voiceQwenWorkspaceID"
     public static let conversationLanguageKey = "voiceConversationLanguage"
     public static let providerKey = "voiceProvider"
     public static let companionEnabledKey = "voiceCompanionEnabled"
@@ -85,10 +83,16 @@ public enum VoiceSettings {
     public static func modelKey(_ p: VoiceProvider) -> String { "voiceModel.\(p.rawValue)" }
     public static func voiceKey(_ p: VoiceProvider) -> String { "voiceVoice.\(p.rawValue)" }
 
-    public static var apiKey: String? { KeychainStore.get(apiKeyKeychain) }
-    public static var model: String { UserDefaults.standard.string(forKey: modelKey) ?? "qwen-plus" }
-    /// China (Beijing) endpoint by default; toggle for the international site.
+    /// Beijing region by default; toggle for the Singapore (international) region.
     public static var useIntl: Bool { UserDefaults.standard.bool(forKey: regionIntlKey) }
+    /// Bailian workspace ID (optional). When set, Qwen connects through the
+    /// workspace-specific `{id}.<region>.maas.aliyuncs.com` endpoint that Alibaba
+    /// now recommends; blank keeps the shared `dashscope` domain.
+    public static var qwenWorkspaceID: String? {
+        let v = (UserDefaults.standard.string(forKey: qwenWorkspaceIDKey) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return v.isEmpty ? nil : v
+    }
     /// Conversation language; English by default to match the app UI.
     public static var conversationLanguage: VoiceLanguage {
         VoiceLanguage(rawValue: UserDefaults.standard.string(forKey: conversationLanguageKey) ?? "")

@@ -29,7 +29,7 @@ public struct VoiceTool: Sendable {
         return ["type": ty("object"), "properties": properties, "required": required]
     }
 
-    /// OpenAI Realtime (GA) / Qwen-Omni flat function-tool object for
+    /// OpenAI Realtime (GA) / Qwen-Audio Realtime flat function-tool object for
     /// `session.tools` — `{type:"function", name, description, parameters}`.
     public func functionSchema() -> [String: Any] {
         ["type": "function", "name": name, "description": description,
