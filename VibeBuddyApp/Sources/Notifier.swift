@@ -20,42 +20,84 @@ protocol AttentionNotifier: Sendable {
     func confirmPairing()
 }
 
+/// Runs notification-center work strictly in the order it was asked for. A
+/// post now looks in Notification Center before it adds, which takes a moment;
+/// a withdrawal asked for right after must still land after it.
+private final class SerialTaskChain: @unchecked Sendable {
+    private let lock = NSLock()
+    private var last: Task<Void, Never>?
+
+    func enqueue(_ operation: @escaping @Sendable () async -> Void) {
+        lock.withLock {
+            let previous = last
+            last = Task {
+                await previous?.value
+                await operation()
+            }
+        }
+    }
+}
+
 struct LocalNotifier: AttentionNotifier {
+    private static let chain = SerialTaskChain()
+
     func requestAuthorization() {
         UNUserNotificationCenter.current()
             .requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
     }
 
+    /// Post the cue — unless, for a waiting cue, the Mac's push for this very
+    /// wait has already been delivered here (ADR-0012). Either way the Mac is
+    /// told: a receipt for what was posted lets it drop the push it is holding,
+    /// and a note of what was left to the push keeps the delivery log honest.
     func notify(_ alert: SoundAlert) {
         let (title, body) = Self.copy(for: alert)
-        // The identifier the Mac's push uses as its collapse id: whichever
-        // channel gets there first, iOS keeps one notification, and the Watch
-        // mirrors one.
-        post(title: title, body: body, sound: alert.sound, delivery: alert.delivery,
-             id: alert.notificationID, sessionID: alert.sessionID)
+        let cue = NotifiedPayload.Cue(identifier: alert.notificationID, since: alert.session.statusSince)
+        let sound = alert.sound
+        let delivery = alert.delivery
+        let sessionID = alert.sessionID
+        Self.chain.enqueue {
+            if sound.isWaitingCue, await PushCoverage.shared.covers(cue.identifier, since: cue.since) {
+                await PushRegistration.shared.report(coveredByPush: [cue])
+                return
+            }
+            do {
+                try await Self.post(title: title, body: body, sound: sound, delivery: delivery,
+                                    id: cue.identifier, sessionID: sessionID)
+            } catch {
+                return   // nothing shown, so nothing for the Mac to stand down for
+            }
+            await PushRegistration.shared.report(posted: [cue])
+        }
     }
 
     func withdraw(_ identifiers: [String]) {
         guard !identifiers.isEmpty else { return }
-        let center = UNUserNotificationCenter.current()
-        center.removeDeliveredNotifications(withIdentifiers: identifiers)
-        center.removePendingNotificationRequests(withIdentifiers: identifiers)
+        Self.chain.enqueue {
+            let center = UNUserNotificationCenter.current()
+            center.removeDeliveredNotifications(withIdentifiers: identifiers)
+            center.removePendingNotificationRequests(withIdentifiers: identifiers)
+            await PushCoverage.shared.forget(identifiers)
+        }
     }
 
     /// A fresh pairing just succeeded — the one chrome cue not tied to a session.
     func confirmPairing() {
-        post(title: String(localized: "Connected"),
-             body: String(localized: "VibeBuddy is watching your sessions."),
-             sound: .pairSuccess, id: NotificationID.pairSuccess)
+        let title = String(localized: "Connected")
+        let body = String(localized: "VibeBuddy is watching your sessions.")
+        Self.chain.enqueue {
+            try? await Self.post(title: title, body: body, sound: .pairSuccess,
+                                 id: NotificationID.pairSuccess)
+        }
     }
 
-    private func post(title: String, body: String, sound: NotificationSound,
-                      delivery: DeliveryLevel = .bannerSound,
-                      id: String, sessionID: String? = nil) {
+    private static func post(title: String, body: String, sound: NotificationSound,
+                             delivery: DeliveryLevel = .bannerSound,
+                             id: String, sessionID: String? = nil) async throws {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
-        content.sound = delivery.makesSound && Self.soundOn
+        content.sound = delivery.makesSound && soundOn
             ? UNNotificationSound(named: UNNotificationSoundName(rawValue: sound.fileName))
             : nil
         // A list-only cue is filed in Notification Center without a banner.
@@ -67,7 +109,7 @@ struct LocalNotifier: AttentionNotifier {
             content.targetContentIdentifier = sessionID
             content.userInfo = ["sessionId": sessionID]
         }
-        UNUserNotificationCenter.current()
+        try await UNUserNotificationCenter.current()
             .add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
     }
 

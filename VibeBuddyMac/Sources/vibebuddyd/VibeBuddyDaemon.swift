@@ -27,7 +27,12 @@ struct VibeBuddyDaemon {
         let apnsConfig = APNsConfig.load()
         let deliveryRecorder = NotificationDeliveryRecorder(
             url: deliveryURL, apnsConfigured: apnsConfig != nil)
-        let pusher = apnsConfig.flatMap { try? APNsPusher(config: $0, recorder: deliveryRecorder) }
+        // Phones report the cues they posted themselves here; the pusher stands
+        // its own push down for those (ADR-0012).
+        let phoneReceipts = PhoneReceipts(recorder: deliveryRecorder)
+        let pusher = apnsConfig.flatMap {
+            try? APNsPusher(config: $0, recorder: deliveryRecorder, receipts: phoneReceipts)
+        }
         // The app-server monitor raises cards the phone answers through the
         // same routes as hook-raised ones, so the two share every registry.
         let approvalRegistry = ApprovalRegistry()
@@ -41,7 +46,7 @@ struct VibeBuddyDaemon {
                 journalURL: journalURL,
                 attentionURL: AttentionOverrides.defaultURL()
             ),
-            token: token, port: port, pusher: pusher,
+            token: token, port: port, pusher: pusher, phoneReceipts: phoneReceipts,
             codexRolloutMonitor: CodexRolloutMonitor(),
             codexAppServerMonitor: CodexAppServerMonitor(
                 approvalRegistry: approvalRegistry, allowStore: allowStore,

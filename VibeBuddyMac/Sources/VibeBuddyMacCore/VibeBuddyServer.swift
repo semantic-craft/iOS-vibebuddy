@@ -13,6 +13,10 @@ public struct VibeBuddyServer: Sendable {
     public let host: String
     public let port: Int
     public let pusher: APNsPusher?
+    /// Where phones report the cues they posted themselves (`POST /notified`),
+    /// so the push for the same cue can stand down (ADR-0012). Shared with the
+    /// pusher, which is what consults it.
+    public let phoneReceipts: PhoneReceipts
     public let deviceTokens: DeviceTokens
     /// Live Activity push tokens registered by phones (dynamic-island/02).
     public let activityTokens: ActivityTokens
@@ -69,6 +73,7 @@ public struct VibeBuddyServer: Sendable {
 
     public init(store: SessionStore, token: String, host: String = "0.0.0.0",
                 port: Int = 9876, pusher: APNsPusher? = nil,
+                phoneReceipts: PhoneReceipts = PhoneReceipts(),
                 deviceTokens: DeviceTokens = DeviceTokens(),
                 activityTokens: ActivityTokens = ActivityTokens(),
                 codexRolloutMonitor: CodexRolloutMonitor? = nil,
@@ -99,6 +104,7 @@ public struct VibeBuddyServer: Sendable {
         self.host = host
         self.port = port
         self.pusher = pusher
+        self.phoneReceipts = phoneReceipts
         self.deviceTokens = deviceTokens
         self.activityTokens = activityTokens
         self.codexRolloutMonitor = codexRolloutMonitor
@@ -229,19 +235,28 @@ public struct VibeBuddyServer: Sendable {
                     // and a phone in Quiet mode reads the cue through `muted`.
                     let level = DeliveryMatrix.level(for: sound, attention: session.effectiveAttention)
                     guard level.interrupts else { return }
-                    for device in await deviceTokens.devices() {
-                        guard let deviceToken = device.token,
-                              (device.categories ?? .default).isEnabled(sound) else { continue }
-                        var deviceLevel = level
-                        if device.quietMode == true {
-                            deviceLevel = min(deviceLevel, DeliveryMatrix.level(for: sound, attention: .muted))
+                    // A phone with a live stream may be posting this cue itself
+                    // right now: hold each push briefly for its receipt. The
+                    // devices wait side by side, not one after another.
+                    let hold = await store.subscriberCount > 0
+                    await withTaskGroup(of: Void.self) { group in
+                        for device in await deviceTokens.devices() {
+                            guard let deviceToken = device.token,
+                                  (device.categories ?? .default).isEnabled(sound) else { continue }
+                            var deviceLevel = level
+                            if device.quietMode == true {
+                                deviceLevel = min(deviceLevel, DeliveryMatrix.level(for: sound, attention: .muted))
+                            }
+                            guard deviceLevel.interrupts else { continue }
+                            let soundFile = deviceLevel.makesSound && device.playSound != false ? sound.fileName : ""
+                            group.addTask {
+                                await pusher.send(title: copy.title, body: copy.body, to: deviceToken,
+                                                  sound: soundFile,
+                                                  sessionID: session.id, soundCategory: sound.rawValue,
+                                                  localized: PushLocalization(copy),
+                                                  waitSince: session.statusSince, holdForPhone: hold)
+                            }
                         }
-                        guard deviceLevel.interrupts else { continue }
-                        let soundFile = deviceLevel.makesSound && device.playSound != false ? sound.fileName : ""
-                        await pusher.send(title: copy.title, body: copy.body, to: deviceToken,
-                                          sound: soundFile,
-                                          sessionID: session.id, soundCategory: sound.rawValue,
-                                          localized: PushLocalization(copy))
                     }
                 }
             }
@@ -287,7 +302,7 @@ public struct VibeBuddyServer: Sendable {
             await pusher.send(title: copy.title, body: copy.body,
                               to: token, sound: device.playSound != false ? sound.fileName : "",
                               now: now, sessionID: session.id, soundCategory: sound.rawValue,
-                              localized: PushLocalization(copy))
+                              localized: PushLocalization(copy), waitSince: session.statusSince)
         }
         return attempted
     }
@@ -331,6 +346,18 @@ public struct VibeBuddyServer: Sendable {
                 await deviceTokens.add(body)
                 onDevicePaired(DeviceRegistrationPayload(token: body))
             }
+            return .ok
+        }
+
+        // A phone says what it did about some cues itself: posted them, or left
+        // them to a push that had already landed. Token-gated. The pusher
+        // consults this before every push (ADR-0012).
+        let phoneReceipts = self.phoneReceipts
+        authed.post("notified") { request, _ -> HTTPResponse.Status in
+            let buffer = try await request.body.collect(upTo: 1 << 16)
+            guard let payload = try? JSONDecoder().decode(NotifiedPayload.self, from: Data(buffer: buffer)),
+                  !payload.token.isEmpty else { throw HTTPError(.badRequest) }
+            await phoneReceipts.record(payload)
             return .ok
         }
 

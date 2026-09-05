@@ -121,6 +121,13 @@ code, and tests — don't drift to synonyms.
   agents without such proposals (ADR-0010, amended 2026-09-05).
 - **Approval / Answer** — the two remote actions on a session: approve/deny a
   pending permission, or inject a text answer.
+- **Receipt** — the phone's report (`POST /notified`, `NotifiedPayload`) that it
+  posted a cue's local notification itself, naming the cue's identifier and
+  the wait it announced. `PhoneReceipts` holds them on the Mac; a push for a
+  cue with a receipt from that phone is `filtered` instead of sent (ADR-0012).
+- **Push coverage** — the phone's check, before posting a *waiting* cue, that a
+  delivered (or just-tapped) push with the same identifier already announced
+  this wait; if so the cue is left to the push and reported as `coveredByPush`.
 
 ## Observability (2026-09)
 

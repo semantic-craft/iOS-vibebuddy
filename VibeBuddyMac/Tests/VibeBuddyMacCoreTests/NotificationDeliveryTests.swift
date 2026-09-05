@@ -8,10 +8,10 @@ import VibeBuddyKit
 struct NotificationDeliveryTests {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
 
-    @Test("delivery vocabulary is attempted/scheduled/accepted/failed and never delivered")
+    @Test("delivery vocabulary is attempted/scheduled/accepted/failed/filtered and never delivered")
     func vocabularyNeverDelivered() {
         #expect(Set(NotificationDeliveryOutcome.allCases.map(\.rawValue)) == [
-            "attempted", "scheduled", "accepted", "failed",
+            "attempted", "scheduled", "accepted", "failed", "filtered",
         ])
         #expect(!NotificationDeliveryOutcome.allCases.map(\.rawValue).contains("delivered"))
         #expect(NotificationDeliveryHealth.summary(for: .scheduled) == "Last attempt: scheduled")

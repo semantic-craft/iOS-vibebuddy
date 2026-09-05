@@ -106,6 +106,9 @@ final class MenuBarModel: ObservableObject {
     // a backgrounded phone, so the phone hears the full pack (not just needs-you).
     private let pusher: APNsPusher?
     private let deviceTokens = DeviceTokens()
+    /// What each phone said it posted itself (`POST /notified`); the pusher
+    /// stands its own push down for those (ADR-0012).
+    private let phoneReceipts: PhoneReceipts
     private let budgetMonitor = BudgetMonitor()
     /// Account usage is intentionally separate from `sessions`; refresh errors
     /// never enter SessionStore or the progress notification pipeline.
@@ -174,7 +177,9 @@ final class MenuBarModel: ObservableObject {
         let recorder = NotificationDeliveryRecorder(
             url: deliveryURL, apnsConfigured: apnsConfig != nil)
         deliveryRecorder = recorder
-        pusher = apnsConfig.flatMap { try? APNsPusher(config: $0, recorder: recorder) }
+        let receipts = PhoneReceipts(recorder: recorder)
+        phoneReceipts = receipts
+        pusher = apnsConfig.flatMap { try? APNsPusher(config: $0, recorder: recorder, receipts: receipts) }
         notificationDeliveryHealth = NotificationDeliveryHealth(apnsConfigured: apnsConfig != nil)
         // The views read usage through this model's facades, so the coordinator's
         // changes have to reach the same `objectWillChange` they observe. Set up
@@ -244,7 +249,8 @@ final class MenuBarModel: ObservableObject {
         // pusher: nil — push is driven from startPolling off the same cues the
         // Mac notifies on; the server only collects device tokens/prefs.
         let server = VibeBuddyServer(store: store, token: token, port: port,
-                                     pusher: nil, deviceTokens: deviceTokens,
+                                     pusher: nil, phoneReceipts: phoneReceipts,
+                                     deviceTokens: deviceTokens,
                                      activityTokens: activityTokens,
                                      codexRolloutMonitor: CodexRolloutMonitor(),
                                      codexAppServerMonitor: codexAppServerMonitor,
@@ -313,7 +319,9 @@ final class MenuBarModel: ObservableObject {
                     focusedSessionIDs: focused,                // …or looking at the session's own terminal
                     categories: NotificationCategoryPrefs.load()) // this Mac's own switches
                 await self.refreshNotificationDeliveryHealth()
-                await self.pushToPhones(alerts)
+                // Off the loop: a push may hold for the phone's receipt, and the
+                // glance must not wait with it.
+                Task { await self.pushToPhones(alerts) }
                 await self.pushActivityUpdates(snapshot.sessions)
                 await self.checkBudget(snapshot.sessions)
                 try? await Task.sleep(for: .seconds(2))
@@ -428,20 +436,30 @@ final class MenuBarModel: ObservableObject {
     private func push(_ alert: SoundAlert, to devices: [DeviceRegistrationPayload]) async -> Bool {
         guard let pusher else { return false }
         let copy = PushCopy.copy(for: alert.sound, session: alert.session)
+        // A phone with a live stream may be posting this cue itself right now:
+        // hold each push briefly for its receipt (ADR-0012), all devices side
+        // by side. A cue the phone did not report goes out as before.
+        let hold = await store.subscriberCount > 0
+        let waitSince = alert.session.statusSince
         var attempted = false
-        for device in devices {
-            guard let deviceToken = device.token,
-                  (device.categories ?? .default).isEnabled(alert.sound) else { continue }
-            var level = alert.delivery
-            if device.quietMode == true {
-                level = min(level, DeliveryMatrix.level(for: alert.sound, attention: .muted))
+        await withTaskGroup(of: Void.self) { group in
+            for device in devices {
+                guard let deviceToken = device.token,
+                      (device.categories ?? .default).isEnabled(alert.sound) else { continue }
+                var level = alert.delivery
+                if device.quietMode == true {
+                    level = min(level, DeliveryMatrix.level(for: alert.sound, attention: .muted))
+                }
+                guard level.interrupts else { continue }
+                let sound = level.makesSound && device.playSound != false ? alert.sound.fileName : ""
+                attempted = true
+                group.addTask {
+                    await pusher.send(title: copy.title, body: copy.body, to: deviceToken, sound: sound,
+                                      sessionID: alert.sessionID, soundCategory: alert.sound.rawValue,
+                                      localized: PushLocalization(copy),
+                                      waitSince: waitSince, holdForPhone: hold)
+                }
             }
-            guard level.interrupts else { continue }
-            let sound = level.makesSound && device.playSound != false ? alert.sound.fileName : ""
-            attempted = true
-            await pusher.send(title: copy.title, body: copy.body, to: deviceToken, sound: sound,
-                              sessionID: alert.sessionID, soundCategory: alert.sound.rawValue,
-                              localized: PushLocalization(copy))
         }
         return attempted
     }
