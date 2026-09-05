@@ -5,6 +5,10 @@ import VibeBuddyKit
 /// implementation posts a local notification with the cue's sound; tests use a spy.
 public protocol AttentionNotifier {
     func notify(_ alert: SoundAlert) async -> LocalNotificationAttempt
+    /// Take back notifications whose session is no longer waiting: a banner or
+    /// a list entry for an answered approval describes something nobody is
+    /// blocked on any more. Identifiers are `SoundAlert.notificationID`.
+    func withdraw(_ identifiers: [String]) async
 }
 
 /// Feeds each snapshot through the shared `SoundPolicy` and forwards the cues it
@@ -17,6 +21,9 @@ public final class NotificationCoordinator: @unchecked Sendable {
     private let notifier: AttentionNotifier
     private let policy: SoundPolicy
     private let delivery: (any NotificationDeliveryRecording)?
+    /// What was posted for each waiting session, so it can be withdrawn the
+    /// moment the session stops waiting. Completions are never tracked.
+    private var ledger = WaitingNotificationLedger()
 
     public init(
         notifier: AttentionNotifier,
@@ -36,6 +43,11 @@ public final class NotificationCoordinator: @unchecked Sendable {
                                      appActive: appActive, quietMode: quietMode,
                                      focusedSessionIDs: focusedSessionIDs)
         let alerts = policy.evaluate(input)
+        // Withdraw before posting: a session that left one wait and entered
+        // another in the same snapshot keeps only the new cue.
+        let stale = ledger.withdrawals(for: sessions)
+        if !stale.isEmpty { await notifier.withdraw(stale) }
+        ledger.record(alerts)
         for alert in alerts {
             let attempt = await notifier.notify(alert)
             guard attempt.shouldRecord else { continue }

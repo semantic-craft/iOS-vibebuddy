@@ -29,13 +29,20 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
             return .failed(reason: classified.failureReason ?? "permissionDenied")
         }
         do {
+            // The same identifier the phone uses, so the ledger can name it.
             try await post(title: title, body: body, sound: alert.sound, delivery: alert.delivery,
-                           id: "\(alert.sessionID)-\(alert.sound.rawValue)")
+                           id: alert.notificationID)
             return .scheduled()
         } catch {
             return .failed(reason: LocalNotificationDelivery.classify(
                 authorized: true, scheduleError: error).failureReason ?? "scheduleFailed")
         }
+    }
+
+    func withdraw(_ identifiers: [String]) async {
+        guard !identifiers.isEmpty else { return }
+        center.removeDeliveredNotifications(withIdentifiers: identifiers)
+        center.removePendingNotificationRequests(withIdentifiers: identifiers)
     }
 
     /// A phone just paired — the one chrome cue that isn't tied to a session.

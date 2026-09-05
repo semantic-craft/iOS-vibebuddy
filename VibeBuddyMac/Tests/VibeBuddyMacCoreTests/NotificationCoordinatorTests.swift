@@ -15,10 +15,12 @@ struct NotificationCoordinatorTests {
     final class SpyNotifier: AttentionNotifier {
         var result: LocalNotificationAttempt = .scheduled()
         private(set) var played: [(id: String, sound: NotificationSound)] = []
+        private(set) var withdrawn: [[String]] = []
         func notify(_ alert: SoundAlert) async -> LocalNotificationAttempt {
             played.append((alert.sessionID, alert.sound))
             return result
         }
+        func withdraw(_ identifiers: [String]) async { withdrawn.append(identifiers) }
     }
 
     private func session(_ id: String, _ status: SessionStatus, wait: WaitKind? = nil,
@@ -41,6 +43,26 @@ struct NotificationCoordinatorTests {
         #expect(Set(spy.played.map { "\($0.id):\($0.sound.rawValue)" }) == [
             "claude:needs_approval", "codex:agent_done",
         ])
+    }
+
+    @Test("a waiting cue is withdrawn once its session stops waiting; a completion stays")
+    func withdrawsResolvedWaits() async {
+        let spy = SpyNotifier()
+        let c = NotificationCoordinator(notifier: spy)
+        let t0 = Date(timeIntervalSince1970: 1_000)
+        await c.observe([session("q", .working, since: t0), session("d", .working, since: t0)],
+                        now: t0, appActive: false, quietMode: false)
+        await c.observe([session("q", .needsResponse, wait: .question, since: t0),
+                         session("d", .done, since: t0)],
+                        now: t0.addingTimeInterval(60), appActive: false, quietMode: false)
+        #expect(spy.withdrawn.isEmpty)
+        // Answered on the terminal: q is working again, d is still just done.
+        await c.observe([session("q", .working, since: t0), session("d", .done, since: t0)],
+                        now: t0.addingTimeInterval(61), appActive: false, quietMode: false)
+        #expect(spy.withdrawn == [[NotificationIdentity.id(sessionID: "q", sound: .needsAnswer)]])
+        // Gone entirely: nothing left to withdraw for q, and d was never tracked.
+        await c.observe([], now: t0.addingTimeInterval(62), appActive: false, quietMode: false)
+        #expect(spy.withdrawn.count == 1)
     }
 
     @Test("forwards a fresh question transition as needs_answer")
