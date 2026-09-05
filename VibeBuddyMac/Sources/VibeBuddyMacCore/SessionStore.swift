@@ -29,11 +29,14 @@ public actor SessionStore {
     private var runtimeSignals: [AgentKind: [ObservationSource: ObservationRuntimeSignal]] = [:]
     private var diagnosticCache: (at: Date, value: [AgentObservationDiagnostic])?
     private var lifecycleJournal: LifecycleJournal?
+    /// The user's hand-set attention levels, layered onto every snapshot.
+    private var attention: AttentionOverrides
 
     public init(
         staleAfter: TimeInterval = 2 * 60 * 60,
         diagnosticsHome: URL? = nil,
         journalURL: URL? = nil,
+        attentionURL: URL? = nil,
         grokHome: URL? = nil,
         now: Date = Date()
     ) {
@@ -45,6 +48,20 @@ public actor SessionStore {
             self.lifecycleJournal = journal
             reducer.restore(journal.restorableSessions(now: now, meaningfulFor: staleAfter))
         }
+        var attention = AttentionOverrides(url: attentionURL)
+        attention.prune(keeping: Set(reducer.sessions.keys))
+        self.attention = attention
+    }
+
+    /// Set (or with `nil` clear) the user's attention choice for a live session.
+    /// Returns false when no such session exists — there is nothing to attach
+    /// the choice to, and it would never be pruned.
+    @discardableResult
+    public func setAttention(sessionID: String, _ level: SessionAttention?) -> Bool {
+        guard reducer.sessions[sessionID] != nil else { return false }
+        attention.set(level, for: sessionID)
+        broadcast()
+        return true
     }
 
     /// Change the idle-cleanup window at runtime (from Settings).
@@ -67,6 +84,7 @@ public actor SessionStore {
             transcriptPaths[id] = nil
             grokDirectories[id] = nil
         }
+        attention.prune(keeping: Set(reducer.sessions.keys))
         for id in removed {
             guard let session = before[id] else { continue }
             appendJournal(
@@ -142,6 +160,7 @@ public actor SessionStore {
             transcriptPaths[event.sessionID] = nil
             pendingTerminalRefs[event.sessionID] = nil
             grokDirectories[event.sessionID] = nil
+            attention.set(nil, for: event.sessionID)
         } else {
             // Grok keeps a session's facts in a directory of files rather than
             // one transcript, so it enriches from that directory instead.
@@ -315,6 +334,11 @@ public actor SessionStore {
     private func currentSnapshot(now: Date) -> Snapshot {
         var snapshot = reducer.snapshot(now: now, observationDiagnostics: diagnostics(now: now))
         snapshot.providerQuota = providerQuota.isEmpty ? nil : providerQuota
+        snapshot.sessions = snapshot.sessions.map { session in
+            var session = session
+            session.attention = attention[session.id]
+            return session
+        }
         return snapshot
     }
 

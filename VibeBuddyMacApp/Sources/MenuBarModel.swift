@@ -68,7 +68,6 @@ final class MenuBarModel: ObservableObject {
     // a backgrounded phone, so the phone hears the full pack (not just needs-you).
     private let pusher: APNsPusher?
     private let deviceTokens = DeviceTokens()
-    private let phonePolicy = SoundPolicy()
     private let budgetMonitor = BudgetMonitor()
     /// Account usage is intentionally separate from `sessions`; refresh errors
     /// never enter SessionStore or the progress notification pipeline.
@@ -95,7 +94,8 @@ final class MenuBarModel: ObservableObject {
             diagnosticsHome: FileManager.default.homeDirectoryForCurrentUser,
             journalURL: ProcessInfo.processInfo.environment["VIBEBUDDY_JOURNAL_PATH"].map {
                 URL(fileURLWithPath: $0)
-            } ?? LifecycleJournalLocation.defaultURL()
+            } ?? LifecycleJournalLocation.defaultURL(),
+            attentionURL: AttentionOverrides.defaultURL()
         )
         // File-based store (owner-only): no Keychain ACL, so an ad-hoc rebuild
         // never re-prompts. Shared with vibebuddyd's default store.
@@ -177,8 +177,8 @@ final class MenuBarModel: ObservableObject {
     }
 
     private func startServer() {
-        // pusher: nil — push is driven from startPolling via `phonePolicy` so the
-        // phone gets the whole pack; the server only collects device tokens/prefs.
+        // pusher: nil — push is driven from startPolling off the same cues the
+        // Mac notifies on; the server only collects device tokens/prefs.
         let server = VibeBuddyServer(store: store, token: token, port: port,
                                      pusher: nil, deviceTokens: deviceTokens,
                                      activityTokens: activityTokens,
@@ -225,13 +225,13 @@ final class MenuBarModel: ObservableObject {
                 let frontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
                 let focused = ForegroundTerminal.focusedSessionIDs(
                     among: snapshot.sessions, frontmostBundleID: frontmost)
-                await self.notificationCoordinator.observe(
+                let alerts = await self.notificationCoordinator.observe(
                     snapshot.sessions,
                     appActive: NSApp.isActive,                 // user looking at VibeBuddy?
-                    quietMode: Self.effectiveQuiet(),          // Focus mode (manual or nightly) → approvals only
+                    quietMode: Self.effectiveQuiet(),          // Focus mode (manual or nightly) → every session muted
                     focusedSessionIDs: focused)                // …or looking at the session's own terminal
                 await self.refreshNotificationDeliveryHealth()
-                await self.pushToPhones(snapshot.sessions)
+                await self.pushToPhones(alerts)
                 await self.pushActivityUpdates(snapshot.sessions)
                 await self.checkBudget(snapshot.sessions)
                 try? await Task.sleep(for: .seconds(2))
@@ -296,21 +296,25 @@ final class MenuBarModel: ObservableObject {
         }
     }
 
-    /// Push the full sound pack to paired phones, each device respecting its own
-    /// prefs. `appActive: false` = the phone's backgrounded view; when the phone
-    /// is actually foreground it suppresses the remote push (see willPresent).
-    private func pushToPhones(_ sessions: [AgentSession]) async {
-        guard let pusher else { return }
-        let alerts = phonePolicy.evaluate(SoundPolicyInput(
-            sessions: sessions, now: Date(), appActive: false, quietMode: false))
-        guard !alerts.isEmpty else { return }
+    /// Push the cues the Mac just decided on to paired phones. Only a cue loud
+    /// enough to interrupt here is worth pulling you back from elsewhere; a
+    /// list-only cue stays on the Mac. Each device then applies its own prefs:
+    /// its Quiet mode reads the cue through the `muted` column, never louder
+    /// than the Mac decided, and mute drops the sound. When the phone is in the
+    /// foreground it suppresses the remote push itself (see willPresent).
+    private func pushToPhones(_ alerts: [SoundAlert]) async {
+        guard let pusher, !alerts.isEmpty else { return }
         let devices = await deviceTokens.devices()
-        for alert in alerts {
+        for alert in alerts where alert.delivery.interrupts {
             let (title, body) = Self.pushCopy(for: alert)
             for device in devices {
                 guard let deviceToken = device.token else { continue }
-                if device.quietMode == true && !alert.sound.survivesQuietMode { continue }  // night: approvals only
-                let sound = device.playSound != false ? alert.sound.fileName : ""           // mute → silent banner
+                var level = alert.delivery
+                if device.quietMode == true {
+                    level = min(level, DeliveryMatrix.level(for: alert.sound, attention: .muted))
+                }
+                guard level.interrupts else { continue }
+                let sound = level.makesSound && device.playSound != false ? alert.sound.fileName : ""
                 await pusher.send(title: title, body: body, to: deviceToken, sound: sound,
                                   sessionID: alert.sessionID, soundCategory: alert.sound.rawValue)
             }

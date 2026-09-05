@@ -463,9 +463,9 @@ final class DashboardStore: ObservableObject {
             quietMode: SoundPrefs.effectiveQuiet()))
         for alert in alerts {
             notifier.notify(alert)
-            Haptics.play(for: alert.sound)   // a tasteful tap to go with the cue
+            if alert.delivery.interrupts { Haptics.play(for: alert.sound) }   // a tasteful tap to go with the cue
         }
-        if !alerts.isEmpty { cuePulse += 1 }   // let the buddy react
+        if alerts.contains(where: \.delivery.interrupts) { cuePulse += 1 }   // let the buddy react
         // Answered on the Mac, or gone entirely: the banner it left on the phone
         // and on the wrist is describing something nobody is blocked on.
         notifications.record(alerts)

@@ -12,9 +12,11 @@ struct SoundPolicyTests {
                          wait: WaitKind? = nil,
                          since: TimeInterval = 0,
                          summary: String? = nil,
-                         probeRetired: Bool? = nil) -> AgentSession {
+                         probeRetired: Bool? = nil,
+                         attention: SessionAttention? = nil) -> AgentSession {
         AgentSession(id: id, agent: .claudeCode, project: id, status: status,
                      waitKind: wait, summary: summary, probeRetired: probeRetired,
+                     attention: attention,
                      statusSince: Date(timeIntervalSince1970: since),
                      updatedAt: Date(timeIntervalSince1970: since))
     }
@@ -34,12 +36,30 @@ struct SoundPolicyTests {
         #expect(NotificationSound.agentDone.fileName == "agent_done.caf")
     }
 
-    @Test("only approvals survive Quiet/Focus mode")
-    func quietSurvivors() {
-        #expect(NotificationSound.needsApproval.survivesQuietMode)
-        for s in NotificationSound.allCases where s != .needsApproval {
-            #expect(!s.survivesQuietMode)
+    // MARK: DeliveryMatrix — the one table
+
+    @Test("the matrix matches the spec table row by row")
+    func matrixTable() {
+        typealias Row = (NotificationSound, DeliveryLevel, DeliveryLevel, DeliveryLevel)
+        let rows: [Row] = [
+            (.needsApproval, .bannerSound, .bannerSound, .banner),
+            (.agentStuck,    .bannerSound, .banner,      .list),
+            (.needsAnswer,   .bannerSound, .list,        .list),
+            (.agentDone,     .banner,      .list,        .drop),
+            (.longWaitNudge, .banner,      .list,        .drop),
+        ]
+        for (sound, followed, normal, muted) in rows {
+            #expect(DeliveryMatrix.level(for: sound, attention: .followed) == followed, "\(sound) followed")
+            #expect(DeliveryMatrix.level(for: sound, attention: .normal) == normal, "\(sound) normal")
+            #expect(DeliveryMatrix.level(for: sound, attention: .muted) == muted, "\(sound) muted")
         }
+    }
+
+    @Test("delivery levels order silent → loud, and only banners interrupt")
+    func deliveryOrdering() {
+        #expect(DeliveryLevel.drop < .list && .list < .banner && .banner < .bannerSound)
+        #expect(!DeliveryLevel.list.interrupts && DeliveryLevel.banner.interrupts)
+        #expect(DeliveryLevel.bannerSound.makesSound && !DeliveryLevel.banner.makesSound)
     }
 
     // MARK: First snapshot — no backlog noise
@@ -59,6 +79,7 @@ struct SoundPolicyTests {
         _ = p.evaluate(input([session("a", .working)], now: 0))
         let alerts = p.evaluate(input([session("a", .needsResponse, wait: .question, since: 1)], now: 1))
         #expect(alerts.map(\.sound) == [.needsAnswer])
+        #expect(alerts.map(\.delivery) == [.list])   // normal attention: a question waits in the list
     }
 
     @Test("a fresh permission transition rings needs_approval")
@@ -67,6 +88,46 @@ struct SoundPolicyTests {
         _ = p.evaluate(input([session("a", .working)], now: 0))
         let alerts = p.evaluate(input([session("a", .needsResponse, wait: .permission, since: 1)], now: 1))
         #expect(alerts.map(\.sound) == [.needsApproval])
+        #expect(alerts.map(\.delivery) == [.bannerSound])
+    }
+
+    // MARK: attention — the matrix applied per session
+
+    @Test("a followed session's question rings out loud")
+    func followedQuestionLoud() {
+        let p = SoundPolicy()
+        _ = p.evaluate(input([session("a", .working)], now: 0))
+        let alerts = p.evaluate(input([session("a", .needsResponse, wait: .question, since: 1,
+                                               attention: .followed)], now: 1))
+        #expect(alerts.map(\.delivery) == [.bannerSound])
+    }
+
+    @Test("a muted session's approval still shows, silently")
+    func mutedApprovalSilentBanner() {
+        let p = SoundPolicy()
+        _ = p.evaluate(input([session("a", .working)], now: 0))
+        let alerts = p.evaluate(input([session("a", .needsResponse, wait: .permission, since: 1,
+                                               attention: .muted)], now: 1))
+        #expect(alerts.map(\.delivery) == [.banner])
+    }
+
+    @Test("a muted session's completion is dropped — not even in the list")
+    func mutedDoneDropped() {
+        let p = SoundPolicy()
+        _ = p.evaluate(input([session("a", .working, since: 0)], now: 0))
+        let alerts = p.evaluate(input([session("a", .done, since: 40, attention: .muted)],
+                                      now: 40, appActive: false))
+        #expect(alerts.isEmpty)
+    }
+
+    @Test("a normal session's completion goes to the list, a followed one banners")
+    func doneByAttention() {
+        let p = SoundPolicy()
+        _ = p.evaluate(input([session("a", .working, since: 0), session("b", .working, since: 0)], now: 0))
+        let alerts = p.evaluate(input([session("a", .done, since: 40),
+                                       session("b", .done, since: 40, attention: .followed)],
+                                      now: 40, appActive: false))
+        #expect(alerts.map { "\($0.sessionID):\($0.delivery)" } == ["a:list", "b:banner"])
     }
 
     @Test("a session that keeps waiting does not re-ring")
@@ -128,13 +189,15 @@ struct SoundPolicyTests {
         #expect(alerts.isEmpty)
     }
 
-    @Test("done is silent when its own terminal is frontmost — you're already looking at it")
-    func doneFocusedTerminalSilent() {
+    @Test("a focused terminal caps its own session to the list — even a followed approval")
+    func focusedTerminalCapsToList() {
         let p = SoundPolicy()
-        _ = p.evaluate(input([session("a", .working, since: 0)], now: 0))
-        let alerts = p.evaluate(input([session("a", .done, since: 40)], now: 40,
-                                      appActive: false, focused: ["a"]))
-        #expect(alerts.isEmpty)
+        _ = p.evaluate(input([session("a", .working, since: 0), session("b", .working, since: 0)], now: 0))
+        let alerts = p.evaluate(input([session("a", .done, since: 40, attention: .followed),
+                                       session("b", .needsResponse, wait: .permission, since: 40,
+                                               attention: .followed)],
+                                      now: 40, appActive: false, focused: ["a", "b"]))
+        #expect(alerts.map { "\($0.sound.rawValue):\($0.delivery)" } == ["agent_done:list", "needs_approval:list"])
     }
 
     @Test("done still rings for a session whose terminal is NOT the focused one")
@@ -203,28 +266,30 @@ struct SoundPolicyTests {
         #expect(alerts.isEmpty)
     }
 
-    // MARK: Quiet / Focus mode — only approvals survive
+    // MARK: Quiet / Focus mode — every session reads as muted
 
-    @Test("Quiet mode silences a question ping")
-    func quietSilencesQuestion() {
+    @Test("Quiet mode sends a question to the list, even for a followed session")
+    func quietQuestionToList() {
         let p = SoundPolicy()
         _ = p.evaluate(input([session("a", .working)], now: 0))
-        let alerts = p.evaluate(input([session("a", .needsResponse, wait: .question, since: 1)],
+        let alerts = p.evaluate(input([session("a", .needsResponse, wait: .question, since: 1,
+                                               attention: .followed)],
                                       now: 1, quiet: true))
-        #expect(alerts.isEmpty)
+        #expect(alerts.map(\.delivery) == [.list])
     }
 
-    @Test("Quiet mode still lets an approval through")
-    func quietKeepsApproval() {
+    @Test("Quiet mode still shows an approval, without its sound")
+    func quietKeepsApprovalSilently() {
         let p = SoundPolicy()
         _ = p.evaluate(input([session("a", .working)], now: 0))
         let alerts = p.evaluate(input([session("a", .needsResponse, wait: .permission, since: 1)],
                                       now: 1, quiet: true))
         #expect(alerts.map(\.sound) == [.needsApproval])
+        #expect(alerts.map(\.delivery) == [.banner])
     }
 
-    @Test("Quiet mode silences completion")
-    func quietSilencesDone() {
+    @Test("Quiet mode drops completion")
+    func quietDropsDone() {
         let p = SoundPolicy()
         _ = p.evaluate(input([session("a", .working, since: 0)], now: 0))
         let alerts = p.evaluate(input([session("a", .done, since: 40)], now: 40,
@@ -241,6 +306,7 @@ struct SoundPolicyTests {
         _ = p.evaluate(input([session("a", .needsResponse, wait: .question, since: 1)], now: 1))  // initial ping
         let nudge = p.evaluate(input([session("a", .needsResponse, wait: .question, since: 1)], now: 200))
         #expect(nudge.map(\.sound) == [.longWaitNudge])
+        #expect(nudge.map(\.delivery) == [.list])   // normal attention: a nudge never interrupts
     }
 
     @Test("the long-wait nudge fires only once per wait")
@@ -253,8 +319,8 @@ struct SoundPolicyTests {
         #expect(again.isEmpty)
     }
 
-    @Test("Quiet mode silences the long-wait nudge")
-    func quietSilencesLongWait() {
+    @Test("Quiet mode drops the long-wait nudge")
+    func quietDropsLongWait() {
         let p = SoundPolicy()
         _ = p.evaluate(input([session("a", .working)], now: 0))
         _ = p.evaluate(input([session("a", .needsResponse, wait: .question, since: 1)], now: 1))

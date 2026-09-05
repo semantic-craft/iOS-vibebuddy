@@ -70,15 +70,29 @@ struct NotificationCoordinatorTests {
         #expect(spy.played.isEmpty)
     }
 
-    @Test("Quiet mode forwards approvals but not questions")
-    func quietModeKeepsApprovalsOnly() async {
+    @Test("Quiet mode reads every session as muted: a silent approval banner, a listed question")
+    func quietModeMutesEverything() async {
         let spy = SpyNotifier()
         let c = NotificationCoordinator(notifier: spy)
         await c.observe([session("a", .working), session("b", .working)], appActive: false, quietMode: true)
-        await c.observe([session("a", .needsResponse, wait: .question),
-                         session("b", .needsResponse, wait: .permission)], appActive: false, quietMode: true)
-        #expect(spy.played.map(\.sound) == [.needsApproval])
-        #expect(spy.played.map(\.id) == ["b"])
+        let alerts = await c.observe([session("a", .needsResponse, wait: .question),
+                                      session("b", .needsResponse, wait: .permission)],
+                                     appActive: false, quietMode: true)
+        #expect(alerts.map { "\($0.sessionID):\($0.sound.rawValue):\($0.delivery)" } == [
+            "a:needs_answer:list", "b:needs_approval:banner",
+        ])
+        #expect(spy.played.map(\.id) == ["a", "b"])
+    }
+
+    @Test("the cues handed back are the ones the notifier was given, so push and local agree")
+    func returnsWhatItForwarded() async {
+        let spy = SpyNotifier()
+        let c = NotificationCoordinator(notifier: spy)
+        await c.observe([session("a", .working)], appActive: false, quietMode: false)
+        let alerts = await c.observe([session("a", .needsResponse, wait: .permission)],
+                                     appActive: false, quietMode: false)
+        #expect(alerts.map(\.delivery) == [.bannerSound])
+        #expect(alerts.map(\.sessionID) == spy.played.map(\.id))
     }
 
     @Test("Quiet, foreground, and anti-duplication still skip sends and records")
@@ -96,15 +110,17 @@ struct NotificationCoordinatorTests {
                          session("r", .needsResponse, wait: .permission, since: t0)],
                         now: t0.addingTimeInterval(60), appActive: true, quietMode: true)
 
-        #expect(spy.played.map { "\($0.id):\($0.sound.rawValue)" } == ["r:needs_approval"])
+        // Quiet: the question is listed, the approval banners silently, and the
+        // completion is dropped (VibeBuddy is frontmost anyway).
+        #expect(spy.played.map { "\($0.id):\($0.sound.rawValue)" } == ["q:needs_answer", "r:needs_approval"])
         #expect(delivery.records.map { "\($0.sessionID ?? ""):\($0.sound ?? ""):\($0.outcome.rawValue)" } == [
-            "r:needs_approval:scheduled",
+            "q:needs_answer:scheduled", "r:needs_approval:scheduled",
         ])
 
         await c.observe([session("r", .needsResponse, wait: .permission, since: t0)],
                         now: t0.addingTimeInterval(61), appActive: true, quietMode: true)
-        #expect(spy.played.count == 1)
-        #expect(delivery.records.count == 1)
+        #expect(spy.played.count == 2)
+        #expect(delivery.records.count == 2)
         #expect(!delivery.records.contains(where: { $0.outcome.rawValue == "delivered" }))
     }
 

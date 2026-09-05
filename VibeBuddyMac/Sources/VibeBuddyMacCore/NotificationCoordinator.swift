@@ -8,10 +8,11 @@ public protocol AttentionNotifier {
 }
 
 /// Feeds each snapshot through the shared `SoundPolicy` and forwards the cues it
-/// earns to `notifier`. All the *when to ring* logic lives in `SoundPolicy`
-/// (unit-tested in VibeBuddyKit); this type only supplies the ambient context
-/// (clock, app-active, Quiet mode), fans the decisions out, and records delivery
-/// *after* those existing rules.
+/// earns to `notifier`. All the *when to ring* and *how loud* logic lives in
+/// `SoundPolicy` (unit-tested in VibeBuddyKit); this type only supplies the
+/// ambient context (clock, app-active, Quiet mode, focused terminals), fans the
+/// decisions out, records delivery, and hands the same cues back so the push to
+/// the phone is built from one decision rather than a second policy.
 public final class NotificationCoordinator: @unchecked Sendable {
     private let notifier: AttentionNotifier
     private let policy: SoundPolicy
@@ -27,13 +28,15 @@ public final class NotificationCoordinator: @unchecked Sendable {
         self.delivery = delivery
     }
 
+    @discardableResult
     public func observe(_ sessions: [AgentSession], now: Date = Date(),
                         appActive: Bool, quietMode: Bool,
-                        focusedSessionIDs: Set<String> = []) async {
+                        focusedSessionIDs: Set<String> = []) async -> [SoundAlert] {
         let input = SoundPolicyInput(sessions: sessions, now: now,
                                      appActive: appActive, quietMode: quietMode,
                                      focusedSessionIDs: focusedSessionIDs)
-        for alert in policy.evaluate(input) {
+        let alerts = policy.evaluate(input)
+        for alert in alerts {
             let attempt = await notifier.notify(alert)
             guard attempt.shouldRecord else { continue }
             await delivery?.record(NotificationDeliveryRecord(
@@ -45,5 +48,6 @@ public final class NotificationCoordinator: @unchecked Sendable {
                 timestamp: now
             ))
         }
+        return alerts
     }
 }

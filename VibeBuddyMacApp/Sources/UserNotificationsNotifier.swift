@@ -3,9 +3,10 @@ import UserNotifications
 import VibeBuddyKit
 import VibeBuddyMacCore
 
-/// Posts a macOS banner with the sound pack's cue. A thin wrapper over
-/// `UNUserNotificationCenter`; *which* cue and *when* are decided by
-/// `SoundPolicy` (unit-tested), so this type stays pure system I/O.
+/// Posts a macOS notification with the sound pack's cue. A thin wrapper over
+/// `UNUserNotificationCenter`; *which* cue, *when* and *how loud* are decided
+/// by `SoundPolicy` (unit-tested), so this type stays pure system I/O: it maps
+/// the alert's `DeliveryLevel` onto sound / banner / list-only presentation.
 final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotificationCenterDelegate {
     private let center = UNUserNotificationCenter.current()
 
@@ -20,7 +21,7 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
     }
 
     func notify(_ alert: SoundAlert) async -> LocalNotificationAttempt {
-        guard Self.flag("notifyOnNeedsResponse") else { return .skipped }
+        guard Self.flag("notifyOnNeedsResponse"), alert.delivery != .drop else { return .skipped }
         let authorized = await isAuthorized()
         let (title, body) = Self.copy(for: alert)
         let classified = LocalNotificationDelivery.classify(authorized: authorized, scheduleError: nil)
@@ -28,7 +29,7 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
             return .failed(reason: classified.failureReason ?? "permissionDenied")
         }
         do {
-            try await post(title: title, body: body, sound: alert.sound,
+            try await post(title: title, body: body, sound: alert.sound, delivery: alert.delivery,
                            id: "\(alert.sessionID)-\(alert.sound.rawValue)")
             return .scheduled()
         } catch {
@@ -91,22 +92,42 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
         }
     }
 
-    private func post(title: String, body: String, sound: NotificationSound, id: String) async throws {
+    private static let deliveryKey = "delivery"
+
+    private func post(title: String, body: String, sound: NotificationSound,
+                      delivery: DeliveryLevel, id: String) async throws {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
-        content.sound = Self.flag("playNotificationSound")
+        content.sound = delivery.makesSound && Self.flag("playNotificationSound")
             ? UNNotificationSound(named: UNNotificationSoundName(rawValue: sound.fileName))
             : nil
+        // Carried to `willPresent`, which is where an accessory app actually
+        // decides what the system shows.
+        content.userInfo = [Self.deliveryKey: delivery.rawValue]
+        if delivery == .list { content.interruptionLevel = .passive }
         try await center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
     }
 
-    /// Show the banner even though the menu-bar app runs as an accessory.
+    /// Present according to the cue's delivery level, even though the menu-bar
+    /// app runs as an accessory: a list-only cue lands in Notification Center
+    /// without a banner; everything else banners *and* stays in the list, so
+    /// what was said can still be found later. Chrome cues (pairing, budget,
+    /// usage) carry no level and are shown in full.
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        Self.flag("playNotificationSound") ? [.banner, .sound] : [.banner]
+        let raw = notification.request.content.userInfo[Self.deliveryKey] as? Int
+        let level = raw.flatMap(DeliveryLevel.init(rawValue:)) ?? .bannerSound
+        switch level {
+        case .drop, .list:
+            return [.list]
+        case .banner:
+            return [.banner, .list]
+        case .bannerSound:
+            return Self.flag("playNotificationSound") ? [.banner, .list, .sound] : [.banner, .list]
+        }
     }
 
     /// A Bool default that treats an absent key as `true` (on by default).

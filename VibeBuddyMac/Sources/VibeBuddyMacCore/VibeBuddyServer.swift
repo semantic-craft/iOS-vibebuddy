@@ -374,6 +374,27 @@ public struct VibeBuddyServer: Sendable {
             return .ok
         }
 
+        // The user's attention choice for one session — bearer-token gated (the
+        // phone and the Mac UI both send this). `attention: null` returns the
+        // session to the automatic default.
+        authed.post("attention") { request, _ -> HTTPResponse.Status in
+            let buffer = try await request.body.collect(upTo: 4096)
+            guard let o = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
+                  let sid = o["sessionId"] as? String else { throw HTTPError(.badRequest) }
+            let level: SessionAttention?
+            switch o["attention"] {
+            case nil, is NSNull:
+                level = nil
+            case let raw as String:
+                guard let parsed = SessionAttention(rawValue: raw) else { throw HTTPError(.badRequest) }
+                level = parsed
+            default:
+                throw HTTPError(.badRequest)
+            }
+            guard await store.setAttention(sessionID: sid, level) else { throw HTTPError(.notFound) }
+            return .ok
+        }
+
         let onJump = self.onJump
         let onJumpToDesktopThread = self.onJumpToDesktopThread
         // Terminal-ref capture — bearer-token gated (the capture hook reads the
