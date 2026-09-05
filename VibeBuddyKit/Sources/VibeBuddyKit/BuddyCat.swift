@@ -20,6 +20,8 @@ public enum BuddyCat {
     public static let ink = Color(.sRGB, red: 0x44 / 255, green: 0x55 / 255, blue: 0x71 / 255, opacity: 1)
     /// Closed-eye lines and the sleeping "z".
     public static let lid = Color(.sRGB, red: 0x9A / 255, green: 0xA6 / 255, blue: 0xBC / 255, opacity: 1)
+    /// The sweat drop while stuck — the one attached effect.
+    public static let sweat = Color(.sRGB, red: 0x7F / 255, green: 0xB4 / 255, blue: 0xE6 / 255, opacity: 1)
 
     /// Below this width the body and mouth are dropped and only the head is drawn.
     public static let bodyThreshold: CGFloat = 34
@@ -42,8 +44,8 @@ public enum BuddyCat {
     }
 }
 
-/// One frame of the cat. Platform views own the clock (blink, mouth flap, bob)
-/// and pass the frame's `speaking` / `blink` in; Watch, widget and Live
+/// One frame of the cat. Platform views own the clock (`BuddyCatMotion`) and
+/// pass the frame's `speaking` / `blink` / `pose` in; Watch, widget and Live
 /// Activity render it static.
 public struct BuddyCatFace: View {
     public var mood: BuddyCat.Mood
@@ -62,6 +64,8 @@ public struct BuddyCatFace: View {
     public var onDark: Bool
     /// Template silhouette: one colour, no accent, eyes punched to transparent.
     public var monochrome: Bool
+    /// This frame's displacement (see `BuddyCatMotion`); `.still` for static surfaces.
+    public var pose: BuddyCatPose
 
     public init(mood: BuddyCat.Mood,
                 speaking: Bool = false,
@@ -71,7 +75,8 @@ public struct BuddyCatFace: View {
                 showsMouth: Bool = true,
                 shadow: Bool = false,
                 onDark: Bool = false,
-                monochrome: Bool = false) {
+                monochrome: Bool = false,
+                pose: BuddyCatPose = .still) {
         self.mood = mood
         self.speaking = speaking
         self.listening = listening
@@ -81,6 +86,7 @@ public struct BuddyCatFace: View {
         self.shadow = shadow
         self.onDark = onDark
         self.monochrome = monochrome
+        self.pose = pose
     }
 
     public var body: some View {
@@ -107,6 +113,24 @@ public struct BuddyCatFace: View {
         let ink: Color = BuddyCat.ink
         let dy: CGFloat = sleep ? 7 : 0
 
+        // Whole sprite: sway / bob, then breathing about the feet.
+        ctx.translateBy(x: pose.dx, y: pose.bob)
+        ctx.translateBy(x: 26, y: 60); ctx.scaleBy(x: 1, y: pose.breath); ctx.translateBy(x: -26, y: -60)
+        let sprite = ctx.transform
+        // Head (ears, head, face) tilts about the neck; the body stays put.
+        func enterHead() {
+            ctx.transform = sprite
+            ctx.translateBy(x: 26, y: 44); ctx.rotate(by: .degrees(pose.tilt)); ctx.translateBy(x: -26, y: -44)
+        }
+        let head = { () -> CGAffineTransform in enterHead(); return ctx.transform }()
+        func enterEar(mirrored: Bool) {
+            ctx.transform = head
+            let root = CGPoint(x: mirrored ? 40 : 12, y: 17 + dy)
+            ctx.translateBy(x: root.x, y: root.y)
+            ctx.rotate(by: .degrees(mirrored ? -pose.earR : pose.earL))
+            ctx.translateBy(x: -root.x, y: -root.y)
+        }
+
         // Ears (drawn first; their bases hide under the head).
         let perk = listening || mood == .alert || mood == .wait
         let outer: Ear, inner: Ear
@@ -122,20 +146,24 @@ public struct BuddyCatFace: View {
             inner = Ear(base: (9.6, 19.2), c1: (9.6, 10.4), tip: (12.2, 8.2), c2: (14.4, 7.4), end: (18.8, 10.8))
         }
         for mirrored in [false, true] {
+            enterEar(mirrored: mirrored)
             let p = outer.path(mirrored: mirrored, dy: dy)
             ctx.fill(p, with: .color(fur))
             ctx.stroke(p, with: .color(fur), style: StrokeStyle(lineWidth: 3.2, lineJoin: .round))
         }
 
         // Head.
-        ctx.fill(ellipse(26, sleep ? 32 : 28.5, sleep ? 20.5 : 20.5, sleep ? 16 : 18), with: .color(fur))
+        ctx.transform = head
+        ctx.fill(ellipse(26, sleep ? 32 : 28.5, 20.5, sleep ? 16 : 18), with: .color(fur))
 
         if !monochrome {
             for mirrored in [false, true] {
+                enterEar(mirrored: mirrored)
                 let p = inner.path(mirrored: mirrored, dy: dy)
                 ctx.fill(p, with: .color(BuddyCat.accent))
                 ctx.stroke(p, with: .color(BuddyCat.accent), style: StrokeStyle(lineWidth: 1.8, lineJoin: .round))
             }
+            ctx.transform = sprite
             if showsBody {
                 if sleep {
                     ctx.fill(ellipse(26, 48, 23, 11), with: .color(fur))
@@ -146,7 +174,9 @@ public struct BuddyCatFace: View {
             }
         }
 
-        // Eyes.
+        // Eyes (they look around with the head).
+        ctx.transform = head
+        ctx.translateBy(x: pose.eyeDx, y: pose.eyeDy)
         let cy: CGFloat = sleep ? 31 : 29
         let eye = BuddyCat.eyeColor(for: mood)
         for cx in [17.5, 34.5] as [CGFloat] {
@@ -196,6 +226,7 @@ public struct BuddyCatFace: View {
         }
 
         // Mouth.
+        ctx.transform = head
         if !monochrome, !sleep, showsMouth {
             if speaking {
                 ctx.fill(ellipse(26, 38, 2.8, 2.3), with: .color(ink))
@@ -222,20 +253,38 @@ public struct BuddyCatFace: View {
             }
         }
 
-        // Sleeping: two small z's off the right ear.
-        if sleep, !monochrome {
-            var z = Path()
-            z.move(to: CGPoint(x: 40, y: 9)); z.addLine(to: CGPoint(x: 44.5, y: 9))
-            z.addLine(to: CGPoint(x: 40, y: 14.5)); z.addLine(to: CGPoint(x: 44.5, y: 14.5))
-            z.move(to: CGPoint(x: 45.5, y: 3)); z.addLine(to: CGPoint(x: 48.5, y: 3))
-            z.addLine(to: CGPoint(x: 45.5, y: 6.5)); z.addLine(to: CGPoint(x: 48.5, y: 6.5))
-            ctx.stroke(z, with: .color(BuddyCat.lid), style: StrokeStyle(lineWidth: 1.3, lineCap: .round, lineJoin: .round))
+        // An attached sweat drop by the right ear while stuck.
+        if pose.sweat > 0, !monochrome {
+            var d = Path()
+            d.move(to: CGPoint(x: 0, y: -4.5))
+            d.addCurve(to: CGPoint(x: 2.6, y: 1), control1: CGPoint(x: 1.6, y: -2), control2: CGPoint(x: 2.6, y: -0.5))
+            d.addArc(center: .zero, radius: 2.6, startAngle: .degrees(0), endAngle: .degrees(180), clockwise: false)
+            d.addCurve(to: CGPoint(x: 0, y: -4.5), control1: CGPoint(x: -2.6, y: -0.5), control2: CGPoint(x: -1.6, y: -2))
+            d.closeSubpath()
+            let drop = d.applying(CGAffineTransform(translationX: 44.5, y: 23).scaledBy(x: pose.sweat, y: pose.sweat))
+            ctx.fill(drop, with: .color(BuddyCat.sweat))
         }
 
-        // Listening ring.
+        ctx.transform = sprite
+
+        // Sleeping: two small z's off the right ear, fading in turn.
+        if sleep, !monochrome {
+            var za = Path(), zb = Path()
+            za.move(to: CGPoint(x: 40, y: 9)); za.addLine(to: CGPoint(x: 44.5, y: 9))
+            za.addLine(to: CGPoint(x: 40, y: 14.5)); za.addLine(to: CGPoint(x: 44.5, y: 14.5))
+            zb.move(to: CGPoint(x: 45.5, y: 3)); zb.addLine(to: CGPoint(x: 48.5, y: 3))
+            zb.addLine(to: CGPoint(x: 45.5, y: 6.5)); zb.addLine(to: CGPoint(x: 48.5, y: 6.5))
+            let style = StrokeStyle(lineWidth: 1.3, lineCap: .round, lineJoin: .round)
+            ctx.stroke(za, with: .color(BuddyCat.lid.opacity(pose.zA)), style: style)
+            ctx.stroke(zb, with: .color(BuddyCat.lid.opacity(pose.zB)), style: style)
+        }
+
+        // Listening ring, pulsing about its centre.
         if listening, !monochrome {
             let rect = showsBody ? CGRect(x: 1.5, y: 1.5, width: 49, height: 57)
                                  : CGRect(x: 4.5, y: 1.5, width: 43, height: 43)
+            let c = CGPoint(x: rect.midX, y: rect.midY)
+            ctx.translateBy(x: c.x, y: c.y); ctx.scaleBy(x: pose.ring, y: pose.ring); ctx.translateBy(x: -c.x, y: -c.y)
             let ring = Path(roundedRect: rect, cornerRadius: showsBody ? 9 : 8, style: .continuous)
             ctx.stroke(ring, with: .color((onDark ? BuddyCat.body : ink).opacity(0.8)), lineWidth: 2)
         }

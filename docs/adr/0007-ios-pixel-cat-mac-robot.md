@@ -25,8 +25,19 @@ below. Originally Accepted (2026-06-05), amends ADR-0006.
 >   Island, collapsed notch glance, Watch header); below 28 pt only head, ears and
 >   eyes remain. The menu-bar mark is the same head rendered once as a monochrome
 >   template `NSImage` with punched eyes.
-> - Motion is unchanged: iOS and Mac blink / flap / bob at 10 fps (Reduce Motion
->   stops the blink and bob); Watch, widget and Live Activity stay static.
+> - **Motion follows OpenAI Codex Pets' timing rules**, implemented as a pure
+>   `BuddyCatMotion` clock plus a `BuddyCatPose` on `BuddyCatFace`: a mood change
+>   is a 2–3 s reaction (working sways and scans, a wait hops twice, done jumps
+>   and tilts its head, stuck shakes and keeps an attached sweat drop) that
+>   settles into the still pose plus slow breathing; idle flicks an ear or tilts
+>   its head every ~9 s; the working reaction expires after 3 min and a wait
+>   re-flicks an ear every 30 s; a tap or panel open waves. Voice phases layer on
+>   top (listening tilts forward with a pulsing ring, thinking looks up-right with
+>   alternating ears, speaking flaps and bobs, a reply ends with a happy blink).
+>   iOS and Mac tick at 10 fps and lift to 20 fps only while something moves;
+>   under 28 pt only the jump survives. Reduce Motion is a still frame (the mouth
+>   still switches shape while speaking). Watch, widget and Live Activity stay
+>   static.
 > - Ears are rounded wedges, not triangles — pointed ears read as a different
 >   character next to the icon.
 

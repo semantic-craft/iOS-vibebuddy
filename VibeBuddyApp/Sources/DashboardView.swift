@@ -27,7 +27,7 @@ struct DashboardView: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
                 BuddyView(groups: dashboard.groups, pulse: dashboard.cuePulse,
-                          speaking: voice.isSpeaking, listening: voice.isListening,
+                          voice: .init(voice.phase),
                           companionEnabled: companionEnabled,
                           buddyScopeCount: dashboard.buddySessionIDs.count) {
                     voice.toggle()

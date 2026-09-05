@@ -7,28 +7,28 @@ import VibeBuddyKit
 struct BuddyView: View {
     let groups: SessionGroups
     var pulse: Int = 0          // bumped when a cue fires → the buddy reacts
-    var speaking: Bool = false  // companion is talking
-    var listening: Bool = false // companion is listening
+    var voice: BuddyCatMotion.Voice = .none   // the companion's voice phase
     var companionEnabled: Bool = true   // false → off-state header (opt-in gate)
     var buddyScopeCount: Int = 0         // live sessions scoped into the buddy (0 = all)
     var onTap: (() -> Void)?    // tap the pet to talk
     @State private var react = false
+    @State private var greet = 0
 
     var body: some View {
         // A slow clock so a long wait can turn the buddy impatient over time.
         TimelineView(.periodic(from: .now, by: 30)) { ctx in
             let state = BuddyState.from(groups, now: ctx.date)
             HStack(spacing: 14) {
-                PetFace(state: state, speaking: speaking, listening: listening)
+                PetFace(state: state, voice: voice, greet: greet)
                     .scaleEffect(react ? 1.08 : 1)
                     .animation(.spring(response: 0.3, dampingFraction: 0.4), value: react)
-                    .onTapGesture { onTap?() }
+                    .onTapGesture { greet += 1; onTap?() }
                 VStack(alignment: .leading, spacing: 1) {
                     if !companionEnabled {
                         Label("Voice companion off", systemImage: "mic.slash")
                             .font(.headline).foregroundStyle(.secondary)
                     } else {
-                        Text(listening ? "Listening…" : (speaking ? "Speaking…" : title(state))).font(.headline)
+                        Text(voice == .listening ? "Listening…" : (voice == .speaking ? "Speaking…" : title(state))).font(.headline)
                     }
                     Text(subtitle).font(.caption).foregroundStyle(.secondary)
                     if companionEnabled {
