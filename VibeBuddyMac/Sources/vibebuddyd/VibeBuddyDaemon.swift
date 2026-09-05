@@ -24,6 +24,11 @@ struct VibeBuddyDaemon {
         let deliveryURL = env["VIBEBUDDY_DELIVERY_LOG_PATH"].map {
             URL(fileURLWithPath: $0)
         } ?? NotificationDeliveryLogLocation.defaultURL()
+        // Owner-only, survives a restart: an in-memory registry meant no push
+        // reached a closed phone until the phone next cold-launched.
+        let registryURL = env["VIBEBUDDY_DEVICE_REGISTRY_PATH"].map {
+            URL(fileURLWithPath: $0)
+        } ?? DeviceRegistryLocation.defaultURL()
         let apnsConfig = APNsConfig.load()
         let deliveryRecorder = NotificationDeliveryRecorder(
             url: deliveryURL, apnsConfigured: apnsConfig != nil)
@@ -42,6 +47,8 @@ struct VibeBuddyDaemon {
                 attentionURL: AttentionOverrides.defaultURL()
             ),
             token: token, port: port, pusher: pusher,
+            deliveryRecorder: deliveryRecorder,
+            deviceTokens: DeviceTokens(url: registryURL),
             codexRolloutMonitor: CodexRolloutMonitor(),
             codexAppServerMonitor: CodexAppServerMonitor(
                 approvalRegistry: approvalRegistry, allowStore: allowStore,

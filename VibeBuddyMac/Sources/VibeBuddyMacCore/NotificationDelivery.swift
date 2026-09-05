@@ -58,6 +58,45 @@ public enum APNsDelivery {
         }
         return NotificationDeliveryClassification(outcome: .failed, failureReason: "apnsHTTP\(status)")
     }
+
+    /// What one send result means for *keeping* the token, which is a different
+    /// question from whether the send worked.
+    /// `reason` is the `reason` field of APNs' error body. A 400 is only about
+    /// the token when Apple says `BadDeviceToken`; the same status also answers
+    /// `BadTopic`, `BadCollapseId`, `PayloadEmpty` and other request faults that
+    /// say nothing about the device, so those never evict.
+    public static func tokenOutcome(status: Int?, reason: String? = nil, everAccepted: Bool) -> APNsTokenOutcome {
+        guard let status else { return .keep }                       // offline: says nothing
+        if (200..<300).contains(status) { return .accepted }
+        if status == 410 { return .unregistered }
+        if status == 400 {
+            guard reason == "BadDeviceToken" else { return .keep }   // a request fault, not the phone
+            return everAccepted ? .keep : .neverValid
+        }
+        return .keep                                                 // throttled, 5xx, auth
+    }
+}
+
+/// Whether a device stays in the registry after a send.
+///
+/// The split at 400 is the whole point. `BadDeviceToken` means either "this
+/// token is junk" or "this Mac is pointed at the wrong APNs environment", and
+/// those need opposite handling: dropping junk is right, while dropping every
+/// device because the Mac is misconfigured would empty the registry and recreate
+/// the silent failure the registry exists to prevent. Apple having accepted the
+/// token at least once is what tells the two apart.
+public enum APNsTokenOutcome: String, Sendable, Equatable {
+    /// Apple took it — the token is real, and stays real.
+    case accepted
+    /// 410 Unregistered: the app was deleted or the device is gone.
+    case unregistered
+    /// 400 on a token Apple has never once accepted: a typo, a test fixture, or
+    /// a token minted for the other APNs environment. Junk — drop it. If it was
+    /// in fact a live phone, it re-registers on its next connection.
+    case neverValid
+    /// Everything else — offline, throttled, 5xx, or a 400 on a token that used
+    /// to work (which points at this Mac, not at the phone). Keep the device.
+    case keep
 }
 
 public struct NotificationDeliveryRecord: Codable, Sendable, Equatable, Identifiable {
@@ -109,6 +148,17 @@ public struct APNsSendResult: Equatable, Sendable {
     public let outcome: NotificationDeliveryOutcome
     public let status: Int?
     public let failureReason: String?
+    /// APNs' own `reason` string from the error body (`BadDeviceToken`,
+    /// `BadTopic`, `Unregistered`, …); nil on success or when unreachable.
+    public let reason: String?
+
+    public init(outcome: NotificationDeliveryOutcome, status: Int?, failureReason: String?,
+                reason: String? = nil) {
+        self.outcome = outcome
+        self.status = status
+        self.failureReason = failureReason
+        self.reason = reason
+    }
 }
 
 public protocol NotificationDeliveryRecording: Sendable {

@@ -145,15 +145,41 @@ struct NotificationDeliveryTests {
         #expect(!reopened.recent(limit: 10).contains(where: { $0.outcome.rawValue == "delivered" }))
     }
 
-    private func sendViaStub(status: Int, recorder: SpyDelivery) async throws -> APNsSendResult {
+    @Test("the APNs error body's reason rides on the send result; a success has none")
+    func sendResultCarriesApplesReason() async throws {
+        let spy = SpyDelivery()
+        let bad = try await sendViaStub(status: 400, body: #"{"reason":"BadDeviceToken"}"#, recorder: spy)
+        #expect(bad.reason == "BadDeviceToken")
+        #expect(APNsDelivery.tokenOutcome(status: bad.status, reason: bad.reason, everAccepted: false) == .neverValid)
+        let topic = try await sendViaStub(status: 400, body: #"{"reason":"BadTopic"}"#, recorder: spy)
+        #expect(APNsDelivery.tokenOutcome(status: topic.status, reason: topic.reason, everAccepted: false) == .keep)
+        let ok = try await sendViaStub(status: 200, body: "", recorder: spy)
+        #expect(ok.reason == nil)
+    }
+
+    private func sendViaStub(status: Int, body: String = "{}", recorder: SpyDelivery) async throws -> APNsSendResult {
         let key = P256.Signing.PrivateKey()
         let config = APNsConfig(teamID: "TEAM123456", keyID: "KEY7890AB",
                                 bundleID: "com.vibebuddy.app", p8PEM: key.pemRepresentation,
                                 useSandbox: true)
-        let pusher = try APNsPusher(config: config, http: StubAPNsHTTP(status: status),
+        let pusher = try APNsPusher(config: config, http: StubAPNsHTTP(status: status, body: body),
                                     recorder: recorder)
         return await pusher.send(title: "t", body: "b", to: "abc", sound: "needs_approval.caf",
                                  now: now, sessionID: "sess-1", soundCategory: "needs_approval")
+    }
+
+    @Test("a restart keeps a standing failure even when a skip was logged after it")
+    func latchSurvivesRestartAfterASkip() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vb-delivery-\(UUID().uuidString)").appendingPathComponent("delivery.json")
+        let first = NotificationDeliveryRecorder(url: url, now: now)
+        await first.record(record(.failed, reason: "apnsHTTP403", at: now))
+        await first.record(record(.skipped, reason: "category", at: now.addingTimeInterval(5)))
+        #expect(await first.health().latchedFailure?.failureReason == "apnsHTTP403")
+
+        let restarted = NotificationDeliveryRecorder(url: url, now: now.addingTimeInterval(10))
+        #expect(await restarted.health().latchedFailure?.failureReason == "apnsHTTP403")
+        #expect(await restarted.health().lastAttempt?.outcome == .skipped)
     }
 
     private func record(_ outcome: NotificationDeliveryOutcome, reason: String? = nil,
@@ -173,10 +199,11 @@ final class SpyDelivery: NotificationDeliveryRecording, @unchecked Sendable {
 
 private struct StubAPNsHTTP: APNsHTTPClient, Sendable {
     let status: Int
+    var body: String = "{}"
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         let url = request.url ?? URL(string: "https://example.invalid")!
         let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil,
                                        headerFields: nil)!
-        return (Data("{}".utf8), response)
+        return (Data(body.utf8), response)
     }
 }

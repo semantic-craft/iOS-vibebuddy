@@ -103,8 +103,11 @@ public actor NotificationDeliveryRecorder: NotificationDeliveryRecording {
         self.tracker = NotificationDeliveryHealthTracker(debounce: failureDebounce)
         self.authorization = authorization
         self.apnsConfigured = apnsConfigured
-        if let last = log.recent(limit: 1).first {
-            _ = tracker.apply(last, now: now)
+        // Replay the retained history oldest-first, not just the last entry: a
+        // `skipped` after a `failed` says nothing about the failure, so a tracker
+        // rebuilt from the skip alone would drop a still-standing latch.
+        for record in log.recent(limit: NotificationDeliveryLog.maxEntries).reversed() {
+            _ = tracker.apply(record, now: record.timestamp)
         }
     }
 

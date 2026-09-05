@@ -20,6 +20,9 @@ public enum CueSkipReason: String, Sendable, Equatable, Codable {
     /// The session's own terminal is frontmost, so the cue was capped to the
     /// list and never left the Mac.
     case focusedTerminal
+    /// Several devices were excluded, each for a different one of the reasons
+    /// above; no single reason would be true of all of them.
+    case mixed
     /// This Mac has no APNs key, so it cannot push at all.
     case apnsNotConfigured
     /// Nothing has uploaded a push token. The registry lives in memory, so this
@@ -78,10 +81,10 @@ public struct PushFanout: Equatable, Sendable {
         guard !registered.isEmpty else { return PushFanout(recipients: [], skip: .noRegisteredDevice) }
 
         var recipients: [PushRecipient] = []
-        var firstSkip: CueSkipReason?
+        var exclusions = Set<CueSkipReason>()
         for device in registered {
             guard (device.categories ?? .default).isEnabled(alert.sound) else {
-                firstSkip = firstSkip ?? .category
+                exclusions.insert(.category)
                 continue
             }
             var level = alert.delivery
@@ -89,12 +92,14 @@ public struct PushFanout: Equatable, Sendable {
                 level = min(level, DeliveryMatrix.level(for: alert.sound, attention: .muted))
             }
             guard level.interrupts else {
-                firstSkip = firstSkip ?? .quiet
+                exclusions.insert(.quiet)
                 continue
             }
             recipients.append(PushRecipient(device: device, level: level))
         }
         guard recipients.isEmpty else { return PushFanout(recipients: recipients, skip: nil) }
-        return PushFanout(recipients: [], skip: firstSkip)
+        // One reason only when it is true of every excluded device; the registry
+        // is a dictionary's values, so "first" would otherwise be arbitrary.
+        return PushFanout(recipients: [], skip: exclusions.count == 1 ? exclusions.first : .mixed)
     }
 }
