@@ -32,13 +32,14 @@ public enum CodexToolVocabulary {
         return out
     }
 
-    /// The distinct file paths named by `*** Add File:` / `*** Update File:` /
-    /// `*** Delete File:` headers in an `apply_patch` envelope. `*** Move to:`
-    /// is a property of the preceding Update, not a separate file.
+    /// The distinct file paths an `apply_patch` envelope touches: the `*** Add
+    /// File:` / `*** Update File:` / `*** Delete File:` headers, plus every
+    /// `*** Move to:` destination — a rename writes the destination too, so a
+    /// cross-scope move must not pass as a single-file edit of its source.
     static func patchedFiles(_ patch: String) -> [String] {
         var seen: [String] = []
         for line in patch.split(separator: "\n", omittingEmptySubsequences: true) {
-            for header in ["*** Add File: ", "*** Update File: ", "*** Delete File: "]
+            for header in ["*** Add File: ", "*** Update File: ", "*** Delete File: ", "*** Move to: "]
             where line.hasPrefix(header) {
                 let path = line.dropFirst(header.count).trimmingCharacters(in: .whitespaces)
                 if !path.isEmpty, !seen.contains(path) { seen.append(path) }

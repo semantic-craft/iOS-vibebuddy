@@ -33,10 +33,15 @@ struct CodexToolVocabularyTests {
         #expect(CodexToolVocabulary.patchedFiles(patch) == ["a.txt", "b.txt"])
     }
 
-    @Test("a move counts as one file, and other tools' inputs are untouched")
-    func moveAndOtherTools() {
+    @Test("a rename touches its destination too, so it stays path-less")
+    func moveTouchesDestination() {
         let patch = "*** Begin Patch\n*** Update File: old.txt\n*** Move to: new.txt\n@@\n-a\n+b\n*** End Patch"
-        #expect(CodexToolVocabulary.patchedFiles(patch) == ["old.txt"])
+        #expect(CodexToolVocabulary.patchedFiles(patch) == ["old.txt", "new.txt"])
+        #expect(CodexToolVocabulary.canonicalInput(tool: "apply_patch", ["command": patch])["file_path"] == nil)
+    }
+
+    @Test("other tools' inputs are untouched")
+    func otherTools() {
         let bash = CodexToolVocabulary.canonicalInput(tool: "Bash", ["command": "ls"])
         #expect(bash["file_path"] == nil)
         #expect(bash["command"] as? String == "ls")

@@ -297,10 +297,15 @@ public struct VibeBuddyServer: Sendable {
             let input = call.input
             let sessionID = call.sessionID
             let r = rules(agent)
-            // The blocking hook is also this agent's lifecycle signal — ingesting
-            // it moves a Claude/Grok session to `working` (PreToolUse) and a Codex
-            // session to `needsResponse` (PermissionRequest) in the dashboard.
-            await store.ingest(data, agent: agent, receivedAt: Date())
+            // Claude and Grok gate every PreToolUse, so the blocking hook doubles
+            // as the tool signal — ingesting it moves the session to `working`.
+            // The Codex CLI gates only PermissionRequest, a *wait* signal: ingesting
+            // it would mark the session `needsResponse` and push a "needs you"
+            // alert even when a rule decides at once, so Codex is ingested only
+            // when the wait is real (the `.ask` arm) and the session is unknown.
+            if agent != .codex {
+                await store.ingest(data, agent: agent, receivedAt: Date())
+            }
             // Native deny always wins, over every vibebuddy overlay (ADR 0010).
             if PermissionMatcher.decide(tool: tool, input: input, allow: [], deny: r.deny) == .deny {
                 return Self.permissionResponse("deny", agent: agent)
@@ -319,6 +324,11 @@ public struct VibeBuddyServer: Sendable {
             case .allow: return Self.permissionResponse("allow", agent: agent)
             case .deny:  return Self.permissionResponse("deny", agent: agent)
             case .ask:
+                if agent == .codex, !(await store.hasSession(sessionID)) {
+                    // Only the gate is trusted (no status forwarders yet): open the
+                    // session from this payload so the card has a row to land on.
+                    await store.ingest(data, agent: agent, receivedAt: Date())
+                }
                 let id = makeID()
                 let d = ApprovalDetails.from(tool: tool, input: input)
                 // Record what an "always allow" / "allow this session" would act
