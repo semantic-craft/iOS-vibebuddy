@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="VibeBuddyMacApp/Sources/Assets.xcassets/AppIcon.appiconset/icon_256.png" width="112" alt="vibebuddy" />
+<img src="docs/screenshots/app-icon-256.png" width="112" alt="vibebuddy" />
 
 # vibebuddy
 
@@ -48,7 +48,17 @@ No more walking back to the desk to find a session has been blocked on a permiss
 
 </div>
 
-> The buddy is **one cat, drawn in code, identical on iPhone, the Mac dashboard, and the notch glance** — only its mood (eyes & ears) and color (white on the dark notch) change. All screenshots above are **Demo mode** (sample data) — no real session data.
+<div align="center">
+
+<img src="docs/screenshots/app-icon.png" width="640" alt="vibebuddy app icon on macOS, iPhone and Apple Watch — a white kitten with green ears and eyes on slate blue" />
+
+<sub><b>One icon, three platforms</b> — the same kitten on your Mac, iPhone and Apple Watch, masked by each system.</sub>
+
+</div>
+
+> **The app icon** is a white kitten with green ears and eyes on muted slate blue — one soft silhouette, three colors, still readable at 16 px. It was designed with the [ip-as-logo](https://github.com/s1dashu/ip-as-logo-skill) skill and picked from six generated candidates; the same 1024 px artwork ships on macOS, iOS and watchOS.
+>
+> The **in-app buddy is the same cat, drawn in code** from one shared geometry on iPhone, Apple Watch, the Dynamic Island, the Mac dashboard, the notch glance and the menu bar. Its mood (ears, eyes, mouth) and small reactions change with the sessions; on compact surfaces (menu bar, collapsed glance, Dynamic Island, Watch header) it shrinks to the head alone, the menu bar shows it as a monochrome template silhouette, and only iPhone and the Mac animate it. All screenshots above are **Demo mode** (sample data) — no real session data.
 
 ---
 

@@ -3,7 +3,7 @@ import Foundation
 /// The built-in sound pack: one short, restrained cue per *state boundary*.
 /// Raw values are the bundled file stems. The guiding rule is that only state
 /// changes ring — never the process noise in between.
-public enum NotificationSound: String, Sendable, CaseIterable, Equatable {
+public enum NotificationSound: String, Sendable, CaseIterable, Equatable, Codable {
     case pairSuccess   = "pair_success"     // a phone just paired
     case needsAnswer   = "needs_answer"     // the agent asked a question
     case needsApproval = "needs_approval"   // a permission / approval is blocking

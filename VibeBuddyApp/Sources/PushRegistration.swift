@@ -46,7 +46,8 @@ final class PushRegistration {
             model: UIDevice.current.model,
             systemVersion: "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)",
             playSound: SoundPrefs.playSound,
-            quietMode: SoundPrefs.effectiveQuiet()
+            quietMode: SoundPrefs.effectiveQuiet(),
+            categories: SoundPrefs.categories
         ))
         Task { _ = try? await URLSession.shared.data(for: request) }
     }
@@ -69,6 +70,23 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     func application(_ application: UIApplication,
                      didFailToRegisterForRemoteNotificationsWithError error: Error) {
         // No paid account / entitlement yet — expected until APNs is set up.
+    }
+
+    /// A tapped banner opens its session. Both channels name the session the
+    /// same way — the local notification's `userInfo["sessionId"]` and the Mac
+    /// push's top-level `sessionId` — and both go through the Live Activity's
+    /// deep link, which focuses the row and acknowledges the completion. That
+    /// acknowledgement is what stops a followed session's reminders.
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse
+    ) async {
+        guard response.actionIdentifier == UNNotificationDefaultActionIdentifier,
+              let id = response.notification.request.content.userInfo["sessionId"] as? String,
+              !id.isEmpty else { return }
+        await MainActor.run {
+            _ = UIApplication.shared.open(VibeBuddyDeepLink.sessionURL(id: id))
+        }
     }
 
     nonisolated func userNotificationCenter(

@@ -84,7 +84,7 @@ private struct StatusWidgetView: View {
     private var systemSmallContent: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                ActivityPixelCat(state: snapshot.summary.primaryState, size: 34)
+                ActivityCat(state: snapshot.summary.primaryState, size: 34)
                     .padding(5)
                     .background(.black, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                 VStack(alignment: .leading, spacing: 2) {
@@ -147,7 +147,7 @@ struct VibeBuddyLiveActivity: Widget {
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    ActivityPixelCat(state: context.state.summary.primaryState, size: 40)
+                    ActivityCat(state: context.state.summary.primaryState, size: 40)
                 }
                 DynamicIslandExpandedRegion(.center) {
                     ActivityHeadline(state: context.state)
@@ -242,7 +242,7 @@ struct LockScreenView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            ActivityPixelCat(state: state.summary.primaryState, size: 40)
+            ActivityCat(state: state.summary.primaryState, size: 40)
             ActivityHeadline(state: state)
             Spacer(minLength: 8)
             HStack(spacing: 10) {

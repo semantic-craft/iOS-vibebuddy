@@ -39,9 +39,10 @@ code, and tests — don't drift to synonyms.
 
 ## Buddy / pet
 
-- **Buddy / Pet** — the companion character (a code-drawn **pixel cat**, unified
-  across iOS and macOS per ADR-0007's amendment) that reflects overall status
-  and hosts the voice companion. Zero third-party art.
+- **Buddy / Pet** — the companion character (the app icon's white cat, drawn in
+  code by the Kit's `BuddyCatFace` on iOS, watchOS and macOS per ADR-0007's
+  second amendment) that reflects overall status and hosts the voice companion.
+  Zero third-party art.
 - **BuddyState** — the mood enum driving the pet's face and the sound pack:
   `approval`, `question`, `longWait`, `working`, `stuck`, `done`, `sleeping`.
 
@@ -50,7 +51,9 @@ code, and tests — don't drift to synonyms.
 - **Voice companion** — tap the pet to hold a **realtime speech-to-speech**
   conversation; it knows the live sessions and can **approve / answer** for you.
 - **VoiceProvider** — the realtime backend: `qwen`, `openai`, or `gemini`. Each
-  has its own key, model, voice, and input sample rate.
+  has its own key, model, voice, and input sample rate. Qwen additionally takes
+  an optional Bailian **workspace ID** (workspace-specific `maas.aliyuncs.com`
+  endpoint) and a Beijing/Singapore region switch.
 - **RealtimeVoiceProvider / RealtimeVoiceEvent** — the provider-agnostic Kit
   protocol + event stream (connected, userTranscript, assistantTranscript,
   audioDelta, speechStarted, responseDone, failed, closed) that the audio + UI
@@ -87,6 +90,25 @@ code, and tests — don't drift to synonyms.
 - **LifecycleJournal** — the bounded (7 days / 250 entries, 0600) local log of
   normalized state changes used for daemon-restart recovery and diagnostics; no
   prompts, reasoning, or tool output.
+- **NotificationCategory / NotificationCategoryPrefs** — one category per
+  `NotificationSound`, switched on or off per device (iPhone Settings, Mac
+  Settings). Applied *after* `SoundPolicy` and before anything is posted, so a
+  disabled category never reaches the phone and therefore never the Watch that
+  mirrors it; Focus / Quiet mode stays a separate override that narrows what is
+  left to approvals. Defaults: approval, question, stuck, done on; long-wait
+  nudge and pairing off. The iPhone uploads its copy in
+  `DeviceRegistrationPayload` so the Mac's APNs push honours the phone's
+  switches. The Mac's `HookParser` reads Claude's `notification_type` to set
+  `waitKind` directly; the message keyword match is only the fallback.
+- **Followed / Completion reminder** — `AgentSession.followed` marks a session
+  the user wants to be reminded about until its completion is read. Toggled from
+  the iPhone (swipe / long-press) or the Mac detail pane through `POST /follow`;
+  authoritative on the Mac like `hasUnreadCompletion`, and it survives new turns.
+  `CompletionReminderSchedule` re-issues the `agentDone` cue for a followed,
+  `done`, unread session every 5 minutes, at most 12 times per completion
+  (keyed by `statusSince`), on the Mac and over APNs; any acknowledgement stops
+  it. Same notification id and collapse id as the original cue, so one banner
+  is replaced, not stacked. The Watch carries no follow state.
 - **NotificationDelivery / NotificationDeliveryLog** — one record per local or
   APNs send with outcome `attempted` / `scheduled` / `accepted` / `failed`. Never
   `delivered`: an API result is not proof the device showed it.

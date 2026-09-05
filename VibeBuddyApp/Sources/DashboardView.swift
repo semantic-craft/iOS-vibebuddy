@@ -27,7 +27,7 @@ struct DashboardView: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
                 BuddyView(groups: dashboard.groups, pulse: dashboard.cuePulse,
-                          speaking: voice.isSpeaking, listening: voice.isListening,
+                          voice: .init(voice.phase),
                           companionEnabled: companionEnabled,
                           buddyScopeCount: dashboard.buddySessionIDs.count) {
                     voice.toggle()
@@ -110,6 +110,10 @@ struct DashboardView: View {
                 ForEach(sessions) { session in
                     SessionRow(session: session, isSelected: highlightId == session.id)
                         .id(session.id)
+                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                            followButton(session)
+                        }
+                        .contextMenu { followButton(session) }
                         .listRowInsets(.init(top: 6, leading: 0, bottom: 6, trailing: 16))
                         .listRowBackground(highlightId == session.id
                                            ? accent.opacity(0.15) : Color.clear)
@@ -125,6 +129,20 @@ struct DashboardView: View {
                 .textCase(nil)
             }
         }
+    }
+}
+
+extension DashboardView {
+    /// Follow / unfollow: keep reminding about this session's completion until
+    /// it is read. Same button behind the swipe and the long-press.
+    fileprivate func followButton(_ session: AgentSession) -> some View {
+        Button {
+            dashboard.setFollowed(session.id, !session.isFollowed)
+        } label: {
+            Label(session.isFollowed ? "Unfollow" : "Follow until done",
+                  systemImage: session.isFollowed ? "bell.slash" : "bell.badge")
+        }
+        .tint(session.isFollowed ? .gray : .orange)
     }
 }
 
@@ -190,6 +208,12 @@ private struct SessionRow: View {
                         Text(branch)
                             .font(.caption.monospaced())
                             .foregroundStyle(.secondary)
+                    }
+                    if session.isFollowed {
+                        Image(systemName: "bell.badge.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                            .accessibilityLabel("Following until done")
                     }
                     if session.isStuck {
                         Label("Stuck", systemImage: "exclamationmark.triangle.fill")

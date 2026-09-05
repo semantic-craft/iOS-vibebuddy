@@ -49,6 +49,9 @@ final class MenuBarModel: ObservableObject {
     @Published var toggleGlanceHotkey: Hotkey = .toggleGlanceDefault
     /// Idle-cleanup window in hours; 0 means never. Default 2h.
     @Published var idleTimeoutHours: Double = 2
+    /// Agent groups the user folded in the menu bar list (persisted). A folded
+    /// group still shows its working rows — see `MenuSessionList`.
+    @Published private(set) var collapsedMenuAgents: Set<AgentKind> = []
     let port: Int
     private let token: String
     private let store: SessionStore
@@ -84,6 +87,7 @@ final class MenuBarModel: ObservableObject {
     private var pollTask: Task<Void, Never>?
     private var glance: GlanceWindow?
     private static let pairedPhoneInfoKey = "pairedPhoneInfo"
+    private static let collapsedMenuAgentsKey = "menuCollapsedAgents"
     private static let legacyPairedPhoneKey = "pairedPhone"
 
     init(runtimeEnabled: Bool = true) {
@@ -105,6 +109,8 @@ final class MenuBarModel: ObservableObject {
         // Snap to one of the 3 presets so the menu Picker selection always matches.
         glanceScale = [0.8, 1.0, 1.2].min(by: { abs($0 - base) < abs($1 - base) }) ?? 1.0
         showGlance = UserDefaults.standard.bool(forKey: "showGlance", default: true)
+        collapsedMenuAgents = Set((UserDefaults.standard.stringArray(forKey: Self.collapsedMenuAgentsKey) ?? [])
+            .compactMap(AgentKind.init(rawValue:)))
         openDashboardHotkey = Hotkey.loadOpenDashboard()
         toggleGlanceHotkey = Hotkey.loadToggleGlance()
         usage = AccountUsageCoordinator(store: store, notifier: notifier)
@@ -189,6 +195,10 @@ final class MenuBarModel: ObservableObject {
                                      approvalContext: approvalContext,
                                      onDevicePaired: { [weak self] device in
                                          Task { @MainActor in self?.recordPairedDevice(device) }
+                                     },
+                                     onCompletionReminder: { [weak self] session in
+                                         guard let self else { return false }
+                                         return await self.deliverCompletionReminder(session)
                                      })
         Task.detached(priority: .utility) {
             do {
@@ -229,7 +239,8 @@ final class MenuBarModel: ObservableObject {
                     snapshot.sessions,
                     appActive: NSApp.isActive,                 // user looking at VibeBuddy?
                     quietMode: Self.effectiveQuiet(),          // Focus mode (manual or nightly) → approvals only
-                    focusedSessionIDs: focused)                // …or looking at the session's own terminal
+                    focusedSessionIDs: focused,                // …or looking at the session's own terminal
+                    categories: NotificationCategoryPrefs.load()) // this Mac's own switches
                 await self.refreshNotificationDeliveryHealth()
                 await self.pushToPhones(snapshot.sessions)
                 await self.pushActivityUpdates(snapshot.sessions)
@@ -305,17 +316,44 @@ final class MenuBarModel: ObservableObject {
             sessions: sessions, now: Date(), appActive: false, quietMode: false))
         guard !alerts.isEmpty else { return }
         let devices = await deviceTokens.devices()
-        for alert in alerts {
-            let (title, body) = Self.pushCopy(for: alert)
-            for device in devices {
-                guard let deviceToken = device.token else { continue }
-                if device.quietMode == true && !alert.sound.survivesQuietMode { continue }  // night: approvals only
-                let sound = device.playSound != false ? alert.sound.fileName : ""           // mute → silent banner
-                await pusher.send(title: title, body: body, to: deviceToken, sound: sound,
-                                  sessionID: alert.sessionID, soundCategory: alert.sound.rawValue)
-            }
-        }
+        for alert in alerts { await push(alert, to: devices) }
         await refreshNotificationDeliveryHealth()
+    }
+
+    /// One cue to every paired phone, each device respecting its own switches.
+    /// Returns whether any phone was actually sent to.
+    @discardableResult
+    private func push(_ alert: SoundAlert, to devices: [DeviceRegistrationPayload]) async -> Bool {
+        guard let pusher else { return false }
+        let (title, body) = Self.pushCopy(for: alert)
+        var attempted = false
+        for device in devices {
+            guard let deviceToken = device.token else { continue }
+            // The phone's switches, uploaded with its registration; a phone
+            // that never said keeps the default set.
+            guard (device.categories ?? .default).isEnabled(alert.sound) else { continue }
+            if device.quietMode == true && !alert.sound.survivesQuietMode { continue }  // night: approvals only
+            let sound = device.playSound != false ? alert.sound.fileName : ""           // mute → silent banner
+            attempted = true
+            await pusher.send(title: title, body: body, to: deviceToken, sound: sound,
+                              sessionID: alert.sessionID, soundCategory: alert.sound.rawValue)
+        }
+        return attempted
+    }
+
+    /// The server's reminder schedule asks this to deliver one `agentDone`
+    /// reminder for a followed, unread completion: a local banner (this Mac's
+    /// categories and Focus mode permitting) and a push to every paired phone
+    /// whose switches allow it. Returns whether any channel took it — a
+    /// reminder nobody could show does not spend one of the session's slots.
+    @MainActor
+    private func deliverCompletionReminder(_ session: AgentSession) async -> Bool {
+        let local = await notificationCoordinator.remind(
+            session, quietMode: Self.effectiveQuiet(), categories: NotificationCategoryPrefs.load())
+        let devices = pusher == nil ? [] : await deviceTokens.devices()
+        let pushed = await push(SoundAlert(session: session, sound: .agentDone), to: devices)
+        if local || pushed { await refreshNotificationDeliveryHealth() }
+        return local || pushed
     }
 
     /// Fire a one-time budget heads-up (local + push) for sessions that just
@@ -431,6 +469,17 @@ final class MenuBarModel: ObservableObject {
         Task { [store] in await store.acknowledgeCompletion(sessionID: sessionID) }
     }
 
+    /// Follow a session to be reminded about its completion until it is read.
+    /// Demo sessions flip the flag locally without touching the store.
+    func setFollowed(_ sessionID: String, _ followed: Bool) {
+        if ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1" {
+            guard let index = sessions.firstIndex(where: { $0.id == sessionID }) else { return }
+            sessions[index].followed = followed
+            return
+        }
+        Task { [store] in await store.setFollowed(sessionID: sessionID, followed) }
+    }
+
     /// Include/exclude a session from the buddy's context (ephemeral). Takes effect
     /// on the next call — a live call keeps the snapshot it started with.
     func toggleBuddy(_ id: String) {
@@ -524,6 +573,19 @@ final class MenuBarModel: ObservableObject {
         pairedPhone = nil
         UserDefaults.standard.removeObject(forKey: Self.pairedPhoneInfoKey)
         UserDefaults.standard.removeObject(forKey: Self.legacyPairedPhoneKey)
+    }
+
+    var menuSessionList: MenuSessionList {
+        MenuSessionList(sessions, collapsedAgents: collapsedMenuAgents)
+    }
+
+    func toggleMenuGroup(_ agent: AgentKind) {
+        if collapsedMenuAgents.contains(agent) {
+            collapsedMenuAgents.remove(agent)
+        } else {
+            collapsedMenuAgents.insert(agent)
+        }
+        UserDefaults.standard.set(collapsedMenuAgents.map(\.rawValue).sorted(), forKey: Self.collapsedMenuAgentsKey)
     }
 
     func setShowGlance(_ on: Bool) {

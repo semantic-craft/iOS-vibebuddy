@@ -160,6 +160,7 @@ final class DashboardStore: ObservableObject {
     /// Play the pairing-success cue. Called once when a fresh pairing is saved
     /// (a QR scan or manual connect), not on automatic reconnects.
     func confirmPairing() {
+        guard SoundPrefs.categories.isEnabled(.pairSuccess) else { return }
         notifier.confirmPairing()
     }
 
@@ -404,6 +405,20 @@ final class DashboardStore: ObservableObject {
         Task { await decisionClient.acknowledge(pairing, sessionId: sessionId) }
     }
 
+    /// Follow a session so its completion is reminded about until read. The list
+    /// flips at once; the Mac stays authoritative and the next snapshot either
+    /// confirms it or puts it back. Demo Mode mirrors the flag locally.
+    func setFollowed(_ sessionId: String, _ followed: Bool) {
+        install(allSessions.map { session in
+            guard session.id == sessionId else { return session }
+            var session = session
+            session.followed = followed
+            return session
+        })
+        guard !isDemo, let pairing else { return }
+        Task { await decisionClient.follow(pairing, sessionId: sessionId, followed: followed) }
+    }
+
     /// Honest feedback for a jump — success lands on the Mac, so the phone has to
     /// say so; `nil` means the Mac wasn't reachable. `activatedApp` is the case
     /// worth naming: the right app is now in front, but the session's own window
@@ -451,18 +466,21 @@ final class DashboardStore: ObservableObject {
             model: UIDevice.current.model,
             systemVersion: "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)",
             playSound: SoundPrefs.playSound,
-            quietMode: SoundPrefs.effectiveQuiet()
+            quietMode: SoundPrefs.effectiveQuiet(),
+            categories: SoundPrefs.categories
         ))
         _ = try? await URLSession.shared.data(for: request)
     }
 
     private func apply(_ snapshot: Snapshot) async {
         // The shared policy owns all the sounding rules; we just supply context.
-        let alerts = policy.evaluate(SoundPolicyInput(
+        // The category switches then drop whatever this phone does not want to
+        // hear about — and what the phone never posts, the Watch never mirrors.
+        let alerts = SoundPrefs.categories.filter(policy.evaluate(SoundPolicyInput(
             sessions: snapshot.sessions,
             now: Date(),
             appActive: UIApplication.shared.applicationState == .active,
-            quietMode: SoundPrefs.effectiveQuiet()))
+            quietMode: SoundPrefs.effectiveQuiet())))
         for alert in alerts {
             notifier.notify(alert)
             Haptics.play(for: alert.sound)   // a tasteful tap to go with the cue

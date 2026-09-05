@@ -185,6 +185,7 @@ private struct MacBuddyBar: View {
     @ObservedObject var model: MenuBarModel
     @ObservedObject var voice: VoiceChat
     @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
+    @State private var greet = 0
 
     /// The buddy header reads "off" until the companion is opted in; otherwise the
     /// live Listening/Speaking/idle status.
@@ -203,8 +204,8 @@ private struct MacBuddyBar: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            PetFace(state: model.buddyState, speaking: voice.isSpeaking, listening: voice.isListening)
-                .onTapGesture { voice.toggle() }
+            PetFace(state: model.buddyState, voice: .init(voice.phase), greet: greet)
+                .onTapGesture { greet += 1; voice.toggle() }
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 6) {
                     if !companionEnabled {
@@ -400,6 +401,14 @@ private struct DetailView: View {
                         model.jump(session)
                     }
                 }
+                // Keep reminding about this session's completion until it is read.
+                Toggle(isOn: Binding(
+                    get: { session.isFollowed },
+                    set: { model.setFollowed(session.id, $0) })) {
+                    Label("Follow until done", systemImage: session.isFollowed ? "bell.badge.fill" : "bell")
+                }
+                .toggleStyle(.button)
+                .help("When this session finishes, remind you every 5 minutes (up to an hour) until you open it here or on your iPhone.")
                 // What the last jump actually achieved — focused the pane, only
                 // raised the app, or found nothing to raise. Same wording as the
                 // glance rows.

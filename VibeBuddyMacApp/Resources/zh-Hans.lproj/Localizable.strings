@@ -141,7 +141,9 @@
 "Browse available models" = "浏览可用模型";
 "Voice ID — editable (blank = auto by language)" = "音色 ID——可编辑（留空＝按语言自动）";
 "Browse available voices" = "浏览可用音色";
-"Use international site (dashscope-intl)" = "使用国际站（dashscope-intl）";
+"Workspace ID — optional; uses the workspace endpoint when set" = "业务空间 ID——可选，填写后使用业务空间专属接入点";
+"Find your workspace ID" = "查找业务空间 ID";
+"Use Singapore (international) region" = "使用新加坡（国际）地域";
 "Paste your %@ key" = "粘贴你的 %@ 密钥";
 
 /* MARK: Voice companion opt-in (consent gate) */
@@ -182,3 +184,17 @@
 "Paired with %@" = "已与 %@ 配对";
 "%@ over budget" = "%@ 超出预算";
 "≈ %@ spent this session (estimate)" = "本会话已花费 ≈ %@（估算）";
+
+/* Notification categories (Settings) */
+"Notify me about" = "通知我这些事";
+"A category that is off is never shown here, whether or not sound is on. Quiet mode still narrows what is left to approvals." = "关闭的类别不会在这台 Mac 上弹出，与声音开关无关。安静模式仍会把保留的类别收窄到仅批准。";
+"Permission requests" = "权限请求";
+"Questions and waiting for input" = "提问与等待输入";
+"Errors and stuck sessions" = "出错与卡住";
+"Task completed" = "任务完成";
+"Still-waiting reminders" = "久等催促";
+"Pairing confirmation" = "配对成功提示";
+
+/* Follow until done (Dashboard) */
+"Follow until done" = "关注到完成";
+"When this session finishes, remind you every 5 minutes (up to an hour) until you open it here or on your iPhone." = "这个会话完成后，每 5 分钟提醒一次（最多一小时），直到你在这里或 iPhone 上打开它。";

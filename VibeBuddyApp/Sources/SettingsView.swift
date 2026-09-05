@@ -12,6 +12,7 @@ struct SettingsView: View {
     @AppStorage(SoundPrefs.playSoundKey) private var playSound = true
     @AppStorage(SoundPrefs.quietModeKey) private var quiet = false
     @State private var quietHours = SoundPrefs.quietHours
+    @State private var categories = SoundPrefs.categories
     @AppStorage(VoiceSettings.conversationLanguageKey) private var voiceLanguage = VoiceLanguage.english.rawValue
     @AppStorage(VoiceSettings.providerKey) private var provider = VoiceProvider.qwen.rawValue
     @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
@@ -56,6 +57,18 @@ struct SettingsView: View {
                     Text("Observation health")
                 } footer: {
                     Text("Repairs are only available on the Mac and run only after you press Repair there.")
+                }
+
+                Section {
+                    ForEach(NotificationCategoryPrefs.displayOrder, id: \.rawValue) { sound in
+                        Toggle(sound.categoryTitle, isOn: Binding(
+                            get: { categories.isEnabled(sound) },
+                            set: { categories.set(sound, enabled: $0) }))
+                    }
+                } header: {
+                    Text("Notify me about")
+                } footer: {
+                    Text("Off means no banner on your iPhone or Apple Watch for that kind of event, even with sound on. What you keep still goes quiet in Focus mode, except permission prompts.")
                 }
 
                 Section {
@@ -117,6 +130,7 @@ struct SettingsView: View {
             .onChange(of: playSound) { _, _ in reportPrefs() }
             .onChange(of: quiet) { _, _ in reportPrefs() }
             .onChange(of: quietHours) { _, q in SoundPrefs.setQuietHours(q); reportPrefs() }
+            .onChange(of: categories) { _, c in SoundPrefs.categories = c; reportPrefs() }
         }
     }
 
@@ -140,6 +154,7 @@ struct SettingsView: View {
 private struct ProviderSection: View {
     let provider: VoiceProvider
     @AppStorage(VoiceSettings.regionIntlKey) private var intl = false
+    @AppStorage(VoiceSettings.qwenWorkspaceIDKey) private var workspaceID = ""
     @State private var apiKey = ""
     @State private var model = ""
     @State private var voice = ""
@@ -167,7 +182,14 @@ private struct ProviderSection: View {
                     .autocorrectionDisabled()
             }
             if provider == .qwen {
-                Toggle("Use international site (dashscope-intl)", isOn: $intl)
+                field(caption: "Workspace ID — optional; uses the workspace endpoint when set",
+                      link: "Find your workspace ID", icon: "arrow.up.right.square", url: VoiceProvider.qwenWorkspaceIDURL) {
+                    TextField("e.g. llm-xxxxxxxx", text: $workspaceID)
+                        .font(.body.monospaced())
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                }
+                Toggle("Use Singapore (international) region", isOn: $intl)
             }
         } header: {
             Text(provider.display)
@@ -199,7 +221,7 @@ private struct ProviderSection: View {
 
     private var exampleVoice: String {
         switch provider {
-        case .qwen:   return "e.g. Tina / Jennifer"
+        case .qwen:   return "e.g. longanqian / longanlufeng"
         case .openai: return "e.g. marin / cedar"
         case .gemini: return "e.g. Puck / Kore"
         }

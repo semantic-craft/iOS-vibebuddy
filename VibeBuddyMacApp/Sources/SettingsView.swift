@@ -315,6 +315,7 @@ private struct NotificationSettings: View {
     @AppStorage("quietMode") private var quiet = false
     @AppStorage("sessionBudgetUSD") private var budgetUSD = 0.0
     @State private var quietHours = NotificationSettings.loadQuietHours()
+    @State private var categories = NotificationCategoryPrefs.load()
 
     var body: some View {
         Form {
@@ -392,6 +393,19 @@ private struct NotificationSettings: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {
+                ForEach(NotificationCategoryPrefs.displayOrder, id: \.rawValue) { sound in
+                    Toggle(sound.categoryTitle, isOn: Binding(
+                        get: { categories.isEnabled(sound) },
+                        set: { categories.set(sound, enabled: $0) }))
+                }
+            } header: {
+                Text("Notify me about")
+            } footer: {
+                Text("A category that is off is never shown here, whether or not sound is on. Quiet mode still narrows what is left to approvals.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .disabled(!notify)
+            Section {
                 Toggle("Quiet mode (approvals only)", isOn: $quiet).disabled(!notify)
             } footer: {
                 Text("For night or focus time: only security approvals make a sound. Everything else stays silent.")
@@ -423,6 +437,7 @@ private struct NotificationSettings: View {
         }
         .formStyle(.grouped)
         .onChange(of: quietHours) { _, q in NotificationSettings.saveQuietHours(q) }
+        .onChange(of: categories) { _, c in c.save() }
     }
 
     private var hourTags: some View {
@@ -487,6 +502,7 @@ private struct VoiceSettingsTab: View {
 private struct ProviderSection: View {
     let provider: VoiceProvider
     @AppStorage(VoiceSettings.regionIntlKey) private var intl = false
+    @AppStorage(VoiceSettings.qwenWorkspaceIDKey) private var workspaceID = ""
     @State private var apiKey = ""
     @State private var model = ""
     @State private var voice = ""
@@ -517,7 +533,14 @@ private struct ProviderSection: View {
                     .autocorrectionDisabled()
             }
             if provider == .qwen {
-                Toggle("Use international site (dashscope-intl)", isOn: $intl)
+                field(caption: "Workspace ID — optional; uses the workspace endpoint when set",
+                      link: "Find your workspace ID", icon: "arrow.up.right.square", url: VoiceProvider.qwenWorkspaceIDURL) {
+                    TextField("e.g. llm-xxxxxxxx", text: $workspaceID)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.body.monospaced())
+                        .autocorrectionDisabled()
+                }
+                Toggle("Use Singapore (international) region", isOn: $intl)
             }
         } header: {
             Text(provider.display)
@@ -549,7 +572,7 @@ private struct ProviderSection: View {
 
     private var exampleVoice: String {
         switch provider {
-        case .qwen:   return "e.g. Tina / Jennifer"
+        case .qwen:   return "e.g. longanqian / longanlufeng"
         case .openai: return "e.g. marin / cedar"
         case .gemini: return "e.g. Puck / Kore"
         }

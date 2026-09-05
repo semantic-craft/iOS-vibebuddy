@@ -108,6 +108,33 @@ def check_grok_home(fails):
             fails.append("uninstall left vibebuddy.json under $GROK_HOME")
 
 
+def check_claude_legacy_gate_migration(fails):
+    """A pre-PermissionRequest install left the gate on PreToolUse, holding every
+    tool call; a plain --install must move it to PermissionRequest."""
+    installer = os.path.join(HOOKS, "install-claude-hooks.py")
+    with tempfile.TemporaryDirectory() as home:
+        env = {**os.environ, "HOME": home}
+        settings = os.path.join(home, ".claude/settings.json")
+        os.makedirs(os.path.dirname(settings), exist_ok=True)
+        gate = os.path.join(HOOKS, "approval-hook.sh")
+        open(settings, "w").write(json.dumps({"hooks": {"PreToolUse": [
+            {"matcher": "*", "hooks": [{"type": "command", "command": f'"{gate}"'}]}]}}))
+        r = subprocess.run([sys.executable, installer, "--install"], env=env,
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            fails.append(f"claude legacy-gate --install exited {r.returncode}: {r.stderr}")
+            return
+        hooks = json.loads(open(settings).read())["hooks"]
+        pre_tool = [h.get("command", "") for g in hooks.get("PreToolUse", []) for h in g.get("hooks", [])]
+        gate_now = [h.get("command", "") for g in hooks.get("PermissionRequest", []) for h in g.get("hooks", [])]
+        if any("approval-hook.sh" in c for c in pre_tool):
+            fails.append("plain --install left the legacy claude gate on PreToolUse")
+        if not any("vibebuddy-forward.sh" in c for c in pre_tool):
+            fails.append("legacy-gate migration did not restore the PreToolUse status forwarder")
+        if not any("approval-hook.sh" in c for c in gate_now):
+            fails.append("legacy-gate migration did not move the claude gate to PermissionRequest")
+
+
 def snapshot(home):
     out = {}
     for rel in MANAGED:
@@ -239,14 +266,51 @@ def main():
             fails.append("grok approval gate must allow 30s for the phone round trip")
         if not any(hook.get("command", "").endswith('" grok') for hook in pre_tool):
             fails.append("grok approval gate must pass the grok source argument")
-        claude_pre_tool = [hook for group in json.loads(
-                               open(os.path.join(home, ".claude/settings.json")).read()
-                           ).get("hooks", {}).get("PreToolUse", [])
+        claude_hooks = json.loads(open(os.path.join(home, ".claude/settings.json")).read()).get("hooks", {})
+        claude_gate = [hook for group in claude_hooks.get("PermissionRequest", [])
+                       for hook in group.get("hooks", [])]
+        if not any("approval-hook.sh" in hook.get("command", "") for hook in claude_gate):
+            fails.append("--approval did not add the claude approval gate on PermissionRequest")
+        if any("vibebuddy-forward.sh" in hook.get("command", "") for hook in claude_gate):
+            fails.append("--approval left the async claude PermissionRequest status group")
+        if not all(hook.get("timeout") == 30 for hook in claude_gate
+                   if "approval-hook.sh" in hook.get("command", "")):
+            fails.append("claude approval gate must allow 30s for the phone round trip")
+        claude_pre_tool = [hook for group in claude_hooks.get("PreToolUse", [])
                            for hook in group.get("hooks", [])]
-        if not any("approval-hook.sh" in hook.get("command", "") for hook in claude_pre_tool):
-            fails.append("--approval did not add the claude approval gate")
+        if any("approval-hook.sh" in hook.get("command", "") for hook in claude_pre_tool):
+            fails.append("claude approval gate must not sit on PreToolUse (it would hold every call)")
+        if not any("vibebuddy-forward.sh" in hook.get("command", "") and hook.get("async") is True
+                   for hook in claude_pre_tool):
+            fails.append("--approval dropped the async claude PreToolUse status forwarder")
         if "Stop" not in grok_hooks:
             fails.append("--approval dropped the grok status hooks")
+
+        # codex: the gate sits on PermissionRequest (the only event whose hook
+        # decision Codex honours for an allow); PreToolUse keeps its status
+        # forwarder so the session still goes `working` once the tool runs.
+        codex_hooks = json.loads(open(os.path.join(home, ".codex/hooks.json")).read())["hooks"]
+        codex_gate = [hook for group in codex_hooks.get("PermissionRequest", [])
+                      for hook in group.get("hooks", [])]
+        if not any("approval-hook.sh" in hook.get("command", "") for hook in codex_gate):
+            fails.append("--approval did not add the codex approval gate on PermissionRequest")
+        if any("vibebuddy-forward.sh" in hook.get("command", "") for hook in codex_gate):
+            fails.append("--approval left the fire-and-forget codex PermissionRequest group")
+        if not all(hook.get("timeout") == 30 for hook in codex_gate
+                   if "approval-hook.sh" in hook.get("command", "")):
+            fails.append("codex approval gate must allow 30s for the phone round trip")
+        if not any(hook.get("command", "").endswith('" codex') for hook in codex_gate):
+            fails.append("codex approval gate must pass the codex source argument")
+        codex_pre_tool = [hook.get("command", "") for group in codex_hooks.get("PreToolUse", [])
+                          for hook in group.get("hooks", [])]
+        if not any('vibebuddy-forward.sh" codex' in command for command in codex_pre_tool):
+            fails.append("--approval dropped the codex PreToolUse status forwarder")
+        if any("approval-hook.sh" in command for command in codex_pre_tool):
+            fails.append("codex approval gate must not sit on PreToolUse (Codex rejects allow there)")
+        if USER_CODEX_HOOK not in [hook.get("command", "")
+                                   for group in codex_hooks.get("SessionStart", [])
+                                   for hook in group.get("hooks", [])]:
+            fails.append("--approval dropped the user's codex lifecycle hook")
 
         # A plain re-install (the Mac app's Repair button) rewrites the grok file
         # wholesale; it must not silently drop the gate the user opted into.
@@ -260,12 +324,20 @@ def main():
             fails.append("plain --install dropped the existing grok approval gate")
         if "Stop" not in grok_hooks:
             fails.append("re-install after --approval dropped the grok status hooks")
-        claude_pre_tool = [hook for group in json.loads(
-                               open(os.path.join(home, ".claude/settings.json")).read()
-                           ).get("hooks", {}).get("PreToolUse", [])
-                           for hook in group.get("hooks", [])]
-        if not any("approval-hook.sh" in hook.get("command", "") for hook in claude_pre_tool):
+        claude_hooks = json.loads(open(os.path.join(home, ".claude/settings.json")).read()).get("hooks", {})
+        claude_gate = [hook.get("command", "") for group in claude_hooks.get("PermissionRequest", [])
+                       for hook in group.get("hooks", [])]
+        if not any("approval-hook.sh" in command for command in claude_gate):
             fails.append("plain --install dropped the existing claude approval gate")
+        if any("vibebuddy-forward.sh" in command for command in claude_gate):
+            fails.append("re-install after --approval re-added the claude PermissionRequest forwarder")
+        codex_hooks = json.loads(open(os.path.join(home, ".codex/hooks.json")).read())["hooks"]
+        codex_gate = [hook.get("command", "") for group in codex_hooks.get("PermissionRequest", [])
+                      for hook in group.get("hooks", [])]
+        if not any("approval-hook.sh" in command for command in codex_gate):
+            fails.append("plain --install dropped the existing codex approval gate")
+        if any("vibebuddy-forward.sh" in command for command in codex_gate):
+            fails.append("re-install after --approval re-added the codex PermissionRequest forwarder")
 
         # Grok imports ~/.claude/settings.json hooks and resolves a quoted,
         # argument-less command as a literal path, so the Claude capture hook
@@ -305,6 +377,8 @@ def main():
                                     for group in groups for hook in group.get("hooks", [])]
         if any("vibebuddy-forward.sh" in command for command in remaining_codex_commands):
             fails.append("uninstall left vibebuddy codex lifecycle hooks")
+        if any("approval-hook.sh" in command for command in remaining_codex_commands):
+            fails.append("uninstall left the codex approval gate")
         if USER_CODEX_HOOK not in remaining_codex_commands:
             fails.append("uninstall removed the user's codex lifecycle hook")
         if "vibebuddy-forward.sh" in kimi or "vibebuddy:" in kimi:
@@ -317,6 +391,7 @@ def main():
             fails.append("uninstall left opencode plugin")
 
     check_grok_home(fails)
+    check_claude_legacy_gate_migration(fails)
 
     if fails:
         print("FAIL:")

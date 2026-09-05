@@ -12,6 +12,9 @@ protocol DecisionClient: Sendable {
     /// Returns what the Mac reported, or `nil` if it couldn't be reached.
     func jump(_ pairing: PairingPayload, sessionId: String) async -> JumpOutcome?
     func acknowledge(_ pairing: PairingPayload, sessionId: String) async
+    /// Follow or unfollow a session so the Mac keeps reminding about its
+    /// completion until it is read.
+    func follow(_ pairing: PairingPayload, sessionId: String, followed: Bool) async
 }
 
 struct HTTPDecisionClient: DecisionClient {
@@ -22,6 +25,16 @@ struct HTTPDecisionClient: DecisionClient {
         req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try? JSONSerialization.data(withJSONObject: ["sessionId": sessionId])
+        _ = try? await URLSession.shared.data(for: req)
+    }
+
+    func follow(_ pairing: PairingPayload, sessionId: String, followed: Bool) async {
+        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/follow") else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["sessionId": sessionId, "followed": followed])
         _ = try? await URLSession.shared.data(for: req)
     }
 
