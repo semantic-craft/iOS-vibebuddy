@@ -99,6 +99,16 @@ keyed by question text (an array for a multi-select, the typed text for
 Claude shows its question UI, the card stays, and a later answer is typed into
 a tmux pane when the session has one.
 
+#### Presence
+
+Both blocking paths (the PermissionRequest gate and the AskUserQuestion relay)
+first ask the Mac app whether you are at the keyboard for that session — its
+terminal in front, screen unlocked, input within two minutes. If so the hook
+prints nothing at once so Claude's own prompt takes the answer, and the phone
+shows the request as a read-only card that clears when Claude moves on.
+Settings → "Always ask the phone first" turns this off. A headless
+`vibebuddyd` never claims presence.
+
 #### Status line (`statusLine`)
 
 `--install` also points Claude's `statusLine.command` at

@@ -14,17 +14,24 @@ public enum AskUserQuestionInput {
         guard let raw = input["questions"] as? [[String: Any]] else { return nil }
         let items: [QuestionItem] = raw.enumerated().compactMap { index, q in
             guard let text = nonEmpty(q["question"] as? String) else { return nil }
+            // Claude sends `{label, description}`; a transcript written by an
+            // older CLI may carry `id` and a distinct `value` — keep both.
             let options = ((q["options"] as? [[String: Any]]) ?? []).compactMap { o -> QuestionOption? in
                 guard let label = nonEmpty(o["label"] as? String) else { return nil }
-                return QuestionOption(id: label, label: label, value: label,
+                return QuestionOption(id: nonEmpty(o["id"] as? String) ?? label, label: label,
+                                      value: nonEmpty(o["value"] as? String) ?? label,
                                       description: nonEmpty(o["description"] as? String))
             }
-            return QuestionItem(id: "q\(index + 1)", header: nonEmpty(q["header"] as? String),
+            return QuestionItem(id: nonEmpty(q["id"] as? String) ?? "q\(index + 1)",
+                                header: nonEmpty(q["header"] as? String),
                                 text: text, options: options,
                                 multiSelect: q["multiSelect"] as? Bool ?? false, allowsOther: true)
         }
         guard let first = items.first else { return nil }
-        return PendingQuestion(id: id, prompt: first.text, options: first.options,
+        // A question that names itself keeps that name as the card's id, as
+        // the transcript reader always did; otherwise the caller's id.
+        let questionID = nonEmpty(raw.first?["id"] as? String) ?? id
+        return PendingQuestion(id: questionID, prompt: first.text, options: first.options,
                                questions: items, isBlocking: true)
     }
 

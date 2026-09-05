@@ -137,6 +137,15 @@ private struct SetupSettings: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             Section {
+                Toggle("Always ask the phone first", isOn: Binding(
+                    get: { model.alwaysAskPhone },
+                    set: { model.setAlwaysAskPhone($0) }))
+            } header: { Text("Approvals and questions") } footer: {
+                Text("Off: while you are at the Mac — the session's terminal or Codex Desktop in front, screen unlocked, input within the last two minutes — the agent's own prompt takes the answer and the phone shows a read-only card. On: every prompt waits for the phone even at the desk.")
+                    .font(.caption)
+            }
+
+            Section {
                 Toggle("Use the Codex app-server daemon", isOn: Binding(
                     get: { model.codexAppServerEnabled },
                     set: { model.setCodexAppServerEnabled($0) }))

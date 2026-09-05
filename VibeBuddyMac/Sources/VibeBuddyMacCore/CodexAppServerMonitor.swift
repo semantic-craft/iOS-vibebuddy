@@ -59,6 +59,10 @@ public actor CodexAppServerMonitor {
     private let approvalContext: ApprovalContextStore
     private let questionRegistry: QuestionRegistry
     private let approvalID: @Sendable () -> String
+    /// Whether the person is at the Mac for this thread (`PresencePolicy`).
+    /// Present → Desktop's own dialog takes the answer, the phone gets a
+    /// read-only card, and this connection never responds.
+    private let presence: @Sendable (String) async -> Bool
     /// How long a card stays answerable from the phone. Codex keeps the request
     /// open until someone answers, so this only bounds a forgotten one.
     private let requestTimeout: Duration
@@ -101,6 +105,7 @@ public actor CodexAppServerMonitor {
         approvalContext: ApprovalContextStore = ApprovalContextStore(),
         questionRegistry: QuestionRegistry = QuestionRegistry(),
         approvalID: @escaping @Sendable () -> String = { UUID().uuidString },
+        presence: @escaping @Sendable (String) async -> Bool = { _ in false },
         requestTimeout: Duration = .seconds(60 * 60),
         makeClient: @escaping @Sendable (String) -> any CodexAppServerConnecting = { CodexAppServerClient(socketPath: $0) }
     ) {
@@ -117,6 +122,7 @@ public actor CodexAppServerMonitor {
         self.approvalContext = approvalContext
         self.questionRegistry = questionRegistry
         self.approvalID = approvalID
+        self.presence = presence
         self.requestTimeout = requestTimeout
         self.makeClient = makeClient
         state.enabled = enabled
@@ -356,13 +362,19 @@ public actor CodexAppServerMonitor {
         }
         let key = Self.requestKey(threadID: threadID, id: id)
         openRequests[key] = OpenRequest(id: id, threadID: threadID, kind: .approval(card.id))
-        await approvalContext.set(id: card.id, sessionID: threadID,
-                                  rule: AllowRule.forApproval(tool: tool, input: input))
         var shown = card
         if let reason, !reason.isEmpty, shown.newText == nil, shown.command == nil {
             shown = PendingApproval(id: card.id, tool: card.tool, commandPreview: card.commandPreview,
                                     command: nil, filePath: card.filePath, oldText: nil, newText: reason)
         }
+        if await presence(threadID) {
+            // At the Mac: Desktop's dialog is right there. Show, don't hold;
+            // `serverRequest/resolved` clears the card once it is answered.
+            await store.beginApproval(sessionID: threadID, shown.readOnly, at: Date())
+            return
+        }
+        await approvalContext.set(id: card.id, sessionID: threadID,
+                                  rule: AllowRule.forApproval(tool: tool, input: input))
         await store.beginApproval(sessionID: threadID, shown, at: Date())
         let outcome = await approvalRegistry.wait(id: card.id, timeout: requestTimeout)
         guard openRequests.removeValue(forKey: key) != nil else { return }   // resolved elsewhere
@@ -405,6 +417,10 @@ public actor CodexAppServerMonitor {
                                        expiresAt: blocking ? nil : Date().addingTimeInterval(60))
         let key = Self.requestKey(threadID: threadID, id: id)
         openRequests[key] = OpenRequest(id: id, threadID: threadID, kind: .question)
+        if await presence(threadID) {
+            await store.beginQuestion(sessionID: threadID, question.readOnly, at: Date())
+            return
+        }
         await store.beginQuestion(sessionID: threadID, question, at: Date())
         let answers = await questionRegistry.wait(sessionID: threadID, timeout: timeout)
         guard openRequests.removeValue(forKey: key) != nil else { return }

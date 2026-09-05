@@ -30,6 +30,10 @@ final class MenuBarModel: ObservableObject {
     /// the rollout tailer + hooks keep covering Codex whenever it is off or
     /// the daemon is not running.
     @Published var codexAppServerEnabled: Bool = true
+    /// Settings override for the presence policy: hold every prompt for the
+    /// phone even while the person is at the Mac. Off by default.
+    @Published var alwaysAskPhone: Bool = false
+    static let alwaysAskPhoneKey = "alwaysAskPhone"
     @Published private(set) var codexAppServerDiagnostics = CodexAppServerMonitor.Diagnostics()
     @Published private(set) var lifecycleTimeline: [LifecycleJournalEntry] = []
     @Published private(set) var lifecycleJournalClearFailed = false
@@ -99,6 +103,11 @@ final class MenuBarModel: ObservableObject {
     private static let pairedPhoneInfoKey = "pairedPhoneInfo"
     private static let legacyPairedPhoneKey = "pairedPhone"
 
+    /// The live model, for callers that only hold a `@Sendable` closure (the
+    /// daemon's presence check). Weak: the model owns the app's lifetime, not
+    /// the other way round.
+    private(set) static weak var shared: MenuBarModel?
+
     init(runtimeEnabled: Bool = true) {
         port = ProcessInfo.processInfo.environment["VIBEBUDDY_PORT"].flatMap(Int.init) ?? 9876
         let savedIdleTimeout = UserDefaults.standard.object(forKey: "idleTimeoutHours") as? Double ?? 2
@@ -120,10 +129,16 @@ final class MenuBarModel: ObservableObject {
         showGlance = UserDefaults.standard.bool(forKey: "showGlance", default: true)
         let appServerOn = UserDefaults.standard.bool(forKey: Self.codexAppServerEnabledKey, default: true)
         codexAppServerEnabled = appServerOn
+        alwaysAskPhone = UserDefaults.standard.bool(forKey: Self.alwaysAskPhoneKey)
+        // Presence is read on the main actor from the live snapshot; the
+        // daemon and the monitor ask through this closure right before they
+        // would hold a prompt for the phone.
+        let presence = Presence.evaluator()
         codexAppServerMonitor = CodexAppServerMonitor(
             enabled: appServerOn, usageFeed: usageFeed,
             approvalRegistry: approvalRegistry, allowStore: allowStore, sessionAllow: sessionAllow,
-            approvalContext: approvalContext, questionRegistry: questionRegistry)
+            approvalContext: approvalContext, questionRegistry: questionRegistry,
+            presence: presence)
         openDashboardHotkey = Hotkey.loadOpenDashboard()
         toggleGlanceHotkey = Hotkey.loadToggleGlance()
         usage = AccountUsageCoordinator(store: store, notifier: notifier, liveFeed: usageFeed)
@@ -144,6 +159,7 @@ final class MenuBarModel: ObservableObject {
         usageObserver = usage.objectWillChange.sink { [weak self] in
             self?.objectWillChange.send()
         }
+        Self.shared = self
         // Screenshot / exploration instance: seed sample sessions and skip the
         // server, polling, pairing, and notifications entirely. It never binds the
         // port or pushes to a phone, so it runs harmlessly alongside a real
@@ -209,6 +225,7 @@ final class MenuBarModel: ObservableObject {
                                      sessionAllow: sessionAllow,
                                      approvalContext: approvalContext,
                                      questionRegistry: questionRegistry,
+                                     presence: Presence.evaluator(),
                                      onDevicePaired: { [weak self] device in
                                          Task { @MainActor in self?.recordPairedDevice(device) }
                                      })
@@ -275,6 +292,27 @@ final class MenuBarModel: ObservableObject {
         await deliveryRecorder.updateAPNsConfigured(pusher != nil)
         notificationDeliveryHealth = await deliveryRecorder.health()
         recentNotificationDeliveries = await deliveryRecorder.recent(limit: 8)
+    }
+
+    func setAlwaysAskPhone(_ on: Bool) {
+        alwaysAskPhone = on
+        UserDefaults.standard.set(on, forKey: Self.alwaysAskPhoneKey)
+    }
+
+    /// The presence policy's inputs for one session, from what this model can
+    /// see: the frontmost app against the session's terminal (or Codex Desktop
+    /// for a Desktop thread), the screen lock, and the system idle time.
+    func presenceInput(for sessionID: String) -> PresencePolicy.Input {
+        let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        var focused = ForegroundTerminal.focusedSessionIDs(among: sessions, frontmostBundleID: front).contains(sessionID)
+        if let session = sessions.first(where: { $0.id == sessionID }),
+           session.jumpsToDesktopThread, front == CodexDesktopJumper.chatGPTBundleID {
+            focused = true
+        }
+        return PresencePolicy.Input(sessionSurfaceFocused: focused,
+                                    screenLocked: Presence.screenIsLocked(),
+                                    idleSeconds: Presence.idleSeconds(),
+                                    alwaysAskPhone: alwaysAskPhone)
     }
 
     func setCodexAppServerEnabled(_ on: Bool) {

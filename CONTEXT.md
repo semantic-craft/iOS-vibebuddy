@@ -59,6 +59,17 @@ code, and tests — don't drift to synonyms.
   layers consume.
 - **Conversation language** — the language the voice companion speaks (English /
   中文); independent of the **UI language** (English).
+- **Presence** — whether the person is at the Mac for a session:
+  `PresencePolicy` (pure, in core) says *present* when the session's own
+  surface (its terminal app, or Codex Desktop for a Desktop thread) is
+  frontmost, the screen is unlocked and there was input within two minutes,
+  unless the Settings override "Always ask the phone first" is on. Present →
+  the agent's own prompt takes the answer and the phone gets a **read-only
+  card** (`answerable: false`); away → the daemon holds the prompt for the
+  phone. Applies to the hook gate, the question relay and app-server requests.
+- **Steer** — free text for a Codex thread sent through the app-server daemon:
+  `turn/steer` while a turn runs, `turn/start` when idle (a cold thread is
+  resumed first). Codex threads never take typed input through a terminal.
 - **Question relay** — the agent's question answered from the phone or the Mac
   card through the agent's own contract: Claude's `AskUserQuestion` on a
   blocking PreToolUse hook (answered with `updatedInput.answers`, keyed by

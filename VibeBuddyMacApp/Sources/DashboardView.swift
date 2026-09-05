@@ -375,23 +375,32 @@ private struct DetailView: View {
                         .padding(10)
                         .background(Color(nsColor: .textBackgroundColor))
                         .cornerRadius(8)
-                    HStack(spacing: 10) {
-                        Button("Approve") { model.decide(approval.id, .allow) }
-                            .keyboardShortcut("a", modifiers: []).tint(.green)
-                        Button("Deny") { model.decide(approval.id, .deny) }
-                            .keyboardShortcut("d", modifiers: []).tint(.red)
+                    if approval.isAnswerable {
+                        HStack(spacing: 10) {
+                            Button("Approve") { model.decide(approval.id, .allow) }
+                                .keyboardShortcut("a", modifiers: []).tint(.green)
+                            Button("Deny") { model.decide(approval.id, .deny) }
+                                .keyboardShortcut("d", modifiers: []).tint(.red)
+                            Button(session.jumpsToDesktopThread ? "Open thread in ChatGPT" : "Jump to terminal") {
+                                model.jump(session)
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        HStack(spacing: 10) {
+                            Button("Always allow this") { model.decide(approval.id, .alwaysAllow) }
+                            Button("Allow all this session") { model.decide(approval.id, .allowSession) }
+                        }
+                        .buttonStyle(.bordered).controlSize(.small)
+                        .help("Always allow: auto-approve this exact command in future. Allow all this session: stop asking for the rest of this run.")
+                    } else {
+                        Label("You're at the Mac — answer this in the agent's own prompt.", systemImage: "keyboard")
+                            .font(.caption).foregroundStyle(.secondary)
                         Button(session.jumpsToDesktopThread ? "Open thread in ChatGPT" : "Jump to terminal") {
                             model.jump(session)
                         }
+                        .buttonStyle(.borderedProminent)
                     }
-                    .buttonStyle(.borderedProminent)
-                    HStack(spacing: 10) {
-                        Button("Always allow this") { model.decide(approval.id, .alwaysAllow) }
-                        Button("Allow all this session") { model.decide(approval.id, .allowSession) }
-                    }
-                    .buttonStyle(.bordered).controlSize(.small)
-                    .help("Always allow: auto-approve this exact command in future. Allow all this session: stop asking for the rest of this run.")
-                    if let rule = approval.suggestedRule {
+                    if let rule = approval.suggestedRule, approval.isAnswerable {
                         Text("Always allow adds \(rule) to Claude's own permission rules — the same rule the terminal dialog offers.")
                             .font(.caption).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)

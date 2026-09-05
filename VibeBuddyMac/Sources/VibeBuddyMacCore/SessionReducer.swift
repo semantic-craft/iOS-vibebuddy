@@ -396,6 +396,11 @@ public struct SessionReducer: Sendable {
             }
             if status != .needsResponse {
                 s.pendingQuestion = nil
+                // A read-only card (the person answered at the Mac) has no
+                // resolver of its own: the agent moving on is its end. A card
+                // the phone can still answer outlives a stray progress event
+                // until the hook holding it resolves.
+                if s.pendingApproval?.isAnswerable == false { s.pendingApproval = nil }
             }
             if let cwd = event.cwd { s.project = Self.projectName(cwd) }
             if let model = event.model { s.model = model }

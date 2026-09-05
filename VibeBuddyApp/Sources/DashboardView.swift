@@ -267,6 +267,12 @@ private struct SessionRow: View {
                 if let approval = session.pendingApproval {
                     ApprovalCardView(approval: approval)
                         .padding(.top, 2)
+                    if !approval.isAnswerable {
+                        Label("You're at the Mac — answer this in the agent's own prompt.", systemImage: "keyboard")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .padding(.top, 3)
+                    }
+                    if approval.isAnswerable {
                     HStack(spacing: 10) {
                         Button("Deny") { dashboard.decide(approval.id, .deny) }
                             .buttonStyle(.bordered).tint(.red)
@@ -281,7 +287,8 @@ private struct SessionRow: View {
                     }
                     .buttonStyle(.bordered).controlSize(.small).font(.caption)
                     .padding(.top, 1)
-                    if let rule = approval.suggestedRule {
+                    }
+                    if let rule = approval.suggestedRule, approval.isAnswerable {
                         Text("Always allow adds \(rule) to Claude's own rules.")
                             .font(.caption2).foregroundStyle(.tertiary)
                             .padding(.top, 2)

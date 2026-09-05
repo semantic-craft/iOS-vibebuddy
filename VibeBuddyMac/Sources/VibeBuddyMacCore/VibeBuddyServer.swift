@@ -38,6 +38,11 @@ public struct VibeBuddyServer: Sendable {
     /// Questions an agent is waiting on (Claude's AskUserQuestion hook, Codex's
     /// request_user_input), answered through `/answer` or the Mac card.
     public let questionRegistry: QuestionRegistry
+    /// Whether the person is at the Mac for this session (`PresencePolicy`,
+    /// evaluated by the host app). Present → the agent's own prompt takes the
+    /// answer and the phone gets a read-only card. The default never claims
+    /// presence, so a headless daemon always holds for the phone.
+    public let presence: @Sendable (String) async -> Bool
     public let approvalTimeout: Duration
     public let approvalID: @Sendable () -> String
     public let onJump: @Sendable (TerminalRef) async -> JumpOutcome
@@ -60,6 +65,7 @@ public struct VibeBuddyServer: Sendable {
                 sessionAllow: SessionAllowList = SessionAllowList(),
                 approvalContext: ApprovalContextStore = ApprovalContextStore(),
                 questionRegistry: QuestionRegistry = QuestionRegistry(),
+                presence: @escaping @Sendable (String) async -> Bool = { _ in false },
                 approvalTimeout: Duration = .seconds(25),
                 approvalID: @escaping @Sendable () -> String = { UUID().uuidString },
                 onJump: @escaping @Sendable (TerminalRef) async -> JumpOutcome = { await TerminalJumper.jump($0) },
@@ -84,6 +90,7 @@ public struct VibeBuddyServer: Sendable {
         self.approvalTimeout = approvalTimeout
         self.approvalID = approvalID
         self.questionRegistry = questionRegistry
+        self.presence = presence
         self.onJump = onJump
         self.onJumpToDesktopThread = onJumpToDesktopThread
         self.onAnswer = onAnswer
@@ -341,6 +348,12 @@ public struct VibeBuddyServer: Sendable {
                 guard let question = AskUserQuestionInput.pendingQuestion(from: input, id: makeID()) else {
                     return Response(status: .ok)
                 }
+                if await presence(sessionID) {
+                    // At the keyboard: Claude's own question UI takes the answer
+                    // now; the phone sees what is being asked, read-only.
+                    await store.beginQuestion(sessionID: sessionID, question.readOnly, at: Date())
+                    return Response(status: .ok)
+                }
                 await store.beginQuestion(sessionID: sessionID, question, at: Date())
                 guard let answers = await questionRegistry.wait(sessionID: sessionID, timeout: timeout) else {
                     return Response(status: .ok)
@@ -393,6 +406,19 @@ public struct VibeBuddyServer: Sendable {
                 }
                 let id = makeID()
                 let d = ApprovalDetails.from(tool: tool, input: input)
+                if call.event == .permissionRequest, await presence(sessionID) {
+                    // At the keyboard: the agent's own dialog takes the answer,
+                    // with no round trip; the phone still sees the request.
+                    await store.beginApproval(sessionID: sessionID,
+                        PendingApproval(id: id, tool: tool,
+                                        commandPreview: d.commandPreview.isEmpty ? tool : d.commandPreview,
+                                        command: d.command, filePath: d.filePath,
+                                        oldText: d.oldText, newText: d.newText,
+                                        permissionMode: call.permissionMode,
+                                        suggestedRule: PermissionSuggestion.describe(call.permissionSuggestions),
+                                        answerable: false), at: Date())
+                    return Response(status: .ok)
+                }
                 // Record what an "always allow" / "allow this session" would act
                 // on *before* the pending card is broadcast — a decision can only
                 // follow the card, so the context is always there when it lands.

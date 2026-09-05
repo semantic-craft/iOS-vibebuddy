@@ -60,11 +60,16 @@ public struct PendingApproval: Codable, Sendable, Equatable {
     /// Claude Code's `permission_suggestions`. Nil means vibebuddy's own
     /// conservative rule applies instead (ADR 0010).
     public let suggestedRule: String?
+    /// False when the Mac decided the user is at the keyboard and let the
+    /// agent's own prompt take the answer: the card is for reading, the
+    /// buttons do nothing. Nil (older Macs) means answerable.
+    public let answerable: Bool?
 
     public init(id: String, tool: String, commandPreview: String,
                 command: String? = nil, filePath: String? = nil,
                 oldText: String? = nil, newText: String? = nil,
-                permissionMode: String? = nil, suggestedRule: String? = nil) {
+                permissionMode: String? = nil, suggestedRule: String? = nil,
+                answerable: Bool? = nil) {
         self.id = id
         self.tool = tool
         self.commandPreview = commandPreview
@@ -74,7 +79,10 @@ public struct PendingApproval: Codable, Sendable, Equatable {
         self.newText = newText
         self.permissionMode = permissionMode
         self.suggestedRule = suggestedRule
+        self.answerable = answerable
     }
+
+    public var isAnswerable: Bool { answerable ?? true }
 }
 
 /// A question the agent asked in the terminal, with optional pre-defined answers
@@ -130,16 +138,23 @@ public struct PendingQuestion: Codable, Sendable, Equatable, Identifiable {
     /// `request_user_input`); the card then shows how long it stays open.
     public let isBlocking: Bool?
     public let expiresAt: Date?
+    /// False when the user is at the Mac and the agent's own prompt takes the
+    /// answer; the card is then read-only. Nil means answerable.
+    public let answerable: Bool?
 
     public init(id: String, prompt: String, options: [QuestionOption] = [],
-                questions: [QuestionItem]? = nil, isBlocking: Bool? = nil, expiresAt: Date? = nil) {
+                questions: [QuestionItem]? = nil, isBlocking: Bool? = nil, expiresAt: Date? = nil,
+                answerable: Bool? = nil) {
         self.id = id
         self.prompt = prompt
         self.options = options
         self.questions = questions
         self.isBlocking = isBlocking
         self.expiresAt = expiresAt
+        self.answerable = answerable
     }
+
+    public var isAnswerable: Bool { answerable ?? true }
 
     /// The questions to render: the structured list, else the single legacy one.
     public var items: [QuestionItem] {
@@ -593,5 +608,21 @@ public struct DeviceRegistrationPayload: Codable, Sendable, Equatable {
 
     public var hasVisibleDeviceInfo: Bool {
         hasPushToken || name?.isEmpty == false || model?.isEmpty == false || systemVersion?.isEmpty == false
+    }
+}
+
+public extension PendingQuestion {
+    /// The same question, marked as answered elsewhere (read-only on the phone).
+    var readOnly: PendingQuestion {
+        PendingQuestion(id: id, prompt: prompt, options: options, questions: questions,
+                        isBlocking: isBlocking, expiresAt: expiresAt, answerable: false)
+    }
+}
+
+public extension PendingApproval {
+    var readOnly: PendingApproval {
+        PendingApproval(id: id, tool: tool, commandPreview: commandPreview, command: command,
+                        filePath: filePath, oldText: oldText, newText: newText,
+                        permissionMode: permissionMode, suggestedRule: suggestedRule, answerable: false)
     }
 }
