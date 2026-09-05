@@ -31,7 +31,7 @@ thread, which no third-party monitor can (see the 2026-09-03 survey).
 | [c9watch](https://github.com/minchenlee/c9watch) (128, MIT) | OS process scan, no hooks | local | yes | no | no | Claude, Codex, Cursor | JSON CLI for agents to query each other |
 | [ccnotifs](https://github.com/polyphilz/ccnotifs) | hooks | local | from the macOS notification | no | no | Claude | tmux-aware |
 | [Armorer Gauntlet](https://github.com/ArmorerLabs/Armorer-Gauntlet) (11, Apache) | daemon + provider adapter | self-hosted E2EE relay, QR one-time tokens | yes | yes | Web Push | Codex (adapter model) | the closest architecture to ours, plus a chat composer |
-| [OpenACP](https://github.com/Cosmos-Sapiens) / OpenClaw | bridge | Telegram/Discord/Slack/WhatsApp/Signal | inline buttons | yes | via messenger | Claude, others | messenger-first |
+| [OpenACP](https://github.com/Cosmos-Sapiens/openacp-telegram-adapter) (reviewed: the Telegram / Signal / Mattermost / WhatsApp adapter repos under Cosmos-Sapiens); [OpenClaw](https://github.com/openclaw/openclaw) is a separate project, listed here only as the same messenger-first pattern | bridge | Telegram/Discord/Slack/WhatsApp/Signal | inline buttons | yes | via messenger | Claude, others | messenger-first |
 | [cc-safe-setup](https://github.com/yurukusa/cc-safe-setup), [claude-smart-approval](https://github.com/froggeric/claude-smart-approval) | PreToolUse / PermissionRequest hooks | local | auto-decide | — | — | Claude | rule packs and an LLM tier that decides unknown commands |
 
 **Where VibeBuddy is ahead.** Zero-wrapper ingress (official hooks plus the
