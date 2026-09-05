@@ -435,14 +435,15 @@ final class MenuBarModel: ObservableObject {
             await recordPushSkip(alert, reason: fanout.skip)
             return false
         }
-        let (title, body) = Self.pushCopy(for: alert)
+        let copy = PushCopy.copy(for: alert.sound, session: alert.session)
         var sent = false
         for recipient in fanout.recipients {
             guard let deviceToken = recipient.device.token else { continue }
             let sound = recipient.level.makesSound && recipient.device.playSound != false
                 ? alert.sound.fileName : ""
-            await pusher.send(title: title, body: body, to: deviceToken, sound: sound,
-                              sessionID: alert.sessionID, soundCategory: alert.sound.rawValue)
+            await pusher.send(title: copy.title, body: copy.body, to: deviceToken, sound: sound,
+                              sessionID: alert.sessionID, soundCategory: alert.sound.rawValue,
+                              localized: PushLocalization(copy))
             sent = true
         }
         return sent
@@ -488,18 +489,6 @@ final class MenuBarModel: ObservableObject {
                                    body: "≈ \(cost) spent this session (estimate)",
                                    to: deviceToken, sound: sound)
             }
-        }
-    }
-
-    private static func pushCopy(for alert: SoundAlert) -> (title: String, body: String) {
-        let s = alert.session
-        switch alert.sound {
-        case .needsApproval: return ("\(s.project) needs approval", s.pendingApproval?.commandPreview ?? s.summary ?? "Approve or deny")
-        case .needsAnswer:   return ("\(s.project) needs you", s.summary ?? "Waiting for your response")
-        case .longWaitNudge: return ("\(s.project) is still waiting", s.summary ?? "Waiting for your response")
-        case .agentDone:     return ("\(s.project) finished", s.summary ?? "Task complete")
-        case .agentStuck:    return ("\(s.project) stopped", s.summary ?? "It may need a look")
-        case .pairSuccess:   return ("Paired", "VibeBuddy is watching your sessions.")
         }
     }
 
