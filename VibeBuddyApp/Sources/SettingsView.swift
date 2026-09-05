@@ -140,6 +140,7 @@ struct SettingsView: View {
 private struct ProviderSection: View {
     let provider: VoiceProvider
     @AppStorage(VoiceSettings.regionIntlKey) private var intl = false
+    @AppStorage(VoiceSettings.qwenWorkspaceIDKey) private var workspaceID = ""
     @State private var apiKey = ""
     @State private var model = ""
     @State private var voice = ""
@@ -167,7 +168,14 @@ private struct ProviderSection: View {
                     .autocorrectionDisabled()
             }
             if provider == .qwen {
-                Toggle("Use international site (dashscope-intl)", isOn: $intl)
+                field(caption: "Workspace ID — optional; uses the workspace endpoint when set",
+                      link: "Find your workspace ID", icon: "arrow.up.right.square", url: VoiceProvider.qwenWorkspaceIDURL) {
+                    TextField("e.g. llm-xxxxxxxx", text: $workspaceID)
+                        .font(.body.monospaced())
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                }
+                Toggle("Use Singapore (international) region", isOn: $intl)
             }
         } header: {
             Text(provider.display)
@@ -199,7 +207,7 @@ private struct ProviderSection: View {
 
     private var exampleVoice: String {
         switch provider {
-        case .qwen:   return "e.g. Tina / Jennifer"
+        case .qwen:   return "e.g. longanqian / longanlufeng"
         case .openai: return "e.g. marin / cedar"
         case .gemini: return "e.g. Puck / Kore"
         }

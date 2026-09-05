@@ -50,7 +50,9 @@ code, and tests — don't drift to synonyms.
 - **Voice companion** — tap the pet to hold a **realtime speech-to-speech**
   conversation; it knows the live sessions and can **approve / answer** for you.
 - **VoiceProvider** — the realtime backend: `qwen`, `openai`, or `gemini`. Each
-  has its own key, model, voice, and input sample rate.
+  has its own key, model, voice, and input sample rate. Qwen additionally takes
+  an optional Bailian **workspace ID** (workspace-specific `maas.aliyuncs.com`
+  endpoint) and a Beijing/Singapore region switch.
 - **RealtimeVoiceProvider / RealtimeVoiceEvent** — the provider-agnostic Kit
   protocol + event stream (connected, userTranscript, assistantTranscript,
   audioDelta, speechStarted, responseDone, failed, closed) that the audio + UI
