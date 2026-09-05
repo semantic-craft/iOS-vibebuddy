@@ -1,7 +1,86 @@
 # vibebuddy — Prior Art & What to Borrow
 
-**Last Updated**: 2026-09-02
+**Last Updated**: 2026-09-05
 **Method**: every GitHub project below was verified live with `gh` (existence, stars, license, last push). App Store apps are closed-source and were not code-verifiable. Claims I could not verify are marked as such — per the project rule to separate verified facts from candidates.
+
+## 2026-09-05 remote-approval and mobile-companion survey
+
+Question: with the phone-approval path now on `PermissionRequest` for Claude
+Code and the Codex CLI, what do the mature remote/mobile projects do that
+VibeBuddy does not? Sixteen projects and the two first-party features were
+checked live (`gh api`, vendor docs) on 2026-09-05.
+
+**First-party moved the goalposts.** Claude Code Remote Control (`/rc`,
+all paid plans, cloud relay to claude.ai/code and the Claude iOS/Android app)
+forwards permission prompts and `AskUserQuestion`, accepts prompts, images and
+files from the phone, shows a git diff pane, and sends mobile push when a turn
+finishes or a decision is needed — but only for Claude Code, only through
+Anthropic's relay, not on API-key or gateway logins, and one remote session per
+interactive process. Codex in the ChatGPT mobile app (2026-05-14, all plans)
+reviews threads, approves commands and starts tasks against Codex Desktop and
+CLI hosts through OpenAI's relay — the one surface that can act on a Desktop
+thread, which no third-party monitor can (see the 2026-09-03 survey).
+
+| Project | Ingress | Transport | Approve | Prompt/steer | Push (closed app) | Agents | Notes |
+|---|---|---|---|---|---|---|---|
+| [Happy](https://github.com/slopus/happy) (23k, MIT) | wrapper: `happy claude` / `happy codex` | hosted E2EE relay (Signal-style keys) | yes | yes, voice too | yes | Claude, Codex | iOS/Android/web/macOS; wrapper restarts the session in remote mode |
+| [HAPI](https://github.com/tiann/hapi) (5k, AGPL) | wrapper (`hapi` runner) | self-hosted hub; WireGuard+TLS relay or Tailscale | yes | yes, terminal, voice | web push | 10 agents incl. Grok Build, Kimi, Antigravity | local-first answer to Happy; native iOS/Android in progress |
+| [happier](https://github.com/happier-dev/happier) (1.6k) | wrapper | E2EE | yes | yes | yes | Codex, Claude, OpenCode, Kimi, Qwen | Happy fork |
+| [Claude-Code-Remote](https://github.com/JessyTsui/Claude-Code-Remote) (1.3k, MIT) | hooks | email / Discord / Telegram | reply-based | yes | via messenger | Claude | no app |
+| [vibe-notch](https://github.com/farouqaldori/vibe-notch) (2.5k, Apache) | own hooks over a Unix socket | local | notch UI | no | no | Claude | chat history in the notch; Mixpanel analytics |
+| [c9watch](https://github.com/minchenlee/c9watch) (128, MIT) | OS process scan, no hooks | local | yes | no | no | Claude, Codex, Cursor | JSON CLI for agents to query each other |
+| [ccnotifs](https://github.com/polyphilz/ccnotifs) | hooks | local | from the macOS notification | no | no | Claude | tmux-aware |
+| [Armorer Gauntlet](https://github.com/ArmorerLabs/Armorer-Gauntlet) (11, Apache) | daemon + provider adapter | self-hosted E2EE relay, QR one-time tokens | yes | yes | Web Push | Codex (adapter model) | the closest architecture to ours, plus a chat composer |
+| [OpenACP](https://github.com/Cosmos-Sapiens) / OpenClaw | bridge | Telegram/Discord/Slack/WhatsApp/Signal | inline buttons | yes | via messenger | Claude, others | messenger-first |
+| [cc-safe-setup](https://github.com/yurukusa/cc-safe-setup), [claude-smart-approval](https://github.com/froggeric/claude-smart-approval) | PreToolUse / PermissionRequest hooks | local | auto-decide | — | — | Claude | rule packs and an LLM tier that decides unknown commands |
+
+**Where VibeBuddy is ahead.** Zero-wrapper ingress (official hooks plus the
+Codex rollout tailer, so sessions started from any terminal, IDE or Desktop
+appear); one dashboard across seven agent adapters; no relay, no account, no
+analytics; a Watch companion, Live Activity and a Mac notch glance, which none
+of the above have; a voice companion that acts through function calling;
+per-agent observation health (`degraded` / `unknownVersion`) and a
+notification-delivery log, which only CodeStatus and MioIsland approach; the
+always-allow store (ADR 0010) so an approval can persist a rule.
+
+**Gaps, in priority order.**
+
+1. **Closed-app push is unproven.** Every mobile competitor and both
+   first-party features push when the agent needs you. The APNs code path and
+   key exist (`docs/apns-setup.md`; the daemon reports `apns: on`), but device
+   acceptance was never finished, so the phone only learns of a wait while the
+   app is open or the WebSocket is alive. This is the single most valuable
+   thing to close.
+2. **No phone-side conversation view or composer.** Happy, HAPI, Armorer
+   Gauntlet and Remote Control all show the transcript and accept a new prompt
+   from the phone. VibeBuddy shows a summary/last-output peek, and `/answer`
+   only reaches tmux panes. A read-only transcript tail (from the JSONL we
+   already parse) would cover most "what is it doing?" moments; a composer is
+   a larger, wrapper-or-injection decision.
+3. **LAN only.** Off-network use depends on the user putting a Tailscale
+   address in the QR; it is documented but not exercised. HAPI's split —
+   self-host (Tailscale/Cloudflare) or an opaque WireGuard relay — is the
+   pattern if remote ever matters; the cloud-relay products already cover the
+   "on the train" case for Claude and Codex.
+4. **Codex Desktop approvals stay invisible**, by platform limitation (no
+   hooks, prompts not in the rollout). The ChatGPT mobile app is the answer
+   for that surface; document the hand-off rather than re-attempt it.
+5. **No smart auto-decide.** cc-safe-setup / claude-smart-approval decide
+   unknown Bash commands with rule packs or an LLM before a human is asked.
+   Our matcher asks whenever no rule matches; a curated safe-command list
+   (read-only git/ls/grep families) on the daemon side would cut cards
+   without ceding safety.
+6. **Hook-less discovery.** c9watch finds sessions by process scan, so a
+   machine whose hooks were never installed still shows something. We surface
+   the gap as observation health with a repair path; a process-scan
+   *discovery* (not state) signal would turn "no sessions reporting" into
+   "3 Claude processes, hooks missing".
+7. **Platform reach.** Mac + iOS only; Happy/HAPI cover Android, Windows and
+   Linux hosts. Out of scope for a personal tool, noted for completeness.
+
+Not adopted: wrapper-based ingress (it changes how every session is launched
+and loses sessions started elsewhere), messenger bridges (a second inbox for
+the same decisions), and analytics of any kind.
 
 ## 2026-09-03 Codex Desktop survey
 
