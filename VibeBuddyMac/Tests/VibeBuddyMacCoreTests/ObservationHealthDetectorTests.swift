@@ -166,6 +166,28 @@ struct ObservationHealthDetectorTests {
             .health(agent: .codex, source: .rollout) == .unknownVersion)
     }
 
+    @Test("bounded rollout inspection discards a partial line before decoding UTF-8")
+    func boundedRolloutUTF8() throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let rollout = home.appendingPathComponent(".codex/sessions/rollout-boundary.jsonl")
+        let prefix = #"{"type":"session_meta","payload":{"cli_version":"0.153.3"}}"# + "\n"
+            + #"{"type":"event_msg","payload":{"type":"task_started"}}"# + "\n"
+        let messageStart = #"{"type":"response_item","payload":{"type":"message","text":""#
+        // Like the real H2 rollouts, the 1 MiB read ends inside a valid character
+        // in an incomplete record. Earlier complete records remain usable.
+        let padding = String(repeating: "a", count: (1 << 20) - prefix.utf8.count
+            - messageStart.utf8.count - 1)
+        try write(prefix + messageStart + padding + "中" + #""}}"# + "\n", to: rollout)
+        #expect(detect(home: home).health(agent: .codex, source: .rollout) == .healthy)
+
+        // Corrupt bytes in a complete record must still fail strict decoding.
+        var corrupt = Data(prefix.utf8)
+        corrupt.append(contentsOf: [0xFF, 0x0A])
+        try corrupt.write(to: rollout)
+        #expect(detect(home: home).health(agent: .codex, source: .rollout) == .unknownVersion)
+    }
+
     @Test("a rollout older than the recovery window still classifies as temporarily silent after a restart")
     func staleRolloutAfterRestartIsTemporarilySilent() throws {
         let home = try tempHome()

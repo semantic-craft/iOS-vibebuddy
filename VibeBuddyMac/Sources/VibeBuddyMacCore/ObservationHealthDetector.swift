@@ -338,12 +338,18 @@ public enum ObservationHealthDetector {
         fileManager fm: FileManager
     ) -> RolloutInspection {
         let limit = 1 << 20
-        guard let data = readData(at: url, upToCount: limit, fileManager: fm),
-              let text = String(data: data, encoding: .utf8) else { return .unsupported }
+        guard var data = readData(at: url, upToCount: limit, fileManager: fm) else { return .unsupported }
         let fileSize = ((try? fm.attributesOfItem(atPath: url.path))?[.size] as? NSNumber)?.intValue
         let truncated = (fileSize ?? data.count) > data.count
-        var lines = text.split(separator: "\n", omittingEmptySubsequences: true)
-        if truncated, data.last != 0x0A, !lines.isEmpty { lines.removeLast() }
+        // The byte limit can split a UTF-8 character as well as a JSON record.
+        // Drop the incomplete record before strict decoding, so a valid stream
+        // is not rejected merely because its 1 MiB boundary falls inside text.
+        if truncated, data.last != 0x0A {
+            guard let newline = data.lastIndex(of: 0x0A) else { return .unsupported }
+            data = data.prefix(through: newline)
+        }
+        guard let text = String(data: data, encoding: .utf8) else { return .unsupported }
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: true)
 
         var version: String?
         var hasSupportedEvent = false
