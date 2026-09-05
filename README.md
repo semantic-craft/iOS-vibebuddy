@@ -58,7 +58,7 @@ No more walking back to the desk to find a session has been blocked on a permiss
 
 > **The app icon** is a white kitten with green ears and eyes on muted slate blue — one soft silhouette, three colors, still readable at 16 px. It was designed with the [ip-as-logo](https://github.com/s1dashu/ip-as-logo-skill) skill and picked from six generated candidates; the same 1024 px artwork ships on macOS, iOS and watchOS.
 >
-> The **in-app buddy** is a separate pixel cat, **drawn in code, identical on iPhone, the Mac dashboard, and the notch glance** — only its mood (eyes & ears) and color (white on the dark notch) change. All screenshots above are **Demo mode** (sample data) — no real session data.
+> The **in-app buddy is the same cat, drawn in code** from one shared geometry, so it looks identical on iPhone, Apple Watch, the Dynamic Island, the Mac dashboard, the notch glance and the menu bar — only its mood (ears, eyes, mouth) and its small reactions change. All screenshots above are **Demo mode** (sample data) — no real session data.
 
 ---
 
