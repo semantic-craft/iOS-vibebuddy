@@ -172,6 +172,7 @@ private struct PairedMacStrip: View {
 private struct SessionRow: View {
     let session: AgentSession
     let isSelected: Bool
+    @State private var showComposer = false
     @EnvironmentObject private var dashboard: DashboardStore
     @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
 
@@ -306,10 +307,40 @@ private struct SessionRow: View {
                 }
 
                 if let question = session.pendingQuestion {
-                    QuestionCardView(question: question) { answers in
-                        dashboard.answer(session.id, answers: answers)
+                    if question.isAnswerable {
+                        QuestionCardView(question: question) { answers in
+                            dashboard.answer(session.id, answers: answers)
+                        }
+                        .padding(.top, 2)
+                    } else {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(question.prompt).font(.subheadline)
+                            Label("You're at the Mac — answer this in the agent's own prompt.", systemImage: "keyboard")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        .padding(.top, 2)
                     }
-                    .padding(.top, 2)
+                }
+
+                if session.agent == .codex {
+                    // Free text for a Codex thread: joins the running turn or
+                    // opens a new one, through the Mac's app-server connection.
+                    if showComposer {
+                        InstructionComposer(placeholder: session.status == .done
+                                            ? "Start a new turn…" : "Add to the current turn…") { text in
+                            dashboard.answer(session.id, answer: text)
+                            showComposer = false
+                        }
+                        .padding(.top, 4)
+                    } else {
+                        Button {
+                            showComposer = true
+                        } label: {
+                            Label("Send instruction", systemImage: "text.bubble")
+                        }
+                        .buttonStyle(.bordered).font(.subheadline)
+                        .padding(.top, 4)
+                    }
                 }
 
                 if session.canJump {
@@ -417,5 +448,31 @@ private struct VoiceConsentSheet: View {
             .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } } }
         }
         .presentationDetents([.medium])
+    }
+}
+
+/// One line of free text for a session, sent with the button or the return key.
+private struct InstructionComposer: View {
+    let placeholder: String
+    let send: (String) -> Void
+    @State private var draft = ""
+
+    var body: some View {
+        HStack(spacing: 8) {
+            TextField(placeholder, text: $draft, axis: .vertical)
+                .textFieldStyle(.roundedBorder)
+                .lineLimit(1...3)
+                .onSubmit(submit)
+            Button(action: submit) { Image(systemName: "arrow.up.circle.fill") }
+                .buttonStyle(.borderedProminent)
+                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+    }
+
+    private func submit() {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        send(text)
+        draft = ""
     }
 }

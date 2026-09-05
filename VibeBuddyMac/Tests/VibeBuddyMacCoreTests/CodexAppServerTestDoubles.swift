@@ -41,6 +41,9 @@ final class FakeConnection: CodexAppServerConnecting, @unchecked Sendable {
 
     func set(_ method: String, _ result: [String: Any]) { lock.withLock { results[method] = result } }
 
+    /// Make a method answer with a JSON-RPC error from now on.
+    func fail(_ method: String) { lock.withLock { results.removeValue(forKey: method) } }
+
     /// Recorded responses, newest last, as decision strings where present.
     var decisions: [String] {
         lock.withLock { responses.compactMap { $0.result["decision"] as? String } }

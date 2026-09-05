@@ -416,14 +416,32 @@ private struct DetailView: View {
                     }
                 } else {
                     if let question = session.pendingQuestion {
-                        QuestionCardView(question: question) { answers in
-                            model.answer(session.id, answers: answers)
+                        if question.isAnswerable {
+                            QuestionCardView(question: question) { answers in
+                                model.answer(session.id, answers: answers)
+                            }
+                        } else {
+                            Text(question.prompt)
+                            Label("You're at the Mac — answer this in the agent's own prompt.", systemImage: "keyboard")
+                                .font(.caption).foregroundStyle(.secondary)
                         }
                         if let feedback = model.answerFeedback[session.id] {
                             Label(feedback, systemImage: "exclamationmark.bubble")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     } else if let s = session.summary { Text(s).foregroundStyle(.secondary) }
+                    if session.agent == .codex {
+                        // Free text for a Codex thread: joins the running turn or
+                        // opens a new one, through the app-server daemon.
+                        InstructionComposer(placeholder: session.status == .done
+                                            ? "Start a new turn…" : "Add to the current turn…") { text in
+                            model.answer(session.id, answers: [:], text: text)
+                        }
+                        if session.pendingQuestion == nil, let feedback = model.answerFeedback[session.id] {
+                            Label(feedback, systemImage: "exclamationmark.bubble")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
                     Button(session.jumpsToDesktopThread ? "Open thread in ChatGPT" : "Jump to terminal") {
                         model.jump(session)
                     }
@@ -512,5 +530,31 @@ private struct TranscriptSheet: View {
                 .padding()
             }
         }
+    }
+}
+
+/// One line of free text for a session, sent with ⌘↩ or the button.
+struct InstructionComposer: View {
+    let placeholder: String
+    let send: (String) -> Void
+    @State private var draft = ""
+
+    var body: some View {
+        HStack(spacing: 8) {
+            TextField(placeholder, text: $draft, axis: .vertical)
+                .textFieldStyle(.roundedBorder)
+                .lineLimit(1...4)
+                .onSubmit(submit)
+            Button("Send", action: submit)
+                .keyboardShortcut(.return, modifiers: .command)
+                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+    }
+
+    private func submit() {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        send(text)
+        draft = ""
     }
 }

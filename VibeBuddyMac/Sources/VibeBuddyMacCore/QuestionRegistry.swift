@@ -75,26 +75,43 @@ public struct AnswerDispatch: Sendable {
     public let store: SessionStore
     public let questions: QuestionRegistry
     public let inject: @Sendable (TerminalRef, String) -> Void
+    /// Codex: put free text into the thread through the app-server daemon
+    /// (`turn/steer` while a turn runs, `turn/start` when idle). Arguments:
+    /// thread id, text, whether the session is currently active.
+    public let steer: @Sendable (String, String, Bool) async -> Bool
 
     public init(store: SessionStore, questions: QuestionRegistry,
-                inject: @escaping @Sendable (TerminalRef, String) -> Void) {
+                inject: @escaping @Sendable (TerminalRef, String) -> Void,
+                steer: @escaping @Sendable (String, String, Bool) async -> Bool = { _, _, _ in false }) {
         self.store = store
         self.questions = questions
         self.inject = inject
+        self.steer = steer
     }
 
     /// `answers` are keyed by question id; `text` is a plain reply (voice, an
     /// older phone build). Either fills the other in.
     @discardableResult
     public func deliver(sessionID: String, text: String?, answers: QuestionAnswers?) async -> Bool {
-        let pending = await store.snapshot(now: Date()).sessions.first { $0.id == sessionID }?.pendingQuestion
+        let session = await store.snapshot(now: Date()).sessions.first { $0.id == sessionID }
+        let pending = session?.pendingQuestion
         let structured = Self.normalize(answers: answers, text: text, for: pending)
         if !structured.isEmpty, await questions.isWaiting(sessionID: sessionID) {
             await questions.resolve(sessionID: sessionID, answers: structured)
             return true
         }
         let typed = text ?? Self.flatten(structured)
-        guard !typed.isEmpty, let ref = await store.terminalRef(for: sessionID) else { return false }
+        guard !typed.isEmpty else { return false }
+        if session?.agent == .codex {
+            // Codex threads take instructions through the daemon, never through
+            // a terminal: the thread may live in Desktop, and typing into a
+            // pane cannot address a specific thread anyway.
+            let active = session.map { $0.status != .done } ?? false
+            guard await steer(sessionID, typed, active) else { return false }
+            await store.endQuestion(sessionID: sessionID, at: Date())
+            return true
+        }
+        guard let ref = await store.terminalRef(for: sessionID) else { return false }
         inject(ref, typed)
         await store.endQuestion(sessionID: sessionID, at: Date())
         return true

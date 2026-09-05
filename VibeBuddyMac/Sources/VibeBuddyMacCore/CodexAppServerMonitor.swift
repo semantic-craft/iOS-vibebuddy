@@ -433,6 +433,39 @@ public actor CodexAppServerMonitor {
         client.respond(id: id, result: ["answers": payload])
     }
 
+    /// Put free text into a thread (ticket 04): `turn/steer` joins a running
+    /// turn, `turn/start` opens one on an idle thread, and a thread the daemon
+    /// has unloaded is resumed first. Nothing about the thread's model,
+    /// approval policy or sandbox is touched. False when there is no
+    /// connection or the daemon refused.
+    public func steer(threadID: String, text: String, isActive: Bool) async -> Bool {
+        guard let client, state.connected else { return false }
+        let input: [String: Any] = ["threadId": threadID, "input": [["type": "text", "text": text]]]
+        if reducer.threads[threadID]?.loaded != true {
+            do {
+                let result = try await client.request("thread/resume", params: ["threadId": threadID, "excludeTurns": true])
+                subscribed.insert(threadID)
+                if let thread = result["thread"] as? [String: Any] {
+                    _ = reducer.seed(thread: thread, receivedAt: Date())
+                }
+            } catch {
+                state.lastError = "thread/resume \(threadID.suffix(8)): \(error)"
+                return false
+            }
+        }
+        if isActive {
+            if (try? await client.request("turn/steer", params: input)) != nil { return true }
+            // The turn ended between the snapshot and the call: start one.
+        }
+        do {
+            _ = try await client.request("turn/start", params: input)
+            return true
+        } catch {
+            state.lastError = "turn/start \(threadID.suffix(8)): \(error)"
+            return false
+        }
+    }
+
     /// Someone else answered (or the turn moved on): withdraw the card without
     /// a second notification and stop waiting.
     private func requestResolved(_ params: [String: Any]?, store: SessionStore) async {

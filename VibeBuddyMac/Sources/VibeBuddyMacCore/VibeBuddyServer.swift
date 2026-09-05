@@ -562,7 +562,11 @@ public struct VibeBuddyServer: Sendable {
         // plain text (voice, older phone builds) maps onto the first question,
         // or is typed into the terminal when nothing is waiting. 202 says the
         // answer had nowhere to go.
-        let dispatch = AnswerDispatch(store: store, questions: questionRegistry, inject: self.onAnswer)
+        let monitor = self.codexAppServerMonitor
+        let dispatch = AnswerDispatch(store: store, questions: questionRegistry, inject: self.onAnswer,
+                                      steer: { sessionID, text, active in
+                                          await monitor?.steer(threadID: sessionID, text: text, isActive: active) ?? false
+                                      })
         authed.post("answer") { request, _ -> HTTPResponse.Status in
             let buffer = try await request.body.collect(upTo: 64 * 1024)
             guard let o = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
