@@ -407,6 +407,13 @@ private struct NotificationSettings: View {
                             Text(sound)
                                 .foregroundStyle(.secondary)
                         }
+                        // A filtered cue is the one row whose reason is the
+                        // whole story: which channel said it instead.
+                        if entry.outcome == .filtered, let reason = entry.failureReason {
+                            Text("·")
+                            Text(reason)
+                                .foregroundStyle(.secondary)
+                        }
                         Spacer(minLength: 4)
                         Text(entry.timestamp, style: .relative)
                             .font(.caption2)
@@ -418,7 +425,7 @@ private struct NotificationSettings: View {
             } header: {
                 Text("Delivery health")
             } footer: {
-                Text("Honest outcomes only: attempted, scheduled, accepted, failed. A local banner is scheduled; APNs 2xx is accepted by Apple's servers. Neither is proof the device showed it.")
+                Text("Honest outcomes only: attempted, scheduled, accepted, failed, filtered. A local banner is scheduled; APNs 2xx is accepted by Apple's servers. Neither is proof the device showed it. Filtered means another channel already said it — a push the phone had posted itself, or a phone cue a push had already delivered; phone rows are what the phone reported.")
                     .font(.caption)
             }
 
