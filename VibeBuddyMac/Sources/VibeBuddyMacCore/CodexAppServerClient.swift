@@ -16,6 +16,36 @@ import Foundation
 /// The client never answers a server-initiated request. Approval and
 /// user-input requests are left to the client that owns the thread (Desktop,
 /// the TUI); ticket 03 decides how vibebuddy joins that flow.
+/// A JSON-RPC request id as the daemon issued it — a number or a string —
+/// echoed back verbatim when answering a server-initiated request.
+public enum JSONRPCID: Sendable, Equatable, Hashable {
+    case number(Int)
+    case string(String)
+
+    public init?(_ raw: Any?) {
+        switch raw {
+        case let n as Int: self = .number(n)
+        case let n as NSNumber: self = .number(n.intValue)
+        case let s as String: self = .string(s)
+        default: return nil
+        }
+    }
+
+    public var json: Any {
+        switch self {
+        case .number(let n): return n
+        case .string(let s): return s
+        }
+    }
+
+    public var description: String {
+        switch self {
+        case .number(let n): return String(n)
+        case .string(let s): return s
+        }
+    }
+}
+
 /// What the monitor needs from a daemon connection; `CodexAppServerClient` is
 /// the real one, tests script a fake.
 public protocol CodexAppServerConnecting: AnyObject, Sendable {
@@ -23,6 +53,8 @@ public protocol CodexAppServerConnecting: AnyObject, Sendable {
     func connect() throws
     func request(_ method: String, params: [String: Any], timeout: Duration) async throws -> [String: Any]
     func notify(_ method: String, params: [String: Any]?)
+    /// Answer a server-initiated request (an approval, a user-input prompt).
+    func respond(id: JSONRPCID, result: [String: Any])
     func close()
 }
 
@@ -184,6 +216,10 @@ public final class CodexAppServerClient: CodexAppServerConnecting, @unchecked Se
                 self?.takePending(id)?.resume(throwing: ClientError.timeout(method))
             }
         }
+    }
+
+    public func respond(id: JSONRPCID, result: [String: Any]) {
+        _ = send(json: ["jsonrpc": "2.0", "id": id.json, "result": result])
     }
 
     /// Send a notification (no id, no reply).

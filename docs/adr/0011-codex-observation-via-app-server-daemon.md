@@ -71,3 +71,19 @@ enforced on loopback), and binds nothing new.
   a phone build predating this ADR must be updated alongside the Mac.
 - Ticket 02 replaces the spawned usage adapter with the same connection;
   ticket 03 depends on the routing fact this monitor records.
+
+## Amendment (2026-09-05): approvals and questions are answered on this connection
+
+A live probe showed the daemon delivers `item/commandExecution/requestApproval`
+to every connection subscribed to the thread, accepts the first response and
+drops the rest silently. So the monitor now answers those requests, and
+`item/fileChange/requestApproval` and `item/tool/requestUserInput`, from the
+phone card: `accept` / `acceptForSession` / `decline`, or the per-question
+answers. Desktop's own dialog stays open; whichever side answers first wins,
+and `serverRequest/resolved` withdraws the other card without a second
+notification. The vibebuddy allow store and "allow this session" answer at
+once, with no card (ADR-0010). While the daemon reports a Codex session, the
+CLI's PermissionRequest hook gate returns no opinion for it, so one request
+never raises two cards. "Read-mostly" therefore now means: no turn is ever
+started, steered or interrupted from here; requests the agent itself opened
+are the only writes.

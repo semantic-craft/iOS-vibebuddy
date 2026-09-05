@@ -51,11 +51,37 @@ public actor CodexAppServerMonitor {
     /// How often a connected monitor re-reads the rate limits so the live
     /// sample stays fresh and the spawning collector stays idle.
     private let usageRefreshInterval: Duration
+    /// Shared with the daemon's `/approval`, `/decision` and `/answer` routes so
+    /// a card raised here is answered by the same phone tap as a hook's would be.
+    private let approvalRegistry: ApprovalRegistry
+    private let allowStore: VibeBuddyAllowStore
+    private let sessionAllow: SessionAllowList
+    private let approvalContext: ApprovalContextStore
+    private let questionRegistry: QuestionRegistry
+    private let approvalID: @Sendable () -> String
+    /// How long a card stays answerable from the phone. Codex keeps the request
+    /// open until someone answers, so this only bounds a forgotten one.
+    private let requestTimeout: Duration
     private var enabled: Bool
     private var client: (any CodexAppServerConnecting)?
     private var reducer = CodexAppServerReducer()
     private var subscribed: Set<String> = []
     private var state = Diagnostics()
+    /// Server-initiated requests this connection is holding for the phone,
+    /// keyed by thread + request id, so `serverRequest/resolved` (someone
+    /// answered in Desktop or the TUI) can withdraw the card silently.
+    private var openRequests: [String: OpenRequest] = [:]
+    /// The items behind pending approvals: `item/started` carries the command
+    /// or the file changes, the approval request only their ids.
+    private var recentItems: [String: [String: Any]] = [:]
+    private var recentItemOrder: [String] = []
+
+    private struct OpenRequest: Sendable {
+        enum Kind: Sendable { case approval(String), question }
+        let id: JSONRPCID
+        let threadID: String
+        let kind: Kind
+    }
     /// The last full `account/rateLimits/read` result; sparse
     /// `account/rateLimits/updated` notifications are merged into it.
     private var lastRateLimits: [String: Any]?
@@ -69,6 +95,13 @@ public actor CodexAppServerMonitor {
         maximumBackoff: Duration = .seconds(30),
         usageFeed: AccountUsageLiveFeed? = nil,
         usageRefreshInterval: Duration = .seconds(10 * 60),
+        approvalRegistry: ApprovalRegistry = ApprovalRegistry(),
+        allowStore: VibeBuddyAllowStore = VibeBuddyAllowStore(),
+        sessionAllow: SessionAllowList = SessionAllowList(),
+        approvalContext: ApprovalContextStore = ApprovalContextStore(),
+        questionRegistry: QuestionRegistry = QuestionRegistry(),
+        approvalID: @escaping @Sendable () -> String = { UUID().uuidString },
+        requestTimeout: Duration = .seconds(60 * 60),
         makeClient: @escaping @Sendable (String) -> any CodexAppServerConnecting = { CodexAppServerClient(socketPath: $0) }
     ) {
         self.enabled = enabled
@@ -78,6 +111,13 @@ public actor CodexAppServerMonitor {
         self.maximumBackoff = maximumBackoff
         self.usageFeed = usageFeed
         self.usageRefreshInterval = usageRefreshInterval
+        self.approvalRegistry = approvalRegistry
+        self.allowStore = allowStore
+        self.sessionAllow = sessionAllow
+        self.approvalContext = approvalContext
+        self.questionRegistry = questionRegistry
+        self.approvalID = approvalID
+        self.requestTimeout = requestTimeout
         self.makeClient = makeClient
         state.enabled = enabled
     }
@@ -165,11 +205,20 @@ public actor CodexAppServerMonitor {
             if let method = CodexAppServerReducer.serverRequestMethod(message) {
                 state.serverRequestsSeen.append(method)
                 if state.serverRequestsSeen.count > 20 { state.serverRequestsSeen.removeFirst() }
+                await handleServerRequest(method: method, message: message, client: client, store: store)
                 continue
             }
-            if message["method"] as? String == "account/rateLimits/updated" {
+            switch message["method"] as? String {
+            case "account/rateLimits/updated":
                 await mergeRateLimits(message["params"] as? [String: Any])
                 continue
+            case "serverRequest/resolved":
+                await requestResolved(message["params"] as? [String: Any], store: store)
+                continue
+            case "item/started":
+                rememberItem(message["params"] as? [String: Any])
+            default:
+                break
             }
             let now = Date()
             let events = reducer.handle(message, receivedAt: now)
@@ -236,6 +285,166 @@ public actor CodexAppServerMonitor {
             state.lastError = "thread/resume \(threadID.suffix(8)): \(error)"
         }
     }
+
+    // MARK: - Approvals and questions (ticket 03)
+
+    /// Route a server-initiated request to a phone card. Codex delivers each
+    /// request to every subscribed connection and takes the first answer, so
+    /// Desktop's own dialog stays live; whichever side answers first wins and
+    /// the other is withdrawn on `serverRequest/resolved`.
+    private func handleServerRequest(method: String, message: [String: Any],
+                                     client: any CodexAppServerConnecting, store: SessionStore) async {
+        guard let id = JSONRPCID(message["id"]),
+              let params = message["params"] as? [String: Any],
+              let threadID = params["threadId"] as? String else { return }
+        // Each hold runs on its own task: the message loop must keep reading
+        // so `serverRequest/resolved` (someone answered elsewhere) and later
+        // requests are seen while the phone is still deciding.
+        let reason = params["reason"] as? String
+        switch method {
+        case "item/commandExecution/requestApproval":
+            let command = (params["command"] as? String) ?? (recentItems[params["itemId"] as? String ?? ""]?["command"] as? String) ?? ""
+            let cwd = (params["cwd"] as? String) ?? (recentItems[params["itemId"] as? String ?? ""]?["cwd"] as? String)
+            let details = ApprovalDetails.from(tool: "Bash", input: ["command": command])
+            let preview = details.commandPreview.isEmpty ? "Shell command" : details.commandPreview
+            let card = PendingApproval(id: approvalID(), tool: "Bash", commandPreview: preview,
+                                       command: command, filePath: cwd)
+            Task { [weak self] in
+                await self?.holdApproval(id: id, threadID: threadID, tool: "Bash", input: ["command": command],
+                                         card: card, reason: reason, client: client, store: store)
+            }
+        case "item/fileChange/requestApproval":
+            let item = recentItems[params["itemId"] as? String ?? ""] ?? [:]
+            let changes = (item["changes"] as? [[String: Any]]) ?? []
+            let paths = changes.compactMap { $0["path"] as? String }
+            let diff = changes.compactMap { $0["diff"] as? String }.joined(separator: "\n")
+            let preview = paths.isEmpty ? "File changes" : "Edit \(paths.map { ($0 as NSString).lastPathComponent }.joined(separator: ", "))"
+            let card = PendingApproval(id: approvalID(), tool: "Edit", commandPreview: String(preview.prefix(120)),
+                                       filePath: paths.first,
+                                       newText: diff.isEmpty ? nil : String(diff.prefix(6 * 1024)))
+            let path = paths.first ?? ""
+            Task { [weak self] in
+                await self?.holdApproval(id: id, threadID: threadID, tool: "Edit", input: ["file_path": path],
+                                         card: card, reason: reason, client: client, store: store)
+            }
+        case "item/tool/requestUserInput":
+            let items = Self.questionItems(params["questions"] as? [[String: Any]] ?? [])
+            let blocking = params["isBlocking"] as? Bool ?? true
+            let questionID = params["itemId"] as? String ?? approvalID()
+            Task { [weak self] in
+                await self?.holdQuestion(id: id, threadID: threadID, questionID: questionID,
+                                         items: items, blocking: blocking, client: client, store: store)
+            }
+        default:
+            break
+        }
+    }
+
+    private func holdApproval(id: JSONRPCID, threadID: String, tool: String, input: [String: Any],
+                              card: PendingApproval, reason: String?,
+                              client: any CodexAppServerConnecting, store: SessionStore) async {
+        // The same overlays the hook gate honours (ADR 0010): a session-wide
+        // allow or an exact always-allow rule answers at once, no card.
+        if await sessionAllow.contains(threadID) {
+            client.respond(id: id, result: ["decision": "acceptForSession"])
+            return
+        }
+        let rules = await allowStore.all()
+        if rules.contains(where: { AllowRule.matchesExactly($0, tool: tool, input: input) }) {
+            client.respond(id: id, result: ["decision": "accept"])
+            return
+        }
+        let key = Self.requestKey(threadID: threadID, id: id)
+        openRequests[key] = OpenRequest(id: id, threadID: threadID, kind: .approval(card.id))
+        await approvalContext.set(id: card.id, sessionID: threadID,
+                                  rule: AllowRule.forApproval(tool: tool, input: input))
+        var shown = card
+        if let reason, !reason.isEmpty, shown.newText == nil, shown.command == nil {
+            shown = PendingApproval(id: card.id, tool: card.tool, commandPreview: card.commandPreview,
+                                    command: nil, filePath: card.filePath, oldText: nil, newText: reason)
+        }
+        await store.beginApproval(sessionID: threadID, shown, at: Date())
+        let outcome = await approvalRegistry.wait(id: card.id, timeout: requestTimeout)
+        guard openRequests.removeValue(forKey: key) != nil else { return }   // resolved elsewhere
+        await store.endApproval(sessionID: threadID, at: Date())
+        switch outcome {
+        case .allow:
+            let forSession = await sessionAllow.contains(threadID)
+            client.respond(id: id, result: ["decision": forSession ? "acceptForSession" : "accept"])
+        case .deny:
+            client.respond(id: id, result: ["decision": "decline"])
+        case .pass:
+            break   // nobody answered here; Desktop's dialog is still open
+        }
+    }
+
+    /// Codex's `request_user_input` questions: `{id, header, question,
+    /// isOther, isSecret, options: [{label, description}] | null}`.
+    static func questionItems(_ raw: [[String: Any]]) -> [QuestionItem] {
+        raw.compactMap { q in
+            guard let qid = q["id"] as? String, let text = q["question"] as? String, !text.isEmpty else { return nil }
+            let options = ((q["options"] as? [[String: Any]]) ?? []).compactMap { o -> QuestionOption? in
+                guard let label = o["label"] as? String, !label.isEmpty else { return nil }
+                return QuestionOption(id: label, label: label, value: label, description: o["description"] as? String)
+            }
+            return QuestionItem(id: qid, header: q["header"] as? String, text: text, options: options,
+                                multiSelect: false, allowsOther: (q["isOther"] as? Bool ?? true) || options.isEmpty)
+        }
+    }
+
+    private func holdQuestion(id: JSONRPCID, threadID: String, questionID: String, items: [QuestionItem],
+                              blocking: Bool, client: any CodexAppServerConnecting, store: SessionStore) async {
+        guard let first = items.first else {
+            client.respond(id: id, result: ["answers": [:]])
+            return
+        }
+        let timeout = blocking ? requestTimeout : .seconds(60)
+        let question = PendingQuestion(id: questionID,
+                                       prompt: first.text, options: first.options, questions: items,
+                                       isBlocking: blocking,
+                                       expiresAt: blocking ? nil : Date().addingTimeInterval(60))
+        let key = Self.requestKey(threadID: threadID, id: id)
+        openRequests[key] = OpenRequest(id: id, threadID: threadID, kind: .question)
+        await store.beginQuestion(sessionID: threadID, question, at: Date())
+        let answers = await questionRegistry.wait(sessionID: threadID, timeout: timeout)
+        guard openRequests.removeValue(forKey: key) != nil else { return }
+        await store.endQuestion(sessionID: threadID, at: Date())
+        guard let answers else { return }
+        var payload: [String: Any] = [:]
+        for item in items {
+            payload[item.id] = ["answers": answers[item.id] ?? []]
+        }
+        client.respond(id: id, result: ["answers": payload])
+    }
+
+    /// Someone else answered (or the turn moved on): withdraw the card without
+    /// a second notification and stop waiting.
+    private func requestResolved(_ params: [String: Any]?, store: SessionStore) async {
+        guard let threadID = params?["threadId"] as? String,
+              let id = JSONRPCID(params?["requestId"]),
+              let open = openRequests.removeValue(forKey: Self.requestKey(threadID: threadID, id: id)) else { return }
+        switch open.kind {
+        case .approval(let approvalID):
+            _ = await approvalContext.take(id: approvalID)
+            await approvalRegistry.resolve(id: approvalID, with: .pass)
+            await store.endApproval(sessionID: threadID, at: Date())
+        case .question:
+            await questionRegistry.cancel(sessionID: threadID)
+            await store.endQuestion(sessionID: threadID, at: Date())
+        }
+    }
+
+    private func rememberItem(_ params: [String: Any]?) {
+        guard let item = params?["item"] as? [String: Any], let id = item["id"] as? String,
+              ["commandExecution", "fileChange"].contains(item["type"] as? String ?? "") else { return }
+        recentItems[id] = item
+        recentItemOrder.append(id)
+        while recentItemOrder.count > 64 {
+            recentItems.removeValue(forKey: recentItemOrder.removeFirst())
+        }
+    }
+
+    private static func requestKey(threadID: String, id: JSONRPCID) -> String { "\(threadID)#\(id.description)" }
 
     // MARK: - Account usage (ticket 02)
 

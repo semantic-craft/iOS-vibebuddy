@@ -77,34 +77,6 @@ struct AccountUsageLiveTests {
     }
 }
 
-/// A scripted daemon connection: canned results per method, notifications
-/// pushed by the test.
-private final class FakeConnection: CodexAppServerConnecting, @unchecked Sendable {
-    let messages: AsyncStream<Data>
-    private let sink: AsyncStream<Data>.Continuation
-    private let lock = NSLock()
-    private var results: [String: [String: Any]]
-    private(set) var calls: [String] = []
-    init(results: [String: [String: Any]]) {
-        self.results = results
-        var sink: AsyncStream<Data>.Continuation!
-        messages = AsyncStream(bufferingPolicy: .unbounded) { sink = $0 }
-        self.sink = sink
-    }
-    func connect() throws {}
-    func request(_ method: String, params: [String: Any], timeout: Duration) async throws -> [String: Any] {
-        lock.withLock { calls.append(method) }
-        if let result = lock.withLock({ results[method] }) { return result }
-        throw CodexAppServerClient.ClientError.rpc(code: -32601, message: "no such method \(method)")
-    }
-    func notify(_ method: String, params: [String: Any]?) {}
-    func push(_ notification: [String: Any]) {
-        sink.yield(try! JSONSerialization.data(withJSONObject: notification))
-    }
-    func close() { sink.finish() }
-    func set(_ method: String, _ result: [String: Any]) { lock.withLock { results[method] = result } }
-}
-
 @Suite("Codex app-server live usage")
 struct CodexAppServerLiveUsageTests {
     private let rateLimits: [String: Any] = [
@@ -114,14 +86,6 @@ struct CodexAppServerLiveUsageTests {
         "rateLimitsByLimitId": ["codex": ["limitId": "codex", "planType": "pro",
                                           "primary": ["usedPercent": 11, "windowDurationMins": 10080, "resetsAt": 1_789_207_457]]],
     ]
-
-    private func waitFor(_ condition: @escaping () async -> Bool) async -> Bool {
-        for _ in 0..<400 {
-            if await condition() { return true }
-            try? await Task.sleep(for: .milliseconds(5))
-        }
-        return false
-    }
 
     @Test("connecting publishes the daemon's rate limits, and a sparse update re-publishes them merged")
     func liveRateLimits() async throws {
