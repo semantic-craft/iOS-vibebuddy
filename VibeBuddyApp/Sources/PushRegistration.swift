@@ -47,6 +47,9 @@ final class PushRegistration {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONEncoder().encode(DeviceRegistrationPayload(
             token: token,
+            // Keychain-held, so a reinstall (new token) still reads as this phone
+            // and replaces its own record on the Mac instead of adding one.
+            deviceID: PushDeviceIdentity.current(),
             name: UIDevice.current.name,
             model: UIDevice.current.model,
             systemVersion: "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)",

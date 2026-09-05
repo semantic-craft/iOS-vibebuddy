@@ -81,6 +81,29 @@ struct WireCodingTests {
         let legacy = try JSONDecoder().decode(DeviceRegistrationPayload.self,
                                               from: Data(#"{"token":"t","playSound":true}"#.utf8))
         #expect(legacy.categories == nil)
+        #expect(legacy.deviceID == nil)
+        // The stable identity rides along and round-trips.
+        var identified = p
+        identified.deviceID = "3E1D-hermes"
+        #expect(try roundTrip(identified).deviceID == "3E1D-hermes")
+    }
+
+    @Test("PushDeviceIdentity mints once and then reads back the same value")
+    func pushDeviceIdentityIsStable() {
+        var stored: [String: String] = [:]
+        var minted = 0
+        let mint = { minted += 1; return "id-\(minted)" }
+        let first = PushDeviceIdentity.current(
+            read: { stored[$0] }, write: { stored[$1] = $0 }, mint: mint)
+        let second = PushDeviceIdentity.current(
+            read: { stored[$0] }, write: { stored[$1] = $0 }, mint: mint)
+        #expect(first == "id-1")
+        #expect(second == first)
+        #expect(minted == 1)
+        // A blank stored value counts as none — it must not become the identity.
+        stored[PushDeviceIdentity.keychainKey] = ""
+        #expect(PushDeviceIdentity.current(
+            read: { stored[$0] }, write: { stored[$1] = $0 }, mint: mint) == "id-2")
     }
 
     // 5. Wire-format stability — rawValues are the documented strings

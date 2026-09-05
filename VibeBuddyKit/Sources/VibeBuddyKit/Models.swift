@@ -620,6 +620,12 @@ public struct PairingPayload: Codable, Sendable, Equatable {
 /// can arrive in either order.
 public struct DeviceRegistrationPayload: Codable, Sendable, Equatable {
     public var token: String?
+    /// The phone's own stable identity, minted once and kept in its Keychain so
+    /// it survives a reinstall or restore — the events that rotate `token`. The
+    /// Mac keys its registry on this, so one phone is one record however many
+    /// tokens it has been through. Optional so older payloads decode unchanged;
+    /// a payload without it is keyed on its token alone.
+    public var deviceID: String?
     public var name: String?
     public var model: String?
     public var systemVersion: String?
@@ -631,11 +637,12 @@ public struct DeviceRegistrationPayload: Codable, Sendable, Equatable {
     /// decode unchanged; the Mac treats a missing value as the default set.
     public var categories: NotificationCategoryPrefs?
 
-    public init(token: String? = nil, name: String? = nil,
+    public init(token: String? = nil, deviceID: String? = nil, name: String? = nil,
                 model: String? = nil, systemVersion: String? = nil,
                 playSound: Bool? = nil, quietMode: Bool? = nil,
                 categories: NotificationCategoryPrefs? = nil) {
         self.token = token
+        self.deviceID = deviceID
         self.name = name
         self.model = model
         self.systemVersion = systemVersion

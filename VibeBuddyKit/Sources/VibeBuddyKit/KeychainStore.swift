@@ -37,6 +37,29 @@ public enum KeychainStore {
     }
 }
 
+/// The phone's stable push identity: one UUID, minted on first use and kept in
+/// the Keychain, which outlives a reinstall and a device restore. Those are the
+/// events that hand the app a new APNs token, and without an identity that
+/// survives them the Mac's registry sees each new token as a new phone and keeps
+/// the old one — with the switches it uploaded last time. See
+/// `DeviceRegistrationPayload.deviceID`.
+public enum PushDeviceIdentity {
+    public static let keychainKey = "pushDeviceID"
+
+    /// Reads the identity, minting and storing one when none exists. The
+    /// storage is injectable so the rule can be tested without a Keychain.
+    public static func current(
+        read: (String) -> String? = KeychainStore.get,
+        write: (String?, String) -> Void = KeychainStore.set,
+        mint: () -> String = { UUID().uuidString }
+    ) -> String {
+        if let existing = read(keychainKey), !existing.isEmpty { return existing }
+        let fresh = mint()
+        write(fresh, keychainKey)
+        return fresh
+    }
+}
+
 /// The language the voice companion converses in — drives speech recognition,
 /// the model's reply language, and the spoken voice. Independent of the app's UI
 /// language (which is English).

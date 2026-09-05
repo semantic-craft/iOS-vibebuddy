@@ -56,6 +56,77 @@ struct DeviceRegistryTests {
         #expect(await tokens.devices().count == 1)
     }
 
+    // MARK: One phone, one record
+
+    /// The 02:01 case: the user switched a category off, but the same phone's
+    /// older token was still on file with the switch on, and Apple still
+    /// delivered to it.
+    @Test func reinstalledPhoneReplacesItsOldTokenInsteadOfSittingBesideIt() async throws {
+        let url = tempURL()
+        let tokens = DeviceTokens(url: url)
+        var on = NotificationCategoryPrefs.default
+        on.set(.agentDone, enabled: true)
+        await tokens.register(DeviceRegistrationPayload(
+            token: "old", deviceID: "hermes", name: "Hermes", categories: on))
+
+        var off = NotificationCategoryPrefs.default
+        off.set(.agentDone, enabled: false)
+        await tokens.register(DeviceRegistrationPayload(
+            token: "new", deviceID: "hermes", name: "Hermes", categories: off))
+
+        let devices = await tokens.devices()
+        #expect(devices.count == 1)
+        #expect(devices.first?.token == "new")
+        #expect(devices.first?.categories?.isEnabled(.agentDone) == false)
+        #expect(await DeviceTokens(url: url).all() == ["new"])   // the old token is gone from disk too
+    }
+
+    @Test func newTokenStartsWithoutTheOldTokensStanding() async throws {
+        let tokens = DeviceTokens(url: tempURL())
+        await tokens.register(DeviceRegistrationPayload(token: "old", deviceID: "hermes"))
+        await tokens.applySendResult(sent(200), token: "old")
+
+        await tokens.register(DeviceRegistrationPayload(token: "new", deviceID: "hermes"))
+        // Apple has never accepted "new": a 400 on it means junk, not a config error.
+        #expect(await tokens.applySendResult(sent(400), token: "new"))
+        #expect(await tokens.all().isEmpty)
+    }
+
+    @Test func recordWithoutAnIDIsAdoptedByTheSameToken() async throws {
+        let tokens = DeviceTokens(url: tempURL())
+        var prefs = NotificationCategoryPrefs.default
+        prefs.set(.agentDone, enabled: false)
+        // Written by the previous phone build, or by the raw-token POST.
+        await tokens.register(DeviceRegistrationPayload(token: "abc", categories: prefs))
+        await tokens.applySendResult(sent(200), token: "abc")
+
+        await tokens.register(DeviceRegistrationPayload(token: "abc", deviceID: "hermes", name: "Hermes"))
+        let devices = await tokens.devices()
+        #expect(devices.count == 1)
+        #expect(devices.first?.deviceID == "hermes")
+        #expect(devices.first?.categories?.isEnabled(.agentDone) == false)
+        // Same token, so its standing with Apple carries over.
+        #expect(await tokens.applySendResult(sent(400), token: "abc") == false)
+    }
+
+    @Test func twoPhonesStayTwoRecords() async throws {
+        let tokens = DeviceTokens(url: tempURL())
+        await tokens.register(DeviceRegistrationPayload(token: "a", deviceID: "hermes"))
+        await tokens.register(DeviceRegistrationPayload(token: "b", deviceID: "second-phone"))
+        await tokens.register(DeviceRegistrationPayload(token: "a2", deviceID: "hermes"))
+        #expect(Set(await tokens.all()) == ["a2", "b"])
+        #expect(await tokens.devices().count == 2)
+    }
+
+    @Test func partialReportUnderTheSameIDKeepsPrefs() async throws {
+        let tokens = DeviceTokens(url: tempURL())
+        await tokens.register(DeviceRegistrationPayload(
+            token: "old", deviceID: "hermes", playSound: false))
+        // Token rotated; this report carries no switches.
+        await tokens.register(DeviceRegistrationPayload(token: "new", deviceID: "hermes"))
+        #expect(await tokens.devices().first?.playSound == false)
+    }
+
     @Test func tokenlessPayloadIsNotRegistered() async throws {
         let tokens = DeviceTokens(url: tempURL())
         await tokens.register(DeviceRegistrationPayload(name: "Hermes"))
