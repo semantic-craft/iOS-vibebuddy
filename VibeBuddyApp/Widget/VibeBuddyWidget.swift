@@ -145,53 +145,111 @@ struct VibeBuddyLiveActivity: Widget {
                 .activityBackgroundTint(Color.black.opacity(0.5))
                 .widgetURL(tapTarget(context.state))
         } dynamicIsland: { context in
+            // Expanded: one dominant value (the primary state's count) on the
+            // trailing side, the cat as its emotional mirror on the leading
+            // side, and all reading text in the bottom band. Nothing is placed
+            // in the top corners beyond what the island's own margins allow.
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    ActivityCat(state: context.state.summary.primaryState, size: 40)
+                    ActivityCat(state: context.state.summary.primaryState, size: 52)
+                        .padding(.leading, 4)
+                        .padding(.top, 2)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        ForEach(Array(nonzeroStates(context.state).prefix(3)), id: \.self) { state in
-                            counter(context.state.summary.count(for: state), state)
-                        }
-                    }
+                    Headline(state: context.state)
+                        .padding(.trailing, 4)
+                        .padding(.top, 8)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    let state = context.state.summary.primaryState
-                    HStack(spacing: 5) {
-                        Image(systemName: state.symbolName)
-                        Text(context.state.topProject.map { "\(state.label) · \($0)" } ?? state.label)
-                    }
-                    .font(.caption)
-                    .foregroundStyle(Color(taskStatus: state.colorToken))
-                    .widgetURL(tapTarget(context.state))
+                    Detail(state: context.state)
+                        .padding(.horizontal, 4)
+                        .padding(.top, 4)
                 }
             } compactLeading: {
-                let state = context.state.summary.primaryState
-                Image(systemName: state.symbolName)
-                    .foregroundStyle(Color(taskStatus: state.colorToken))
-                    .accessibilityLabel(state.label)
+                ActivityCat(state: context.state.summary.primaryState, size: 22)
+                    .padding(.leading, 2)
+                    .accessibilityLabel(context.state.summary.primaryState.label)
             } compactTrailing: {
                 let state = context.state.summary.primaryState
                 Text("\(context.state.summary.count(for: state))")
-                    .monospacedDigit()
+                    .font(.body.weight(.semibold).monospacedDigit())
                     .foregroundStyle(Color(taskStatus: state.colorToken))
+                    .padding(.trailing, 2)
                     .accessibilityLabel("\(context.state.summary.count(for: state)) \(state.label)")
             } minimal: {
                 TaskStatusIndicator(context.state.summary.primaryState, size: 10)
             }
+            .widgetURL(tapTarget(context.state))
         }
+    }
+}
+
+/// The one number worth glancing at: how many sessions are in the primary
+/// state. The symbol carries the status colour; the numeral stays white so
+/// colour means "signal", never "text".
+private struct Headline: View {
+    let state: VibeBuddyActivityAttributes.ContentState
+
+    var body: some View {
+        let primary = state.summary.primaryState
+        let count = state.summary.count(for: primary)
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: primary.symbolName)
+                .font(.system(size: 22, weight: .bold))
+                .foregroundStyle(Color(taskStatus: primary.colorToken))
+            Text("\(count)")
+                .font(.system(size: 34, weight: .bold, design: .rounded).monospacedDigit())
+                .foregroundStyle(.white)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(count) \(primary.label)")
+    }
+}
+
+/// Reading text for the expanded island and the lock screen: what and where
+/// on the first line, the full distribution on the second. The second line is
+/// dropped when it would only repeat the headline.
+private struct Detail: View {
+    let state: VibeBuddyActivityAttributes.ContentState
+
+    var body: some View {
+        let primary = state.summary.primaryState
+        let states = nonzeroStates(state)
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Text(primary.label)
+                    .foregroundStyle(Color(taskStatus: primary.colorToken))
+                if let project = state.topProject {
+                    Text("·").foregroundStyle(.secondary)
+                    Text(project)
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+            .font(.subheadline.weight(.semibold))
+            if states.count > 1 {
+                HStack(spacing: 14) {
+                    ForEach(states, id: \.self) { status in
+                        counter(state.summary.count(for: status), status)
+                    }
+                }
+                .font(.caption.weight(.medium))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
 @MainActor
 private func counter(_ value: Int, _ state: TaskPresentationState) -> some View {
-    HStack(spacing: 5) {
-        TaskStatusIndicator(state, size: 9)
+    HStack(spacing: 4) {
         Image(systemName: state.symbolName)
-        Text("\(value)").monospacedDigit()
+            .foregroundStyle(Color(taskStatus: state.colorToken))
+        Text("\(value)")
+            .monospacedDigit()
+            .foregroundStyle(.white.opacity(0.85))
     }
-    .foregroundStyle(Color(taskStatus: state.colorToken))
     .accessibilityElement(children: .ignore)
     .accessibilityLabel("\(value) \(state.label)")
 }
@@ -210,18 +268,10 @@ struct LockScreenView: View {
     let state: VibeBuddyActivityAttributes.ContentState
 
     var body: some View {
-        HStack(spacing: 14) {
-            ActivityCat(state: state.summary.primaryState, size: 40)
-            HStack(spacing: 10) {
-                ForEach(nonzeroStates(state), id: \.self) { status in
-                    counter(state.summary.count(for: status), status)
-                }
-            }
-            Spacer()
-            if let project = state.topProject {
-                Text(project).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            }
+        HStack(alignment: .center, spacing: 14) {
+            ActivityCat(state: state.summary.primaryState, size: 48)
+            Detail(state: state)
+            Headline(state: state)
         }
-        .font(.headline)
     }
 }

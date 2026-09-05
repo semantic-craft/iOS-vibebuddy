@@ -83,5 +83,10 @@ robot** (`PetFace` in `VibeBuddyMacApp`). The shared mood model
 - The two platforms no longer share a single pet visual — acceptable; the pet is
   a per-platform presentation layer over one shared `BuddyState`.
 - The iOS **Live Activity / Dynamic Island** also uses the cat
-  (`ActivityPixelCat`, a static Kit-free version — a white body on the activity's
-  dark surface), so the iOS pet identity is consistent everywhere.
+  (`ActivityCat`, a static frame of the same Kit geometry on the activity's
+  dark surface), so the iOS pet identity is consistent everywhere. In the
+  expanded island the cat (52 pt) fills the leading region and the primary
+  state's count is the one large numeral on the trailing side; all reading
+  text (state · project, then the per-state distribution) sits in the bottom
+  band, so nothing is drawn into the island's rounded corners. The compact
+  island shows the head alone (22 pt) beside the coloured count.
