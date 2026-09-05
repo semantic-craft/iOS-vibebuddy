@@ -400,9 +400,18 @@ struct ApprovalRoutesTests {
         }
     }
 
-    @Test("a held codex request on an unknown session opens it from the payload so the card has a row")
+    /// Counts needs-response announcements (the APNs push path) and remembers
+    /// whether each carried the approval card.
+    private actor WaitAnnouncements {
+        var cards: [Bool] = []
+        func record(_ session: AgentSession) { cards.append(session.pendingApproval != nil) }
+    }
+
+    @Test("a held request on an unknown session opens it from the payload and announces the wait once, with the card")
     func codexHoldOnUnknownSessionOpensIt() async throws {
         let store = SessionStore()
+        let announced = WaitAnnouncements()
+        await store.setNeedsResponseHandler { session in await announced.record(session) }
         let srv = server(store: store)
         try await srv.buildApplication().test(.router) { client in
             async let held = approve(client, body: codexRequest("rm -rf build"), agent: "codex")
@@ -410,6 +419,10 @@ struct ApprovalRoutesTests {
             let session = try #require(await store.snapshot(now: Date()).sessions.first { $0.id == "cs" })
             #expect(session.status == .needsResponse)
             #expect(session.pendingApproval?.command == "rm -rf build")
+            // One push, and it is the approval push — not a generic "needs you"
+            // from opening the session followed by a second one for the card.
+            try await Task.sleep(for: .milliseconds(50))
+            #expect(await announced.cards == [true])
             try await client.execute(uri: "/decision", method: .post,
                 headers: [.authorization: "Bearer t0k"],
                 body: ByteBuffer(string: #"{"approvalId":"s","decision":"allow"}"#)) { res in

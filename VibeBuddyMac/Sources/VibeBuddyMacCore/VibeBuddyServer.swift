@@ -326,8 +326,9 @@ public struct VibeBuddyServer: Sendable {
             case .ask:
                 if call.event == .permissionRequest, !(await store.hasSession(sessionID)) {
                     // Only the gate is installed (no status forwarders yet): open
-                    // the session from this payload so the card has a row to land on.
-                    await store.ingest(data, agent: agent, receivedAt: Date())
+                    // the session from this payload so the card has a row to land
+                    // on. `beginApproval` below announces the wait — once.
+                    await store.ingest(data, agent: agent, receivedAt: Date(), announcesWait: false)
                 }
                 let id = makeID()
                 let d = ApprovalDetails.from(tool: tool, input: input)
