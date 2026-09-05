@@ -273,13 +273,13 @@ public struct VibeBuddyServer: Sendable {
         }
 
         // Blocking approval intake — bearer-token gated (the approval hook reads
-        // the token file and sends it). Parse the hook payload (Claude/Grok gate
-        // every PreToolUse; the Codex CLI gates only its PermissionRequest, which
-        // fires when Codex would prompt), run the permission matcher, and either
-        // decide immediately (allow/deny) or hold until the phone responds via
-        // `/decision` or the timeout fires. `?agent=<source>` selects the envelope
-        // shape to decode and the decision contract to answer in; no parameter
-        // means Claude Code, as before.
+        // the token file and sends it). Parse the gate payload, run the
+        // permission matcher, and either decide immediately (allow/deny) or hold
+        // until the phone responds via `/decision` or the timeout fires.
+        // `?agent=<source>` selects the envelope shape to decode; the event the
+        // payload arrived on (`PermissionRequest` — only when the agent would
+        // prompt — or a `PreToolUse` gate on every call) selects the decision
+        // contract to answer in. No parameter means Claude Code, as before.
         let registry = self.approvalRegistry
         let rules = self.rules
         let allowStore = self.allowStore
@@ -297,18 +297,18 @@ public struct VibeBuddyServer: Sendable {
             let input = call.input
             let sessionID = call.sessionID
             let r = rules(agent)
-            // Claude and Grok gate every PreToolUse, so the blocking hook doubles
-            // as the tool signal — ingesting it moves the session to `working`.
-            // The Codex CLI gates only PermissionRequest, a *wait* signal: ingesting
-            // it would mark the session `needsResponse` and push a "needs you"
-            // alert even when a rule decides at once, so Codex is ingested only
-            // when the wait is real (the `.ask` arm) and the session is unknown.
-            if agent != .codex {
+            // A PreToolUse gate doubles as the tool signal — ingesting it moves
+            // the session to `working`. A PermissionRequest is a *wait* signal:
+            // ingesting it would mark the session `needsResponse` and push a
+            // "needs you" alert even when a rule decides at once, so it is
+            // ingested only when the wait is real (the `.ask` arm) and the
+            // session is not yet known.
+            if call.event == .preToolUse {
                 await store.ingest(data, agent: agent, receivedAt: Date())
             }
             // Native deny always wins, over every vibebuddy overlay (ADR 0010).
             if PermissionMatcher.decide(tool: tool, input: input, allow: [], deny: r.deny) == .deny {
-                return Self.permissionResponse("deny", agent: agent)
+                return Self.permissionResponse("deny", agent: agent, event: call.event)
             }
             // vibebuddy overlay: a session-wide allow, or an exact always-allow rule the
             // user set — both bypass the matcher's pattern heuristics since the user
@@ -317,17 +317,18 @@ public struct VibeBuddyServer: Sendable {
             let storeRules = await allowStore.all()   // [String] is Sendable; match locally
             let storeAllowed = storeRules.contains { AllowRule.matchesExactly($0, tool: tool, input: input) }
             if sessionAllowed || storeAllowed {
-                return Self.permissionResponse("allow", agent: agent)
+                return Self.permissionResponse("allow", agent: agent, event: call.event)
             }
             // Otherwise the native allow/ask matching (composition-guarded).
             switch PermissionMatcher.decide(tool: tool, input: input, allow: r.allow, deny: r.deny) {
-            case .allow: return Self.permissionResponse("allow", agent: agent)
-            case .deny:  return Self.permissionResponse("deny", agent: agent)
+            case .allow: return Self.permissionResponse("allow", agent: agent, event: call.event)
+            case .deny:  return Self.permissionResponse("deny", agent: agent, event: call.event)
             case .ask:
-                if agent == .codex, !(await store.hasSession(sessionID)) {
-                    // Only the gate is trusted (no status forwarders yet): open the
-                    // session from this payload so the card has a row to land on.
-                    await store.ingest(data, agent: agent, receivedAt: Date())
+                if call.event == .permissionRequest, !(await store.hasSession(sessionID)) {
+                    // Only the gate is installed (no status forwarders yet): open
+                    // the session from this payload so the card has a row to land
+                    // on. `beginApproval` below announces the wait — once.
+                    await store.ingest(data, agent: agent, receivedAt: Date(), announcesWait: false)
                 }
                 let id = makeID()
                 let d = ApprovalDetails.from(tool: tool, input: input)
@@ -345,8 +346,8 @@ public struct VibeBuddyServer: Sendable {
                 let outcome = await registry.wait(id: id, timeout: timeout)
                 await store.endApproval(sessionID: sessionID, at: Date())
                 switch outcome {
-                case .allow: return Self.permissionResponse("allow", agent: agent)
-                case .deny:  return Self.permissionResponse("deny", agent: agent)
+                case .allow: return Self.permissionResponse("allow", agent: agent, event: call.event)
+                case .deny:  return Self.permissionResponse("deny", agent: agent, event: call.event)
                 case .pass:  return Response(status: .ok)
                 }
             }
@@ -459,15 +460,16 @@ public struct VibeBuddyServer: Sendable {
     /// `{"decision":…,"reason":…}` — that is what we emit for it, so the wire is
     /// unambiguous when read from a Grok transcript. Either way a timeout still
     /// answers with an empty 200 body, which both CLIs read as "no opinion".
-    static func permissionResponse(_ decision: String, agent: AgentKind = .claudeCode) -> Response {
+    static func permissionResponse(_ decision: String, agent: AgentKind = .claudeCode,
+                                   event: ApprovalPayload.Event = .preToolUse) -> Response {
         let json: String
         if agent == .grok {
             json = decision == "deny"
                 ? #"{"decision":"deny","reason":"vibebuddy"}"#
                 : #"{"decision":"\#(decision)"}"#
-        } else if agent == .codex {
-            // Codex answers approvals through its `PermissionRequest` hook:
-            // `decision.behavior` is `allow`/`deny`, and a deny may carry a
+        } else if event == .permissionRequest {
+            // Claude Code and Codex answer a `PermissionRequest` hook the same
+            // way: `decision.behavior` is `allow`/`deny`, and a deny may carry a
             // message the model sees. Any other field fails closed on Codex's
             // side, so send nothing beyond the contract.
             json = decision == "deny"

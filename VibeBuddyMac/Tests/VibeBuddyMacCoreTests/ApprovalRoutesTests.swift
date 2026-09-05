@@ -12,6 +12,13 @@ private func bash(_ cmd: String) -> String {
     #"{"hook_event_name":"PreToolUse","session_id":"s","cwd":"/x/p","tool_name":"Bash","tool_input":{"command":"\#(cmd)"}}"#
 }
 
+/// A Claude Code PermissionRequest payload: fired only when Claude would stop
+/// and ask (a prompt in default mode, an uncertain classifier in auto mode).
+private func claudeRequest(_ cmd: String, tool: String = "Bash") -> String {
+    #"{"hook_event_name":"PermissionRequest","session_id":"ps","cwd":"/x/p","permission_mode":"default","#
+        + #""tool_use_id":"toolu_1","tool_name":"\#(tool)","tool_input":{"command":"\#(cmd)"}}"#
+}
+
 /// A Codex CLI PermissionRequest payload: Claude-shaped keys, fired only when
 /// Codex would prompt. `tool_input.command` carries the shell command (Bash)
 /// or the whole patch (apply_patch).
@@ -281,6 +288,67 @@ struct ApprovalRoutesTests {
         }
     }
 
+    // MARK: - Claude Code PermissionRequest (the gate `--approval` installs)
+    //
+    // Same envelope as Claude's PreToolUse, but it only fires when Claude would
+    // prompt, and it is answered with `decision.behavior` — the very contract
+    // Codex adopted. A PreToolUse payload keeps the `permissionDecision` reply.
+
+    @Test("an allow-listed claude PermissionRequest answers allow in the decision contract, with no wait")
+    func claudePermissionRequestAllowImmediate() async throws {
+        let store = SessionStore()
+        try await server(allow: ["Bash(ls:*)"], store: store).buildApplication().test(.router) { client in
+            let text = try await approve(client, body: claudeRequest("ls -la"))
+            #expect(text == codexAllow)
+            #expect(await store.snapshot(now: Date()).sessions.first { $0.id == "ps" } == nil)
+        }
+    }
+
+    @Test("a held claude PermissionRequest shows the card on the known session; a phone deny answers deny + message")
+    func claudePermissionRequestHoldThenDeny() async throws {
+        let store = SessionStore()
+        let prompt = #"{"hook_event_name":"UserPromptSubmit","session_id":"ps","cwd":"/x/p","prompt":"go"}"#
+        await store.ingest(Data(prompt.utf8), receivedAt: Date())
+        let srv = server(store: store)   // empty allow → .ask
+        try await srv.buildApplication().test(.router) { client in
+            async let held = approve(client, body: claudeRequest("rm -rf build"))
+            try await waitForPendingApproval(store, session: "ps")
+            let session = try #require(await store.snapshot(now: Date()).sessions.first { $0.id == "ps" })
+            #expect(session.agent == .claudeCode)
+            #expect(session.status == .needsResponse)
+            #expect(session.pendingApproval?.command == "rm -rf build")
+            #expect(session.pendingApproval?.permissionMode == nil)
+            try await client.execute(uri: "/decision", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"approvalId":"s","decision":"deny"}"#)) { res in
+                #expect(res.status == .ok)
+            }
+            #expect(try await held == codexDeny)
+            let after = try #require(await store.snapshot(now: Date()).sessions.first { $0.id == "ps" })
+            #expect(after.pendingApproval == nil)
+            #expect(after.status == .working)
+        }
+    }
+
+    @Test("alwaysAllow from a claude PermissionRequest also auto-allows the same call on a PreToolUse gate")
+    func claudePermissionRequestAlwaysAllowSharesRules() async throws {
+        let store = SessionStore()
+        try await server(store: store).buildApplication().test(.router) { client in
+            async let first = approve(client, body: claudeRequest("git status"))
+            try await waitForPendingApproval(store, session: "ps")
+            try await client.execute(uri: "/decision", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"approvalId":"s","decision":"alwaysAllow"}"#)) { res in
+                #expect(res.status == .ok)
+            }
+            #expect(try await first == codexAllow)
+            // The persisted rule is event-agnostic: a legacy PreToolUse gate
+            // reads it too, in its own contract.
+            let legacy = try await approve(client, body: bash("git status"))
+            #expect(legacy.contains("\"permissionDecision\":\"allow\""))
+        }
+    }
+
     // MARK: - Codex CLI (?agent=codex)
     //
     // Claude-shaped envelope on PermissionRequest (Codex fires it only when it
@@ -332,9 +400,18 @@ struct ApprovalRoutesTests {
         }
     }
 
-    @Test("a held codex request on an unknown session opens it from the payload so the card has a row")
+    /// Counts needs-response announcements (the APNs push path) and remembers
+    /// whether each carried the approval card.
+    private actor WaitAnnouncements {
+        var cards: [Bool] = []
+        func record(_ session: AgentSession) { cards.append(session.pendingApproval != nil) }
+    }
+
+    @Test("a held request on an unknown session opens it from the payload and announces the wait once, with the card")
     func codexHoldOnUnknownSessionOpensIt() async throws {
         let store = SessionStore()
+        let announced = WaitAnnouncements()
+        await store.setNeedsResponseHandler { session in await announced.record(session) }
         let srv = server(store: store)
         try await srv.buildApplication().test(.router) { client in
             async let held = approve(client, body: codexRequest("rm -rf build"), agent: "codex")
@@ -342,6 +419,10 @@ struct ApprovalRoutesTests {
             let session = try #require(await store.snapshot(now: Date()).sessions.first { $0.id == "cs" })
             #expect(session.status == .needsResponse)
             #expect(session.pendingApproval?.command == "rm -rf build")
+            // One push, and it is the approval push — not a generic "needs you"
+            // from opening the session followed by a second one for the card.
+            try await Task.sleep(for: .milliseconds(50))
+            #expect(await announced.cards == [true])
             try await client.execute(uri: "/decision", method: .post,
                 headers: [.authorization: "Bearer t0k"],
                 body: ByteBuffer(string: #"{"approvalId":"s","decision":"allow"}"#)) { res in
@@ -471,6 +552,11 @@ struct ApprovalRoutesTests {
         let codex = try await runApprovalHook(source: "codex", port: port, token: "t0k",
                                               stdin: codexRequest("ls -la"))
         #expect(codex == codexAllow)
+
+        // So does Claude's PermissionRequest gate (no source argument).
+        let request = try await runApprovalHook(source: nil, port: port, token: "t0k",
+                                                stdin: claudeRequest("ls -la"))
+        #expect(request == codexAllow)
 
         // A wrong token is a 401 → nothing on stdout → the agent fails open.
         let unauthorized = try await runApprovalHook(source: "grok", port: port, token: "wrong",
