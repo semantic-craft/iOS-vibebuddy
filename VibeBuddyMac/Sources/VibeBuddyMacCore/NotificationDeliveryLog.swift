@@ -103,10 +103,13 @@ public actor NotificationDeliveryRecorder: NotificationDeliveryRecording {
         self.tracker = NotificationDeliveryHealthTracker(debounce: failureDebounce)
         self.authorization = authorization
         self.apnsConfigured = apnsConfigured
-        // Replay the retained history oldest-first, not just the last entry: a
-        // `skipped` after a `failed` says nothing about the failure, so a tracker
-        // rebuilt from the skip alone would drop a still-standing latch.
-        for record in log.recent(limit: NotificationDeliveryLog.maxEntries).reversed() {
+        // Replay the whole retained log, not just the last record: a `skipped`
+        // (or `attempted`) neither latches a failure nor clears one, so seeding
+        // from one of those would drop a failure that is still standing — and
+        // skips are common enough that the last record often is one. Oldest
+        // first, each at its own timestamp, so the latch ends up where the
+        // history actually put it.
+        for record in log.entries {
             _ = tracker.apply(record, now: record.timestamp)
         }
     }

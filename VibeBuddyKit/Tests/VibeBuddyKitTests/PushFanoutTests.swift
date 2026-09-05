@@ -97,16 +97,25 @@ struct PushFanoutTests {
                                 apnsConfigured: true).recipients.count == 1)
     }
 
-    @Test("two phones excluded for different reasons report mixed, not whichever came first")
-    func mixedExclusions() {
-        var off = NotificationCategoryPrefs.default
-        off.set(.agentDone, enabled: false)
-        let a = device("a", categories: off)          // this one switched completions off
-        let b = device("b", quiet: true)              // this one is in Quiet mode
-        #expect(PushFanout.plan(alert(), devices: [a, b], apnsConfigured: true).skip == .mixed)
-        #expect(PushFanout.plan(alert(), devices: [b, a], apnsConfigured: true).skip == .mixed)
-        // The same reason on every excluded device is still that reason.
-        #expect(PushFanout.plan(alert(), devices: [device("c", quiet: true), b], apnsConfigured: true).skip == .quiet)
+    @Test("devices refusing for different reasons report mixed, not whichever came first")
+    func mixedRefusals() {
+        let off = NotificationCategoryPrefs(enabled: [.needsApproval])
+        let plan = PushFanout.plan(
+            alert(),
+            devices: [device("switched-off", categories: off), device("in-focus", quiet: true)],
+            apnsConfigured: true)
+        #expect(plan.recipients.isEmpty)
+        #expect(plan.skip == .mixed)
+    }
+
+    @Test("devices refusing for the same reason still name it")
+    func agreedRefusal() {
+        let off = NotificationCategoryPrefs(enabled: [.needsApproval])
+        let plan = PushFanout.plan(
+            alert(),
+            devices: [device("a", categories: off), device("b", categories: off)],
+            apnsConfigured: true)
+        #expect(plan.skip == .category)
     }
 
     @Test("one phone wanting it is enough — no reason is recorded when anyone was sent to")

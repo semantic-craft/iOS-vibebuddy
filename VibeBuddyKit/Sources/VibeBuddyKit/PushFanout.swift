@@ -20,14 +20,15 @@ public enum CueSkipReason: String, Sendable, Equatable, Codable {
     /// The session's own terminal is frontmost, so the cue was capped to the
     /// list and never left the Mac.
     case focusedTerminal
-    /// Several devices were excluded, each for a different one of the reasons
-    /// above; no single reason would be true of all of them.
-    case mixed
     /// This Mac has no APNs key, so it cannot push at all.
     case apnsNotConfigured
     /// Nothing has uploaded a push token. The registry lives in memory, so this
     /// is what a Mac that has restarted looks like until the phone opens again.
     case noRegisteredDevice
+    /// Several devices each refused, for different reasons. Naming one of them
+    /// would claim they all agreed — and the registry is a dictionary, so which
+    /// one you got would not even be stable between runs.
+    case mixed
 }
 
 /// One phone this cue is going to, and how loud it will be there.
@@ -61,8 +62,8 @@ public struct PushFanout: Equatable, Sendable {
     /// *whether* it hears the cue at all, and its Quiet mode decides *how loud*
     /// through the same `DeliveryMatrix` the Mac used — never louder than the Mac
     /// decided. When devices disagree the cue still goes to the ones that want
-    /// it, so a reason is recorded only when nobody did; with one paired phone,
-    /// which is the shape this runs in, that is simply the reason.
+    /// it, so a reason is recorded only when nobody did — and then only when they
+    /// all refused for the *same* reason; otherwise `mixed`.
     /// `focusedSessionIDs` only separates two reasons for the same silence: a cue
     /// capped to the list because you are in that session's terminal, from one
     /// the session's attention level reduced. Both stay on the Mac either way.
@@ -81,10 +82,10 @@ public struct PushFanout: Equatable, Sendable {
         guard !registered.isEmpty else { return PushFanout(recipients: [], skip: .noRegisteredDevice) }
 
         var recipients: [PushRecipient] = []
-        var exclusions = Set<CueSkipReason>()
+        var refusals: Set<CueSkipReason> = []
         for device in registered {
             guard (device.categories ?? .default).isEnabled(alert.sound) else {
-                exclusions.insert(.category)
+                refusals.insert(.category)
                 continue
             }
             var level = alert.delivery
@@ -92,14 +93,12 @@ public struct PushFanout: Equatable, Sendable {
                 level = min(level, DeliveryMatrix.level(for: alert.sound, attention: .muted))
             }
             guard level.interrupts else {
-                exclusions.insert(.quiet)
+                refusals.insert(.quiet)
                 continue
             }
             recipients.append(PushRecipient(device: device, level: level))
         }
         guard recipients.isEmpty else { return PushFanout(recipients: recipients, skip: nil) }
-        // One reason only when it is true of every excluded device; the registry
-        // is a dictionary's values, so "first" would otherwise be arbitrary.
-        return PushFanout(recipients: [], skip: exclusions.count == 1 ? exclusions.first : .mixed)
+        return PushFanout(recipients: [], skip: refusals.count == 1 ? refusals.first : .mixed)
     }
 }

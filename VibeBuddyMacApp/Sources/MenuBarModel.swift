@@ -445,11 +445,11 @@ final class MenuBarModel: ObservableObject {
     /// how "the Mac banners and the phone never hears about it" went unexplained.
     @discardableResult
     private func push(_ alert: SoundAlert, to devices: [DeviceRegistrationPayload],
-                      focused: Set<String> = []) async -> Bool {
+                      focused: Set<String> = [], recordSkips: Bool = true) async -> Bool {
         let fanout = PushFanout.plan(alert, devices: devices, apnsConfigured: pusher != nil,
                                      focusedSessionIDs: focused)
         guard let pusher, !fanout.recipients.isEmpty else {
-            await recordPushSkip(alert, reason: fanout.skip)
+            if recordSkips { await recordPushSkip(alert, reason: fanout.skip) }
             return false
         }
         let copy = PushCopy.copy(for: alert.sound, session: alert.session)
@@ -485,7 +485,11 @@ final class MenuBarModel: ObservableObject {
             session, quietMode: Self.effectiveQuiet(), categories: NotificationCategoryPrefs.load())
         let devices = await deviceTokens.devices()
         let level = DeliveryMatrix.level(for: .agentDone, attention: session.effectiveAttention)
-        let pushed = await push(SoundAlert(session: session, sound: .agentDone, delivery: level), to: devices)
+        // `recordSkips: false`: an undelivered reminder is re-proposed on every
+        // pass of the server's 30s loop until something takes it, so recording
+        // each one would bury the log. The completion's own cue already said why.
+        let pushed = await push(SoundAlert(session: session, sound: .agentDone, delivery: level),
+                                to: devices, recordSkips: false)
         if local || pushed { await refreshNotificationDeliveryHealth() }
         return local || pushed
     }
