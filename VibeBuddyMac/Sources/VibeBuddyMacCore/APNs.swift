@@ -141,6 +141,16 @@ public actor APNsPusher {
         }
     }
 
+    /// Record a cue that was earned but sent to nobody. Not a send, so it never
+    /// goes near APNs — but it is the only trace that cue leaves on this channel,
+    /// so it belongs with the sends rather than in a caller's own bookkeeping.
+    public func recordSkip(sessionID: String?, sound: NotificationSound,
+                           reason: PushSkipReason, now: Date = Date()) async {
+        await recorder?.record(NotificationDeliveryRecord(
+            channel: .apns, outcome: .skipped, sessionID: sessionID,
+            sound: sound.rawValue, failureReason: reason.rawValue, timestamp: now))
+    }
+
     /// The `alert` push body. An empty sound means a silent (banner-only) push.
     /// The session id rides outside `aps` so the phone's `userInfo["sessionId"]`
     /// reads the same for a push as for its own local notification, and a tapped

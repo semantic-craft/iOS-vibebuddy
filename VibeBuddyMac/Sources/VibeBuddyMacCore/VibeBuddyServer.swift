@@ -280,22 +280,32 @@ public struct VibeBuddyServer: Sendable {
 
     /// The daemon's own channel: the `agentDone` cue again, to every phone whose
     /// switches allow it and that is not in Quiet mode. Same collapse id as the
-    /// completion, so the banner is replaced rather than stacked.
+    /// completion, so the banner is replaced rather than stacked. A reminder that
+    /// reaches nobody records why, so it is not simply missing from the log.
     private func pushCompletionReminder(_ session: AgentSession, now: Date) async -> Bool {
         guard let pusher else { return false }
-        let sound = NotificationSound.agentDone
-        var attempted = false
-        for device in await deviceTokens.devices() {
-            guard let token = device.token,
-                  (device.categories ?? .default).isEnabled(sound),
-                  device.quietMode != true else { continue }
-            attempted = true
+        let alert = SoundAlert(
+            session: session, sound: .agentDone,
+            delivery: DeliveryMatrix.level(for: .agentDone, attention: session.effectiveAttention))
+        let fanout = PushFanout.plan(alert, devices: await deviceTokens.devices(),
+                                     apnsConfigured: true)
+        guard !fanout.recipients.isEmpty else {
+            if let skip = fanout.skip {
+                await pusher.recordSkip(sessionID: session.id, sound: alert.sound,
+                                        reason: skip, now: now)
+            }
+            return false
+        }
+        for recipient in fanout.recipients {
+            guard let token = recipient.device.token else { continue }
+            let sound = recipient.level.makesSound && recipient.device.playSound != false
+                ? alert.sound.fileName : ""
             await pusher.send(title: "\(session.project) finished",
                               body: session.summary ?? "Task complete",
-                              to: token, sound: device.playSound != false ? sound.fileName : "",
-                              now: now, sessionID: session.id, soundCategory: sound.rawValue)
+                              to: token, sound: sound,
+                              now: now, sessionID: session.id, soundCategory: alert.sound.rawValue)
         }
-        return attempted
+        return true
     }
 
     public func router() -> Router<BasicRequestContext> {

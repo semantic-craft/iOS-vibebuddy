@@ -407,6 +407,13 @@ private struct NotificationSettings: View {
                             Text(sound)
                                 .foregroundStyle(.secondary)
                         }
+                        // A skip is only useful if it says which switch, or which
+                        // missing phone, kept the cue from going out.
+                        if let reason = entry.failureReason {
+                            Text("·")
+                            Text(reason)
+                                .foregroundStyle(entry.outcome == .failed ? Color.orange : .secondary)
+                        }
                         Spacer(minLength: 4)
                         Text(entry.timestamp, style: .relative)
                             .font(.caption2)

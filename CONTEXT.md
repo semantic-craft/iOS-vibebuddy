@@ -190,8 +190,14 @@ code, and tests — don't drift to synonyms.
   notification id and collapse id as the original cue, so one banner is
   replaced, not stacked. The Watch carries no attention state.
 - **NotificationDelivery / NotificationDeliveryLog** — one record per local or
-  APNs send with outcome `attempted` / `scheduled` / `accepted` / `failed`. Never
-  `delivered`: an API result is not proof the device showed it.
+  APNs send with outcome `attempted` / `scheduled` / `accepted` / `failed` /
+  `skipped`. Never `delivered`: an API result is not proof the device showed it.
+  `skipped` is a cue that was earned and sent to no phone, carrying a
+  `PushSkipReason` in `failureReason` (`apnsNotConfigured`, `notLoudEnough`,
+  `noRegisteredDevice`, `categoryOff`, `deviceQuietMode`) — decided by
+  `PushFanout.plan`, the same pure rule that picks the recipients, so an earned
+  cue is never simply absent from the log. It is not a failure and never latches
+  the health diagnostic.
 - **AccountUsage** — provider quota (Codex app-server RPC, Claude `/usage` CLI):
   window, remaining, reset, freshness, `stale` / unavailable reason. Collected by
   isolated, individually switchable adapters that can never move session state.
