@@ -2,10 +2,12 @@ import SwiftUI
 import VibeBuddyKit
 
 /// Start a new task on the Mac from the phone: a directory the Mac has seen a
-/// session run in, the prompt, an optional name. Codex only for now.
+/// session run in, the agent, the prompt, an optional name. Claude Code runs
+/// as a `claude --bg` background session, Codex as a daemon thread.
 struct NewTaskSheet: View {
     @ObservedObject var dashboard: DashboardStore
     @Environment(\.dismiss) private var dismiss
+    @State private var agent: AgentKind = .claudeCode
     @State private var directory = ""
     @State private var prompt = ""
     @State private var name = ""
@@ -29,11 +31,20 @@ struct NewTaskSheet: View {
                     }
                 }
                 Section("Task") {
-                    TextField("What should Codex do?", text: $prompt, axis: .vertical).lineLimit(3...8)
+                    if dashboard.dispatchAgents.count > 1 {
+                        Picker("Agent", selection: $agent) {
+                            ForEach(dashboard.dispatchAgents, id: \.self) { kind in
+                                Text(kind.displayName).tag(kind)
+                            }
+                        }
+                    }
+                    TextField("What should \(agent.displayName) do?", text: $prompt, axis: .vertical).lineLimit(3...8)
                     TextField("Name (optional)", text: $name)
                 }
                 Section {
-                    Text("Runs as a new Codex thread on your Mac through the app-server daemon, with your usual model, approval and sandbox settings. It appears in Codex Desktop and in Working here.")
+                    Text(agent == .codex
+                         ? "Runs as a new Codex thread on your Mac through the app-server daemon, with your usual model, approval and sandbox settings. It appears in Codex Desktop and in Working here."
+                         : "Runs as a Claude Code background session on your Mac (claude --bg) with your usual settings. It appears in Working here; Jump opens a terminal attached to it.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -47,13 +58,16 @@ struct NewTaskSheet: View {
                                   || prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
-            .onAppear { if directory.isEmpty { directory = dashboard.recentDirectories.first ?? "" } }
+            .onAppear {
+                if directory.isEmpty { directory = dashboard.recentDirectories.first ?? "" }
+                if !dashboard.dispatchAgents.contains(agent), let first = dashboard.dispatchAgents.first { agent = first }
+            }
         }
     }
 
     private func start() {
         busy = true
-        let request = DispatchRequest(agent: .codex, cwd: directory,
+        let request = DispatchRequest(agent: agent, cwd: directory,
                                       prompt: prompt.trimmingCharacters(in: .whitespacesAndNewlines),
                                       name: name.isEmpty ? nil : name)
         Task {

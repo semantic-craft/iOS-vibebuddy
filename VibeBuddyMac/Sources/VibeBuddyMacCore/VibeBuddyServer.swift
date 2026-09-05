@@ -58,6 +58,8 @@ public struct VibeBuddyServer: Sendable {
     /// Start a new task. Nil means: Codex through the app-server monitor, every
     /// other agent unsupported until it has a launcher of its own.
     public let onDispatch: (@Sendable (DispatchRequest) async -> DispatchOutcome)?
+    /// Starts Claude Code background sessions for dispatches.
+    public let claudeLauncher: ClaudeBackgroundLauncher
 
     public init(store: SessionStore, token: String, host: String = "0.0.0.0",
                 port: Int = 9876, pusher: APNsPusher? = nil,
@@ -83,7 +85,8 @@ public struct VibeBuddyServer: Sendable {
                 onAttach: @escaping @Sendable (String, String?) async -> JumpOutcome = { id, term in
                     await TerminalLauncher.attach(claudeJobID: id, preferring: term)
                 },
-                onDispatch: (@Sendable (DispatchRequest) async -> DispatchOutcome)? = nil) {
+                onDispatch: (@Sendable (DispatchRequest) async -> DispatchOutcome)? = nil,
+                claudeLauncher: ClaudeBackgroundLauncher = ClaudeBackgroundLauncher()) {
         self.store = store
         self.token = token
         self.host = host
@@ -109,12 +112,22 @@ public struct VibeBuddyServer: Sendable {
         self.backgroundSessions = backgroundSessions
         self.onAttach = onAttach
         self.onDispatch = onDispatch
+        self.claudeLauncher = claudeLauncher
         self.onDevicePaired = onDevicePaired
     }
 
     /// Run the HTTP service and its Codex rollout source under one lifetime.
     /// Returning or throwing from the server always cancels and joins the
     /// monitor so no watcher descriptors, debounce tasks, or store sink survive.
+    /// Which agents `/dispatch` can start right now — what the "New task"
+    /// entry offers, and hides itself behind when empty.
+    public func dispatchAgents() async -> [AgentKind] {
+        var agents: [AgentKind] = []
+        if await claudeLauncher.isSupported() { agents.append(.claudeCode) }
+        if let monitor = codexAppServerMonitor, await monitor.diagnostics().connected { agents.append(.codex) }
+        return agents
+    }
+
     public func runService() async throws {
         let monitorTask = codexRolloutMonitor.map { monitor in
             Task { await monitor.run(store: store) }
@@ -283,7 +296,8 @@ public struct VibeBuddyServer: Sendable {
         // Full snapshot — bearer-token gated.
         authed.get("snapshot") { request, _ -> Response in
             await store.applyBackgroundSessions(backgroundSessions())
-            let snapshot = await store.snapshot(now: Date())
+            var snapshot = await store.snapshot(now: Date())
+            snapshot.dispatchAgents = await dispatchAgents()
             let data = try JSONEncoder().encode(snapshot)
             return Response(
                 status: .ok,
@@ -584,12 +598,13 @@ public struct VibeBuddyServer: Sendable {
         // agent, 503 launcher unavailable.
         let dispatcher = self.onDispatch
         let dispatchMonitor = self.codexAppServerMonitor
+        let claudeLauncher = self.claudeLauncher
         authed.post("dispatch") { request, _ -> Response in
             let buffer = try await request.body.collect(upTo: 64 * 1024)
             guard let o = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
                   let cwd = o["cwd"] as? String, let prompt = o["prompt"] as? String
             else { throw HTTPError(.badRequest) }
-            let agent = AgentKind.fromSource(o["agent"] as? String)
+            let agent = (o["agent"] as? String).flatMap(AgentKind.init(rawValue:)) ?? AgentKind.fromSource(o["agent"] as? String)
             let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
             func reply(_ status: HTTPResponse.Status, _ body: [String: String]) -> Response {
                 let data = (try? JSONEncoder().encode(body)) ?? Data()
@@ -607,6 +622,8 @@ public struct VibeBuddyServer: Sendable {
                 outcome = await dispatcher(req)
             } else if agent == .codex, let dispatchMonitor {
                 outcome = await dispatchMonitor.dispatch(req)
+            } else if agent == .claudeCode {
+                outcome = await claudeLauncher.dispatch(req)
             } else {
                 outcome = .unsupported("vibebuddy cannot start \(agent.displayName) sessions yet")
             }

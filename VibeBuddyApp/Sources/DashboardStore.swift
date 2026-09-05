@@ -16,6 +16,8 @@ final class DashboardStore: ObservableObject {
     @Published private(set) var observationDiagnostics: [AgentObservationDiagnostic] = []
     /// Directories the Mac has seen sessions run in — where a new task may start.
     @Published private(set) var recentDirectories: [String] = []
+    /// Agents the Mac can start a new task for right now.
+    @Published private(set) var dispatchAgents: [AgentKind] = []
     /// Sessions the user has pointed the buddy at (in-memory, never persisted).
     /// Empty = the buddy sees all sessions; pruned to live IDs on every snapshot.
     @Published private(set) var buddySessionIDs: Set<String> = []
@@ -505,6 +507,7 @@ final class DashboardStore: ObservableObject {
         notifier.withdraw(notifications.withdrawals(for: snapshot.sessions))
         observationDiagnostics = snapshot.observationDiagnostics ?? []
         recentDirectories = snapshot.recentDirectories ?? []
+        dispatchAgents = snapshot.dispatchAgents ?? []
         lastProviderQuota = snapshot.providerQuota ?? []
         buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: snapshot.sessions)
         state = .connected

@@ -50,16 +50,21 @@ struct DispatchRouteTests {
         #expect(await store.snapshot(now: Date()).recentDirectories == ["/x/two", "/x/one"])
     }
 
-    @Test("without a launcher, Claude is 501 and a disconnected Codex daemon is 503")
+    @Test("an agent without a launcher is 501; a missing Claude CLI and a disconnected Codex daemon are 503")
     func noLauncher() async throws {
         let store = await store(with: ["/x/one"])
         let socket = FileManager.default.temporaryDirectory.appendingPathComponent("vb-sock-\(UUID().uuidString)")
         let monitor = CodexAppServerMonitor(enabled: true, socketPath: socket.path)   // never connects: no socket file
-        let srv = VibeBuddyServer(store: store, token: "t0k", port: 9876, codexAppServerMonitor: monitor)
+        let srv = VibeBuddyServer(store: store, token: "t0k", port: 9876, codexAppServerMonitor: monitor,
+                                  claudeLauncher: ClaudeBackgroundLauncher(executable: nil))
         try await srv.buildApplication().test(.router) { client in
             try await client.execute(uri: "/dispatch", method: .post, headers: [.authorization: "Bearer t0k"],
-                                     body: ByteBuffer(string: #"{"agent":"claude","cwd":"/x/one","prompt":"hi"}"#)) { res in
+                                     body: ByteBuffer(string: #"{"agent":"qwen","cwd":"/x/one","prompt":"hi"}"#)) { res in
                 #expect(res.status == .notImplemented)
+            }
+            try await client.execute(uri: "/dispatch", method: .post, headers: [.authorization: "Bearer t0k"],
+                                     body: ByteBuffer(string: #"{"agent":"claudeCode","cwd":"/x/one","prompt":"hi"}"#)) { res in
+                #expect(res.status == .serviceUnavailable)
             }
             try await client.execute(uri: "/dispatch", method: .post, headers: [.authorization: "Bearer t0k"],
                                      body: ByteBuffer(string: #"{"agent":"codex","cwd":"/x/one","prompt":"hi"}"#)) { res in

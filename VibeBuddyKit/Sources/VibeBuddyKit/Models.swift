@@ -553,19 +553,24 @@ public struct Snapshot: Codable, Sendable, Equatable {
     /// Working directories the Mac has seen sessions run in, newest first —
     /// the only places a phone may start a new task in.
     public var recentDirectories: [String]?
+    /// Agents the Mac can start a new task for right now (Claude Code when the
+    /// CLI supports `--bg`, Codex when the app-server daemon is connected).
+    public var dispatchAgents: [AgentKind]?
 
     public init(
         sessions: [AgentSession],
         serverTime: Date,
         observationDiagnostics: [AgentObservationDiagnostic]? = nil,
         providerQuota: [ProviderQuota]? = nil,
-        recentDirectories: [String]? = nil
+        recentDirectories: [String]? = nil,
+        dispatchAgents: [AgentKind]? = nil
     ) {
         self.sessions = sessions
         self.serverTime = serverTime
         self.observationDiagnostics = observationDiagnostics
         self.providerQuota = providerQuota
         self.recentDirectories = recentDirectories
+        self.dispatchAgents = dispatchAgents
     }
 }
 

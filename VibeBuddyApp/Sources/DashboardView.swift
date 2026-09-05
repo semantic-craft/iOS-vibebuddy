@@ -51,7 +51,7 @@ struct DashboardView: View {
             ToolbarItem(placement: .topBarLeading) { ConnectionDot(state: dashboard.state) }
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showNewTask = true } label: { Image(systemName: "plus.bubble") }
-                    .disabled(dashboard.recentDirectories.isEmpty)
+                    .disabled(dashboard.recentDirectories.isEmpty || dashboard.dispatchAgents.isEmpty)
                     .accessibilityLabel("New task")
             }
             ToolbarItem(placement: .topBarTrailing) {

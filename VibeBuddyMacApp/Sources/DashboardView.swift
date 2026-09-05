@@ -67,7 +67,7 @@ struct DashboardView: View {
             ToolbarItem(placement: .primaryAction) {
                 Button { showNewTask = true } label: { Image(systemName: "plus.bubble") }
                     .help("Start a new task in a directory a session has run in")
-                    .disabled(model.recentDirectories.isEmpty)
+                    .disabled(model.recentDirectories.isEmpty || model.dispatchAgents.isEmpty)
             }
             ToolbarItem(placement: .primaryAction) {
                 Button { openSettings() } label: { Image(systemName: "gearshape") }

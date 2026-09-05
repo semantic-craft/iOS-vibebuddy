@@ -28,6 +28,9 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var observationDiagnostics: [AgentObservationDiagnostic] = []
     /// Directories sessions have run in, newest first — where a new task may start.
     @Published private(set) var recentDirectories: [String] = []
+    /// Agents a new task can be started for from this Mac.
+    @Published private(set) var dispatchAgents: [AgentKind] = []
+    private let claudeLauncher = ClaudeBackgroundLauncher()
     /// The Codex app-server daemon connection (ADR-0011): on by default, and
     /// the rollout tailer + hooks keep covering Codex whenever it is off or
     /// the daemon is not running.
@@ -230,7 +233,8 @@ final class MenuBarModel: ObservableObject {
                                      presence: Presence.evaluator(),
                                      onDevicePaired: { [weak self] device in
                                          Task { @MainActor in self?.recordPairedDevice(device) }
-                                     })
+                                     },
+                                     claudeLauncher: claudeLauncher)
         Task.detached(priority: .utility) {
             do {
                 try await server.runService()
@@ -262,6 +266,10 @@ final class MenuBarModel: ObservableObject {
                 self.observationDiagnostics = snapshot.observationDiagnostics ?? []
                 self.recentDirectories = snapshot.recentDirectories ?? []
                 self.codexAppServerDiagnostics = await self.codexAppServerMonitor.diagnostics()
+                var agents: [AgentKind] = []
+                if await self.claudeLauncher.isSupported() { agents.append(.claudeCode) }
+                if self.codexAppServerDiagnostics.connected { agents.append(.codex) }
+                self.dispatchAgents = agents
                 self.lifecycleTimeline = await self.store.recentLifecycle()
                 self.buddySessionIDs = BuddyScope.pruned(self.buddySessionIDs, toLive: snapshot.sessions)
                 // Precise suppression: a finishing session stays silent when *its
@@ -508,6 +516,7 @@ final class MenuBarModel: ObservableObject {
         }
         switch request.agent {
         case .codex: return await codexAppServerMonitor.dispatch(request)
+        case .claudeCode: return await claudeLauncher.dispatch(request)
         default: return .unsupported("vibebuddy cannot start \(request.agent.displayName) sessions yet.")
         }
     }
