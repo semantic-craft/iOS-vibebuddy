@@ -1,14 +1,21 @@
 import Foundation
 
-/// A decision to play one cue for one session at a state boundary.
+/// A decision to say one thing about one session at a state boundary, and how
+/// loudly to say it.
 public struct SoundAlert: Equatable, Sendable {
     public let session: AgentSession
     public let sound: NotificationSound
+    /// How this cue reaches you, already reduced through `DeliveryMatrix`,
+    /// Quiet mode and the focused-terminal cap. Never `.drop`: a dropped cue is
+    /// not emitted at all.
+    public let delivery: DeliveryLevel
     public var sessionID: String { session.id }
 
-    public init(session: AgentSession, sound: NotificationSound) {
+    public init(session: AgentSession, sound: NotificationSound,
+                delivery: DeliveryLevel = .bannerSound) {
         self.session = session
         self.sound = sound
+        self.delivery = delivery
     }
 }
 
@@ -37,11 +44,11 @@ public struct SoundPolicyInput: Sendable {
     /// True when the user is actively looking at the app (front window / active
     /// scene). Completion stays silent when it's already on screen.
     public var appActive: Bool
-    /// Quiet / Focus mode: only approvals ring.
+    /// Quiet / Focus mode: every session is treated as `muted`.
     public var quietMode: Bool
     /// IDs of sessions whose own terminal window is currently frontmost — the user
-    /// is already looking at them, so their completion stays silent, the same way
-    /// `appActive` silences completion when VibeBuddy itself is frontmost. The Mac
+    /// is already looking at them, and the native prompt is right there, so
+    /// nothing about them interrupts: every cue is capped to the list. The Mac
     /// fills this from the frontmost terminal app; iOS leaves it empty.
     public var focusedSessionIDs: Set<String>
 
@@ -55,16 +62,19 @@ public struct SoundPolicyInput: Sendable {
     }
 }
 
-/// Turns the live snapshot stream into a stream of sound cues, applying every
-/// rule in one tested place:
+/// Turns the live snapshot stream into a stream of cues, applying every rule in
+/// one tested place:
 ///   - only state *boundaries* ring; starting work and plain refreshes stay silent;
 ///   - a waiting cue fires once per fresh wait and debounces re-entries;
 ///   - completion rings only when the task actually ran (> `doneMinRuntime`) and
 ///     you're not already watching the app;
 ///   - a failed / aborted ending rings the duller `agentStuck` instead;
 ///   - one gentle `longWaitNudge` after a wait drags past the threshold;
-///   - Quiet / Focus mode keeps only approvals.
-/// Shared by the Mac menu bar and the iOS app so both behave identically.
+///   - then `DeliveryMatrix` decides how loud each cue is from the session's
+///     attention level, Quiet mode reads every session as `muted`, a focused
+///     terminal caps its session to the list, and a `drop` is never emitted.
+/// Shared by the Mac menu bar, the Mac's push to the phone, and the iOS app so
+/// all three behave identically.
 public final class SoundPolicy {
     private let config: SoundPolicyConfig
     private var seenFirstSnapshot = false
@@ -88,29 +98,33 @@ public final class SoundPolicy {
 
         var alerts: [SoundAlert] = []
         for session in input.sessions {
-            if let alert = boundaryAlert(prev: previous[session.id], now: session, input: input) {
-                alerts.append(alert)
-            }
+            guard let sound = boundarySound(prev: previous[session.id], now: session, input: input)
+            else { continue }
+            let attention: SessionAttention = input.quietMode ? .muted : session.effectiveAttention
+            var level = DeliveryMatrix.level(for: sound, attention: attention)
+            if input.focusedSessionIDs.contains(session.id) { level = min(level, .list) }
+            guard level != .drop else { continue }
+            alerts.append(SoundAlert(session: session, sound: sound, delivery: level))
         }
-        return input.quietMode ? alerts.filter { $0.sound.survivesQuietMode } : alerts
+        return alerts
     }
 
-    /// The cue earned by `session` given its prior state, before Quiet filtering.
-    private func boundaryAlert(prev: AgentSession?, now session: AgentSession,
-                               input: SoundPolicyInput) -> SoundAlert? {
+    /// The cue earned by `session` given its prior state, before the matrix.
+    private func boundarySound(prev: AgentSession?, now session: AgentSession,
+                               input: SoundPolicyInput) -> NotificationSound? {
         switch session.status {
-        case .needsResponse: return waitingAlert(prev: prev, now: session, input: input)
-        case .done:          return completionAlert(prev: prev, now: session, input: input)
+        case .needsResponse: return waitingSound(prev: prev, now: session, input: input)
+        case .done:          return completionSound(prev: prev, now: session, input: input)
         case .working:       return nil   // starting work is process noise — never rings
         }
     }
 
-    private func waitingAlert(prev: AgentSession?, now session: AgentSession,
-                              input: SoundPolicyInput) -> SoundAlert? {
+    private func waitingSound(prev: AgentSession?, now session: AgentSession,
+                              input: SoundPolicyInput) -> NotificationSound? {
         let enteringWait = prev?.status != .needsResponse
         guard enteringWait else {
             // Same wait, still unanswered: one gentle nudge once it drags on.
-            return longWaitAlert(now: session, input: input)
+            return longWaitSound(now: session, input: input)
         }
         // Fresh wait: ring once, debounced against this session's last waiting cue.
         if let last = lastWaitingSoundAt[session.id],
@@ -118,32 +132,30 @@ public final class SoundPolicy {
             return nil
         }
         lastWaitingSoundAt[session.id] = input.now
-        let sound: NotificationSound = session.waitKind == .permission ? .needsApproval : .needsAnswer
-        return SoundAlert(session: session, sound: sound)
+        return session.waitKind == .permission ? .needsApproval : .needsAnswer
     }
 
-    private func longWaitAlert(now session: AgentSession, input: SoundPolicyInput) -> SoundAlert? {
+    private func longWaitSound(now session: AgentSession, input: SoundPolicyInput) -> NotificationSound? {
         guard input.now.timeIntervalSince(session.statusSince) >= config.longWaitThreshold,
               nudgedWaitSince[session.id] != session.statusSince else { return nil }
         nudgedWaitSince[session.id] = session.statusSince
-        return SoundAlert(session: session, sound: .longWaitNudge)
+        return .longWaitNudge
     }
 
-    private func completionAlert(prev: AgentSession?, now session: AgentSession,
-                                 input: SoundPolicyInput) -> SoundAlert? {
+    private func completionSound(prev: AgentSession?, now session: AgentSession,
+                                 input: SoundPolicyInput) -> NotificationSound? {
         // Only a real transition into done that we watched, and only when you're
-        // not already looking at the result — either VibeBuddy is frontmost
-        // (`appActive`) or this session's own terminal window is (`focusedSessionIDs`).
-        let watching = input.appActive || input.focusedSessionIDs.contains(session.id)
-        guard let prev, prev.status != .done, !watching else { return nil }
+        // not already looking at the result in VibeBuddy itself (`appActive`).
+        // A focused terminal is handled by the list cap in `evaluate`.
+        guard let prev, prev.status != .done, !input.appActive else { return nil }
         if session.probeRetired == true { return nil }
 
         // Real signal first (a tool/turn error reported by the hook), then the
         // prose heuristic as a fallback. Either way failures ring regardless of runtime.
         if session.isStuck || FailureHeuristic.looksFailed(session.summary) {
-            return SoundAlert(session: session, sound: .agentStuck)
+            return .agentStuck
         }
         guard input.now.timeIntervalSince(prev.statusSince) >= config.doneMinRuntime else { return nil }
-        return SoundAlert(session: session, sound: .agentDone)
+        return .agentDone
     }
 }

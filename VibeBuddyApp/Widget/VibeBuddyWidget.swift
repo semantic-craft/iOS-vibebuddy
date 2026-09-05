@@ -142,7 +142,7 @@ struct VibeBuddyLiveActivity: Widget {
         ActivityConfiguration(for: VibeBuddyActivityAttributes.self) { context in
             LockScreenView(state: context.state)
                 .padding()
-                .activityBackgroundTint(Color.black.opacity(0.5))
+                .activityBackgroundTint(Color.black.opacity(0.78))
                 .widgetURL(tapTarget(context.state))
         } dynamicIsland: { context in
             // Expanded: one dominant value (the primary state's count) on the
@@ -162,6 +162,7 @@ struct VibeBuddyLiveActivity: Widget {
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     Detail(state: context.state)
+                        .widgetURL(tapTarget(context.state))
                         .padding(.horizontal, 4)
                         .padding(.top, 4)
                 }
@@ -254,6 +255,27 @@ private func counter(_ value: Int, _ state: TaskPresentationState) -> some View 
     .accessibilityLabel("\(value) \(state.label)")
 }
 
+/// One state's count: the shared status dot plus a digit. The dot already
+/// carries the state (and swaps to a symbol under Differentiate Without Color),
+/// so no second glyph. The digit stays neutral so several counts read as one
+/// row, and the dot scales with the digit under Dynamic Type.
+private struct StateCount: View {
+    let value: Int
+    let state: TaskPresentationState
+    @ScaledMetric(relativeTo: .caption) private var dotSize: CGFloat = 9
+
+    var body: some View {
+        HStack(spacing: 4) {
+            TaskStatusIndicator(state, size: dotSize)
+            Text("\(value)")
+                .font(.caption.weight(.semibold).monospacedDigit())
+                .foregroundStyle(.primary)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(value) \(state.label)")
+    }
+}
+
 private func nonzeroStates(_ state: VibeBuddyActivityAttributes.ContentState) -> [TaskPresentationState] {
     assignedStates.filter { state.summary.count(for: $0) > 0 }
 }
@@ -264,6 +286,32 @@ private func tapTarget(_ state: VibeBuddyActivityAttributes.ContentState) -> URL
     state.topSessionId.flatMap(activitySessionURL(id:))
 }
 
+/// Project name over the primary state, in that state's color. Shared by the
+/// lock screen banner and the expanded Dynamic Island so both read the same.
+struct ActivityHeadline: View {
+    let state: VibeBuddyActivityAttributes.ContentState
+
+    var body: some View {
+        let primary = state.summary.primaryState
+        let count = state.summary.count(for: primary)
+        VStack(alignment: .leading, spacing: 3) {
+            Text(state.topProject ?? "VibeBuddy")
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+            HStack(spacing: 5) {
+                Image(systemName: primary.symbolName)
+                    .font(.caption2.weight(.bold))
+                Text("\(primary.label) · \(count) \(count == 1 ? "session" : "sessions")")
+                    .lineLimit(1)
+            }
+            .font(.caption)
+            .foregroundStyle(Color(taskStatus: primary.colorToken))
+        }
+    }
+}
+
+/// Lock screen banner: the shared headline on the left, a dot-plus-digit strip
+/// for every non-zero state on the right.
 struct LockScreenView: View {
     let state: VibeBuddyActivityAttributes.ContentState
 

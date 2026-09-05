@@ -51,7 +51,7 @@ struct NullDecisionClient: DecisionClient {
     func decide(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> Bool { true }
     func answer(_ pairing: PairingPayload, sessionId: String, answer: String) async {}
     func jump(_ pairing: PairingPayload, sessionId: String) async -> JumpOutcome? { nil }
-    func follow(_ pairing: PairingPayload, sessionId: String, followed: Bool) async {}
+    func setAttention(_ pairing: PairingPayload, sessionId: String, level: SessionAttention?) async {}
 }
 
 /// A Mac that can be told to refuse, so the Watch path can be asked what it says
@@ -66,5 +66,5 @@ actor UnreachableDecisionClient: DecisionClient {
     }
     func answer(_ pairing: PairingPayload, sessionId: String, answer: String) async {}
     func jump(_ pairing: PairingPayload, sessionId: String) async -> JumpOutcome? { nil }
-    func follow(_ pairing: PairingPayload, sessionId: String, followed: Bool) async {}
+    func setAttention(_ pairing: PairingPayload, sessionId: String, level: SessionAttention?) async {}
 }

@@ -49,6 +49,9 @@ final class MenuBarModel: ObservableObject {
     @Published var toggleGlanceHotkey: Hotkey = .toggleGlanceDefault
     /// Idle-cleanup window in hours; 0 means never. Default 2h.
     @Published var idleTimeoutHours: Double = 2
+    /// Agent groups the user folded in the menu bar list (persisted). A folded
+    /// group still shows its working rows — see `MenuSessionList`.
+    @Published private(set) var collapsedMenuAgents: Set<AgentKind> = []
     let port: Int
     private let token: String
     private let store: SessionStore
@@ -68,7 +71,6 @@ final class MenuBarModel: ObservableObject {
     // a backgrounded phone, so the phone hears the full pack (not just needs-you).
     private let pusher: APNsPusher?
     private let deviceTokens = DeviceTokens()
-    private let phonePolicy = SoundPolicy()
     private let budgetMonitor = BudgetMonitor()
     /// Account usage is intentionally separate from `sessions`; refresh errors
     /// never enter SessionStore or the progress notification pipeline.
@@ -84,6 +86,7 @@ final class MenuBarModel: ObservableObject {
     private var pollTask: Task<Void, Never>?
     private var glance: GlanceWindow?
     private static let pairedPhoneInfoKey = "pairedPhoneInfo"
+    private static let collapsedMenuAgentsKey = "menuCollapsedAgents"
     private static let legacyPairedPhoneKey = "pairedPhone"
 
     init(runtimeEnabled: Bool = true) {
@@ -95,7 +98,8 @@ final class MenuBarModel: ObservableObject {
             diagnosticsHome: FileManager.default.homeDirectoryForCurrentUser,
             journalURL: ProcessInfo.processInfo.environment["VIBEBUDDY_JOURNAL_PATH"].map {
                 URL(fileURLWithPath: $0)
-            } ?? LifecycleJournalLocation.defaultURL()
+            } ?? LifecycleJournalLocation.defaultURL(),
+            attentionURL: AttentionOverrides.defaultURL()
         )
         // File-based store (owner-only): no Keychain ACL, so an ad-hoc rebuild
         // never re-prompts. Shared with vibebuddyd's default store.
@@ -105,6 +109,8 @@ final class MenuBarModel: ObservableObject {
         // Snap to one of the 3 presets so the menu Picker selection always matches.
         glanceScale = [0.8, 1.0, 1.2].min(by: { abs($0 - base) < abs($1 - base) }) ?? 1.0
         showGlance = UserDefaults.standard.bool(forKey: "showGlance", default: true)
+        collapsedMenuAgents = Set((UserDefaults.standard.stringArray(forKey: Self.collapsedMenuAgentsKey) ?? [])
+            .compactMap(AgentKind.init(rawValue:)))
         openDashboardHotkey = Hotkey.loadOpenDashboard()
         toggleGlanceHotkey = Hotkey.loadToggleGlance()
         usage = AccountUsageCoordinator(store: store, notifier: notifier)
@@ -177,8 +183,8 @@ final class MenuBarModel: ObservableObject {
     }
 
     private func startServer() {
-        // pusher: nil — push is driven from startPolling via `phonePolicy` so the
-        // phone gets the whole pack; the server only collects device tokens/prefs.
+        // pusher: nil — push is driven from startPolling off the same cues the
+        // Mac notifies on; the server only collects device tokens/prefs.
         let server = VibeBuddyServer(store: store, token: token, port: port,
                                      pusher: nil, deviceTokens: deviceTokens,
                                      activityTokens: activityTokens,
@@ -229,14 +235,14 @@ final class MenuBarModel: ObservableObject {
                 let frontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
                 let focused = ForegroundTerminal.focusedSessionIDs(
                     among: snapshot.sessions, frontmostBundleID: frontmost)
-                await self.notificationCoordinator.observe(
+                let alerts = await self.notificationCoordinator.observe(
                     snapshot.sessions,
                     appActive: NSApp.isActive,                 // user looking at VibeBuddy?
-                    quietMode: Self.effectiveQuiet(),          // Focus mode (manual or nightly) → approvals only
+                    quietMode: Self.effectiveQuiet(),          // Focus mode (manual or nightly) → every session muted
                     focusedSessionIDs: focused,                // …or looking at the session's own terminal
                     categories: NotificationCategoryPrefs.load()) // this Mac's own switches
                 await self.refreshNotificationDeliveryHealth()
-                await self.pushToPhones(snapshot.sessions)
+                await self.pushToPhones(alerts)
                 await self.pushActivityUpdates(snapshot.sessions)
                 await self.checkBudget(snapshot.sessions)
                 try? await Task.sleep(for: .seconds(2))
@@ -301,33 +307,39 @@ final class MenuBarModel: ObservableObject {
         }
     }
 
-    /// Push the full sound pack to paired phones, each device respecting its own
-    /// prefs. `appActive: false` = the phone's backgrounded view; when the phone
-    /// is actually foreground it suppresses the remote push (see willPresent).
-    private func pushToPhones(_ sessions: [AgentSession]) async {
-        guard let pusher else { return }
-        let alerts = phonePolicy.evaluate(SoundPolicyInput(
-            sessions: sessions, now: Date(), appActive: false, quietMode: false))
-        guard !alerts.isEmpty else { return }
+    /// Push the cues the Mac just decided on to paired phones. Only a cue loud
+    /// enough to interrupt here is worth pulling you back from elsewhere; a
+    /// list-only cue stays on the Mac. Each device then applies its own prefs:
+    /// its Quiet mode reads the cue through the `muted` column, never louder
+    /// than the Mac decided, and mute drops the sound. When the phone is in the
+    /// foreground it suppresses the remote push itself (see willPresent).
+    private func pushToPhones(_ alerts: [SoundAlert]) async {
+        guard let pusher, !alerts.isEmpty else { return }
         let devices = await deviceTokens.devices()
-        for alert in alerts { await push(alert, to: devices) }
+        for alert in alerts where alert.delivery.interrupts { await push(alert, to: devices) }
         await refreshNotificationDeliveryHealth()
     }
 
-    /// One cue to every paired phone, each device respecting its own switches.
-    /// Returns whether any phone was actually sent to.
+    /// One cue to every paired phone. Two axes per device: its own category
+    /// switches (uploaded with its registration; a phone that never said keeps
+    /// the default set) decide whether at all, and the alert's delivery level —
+    /// capped to the `muted` column when the phone is in Quiet mode — decides
+    /// how loud. A list-only or dropped cue never pushes. Returns whether any
+    /// phone was actually sent to.
     @discardableResult
     private func push(_ alert: SoundAlert, to devices: [DeviceRegistrationPayload]) async -> Bool {
         guard let pusher else { return false }
         let (title, body) = Self.pushCopy(for: alert)
         var attempted = false
         for device in devices {
-            guard let deviceToken = device.token else { continue }
-            // The phone's switches, uploaded with its registration; a phone
-            // that never said keeps the default set.
-            guard (device.categories ?? .default).isEnabled(alert.sound) else { continue }
-            if device.quietMode == true && !alert.sound.survivesQuietMode { continue }  // night: approvals only
-            let sound = device.playSound != false ? alert.sound.fileName : ""           // mute → silent banner
+            guard let deviceToken = device.token,
+                  (device.categories ?? .default).isEnabled(alert.sound) else { continue }
+            var level = alert.delivery
+            if device.quietMode == true {
+                level = min(level, DeliveryMatrix.level(for: alert.sound, attention: .muted))
+            }
+            guard level.interrupts else { continue }
+            let sound = level.makesSound && device.playSound != false ? alert.sound.fileName : ""
             attempted = true
             await pusher.send(title: title, body: body, to: deviceToken, sound: sound,
                               sessionID: alert.sessionID, soundCategory: alert.sound.rawValue)
@@ -345,7 +357,8 @@ final class MenuBarModel: ObservableObject {
         let local = await notificationCoordinator.remind(
             session, quietMode: Self.effectiveQuiet(), categories: NotificationCategoryPrefs.load())
         let devices = pusher == nil ? [] : await deviceTokens.devices()
-        let pushed = await push(SoundAlert(session: session, sound: .agentDone), to: devices)
+        let level = DeliveryMatrix.level(for: .agentDone, attention: session.effectiveAttention)
+        let pushed = await push(SoundAlert(session: session, sound: .agentDone, delivery: level), to: devices)
         if local || pushed { await refreshNotificationDeliveryHealth() }
         return local || pushed
     }
@@ -387,24 +400,20 @@ final class MenuBarModel: ObservableObject {
     /// so "always allow" / "allow this session" behave identically to the phone.
     func decide(_ approvalId: String, _ choice: ApprovalDecision) {
         Task {
+            let ctx = await approvalContext.take(id: approvalId)
             switch choice {
             case .alwaysAllow:
-                if let ctx = await approvalContext.take(id: approvalId), let rule = ctx.rule {
-                    await allowStore.add(rule)
-                }
+                if let rule = ctx?.rule { await allowStore.add(rule) }
                 await approvalRegistry.resolve(id: approvalId, with: .allow)
             case .allowSession:
-                if let ctx = await approvalContext.take(id: approvalId) {
-                    await sessionAllow.add(ctx.sessionID)
-                }
+                if let ctx { await sessionAllow.add(ctx.sessionID) }
                 await approvalRegistry.resolve(id: approvalId, with: .allow)
             case .allow:
-                _ = await approvalContext.take(id: approvalId)
                 await approvalRegistry.resolve(id: approvalId, with: .allow)
             case .deny:
-                _ = await approvalContext.take(id: approvalId)
                 await approvalRegistry.resolve(id: approvalId, with: .deny)
             }
+            if let ctx { await store.recordInteraction(sessionID: ctx.sessionID) }
         }
     }
 
@@ -422,6 +431,7 @@ final class MenuBarModel: ObservableObject {
     /// ("no terminal recorded"), not a dead control — that silence was the bug.
     func jump(_ session: AgentSession) {
         acknowledge(session.id)
+        Task { [store] in await store.recordInteraction(sessionID: session.id) }
         if let ref = session.terminalRef {
             Task { [weak self] in
                 let outcome = await TerminalJumper.jump(ref)
@@ -463,15 +473,16 @@ final class MenuBarModel: ObservableObject {
         Task { [store] in await store.acknowledgeCompletion(sessionID: sessionID) }
     }
 
-    /// Follow a session to be reminded about its completion until it is read.
-    /// Demo sessions flip the flag locally without touching the store.
-    func setFollowed(_ sessionID: String, _ followed: Bool) {
+    /// Set, or with `nil` return to automatic, how much this session may
+    /// interrupt you. The daemon owns the value; demo mode mirrors it locally.
+    func setAttention(_ sessionID: String, _ level: SessionAttention?) {
         if ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1" {
             guard let index = sessions.firstIndex(where: { $0.id == sessionID }) else { return }
-            sessions[index].followed = followed
+            sessions[index].attentionOverride = level
+            sessions[index].attention = level ?? .normal
             return
         }
-        Task { [store] in await store.setFollowed(sessionID: sessionID, followed) }
+        Task { [store] in await store.setAttention(sessionID: sessionID, level) }
     }
 
     /// Include/exclude a session from the buddy's context (ephemeral). Takes effect
@@ -498,7 +509,9 @@ final class MenuBarModel: ObservableObject {
             decide(ap.id, approve: false); return "Denied \(s.project)."
         case .answer(let project, let text):
             guard let s = match(project), let ref = s.terminalRef else { return "No matching session, or it has no terminal." }
-            TerminalInjector.inject(text, into: ref); return "Replied to \(s.project)."
+            TerminalInjector.inject(text, into: ref)
+            Task { [store] in await store.recordInteraction(sessionID: s.id) }
+            return "Replied to \(s.project)."
         case .none:
             return ""
         }
@@ -567,6 +580,19 @@ final class MenuBarModel: ObservableObject {
         pairedPhone = nil
         UserDefaults.standard.removeObject(forKey: Self.pairedPhoneInfoKey)
         UserDefaults.standard.removeObject(forKey: Self.legacyPairedPhoneKey)
+    }
+
+    var menuSessionList: MenuSessionList {
+        MenuSessionList(sessions, collapsedAgents: collapsedMenuAgents)
+    }
+
+    func toggleMenuGroup(_ agent: AgentKind) {
+        if collapsedMenuAgents.contains(agent) {
+            collapsedMenuAgents.remove(agent)
+        } else {
+            collapsedMenuAgents.insert(agent)
+        }
+        UserDefaults.standard.set(collapsedMenuAgents.map(\.rawValue).sorted(), forKey: Self.collapsedMenuAgentsKey)
     }
 
     func setShowGlance(_ on: Bool) {
