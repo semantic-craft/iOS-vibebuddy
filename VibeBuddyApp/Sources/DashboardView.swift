@@ -10,6 +10,7 @@ struct DashboardView: View {
     @EnvironmentObject private var voice: VoiceChat
     @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
     @State private var showSettings = false
+    @State private var showNewTask = false
     @State private var highlightId: String?
 
     var body: some View {
@@ -49,6 +50,11 @@ struct DashboardView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { ConnectionDot(state: dashboard.state) }
             ToolbarItem(placement: .topBarTrailing) {
+                Button { showNewTask = true } label: { Image(systemName: "plus.bubble") }
+                    .disabled(dashboard.recentDirectories.isEmpty || dashboard.dispatchAgents.isEmpty)
+                    .accessibilityLabel("New task")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 Button { showSettings = true } label: { Image(systemName: "gearshape") }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -58,6 +64,7 @@ struct DashboardView: View {
                 .font(.subheadline)
             }
         }
+        .sheet(isPresented: $showNewTask) { NewTaskSheet(dashboard: dashboard) }
         .sheet(isPresented: $showSettings) {
             // A sheet doesn't inherit the presenter's environment objects, so
             // re-inject `voice` — Settings restarts a live session on change.
@@ -239,6 +246,7 @@ private struct PairedMacStrip: View {
 private struct SessionRow: View {
     let session: AgentSession
     let isSelected: Bool
+    @State private var showComposer = false
     @EnvironmentObject private var dashboard: DashboardStore
     @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
 
@@ -252,7 +260,10 @@ private struct SessionRow: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Text(session.project).font(.headline)
+                    Text(session.displayTitle).font(.headline)
+                    if session.name != nil {
+                        Text(session.project).font(.caption).foregroundStyle(.secondary)
+                    }
                     if let branch = session.branch {
                         Text(branch)
                             .font(.caption.monospaced())
@@ -295,8 +306,10 @@ private struct SessionRow: View {
                         Text("· \(tokens.formatted()) tok").monospacedDigit()
                     }
                     if let cost = session.estimatedCostUSD {
-                        Text("· ≈ $\(cost, specifier: "%.2f")").monospacedDigit()
+                        Text("· \(session.costUSD == nil ? "≈ " : "")$\(cost, specifier: "%.2f")").monospacedDigit()
                     }
+                    if let effort = session.effort { Text("· \(effort)") }
+                    if let pr = session.prNumber { Text("· PR #\(pr)").monospacedDigit() }
                     Spacer(minLength: 8)
                     Label {
                         Text(session.statusSince, style: .timer).monospacedDigit()
@@ -335,6 +348,12 @@ private struct SessionRow: View {
                 if let approval = session.pendingApproval {
                     ApprovalCardView(approval: approval)
                         .padding(.top, 2)
+                    if !approval.isAnswerable {
+                        Label("You're at the Mac — answer this in the agent's own prompt.", systemImage: "keyboard")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .padding(.top, 3)
+                    }
+                    if approval.isAnswerable {
                     HStack(spacing: 10) {
                         Button("Deny") { dashboard.decide(approval.id, .deny) }
                             .buttonStyle(.bordered).tint(.red)
@@ -349,6 +368,12 @@ private struct SessionRow: View {
                     }
                     .buttonStyle(.bordered).controlSize(.small).font(.caption)
                     .padding(.top, 1)
+                    }
+                    if let rule = approval.suggestedRule, approval.isAnswerable {
+                        Text("Always allow adds \(rule) to Claude's own rules.")
+                            .font(.caption2).foregroundStyle(.tertiary)
+                            .padding(.top, 2)
+                    }
                     if session.agent == .grok, let mode = approval.permissionMode, mode != "bypassPermissions" {
                         Label {
                             Text("Grok will still ask in the terminal after Allow (permission mode: \(mode)). Set permission_mode = \"always-approve\" to approve from here.")
@@ -362,10 +387,40 @@ private struct SessionRow: View {
                 }
 
                 if let question = session.pendingQuestion {
-                    QuestionCardView(question: question) { answer in
-                        dashboard.answer(session.id, answer: answer)
+                    if question.isAnswerable {
+                        QuestionCardView(question: question) { answers in
+                            dashboard.answer(session.id, answers: answers)
+                        }
+                        .padding(.top, 2)
+                    } else {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(question.prompt).font(.subheadline)
+                            Label("You're at the Mac — answer this in the agent's own prompt.", systemImage: "keyboard")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        .padding(.top, 2)
                     }
-                    .padding(.top, 2)
+                }
+
+                if session.agent == .codex {
+                    // Free text for a Codex thread: joins the running turn or
+                    // opens a new one, through the Mac's app-server connection.
+                    if showComposer {
+                        InstructionComposer(placeholder: session.status == .done
+                                            ? "Start a new turn…" : "Add to the current turn…") { text in
+                            dashboard.answer(session.id, answer: text)
+                            showComposer = false
+                        }
+                        .padding(.top, 4)
+                    } else {
+                        Button {
+                            showComposer = true
+                        } label: {
+                            Label("Send instruction", systemImage: "text.bubble")
+                        }
+                        .buttonStyle(.bordered).font(.subheadline)
+                        .padding(.top, 4)
+                    }
                 }
 
                 if session.canJump {
@@ -473,5 +528,31 @@ private struct VoiceConsentSheet: View {
             .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } } }
         }
         .presentationDetents([.medium])
+    }
+}
+
+/// One line of free text for a session, sent with the button or the return key.
+private struct InstructionComposer: View {
+    let placeholder: String
+    let send: (String) -> Void
+    @State private var draft = ""
+
+    var body: some View {
+        HStack(spacing: 8) {
+            TextField(placeholder, text: $draft, axis: .vertical)
+                .textFieldStyle(.roundedBorder)
+                .lineLimit(1...3)
+                .onSubmit(submit)
+            Button(action: submit) { Image(systemName: "arrow.up.circle.fill") }
+                .buttonStyle(.borderedProminent)
+                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+    }
+
+    private func submit() {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        send(text)
+        draft = ""
     }
 }

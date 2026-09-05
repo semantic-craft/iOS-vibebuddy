@@ -248,13 +248,19 @@ struct GlanceView: View {
                 Text(a.commandPreview).font(.system(size: 11 * s, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.8)).lineLimit(2)
                 HStack(spacing: 8 * s) {
-                    Button("Approve") { model.decide(a.id, .allow) }
-                        .buttonStyle(GlanceButtonStyle(tint: .green, scale: s))
-                    Button("Deny") { model.decide(a.id, .deny) }
-                        .buttonStyle(GlanceButtonStyle(tint: .red, scale: s))
-                    Button("Always") { model.decide(a.id, .alwaysAllow) }
-                        .buttonStyle(GlanceButtonStyle(scale: s))
-                        .help("Always allow this exact command in future")
+                    if a.isAnswerable {
+                        Button("Approve") { model.decide(a.id, .allow) }
+                            .buttonStyle(GlanceButtonStyle(tint: .green, scale: s))
+                        Button("Deny") { model.decide(a.id, .deny) }
+                            .buttonStyle(GlanceButtonStyle(tint: .red, scale: s))
+                        Button("Always") { model.decide(a.id, .alwaysAllow) }
+                            .buttonStyle(GlanceButtonStyle(scale: s))
+                            .help("Always allow this exact command in future")
+                    } else {
+                        // Presence: the agent's own prompt is taking this one.
+                        Label("Answer in the prompt", systemImage: "keyboard")
+                            .font(.system(size: 11 * s)).foregroundStyle(.white.opacity(0.8))
+                    }
                     Button { model.jump(p) } label: {
                         Label("Jump", systemImage: p.jumpsToDesktopThread ? "bubble.left" : "terminal")
                     }
@@ -352,10 +358,15 @@ private struct GlanceEventCard: View {
             if card.isActionable || card.alert.sound == .agentStuck {
                 HStack(spacing: 8 * s) {
                     if let a = live.pendingApproval, card.alert.sound == .needsApproval {
-                        Button("Approve") { model.decide(a.id, .allow); model.dismissGlanceCard() }
-                            .buttonStyle(GlanceButtonStyle(tint: .green, scale: s))
-                        Button("Deny") { model.decide(a.id, .deny); model.dismissGlanceCard() }
-                            .buttonStyle(GlanceButtonStyle(tint: .red, scale: s))
+                        if a.isAnswerable {
+                            Button("Approve") { model.decide(a.id, .allow); model.dismissGlanceCard() }
+                                .buttonStyle(GlanceButtonStyle(tint: .green, scale: s))
+                            Button("Deny") { model.decide(a.id, .deny); model.dismissGlanceCard() }
+                                .buttonStyle(GlanceButtonStyle(tint: .red, scale: s))
+                        } else {
+                            Label("Answer in the prompt", systemImage: "keyboard")
+                                .font(.system(size: 11 * s)).foregroundStyle(.white.opacity(0.8))
+                        }
                     }
                     Button { model.jump(live); model.dismissGlanceCard() } label: {
                         Label("Jump", systemImage: live.jumpsToDesktopThread ? "bubble.left" : "terminal")

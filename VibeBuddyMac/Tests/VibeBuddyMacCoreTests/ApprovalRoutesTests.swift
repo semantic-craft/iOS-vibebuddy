@@ -189,6 +189,120 @@ struct ApprovalRoutesTests {
         }
     }
 
+    // MARK: - Claude Code PermissionRequest (the agent already chose to ask)
+
+    /// A Claude PermissionRequest carrying Claude's own always-allow proposal.
+    private func claudeRequestWithSuggestion(_ cmd: String) -> String {
+        #"{"hook_event_name":"PermissionRequest","session_id":"ps","cwd":"/x/p","permission_mode":"default","#
+            + #""tool_name":"Bash","tool_input":{"command":"\#(cmd)"},"#
+            + #""permission_suggestions":[{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"\#(cmd)"}],"behavior":"allow","destination":"localSettings"},"#
+            + #"{"type":"setMode","mode":"acceptEdits","destination":"session"}]}"#
+    }
+
+    @Test("a PermissionRequest holds even when our copy of the allow rules would match")
+    func permissionRequestNeverReMatchesAllowRules() async throws {
+        let store = SessionStore()
+        // `Bash(ls:*)` auto-allows a PreToolUse gate; Claude has already run the
+        // same rule and still asked, so the request must reach the phone.
+        let srv = server(allow: ["Bash(ls:*)"], store: store)
+        try await srv.buildApplication().test(.router) { client in
+            async let held = client.execute(uri: "/approval", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: claudeRequest("ls -la"))) { res -> String in
+                String(buffer: res.body)
+            }
+            try await waitForPendingApproval(store, session: "ps")
+            try await client.execute(uri: "/decision", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"approvalId":"s","decision":"allow"}"#)) { res in
+                #expect(res.status == .ok)
+            }
+            let text = try await held
+            #expect(text.contains(#""hookEventName":"PermissionRequest""#))
+            #expect(text.contains(#""behavior":"allow""#))
+            #expect(!text.contains("updatedPermissions"))
+        }
+    }
+
+    @Test("a native deny rule still wins over a PermissionRequest")
+    func permissionRequestNativeDeny() async throws {
+        try await server(deny: ["Bash(rm:*)"]).buildApplication().test(.router) { client in
+            try await client.execute(uri: "/approval", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: claudeRequest("rm -rf build"))) { res in
+                #expect(String(buffer: res.body).contains(#""behavior":"deny""#))
+            }
+        }
+    }
+
+    @Test("alwaysAllow echoes Claude's own suggestion as updatedPermissions and writes nothing to the store")
+    func alwaysAllowEchoesNativeSuggestion() async throws {
+        let store = SessionStore()
+        let storeURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vbapproval-\(UUID().uuidString).json")
+        let allowStore = VibeBuddyAllowStore(url: storeURL)
+        let srv = VibeBuddyServer(store: store, token: "t0k", port: 9876,
+                                  approvalRegistry: ApprovalRegistry(),
+                                  rules: { _ in PermissionRules(allow: [], deny: []) },
+                                  allowStore: allowStore,
+                                  approvalTimeout: .seconds(5), approvalID: { "s" })
+        try await srv.buildApplication().test(.router) { client in
+            async let held = client.execute(uri: "/approval", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: claudeRequestWithSuggestion("npm run lint"))) { res -> String in
+                String(buffer: res.body)
+            }
+            try await waitForPendingApproval(store, session: "ps")
+            // The card shows Claude's rule text, not vibebuddy's derived one.
+            let pending = await store.snapshot(now: Date()).sessions
+                .first(where: { $0.id == "ps" })?.pendingApproval
+            #expect(pending?.suggestedRule == "Bash(npm run lint)")
+            try await client.execute(uri: "/decision", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"approvalId":"s","decision":"alwaysAllow"}"#)) { res in
+                #expect(res.status == .ok)
+            }
+            let text = try await held
+            #expect(text.contains(#""behavior":"allow""#))
+            #expect(text.contains(#""updatedPermissions":[{"#))
+            #expect(text.contains(#""ruleContent":"npm run lint""#))
+            // Only the allow-rule entry rides back; the mode switch is dropped.
+            #expect(!text.contains("setMode"))
+            #expect(await allowStore.all().isEmpty)
+        }
+    }
+
+    @Test("alwaysAllow without a suggestion still persists vibebuddy's own rule")
+    func alwaysAllowFallsBackToStore() async throws {
+        let store = SessionStore()
+        let srv = server(store: store)
+        try await srv.buildApplication().test(.router) { client in
+            async let held = client.execute(uri: "/approval", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: claudeRequest("git status"))) { res -> String in
+                String(buffer: res.body)
+            }
+            try await waitForPendingApproval(store, session: "ps")
+            let pending = await store.snapshot(now: Date()).sessions
+                .first(where: { $0.id == "ps" })?.pendingApproval
+            #expect(pending?.suggestedRule == nil)
+            try await client.execute(uri: "/decision", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"approvalId":"s","decision":"alwaysAllow"}"#)) { res in
+                #expect(res.status == .ok)
+            }
+            let text = try await held
+            #expect(text.contains(#""behavior":"allow""#))
+            #expect(!text.contains("updatedPermissions"))
+            // The same request next time is auto-allowed from the vibebuddy store.
+            try await client.execute(uri: "/approval", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: claudeRequest("git status"))) { res in
+                #expect(String(buffer: res.body).contains(#""behavior":"allow""#))
+            }
+        }
+    }
+
     // MARK: - Grok Build (?agent=grok)
     //
     // Same machinery, different envelope (camelCase) and different decision
@@ -397,15 +511,11 @@ struct ApprovalRoutesTests {
     // prompt, and it is answered with `decision.behavior` — the very contract
     // Codex adopted. A PreToolUse payload keeps the `permissionDecision` reply.
 
-    @Test("an allow-listed claude PermissionRequest answers allow in the decision contract, with no wait")
-    func claudePermissionRequestAllowImmediate() async throws {
-        let store = SessionStore()
-        try await server(allow: ["Bash(ls:*)"], store: store).buildApplication().test(.router) { client in
-            let text = try await approve(client, body: claudeRequest("ls -la"))
-            #expect(text == codexAllow)
-            #expect(await store.snapshot(now: Date()).sessions.first { $0.id == "ps" } == nil)
-        }
-    }
+    // An allow-listed *Claude* PermissionRequest is deliberately not answered
+    // from our copy of Claude's rules — Claude ran them and still asked — see
+    // `permissionRequestNeverReMatchesAllowRules` above. Codex keeps the
+    // matcher (`codexPermissionRequestAllowImmediate` below): its only rule
+    // vocabulary is the one vibebuddy applies.
 
     @Test("a held claude PermissionRequest shows the card on the known session; a phone deny answers deny + message")
     func claudePermissionRequestHoldThenDeny() async throws {
@@ -637,7 +747,7 @@ struct ApprovalRoutesTests {
     @Test("hooks/approval-hook.sh grok posts, and prints the daemon's JSON verbatim")
     func hookScriptEndToEnd() async throws {
         let port = try freePort()
-        let srv = server(allow: ["Bash(ls:*)"], port: port, host: "127.0.0.1")
+        let srv = server(allow: ["Bash(ls:*)"], deny: ["Bash(rm:*)"], port: port, host: "127.0.0.1")
         let serving = Task { try await srv.buildApplication().runService() }
         defer { serving.cancel() }
         try await waitUntilListening(port: port)
@@ -656,10 +766,11 @@ struct ApprovalRoutesTests {
                                               stdin: codexRequest("ls -la"))
         #expect(codex == codexAllow)
 
-        // So does Claude's PermissionRequest gate (no source argument).
+        // So does Claude's PermissionRequest gate (no source argument). Its allow
+        // rules are never re-run there, so the immediate answer is a native deny.
         let request = try await runApprovalHook(source: nil, port: port, token: "t0k",
-                                                stdin: claudeRequest("ls -la"))
-        #expect(request == codexAllow)
+                                                stdin: claudeRequest("rm -rf build"))
+        #expect(request == codexDeny)
 
         // A wrong token is a 401 → nothing on stdout → the agent fails open.
         let unauthorized = try await runApprovalHook(source: "grok", port: port, token: "wrong",

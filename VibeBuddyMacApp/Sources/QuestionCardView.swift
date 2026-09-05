@@ -1,28 +1,23 @@
 import SwiftUI
 import VibeBuddyKit
 
-/// The agent's question(s), answered in place. One single-select question
-/// sends on tap; several questions, a multi-select, or a typed "Other" reply
-/// collect first and send together.
+/// The agent's question(s) on the Mac detail pane, answered in place: tap an
+/// option (single-select, single question) to send at once; otherwise pick
+/// per question, type an "Other" reply where allowed, and send.
 struct QuestionCardView: View {
     let question: PendingQuestion
-    let answer: (QuestionAnswers) -> Void
+    let onAnswer: (QuestionAnswers) -> Void
 
     @State private var picked: [String: Set<String>] = [:]
     @State private var typed: [String: String] = [:]
 
     private var items: [QuestionItem] { question.items }
     private var sendsOnTap: Bool {
-        items.count == 1 && !items[0].multiSelect && !items[0].options.isEmpty
+        items.count == 1 && !(items[0].multiSelect) && !items[0].options.isEmpty
     }
-    /// A typed "Other" reply needs a way out even when options send on tap.
-    private var hasTypedText: Bool {
-        items.contains { !(typed[$0.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-    }
-    private var showsSendButton: Bool { !sendsOnTap || hasTypedText }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             Label(items.count > 1 ? "\(items.count) questions" : "Question", systemImage: "questionmark.bubble")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(Color(taskStatus: TaskPresentationState.requiresInput.colorToken))
@@ -35,55 +30,43 @@ struct QuestionCardView: View {
                     if let header = item.header, items.count > 1 {
                         Text(header).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                     }
-                    Text(item.text)
-                        .font(.subheadline)
-                        .foregroundStyle(.primary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if item.multiSelect {
-                        Text("Choose any").font(.caption2).foregroundStyle(.tertiary)
-                    }
+                    Text(item.text).font(.body).fixedSize(horizontal: false, vertical: true)
+                    if item.multiSelect { Text("Choose any").font(.caption2).foregroundStyle(.tertiary) }
                     ForEach(item.options) { option in
                         Button { choose(option, in: item) } label: {
                             HStack(spacing: 8) {
                                 Image(systemName: isPicked(option, in: item) ? "checkmark.circle.fill" : "circle")
                                     .foregroundStyle(isPicked(option, in: item) ? Color.accentColor : Color.secondary)
                                 VStack(alignment: .leading, spacing: 1) {
-                                    Text(option.label).font(.subheadline.weight(.semibold))
+                                    Text(option.label).fontWeight(.semibold)
                                     if let description = option.description {
                                         Text(description).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                                     }
                                 }
                                 Spacer(minLength: 8)
-                                if sendsOnTap {
-                                    Image(systemName: "arrow.turn.down.left")
-                                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                                }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .buttonStyle(.bordered)
                     }
                     if item.allowsOther {
-                        TextField(item.options.isEmpty ? "Answer" : "Other…", text: binding(for: item.id), axis: .vertical)
+                        TextField(item.options.isEmpty ? "Your answer" : "Other…",
+                                  text: binding(for: item.id), axis: .vertical)
                             .textFieldStyle(.roundedBorder)
-                            .lineLimit(1...3)
-                            .onSubmit { if complete { send() } }
+                            .lineLimit(1...4)
+                            .onSubmit { if sendsOnTap || items.count == 1 { send() } }
                     }
                 }
             }
-            if showsSendButton {
-                Button {
-                    send()
-                } label: {
-                    Label("Send answer\(items.count > 1 ? "s" : "")", systemImage: "arrow.up.circle.fill")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(!complete)
+            if !sendsOnTap {
+                Button("Send answer\(items.count > 1 ? "s" : "")") { send() }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!complete)
+                    .keyboardShortcut(.return, modifiers: .command)
             }
         }
-        .padding(10)
-        .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 8))
+        .padding(12)
+        .background(Color(nsColor: .controlBackgroundColor), in: .rect(cornerRadius: 8))
         .onChange(of: question.id) { _, _ in picked = [:]; typed = [:] }
     }
 
@@ -93,7 +76,7 @@ struct QuestionCardView: View {
 
     private func choose(_ option: QuestionOption, in item: QuestionItem) {
         if sendsOnTap {
-            answer([item.id: [option.value]])
+            onAnswer([item.id: [option.value]])
             return
         }
         var set = picked[item.id] ?? []
@@ -109,9 +92,12 @@ struct QuestionCardView: View {
         Binding(get: { typed[id] ?? "" }, set: { typed[id] = $0 })
     }
 
-    private var complete: Bool { items.allSatisfy { values(for: $0) != nil } }
+    /// Every question has a pick or a typed reply.
+    private var complete: Bool {
+        items.allSatisfy { answer(for: $0) != nil }
+    }
 
-    private func values(for item: QuestionItem) -> [String]? {
+    private func answer(for item: QuestionItem) -> [String]? {
         let text = (typed[item.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         var values = Array(picked[item.id] ?? []).sorted { a, b in
             (item.options.firstIndex { $0.value == a } ?? 0) < (item.options.firstIndex { $0.value == b } ?? 0)
@@ -122,9 +108,9 @@ struct QuestionCardView: View {
 
     private func send() {
         var answers: QuestionAnswers = [:]
-        for item in items { if let v = values(for: item) { answers[item.id] = v } }
+        for item in items { if let values = answer(for: item) { answers[item.id] = values } }
         guard !answers.isEmpty else { return }
-        answer(answers)
+        onAnswer(answers)
         picked = [:]
         typed = [:]
     }

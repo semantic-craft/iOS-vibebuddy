@@ -8,6 +8,7 @@ struct DashboardView: View {
     @State private var statusFilter: TaskPresentationState? = nil
     @State private var agentFilter: AgentKind? = nil
     @State private var query: String = ""
+    @State private var showNewTask = false
     // Demo instance pre-selects the approval session so the detail pane (diff +
     // Approve/Deny) is shown for screenshots; nil in normal use.
     @State private var selection: String? =
@@ -67,10 +68,16 @@ struct DashboardView: View {
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
+                Button { showNewTask = true } label: { Image(systemName: "plus.bubble") }
+                    .help("Start a new task in a directory a session has run in")
+                    .disabled(model.recentDirectories.isEmpty || model.dispatchAgents.isEmpty)
+            }
+            ToolbarItem(placement: .primaryAction) {
                 Button { openSettings() } label: { Image(systemName: "gearshape") }
                     .help("Settings")
             }
         }
+        .sheet(isPresented: $showNewTask) { NewTaskSheet(model: model) }
         .background {
             Group {
                 Button("") { statusFilter = .error }.keyboardShortcut("1", modifiers: .command)
@@ -280,7 +287,10 @@ private struct SessionRowView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
                 TaskStatusIndicator(session.presentationState, isSelected: isSelected, size: 9)
-                Text(session.project).font(.headline)   // row subject = .headline (matches iOS)
+                Text(session.displayTitle).font(.headline)   // row subject = .headline (matches iOS)
+                if session.name != nil {
+                    Text(session.project).font(.caption).foregroundStyle(.secondary)
+                }
                 AgentSourceBadge(agent: session.agent)
                 if session.isStuck {
                     Label("Stuck", systemImage: "exclamationmark.triangle.fill")
@@ -321,8 +331,11 @@ private struct SessionRowView: View {
             HStack(spacing: 6) {
                 Text(session.updatedAt, style: .relative).monospacedDigit()
                 if let cost = session.estimatedCostUSD {
-                    Text("≈ $\(cost, specifier: "%.2f")").monospacedDigit()
+                    Text("\(session.costUSD == nil ? "≈ " : "")$\(cost, specifier: "%.2f")").monospacedDigit()
                 }
+                if let effort = session.effort { Text("· effort \(effort)") }
+                if let pr = session.prNumber { Text("· PR #\(pr)").monospacedDigit() }
+                if let worktree = session.worktree { Text("· \(worktree)").lineLimit(1) }
             }
             .font(.caption2).foregroundStyle(.tertiary)
             if let observation = session.observationDescription {
@@ -379,22 +392,36 @@ private struct DetailView: View {
                         .padding(10)
                         .background(Color(nsColor: .textBackgroundColor))
                         .cornerRadius(8)
-                    HStack(spacing: 10) {
-                        Button("Approve") { model.decide(approval.id, .allow) }
-                            .keyboardShortcut("a", modifiers: []).tint(.green)
-                        Button("Deny") { model.decide(approval.id, .deny) }
-                            .keyboardShortcut("d", modifiers: []).tint(.red)
+                    if approval.isAnswerable {
+                        HStack(spacing: 10) {
+                            Button("Approve") { model.decide(approval.id, .allow) }
+                                .keyboardShortcut("a", modifiers: []).tint(.green)
+                            Button("Deny") { model.decide(approval.id, .deny) }
+                                .keyboardShortcut("d", modifiers: []).tint(.red)
+                            Button(session.jumpsToDesktopThread ? "Open thread in ChatGPT" : "Jump to terminal") {
+                                model.jump(session)
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        HStack(spacing: 10) {
+                            Button("Always allow this") { model.decide(approval.id, .alwaysAllow) }
+                            Button("Allow all this session") { model.decide(approval.id, .allowSession) }
+                        }
+                        .buttonStyle(.bordered).controlSize(.small)
+                        .help("Always allow: auto-approve this exact command in future. Allow all this session: stop asking for the rest of this run.")
+                    } else {
+                        Label("You're at the Mac — answer this in the agent's own prompt.", systemImage: "keyboard")
+                            .font(.caption).foregroundStyle(.secondary)
                         Button(session.jumpsToDesktopThread ? "Open thread in ChatGPT" : "Jump to terminal") {
                             model.jump(session)
                         }
+                        .buttonStyle(.borderedProminent)
                     }
-                    .buttonStyle(.borderedProminent)
-                    HStack(spacing: 10) {
-                        Button("Always allow this") { model.decide(approval.id, .alwaysAllow) }
-                        Button("Allow all this session") { model.decide(approval.id, .allowSession) }
+                    if let rule = approval.suggestedRule, approval.isAnswerable {
+                        Text("Always allow adds \(rule) to Claude's own permission rules — the same rule the terminal dialog offers.")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    .buttonStyle(.bordered).controlSize(.small)
-                    .help("Always allow: auto-approve this exact command in future. Allow all this session: stop asking for the rest of this run.")
                     if session.agent == .grok, let mode = approval.permissionMode, mode != "bypassPermissions" {
                         Label {
                             Text("Grok will still ask in the terminal after Allow (permission mode: \(mode)). Set permission_mode = \"always-approve\" to approve from here.")
@@ -405,7 +432,33 @@ private struct DetailView: View {
                         .foregroundStyle(.secondary)
                     }
                 } else {
-                    if let s = session.summary { Text(s).foregroundStyle(.secondary) }
+                    if let question = session.pendingQuestion {
+                        if question.isAnswerable {
+                            QuestionCardView(question: question) { answers in
+                                model.answer(session.id, answers: answers)
+                            }
+                        } else {
+                            Text(question.prompt)
+                            Label("You're at the Mac — answer this in the agent's own prompt.", systemImage: "keyboard")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        if let feedback = model.answerFeedback[session.id] {
+                            Label(feedback, systemImage: "exclamationmark.bubble")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    } else if let s = session.summary { Text(s).foregroundStyle(.secondary) }
+                    if session.agent == .codex {
+                        // Free text for a Codex thread: joins the running turn or
+                        // opens a new one, through the app-server daemon.
+                        InstructionComposer(placeholder: session.status == .done
+                                            ? "Start a new turn…" : "Add to the current turn…") { text in
+                            model.answer(session.id, answers: [:], text: text)
+                        }
+                        if session.pendingQuestion == nil, let feedback = model.answerFeedback[session.id] {
+                            Label(feedback, systemImage: "exclamationmark.bubble")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
                     Button(session.jumpsToDesktopThread ? "Open thread in ChatGPT" : "Jump to terminal") {
                         model.jump(session)
                     }
@@ -502,6 +555,32 @@ private struct TranscriptSheet: View {
                 .padding()
             }
         }
+    }
+}
+
+/// One line of free text for a session, sent with ⌘↩ or the button.
+struct InstructionComposer: View {
+    let placeholder: String
+    let send: (String) -> Void
+    @State private var draft = ""
+
+    var body: some View {
+        HStack(spacing: 8) {
+            TextField(placeholder, text: $draft, axis: .vertical)
+                .textFieldStyle(.roundedBorder)
+                .lineLimit(1...4)
+                .onSubmit(submit)
+            Button("Send", action: submit)
+                .keyboardShortcut(.return, modifiers: .command)
+                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+    }
+
+    private func submit() {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        send(text)
+        draft = ""
     }
 }
 

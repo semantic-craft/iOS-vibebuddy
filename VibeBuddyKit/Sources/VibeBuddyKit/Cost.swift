@@ -51,6 +51,8 @@ public final class BudgetMonitor {
 }
 
 public extension AgentSession {
-    /// Estimated cumulative cost in USD (rough), or nil when nothing to price.
-    var estimatedCostUSD: Double? { Pricing.estimatedUSD(tokens: spentTokens, model: model) }
+    /// Cumulative cost in USD: the agent's own client-side figure when it
+    /// reports one (Claude's status line `cost.total_cost_usd`), else the rough
+    /// estimate from spent tokens and list price; nil when nothing to price.
+    var estimatedCostUSD: Double? { costUSD ?? Pricing.estimatedUSD(tokens: spentTokens, model: model) }
 }

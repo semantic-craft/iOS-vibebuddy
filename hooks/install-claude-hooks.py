@@ -11,7 +11,9 @@ Usage:
 """
 import json
 import os
+import re
 import shutil
+import subprocess
 import sys
 import tempfile
 
@@ -33,9 +35,24 @@ APPROVAL_MARKER = "approval-hook.sh"
 # PreToolUse instead — the original design, from before this event existed —
 # held every tool call for the phone; an old gate found there is migrated.
 APPROVAL_EVENT = "PermissionRequest"
+LEGACY_APPROVAL_EVENT = "PreToolUse"
+# Claude Code validates the `decision` reply on PermissionRequest from 2.1.257;
+# an older CLI waits silently on it, so the gate stays on PreToolUse there.
+MIN_PERMISSION_REQUEST_VERSION = (2, 1, 257)
 APPROVAL_TIMEOUT = 30   # the daemon answers within 25s; the hook's curl caps at 30s
 CAPTURE_HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "capture-terminal.sh")
 CAPTURE_MARKER = "capture-terminal.sh"
+# Status line forwarding: Claude runs one `statusLine.command` per event with
+# its session JSON on stdin. The wrapper copies it to the daemon and then runs
+# whatever command was configured before, so the terminal display is unchanged.
+# The original object is kept beside the daemon token for --uninstall; the bare
+# command also goes into a plain file the wrapper can `cat` without parsing.
+STATUSLINE_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vibebuddy-statusline.sh")
+STATUSLINE_MARKER = "vibebuddy-statusline.sh"
+SUPPORT_DIR = os.environ.get("VIBEBUDDY_SUPPORT_DIR") or os.path.expanduser(
+    "~/Library/Application Support/vibebuddy")
+STATUSLINE_ORIGINAL = os.path.join(SUPPORT_DIR, "statusline-original.json")
+STATUSLINE_ORIGINAL_CMD = os.path.join(SUPPORT_DIR, "statusline-original.cmd")
 TOOL_EVENTS = {"PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionDenied"}
 # High-signal lifecycle events used by current maintained monitors. Deliberately
 # omit display/file/config telemetry that adds process churn without changing a
@@ -108,21 +125,123 @@ def install(data):
     return added
 
 
+def is_statusline_wrapper(value):
+    return isinstance(value, dict) and STATUSLINE_MARKER in str(value.get("command", ""))
+
+
+def install_statusline(data):
+    """Wrap the user's status line (or install ours when there is none).
+
+    Idempotent: a settings file that already names the wrapper is left alone,
+    and the saved original is never overwritten by the wrapper itself.
+    """
+    existing = data.get("statusLine")
+    if is_statusline_wrapper(existing):
+        return False
+    os.makedirs(SUPPORT_DIR, exist_ok=True)
+    os.chmod(SUPPORT_DIR, 0o700)
+    original = existing if isinstance(existing, dict) else None
+    with open(STATUSLINE_ORIGINAL, "w") as handle:
+        json.dump({"statusLine": original}, handle)
+    os.chmod(STATUSLINE_ORIGINAL, 0o600)
+    command = ""
+    if original and original.get("type", "command") == "command":
+        command = str(original.get("command", "") or "")
+    with open(STATUSLINE_ORIGINAL_CMD, "w") as handle:
+        handle.write(command)
+    os.chmod(STATUSLINE_ORIGINAL_CMD, 0o600)
+    wrapper = dict(original) if original else {}
+    wrapper["type"] = "command"
+    wrapper["command"] = f'"{STATUSLINE_SCRIPT}"'
+    data["statusLine"] = wrapper
+    return True
+
+
+def uninstall_statusline(data):
+    """Put back whatever status line was there before the wrapper."""
+    if not is_statusline_wrapper(data.get("statusLine")):
+        return False
+    original = None
+    if os.path.exists(STATUSLINE_ORIGINAL):
+        try:
+            with open(STATUSLINE_ORIGINAL) as handle:
+                original = json.load(handle).get("statusLine")
+        except (OSError, ValueError):
+            original = None
+    if isinstance(original, dict):
+        data["statusLine"] = original
+    else:
+        data.pop("statusLine", None)
+    for path in (STATUSLINE_ORIGINAL, STATUSLINE_ORIGINAL_CMD):
+        if os.path.exists(path):
+            os.unlink(path)
+    return True
+
+
+def claude_version():
+    """The installed Claude Code version as a tuple, or None when unknown.
+
+    `VIBEBUDDY_CLAUDE_VERSION` overrides the probe (tests, air-gapped installs).
+    """
+    raw = os.environ.get("VIBEBUDDY_CLAUDE_VERSION")
+    if raw is None:
+        try:
+            raw = subprocess.run(["claude", "--version"], capture_output=True,
+                                 text=True, timeout=10).stdout
+        except (OSError, subprocess.SubprocessError):
+            return None
+    match = re.search(r"(\d+)\.(\d+)\.(\d+)", raw or "")
+    return tuple(int(part) for part in match.groups()) if match else None
+
+
+def approval_event(version=None):
+    """Where the blocking gate goes for this CLI. Unknown version → the
+    current contract (nothing runs at all without a CLI to probe)."""
+    if version is not None and version < MIN_PERMISSION_REQUEST_VERSION:
+        return LEGACY_APPROVAL_EVENT
+    return APPROVAL_EVENT
+
+
 def has_approval(data):
     hooks = data.get("hooks", {}) if isinstance(data.get("hooks", {}), dict) else {}
     return any(has_marker(g, APPROVAL_MARKER) for arr in hooks.values() for g in arr)
 
 
-def install_approval(data):
+QUESTION_MATCHER = "AskUserQuestion"
+
+
+def is_question_gate(group):
+    return has_marker(group, APPROVAL_MARKER) and group.get("matcher") == QUESTION_MATCHER
+
+
+def install_approval(data, version=None):
     hooks = data.setdefault("hooks", {})
-    # Retire the legacy PreToolUse gate; install() has already restored the
-    # asynchronous status forwarder there.
+    event = approval_event(version)
+    # The gate lives on exactly one event: retire it everywhere else (a legacy
+    # PreToolUse gate on a modern CLI, or a PermissionRequest gate after a
+    # downgrade). install() has already restored the asynchronous status
+    # forwarder on whichever event is being vacated. The AskUserQuestion group
+    # below is the one blocking PreToolUse entry that stays: it answers
+    # Claude's questions, not permissions.
     for ev in list(hooks):
-        if ev != APPROVAL_EVENT:
-            hooks[ev] = [g for g in hooks[ev] if not has_marker(g, APPROVAL_MARKER)]
+        if ev != event:
+            hooks[ev] = [g for g in hooks[ev]
+                         if not has_marker(g, APPROVAL_MARKER) or is_question_gate(g)]
             if not hooks[ev]:
                 del hooks[ev]
-    arr = hooks.setdefault(APPROVAL_EVENT, [])
+    if event == APPROVAL_EVENT:
+        # Claude answers AskUserQuestion from a PreToolUse hook's `updatedInput`,
+        # so the phone can answer it too. A legacy every-call gate already sees
+        # the tool; only the modern layout needs this dedicated group.
+        pre = hooks.setdefault("PreToolUse", [])
+        question = {"matcher": QUESTION_MATCHER,
+                    "hooks": [{"type": "command", "command": APPROVAL_COMMAND,
+                               "timeout": APPROVAL_TIMEOUT}]}
+        owned = [g for g in pre if is_question_gate(g)]
+        if owned != [question]:
+            pre[:] = [g for g in pre if not is_question_gate(g)]
+            pre.append(question)
+    arr = hooks.setdefault(event, [])
     # The blocking gate replaces the fire-and-forget status group on this one
     # event; the daemon still learns of the wait from the gate itself.
     arr[:] = [g for g in arr if not has_status_marker(g)]
@@ -132,7 +251,13 @@ def install_approval(data):
     if owned != [expected]:
         arr[:] = [g for g in arr if not has_marker(g, APPROVAL_MARKER)]
         arr.append(expected)
-    return [f"{APPROVAL_EVENT}(approval)"]
+    if event == LEGACY_APPROVAL_EVENT:
+        shown = ".".join(str(part) for part in version)
+        wanted = ".".join(str(part) for part in MIN_PERMISSION_REQUEST_VERSION)
+        print(f"warning: Claude Code {shown} is older than {wanted}; the approval gate "
+              f"stays on PreToolUse, so every tool call the daemon cannot match to a "
+              f"rule waits for the phone. Update Claude Code and run --install again.")
+    return [f"{event}(approval)"]
 
 
 def uninstall(data):
@@ -180,22 +305,28 @@ def main():
 
     if mode == "--uninstall":
         removed = uninstall(data)
+        if uninstall_statusline(data):
+            removed.append("statusLine")
         write(data)
         print("removed vibebuddy hooks from:", removed or "(none)")
         return
 
     if mode == "--approval":
         install(data)              # ensure base status hooks exist
-        added = install_approval(data)
+        install_statusline(data)
+        added = install_approval(data, claude_version())
         write(data)
         print("installed vibebuddy approval hook:", added)
         return
 
     added = install(data)
+    if mode == "--install" and install_statusline(data):
+        added.append("statusLine")
     if has_approval(data):
         # A plain re-install (the Mac app's Repair button) keeps — and, for an
-        # old PreToolUse gate, migrates — the approval gate the user opted into.
-        added += install_approval(data)
+        # old PreToolUse gate on a current CLI, migrates — the approval gate the
+        # user opted into.
+        added += install_approval(data, claude_version())
     if mode == "--dry-run":
         print("would add vibebuddy hooks for:", added or "(already installed)")
         print("status events:", ", ".join(EVENTS))

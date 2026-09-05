@@ -90,6 +90,21 @@ struct SessionReducerTests {
         #expect(!secondAcknowledgement)
     }
 
+    @Test("an answerable question survives a progress event; a read-only one is cleared by it")
+    func answerableQuestionOutlivesProgress() {
+        var r = SessionReducer()
+        r.apply(ev(.userPromptSubmit, at: 0))
+        let live = PendingQuestion(id: "q1", prompt: "Which branch?", options: [], answerable: nil)
+        r.setPendingQuestion(sessionID: "s1", live, at: Date(timeIntervalSince1970: 1))
+        r.apply(ev(.preToolUse, tool: "Read", at: 2))   // the async forwarder, after the hook began the wait
+        #expect(r.sessions["s1"]?.pendingQuestion?.id == "q1")
+
+        let readOnly = PendingQuestion(id: "q2", prompt: "Which branch?", options: [], answerable: false)
+        r.setPendingQuestion(sessionID: "s1", readOnly, at: Date(timeIntervalSince1970: 3))
+        r.apply(ev(.preToolUse, tool: "Read", at: 4))
+        #expect(r.sessions["s1"]?.pendingQuestion == nil)
+    }
+
     @Test("new work clears an unread completion")
     func newRoundClearsUnread() {
         var r = SessionReducer()

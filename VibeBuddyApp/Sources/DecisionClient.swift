@@ -9,12 +9,32 @@ protocol DecisionClient: Sendable {
     @discardableResult
     func decide(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> Bool
     func answer(_ pairing: PairingPayload, sessionId: String, answer: String) async
+    /// Structured answers keyed by question id (option labels, or a typed
+    /// reply), for the agents that take them through their own contract.
+    func answer(_ pairing: PairingPayload, sessionId: String, answers: QuestionAnswers) async
     /// Returns what the Mac reported, or `nil` if it couldn't be reached.
     func jump(_ pairing: PairingPayload, sessionId: String) async -> JumpOutcome?
     func acknowledge(_ pairing: PairingPayload, sessionId: String) async
+    /// Start a new task; nil when the Mac could not be reached.
+    func dispatch(_ pairing: PairingPayload, request: DispatchRequest) async -> DispatchOutcome?
     /// Set how much a session may interrupt you, or `nil` to return it to the
     /// daemon's automatic level. The Mac owns the value.
     func setAttention(_ pairing: PairingPayload, sessionId: String, level: SessionAttention?) async
+}
+
+extension DecisionClient {
+    func dispatch(_ pairing: PairingPayload, request: DispatchRequest) async -> DispatchOutcome? { nil }
+}
+
+extension DecisionClient {
+    /// Doubles that only speak plain text get the answers flattened.
+    func answer(_ pairing: PairingPayload, sessionId: String, answers: QuestionAnswers) async {
+        let flat = answers.keys.sorted().compactMap { key -> String? in
+            let values = answers[key] ?? []
+            return values.isEmpty ? nil : values.joined(separator: ", ")
+        }.joined(separator: "\n")
+        await answer(pairing, sessionId: sessionId, answer: flat)
+    }
 }
 
 struct HTTPDecisionClient: DecisionClient {
@@ -62,6 +82,37 @@ struct HTTPDecisionClient: DecisionClient {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try? JSONSerialization.data(withJSONObject: ["sessionId": sessionId, "answer": answer])
         _ = try? await URLSession.shared.data(for: req)
+    }
+
+    func answer(_ pairing: PairingPayload, sessionId: String, answers: QuestionAnswers) async {
+        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/answer") else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["sessionId": sessionId, "answers": answers])
+        _ = try? await URLSession.shared.data(for: req)
+    }
+
+    func dispatch(_ pairing: PairingPayload, request: DispatchRequest) async -> DispatchOutcome? {
+        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/dispatch") else { return nil }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var body: [String: Any] = ["agent": request.agent.rawValue, "cwd": request.cwd, "prompt": request.prompt]
+        if let name = request.name { body["name"] = name }
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              let http = resp as? HTTPURLResponse else { return nil }
+        let fields = (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
+        switch http.statusCode {
+        case 200: return fields["sessionId"].map { .started(sessionID: $0) }
+        case 400: return .rejected(fields["error"] ?? "Refused")
+        case 501: return .unsupported(fields["error"] ?? "Not supported")
+        case 503: return .unavailable(fields["error"] ?? "Unavailable")
+        default: return nil
+        }
     }
 
     func jump(_ pairing: PairingPayload, sessionId: String) async -> JumpOutcome? {

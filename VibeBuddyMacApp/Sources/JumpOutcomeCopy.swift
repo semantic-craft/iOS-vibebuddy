@@ -20,6 +20,7 @@ extension JumpOutcome {
             case .activatedApp: return "Brought ChatGPT to front"
             case .unsupported: return "Couldn't open the thread — is ChatGPT running?"
             case .noTerminal: return "No thread recorded for this session"
+            case .attached: return "Opened a terminal attached to this session"
             }
         }
         switch self {
@@ -36,6 +37,8 @@ extension JumpOutcome {
             return "Couldn't locate this session's window"
         case .noTerminal:
             return "No terminal recorded for this session"
+        case .attached:
+            return "Opened a terminal attached to this session"
         }
     }
 

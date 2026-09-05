@@ -25,6 +25,21 @@ public enum HookParser {
             return nil
         }
 
+        // Claude pausing on a usage limit and auto-resuming later is not a
+        // wait on the user: it rides as metadata with a line for the row.
+        if raw.hookEventName == "Notification",
+           let type = raw.notificationType, type.hasPrefix("quota_auto_resume") {
+            let line: String
+            switch type {
+            case "quota_auto_resume_fired": line = "Usage limit reset — resuming"
+            case "quota_auto_resume_disabled": line = "Usage limit reached — auto-resume is off"
+            default: line = "Usage limit reached — waiting for it to reset"
+            }
+            return HookEvent(kind: .sessionMetadataChanged, sessionID: sessionID, agent: agent,
+                             cwd: raw.cwd, message: line, transcriptPath: raw.transcriptPath,
+                             timestamp: receivedAt)
+        }
+
         let message: String?
         if raw.hookEventName == "PermissionRequest" {
             message = raw.toolName.map { "Permission required for \($0)" } ?? "Permission required"
@@ -208,8 +223,8 @@ public enum HookParser {
         let sessionId: String?
         let cwd: String?
         let toolName: String?
-        let message: String?
         let notificationType: String?
+        let message: String?
         let error: String?
         let lastAssistantMessage: String?
         let transcriptPath: String?

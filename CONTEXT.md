@@ -68,19 +68,79 @@ code, and tests — don't drift to synonyms.
   layers consume.
 - **Conversation language** — the language the voice companion speaks (English /
   中文); independent of the **UI language** (English).
+- **Presence** — whether the person is at the Mac for a session:
+  `PresencePolicy` (pure, in core) says *present* when the session's own
+  surface (its terminal app, or Codex Desktop for a Desktop thread) is
+  frontmost, the screen is unlocked and there was input within two minutes,
+  unless the Settings override "Always ask the phone first" is on. Present →
+  the agent's own prompt takes the answer and the phone gets a **read-only
+  card** (`answerable: false`); away → the daemon holds the prompt for the
+  phone. Applies to the hook gate, the question relay and app-server requests.
+- **Steer** — free text for a Codex thread sent through the app-server daemon:
+  `turn/steer` while a turn runs, `turn/start` when idle (a cold thread is
+  resumed first). Codex threads never take typed input through a terminal.
+- **Attach** — the jump for a Claude *background session* (`claude --bg`,
+  agent view, Desktop Dispatch): it has no window, so `ClaudeBackgroundSessions`
+  reads the supervisor's `~/.claude/jobs/<id>/state.json` (read-only) and
+  `TerminalLauncher` opens the user's preferred terminal running
+  `claude attach <id>` (`JumpOutcome.attached`). The job's name and "needs"
+  line also fill an unnamed Claude row.
+- **Dispatch** — a new task started from the phone or the Mac's "New task"
+  sheet: `POST /dispatch {agent, cwd, prompt, name?}`. `cwd` must be one of the
+  snapshot's `recentDirectories` (directories a session already ran in), so a
+  phone can never point an agent at an arbitrary path. Claude Code starts as
+  a background session (`ClaudeBackgroundLauncher`: `claude --bg [--name] --
+  <prompt>` in that directory; the job's `state.json` gives the full session
+  id the hooks will report). Codex goes through the app-server daemon
+  (`thread/start` → `thread/name/set` → `turn/start`, the user's own
+  model/approval/sandbox defaults). Other agents answer 501. The snapshot's
+  `dispatchAgents` says which agents can be started right now (Claude when
+  the CLI lists `--bg`, Codex when the daemon is connected); the "New task"
+  entry offers only those and is disabled when there are none.
+- **Question relay** — the agent's question answered from the phone or the Mac
+  card through the agent's own contract: Claude's `AskUserQuestion` on a
+  blocking PreToolUse hook (answered with `updatedInput.answers`, keyed by
+  question text), Codex's `item/tool/requestUserInput` on the app-server
+  connection (answered per question id). `QuestionRegistry` holds the wait;
+  `AnswerDispatch` sends an answer there first and types into a tmux pane only
+  when nothing is waiting. A `PendingQuestion` now carries every question
+  (`items`), multi-select and "Other".
+- **Status line sample** — one status line JSON from Claude Code, copied to the
+  daemon by `hooks/vibebuddy-statusline.sh` on every event (ObservationSource
+  `statusline`). It fills a known session's name, effort, cost, context, PR and
+  worktree and feeds Claude's live quota (`rate_limits`); it never creates a
+  session or moves the three states.
+- **Live usage feed** — `AccountUsageLiveFeed`: quota that arrives on its own
+  (status line `rate_limits`, the Codex daemon's `account/rateLimits/*`). The
+  usage coordinator treats a live sample like a fetch and holds the spawning
+  collector off while samples stay fresh (Claude 15 min, Codex 20 min).
+- **Native always-allow** — a phone "Always allow" on a Claude Code approval
+  echoes Claude's own `permission_suggestions` back as `updatedPermissions`, so
+  Claude Code persists the rule where its terminal dialog would; the card shows
+  that rule text (`Bash(npm run lint)`). The vibebuddy allow store only serves
+  agents without such proposals (ADR-0010, amended 2026-09-05).
 - **Approval / Answer** — the two remote actions on a session: approve/deny a
   pending permission, or inject a text answer.
 
 ## Observability (2026-09)
 
 - **ObservationSource / ObservationHealth** — which signal currently backs a
-  session (`hook`, `rollout`, `transcript`, `recovery`) plus its last-seen time
+  session (`appserver`, `hook`, `rollout`, `transcript`, `recovery`) plus its last-seen time
   and a health verdict (healthy / degraded / unsupported / eventsMissing). Never
   guessed from process existence; shown in Mac Settings and on session rows.
   One bounded exception: a ChatGPT.app-bundled `codex app-server` probe (and a
   missing `thread-writer-locks/<id>.lock`) may only *retire* an already-working
   Desktop session when that writer is gone. They must not create a session,
   move one into `working`, or change ObservationHealth.
+- **Codex app-server daemon** — the shared local `codex app-server` process
+  every Codex client attaches to, on `~/.codex/app-server-control/
+  app-server-control.sock`. vibebuddy reads it as ObservationSource
+  `appserver`, the primary Codex source while fresh (ADR-0011); it never
+  starts the daemon or drives a turn from this source.
+- **Thread status** — the daemon's own state for a thread: `notLoaded` (stored
+  only, never surfaced), `idle` (done), `active` (working; with
+  `waitingOnApproval` / `waitingOnUserInput` flags → `needsResponse`), or
+  `systemError` (failed).
 - **Abandoned** — a Desktop session that left `working` for `done` because its
   writer disappeared (Desktop quit/crash, or the thread lock is gone). Carried
   as `summary == "Abandoned"`. Not `failed`: that flag is a real tool-error
