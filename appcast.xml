@@ -1,0 +1,17 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>VibeBuddyMacApp</title>
+        <item>
+            <title>1.1</title>
+            <pubDate>Sat, 05 Sep 2026 17:32:18 +0800</pubDate>
+            <link>https://github.com/semantic-craft/iOS-vibebuddy</link>
+            <sparkle:version>3</sparkle:version>
+            <sparkle:shortVersionString>1.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <sparkle:releaseNotesLink>https://semantic-craft.github.io/iOS-vibebuddy/vibebuddy-mac-v1.1.md</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/semantic-craft/iOS-vibebuddy/releases/download/v1.1/vibebuddy-mac-v1.1.dmg" length="8278978" type="application/octet-stream" sparkle:edSignature="DfDGPeeBVnKnr/c4kYx2FcXtCzEG5W9cdjbJl1DurCxVeHeS/qwMPpynpe6ui5lziXmH3oi1mnIP8k0OrM2hBw=="/>
+        </item>
+    </channel>
+</rss>
