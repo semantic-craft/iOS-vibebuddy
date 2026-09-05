@@ -36,9 +36,10 @@ No more walking back to the desk to find a session has been blocked on a permiss
 
 <br><br>
 
-<img src="docs/screenshots/mac/glance.png" width="360" alt="vibebuddy notch glance — the cat plus live orange/blue/green counts" />
+<img src="docs/screenshots/mac/glance.png" width="360" alt="vibebuddy notch glance — the cat and the one count that matters, either side of the notch" />
+<img src="docs/screenshots/mac/glance-card.png" width="360" alt="an approval card unfolded under the notch with Approve / Deny / Jump" />
 
-<sub><b>Always-on notch glance</b> — the same cat + live 🟠 / 🔵 / 🟢 counts.</sub>
+<sub><b>Notch glance</b> — lives beside the notch like a Dynamic Island: nothing when idle, the cat + the count that matters when not, hover to expand, and approvals drop down as cards you answer in place.</sub>
 
 <br><br>
 

@@ -32,8 +32,16 @@ code, and tests — don't drift to synonyms.
   this local tailer and converges with hook events in the same reducer.
 - **Daemon** — the Mac menu-bar app's embedded HTTP + WebSocket server
   (`:9876`) that ingests hooks, runs the reducer, and broadcasts snapshots.
-- **Glance** — the Mac floating status panel at the top of the screen (notch or
-  pill); hover to expand.
+- **Glance** — the Mac status surface at the top of the menu-bar screen, drawn
+  with the Dynamic Island's grammar (ADR-0011). On a notch Mac it never draws
+  into the camera housing: **idle** (nothing), **compact** (a wing either side:
+  pet left, the one primary count right), **card** (a cue unfolded below the
+  housing), **expanded** (hover/click: counts + approval or session list).
+  Without a notch the same content is a **pill** hanging under the menu bar.
+- **Glance card** — the glance's event layer: one `SoundPolicy` cue at a time
+  shown under the housing with its actions (Approve / Deny / Jump), timed by
+  `GlanceCardQueue`. While the glance is on screen the card *replaces* the
+  macOS banner for session cues; hidden glance → banner as before.
 - **Pairing** — linking a phone to a Mac over the LAN by scanning a QR that
   encodes `host:port` + a **bearer token**.
 

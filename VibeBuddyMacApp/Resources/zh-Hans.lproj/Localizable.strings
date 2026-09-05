@@ -182,3 +182,6 @@
 "Paired with %@" = "已与 %@ 配对";
 "%@ over budget" = "%@ 超出预算";
 "≈ %@ spent this session (estimate)" = "本会话已花费 ≈ %@（估算）";
+
+/* MARK: Glance — expanded / cards */
+"No agent sessions yet" = "还没有代理会话";

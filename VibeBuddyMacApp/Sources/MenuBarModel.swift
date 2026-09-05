@@ -45,6 +45,12 @@ final class MenuBarModel: ObservableObject {
     @Published var glanceScale: CGFloat = 1.0
     @Published var showGlance: Bool = true
     @Published var glanceExpanded: Bool = false
+    /// The cue currently unfolded under the notch (the glance's event layer).
+    @Published private(set) var glanceCard: GlanceCard?
+    private var glanceCards = GlanceCardQueue()
+    private var glanceCardTicker: Task<Void, Never>?
+    /// The pointer is on the glance: cards hold instead of timing out.
+    private var glanceHeld = false
     @Published var openDashboardHotkey: Hotkey = .openDashboardDefault
     @Published var toggleGlanceHotkey: Hotkey = .toggleGlanceDefault
     /// Idle-cleanup window in hours; 0 means never. Default 2h.
@@ -62,7 +68,14 @@ final class MenuBarModel: ObservableObject {
     private let activityTokens = ActivityTokens()
     private var lastActivityKey: String?
     private let notifier = UserNotificationsNotifier()
-    private let notificationCoordinator: NotificationCoordinator
+    /// Session cues go to the glance first (a card under the notch) and only
+    /// fall back to a system banner while the glance is hidden. Lazy so the
+    /// router can point back at this model.
+    private lazy var notificationCoordinator = NotificationCoordinator(
+        notifier: GlanceAttentionRouter(banners: notifier) { [weak self] alert in
+            self?.presentGlanceCard(alert) ?? false
+        },
+        delivery: deliveryRecorder)
     private let deliveryRecorder: NotificationDeliveryRecorder
     // Phone push: the same SoundPolicy engine, run from the Mac's perspective of
     // a backgrounded phone, so the phone hears the full pack (not just needs-you).
@@ -117,7 +130,6 @@ final class MenuBarModel: ObservableObject {
             url: deliveryURL, apnsConfigured: apnsConfig != nil)
         deliveryRecorder = recorder
         pusher = apnsConfig.flatMap { try? APNsPusher(config: $0, recorder: recorder) }
-        notificationCoordinator = NotificationCoordinator(notifier: notifier, delivery: recorder)
         notificationDeliveryHealth = NotificationDeliveryHealth(apnsConfigured: apnsConfig != nil)
         // The views read usage through this model's facades, so the coordinator's
         // changes have to reach the same `objectWillChange` they observe. Set up
@@ -157,6 +169,12 @@ final class MenuBarModel: ObservableObject {
         if isDemo {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                 NotificationCenter.default.post(name: .openDashboard, object: nil)
+            }
+            // The demo never polls, so no cue is ever earned: unfold the sample
+            // approval as a card once the glance exists, for screenshots / QA.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+                guard let self, let demo = self.sessions.first(where: { $0.pendingApproval != nil }) else { return }
+                _ = self.presentGlanceCard(SoundAlert(session: demo, sound: .needsApproval))
             }
         }
     }
@@ -220,6 +238,7 @@ final class MenuBarModel: ObservableObject {
                 self.observationDiagnostics = snapshot.observationDiagnostics ?? []
                 self.lifecycleTimeline = await self.store.recentLifecycle()
                 self.buddySessionIDs = BuddyScope.pruned(self.buddySessionIDs, toLive: snapshot.sessions)
+                self.tickGlanceCards()
                 // Precise suppression: a finishing session stays silent when *its
                 // own* terminal is frontmost, not just when VibeBuddy is.
                 let frontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
@@ -541,6 +560,54 @@ final class MenuBarModel: ObservableObject {
         glanceExpanded = expanded
     }
 
+    /// The pointer entered / left the glance. A card on screen holds while the
+    /// user is reading it.
+    func setGlanceHeld(_ held: Bool) {
+        glanceHeld = held
+        tickGlanceCards()
+    }
+
+    // MARK: glance event layer
+
+    /// Show `alert` as a card under the notch. `false` when the glance is not
+    /// on screen (hidden, or not built yet), so the caller posts a banner instead.
+    func presentGlanceCard(_ alert: SoundAlert) -> Bool {
+        guard glance?.isVisible == true, alert.sound != .pairSuccess else { return false }
+        glanceCards.enqueue(alert, now: Date())
+        publishGlanceCard()
+        return true
+    }
+
+    /// The user acted on (or closed) the card; the next queued one, if any, unfolds.
+    func dismissGlanceCard() {
+        glanceCards.dismissCurrent(now: Date())
+        publishGlanceCard()
+    }
+
+    /// Expire and withdraw cards against the live sessions. Called on every
+    /// snapshot and, while a card is up, from a finer ticker so the timeout
+    /// lands on time rather than on the next 2s poll.
+    private func tickGlanceCards() {
+        glanceCards.tick(now: Date(), sessions: sessions, held: glanceHeld || glanceExpanded)
+        publishGlanceCard()
+    }
+
+    private func publishGlanceCard() {
+        if glanceCard != glanceCards.current { glanceCard = glanceCards.current }
+        if glanceCard == nil {
+            glanceCardTicker?.cancel()
+            glanceCardTicker = nil
+        } else if glanceCardTicker == nil {
+            glanceCardTicker = Task { @MainActor [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .milliseconds(250))
+                    guard let self, !Task.isCancelled else { return }
+                    self.tickGlanceCards()
+                }
+            }
+        }
+    }
+
     func setHotkey(_ hotkey: Hotkey) {
         openDashboardHotkey = hotkey
         hotkey.saveAsOpenDashboard()
@@ -577,5 +644,6 @@ final class MenuBarModel: ObservableObject {
 
     deinit {
         pollTask?.cancel()
+        glanceCardTicker?.cancel()
     }
 }
