@@ -13,7 +13,7 @@
   再读 PR 上 Codex 机器人的评审线程：确有问题的归入上面两条线。
 
 结论三选一，写在 PR 评论里：
-  - 合并：两条线无阻塞项，测试通过。合并后删远程分支，把 JSON 里该节点 status 改 done、票 Status 改 done 或 ready-for-human（需真机的写清待验项）。
+  - 合并：两条线无阻塞项，测试通过。合并后删远程分支，把 JSON 里该节点 status 改 done、票 Status 改 done 或 ready-for-human（需真机的写清待验项）；票的 Status 只用仓库规定的标签与 done，工作流状态（in-progress / pr-open / changes-requested）只写进 JSON。
   - 退回：生成一段「回给 Cursor 的修改提示词」，格式——
      === 回给 <id> 的执行会话 ===
      <逐条：问题、规格原文、期望改法、验证方式>
@@ -34,9 +34,9 @@
 路线图数据：下面粘的是本页导出的 JSON（节点 id、工作包、归属、状态、依赖、票路径、完整提示词）。以它为初始状态；之后每一轮都用仓库事实校正，不要只信 JSON。
 
 每一轮（用 /loop 每 20 分钟一次，或用户叫你时）做四件事：
-1. 核对状态。对每个节点：agent 节点的 done = 对应 PR 已合并到 main（gh pr list --state merged，PR 描述第一行带节点 id）或票 Status 为 done；running = 有会话在做（Claude Code 会话列表里标题匹配，或票 Status 为 in-progress 并写了分支）；用户节点的 done = 票 Status 为 done 或用户明确说做完了。用 gh pr list --state all --limit 50、grep -r '^\*\*Status' .scratch/*/issues、git worktree list、以及 Claude Code 的会话列表工具核对。
+1. 核对状态。对每个节点：agent 节点的 done = 对应 PR 已合并到 main（gh pr list --state merged，PR 描述第一行带节点 id）或票 Status 为 done；running = 有会话在做（Claude Code 会话列表里标题匹配，或票里有 Executor 行且 PR 未合并）；用户节点的 done = 票 Status 为 done 或用户明确说做完了。用 gh pr list --state all --limit 50、grep -rE '^(\*\*Status|Status:)' .scratch/*/issues、git worktree list、以及 Claude Code 的会话列表工具核对。
 2. 计算前沿。一个节点可派 = 它的全部依赖都 done，且它自己不是 done / running。同一波次的可派节点互不依赖，可以同时派；有依赖的必须等。WP-S 里 S-1 → S-4 → S-3 是硬性串行（同一批文件），不要并行。
-3. 派发。对每个可派的 agent 节点：把它的 prompt 原样交给一个新的执行者。优先用 Agent 工具、subagent_type general-purpose、isolation worktree、run_in_background true，一个节点一个 agent，prompt 就是节点的 prompt 字段；若用户要求开独立会话，则把 prompt 交给用户或用 spawn_task 创建一张卡片让用户一键开会话。派出后把票 Status 改 in-progress 并记下执行者。对每个可派的用户节点：不派，写进「等你」清单，附它的清单正文。
+3. 派发。对每个可派的 agent 节点：把它的 prompt 原样交给一个新的执行者。优先用 Agent 工具、subagent_type general-purpose、isolation worktree、run_in_background true，一个节点一个 agent，prompt 就是节点的 prompt 字段；若用户要求开独立会话，则把 prompt 交给用户或用 spawn_task 创建一张卡片让用户一键开会话。派出后不要改票的 Status（票只用仓库规定的标签与 done）；在票里加一行「**Executor:** <执行者> · 分支 · 时间」，工作流状态只写进 JSON。对每个可派的用户节点：不派，写进「等你」清单，附它的清单正文。
 4. 汇报。一段话四类清单：已完成（附 PR 号）、进行中（执行者与开始时间）、本轮新派出、等你（用户节点）。有 PR 开出来时，读它的 Codex 评审线程：明显的修复项回给执行者处理；线程全部解决且测试通过后，若用户已授权你合并，用 gh pr merge N --merge --admin 合并，否则列给用户。合并后删远程分支与 worktree（先确认 worktree 干净）。
 
 规则：

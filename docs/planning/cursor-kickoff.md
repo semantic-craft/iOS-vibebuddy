@@ -15,7 +15,7 @@
   7. docs/adr/0001 到 0011、hooks/README.md、docs/multi-cli-hook-setup.md、README.md（只需过一遍标题与结论）
   8. 领到具体节点时再读该节点 path 指向的票和它引用的文件。
 
-第二步，核对状态。JSON 里的 status 是快照，以仓库事实为准：agent 节点 done = PR 已合并到 main（gh pr list --state merged --limit 60，PR 描述第一行是节点 id）或票 Status 为 done；in-progress = 票 Status 为 in-progress 且写了分支；用户节点 done = 票 Status 为 done。核对命令：gh pr list --state all --limit 60；grep -r '^\*\*Status' .scratch/*/issues；git worktree list；git branch -r。
+第二步，核对状态。JSON 里的 status 是快照，以仓库事实为准：agent 节点 done = PR 已合并到 main（gh pr list --state merged --limit 60，PR 描述第一行是节点 id）或票 Status 为 done；in-progress = 票里有 Executor 行且对应 PR 未合并（或 JSON 标 in-progress）；用户节点 done = 票 Status 为 done。核对命令：gh pr list --state all --limit 60；grep -rE '^(\*\*Status|Status:)' .scratch/*/issues；git worktree list；git branch -r。
 
 第三步，算前沿。可派 = 全部依赖 done 且自身不是 done / in-progress，且 owner 是 A。同一波次可同时派；WP-S 里 S-1 → S-4 → S-3 → S-2 必须串行（同一批推送路径文件）。并发上限 4；优先级：S 组 > A 组 > M 组 > 其余 1.2 > 1.3。
 
@@ -27,7 +27,7 @@
      <prompt 字段原文>
      === 结束 ===
      用户会逐段复制。清单之外不要夹别的话。
-  派出后把票 Status 改 in-progress（写分支名与「executor: cursor-grok」），并把 JSON 里该节点 status 改 in-progress、executor 改 cursor-grok。
+  派出后不要改票的 Status（票只用仓库规定的标签：needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix，以及仓库既有的收口词 done）；在票里加一行「**Executor:** cursor-grok · 分支 <名> · <时间>」；工作流状态只写进 JSON：该节点 status 改 in-progress、executor 改 cursor-grok。
 
 执行会话的规则已在每个 prompt 里（读取顺序、分支与 worktree、验证命令、票据回写、PR 描述第一行写节点 id、不加署名）。补充三条：不要合并 PR（Claude 审查后合）；PR 开出后把 JSON 里该节点 status 改 pr-open 并写 pr 号；遇到票里没写清的取舍，先在票里写下你的选择与理由再做，不要停下来等人。
 
