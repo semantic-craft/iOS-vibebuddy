@@ -3,6 +3,10 @@ import Foundation
 /// Stable identities for the evidence that supports a session state. These raw
 /// values are part of the Mac-to-phone wire contract.
 public enum ObservationSource: String, Codable, Sendable, CaseIterable, Comparable {
+    /// The Codex app-server daemon's own JSON-RPC notifications, read over its
+    /// local control socket. Authoritative for Codex when fresh; rollout and
+    /// hook evidence for the same thread then only corroborates.
+    case appserver
     case hook
     case rollout
     case transcript
@@ -16,6 +20,7 @@ public enum ObservationSource: String, Codable, Sendable, CaseIterable, Comparab
 
     public var displayName: String {
         switch self {
+        case .appserver: "App server"
         case .hook: "Hook"
         case .rollout: "Rollout"
         case .transcript: "Transcript"
@@ -61,6 +66,7 @@ public enum ObservationHealth: String, Codable, Sendable, CaseIterable {
             return "Codex ignores asynchronous command hooks in this version."
         case .sourceUnreadable:
             switch source {
+            case .appserver: return "The Codex app-server control socket cannot be reached."
             case .rollout: return "The rollout stream cannot be read."
             case .transcript: return "The transcript cannot be read."
             case .hook: return "The hook configuration cannot be read."

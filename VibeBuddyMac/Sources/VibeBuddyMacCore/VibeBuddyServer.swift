@@ -19,6 +19,9 @@ public struct VibeBuddyServer: Sendable {
     /// Optional local Codex Desktop progress source. Production entry points
     /// inject it; route tests leave it nil so they never consume host state.
     public let codexRolloutMonitor: CodexRolloutMonitor?
+    /// The Codex app-server daemon connection (ADR-0011). Optional so the
+    /// tests and hosts that only exercise routes need not open a socket.
+    public let codexAppServerMonitor: CodexAppServerMonitor?
     public let approvalRegistry: ApprovalRegistry
     /// The native allow/deny rules for one agent — the sources differ per CLI
     /// (Grok also reads its own `config.toml`), so the lookup is agent-keyed.
@@ -43,6 +46,7 @@ public struct VibeBuddyServer: Sendable {
                 deviceTokens: DeviceTokens = DeviceTokens(),
                 activityTokens: ActivityTokens = ActivityTokens(),
                 codexRolloutMonitor: CodexRolloutMonitor? = nil,
+                codexAppServerMonitor: CodexAppServerMonitor? = nil,
                 approvalRegistry: ApprovalRegistry = ApprovalRegistry(),
                 rules: @escaping @Sendable (AgentKind) -> PermissionRules = { PermissionRules.load(for: $0) },
                 allowStore: VibeBuddyAllowStore = VibeBuddyAllowStore(),
@@ -62,6 +66,7 @@ public struct VibeBuddyServer: Sendable {
         self.deviceTokens = deviceTokens
         self.activityTokens = activityTokens
         self.codexRolloutMonitor = codexRolloutMonitor
+        self.codexAppServerMonitor = codexAppServerMonitor
         self.approvalRegistry = approvalRegistry
         self.rules = rules
         self.allowStore = allowStore
@@ -82,15 +87,26 @@ public struct VibeBuddyServer: Sendable {
         let monitorTask = codexRolloutMonitor.map { monitor in
             Task { await monitor.run(store: store) }
         }
+        let appServerTask = codexAppServerMonitor.map { monitor in
+            Task { await monitor.run(store: store) }
+        }
+        defer {
+            monitorTask?.cancel()
+            appServerTask?.cancel()
+        }
         do {
             try await buildApplication().runService()
         } catch {
             monitorTask?.cancel()
+            appServerTask?.cancel()
             await monitorTask?.value
+            await appServerTask?.value
             throw error
         }
         monitorTask?.cancel()
+        appServerTask?.cancel()
         await monitorTask?.value
+        await appServerTask?.value
     }
 
     public func buildApplication() -> some ApplicationProtocol {

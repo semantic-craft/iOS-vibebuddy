@@ -59,19 +59,33 @@ code, and tests — don't drift to synonyms.
   layers consume.
 - **Conversation language** — the language the voice companion speaks (English /
   中文); independent of the **UI language** (English).
+- **Native always-allow** — a phone "Always allow" on a Claude Code approval
+  echoes Claude's own `permission_suggestions` back as `updatedPermissions`, so
+  Claude Code persists the rule where its terminal dialog would; the card shows
+  that rule text (`Bash(npm run lint)`). The vibebuddy allow store only serves
+  agents without such proposals (ADR-0010, amended 2026-09-05).
 - **Approval / Answer** — the two remote actions on a session: approve/deny a
   pending permission, or inject a text answer.
 
 ## Observability (2026-09)
 
 - **ObservationSource / ObservationHealth** — which signal currently backs a
-  session (`hook`, `rollout`, `transcript`, `recovery`) plus its last-seen time
+  session (`appserver`, `hook`, `rollout`, `transcript`, `recovery`) plus its last-seen time
   and a health verdict (healthy / degraded / unsupported / eventsMissing). Never
   guessed from process existence; shown in Mac Settings and on session rows.
   One bounded exception: a ChatGPT.app-bundled `codex app-server` probe (and a
   missing `thread-writer-locks/<id>.lock`) may only *retire* an already-working
   Desktop session when that writer is gone. They must not create a session,
   move one into `working`, or change ObservationHealth.
+- **Codex app-server daemon** — the shared local `codex app-server` process
+  every Codex client attaches to, on `~/.codex/app-server-control/
+  app-server-control.sock`. vibebuddy reads it as ObservationSource
+  `appserver`, the primary Codex source while fresh (ADR-0011); it never
+  starts the daemon or drives a turn from this source.
+- **Thread status** — the daemon's own state for a thread: `notLoaded` (stored
+  only, never surfaced), `idle` (done), `active` (working; with
+  `waitingOnApproval` / `waitingOnUserInput` flags → `needsResponse`), or
+  `systemError` (failed).
 - **Abandoned** — a Desktop session that left `working` for `done` because its
   writer disappeared (Desktop quit/crash, or the thread lock is gone). Carried
   as `summary == "Abandoned"`. Not `failed`: that flag is a real tool-error

@@ -34,7 +34,8 @@ struct VibeBuddyDaemon {
                 journalURL: journalURL
             ),
             token: token, port: port, pusher: pusher,
-            codexRolloutMonitor: CodexRolloutMonitor())
+            codexRolloutMonitor: CodexRolloutMonitor(),
+            codexAppServerMonitor: CodexAppServerMonitor())
         FileHandle.standardError.write(Data(
             "vibebuddyd: listening on 0.0.0.0:\(port) (apns: \(pusher != nil ? "on" : "off"), token: \(tokenSource))\n".utf8))
         try await server.runService()

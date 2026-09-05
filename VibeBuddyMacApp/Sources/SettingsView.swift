@@ -136,6 +136,18 @@ private struct SetupSettings: View {
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            Section {
+                Toggle("Use the Codex app-server daemon", isOn: Binding(
+                    get: { model.codexAppServerEnabled },
+                    set: { model.setCodexAppServerEnabled($0) }))
+                Text(codexAppServerStatus)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } header: { Text("Codex daemon") } footer: {
+                Text("Reads every Codex thread (Desktop, CLI, agents) from the shared local app-server over its unix control socket, read-only. When off or unavailable, the rollout stream and hooks cover Codex as before.")
+                    .font(.caption)
+            }
+
             if !setup.lastOutput.isEmpty {
                 ScrollView {
                     Text(setup.lastOutput)
@@ -153,6 +165,22 @@ private struct SetupSettings: View {
         // "Observation health" section sat above the top edge, unreachable.
         .formStyle(.grouped)
         .onAppear { setup.refresh() }
+    }
+
+    private var codexAppServerStatus: String {
+        let d = model.codexAppServerDiagnostics
+        guard d.enabled else { return "Off — Codex is observed from the rollout stream and hooks." }
+        if d.connected {
+            var text = "Connected"
+            if let agent = d.serverUserAgent { text += " · \(agent.split(separator: " (").first.map(String.init) ?? agent)" }
+            text += " · \(d.subscribedThreads) thread\(d.subscribedThreads == 1 ? "" : "s") subscribed"
+            if !d.serverRequestsSeen.isEmpty {
+                text += " · approval requests seen: \(Set(d.serverRequestsSeen).sorted().joined(separator: ", "))"
+            }
+            return text
+        }
+        if let error = d.lastError { return "Not connected — \(error)" }
+        return "Waiting for the daemon (start Codex Desktop or the CLI)."
     }
 
     @ViewBuilder

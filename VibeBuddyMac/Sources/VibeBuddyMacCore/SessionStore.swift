@@ -132,12 +132,52 @@ public actor SessionStore {
         ingest(event, observationSource: inferredSource, recordsEvidence: recordsEvidence)
     }
 
+    /// How recently the app-server daemon must have reported a Codex thread for
+    /// its evidence to outrank the rollout tailer and hooks on that thread.
+    public static let appServerAuthorityWindow: TimeInterval = 5 * 60
+
+    /// Record a source's liveness without any session event — the app-server
+    /// monitor's connection state, for the Settings diagnostics.
+    public func recordSourceSignal(agent: AgentKind, source: ObservationSource,
+                                   health: ObservationHealth, at date: Date) {
+        recordSignal(agent: agent, source: source, at: date, health: health, coverage: nil)
+        broadcast()
+    }
+
+    /// While the app-server daemon is reporting a Codex thread itself, a
+    /// rollout or hook event for the same thread may only corroborate: it is
+    /// recorded as evidence (and still enriches token facts) but does not move
+    /// the three-state progress, so two sources never fight over one row.
+    /// `sessionEnd` still passes — a CLI exit is a fact the daemon lacks.
+    private func appServerOutranks(_ event: HookEvent, from source: ObservationSource) -> Bool {
+        guard event.agent == .codex, source != .appserver, event.kind != .sessionEnd,
+              let session = reducer.sessions[event.sessionID],
+              let fresh = session.observations?.first(where: { $0.source == .appserver }),
+              fresh.health.isHealthy,
+              event.timestamp.timeIntervalSince(fresh.lastObservedAt) < Self.appServerAuthorityWindow
+        else { return false }
+        return true
+    }
+
     private func ingest(
         _ event: HookEvent,
         observationSource: ObservationSource,
         recordsEvidence: Bool = true,
         announcesWait: Bool = true
     ) {
+        if appServerOutranks(event, from: observationSource) {
+            if let enrichment = event.enrichment {
+                reducer.enrich(sessionID: event.sessionID, with: enrichment)
+            }
+            if recordsEvidence {
+                reducer.recordObservation(sessionID: event.sessionID, source: observationSource,
+                                          at: event.timestamp, health: .healthy)
+                recordSignal(agent: event.agent, source: observationSource, at: event.timestamp,
+                             health: .healthy, coverage: Self.coverage(for: event.kind))
+            }
+            broadcast()
+            return
+        }
         let wasWaiting = reducer.sessions[event.sessionID]?.status == .needsResponse
         if let path = event.transcriptPath { transcriptPaths[event.sessionID] = path }
         reducer.apply(event, observationSource: observationSource, recordsEvidence: recordsEvidence)

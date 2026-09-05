@@ -26,6 +26,11 @@ struct PairedPhone: Codable, Equatable {
 final class MenuBarModel: ObservableObject {
     @Published private(set) var sessions: [AgentSession] = []
     @Published private(set) var observationDiagnostics: [AgentObservationDiagnostic] = []
+    /// The Codex app-server daemon connection (ADR-0011): on by default, and
+    /// the rollout tailer + hooks keep covering Codex whenever it is off or
+    /// the daemon is not running.
+    @Published var codexAppServerEnabled: Bool = true
+    @Published private(set) var codexAppServerDiagnostics = CodexAppServerMonitor.Diagnostics()
     @Published private(set) var lifecycleTimeline: [LifecycleJournalEntry] = []
     @Published private(set) var lifecycleJournalClearFailed = false
     @Published private(set) var notificationDeliveryHealth = NotificationDeliveryHealth()
@@ -58,6 +63,8 @@ final class MenuBarModel: ObservableObject {
     private let allowStore = VibeBuddyAllowStore()
     private let sessionAllow = SessionAllowList()
     private let approvalContext = ApprovalContextStore()
+    private let codexAppServerMonitor: CodexAppServerMonitor
+    static let codexAppServerEnabledKey = "codexAppServerEnabled"
     // Live Activity push tokens + the last content we pushed, so we only push on change.
     private let activityTokens = ActivityTokens()
     private var lastActivityKey: String?
@@ -105,6 +112,9 @@ final class MenuBarModel: ObservableObject {
         // Snap to one of the 3 presets so the menu Picker selection always matches.
         glanceScale = [0.8, 1.0, 1.2].min(by: { abs($0 - base) < abs($1 - base) }) ?? 1.0
         showGlance = UserDefaults.standard.bool(forKey: "showGlance", default: true)
+        let appServerOn = UserDefaults.standard.bool(forKey: Self.codexAppServerEnabledKey, default: true)
+        codexAppServerEnabled = appServerOn
+        codexAppServerMonitor = CodexAppServerMonitor(enabled: appServerOn)
         openDashboardHotkey = Hotkey.loadOpenDashboard()
         toggleGlanceHotkey = Hotkey.loadToggleGlance()
         usage = AccountUsageCoordinator(store: store, notifier: notifier)
@@ -183,6 +193,7 @@ final class MenuBarModel: ObservableObject {
                                      pusher: nil, deviceTokens: deviceTokens,
                                      activityTokens: activityTokens,
                                      codexRolloutMonitor: CodexRolloutMonitor(),
+                                     codexAppServerMonitor: codexAppServerMonitor,
                                      approvalRegistry: approvalRegistry,
                                      allowStore: allowStore,
                                      sessionAllow: sessionAllow,
@@ -218,6 +229,7 @@ final class MenuBarModel: ObservableObject {
                 let snapshot = await self.store.snapshot(now: Date())
                 self.sessions = snapshot.sessions
                 self.observationDiagnostics = snapshot.observationDiagnostics ?? []
+                self.codexAppServerDiagnostics = await self.codexAppServerMonitor.diagnostics()
                 self.lifecycleTimeline = await self.store.recentLifecycle()
                 self.buddySessionIDs = BuddyScope.pruned(self.buddySessionIDs, toLive: snapshot.sessions)
                 // Precise suppression: a finishing session stays silent when *its
@@ -252,6 +264,12 @@ final class MenuBarModel: ObservableObject {
         await deliveryRecorder.updateAPNsConfigured(pusher != nil)
         notificationDeliveryHealth = await deliveryRecorder.health()
         recentNotificationDeliveries = await deliveryRecorder.recent(limit: 8)
+    }
+
+    func setCodexAppServerEnabled(_ on: Bool) {
+        codexAppServerEnabled = on
+        UserDefaults.standard.set(on, forKey: Self.codexAppServerEnabledKey)
+        Task { [codexAppServerMonitor] in await codexAppServerMonitor.setEnabled(on) }
     }
 
     func clearLifecycleJournal() {
