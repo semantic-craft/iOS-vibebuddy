@@ -185,6 +185,7 @@ private struct MacBuddyBar: View {
     @ObservedObject var model: MenuBarModel
     @ObservedObject var voice: VoiceChat
     @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
+    @State private var greet = 0
 
     /// The buddy header reads "off" until the companion is opted in; otherwise the
     /// live Listening/Speaking/idle status.
@@ -203,8 +204,8 @@ private struct MacBuddyBar: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            PetFace(state: model.buddyState, speaking: voice.isSpeaking, listening: voice.isListening)
-                .onTapGesture { voice.toggle() }
+            PetFace(state: model.buddyState, voice: .init(voice.phase), greet: greet)
+                .onTapGesture { greet += 1; voice.toggle() }
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 6) {
                     if !companionEnabled {

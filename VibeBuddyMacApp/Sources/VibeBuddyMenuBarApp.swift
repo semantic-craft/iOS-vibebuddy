@@ -125,10 +125,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 /// The cat-head menu-bar mark. A SwiftUI `Canvas` doesn't render reliably in a
-/// `MenuBarExtra` label, so the head is drawn once into a **template** `NSImage`
-/// (eyes punched out with `destinationOut`); the system then tints it for
-/// light/dark menu bars and selection — the same cat identity as the pet and the
-/// app icon (ADR-0007, amended: cat on both platforms).
+/// `MenuBarExtra` label, so the head is rendered once into a **template**
+/// `NSImage` from the same `BuddyCatFace` geometry as the pet (monochrome: one
+/// colour, eyes punched to transparent); the system then tints it for
+/// light/dark menu bars and selection — the same cat as the pet and the app
+/// icon (ADR-0007, second amendment).
 struct CatHeadIcon: View {
     var body: some View {
         Image(nsImage: MenuBarGlyph.cat)
@@ -138,41 +139,15 @@ struct CatHeadIcon: View {
 }
 
 enum MenuBarGlyph {
-    static let cat: NSImage = {
-        let s: CGFloat = 18
-        let img = NSImage(size: NSSize(width: s, height: s), flipped: true) { rect in
-            let w = rect.width, h = rect.height
-            // y grows downward (flipped): ears on top, rounded head below.
-            let solid = NSBezierPath()
-            // Triangular ears.
-            let leftEar = NSBezierPath()
-            leftEar.move(to: NSPoint(x: 0.22 * w, y: 0.40 * h))
-            leftEar.line(to: NSPoint(x: 0.30 * w, y: 0.04 * h))
-            leftEar.line(to: NSPoint(x: 0.50 * w, y: 0.36 * h))
-            leftEar.close()
-            let rightEar = NSBezierPath()
-            rightEar.move(to: NSPoint(x: 0.78 * w, y: 0.40 * h))
-            rightEar.line(to: NSPoint(x: 0.70 * w, y: 0.04 * h))
-            rightEar.line(to: NSPoint(x: 0.50 * w, y: 0.36 * h))
-            rightEar.close()
-            solid.append(leftEar)
-            solid.append(rightEar)
-            // Rounded head.
-            solid.append(NSBezierPath(roundedRect: NSRect(x: 0.17 * w, y: 0.32 * h, width: 0.66 * w, height: 0.62 * h),
-                                      xRadius: 0.22 * w, yRadius: 0.22 * w))
-            NSColor.black.setFill()
-            solid.fill()
-            // Punch out the two eyes so the system tint shows through cleanly.
-            NSGraphicsContext.current?.compositingOperation = .destinationOut
-            let eyes = NSBezierPath()
-            let r: CGFloat = 0.085 * w
-            for ex in [0.38, 0.62] as [CGFloat] {
-                eyes.appendOval(in: NSRect(x: ex * w - r, y: 0.62 * h - r, width: r * 2, height: r * 2))
-            }
-            eyes.fill()
-            NSGraphicsContext.current?.compositingOperation = .sourceOver
-            return true
-        }
+    @MainActor static let cat: NSImage = {
+        let side: CGFloat = 18
+        let renderer = ImageRenderer(content:
+            BuddyCatFace(mood: .calm, showsBody: false, monochrome: true)
+                .frame(width: side, height: BuddyCat.height(forWidth: side, showsBody: false))
+                .frame(width: side, height: side))
+        renderer.scale = 2
+        let img = renderer.nsImage ?? NSImage(size: NSSize(width: side, height: side))
+        img.size = NSSize(width: side, height: side)
         img.isTemplate = true
         return img
     }()
