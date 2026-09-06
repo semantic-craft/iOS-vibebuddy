@@ -1,6 +1,6 @@
 {
- "generatedAt": "2026-09-06T12:01+08:00",
- "main": "ca3cde6",
+ "generatedAt": "2026-09-06T12:10+08:00",
+ "main": "99f3a06",
  "howToUse": "正本是 docs/planning/roadmap-2026-09.html；本文件由 tools/export-roadmap.js 导出，不要手改。status 是快照，以仓库事实为准：agent 节点 done = PR 已合并（描述第一行为节点 id）或票 Status done；pr-open = 有开放 PR（pr 字段）；in-progress = 有会话或未提交改动在做；可派 = deps 全 done 且自身非 done/in-progress/pr-open 且 owner A；并发上限 4；优先级 S > A > M > 其余 1.2 > 1.3。票的 Status 只用仓库规定的标签与 done；工作流状态只写 HTML（kind 与标题前缀）。每轮先 git fetch origin 再判断。合并顺序：#57 → #56 → #55（三者都改 Kit 通知类型与 Mac Settings / MenuBarModel，每合一个让下一个合 main）→ #59（Companion 三端，与 #56 的 iPhone 卡片、#55 的 Mac 设置页相碰）→ #62（W-1..3 草稿，先验证）。主工作区 ~/Projects/iOS-vibebuddy 的 main 上仍有 W-1..3 的未提交原件：不 reset、不在主工作区开发。codex/notification-dedup worktree 已被 #54 取代，删除不开 PR。",
  "vision": {
   "Q1": "面向 App Store 公众，你是第一用户",
@@ -191,13 +191,13 @@
   {
    "session": "协调会话（coord-log）",
    "state": "已交接 Codex 总控（11:37）",
-   "output": "Codex 已 fetch 核对；#57 合并 ca3cde6；A-05 子代理自 12:00 在 codex/a-05-review 修复，统一验证由总控执行；M-02 有 cursor-grok 执行登记，暂不重复派",
+   "output": "Codex 已 fetch 核对；#57 ca3cde6、#56 99f3a06 已合；A-08 子代理自 12:09 在 codex/a-08-review 修复，统一构建由总控执行；M-02 有 cursor-grok 执行登记，暂不重复派",
    "whenDone": "每轮先 fetch；第一波串行 #57 → #56 → #55，再整合 #62",
    "nodes": "COORD"
   },
   {
    "session": "A-05 / A-06 / A-08 执行会话",
-   "state": "Codex：#57 已合；#56 修六条评审与五处冲突；#55 排队",
+   "state": "Codex：#57、#56 已合；#55 自 12:09 修四条评审并验证",
    "output": "#56（6 条，已冲突）#57（3 条）#55（4 条），各自测试通过",
    "whenDone": "Codex 接手：#57 已合，接着 #56 → #55；iOS 测试用已通过的 iOS 26.2 模拟器",
    "nodes": "A-05 A-06 A-08"
@@ -478,10 +478,10 @@
   {
    "id": "A-05",
    "lane": "A",
-   "title": "PR #56 待评审合并：Time Sensitive + 可操作横幅",
+   "title": "已合并 #56：Time Sensitive + 可操作横幅",
    "version": "1.2",
    "owner": "A",
-   "status": "pr-open",
+   "status": "done",
    "pr": 56,
    "deps": [],
    "ticket": ".scratch/notification-categories/issues/05-time-sensitive-and-actionable-banners.md",
@@ -498,7 +498,7 @@
     "verify": "Kit / MacCore 测试；iOS 与 Mac 构建。",
     "skills": "implement、tdd、code-review"
    },
-   "prompt": "你在 iOS-vibebuddy 仓库工作（~/Projects/iOS-vibebuddy）。任务：A-05 PR #56 待评审合并：Time Sensitive + 可操作横幅。\n票 / 位置：.scratch/notification-categories/issues/05-time-sensitive-and-actionable-banners.md\n\n先按顺序读：AGENTS.md → CONTEXT.md → docs/planning/vision-2026-09.md（本任务服务的决策：Q18 横幅 Approve / Deny，提问文本作答；Q23 审批与提问 Time Sensitive；Q4 一周零漏接）→ 上面的票及其引用的 PRD / ADR。已读且未变化的内容不用重复读。\n\n规格（以票为准，这里是摘要）：\n  目标：审批横幅 Approve（需解锁）/ Deny，提问横幅文本作答；审批与提问 Time Sensitive；Mac 横幅同样；APNs 带 category。\n  范围：Kit 类别 id、iOS UNNotificationCategory 与 didReceive、Mac 类别与 action、APNs payload、entitlement、Demo 样本。\n  不做：Always allow 不上横幅；Watch 不写代码（镜像自动继承）。\n  验收：票 05 全部勾选；Demo 模式横幅带按钮；payload 测试覆盖 category 与 interruption-level。\n  验证：Kit / MacCore 测试；iOS 与 Mac 构建。\n  建议技能：implement、tdd、code-review（技能在 .agents/skills/，按其触发条件用；grill-with-docs 只在票里仍有未决取舍时用，问完立刻把结论写回票）\n\n任务正文：\n实现票 05。Kit：共享通知类别 id（approval、question）与 action id；SoundAlert 暴露 isTimeSensitive（bannerSound × approval/question × 非 muted）。iPhone：启动注册 UNNotificationCategory，approval = Approve（.authenticationRequired）+ Deny（.destructive），question = UNTextInputNotificationAction；Notifier.post 设 categoryIdentifier、interruptionLevel、userInfo（sessionId、approval id）；AppDelegate.didReceive 处理三个 action，经 DecisionClient.decide / .answer，404/409 时改为打开会话。Mac：同样注册类别，action 走进程内 decide / answer。APNs：payload 加 category、interruption-level、approval id，补测试。xcodegen 加 time-sensitive entitlement 并记入 docs/app-store-submission-checklist.md。Demo 样本横幅带按钮。\n\n分支与工作区：从 origin/main 新建分支 codex/a-05-<slug>（若票或 PR 已指定分支则用它），worktree 放 .scratch/worktrees/<slug>（gitignore；不要在主工作区 ~/Projects/iOS-vibebuddy 改代码）；不要 rebase 到本地 main；不要用 bare git stash（栈是共享的）；main 只接受 PR。若依赖的 PR 尚未合并，把工作叠在那个 PR 分支上并在 PR 描述里说明。\n\n票据回写：领票时不改票的 Status（只用仓库规定的标签：needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix，以及既有的收口词 done），在票里加一行「**Executor:** <你> · 分支 <名> · <时间>」；完成时把 Status 改为 ready-for-human（需要真机）或 done（纯代码且已验证），附证据；不要把「代码完成」写成 done。新票按 docs/agents/issue-tracker.md 的格式建在票路径所示位置。\n\n验证（至少跑改动覆盖到的部分，把命令与结果数字写进 PR）：\n  cd VibeBuddyKit && swift test\n  cd VibeBuddyMac && swift test\n  cd VibeBuddyApp && xcodegen generate && xcodebuild -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build\n  cd VibeBuddyApp && xcodebuild test -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:VibeBuddyAppTests CODE_SIGNING_ALLOWED=NO\n  cd VibeBuddyMacApp && xcodegen generate && xcodebuild -project VibeBuddyMacApp.xcodeproj -scheme VibeBuddyMacApp -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build\n不要给 iOS scheme 传 -sdk iphonesimulator（会把 Watch 目标编到 iOS SDK，产生假错误）。\n\n边界：不部署、不发布、不改已安装的 App、不碰端口 9876 上正在运行的守护进程、不动真机、不改 ~/.claude 全局配置、不读取或打印任何密钥；这些只有用户能做。\n\nPR：标题用 Conventional Commits；描述分 Summary / Validation / Not verified here；不加署名行。main 的规则要求每条评审线程（含 Codex 机器人的 P1 / P2）先修复或答复后解决才能合并；合并由协调会话或用户执行。收尾回复里给出 PR 链接、跑过的验证与留给真机的项，并把本图的节点 id（A-05）写在 PR 描述第一行，方便协调会话对账。"
+   "prompt": "你在 iOS-vibebuddy 仓库工作（~/Projects/iOS-vibebuddy）。任务：A-05 已合并 #56：Time Sensitive + 可操作横幅。\n票 / 位置：.scratch/notification-categories/issues/05-time-sensitive-and-actionable-banners.md\n\n先按顺序读：AGENTS.md → CONTEXT.md → docs/planning/vision-2026-09.md（本任务服务的决策：Q18 横幅 Approve / Deny，提问文本作答；Q23 审批与提问 Time Sensitive；Q4 一周零漏接）→ 上面的票及其引用的 PRD / ADR。已读且未变化的内容不用重复读。\n\n规格（以票为准，这里是摘要）：\n  目标：审批横幅 Approve（需解锁）/ Deny，提问横幅文本作答；审批与提问 Time Sensitive；Mac 横幅同样；APNs 带 category。\n  范围：Kit 类别 id、iOS UNNotificationCategory 与 didReceive、Mac 类别与 action、APNs payload、entitlement、Demo 样本。\n  不做：Always allow 不上横幅；Watch 不写代码（镜像自动继承）。\n  验收：票 05 全部勾选；Demo 模式横幅带按钮；payload 测试覆盖 category 与 interruption-level。\n  验证：Kit / MacCore 测试；iOS 与 Mac 构建。\n  建议技能：implement、tdd、code-review（技能在 .agents/skills/，按其触发条件用；grill-with-docs 只在票里仍有未决取舍时用，问完立刻把结论写回票）\n\n任务正文：\n实现票 05。Kit：共享通知类别 id（approval、question）与 action id；SoundAlert 暴露 isTimeSensitive（bannerSound × approval/question × 非 muted）。iPhone：启动注册 UNNotificationCategory，approval = Approve（.authenticationRequired）+ Deny（.destructive），question = UNTextInputNotificationAction；Notifier.post 设 categoryIdentifier、interruptionLevel、userInfo（sessionId、approval id）；AppDelegate.didReceive 处理三个 action，经 DecisionClient.decide / .answer，404/409 时改为打开会话。Mac：同样注册类别，action 走进程内 decide / answer。APNs：payload 加 category、interruption-level、approval id，补测试。xcodegen 加 time-sensitive entitlement 并记入 docs/app-store-submission-checklist.md。Demo 样本横幅带按钮。\n\n分支与工作区：从 origin/main 新建分支 codex/a-05-<slug>（若票或 PR 已指定分支则用它），worktree 放 .scratch/worktrees/<slug>（gitignore；不要在主工作区 ~/Projects/iOS-vibebuddy 改代码）；不要 rebase 到本地 main；不要用 bare git stash（栈是共享的）；main 只接受 PR。若依赖的 PR 尚未合并，把工作叠在那个 PR 分支上并在 PR 描述里说明。\n\n票据回写：领票时不改票的 Status（只用仓库规定的标签：needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix，以及既有的收口词 done），在票里加一行「**Executor:** <你> · 分支 <名> · <时间>」；完成时把 Status 改为 ready-for-human（需要真机）或 done（纯代码且已验证），附证据；不要把「代码完成」写成 done。新票按 docs/agents/issue-tracker.md 的格式建在票路径所示位置。\n\n验证（至少跑改动覆盖到的部分，把命令与结果数字写进 PR）：\n  cd VibeBuddyKit && swift test\n  cd VibeBuddyMac && swift test\n  cd VibeBuddyApp && xcodegen generate && xcodebuild -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build\n  cd VibeBuddyApp && xcodebuild test -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:VibeBuddyAppTests CODE_SIGNING_ALLOWED=NO\n  cd VibeBuddyMacApp && xcodegen generate && xcodebuild -project VibeBuddyMacApp.xcodeproj -scheme VibeBuddyMacApp -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build\n不要给 iOS scheme 传 -sdk iphonesimulator（会把 Watch 目标编到 iOS SDK，产生假错误）。\n\n边界：不部署、不发布、不改已安装的 App、不碰端口 9876 上正在运行的守护进程、不动真机、不改 ~/.claude 全局配置、不读取或打印任何密钥；这些只有用户能做。\n\nPR：标题用 Conventional Commits；描述分 Summary / Validation / Not verified here；不加署名行。main 的规则要求每条评审线程（含 Codex 机器人的 P1 / P2）先修复或答复后解决才能合并；合并由协调会话或用户执行。收尾回复里给出 PR 链接、跑过的验证与留给真机的项，并把本图的节点 id（A-05）写在 PR 描述第一行，方便协调会话对账。"
   },
   {
    "id": "A-06",

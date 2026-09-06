@@ -99,6 +99,16 @@ public actor SessionStore {
             }
         }
         let before = reducer.sessions
+        // Reconciliation may discover an answer that happened before the
+        // deadline even though this sweep runs later. Preserve its event time.
+        for (id, answeredAt) in lastActivity.sorted(by: { $0.value < $1.value }) {
+            if let session = before[id], session.status == .needsResponse,
+               answeredAt > session.statusSince,
+               answeredAt < session.statusSince.addingTimeInterval(MissedLedger.waitTimeout) {
+                missedLedger.acknowledge(sessionID: id, now: answeredAt)
+            }
+        }
+        evaluateMissed(now: now)
         reducer.reconcile(now: now, lastActivity: lastActivity, staleAfter: staleAfter)
         let removed = Set(before.keys).subtracting(reducer.sessions.keys)
         for id in removed {
@@ -374,6 +384,7 @@ public actor SessionStore {
     }
 
     public func endApproval(sessionID: String, at: Date) {
+        cancelMissedWait(sessionID: sessionID, now: at)
         reducer.clearPendingApproval(sessionID: sessionID, at: at)
         if let session = reducer.sessions[sessionID] {
             appendJournal(sessionID: sessionID, agent: session.agent,
@@ -406,6 +417,7 @@ public actor SessionStore {
     }
 
     public func endQuestion(sessionID: String, at: Date) {
+        cancelMissedWait(sessionID: sessionID, now: at)
         reducer.clearPendingQuestion(sessionID: sessionID, at: at)
         if let session = reducer.sessions[sessionID] {
             appendJournal(sessionID: sessionID, agent: session.agent,

@@ -80,6 +80,8 @@ struct MissedLedger {
     }
 
     mutating func observe(_ sessions: [AgentSession], now: Date) {
+        // Account for elapsed waits before a new snapshot removes them.
+        flush(now: now)
         var live = Set<WaitKey>()
         for session in sessions where session.status == .needsResponse {
             let key = WaitKey(sessionID: session.id, statusSince: session.statusSince)
@@ -92,6 +94,7 @@ struct MissedLedger {
     }
 
     mutating func acknowledge(sessionID: String, now: Date) {
+        flush(now: now)
         let keys = pending.keys.filter { $0.sessionID == sessionID }
         guard !keys.isEmpty else { return }
         for key in keys {
@@ -102,9 +105,10 @@ struct MissedLedger {
         persistBestEffort()
     }
 
-    func counts(weekContaining date: Date, now: Date, calendar: Calendar = .current) -> MissedCounts {
+    mutating func counts(weekContaining date: Date, now: Date, calendar: Calendar = .current) -> MissedCounts {
+        prune(now: now)
         let start = Self.weekStart(containing: date, calendar: calendar)
-        let end = start.addingTimeInterval(7 * 24 * 60 * 60)
+        let end = calendar.date(byAdding: .weekOfYear, value: 1, to: start)!
         let inWeek = entries.filter { $0.missedAt >= start && $0.missedAt < end }
         var byAgent: [String: Int] = [:]
         for entry in inWeek { byAgent[entry.agent.rawValue, default: 0] += 1 }
@@ -147,15 +151,24 @@ struct MissedLedger {
                 agent: wait.agent,
                 waitKind: wait.waitKind,
                 statusSince: key.statusSince,
-                missedAt: now
+                missedAt: key.statusSince.addingTimeInterval(Self.waitTimeout)
             ))
             pending[key] = nil
             wrote = true
         }
-        if wrote {
-            entries = Self.pruned(entries, now: now)
-            persistBestEffort()
-        }
+        let pruned = prune(now: now, persist: false)
+        if wrote || pruned { persistBestEffort() }
+    }
+
+    @discardableResult
+    private mutating func prune(now: Date, persist: Bool = true) -> Bool {
+        let keptEntries = Self.pruned(entries, now: now)
+        let keptResolved = Set(Self.prunedResolved(Array(resolved), now: now))
+        let changed = keptEntries.count != entries.count || keptResolved != resolved
+        entries = keptEntries
+        resolved = keptResolved
+        if changed && persist { persistBestEffort() }
+        return changed
     }
 
     private func recorded(_ key: WaitKey) -> Bool {
