@@ -201,38 +201,83 @@ private struct SetupSettings: View {
             ? ObservationHealthDetector.codexHookConfigurationIssue(
                 home: FileManager.default.homeDirectoryForCurrentUser, hook: source, now: Date()) : nil
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: source.health.isHealthy && issue == nil
-                  ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                .foregroundStyle(source.health.isHealthy && issue == nil ? .green : .orange)
+            Image(systemName: issue != nil ? "exclamationmark.triangle.fill" : source.diagnosticIcon)
+                .foregroundStyle(issue != nil ? .orange : source.diagnosticColor)
                 .frame(width: 16)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 5) {
                     Text(source.source.displayName).fontWeight(.semibold)
-                    Text("· \(issue?.displayName ?? source.health.displayName)")
+                    Text("· \(issue?.displayName ?? source.diagnosticTitle)")
                         .foregroundStyle(.secondary)
                 }
-                Text(issue?.explanation ?? source.health.explanation(for: source.source))
+                Text(issue?.explanation ?? source.diagnosticExplanation)
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 if let last = source.lastObservedAt {
                     Text("Last signal \(last, style: .relative)")
                         .font(.caption2).foregroundStyle(.tertiary)
                 }
-                if !source.configuredCoverage.isEmpty || !source.observedCoverage.isEmpty {
-                    let configured = source.configuredCoverageDescription
+                Group {
+                    let configured = source.source == .hook ? source.configuredCoverageDescription : "not applicable"
                     let observed = source.observedCoverageDescription
-                    Text("Coverage: configured \(configured.isEmpty ? "none" : configured); observed \(observed.isEmpty ? "none" : observed)")
+                    Text("Coverage: configured \(configured.isEmpty ? "none" : configured); received this launch \(observed.isEmpty ? "none" : observed)")
                         .font(.caption2).foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                if source.source == .statusline, source.reasonCode == "optionalSourceNotConfigured" {
+                    Button("Enable status line information") { setup.enableStatusLine() }
+                        .disabled(setup.running)
+                        .help("Preserves your current status line and its backup.")
+                }
             }
             Spacer(minLength: 8)
-            if source.source == .hook, issue == nil, source.health.needsHookRepair {
+            if source.source == .hook, issue == nil, source.canRepairConfiguration {
                 Button("Repair") { setup.repair(agent) }
                     .disabled(setup.running)
                     .help("Runs the bundled idempotent installer and preserves your other hooks.")
             }
         }
+    }
+}
+
+private extension ObservationSourceDiagnostic {
+    var isInformational: Bool {
+        health == .temporarilySilent || reasonCode == "optionalSourceNotConfigured"
+    }
+    var diagnosticIcon: String {
+        health.isHealthy ? "checkmark.circle.fill"
+            : isInformational ? "info.circle" : "exclamationmark.triangle.fill"
+    }
+    var diagnosticColor: Color { health.isHealthy ? .green : isInformational ? .gray : .orange }
+    var diagnosticTitle: String {
+        switch reasonCode {
+        case "awaitingActivity": source == .hook ? "Configured, awaiting first activity" : "Awaiting activity"
+        case "configurationIncomplete": "Configuration incomplete"
+        case "optionalSourceNotConfigured": "Status line information not enabled"
+        default: health == .temporarilySilent ? "No recent activity" : health.displayName
+        }
+    }
+    var diagnosticExplanation: String {
+        switch reasonCode {
+        case "awaitingActivity":
+            return source == .transcript
+                ? "No transcript has been read since this launch. Transcript reading starts when a Hook reports session activity."
+                : "Configured; no signal received since this launch. A new task can verify this source."
+        case "configurationIncomplete":
+            let missing = ObservationEventCoverage.allCases.filter { !configuredCoverage.contains($0) }
+                .map(\.displayName).joined(separator: ", ")
+            return "Missing hook configuration: \(missing). Configured coverage is separate from events received this launch."
+        case "optionalSourceNotConfigured":
+            return "Optional Claude status line information is not enabled. Hook and Transcript monitoring can continue."
+        default:
+            if source == .statusline, health == .sourceUnreadable {
+                return "Claude's status line configuration cannot be read."
+            }
+            return health.explanation(for: source)
+        }
+    }
+    var canRepairConfiguration: Bool {
+        reasonCode == "configurationIncomplete" || health == .asyncIncompatible
     }
 }
 
@@ -264,15 +309,6 @@ private extension LifecycleJournalEntry {
         case "questionResolved": return "Question resolved"
         case "sessionReconciled": return "Session reconciled"
         default: return "Lifecycle changed"
-        }
-    }
-}
-
-private extension ObservationHealth {
-    var needsHookRepair: Bool {
-        switch self {
-        case .eventsMissing, .asyncIncompatible, .sourceUnreadable, .unknownVersion: true
-        case .healthy, .temporarilySilent, .notInstalled: false
         }
     }
 }

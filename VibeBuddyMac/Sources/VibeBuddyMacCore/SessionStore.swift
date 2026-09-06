@@ -711,6 +711,7 @@ public actor SessionStore {
         var row = cache.value[agentIndex].sources[sourceIndex]
         guard row.health == .healthy || row.health == .temporarilySilent else { return false }
 
+        if row.reasonCode == "awaitingActivity" { row.reasonCode = nil }
         row.lastObservedAt = max(row.lastObservedAt ?? signal.lastObservedAt,
                                  signal.lastObservedAt)
         row.observedCoverage = Array(

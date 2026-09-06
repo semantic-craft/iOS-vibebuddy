@@ -35,6 +35,10 @@ final class HookSetup: ObservableObject {
         }
     }
 
+    func enableStatusLine() {
+        run("--statusline", scriptName: "install-claude-hooks.py")
+    }
+
     /// Locate the installer bundled at `Contents/Resources/hooks/`.
     private static func scriptURL(named name: String) -> URL? {
         Bundle.main.resourceURL?.appendingPathComponent("hooks/\(name)")

@@ -152,6 +152,15 @@ struct GrokSessionStoreTests {
     func teardownDoesNotReportAnUnknownVersion() async throws {
         let fixture = try populated()
         defer { fixture.cleanUp() }
+        // Test event recognition with a complete installed configuration; absent
+        // hook files are an independent configuration error in OH-1.
+        let hookConfig = fixture.home.appendingPathComponent("hooks/vibebuddy.json")
+        try FileManager.default.createDirectory(at: hookConfig.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let groups = Dictionary(uniqueKeysWithValues:
+            ["SessionStart", "UserPromptSubmit", "PostToolUse", "Notification"].map {
+                ($0, [["hooks": [["command": "/app/vibebuddy-forward.sh grok"]]]])
+            })
+        try JSONSerialization.data(withJSONObject: ["hooks": groups]).write(to: hookConfig)
         // Diagnostics age against wall-clock time, so this one runs on it.
         let now = Date()
         let store = SessionStore(diagnosticsHome: fixture.home, grokHome: fixture.home)

@@ -81,9 +81,15 @@ struct ObservationHealthDetectorTests {
                     hook: detect(home: home, signals: [stale]).diagnostic(agent: .codex, source: .hook),
                     now: now) == .hooksFeatureDisabled)
             }
+            // A fresh signal overrides the feature flag when the hook configuration
+            // is complete. A genuinely missing file is still actionable in OH-1.
+            let hooksURL = home.appendingPathComponent(".codex/hooks.json")
+            try write(grokHooks(["SessionStart", "UserPromptSubmit", "PostToolUse", "Notification"])
+                .replacingOccurrences(of: "forward.sh grok", with: "forward.sh codex"), to: hooksURL)
             #expect(ObservationHealthDetector.codexHookConfigurationIssue(home: home,
                 hook: detect(home: home, signals: [fresh]).diagnostic(agent: .codex, source: .hook),
                 now: now) == nil)
+            try FileManager.default.removeItem(at: hooksURL)
             #expect(try String(contentsOf: config, encoding: .utf8) == fixture.config)
         }
         try write("[features]\nhooks = false\n", to: config)

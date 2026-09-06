@@ -136,6 +136,33 @@ def check_grok_home(fails):
             fails.append("uninstall left vibebuddy.json under $GROK_HOME")
 
 
+def check_statusline_only(fails):
+    """The explicit optional-source action never edits hooks or their approval gates."""
+    with tempfile.TemporaryDirectory() as home:
+        settings = os.path.join(home, ".claude/settings.json")
+        os.makedirs(os.path.dirname(settings))
+        original = {"hooks": {"PermissionRequest": [{"hooks": [{"command": "user gate"}]}]},
+                    "statusLine": {"type": "command", "command": "echo existing", "padding": 2}}
+        with open(settings, "w") as f:
+            json.dump(original, f)
+        env = {"HOME": home, "PATH": "/usr/bin:/bin",
+               "VIBEBUDDY_SUPPORT_DIR": os.path.join(home, "support")}
+        previous = None
+        for _ in range(2):
+            result = subprocess.run([sys.executable, os.path.join(HOOKS, "install-claude-hooks.py"),
+                                     "--statusline"], env=env, capture_output=True, text=True)
+            current = open(settings).read()
+            if result.returncode or json.loads(current)["hooks"] != original["hooks"]:
+                fails.append("statusline-only action failed or changed hooks")
+            if previous is not None and current != previous:
+                fails.append("statusline-only action is not idempotent")
+            previous = current
+            if json.load(open(settings + ".vibebuddy-backup")) != original:
+                fails.append("statusline-only action changed its settings backup")
+            if json.load(open(os.path.join(home, "support/statusline-original.json")))["statusLine"] != original["statusLine"]:
+                fails.append("statusline-only action changed original status line")
+
+
 def check_claude_statusline_wrapper(fails):
     """--install wraps the user's status line (keeping its other fields and
     saving the original command for the wrapper to run), --uninstall restores
@@ -524,6 +551,7 @@ def main():
     check_claude_legacy_gate_migration(fails)
     check_claude_old_cli_keeps_legacy_gate(fails)
     check_claude_statusline_wrapper(fails)
+    check_statusline_only(fails)
 
     if fails:
         print("FAIL:")
