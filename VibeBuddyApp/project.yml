@@ -93,7 +93,9 @@ targets:
     platform: watchOS
     sources:
       - path: Watch
+      - path: WatchShared
     dependencies:
+      - target: VibeBuddyWatchWidget
       - package: VibeBuddyKit
         product: VibeBuddyKit
     info:
@@ -108,6 +110,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.app.watchkitapp
+        CODE_SIGN_ENTITLEMENTS: Watch/VibeBuddyWatch.entitlements
         MARKETING_VERSION: "1.1"
         CURRENT_PROJECT_VERSION: "4"
         SWIFT_VERSION: "6.0"
@@ -115,6 +118,34 @@ targets:
         DEVELOPMENT_TEAM: LQAVR62TK2
         CODE_SIGN_STYLE: Automatic
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+  VibeBuddyWatchWidget:
+    type: app-extension
+    platform: watchOS
+    sources:
+      - path: WatchWidget
+      - path: WatchShared
+    dependencies:
+      - package: VibeBuddyKit
+        product: VibeBuddyKit
+    info:
+      path: WatchWidget/Info.plist
+      properties:
+        CFBundleDisplayName: vibebuddy
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.app.watchkitapp.widget
+        MARKETING_VERSION: "1.1"
+        CURRENT_PROJECT_VERSION: "4"
+        SWIFT_VERSION: "6.0"
+        TARGETED_DEVICE_FAMILY: "4"
+        DEVELOPMENT_TEAM: LQAVR62TK2
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: WatchWidget/VibeBuddyWatchWidget.entitlements
+        APPLICATION_EXTENSION_API_ONLY: YES
   VibeBuddyAppTests:
     type: bundle.unit-test
     platform: iOS

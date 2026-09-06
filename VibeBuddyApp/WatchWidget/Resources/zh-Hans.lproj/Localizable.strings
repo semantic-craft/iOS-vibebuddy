@@ -1,0 +1,7 @@
+/* Watch complication / Smart Stack — Simplified Chinese. Keys are English. */
+"Waiting for iPhone" = "等待 iPhone";
+"Needs you" = "需回应";
+"Working" = "进行中";
+"Done" = "完成";
+"Sessions" = "会话";
+"needsResponse, working, and done counts." = "需回应、进行中与完成的计数。";

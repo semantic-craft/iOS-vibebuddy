@@ -1,4 +1,5 @@
 import SwiftUI
+import WidgetKit
 import VibeBuddyKit
 
 struct WatchRootView: View {
@@ -28,7 +29,9 @@ struct WatchRootView: View {
         // One verdict per render, derived once from the clock this pass is
         // drawing with, so every page agrees about which link is down.
         let connection = store.state?.connection(now: now, phoneReachable: store.isPhoneReachable) ?? .noData
-        if let state = store.state, connection != .noData {
+        if store.initialPage == .complication {
+            WatchComplicationPreview(state: store.state)
+        } else if let state = store.state, connection != .noData {
             TabView(selection: $page) {
                 WatchHomeView(store: store, state: state, connection: connection, now: now)
                     .tag(WatchPage.home)
@@ -46,6 +49,28 @@ struct WatchRootView: View {
             }
         } else {
             WatchNoDataView()
+        }
+    }
+}
+
+/// Launch-only: the same faces the WidgetKit extension draws, so Simulator
+/// screenshots do not need a real watch-face gallery.
+struct WatchComplicationPreview: View {
+    let state: WatchDashboardState?
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 14) {
+                    WatchCountsComplicationView(previewFamily: .accessoryCircular, state: state)
+                        .frame(width: 68, height: 68)
+                    WatchCountsComplicationView(previewFamily: .accessoryRectangular, state: state)
+                        .frame(width: 162, height: 72)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 8)
+            }
+            .navigationTitle("Sessions")
         }
     }
 }

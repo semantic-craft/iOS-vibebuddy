@@ -21,6 +21,8 @@
 "Unavailable · %@" = "不可用 · %@";
 
 /* MARK: Overview */
+"Sessions" = "会话";
+"Needs you" = "需回应";
 "Needs response" = "需回应";
 "Working" = "进行中";
 "Done" = "完成";

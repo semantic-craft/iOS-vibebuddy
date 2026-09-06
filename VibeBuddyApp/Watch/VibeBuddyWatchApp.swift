@@ -20,4 +20,6 @@ enum WatchPage: String, Hashable {
     case home
     case alerts
     case quota
+    /// Launch-only QA surface for complication screenshots. Not a live tab.
+    case complication
 }

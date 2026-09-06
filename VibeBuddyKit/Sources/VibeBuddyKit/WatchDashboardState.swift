@@ -212,6 +212,17 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
         age(now: now) >= Self.staleAfter
     }
 
+    /// A complication with no relayed state must not invent counts. Empty
+    /// live zeros are a reading; this is the absence of one.
+    public var showsComplicationPlaceholder: Bool { relay == .noData }
+
+    /// Smart Stack score. Zero means "do not rotate to the top"; any waiting
+    /// session while the reading is still current raises the rectangular card.
+    public func smartStackScore(now: Date) -> Float {
+        guard !showsComplicationPlaceholder, !isStale(now: now) else { return 0 }
+        return Float(counts.needsResponse)
+    }
+
     /// The innermost broken link the Watch can prove, given its own clock and
     /// its own view of the phone.
     ///

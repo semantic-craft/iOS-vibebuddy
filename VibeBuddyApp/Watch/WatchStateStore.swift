@@ -1,6 +1,7 @@
 import Foundation
 import VibeBuddyKit
 import WatchConnectivity
+import WidgetKit
 
 /// Everything the Watch knows, and where it came from.
 ///
@@ -50,12 +51,14 @@ final class WatchStateStore: NSObject, ObservableObject {
                 .flatMap(WatchDemoScenario.init(rawValue:)) ?? .normal
             state = scenario.state(now: now)
             isPhoneReachable = scenario.phoneReachable
+            if let state { Self.publishComplication(state) }
         } else {
             // A cold launch shows the last state the iPhone managed to deliver.
             // Its age is recomputed from the current clock, never restored as a
             // verdict, so old numbers cannot masquerade as live ones.
             inbox.accept(defaults.data(forKey: Self.storageKey))
             state = inbox.state
+            if let state { Self.publishComplication(state) }
             activate()
         }
     }
@@ -121,6 +124,14 @@ final class WatchStateStore: NSObject, ObservableObject {
     private func install(_ next: WatchDashboardState) {
         state = next
         approval.reconcile(with: next)
+        Self.publishComplication(next)
+    }
+
+    /// The complication is a separate process. It only sees what we write to
+    /// the App Group — never the in-memory store.
+    private static func publishComplication(_ state: WatchDashboardState) {
+        WatchDashboardStore.save(state)
+        WidgetCenter.shared.reloadTimelines(ofKind: WatchDashboardStore.kind)
     }
 
     private func activate() {
