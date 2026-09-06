@@ -1,0 +1,106 @@
+{
+  "captured": "2026-09-06",
+  "sourceHead": "90da1f7ce78eee7a4bc8e3c4197f5defdec449da",
+  "sampleData": true,
+  "uploaded": false,
+  "images": [
+    {
+      "file": "ios/en-US/01-dashboard.jpg",
+      "width": 1320,
+      "height": 2868,
+      "mode": "RGB",
+      "bytes": 436229,
+      "sha256": "923a8a99d76fd323661a0714cf876dca14cde21502c08a156a82f695eef3a040"
+    },
+    {
+      "file": "ios/en-US/02-codex-task.jpg",
+      "width": 1320,
+      "height": 2868,
+      "mode": "RGB",
+      "bytes": 289584,
+      "sha256": "73020a661bb956aa29e219654f4e794759dd4838e5edf14b0374f4aaa72afe5a"
+    },
+    {
+      "file": "ios/zh-Hans/01-dashboard.jpg",
+      "width": 1320,
+      "height": 2868,
+      "mode": "RGB",
+      "bytes": 432840,
+      "sha256": "133de0e698fa6835097b3ff3c26c72414cb5d5ccc4937c9a0451319cfa4af06a"
+    },
+    {
+      "file": "ios/zh-Hans/02-codex-task.jpg",
+      "width": 1320,
+      "height": 2868,
+      "mode": "RGB",
+      "bytes": 287937,
+      "sha256": "1ec091fa407c2861fe9a58e05abeba7df8c572939399b03fd6c9f19b1beae268"
+    },
+    {
+      "file": "macos/en-US/01-dashboard-approval.jpg",
+      "width": 2560,
+      "height": 1600,
+      "mode": "RGB",
+      "bytes": 356670,
+      "sha256": "68867140a140a41c9d58376c110bd19de969f52b1d975a2af72ed987d9947fd9"
+    },
+    {
+      "file": "macos/zh-Hans/01-dashboard-approval.jpg",
+      "width": 2560,
+      "height": 1600,
+      "mode": "RGB",
+      "bytes": 352401,
+      "sha256": "1ca262c5e2a03d6243f80a8581ea89e0cf6bc3363c2f900be494d48e15edc7a3"
+    },
+    {
+      "file": "reviewer/en-US/ios-pairing.jpg",
+      "width": 1320,
+      "height": 2868,
+      "mode": "RGB",
+      "bytes": 462679,
+      "sha256": "6f800de132e2d939dae109c8d4c1fdfe109d58c6da5da87cd2a162a0308de56d",
+      "sourceNote": "HEAD + local Mac companion onboarding implementation, 2026-09-06"
+    },
+    {
+      "file": "reviewer/zh-Hans/ios-pairing.jpg",
+      "width": 1320,
+      "height": 2868,
+      "mode": "RGB",
+      "bytes": 449500,
+      "sha256": "03a51aac0d4d20ca05e8076c2ca50da4f50da5773304bb1521bdd524b5f47d53",
+      "sourceNote": "HEAD + local Mac companion onboarding implementation, 2026-09-06"
+    },
+    {
+      "file": "watchos/en-US/01-task-overview.jpg",
+      "width": 416,
+      "height": 496,
+      "mode": "RGB",
+      "bytes": 43014,
+      "sha256": "24bc10191b4cdbd82dab809eb97914dbc75e6a7548be14b704e6ab6c216fa2aa"
+    },
+    {
+      "file": "watchos/en-US/02-quota.jpg",
+      "width": 416,
+      "height": 496,
+      "mode": "RGB",
+      "bytes": 54029,
+      "sha256": "128c04d9f6f05a1e6a494960d015e21ebdb443ac067fde7f6f67b1b2f49a424c"
+    },
+    {
+      "file": "watchos/zh-Hans/01-task-overview.jpg",
+      "width": 416,
+      "height": 496,
+      "mode": "RGB",
+      "bytes": 41626,
+      "sha256": "18e6655e8d0240bab1b7b357c18ea65c96ca03e39eccd5c8aee783c0187fb6f6"
+    },
+    {
+      "file": "watchos/zh-Hans/02-quota.jpg",
+      "width": 416,
+      "height": 496,
+      "mode": "RGB",
+      "bytes": 50701,
+      "sha256": "c8f08002504118814258be7dfdbab995d5dfd45f7dada5e85cd75d4dd3cb253a"
+    }
+  ]
+}

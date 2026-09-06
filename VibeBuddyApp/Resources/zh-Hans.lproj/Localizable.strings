@@ -139,3 +139,25 @@
 "Status changes can play a short cue. Quiet mode keeps approvals and questions silent and suppresses other session alerts. Enabled quota alerts still follow the Sound setting." = "状态变化可播放短提示音。安静模式无声显示审批和提问，并抑制其他会话提醒。已开启的额度提醒仍遵循声音设置。";
 
 "During this window Quiet mode applies to session alerts. Enabled quota alerts are unaffected." = "此时段对会话提醒应用安静模式；已开启的额度提醒不受影响。";
+
+/* Mac companion setup */
+"Connect your Mac" = "连接你的 Mac";
+"Your live tasks come from your own Mac. Install the free Mac companion and scan its code to unlock connected features." = "实时任务数据来自你自己的 Mac。请先在 Mac 安装免费伴侣应用，再用 iPhone 扫码配对，开启完整的设备协同功能。";
+"Install on your Mac" = "在 Mac 上安装伴侣";
+"Open the download link on your Mac. Under Assets, download the DMG and drag the app to Applications." = "在 Mac 上打开下载链接，在 Assets 中下载 DMG，再将应用拖入“应用程序”。";
+"Show the pairing code" = "在 Mac 上显示配对码";
+"Open “Pair a phone” in the Mac menu bar. Keep your Mac and iPhone on the same local network." = "在 Mac 菜单栏打开“配对手机”（Pair a phone）。Mac 和 iPhone 需连接同一局域网。";
+"Scan with your iPhone" = "用 iPhone 扫码配对";
+"Scan the code to pair, then set up your agents in the Mac app. Keep the Mac app running and reachable for live updates." = "扫码完成配对后，在 Mac 应用中设置 Agent。请保持 Mac 伴侣运行、网络可连接，以持续接收任务动态。";
+"Get the Mac companion" = "获取 Mac 版伴侣";
+"Copy download link" = "复制下载链接";
+"Share link to your Mac" = "将链接分享到 Mac";
+"Link copied. Open it on your Mac." = "链接已复制，请在 Mac 上打开。";
+"The link could not be opened. Copy it and open it on your Mac." = "无法打开链接。请复制链接，在 Mac 上打开。";
+"For Apple Silicon Macs with macOS 14 or later. Install the companion on your Mac, not your iPhone." = "适用于搭载 Apple 芯片、运行 macOS 14 或更高版本的 Mac。伴侣应用需安装在 Mac 上，不能安装在 iPhone 上。";
+"Mac companion" = "Mac 版伴侣";
+"Can't find the QR code?" = "找不到二维码？";
+"Install the companion on your Mac, then open “Pair a phone” in its menu bar. Keep both devices on the same local network." = "先在 Mac 安装伴侣，再在菜单栏打开“配对手机”（Pair a phone）。请将两台设备连接到同一局域网。";
+"Download or update the Mac app" = "下载或更新 Mac 版伴侣";
+"Check that the Mac app is running, both devices are on the same local network, and Local Network access is enabled in Settings." = "请检查 Mac 伴侣是否运行、两台设备是否连接同一局域网，以及系统设置中的“本地网络”权限是否已开启。";
+"Need the Mac companion?" = "尚未安装 Mac 版伴侣？";

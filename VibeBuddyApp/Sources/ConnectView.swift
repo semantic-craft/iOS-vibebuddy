@@ -11,6 +11,7 @@ struct ConnectView: View {
     @State private var token = ""
     @State private var showScanner = false
     @State private var showManual = false
+    @State private var showScannerHelp = false
 
     private var canConnect: Bool { !host.isEmpty && Int(port) != nil && !token.isEmpty }
 
@@ -21,43 +22,45 @@ struct ConnectView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("vibebuddy").font(.largeTitle.bold())
-                Text("Keep an eye on your Mac's Claude Code and Codex sessions from your phone.")
-                    .font(.subheadline).foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 24)
-            .padding(.top, 24)
-
-            Spacer()
-
-            VStack(spacing: 16) {
-                Button {
-                    showScanner = true
-                } label: {
-                    Label("Scan to pair", systemImage: "qrcode.viewfinder")
-                        .font(.headline).frame(maxWidth: .infinity)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Connect your Mac").font(.largeTitle.bold())
+                    Text("Your live tasks come from your own Mac. Install the free Mac companion and scan its code to unlock connected features.")
+                        .font(.subheadline).foregroundStyle(.secondary)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-
-                Text("Open “Pair a phone” in the vibebuddy Mac menu bar and scan that QR code.")
+                MacCompanionSteps()
+                Text("For Apple Silicon Macs with macOS 14 or later. Install the companion on your Mac, not your iPhone.")
                     .font(.caption).foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
+                MacCompanionDownloadActions()
 
-                Button(showManual ? LocalizedStringKey("Hide manual entry")
-                                  : LocalizedStringKey("Enter address manually")) {
-                    withAnimation(.smooth) { showManual.toggle() }
+                VStack(spacing: 16) {
+                    Button {
+                        showScanner = true
+                    } label: {
+                        Label("Scan to pair", systemImage: "qrcode.viewfinder")
+                            .font(.headline).frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+
+                    Text("Open “Pair a phone” in the vibebuddy Mac menu bar and scan that QR code.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+
+                    Button(showManual ? LocalizedStringKey("Hide manual entry")
+                                      : LocalizedStringKey("Enter address manually")) {
+                        withAnimation(.smooth) { showManual.toggle() }
+                    }
+                    .font(.subheadline)
+
+                    if showManual { manualFields }
+
+                    Button("See the demo (no Mac needed)") { connection.enterDemo() }
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 4)
                 }
-                .font(.subheadline)
-
-                if showManual { manualFields }
-
-                Button("See the demo (no Mac needed)") { connection.enterDemo() }
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 4)
             }
             .padding(24)
         }
@@ -103,6 +106,25 @@ struct ConnectView: View {
                 showScanner = false
             }
             .ignoresSafeArea()
+            .safeAreaInset(edge: .bottom) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        DisclosureGroup("Can't find the QR code?", isExpanded: $showScannerHelp) {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Install the companion on your Mac, then open “Pair a phone” in its menu bar. Keep both devices on the same local network.")
+                                    .font(.subheadline)
+                                MacCompanionDownloadActions()
+                            }.padding(.top, 12)
+                        }
+                        Button("Enter address manually") {
+                            showManual = true
+                            showScanner = false
+                        }
+                    }.padding()
+                }
+                .frame(maxHeight: showScannerHelp ? 360 : 112)
+                .background(.regularMaterial)
+            }
             .navigationTitle("Scan pairing QR")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
