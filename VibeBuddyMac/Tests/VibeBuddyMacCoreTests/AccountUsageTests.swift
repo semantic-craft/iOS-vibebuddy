@@ -653,15 +653,22 @@ struct AccountUsageTests {
         )
     }
 
-    @Test("Cursor pending provider never invents a 0% remaining reading")
-    func cursorPendingProviderStaysUnavailable() async throws {
-        let provider = CursorPendingUsageProvider()
+    @Test("Cursor collector without a cookie stays unavailable, never 0%")
+    func cursorProviderRequiresCookie() async throws {
+        let provider = CursorUsageProvider(cookie: nil, transport: MissingCookieTransport())
         do {
             _ = try await provider.fetch()
-            Issue.record("CursorPendingUsageProvider must not succeed before #104")
+            Issue.record("CursorUsageProvider must not succeed without a cookie")
         } catch let error as AccountUsageError {
             #expect(error == .notLoggedIn)
             #expect(error.unavailableReason.displayText(provider: .cursor) == "Cursor is not signed in")
+        }
+    }
+
+    private struct MissingCookieTransport: CursorUsageTransport {
+        func cursorData(for request: URLRequest) async throws -> (Data, URLResponse) {
+            Issue.record("network must not be touched without a cookie")
+            throw URLError(.badURL)
         }
     }
 
