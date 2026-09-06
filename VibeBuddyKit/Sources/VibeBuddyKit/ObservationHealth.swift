@@ -130,6 +130,9 @@ public struct ObservationSourceDiagnostic: Codable, Sendable, Equatable, Identif
     public let source: ObservationSource
     public var health: ObservationHealth
     public var lastObservedAt: Date?
+    /// Extensible diagnostic metadata; existing health raw values stay on the wire.
+    public var reasonCode: String?
+    public var sourceVersion: String?
     public var configuredCoverage: [ObservationEventCoverage]
     public var observedCoverage: [ObservationEventCoverage]
 
@@ -138,11 +141,15 @@ public struct ObservationSourceDiagnostic: Codable, Sendable, Equatable, Identif
         health: ObservationHealth,
         lastObservedAt: Date? = nil,
         configuredCoverage: [ObservationEventCoverage] = [],
-        observedCoverage: [ObservationEventCoverage] = []
+        observedCoverage: [ObservationEventCoverage] = [],
+        reasonCode: String? = nil,
+        sourceVersion: String? = nil
     ) {
         self.source = source
         self.health = health
         self.lastObservedAt = lastObservedAt
+        self.reasonCode = reasonCode
+        self.sourceVersion = sourceVersion
         self.configuredCoverage = configuredCoverage.sorted()
         self.observedCoverage = observedCoverage.sorted()
     }

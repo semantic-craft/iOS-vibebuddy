@@ -303,6 +303,12 @@ def main():
     else:
         data = {}
 
+    if mode == "--statusline":
+        changed = install_statusline(data)
+        write(data)
+        print("status line information:", "enabled" if changed else "already enabled")
+        return
+
     if mode == "--uninstall":
         removed = uninstall(data)
         if uninstall_statusline(data):

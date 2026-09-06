@@ -223,8 +223,8 @@ public enum ObservationHealthDetector {
         AgentObservationDiagnostic(agent: agent, sources: [daemon, hook, passive].compactMap { $0 })
     }
 
-    /// Claude's status line forwarder: healthy while samples arrive, "events
-    /// missing" when the wrapper is configured but silent, "not installed"
+    /// Claude's status line forwarder: healthy while samples arrive, awaiting
+    /// activity when configured without a sample, "not installed"
     /// when Claude's settings name no vibebuddy status line.
     private static func statusLineEvidence(
         config: URL?,
@@ -235,14 +235,22 @@ public enum ObservationHealthDetector {
     ) -> ObservationSourceDiagnostic {
         let signal = latestSignal(agent: .claudeCode, source: .statusline, in: signals)
         var configured = false
-        if let config, let data = readData(at: config, upToCount: 1 << 20, fileManager: fm),
-           let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-           let statusLine = root["statusLine"] as? [String: Any],
-           (statusLine["command"] as? String)?.contains("vibebuddy-statusline.sh") == true {
-            configured = true
+        if let config, fm.fileExists(atPath: config.path) {
+            guard let data = readData(at: config, upToCount: 1 << 20, fileManager: fm),
+                  let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+                return diagnostic(source: .statusline, signal: signal, fallback: .sourceUnreadable,
+                                  now: now, staleAfter: staleAfter, forceFallback: true)
+            }
+            if let statusLine = root["statusLine"] as? [String: Any],
+               let command = statusLine["command"] as? String {
+                // Keep the existing installer's is_statusline_wrapper boundary;
+                // strict executable parsing below is for lifecycle hooks only.
+                configured = command.contains("vibebuddy-statusline.sh")
+            }
         }
         return diagnostic(source: .statusline, signal: signal,
-                          fallback: configured ? .eventsMissing : .notInstalled,
+                          fallback: configured ? .temporarilySilent : .notInstalled,
+                          reasonCode: configured ? "awaitingActivity" : "optionalSourceNotConfigured",
                           now: now, staleAfter: staleAfter,
                           forceFallback: !configured && signal == nil)
     }
@@ -286,15 +294,17 @@ public enum ObservationHealthDetector {
         }
         guard fm.fileExists(atPath: config.path) else {
             return diagnostic(source: .hook, signal: signal, fallback: .eventsMissing,
-                              now: now, staleAfter: staleAfter)
+                              reasonCode: "configurationIncomplete",
+                              now: now, staleAfter: staleAfter, forceFallback: true)
         }
         guard let data = readData(at: config, upToCount: 1 << 20, fileManager: fm),
               let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let hooks = root["hooks"] as? [String: Any] else {
+              root["hooks"] == nil || root["hooks"] is [String: Any] else {
             return diagnostic(source: .hook, signal: signal, fallback: .sourceUnreadable,
-                              now: now, staleAfter: staleAfter)
+                              now: now, staleAfter: staleAfter, forceFallback: true)
         }
 
+        let hooks = root["hooks"] as? [String: Any] ?? [:]
         var coverage = Set<ObservationEventCoverage>()
         var hasManagedHook = false
         var hasAsyncManagedHook = false
@@ -304,7 +314,7 @@ public enum ObservationHealthDetector {
                 guard let commands = group["hooks"] as? [[String: Any]] else { continue }
                 for command in commands {
                     guard let value = command["command"] as? String,
-                          value.contains("vibebuddy-forward.sh") || value.contains("127.0.0.1:9876/hook")
+                          isManagedHook(command, value: value, agent: agent, event: event)
                     else { continue }
                     hasManagedHook = true
                     if command["async"] as? Bool == true { hasAsyncManagedHook = true }
@@ -317,11 +327,86 @@ public enum ObservationHealthDetector {
         // Codex runs `async` hooks detached and drops their output, so an async
         // managed hook is a configuration error rather than a missing event.
         let fallback: ObservationHealth =
-            (agent == .codex && hasAsyncManagedHook) ? .asyncIncompatible : .eventsMissing
+            (agent == .codex && hasAsyncManagedHook) ? .asyncIncompatible
+                : configurationIncomplete ? .eventsMissing : .temporarilySilent
         return diagnostic(source: .hook, signal: signal, fallback: fallback,
+                          reasonCode: fallback == .asyncIncompatible ? nil
+                            : configurationIncomplete ? "configurationIncomplete" : "awaitingActivity",
                           configuredCoverage: Array(coverage), now: now,
                           staleAfter: staleAfter,
                           forceFallback: fallback == .asyncIncompatible || configurationIncomplete)
+    }
+
+    /// Recognize only the installer's executable + agent, never execute inspected
+    /// commands. Claude's exec form keeps paths (including spaces) in `command`.
+    private static func isManagedHook(
+        _ hook: [String: Any], value: String, agent: AgentKind, event: String
+    ) -> Bool {
+        guard hook["type"] == nil || hook["type"] as? String == "command" else { return false }
+        let argv: [String]
+        if let args = hook["args"] {
+            guard let args = args as? [String] else { return false }
+            argv = [value] + args
+        } else {
+            guard let words = literalShellWords(value) else { return false }
+            argv = words
+        }
+        guard let executable = argv.first, executable.hasPrefix("/") else { return false }
+        let name = URL(fileURLWithPath: executable).lastPathComponent
+        let expected: String
+        switch agent {
+        case .claudeCode: expected = "claude"
+        case .codex: expected = "codex"
+        case .grok: expected = "grok"
+        default: return false
+        }
+        if name == "vibebuddy-forward.sh" { return argv.count == 2 && argv[1] == expected }
+        guard name == "approval-hook.sh" else { return false }
+        if agent == .claudeCode {
+            return (argv.count == 1 || argv == [executable, expected])
+                && ["PermissionRequest", "PreToolUse"].contains(event)
+        }
+        return argv == [executable, expected]
+            && event == (agent == .codex ? "PermissionRequest" : "PreToolUse")
+    }
+
+    /// A deliberately bounded literal shell grammar: quotes and escaped paths,
+    /// no operators, expansion, comments, substitutions or command wrappers.
+    private static func literalShellWords(_ command: String) -> [String]? {
+        var words: [String] = []
+        var word = ""
+        var quote: Character?
+        var escaped = false
+        var started = false
+        for c in command {
+            if escaped {
+                guard c != "\n", c != "\r" else { return nil }
+                // Inside double quotes a backslash only escapes shell-special
+                // characters; keep it before ordinary path characters.
+                if quote == "\"", !"$`\"\\".contains(c) { word.append("\\") }
+                word.append(c); escaped = false; started = true; continue
+            }
+            if c == "\\", quote != "'" { escaped = true; started = true; continue }
+            if let q = quote {
+                if c == q { quote = nil }
+                else {
+                    if q == "\"", c == "$" || c == "`" { return nil }
+                    word.append(c)
+                }
+                continue
+            }
+            if c == "'" || c == "\"" { quote = c; started = true }
+            else if c == "\n" || c == "\r" { return nil }
+            else if c == " " || c == "\t" {
+                if started { words.append(word); word = ""; started = false }
+            } else {
+                guard !";|&<>()$`#*?[]{}~".contains(c) else { return nil }
+                word.append(c); started = true
+            }
+        }
+        guard quote == nil, !escaped else { return nil }
+        if started { words.append(word) }
+        return words
     }
 
     private static func passiveEvidence(
@@ -354,7 +439,8 @@ public enum ObservationHealthDetector {
         // by mtime, including files outside the monitor recency window, so a
         // restart still has freshness evidence.
         guard source == .rollout else {
-            return diagnostic(source: source, signal: signal, fallback: .eventsMissing,
+            return diagnostic(source: source, signal: signal, fallback: .temporarilySilent,
+                              reasonCode: "awaitingActivity",
                               now: now, staleAfter: staleAfter)
         }
 
@@ -396,6 +482,7 @@ public enum ObservationHealthDetector {
         source: ObservationSource,
         signal: ObservationRuntimeSignal?,
         fallback: ObservationHealth,
+        reasonCode: String? = nil,
         lastObservedAt: Date? = nil,
         configuredCoverage: [ObservationEventCoverage] = [],
         now: Date,
@@ -421,7 +508,8 @@ public enum ObservationHealthDetector {
             health: health,
             lastObservedAt: signal?.lastObservedAt ?? lastObservedAt,
             configuredCoverage: configuredCoverage,
-            observedCoverage: signal?.observedCoverage ?? [])
+            observedCoverage: signal?.observedCoverage ?? [],
+            reasonCode: (forceFallback || signal == nil) ? reasonCode : nil)
     }
 
     private static func latestSignal(
