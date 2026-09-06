@@ -1,6 +1,6 @@
 {
- "generatedAt": "2026-09-06T15:13+08:00",
- "main": "ece1e72",
+ "generatedAt": "2026-09-06T15:43+08:00",
+ "main": "5649fbb",
  "howToUse": "正本是 docs/planning/roadmap-2026-09.html；本文件由 tools/export-roadmap.js 导出，不要手改。status 是快照，以仓库事实为准：agent 节点 done = PR 已合并（描述第一行为节点 id）或票 Status done；pr-open = 有开放 PR（pr 字段）；in-progress = 有会话或未提交改动在做；可派 = deps 全 done 且自身非 done/in-progress/pr-open 且 owner A；并发上限 4；优先级 S > A > M > 其余 1.2 > 1.3。票的 Status 只用仓库规定的标签与 done；工作流状态只写 HTML（kind 与标题前缀）。每轮先 git fetch origin 再判断。合并顺序：#57 → #56 → #55（三者都改 Kit 通知类型与 Mac Settings / MenuBarModel，每合一个让下一个合 main）→ #59（Companion 三端，与 #56 的 iPhone 卡片、#55 的 Mac 设置页相碰）→ #62（W-1..3 草稿，先验证）。主工作区 ~/Projects/iOS-vibebuddy 的 main 上仍有 W-1..3 的未提交原件：不 reset、不在主工作区开发。codex/notification-dedup worktree 已被 #54 取代，删除不开 PR。",
  "vision": {
   "Q1": "面向 App Store 公众，你是第一用户",
@@ -92,14 +92,14 @@
  "sessions": [
   {
    "session": "Mac 观察诊断修正",
-   "state": "实施中 · 2026-09-06T15:15+08:00 · 01a07591-038d-7cd3-8c2e-0315d2f50f5f",
+   "state": "已合并 #78，真机待验 · 01a07591-038d-7cd3-8c2e-0315d2f50f5f",
    "output": "立即实施。独占公共 reasonCode 最小契约、Hook识别、等待活动和Mac设置动作；不实现Rollout版本认证及手机页面。",
    "whenDone": "总控在前置完成后续发",
    "nodes": "OH-1"
   },
   {
    "session": "Rollout 版本证据与分类",
-   "state": "证据准备；实施等OH-1 · 2026-09-06T15:15+08:00 · 01a07591-5058-79a3-9db5-7896ab42f5ad",
+   "state": "完整实施已解锁 · 2026-09-06T15:43+08:00 · 01a07591-5058-79a3-9db5-7896ab42f5ad",
    "output": "当前仅并行准备真实0.153.4脱敏证据与回放覆盖清单，独占 .scratch/observation-health-correction/evidence/rollout/。只读取任务所需真实日志并先脱敏，禁止输出原始正文或密钥。不得改共享模型/诊断/Mac设置代码。准备完回报并停止等待总控续发；OH-1合并后才解锁完整实施，准备不算票完成。",
    "whenDone": "总控在前置完成后续发",
    "nodes": "OH-2"
@@ -340,11 +340,11 @@
   {
    "id": "OH-1",
    "lane": "B",
-   "title": "Mac 观察诊断修正",
+   "title": "已合并 #78：Mac 观察诊断修正",
    "version": "1.2",
    "owner": "A",
-   "status": "in-progress",
-   "pr": null,
+   "status": "done",
+   "pr": 78,
    "deps": [],
    "ticket": "~/Projects/iOS-vibebuddy/.scratch/observation-health-correction/issues/01-mac-diagnostics.md",
    "vision": [
@@ -359,7 +359,7 @@
     "verify": "以原票及PRD Testing Decisions为准",
     "skills": "按需使用已安装技能"
    },
-   "prompt": "你在 iOS-vibebuddy 仓库工作（~/Projects/iOS-vibebuddy）。任务：OH-1 Mac 观察诊断修正。\n票 / 位置：~/Projects/iOS-vibebuddy/.scratch/observation-health-correction/issues/01-mac-diagnostics.md\n\n先按顺序读：AGENTS.md → CONTEXT.md → docs/planning/vision-2026-09.md（本任务服务的决策：Q28 先发一版：1.2 可靠性 + 官方接口 + 手机手表；1.3 陌生用户路径 + App Store；Q35 官方依据、真机验证；steer 失败不得静默改 start）→ 上面的票及其引用的 PRD / ADR。已读且未变化的内容不用重复读。\n\n规格（以票为准，这里是摘要）：\n  目标：Mac 观察诊断修正\n  范围：立即实施。独占公共 reasonCode 最小契约、Hook识别、等待活动和Mac设置动作；不实现Rollout版本认证及手机页面。\n  不做：不修改会话/审批/通知权威，不安装发布，不降低验收\n  验收：原票验收逐项留证；准备不算功能完成；实际设备与本地验证分开\n  验证：以原票及PRD Testing Decisions为准\n  建议技能：按需使用已安装技能（技能在 .agents/skills/，按其触发条件用；grill-with-docs 只在票里仍有未决取舍时用，问完立刻把结论写回票）\n\n任务正文：\n当前用户已明确授权实施及分别创建执行任务；PRD/票中“仅规格、不实施/不提交”等早期阶段记录不再限制本次授权。不得修改任何验收判据。\n完整PRD绝对路径：~/Projects/iOS-vibebuddy/.scratch/observation-health-correction/PRD.md。完整票：~/Projects/iOS-vibebuddy/.scratch/observation-health-correction/issues/01-mac-diagnostics.md。两者必须全文阅读，不用摘要代替；这些gitignored文件不在新worktree中。\n先读AGENTS、CONTEXT、vision、票与PRD及ADR-0011所有修订。\n本次派发阶段：立即实施。独占公共 reasonCode 最小契约、Hook识别、等待活动和Mac设置动作；不实现Rollout版本认证及手机页面。\n所有开发在 ~/Projects/iOS-vibebuddy/.scratch/worktrees/oh-mac-diagnostics，分支 codex/oh-mac-diagnostics；先fetch并核对worktree所有权，从origin/main创建独立worktree，已有同名工作区先检查不覆盖。你不是唯一执行者，不撤销他人工作；主工作区清理由其他任务独占。你仅负责本票和上述阶段。\n保留活跃wire的health原始值，仅可选字符串reasonCode/sourceVersion；保持ADR-0011审批修订、feature-disabled及已安装窗口修复。不改来源权威、进度、审批或通知路由。0.153.4未经真实生命周期证据不能认证；无Grok活动不能判丢事件；Claude缺可选状态栏不能称agent未安装。\n安装基线需只读重查：此前已安装Mac可执行文件SHA256 9f3c175985fb244f44f4bf4019465055d71d71e54a151e6234887d2a2f172615，与 .scratch/window-recovery/checkout Release产物一致，基于0e140395加窗口修复。不要从旧root构建覆盖。执行任务本轮不安装、不重启9876、不改全局配置、不读取打印密钥、不发布；隔离候选和实际设备验收分别记录。\n允许在实施阶段提交、push、开PR，第一行写OH-1，不加署名；准备阶段只交付独占证据。票保持合法Status，领票Executor写codex/分支/开始时间，代码完成不写done。不要编辑路线图，向总控回报提交、证据、缺口和契约。\n验证以原票边界和真实输入为准，少量关键回归，不扩张覆盖目标；iOS测试不能与Mac xcodebuild并行，构建前向总控协调；iOS scheme不传-sdk iphonesimulator。\n\nOH 专用收尾规则：严格遵守上述当前阶段。前置未完成时不叠分支、不提前实施，不执行通用前沿任务的依赖绕行。准备完成只交独占证据与缺口并通知总控；实施完成按原票交付PR和验证，等待总控审查，不能自行标done。路径中的~须展开为当前用户home，指向主仓库的本机票据，不是执行worktree。"
+   "prompt": "你在 iOS-vibebuddy 仓库工作（~/Projects/iOS-vibebuddy）。任务：OH-1 已合并 #78：Mac 观察诊断修正。\n票 / 位置：~/Projects/iOS-vibebuddy/.scratch/observation-health-correction/issues/01-mac-diagnostics.md\n\n先按顺序读：AGENTS.md → CONTEXT.md → docs/planning/vision-2026-09.md（本任务服务的决策：Q28 先发一版：1.2 可靠性 + 官方接口 + 手机手表；1.3 陌生用户路径 + App Store；Q35 官方依据、真机验证；steer 失败不得静默改 start）→ 上面的票及其引用的 PRD / ADR。已读且未变化的内容不用重复读。\n\n规格（以票为准，这里是摘要）：\n  目标：Mac 观察诊断修正\n  范围：立即实施。独占公共 reasonCode 最小契约、Hook识别、等待活动和Mac设置动作；不实现Rollout版本认证及手机页面。\n  不做：不修改会话/审批/通知权威，不安装发布，不降低验收\n  验收：原票验收逐项留证；准备不算功能完成；实际设备与本地验证分开\n  验证：以原票及PRD Testing Decisions为准\n  建议技能：按需使用已安装技能（技能在 .agents/skills/，按其触发条件用；grill-with-docs 只在票里仍有未决取舍时用，问完立刻把结论写回票）\n\n任务正文：\n当前用户已明确授权实施及分别创建执行任务；PRD/票中“仅规格、不实施/不提交”等早期阶段记录不再限制本次授权。不得修改任何验收判据。\n完整PRD绝对路径：~/Projects/iOS-vibebuddy/.scratch/observation-health-correction/PRD.md。完整票：~/Projects/iOS-vibebuddy/.scratch/observation-health-correction/issues/01-mac-diagnostics.md。两者必须全文阅读，不用摘要代替；这些gitignored文件不在新worktree中。\n先读AGENTS、CONTEXT、vision、票与PRD及ADR-0011所有修订。\n本次派发阶段：立即实施。独占公共 reasonCode 最小契约、Hook识别、等待活动和Mac设置动作；不实现Rollout版本认证及手机页面。\n所有开发在 ~/Projects/iOS-vibebuddy/.scratch/worktrees/oh-mac-diagnostics，分支 codex/oh-mac-diagnostics；先fetch并核对worktree所有权，从origin/main创建独立worktree，已有同名工作区先检查不覆盖。你不是唯一执行者，不撤销他人工作；主工作区清理由其他任务独占。你仅负责本票和上述阶段。\n保留活跃wire的health原始值，仅可选字符串reasonCode/sourceVersion；保持ADR-0011审批修订、feature-disabled及已安装窗口修复。不改来源权威、进度、审批或通知路由。0.153.4未经真实生命周期证据不能认证；无Grok活动不能判丢事件；Claude缺可选状态栏不能称agent未安装。\n安装基线需只读重查：此前已安装Mac可执行文件SHA256 9f3c175985fb244f44f4bf4019465055d71d71e54a151e6234887d2a2f172615，与 .scratch/window-recovery/checkout Release产物一致，基于0e140395加窗口修复。不要从旧root构建覆盖。执行任务本轮不安装、不重启9876、不改全局配置、不读取打印密钥、不发布；隔离候选和实际设备验收分别记录。\n允许在实施阶段提交、push、开PR，第一行写OH-1，不加署名；准备阶段只交付独占证据。票保持合法Status，领票Executor写codex/分支/开始时间，代码完成不写done。不要编辑路线图，向总控回报提交、证据、缺口和契约。\n验证以原票边界和真实输入为准，少量关键回归，不扩张覆盖目标；iOS测试不能与Mac xcodebuild并行，构建前向总控协调；iOS scheme不传-sdk iphonesimulator。\n\nOH 专用收尾规则：严格遵守上述当前阶段。前置未完成时不叠分支、不提前实施，不执行通用前沿任务的依赖绕行。准备完成只交独占证据与缺口并通知总控；实施完成按原票交付PR和验证，等待总控审查，不能自行标done。路径中的~须展开为当前用户home，指向主仓库的本机票据，不是执行worktree。"
   },
   {
    "id": "OH-2",
@@ -379,13 +379,13 @@
    ],
    "spec": {
     "goal": "Rollout 版本证据与分类",
-    "scope": "当前仅并行准备真实0.153.4脱敏证据与回放覆盖清单，独占 .scratch/observation-health-correction/evidence/rollout/。只读取任务所需真实日志并先脱敏，禁止输出原始正文或密钥。不得改共享模型/诊断/Mac设置代码。准备完回报并停止等待总控续发；OH-1合并后才解锁完整实施，准备不算票完成。",
+    "scope": "OH-1已合并#78（5649fbb），现在解锁完整实施。复用现有证据，先fetch并merge origin/main到本人分支，按原票实现版本分类与回放；不得伪造0.153.4认证，证据不足保持未验证。独占Rollout诊断及Mac版本展示，不改手机页面。",
     "non": "不修改会话/审批/通知权威，不安装发布，不降低验收",
     "accept": "原票验收逐项留证；准备不算功能完成；实际设备与本地验证分开",
     "verify": "以原票及PRD Testing Decisions为准",
     "skills": "按需使用已安装技能"
    },
-   "prompt": "你在 iOS-vibebuddy 仓库工作（~/Projects/iOS-vibebuddy）。任务：OH-2 Rollout 版本证据与分类。\n票 / 位置：~/Projects/iOS-vibebuddy/.scratch/observation-health-correction/issues/02-rollout-version-evidence.md\n\n先按顺序读：AGENTS.md → CONTEXT.md → docs/planning/vision-2026-09.md（本任务服务的决策：Q28 先发一版：1.2 可靠性 + 官方接口 + 手机手表；1.3 陌生用户路径 + App Store；Q35 官方依据、真机验证；steer 失败不得静默改 start）→ 上面的票及其引用的 PRD / ADR。已读且未变化的内容不用重复读。\n\n规格（以票为准，这里是摘要）：\n  目标：Rollout 版本证据与分类\n  范围：当前仅并行准备真实0.153.4脱敏证据与回放覆盖清单，独占 .scratch/observation-health-correction/evidence/rollout/。只读取任务所需真实日志并先脱敏，禁止输出原始正文或密钥。不得改共享模型/诊断/Mac设置代码。准备完回报并停止等待总控续发；OH-1合并后才解锁完整实施，准备不算票完成。\n  不做：不修改会话/审批/通知权威，不安装发布，不降低验收\n  验收：原票验收逐项留证；准备不算功能完成；实际设备与本地验证分开\n  验证：以原票及PRD Testing Decisions为准\n  建议技能：按需使用已安装技能（技能在 .agents/skills/，按其触发条件用；grill-with-docs 只在票里仍有未决取舍时用，问完立刻把结论写回票）\n\n任务正文：\n当前用户已明确授权实施及分别创建执行任务；PRD/票中“仅规格、不实施/不提交”等早期阶段记录不再限制本次授权。不得修改任何验收判据。\n完整PRD绝对路径：~/Projects/iOS-vibebuddy/.scratch/observation-health-correction/PRD.md。完整票：~/Projects/iOS-vibebuddy/.scratch/observation-health-correction/issues/02-rollout-version-evidence.md。两者必须全文阅读，不用摘要代替；这些gitignored文件不在新worktree中。\n先读AGENTS、CONTEXT、vision、票与PRD及ADR-0011所有修订。\n本次派发阶段：当前仅并行准备真实0.153.4脱敏证据与回放覆盖清单，独占 .scratch/observation-health-correction/evidence/rollout/。只读取任务所需真实日志并先脱敏，禁止输出原始正文或密钥。不得改共享模型/诊断/Mac设置代码。准备完回报并停止等待总控续发；OH-1合并后才解锁完整实施，准备不算票完成。\n所有开发在 ~/Projects/iOS-vibebuddy/.scratch/worktrees/oh-rollout-evidence，分支 codex/oh-rollout-evidence；先fetch并核对worktree所有权，从origin/main创建独立worktree，已有同名工作区先检查不覆盖。你不是唯一执行者，不撤销他人工作；主工作区清理由其他任务独占。你仅负责本票和上述阶段。\n保留活跃wire的health原始值，仅可选字符串reasonCode/sourceVersion；保持ADR-0011审批修订、feature-disabled及已安装窗口修复。不改来源权威、进度、审批或通知路由。0.153.4未经真实生命周期证据不能认证；无Grok活动不能判丢事件；Claude缺可选状态栏不能称agent未安装。\n安装基线需只读重查：此前已安装Mac可执行文件SHA256 9f3c175985fb244f44f4bf4019465055d71d71e54a151e6234887d2a2f172615，与 .scratch/window-recovery/checkout Release产物一致，基于0e140395加窗口修复。不要从旧root构建覆盖。执行任务本轮不安装、不重启9876、不改全局配置、不读取打印密钥、不发布；隔离候选和实际设备验收分别记录。\n允许在实施阶段提交、push、开PR，第一行写OH-2，不加署名；准备阶段只交付独占证据。票保持合法Status，领票Executor写codex/分支/开始时间，代码完成不写done。不要编辑路线图，向总控回报提交、证据、缺口和契约。\n验证以原票边界和真实输入为准，少量关键回归，不扩张覆盖目标；iOS测试不能与Mac xcodebuild并行，构建前向总控协调；iOS scheme不传-sdk iphonesimulator。\n\nOH 专用收尾规则：严格遵守上述当前阶段。前置未完成时不叠分支、不提前实施，不执行通用前沿任务的依赖绕行。准备完成只交独占证据与缺口并通知总控；实施完成按原票交付PR和验证，等待总控审查，不能自行标done。路径中的~须展开为当前用户home，指向主仓库的本机票据，不是执行worktree。"
+   "prompt": "你在 iOS-vibebuddy 仓库工作（~/Projects/iOS-vibebuddy）。任务：OH-2 Rollout 版本证据与分类。\n票 / 位置：~/Projects/iOS-vibebuddy/.scratch/observation-health-correction/issues/02-rollout-version-evidence.md\n\n先按顺序读：AGENTS.md → CONTEXT.md → docs/planning/vision-2026-09.md（本任务服务的决策：Q28 先发一版：1.2 可靠性 + 官方接口 + 手机手表；1.3 陌生用户路径 + App Store；Q35 官方依据、真机验证；steer 失败不得静默改 start）→ 上面的票及其引用的 PRD / ADR。已读且未变化的内容不用重复读。\n\n规格（以票为准，这里是摘要）：\n  目标：Rollout 版本证据与分类\n  范围：OH-1已合并#78（5649fbb），现在解锁完整实施。复用现有证据，先fetch并merge origin/main到本人分支，按原票实现版本分类与回放；不得伪造0.153.4认证，证据不足保持未验证。独占Rollout诊断及Mac版本展示，不改手机页面。\n  不做：不修改会话/审批/通知权威，不安装发布，不降低验收\n  验收：原票验收逐项留证；准备不算功能完成；实际设备与本地验证分开\n  验证：以原票及PRD Testing Decisions为准\n  建议技能：按需使用已安装技能（技能在 .agents/skills/，按其触发条件用；grill-with-docs 只在票里仍有未决取舍时用，问完立刻把结论写回票）\n\n任务正文：\n当前用户已明确授权实施及分别创建执行任务；PRD/票中“仅规格、不实施/不提交”等早期阶段记录不再限制本次授权。不得修改任何验收判据。\n完整PRD绝对路径：~/Projects/iOS-vibebuddy/.scratch/observation-health-correction/PRD.md。完整票：~/Projects/iOS-vibebuddy/.scratch/observation-health-correction/issues/02-rollout-version-evidence.md。两者必须全文阅读，不用摘要代替；这些gitignored文件不在新worktree中。\n先读AGENTS、CONTEXT、vision、票与PRD及ADR-0011所有修订。\n本次派发阶段：OH-1已合并#78（5649fbb），现在解锁完整实施。复用现有证据，先fetch并merge origin/main到本人分支，按原票实现版本分类与回放；不得伪造0.153.4认证，证据不足保持未验证。独占Rollout诊断及Mac版本展示，不改手机页面。\n所有开发在 ~/Projects/iOS-vibebuddy/.scratch/worktrees/oh-rollout-evidence，分支 codex/oh-rollout-evidence；先fetch并核对worktree所有权，从origin/main创建独立worktree，已有同名工作区先检查不覆盖。你不是唯一执行者，不撤销他人工作；主工作区清理由其他任务独占。你仅负责本票和上述阶段。\n保留活跃wire的health原始值，仅可选字符串reasonCode/sourceVersion；保持ADR-0011审批修订、feature-disabled及已安装窗口修复。不改来源权威、进度、审批或通知路由。0.153.4未经真实生命周期证据不能认证；无Grok活动不能判丢事件；Claude缺可选状态栏不能称agent未安装。\n安装基线需只读重查：此前已安装Mac可执行文件SHA256 9f3c175985fb244f44f4bf4019465055d71d71e54a151e6234887d2a2f172615，与 .scratch/window-recovery/checkout Release产物一致，基于0e140395加窗口修复。不要从旧root构建覆盖。执行任务本轮不安装、不重启9876、不改全局配置、不读取打印密钥、不发布；隔离候选和实际设备验收分别记录。\n允许在实施阶段提交、push、开PR，第一行写OH-2，不加署名；准备阶段只交付独占证据。票保持合法Status，领票Executor写codex/分支/开始时间，代码完成不写done。不要编辑路线图，向总控回报提交、证据、缺口和契约。\n验证以原票边界和真实输入为准，少量关键回归，不扩张覆盖目标；iOS测试不能与Mac xcodebuild并行，构建前向总控协调；iOS scheme不传-sdk iphonesimulator。\n\nOH 专用收尾规则：严格遵守上述当前阶段。前置未完成时不叠分支、不提前实施，不执行通用前沿任务的依赖绕行。准备完成只交独占证据与缺口并通知总控；实施完成按原票交付PR和验证，等待总控审查，不能自行标done。路径中的~须展开为当前用户home，指向主仓库的本机票据，不是执行worktree。"
   },
   {
    "id": "OH-3",
