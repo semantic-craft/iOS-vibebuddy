@@ -448,7 +448,7 @@ private struct NotificationSettings: View {
             } header: {
                 Text("Delivery health")
             } footer: {
-                Text("Honest outcomes only: attempted, scheduled, accepted, failed, skipped. A local banner is scheduled; APNs 2xx is accepted by Apple's servers. Neither is proof the device showed it. Skipped means the cue was earned and deliberately not said here — the reason beside it says which switch, which missing phone, or which attention level.")
+                Text("Honest outcomes only: attempted, scheduled, accepted, failed, skipped. A local banner is scheduled; APNs 2xx is accepted by Apple's servers. Neither is proof the device showed it. Skipped means the cue was earned and deliberately not said here — the reason beside it says which switch, which missing phone, or which attention level; phonePosted means the phone had already shown it itself, and phone rows are what the phone reported.")
                     .font(.caption)
             }
 
