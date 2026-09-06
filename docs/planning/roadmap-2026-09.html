@@ -633,7 +633,7 @@ T.forEach(t=>t.deps.forEach(d=>{ const a=pos[d], b=pos[t.id]; const x1=a.x+NODE_
 svg.innerHTML=paths;
 
 // ----- stats -----
-const cnt = s => T.filter(t=>!["COORD","CURSOR","REVIEW"].includes(t.id) && statusOf(t)===s).length;
+const cnt = s => T.filter(t=>!["COORD","CODEX","REVIEW"].includes(t.id) && statusOf(t)===s).length;
 document.getElementById("stats").innerHTML=`
   <div class="stat done"><b>25</b><span>今天合并的 PR</span></div>
   <div class="stat agent"><b>${T.filter(t=>t.kind==="agent"&&statusOf(t)==="ready").length}</b><span>现在就能派的 agent 节点</span></div>
@@ -698,14 +698,14 @@ async function copyText(text, toast, ta){
 }
 document.getElementById("copyjson").addEventListener("click",()=>{
   const data = { generatedAt:"2026-09-06T11:27+08:00", main:"35e87b1", lanes: LANES.map(l=>({id:l[0],name:l[1]})),
-    nodes: T.filter(t=>!["COORD","CURSOR","REVIEW"].includes(t.id)).map(t=>({id:t.id,lane:t.lane,title:t.title,version:t.ver,owner:t.kind==="you"?"U":"A",status:statusOf(t),deps:t.deps,ticket:t.path,vision:t.q,spec:t.spec,prompt:promptFor(t)})) };
+    nodes: T.filter(t=>!["COORD","CODEX","REVIEW"].includes(t.id)).map(t=>({id:t.id,lane:t.lane,title:t.title,version:t.ver,owner:t.kind==="you"?"U":"A",status:statusOf(t),deps:t.deps,ticket:t.path,vision:t.q,spec:t.spec,prompt:promptFor(t)})) };
   copyText(JSON.stringify(data,null,1), document.getElementById("jsontoast"), null);
 });
 
 // ----- sessions + table -----
 document.getElementById("sess").innerHTML = SESSIONS.map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td><td>${s[2]}</td><td>${s[3]}</td><td class="mono">${s[4]}</td></tr>`).join("");
 const tb=document.querySelector("#tbl tbody");
-tb.innerHTML=T.filter(t=>!["COORD","CURSOR","REVIEW"].includes(t.id)).map(t=>{ const st=statusOf(t); return `<tr>
+tb.innerHTML=T.filter(t=>!["COORD","CODEX","REVIEW"].includes(t.id)).map(t=>{ const st=statusOf(t); return `<tr>
   <td class="mono"><b>${t.id}</b></td><td>${LANES.find(l=>l[0]===t.lane)[1]}</td><td>${t.title}</td><td class="mono">${t.ver}</td>
   <td><span class="pill ${st}">${STL[st]}</span></td><td class="mono">${t.deps.join(" ")||"—"}</td>
   <td><span class="pill ${t.kind==="you"?"you":"agent"}">${t.kind==="you"?"你":"agent"}</span></td>
@@ -764,7 +764,7 @@ renderDispatch();
   box.innerHTML = `<table><thead><tr><th>工作包</th><th>节点</th><th>已完成</th><th>进行中 / PR</th><th>可派</th><th>等上游</th><th></th><th>完成度</th></tr></thead><tbody>${rows}</tbody></table>`;
 })();
 
-select("CURSOR");
+select("CODEX");
 </script>
 </body>
 </html>
