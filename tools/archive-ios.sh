@@ -141,17 +141,14 @@ fi
 WATCH_COMPANION="$(sed -n 's/^ *WKCompanionAppBundleIdentifier: *\(.*\)$/\1/p' "$APP_PROJ/project.yml" | head -1)"
 check "watch companion app id" "$BUNDLE_ID" "$WATCH_COMPANION"
 
-# The Watch app is WatchConnectivity-only by design (see WatchStateStore.swift) —
-# it opens no LAN socket and holds no bearer token, so it has no entitlements file
-# and no App Group. If that ever changes, the group it declares must match the
-# app's, the same way the widget's does.
+# The Watch app and its complication share storage on the Watch. The iPhone
+# app/widget use their own group; WatchConnectivity bridges the two devices.
 WATCH_ENTITLEMENTS="$APP_PROJ/Watch/VibeBuddyWatch.entitlements"
-if [[ -f "$WATCH_ENTITLEMENTS" ]]; then
-  WATCH_GROUP="$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.application-groups:0' "$WATCH_ENTITLEMENTS" 2>/dev/null || echo MISSING)"
-  check "app group (watch matches app)" "$APP_GROUP" "$WATCH_GROUP"
-else
-  note "watch app: no entitlements file (WatchConnectivity-only design; no shared App Group)"
-fi
+WATCH_WIDGET_ENTITLEMENTS="$APP_PROJ/WatchWidget/VibeBuddyWatchWidget.entitlements"
+WATCH_GROUP="$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.application-groups:0' "$WATCH_ENTITLEMENTS" 2>/dev/null || echo MISSING)"
+WATCH_WIDGET_GROUP="$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.application-groups:0' "$WATCH_WIDGET_ENTITLEMENTS" 2>/dev/null || echo MISSING)"
+[[ "$WATCH_GROUP" != MISSING ]] || FAILED+=("the Watch app declares no App Group, but its complication reads shared state through one")
+check "app group (Watch widget matches Watch app)" "$WATCH_GROUP" "$WATCH_WIDGET_GROUP"
 
 for ICON in "$APP_PROJ/Sources/Assets.xcassets/AppIcon.appiconset/icon_1024.png" \
             "$APP_PROJ/Watch/Assets.xcassets/AppIcon.appiconset/icon_1024.png"; do
