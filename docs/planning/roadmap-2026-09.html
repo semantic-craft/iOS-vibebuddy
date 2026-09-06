@@ -140,7 +140,7 @@ td.mono{white-space:nowrap}
 <header class="top">
   <div class="title">
     <h1>vibebuddy 1.2 路线图</h1>
-    <p>2026-09-06 21:52 · main a60b22f · 用户明确授权发布：Mac 1.3（7）已公开；iOS 1.3（10）获 Apple「1 Item Submitted」回执，待审核，未获批准或上线。集中半小时实际体验仍待完成。HTML为唯一正本。</p>
+    <p>2026-09-06 22:18 · main 39ec2ff · 用户明确授权发布：Mac 1.3（7）已公开；iOS 1.3（11）修复 #100 的 ITMS-90455 后重新提交，Waiting for Review，未获批准或上线。集中半小时实际体验仍待完成。HTML为唯一正本。</p>
   </div>
   <div class="stats" id="stats"></div>
 </header>
@@ -354,7 +354,7 @@ td.mono{white-space:nowrap}
   <div class="tbl"><table id="tbl"><thead><tr><th>ID</th><th>工作包</th><th>内容</th><th>版本</th><th>状态</th><th>依赖</th><th>归属</th><th></th></tr></thead><tbody></tbody></table></div>
 </section>
 
-<p class="foot">数据来源：<code>docs/planning/vision-2026-09.md</code>、<code>.scratch/*/issues</code> 的 Status 行、<code>.scratch/mobile-watch-task-control/</code> PRD（11 张票）、<code>gh pr list</code>、各 worktree 的 <code>git status</code>、Claude Code 会话列表。状态以仓库文件为准，本页是 2026-09-06 21:52 的快照（main a60b22f；Mac1.3（7）已公开，iOS1.3（10）已提交待审核；实际体验未完成）。正本是仓库里的 <code>docs/planning/roadmap-2026-09.html</code>：改 <code>&lt;script&gt;</code> 里的 T / SESSIONS 数组与三处时间戳，再跑 <code>node tools/export-roadmap.js docs/planning/roadmap-2026-09.html docs/planning</code> 重新导出 JSON 与提示词文件，随 PR 一起提交。协调会话每次轮询都应先 git fetch 再核对。</p>
+<p class="foot">数据来源：<code>docs/planning/vision-2026-09.md</code>、<code>.scratch/*/issues</code> 的 Status 行、<code>.scratch/mobile-watch-task-control/</code> PRD（11 张票）、<code>gh pr list</code>、各 worktree 的 <code>git status</code>、Claude Code 会话列表。状态以仓库文件为准，本页是 2026-09-06 22:18 的快照（main 39ec2ff；Mac1.3（7）已公开，iOS1.3（11）修复系统版本要求后已重新提交待审核；实际体验未完成）。正本是仓库里的 <code>docs/planning/roadmap-2026-09.html</code>：改 <code>&lt;script&gt;</code> 里的 T / SESSIONS 数组与三处时间戳，再跑 <code>node tools/export-roadmap.js docs/planning/roadmap-2026-09.html docs/planning</code> 重新导出 JSON 与提示词文件，随 PR 一起提交。协调会话每次轮询都应先 git fetch 再核对。</p>
 
 <script>
 const VISION = {
@@ -552,18 +552,18 @@ const T = [
    spec:{goal:"冻结候选连续半小时无新增漏接；修复后重新计时。",scope:"以获准安装的冻结候选执行半小时体验，记录起止时间与漏接增量。",non:"—",accept:"验收窗口内新增漏接为 0；任何一次漏接开票修复后重计半小时。",verify:"Mac 设置页。",skills:"—"},
    body:"按 release-1.2 票02，在具体设备操作获准后使用冻结候选执行连续半小时真实体验。记录成品身份、起止时间、漏接增量和非预期重复；失败修复后锁定新候选并重新计时，不自动安装或替换运行中的 App。"},
   {id:"H-3",lane:"H",kind:"done",ver:"1.3",title:"已发布 Mac 1.3（7）（用户明确授权）",path:".scratch/release-1.2/issues/03-publish-and-update.md",q:["Q28"],deps:["H-2"],
-   spec:{goal:"额度整合为1.3，实际验收后报请发布。",scope:"Mac签名公证1.3(7)已通过GitHub v1.3公开；移动1.3(10)单独提交Apple审核。",non:"不把发布或提交审核记为实际体验通过。",accept:"原发布与更新证据要求保留；实际半小时验收绑定新候选，之后报用户决定发布。",verify:"成品签名、版本、安装与真实体验分别留证。",skills:"按需"},
+   spec:{goal:"额度整合为1.3，实际验收后报请发布。",scope:"Mac签名公证1.3(7)已通过GitHub v1.3公开；移动1.3(11)单独提交Apple审核。",non:"不把发布或提交审核记为实际体验通过。",accept:"原发布与更新证据要求保留；实际半小时验收绑定新候选，之后报用户决定发布。",verify:"成品签名、版本、安装与真实体验分别留证。",skills:"按需"},
    body:"用户后续明确授权本次发布并提交App Store，覆盖先完成半小时体验才发布的执行顺序。Mac GitHub v1.3已公开，成品仍1.3(7)。本节点done仅记录发布动作完成；H-2实际体验及原票验收要求仍保留待完成，不改票判据，不以发布推定通过。移动提交状态另见H-4，不重复发布。"},
   {id:"H-5",lane:"H",kind:"you",ver:"1.3",title:"Cursor 真机验收（四家矩阵补齐）",path:".scratch/qa-shots/cursor/",q:["Q27","Q5"],deps:["C-2","C-4"],
    spec:{goal:"Q27 的四家矩阵在 Cursor 上补齐：三态各一次、手机批准一次、手表批准一次、App 被杀后 APNs 送达一次。",scope:"真实 Cursor 会话；截图存目录。",non:"—",accept:"矩阵四项通过；不通过的能力从一等标注里去掉。",verify:"真机。",skills:"—"},
    body:"用真实 Cursor（IDE agent 与 cursor-agent CLI 各一次）跑 Q27 的矩阵，截图与结果存 .scratch/qa-shots/cursor/；不通过的项开修复票，并在 C-5 的分级文案里如实标注。"},
-  {id:"H-4",lane:"H",kind:"running",ver:"1.3",title:"iOS 1.3（10）已提交 Apple，待审核",path:".scratch/app-store-update/update-materials.md",q:["Q1","Q28"],deps:["H-3","C-3","C-4","C-5","E-2","G-4","G-5","H-5"],
+  {id:"H-4",lane:"H",kind:"running",ver:"1.3",title:"iOS 1.3（11）已重新提交 Apple，待审核",path:".scratch/app-store-update/update-materials.md",q:["Q1","Q28"],deps:["H-3","C-3","C-4","C-5","E-2","G-4","G-5","H-5"],
    spec:{goal:"iPhone / Watch 1.3 上架。",scope:"版本与 build 递增、Archive、上传、真实截图、Time Sensitive 权限说明、审核说明含 Demo 入口。",non:"—",accept:"区分上传、处理、提交、通过、上线。",verify:"App Store Connect。",skills:"wizard"},
-   body:"用户明确授权本次发布并提交。2026-09-06约21:52 Apple回执1 Item Submitted；submission 447e220d-5bcb-4344-9335-051f0ee2e891，iOS1.3(10)。8张宣传图已从最终b3116ef移动构建重新拍摄并上传；两张reviewer参考图未上传。当前仅已提交待审核，不是审核批准或商店上线；不重复提交，跟进Apple结果。历史完整功能依赖及H-2验收未因此完成。"},
+   body:"用户明确授权本次发布并提交。构建10因ITMS-90455被退回；#100将Watch最低版本26.6改为26.5，四个移动目标升级构建11。2026-09-06 22:18重新提交，submission 447e220d-5bcb-4344-9335-051f0ee2e891，iOS1.3(11)，Waiting for Review。8张宣传图已从b3116ef构建10重新拍摄并上传；构建11仅打包配置变化，UI一致；两张reviewer参考图未上传。当前仅已提交待审核，不是审核批准或商店上线；不重复提交，跟进Apple结果。历史完整功能依赖及H-2验收未因此完成。"},
 ];
 
 const SESSIONS = [
-["1.3发布与App Store提交", "Mac已公开；Apple已提交待审核 · 2026-09-06 21:52", "Mac1.3(7) GitHub v1.3；iOS1.3(10)；submission447e220d-5bcb-4344-9335-051f0ee2e891，1 Item Submitted", "等待Apple审核结果；H-2实际体验仍待完成，不冒称批准或上线", "H-3 H-4 H-2"],
+["1.3发布与App Store提交", "Mac已公开；Apple已提交待审核 · 2026-09-06 22:18", "Mac1.3(7) GitHub v1.3；iOS1.3(11)；#100修复ITMS-90455；submission447e220d-5bcb-4344-9335-051f0ee2e891，Waiting for Review", "等待Apple审核结果；H-2实际体验仍待完成，不冒称批准或上线", "H-3 H-4 H-2"],
 ["额度配置页图标修复", "已合并 #96，移动1.3(9)已安装", "同页猫图标截图通过；冷启动首次占位、重开正常", "半小时实际验收未开始，未发布", "WQ-4 H-2"],
 ["1.3（7）候选安装", "已安装三端，实际验收未开始", "源码10a04f5，与PR91/efc12c5树一致；Mac与DMG公证Accepted，手机/Watch签名通过，Mac health正常", "Watch远程唤起隧道失败，表上打开后验收原生配置与五样式；未发布", "H-2 H-3"],
 ["梳理手表小组件功能方案", "已合并 #90，实际验收待完成", "WQ-I；54项Mac与48项Kit通过，三端构建及独立评审通过；最终候选由总控签名安装", "整合验证后由总控生成1.3(7)并升级验收", "WQ-I H-2"],
@@ -717,7 +717,7 @@ async function copyText(text, toast, ta){
   setTimeout(()=>{ if(toast) toast.textContent=""; },2500);
 }
 document.getElementById("copyjson").addEventListener("click",()=>{
-  const data = { generatedAt:"2026-09-06T21:52+08:00", main:"a60b22f", lanes: LANES.map(l=>({id:l[0],name:l[1]})),
+  const data = { generatedAt:"2026-09-06T22:18+08:00", main:"39ec2ff", lanes: LANES.map(l=>({id:l[0],name:l[1]})),
     nodes: T.filter(t=>!["COORD","CODEX","REVIEW"].includes(t.id)).map(t=>({id:t.id,lane:t.lane,title:t.title,version:t.ver,owner:t.kind==="you"?"U":"A",status:(statusOf(t)==="running" ? (/^退回修改/.test(t.title) ? "changes-requested" : /#\d+/.test(t.title) ? "pr-open" : "in-progress") : statusOf(t)),deps:t.deps,ticket:t.path,vision:t.q,spec:t.spec,prompt:promptFor(t)})) };
   copyText(JSON.stringify(data,null,1), document.getElementById("jsontoast"), null);
 });
