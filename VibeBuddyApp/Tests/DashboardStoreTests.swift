@@ -19,6 +19,20 @@ private actor DecisionRecorder: DecisionClient {
     func jump(_ pairing: PairingPayload, sessionId: String) async -> JumpOutcome? { nil }
 }
 
+private actor ActionRecorder: DecisionClient {
+    private(set) var submits: [SessionActionRequest] = []
+
+    func acknowledge(_ pairing: PairingPayload, sessionId: String) async {}
+    func setAttention(_ pairing: PairingPayload, sessionId: String, level: SessionAttention?) async {}
+    func decide(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> Bool { true }
+    func answer(_ pairing: PairingPayload, sessionId: String, answer: String) async {}
+    func jump(_ pairing: PairingPayload, sessionId: String) async -> JumpOutcome? { nil }
+    func submitSessionAction(_ pairing: PairingPayload, request: SessionActionRequest) async -> SessionActionOutcome {
+        submits.append(request)
+        return .accepted
+    }
+}
+
 @MainActor
 final class DashboardStoreTests: XCTestCase {
     func testColdStartDeepLinkReplaysAcknowledgementAfterPairingStarts() async throws {
@@ -66,6 +80,34 @@ final class DashboardStoreTests: XCTestCase {
         let sent = await decisions.attentions
         XCTAssertEqual(sent.map(\.sessionId), ["s"])
         XCTAssertEqual(sent.map(\.level), [.followed])
+        store.stop()
+    }
+
+    /// The Mac's device registry can be emptied by a Mac restart while this app
+    /// is only backgrounded. Reporting once per launch left the Mac unable to
+    /// push until the phone next cold-launched; every reconnect must repair it.
+    func testDisconnectedActionIsNotSent() async throws {
+        let decisions = ActionRecorder()
+        let store = DashboardStore(streamer: EmptyStreamer(), notifier: SilentNotifier(),
+                                   decisionClient: decisions, watchRelay: nil)
+        store.start(PairingPayload(host: "127.0.0.1", port: 9, token: "test"))
+        let outcome = await store.submitAction(sessionId: "s", text: "keep going")
+        XCTAssertEqual(outcome, .notSent("Couldn't reach your Mac — not sent"))
+        let sentWhileDisconnected = await decisions.submits
+        XCTAssertEqual(sentWhileDisconnected.count, 0)
+        store.stop()
+    }
+
+    func testDemoCodexSteerIsAcceptedNotWorking() async throws {
+        let decisions = ActionRecorder()
+        let store = DashboardStore(streamer: EmptyStreamer(), notifier: SilentNotifier(),
+                                   decisionClient: decisions, watchRelay: nil)
+        store.startDemo()
+        let outcome = await store.submitAction(sessionId: "demo-work", text: "also run the tests")
+        XCTAssertEqual(outcome, .accepted)
+        XCTAssertEqual(store.toast, DashboardStore.actionMessage(.accepted))
+        let sentInDemo = await decisions.submits
+        XCTAssertEqual(sentInDemo.count, 0)
         store.stop()
     }
 

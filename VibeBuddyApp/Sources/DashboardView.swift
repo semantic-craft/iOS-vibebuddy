@@ -70,6 +70,10 @@ struct DashboardView: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             StreamComposer(target: replyTarget,
+                           macName: connection.pairing?.macName,
+                           reachable: dashboard.state == .connected,
+                           sending: dashboard.actionPhase == .sending,
+                           receipt: dashboard.actionReceipt,
                            clearTarget: { replyTo = nil },
                            send: send(_:))
                 .background(CompanionPalette.bg)
@@ -148,7 +152,7 @@ struct DashboardView: View {
             showNewTask = true
             return
         }
-        dashboard.answer(target.id, answer: text)
+        Task { await dashboard.submitAction(sessionId: target.id, text: text) }
         replyTo = nil
     }
 
@@ -240,8 +244,11 @@ enum ReplyMeaning: Equatable {
 
     init(target: AgentSession?) {
         guard let target else { self = .newTask; return }
-        if let q = target.pendingQuestion, q.isAnswerable { self = .answer; return }
-        self = target.status == .done ? .continuation : .instruction
+        switch SessionActionSupport.resolve(for: target).intent {
+        case .answer: self = .answer
+        case .steer: self = .instruction
+        case .continue: self = .continuation
+        }
     }
 
     var verb: LocalizedStringKey {
@@ -250,6 +257,15 @@ enum ReplyMeaning: Equatable {
         case .instruction: "Send instruction"
         case .continuation: "Continue"
         case .newTask: "New task"
+        }
+    }
+
+    var verbLabel: String {
+        switch self {
+        case .answer: String(localized: "Answer")
+        case .instruction: String(localized: "Send instruction")
+        case .continuation: String(localized: "Continue")
+        case .newTask: String(localized: "New task")
         }
     }
 
@@ -262,11 +278,8 @@ enum ReplyMeaning: Equatable {
         }
     }
 
-    /// Instructions and continuations travel through the Codex app-server; a
-    /// Claude Code session has no such channel from the phone yet.
     func unsupportedReason(for target: AgentSession?) -> String? {
-        guard let target, self == .instruction || self == .continuation, target.agent != .codex else { return nil }
-        return String(localized: "\(target.agent.displayName) sessions can't take instructions from the phone yet — use the terminal.")
+        target.flatMap { SessionActionSupport.resolve(for: $0).unsupportedReason }
     }
 }
 
@@ -282,10 +295,7 @@ private struct MessageRow: View {
     @EnvironmentObject private var dashboard: DashboardStore
 
     private var state: TaskPresentationState { session.presentationState }
-    private var canReply: Bool {
-        if let q = session.pendingQuestion, q.isAnswerable { return true }
-        return session.agent == .codex
-    }
+    private var canReply: Bool { true }
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -421,6 +431,10 @@ private struct MessageRow: View {
 /// a reply target the banner names both; without one the text is a new task.
 private struct StreamComposer: View {
     let target: AgentSession?
+    let macName: String?
+    let reachable: Bool
+    let sending: Bool
+    let receipt: SessionActionOutcome?
     let clearTarget: () -> Void
     let send: (String) -> Void
     @State private var draft = ""
@@ -429,7 +443,8 @@ private struct StreamComposer: View {
     private var meaning: ReplyMeaning { ReplyMeaning(target: target) }
     private var unsupported: String? { meaning.unsupportedReason(for: target) }
     private var canSend: Bool {
-        unsupported == nil && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        reachable && !sending && unsupported == nil
+            && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
@@ -437,8 +452,10 @@ private struct StreamComposer: View {
             if let target {
                 HStack(spacing: 8) {
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("Replying to \(target.displayTitle) · \(target.presentationState.label)")
+                        Text(SessionActionSupport.targetCaption(macName: macName, session: target))
                             .font(CompanionType.font(10, .heavy)).foregroundStyle(CompanionPalette.ink2)
+                        Text("\(meaning.verbLabel) · \(target.displayTitle) · \(target.presentationState.label)")
+                            .font(CompanionType.font(11, .bold)).foregroundStyle(CompanionPalette.ink2)
                         Text(unsupported ?? target.summary ?? ToolActivity.label(for: target))
                             .font(CompanionType.font(12, .bold))
                             .foregroundStyle(unsupported == nil ? CompanionPalette.ink : CompanionPalette.status(.error))
@@ -480,9 +497,27 @@ private struct StreamComposer: View {
             }
             .background(CompanionPalette.bg3, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
             .shadow(color: .black.opacity(0.06), radius: 6, y: 2)
+            if sending {
+                Text("Sending…")
+                    .font(CompanionType.font(11, .bold)).foregroundStyle(CompanionPalette.ink2)
+            } else if !reachable {
+                Text("Couldn't reach your Mac — not sent")
+                    .font(CompanionType.font(11, .bold)).foregroundStyle(CompanionPalette.status(.error))
+            } else if let receipt {
+                Text(DashboardStore.actionMessage(receipt))
+                    .font(CompanionType.font(11, .bold))
+                    .foregroundStyle(receiptColor(receipt))
+            }
         }
         .padding(.horizontal, 12).padding(.top, 6).padding(.bottom, 8)
         .onChange(of: target?.id) { _, id in if id != nil { focused = true } }
+    }
+
+    private func receiptColor(_ receipt: SessionActionOutcome) -> Color {
+        switch receipt {
+        case .accepted: CompanionPalette.ink2
+        case .unknown, .notSent, .failed: CompanionPalette.status(.error)
+        }
     }
 
     private func submit() {

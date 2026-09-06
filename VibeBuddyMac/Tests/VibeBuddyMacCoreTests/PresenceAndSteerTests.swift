@@ -148,24 +148,25 @@ struct CodexSteerTests {
         defer { h.stop() }
         #expect(await h.connected())
         await h.activate("thr-live")
-        #expect(await h.monitor.steer(threadID: "thr-live", text: "also run the tests", isActive: true))
+        #expect(await h.monitor.steer(threadID: "thr-live", text: "also run the tests"))
         #expect(h.connection.calls.last == "turn/steer")
-        #expect(await h.monitor.steer(threadID: "thr-live", text: "start over", isActive: false))
+        #expect(await h.monitor.startTurn(threadID: "thr-live", text: "start over"))
         #expect(h.connection.calls.last == "turn/start")
-        #expect(await h.monitor.steer(threadID: "thr-cold", text: "hello", isActive: false))
+        #expect(await h.monitor.startTurn(threadID: "thr-cold", text: "hello"))
         #expect(h.connection.calls.suffix(2) == ["thread/resume", "turn/start"])
     }
 
-    @Test("a steer the daemon refuses falls back to a new turn")
-    func steerFallsBack() async throws {
+    @Test("a steer the daemon refuses does not start a new turn")
+    func steerFailureDoesNotStart() async throws {
         let h = Harness()
         defer { h.stop() }
         #expect(await h.connected())
         await h.activate("thr-x")
-        h.connection.set("turn/steer", [:])       // the fake answers; remove to make it fail
+        h.connection.set("turn/steer", [:])
         h.connection.fail("turn/steer")
-        #expect(await h.monitor.steer(threadID: "thr-x", text: "hi", isActive: true))
-        #expect(h.connection.calls.suffix(2) == ["turn/steer", "turn/start"])
+        #expect(await h.monitor.steer(threadID: "thr-x", text: "hi") == false)
+        #expect(h.connection.calls.last == "turn/steer")
+        #expect(!h.connection.calls.contains("turn/start"))
     }
 
     @Test("the answer dispatch sends Codex text to the daemon and never types into a pane")
@@ -174,16 +175,52 @@ struct CodexSteerTests {
         await store.ingest(HookEvent(kind: .userPromptSubmit, sessionID: "thr-d", agent: .codex, cwd: "/x/p",
                                      observationSource: .appserver, timestamp: Date()))
         await store.setTerminalRef(sessionID: "thr-d", TerminalRef(termProgram: "tmux", tmux: "/tmp/s,1,0", tmuxPane: "%1"))
-        final class Box: @unchecked Sendable { var steered: [(String, String, Bool)] = []; var typed: [String] = [] }
+        final class Box: @unchecked Sendable { var steered: [String] = []; var started: [String] = []; var typed: [String] = [] }
         let box = Box()
         let dispatch = AnswerDispatch(store: store, questions: QuestionRegistry(),
                                       inject: { _, text in box.typed.append(text) },
-                                      steer: { id, text, active in box.steered.append((id, text, active)); return true })
+                                      steer: { _, text in box.steered.append(text); return true },
+                                      startTurn: { _, text in box.started.append(text); return true })
         #expect(await dispatch.deliver(sessionID: "thr-d", text: "use postgres", answers: nil))
         #expect(box.typed.isEmpty)
-        #expect(box.steered.count == 1)
-        #expect(box.steered.first?.1 == "use postgres")
-        #expect(box.steered.first?.2 == true)          // working → steer
+        #expect(box.steered == ["use postgres"])
+        #expect(box.started.isEmpty)
+    }
+
+    @Test("an expired Answer does not become a steer")
+    func expiredAnswerDoesNotSteer() async throws {
+        let store = SessionStore()
+        await store.ingest(HookEvent(kind: .userPromptSubmit, sessionID: "thr-e", agent: .codex, cwd: "/x/p",
+                                     observationSource: .appserver, timestamp: Date()))
+        final class Box: @unchecked Sendable { var steered = 0; var started = 0 }
+        let box = Box()
+        let dispatch = AnswerDispatch(store: store, questions: QuestionRegistry(),
+                                      inject: { _, _ in },
+                                      steer: { _, _ in box.steered += 1; return true },
+                                      startTurn: { _, _ in box.started += 1; return true })
+        let result = await dispatch.deliver(SessionActionRequest(
+            sessionID: "thr-e", intent: .answer, requestID: "r1",
+            questionID: "q-old", text: "yes"))
+        #expect(result == .failed("This question is no longer waiting"))
+        #expect(box.steered == 0)
+        #expect(box.started == 0)
+    }
+
+    @Test("a duplicate requestId is not executed again")
+    func duplicateRequestIdIsNotReplayed() async throws {
+        let store = SessionStore()
+        await store.ingest(HookEvent(kind: .userPromptSubmit, sessionID: "thr-dup", agent: .codex, cwd: "/x/p",
+                                     observationSource: .appserver, timestamp: Date()))
+        final class Box: @unchecked Sendable { var steered = 0 }
+        let box = Box()
+        let dispatch = AnswerDispatch(store: store, questions: QuestionRegistry(),
+                                      inject: { _, _ in },
+                                      steer: { _, _ in box.steered += 1; return true })
+        let request = SessionActionRequest(sessionID: "thr-dup", intent: .steer,
+                                           requestID: "same", text: "retry")
+        #expect(await dispatch.deliver(request) == .accepted)
+        #expect(await dispatch.deliver(request) == .accepted)
+        #expect(box.steered == 1)
     }
 
     @Test("present: an approval request shows a read-only card and is never answered from here")

@@ -437,35 +437,51 @@ public actor CodexAppServerMonitor {
         client.respond(id: id, result: ["answers": payload])
     }
 
-    /// Put free text into a thread (ticket 04): `turn/steer` joins a running
-    /// turn, `turn/start` opens one on an idle thread, and a thread the daemon
-    /// has unloaded is resumed first. Nothing about the thread's model,
-    /// approval policy or sandbox is touched. False when there is no
-    /// connection or the daemon refused.
-    public func steer(threadID: String, text: String, isActive: Bool) async -> Bool {
+    /// Join a running turn. Does not start a new one when steer fails (Q35).
+    /// Sends `expectedTurnId` when the reducer still knows the active turn.
+    public func steer(threadID: String, text: String) async -> Bool {
         guard let client, state.connected else { return false }
+        guard await resumeIfNeeded(threadID: threadID) else { return false }
+        var input: [String: Any] = ["threadId": threadID, "input": [["type": "text", "text": text]]]
+        if let turnID = reducer.threads[threadID]?.activeTurnID {
+            input["expectedTurnId"] = turnID
+        }
+        do {
+            _ = try await client.request("turn/steer", params: input)
+            return true
+        } catch {
+            state.lastError = "turn/steer \(threadID.suffix(8)): \(error)"
+            return false
+        }
+    }
+
+    /// Open the next turn on an idle or cold thread. Resume first when the
+    /// daemon has unloaded it. Nothing about model, approval or sandbox.
+    public func startTurn(threadID: String, text: String) async -> Bool {
+        guard let client, state.connected else { return false }
+        guard await resumeIfNeeded(threadID: threadID) else { return false }
         let input: [String: Any] = ["threadId": threadID, "input": [["type": "text", "text": text]]]
-        if reducer.threads[threadID]?.loaded != true {
-            do {
-                let result = try await client.request("thread/resume", params: ["threadId": threadID, "excludeTurns": true])
-                subscribed.insert(threadID)
-                if let thread = result["thread"] as? [String: Any] {
-                    _ = reducer.seed(thread: thread, receivedAt: Date())
-                }
-            } catch {
-                state.lastError = "thread/resume \(threadID.suffix(8)): \(error)"
-                return false
-            }
-        }
-        if isActive {
-            if (try? await client.request("turn/steer", params: input)) != nil { return true }
-            // The turn ended between the snapshot and the call: start one.
-        }
         do {
             _ = try await client.request("turn/start", params: input)
             return true
         } catch {
             state.lastError = "turn/start \(threadID.suffix(8)): \(error)"
+            return false
+        }
+    }
+
+    private func resumeIfNeeded(threadID: String) async -> Bool {
+        guard let client else { return false }
+        guard reducer.threads[threadID]?.loaded != true else { return true }
+        do {
+            let result = try await client.request("thread/resume", params: ["threadId": threadID, "excludeTurns": true])
+            subscribed.insert(threadID)
+            if let thread = result["thread"] as? [String: Any] {
+                _ = reducer.seed(thread: thread, receivedAt: Date())
+            }
+            return true
+        } catch {
+            state.lastError = "thread/resume \(threadID.suffix(8)): \(error)"
             return false
         }
     }
