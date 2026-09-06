@@ -79,7 +79,7 @@ Approval and question banners request **Time Sensitive** delivery when their fin
 
 The current source supports APNs notifications with the iPhone app closed when the Mac sender is running, APNs signing is configured for the iPhone build, the phone has registered, and notifications are allowed. This is not yet a public-download setup promise: the distribution approach awaits [DEC-APNS](docs/adr/0013-apns-key-delivery.md), and lock-screen / Focus / Watch delivery still needs device acceptance. Responding requires a reachable paired Mac; away from that network, return to it before acting (an existing Tailscale connection is an advanced option).
 
-### 🤖 Four first-class agents, plus community adapters
+### 🤖 Three existing adapters; Cursor is planned
 The first-class roadmap covers **Claude Code, Codex, Grok, and Cursor**: three-state tracking and remote approval are the required baseline; quota and jump support are best effort. Claude Code, Codex and Grok have adapters today; **Cursor is planned and is not yet supported**. Device acceptance remains a separate gate for each agent. **Qwen, Kimi, OpenCode, and Antigravity** adapters are community-tier, unverified, and fail-open. See the [hook setup guide](docs/multi-cli-hook-setup.md) for agent-specific setup.
 
 ### 📷 QR pairing, zero typing
@@ -131,7 +131,7 @@ The hard part — *detecting* session state — is solved by **hooks** that each
 
 ## 🛠️ Build & run
 
-Deployment targets: **iOS 17 / macOS 14**. The planned build SDK is **Xcode 27**; this does not raise the deployment targets or imply that Xcode 27 validation is complete.
+Deployment targets: **iOS 17 / macOS 14**. The 1.2 candidate is built with **Xcode 26.6**. Xcode 27 work is deferred until a later update.
 
 | Path | What |
 |------|------|

@@ -79,7 +79,7 @@
 
 当前源码支持关闭 iPhone App 后通过 APNs 接收通知，条件是 Mac 发送端正在运行、APNs 签名与 iPhone 构建匹配、手机已注册且允许通知。这尚不是公开下载后开箱即用的承诺：分发方案仍待 [DEC-APNS](docs/adr/0013-apns-key-delivery.md)，锁屏／专注模式／Watch 送达仍需真机验收。回应要求已配对的 Mac 可达；离开该网络时应回到同一网络后处理（已有 Tailscale 连接可作为进阶方案）。
 
-### 🤖 四家一等支持，以及社区适配器
+### 🤖 三家现有适配，Cursor 计划中，以及社区适配器
 一等支持路线图覆盖 **Claude Code、Codex、Grok、Cursor**：三态追踪与远程审批是必需能力，配额和跳转尽力支持。Claude Code、Codex、Grok 已有适配器；**Cursor 仍在计划中，尚未支持**。每家仍需分别完成真机验收。**Qwen、Kimi、OpenCode、Antigravity** 为社区级适配器，未验证、失败即放行。各家的接线方法见 [hook 配置指南](docs/multi-cli-hook-setup.md)。
 
 ### 📷 扫码配对，零输入
@@ -131,7 +131,7 @@ Claude Code / Codex / Qwen / … ──hooks──▶ vibebuddy（macOS 菜单�
 
 ## 🛠️ 构建与运行
 
-部署目标：**iOS 17 / macOS 14**。计划使用 **Xcode 27 SDK** 构建；这不提高部署门槛，也不代表 Xcode 27 验证已完成。
+部署目标：**iOS 17 / macOS 14**。1.2 候选使用 **Xcode 26.6** 构建；Xcode 27 工作暂缓，留待后续更新。
 
 | 路径 | 内容 |
 |------|------|
