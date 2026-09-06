@@ -39,16 +39,16 @@ private struct WatchCalmHeader: View {
     let connection: WatchConnection
 
     var body: some View {
-        // With sessions running, the cat sits beside the headline so the three
-        // counts still land on the first screen of a 40mm watch. With nothing
-        // running there is nothing to make room for, so the empty state gets
-        // the centred composition and room to explain itself.
+        // With sessions running, the cat sits beside its line so the counts
+        // still land on the first screen of a 40mm watch. With nothing running
+        // there is nothing to make room for, so the empty state gets the centred
+        // composition and room to explain itself.
         if state.counts.isEmpty {
             // Nothing known is not the same as nothing running: say which.
             VStack(spacing: 6) {
                 WatchCat(state: state.buddyState)
                 Text(connection.isCurrent ? "No sessions" : "No recent update")
-                    .font(.headline)
+                    .font(CompanionType.font(15, .black))
                     .multilineTextAlignment(.center)
                 Text(connection.advice ?? "Start a session on your Mac and it shows up here.")
                     .font(.caption2)
@@ -57,22 +57,25 @@ private struct WatchCalmHeader: View {
             }
             .frame(maxWidth: .infinity)
         } else {
+            // Round 5: the cat says one line, the rest sits under it.
             HStack(spacing: 8) {
                 WatchCat(state: state.buddyState, width: 36)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Nobody's waiting")
-                        .font(.headline)
+                    Text(CompanionCopy.moodLine(state.presentation))
+                        .font(CompanionType.font(14, .black))
                         .lineLimit(2)
                         .minimumScaleFactor(0.8)
-                    Text(state.counts.working > 0
-                         ? "\(state.counts.working) working"
-                         : "All quiet")
-                        .font(.caption2)
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
+                    let rest = CompanionCopy.restLine(state.presentation)
+                    if !rest.isEmpty {
+                        Text(rest)
+                            .font(CompanionType.font(10, .bold))
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 Spacer(minLength: 0)
             }
+            .accessibilityElement(children: .combine)
         }
     }
 }
@@ -93,11 +96,11 @@ struct WatchCountsRow: View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(WatchBucket.allCases, id: \.self) { bucket in
                 row(symbol: bucket.symbolName, value: bucket.count(in: counts),
-                    accent: bucket.color, title: bucket.title)
+                    accent: CompanionPalette.status(bucket.presentation), title: bucket.title)
             }
             if stuck > 0 {
                 row(symbol: TaskPresentationState.error.symbolName, value: stuck,
-                    accent: Color(taskStatus: TaskPresentationState.error.colorToken),
+                    accent: CompanionPalette.status(.error),
                     title: "Stuck")
             }
         }
@@ -113,7 +116,7 @@ struct WatchCountsRow: View {
                 .frame(width: 11)
                 .foregroundStyle(tint)
             Text(value, format: .number)
-                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                .font(CompanionType.font(18, .black))
                 .monospacedDigit()
                 .foregroundStyle(tint)
             Text(title)
@@ -150,10 +153,13 @@ struct WatchQuotaStrips: View {
         return HStack(spacing: 6) {
             Text(quota.provider.displayName)
                 .font(.caption2)
-                .frame(width: 42, alignment: .leading)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(width: 44, alignment: .leading)
             if let remaining = quota.weeklyRemainingPercent {
                 ProgressView(value: Double(remaining), total: 100)
-                    .tint(freshness == .stale ? .secondary : .primary)
+                    .tint(freshness == .stale ? Color.secondary
+                          : (remaining <= 10 ? CompanionPalette.status(.requiresInput) : CompanionPalette.accent))
                 Text(WatchFormat.percent(remaining))
                     .font(.caption2)
                     .monospacedDigit()

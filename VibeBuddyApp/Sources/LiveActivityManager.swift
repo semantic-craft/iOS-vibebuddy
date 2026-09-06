@@ -22,10 +22,21 @@ final class LiveActivityManager {
         guard !summary.isEmpty else { await end(); return }
         let leading = sessions.leadingPresentationSession
 
+        // The island can answer the first pending approval (island-approve/01) —
+        // not necessarily the leading session, since an error outranks it.
+        let asking = sessions.first { $0.pendingApproval != nil }
+        let approval = asking?.pendingApproval
+        let previous = activity?.content.state
         let state = VibeBuddyActivityAttributes.ContentState(
             summary: summary,
             topProject: leading?.project,
-            topSessionId: leading?.id)
+            topSessionId: leading?.id,
+            approvalId: approval?.id,
+            approvalTitle: approval.map { "\(asking?.project ?? "") wants to \(CompanionCopy.requestVerb($0))" },
+            approvalDetail: approval?.commandPreview,
+            // A decision already sent from the island stays shown while the Mac
+            // still reports the same request; a new request starts clean.
+            decisionSent: previous?.approvalId == approval?.id ? previous?.decisionSent : nil)
         let content = ActivityContent(state: state, staleDate: nil)
 
         if let activity {

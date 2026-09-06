@@ -281,6 +281,8 @@ public actor APNsPusher {
     /// push to a per-activity push token, on the `…push-type.liveactivity` topic.
     public func sendActivityUpdate(summary: TaskPresentationSummary,
                                    topProject: String?, topSessionId: String?,
+                                   approvalId: String? = nil, approvalTitle: String? = nil,
+                                   approvalDetail: String? = nil,
                                    to activityToken: String, now: Date = Date()) async {
         guard let url = URL(string: "https://\(config.host)/3/device/\(activityToken)"),
               let auth = try? providerToken(now: now) else { return }
@@ -293,6 +295,7 @@ public actor APNsPusher {
         request.httpBody = Data(Self.activityPayload(
             summary: summary,
             topProject: topProject, topSessionId: topSessionId,
+            approvalId: approvalId, approvalTitle: approvalTitle, approvalDetail: approvalDetail,
             timestamp: Int(now.timeIntervalSince1970)).utf8)
         _ = try? await URLSession.shared.data(for: request)
     }
@@ -301,10 +304,17 @@ public actor APNsPusher {
     /// `VibeBuddyActivityAttributes.ContentState`; optional strings are omitted when nil.
     nonisolated static func activityPayload(summary: TaskPresentationSummary,
                                             topProject: String?, topSessionId: String?,
+                                            approvalId: String? = nil, approvalTitle: String? = nil,
+                                            approvalDetail: String? = nil,
                                             timestamp: Int) -> String {
         var state = #""summary":{"idle":\#(summary.idle),"thinking":\#(summary.thinking),"completeUnread":\#(summary.completeUnread),"requiresInput":\#(summary.requiresInput),"error":\#(summary.error)}"#
         if let p = topProject { state += #","topProject":"\#(escape(p))""# }
         if let s = topSessionId { state += #","topSessionId":"\#(escape(s))""# }
+        // island-approve/01: the leading session's request, so a backgrounded
+        // phone shows the keys too.
+        if let a = approvalId { state += #","approvalId":"\#(escape(a))""# }
+        if let t = approvalTitle { state += #","approvalTitle":"\#(escape(t))""# }
+        if let d = approvalDetail { state += #","approvalDetail":"\#(escape(d))""# }
         return #"{"aps":{"timestamp":\#(timestamp),"event":"update","content-state":{\#(state)}}}"#
     }
 
