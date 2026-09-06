@@ -86,7 +86,7 @@ final class AccountUsageCoordinator: ObservableObject {
                 enabled: grokEnabled
             ),
             .cursor: AccountUsageCollector(
-                provider: CursorPendingUsageProvider(),
+                provider: CursorUsageProvider(),
                 cache: AccountUsageFileCache(provider: .cursor),
                 enabled: cursorEnabled
             ),
