@@ -12,6 +12,7 @@ public extension AgentKind {
         case "grok", "grok-build", "grokbuild":         return .grok
         case "opencode":                                return .opencode
         case "copilot", "githubcopilot", "github-copilot": return .copilot
+        case "cursor", "cursor-agent", "cursoragent":    return .cursor
         case "claude", "claudecode", "claude-code":     return .claudeCode
         default:                                        return .claudeCode
         }
@@ -28,6 +29,7 @@ public extension AgentKind {
         case .grok:        return "Grok"
         case .opencode:    return "OpenCode"
         case .copilot:     return "GitHub Copilot"
+        case .cursor:      return "Cursor"
         }
     }
 
@@ -42,6 +44,7 @@ public extension AgentKind {
         case .grok:        return "Grok"
         case .opencode:    return "OpenCode"
         case .copilot:     return "Copilot"
+        case .cursor:      return "Cursor"
         }
     }
 
@@ -56,6 +59,7 @@ public extension AgentKind {
         case .grok:        return "bolt.circle"
         case .opencode:    return "curlybraces"
         case .copilot:     return "person.2.circle"
+        case .cursor:      return "cursorarrow"
         }
     }
 }

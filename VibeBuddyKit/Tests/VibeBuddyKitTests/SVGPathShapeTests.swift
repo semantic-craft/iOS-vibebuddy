@@ -27,6 +27,23 @@ struct SVGPathShapeTests {
         #expect(!path.contains(CGPoint(x: 12, y: 18.5)))
     }
 
+    /// The hand-drawn marks fill where they should under nonzero winding: the
+    /// Grok ring is hollow except where the bar crosses; the OpenCode frame is
+    /// hollow above its block and solid on the block.
+    @Test func handDrawnMarksHaveTheRightHoles() {
+        let grok = SVGPathParser.path(AgentKind.grok.brandMark)
+        #expect(grok.contains(CGPoint(x: 12, y: 4)))       // ring
+        #expect(grok.contains(CGPoint(x: 12, y: 12)))      // bar through the centre
+        #expect(grok.contains(CGPoint(x: 16, y: 8)))       // bar inside the hole
+        #expect(!grok.contains(CGPoint(x: 12, y: 8)))      // hole beside the bar
+        #expect(!grok.contains(CGPoint(x: 8, y: 8)))       // hole, far side
+        let oc = SVGPathParser.path(AgentKind.opencode.brandMark)
+        #expect(oc.contains(CGPoint(x: 6.5, y: 12)))       // frame wall
+        #expect(!oc.contains(CGPoint(x: 12, y: 8)))        // gap above the block
+        #expect(oc.contains(CGPoint(x: 12, y: 14)))        // block
+        #expect(!oc.contains(CGPoint(x: 8.5, y: 14)))      // gap beside the block
+    }
+
     /// The shape scales its 24-box into whatever rect it's given, centred.
     @Test func fitsAndCentresInRect() {
         let shape = SVGPathShape("M0 0h24v24H0z")
