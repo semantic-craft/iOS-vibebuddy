@@ -1,4 +1,5 @@
 import XCTest
+import Combine
 import SwiftUI
 import VibeBuddyKit
 @testable import VibeBuddyApp
@@ -37,7 +38,7 @@ final class ObservationDiagnosticsTests: XCTestCase {
         let frames = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [Any])
         let pipe = AsyncStream<Snapshot>.makeStream()
         let store = DashboardStore(streamer: ControlledDiagnosticStreamer(stream: pipe.stream),
-            notifier: SilentNotifier(), decisionClient: NullDecisionClient(), watchRelay: nil)
+            notifier: SilentNotifier(), decisionClient: NullDecisionClient(), watchRelay: nil, reportDevice: { _ in })
         store.start(PairingPayload(host: "127.0.0.1", port: 9, token: "test"))
         defer { store.stop(); pipe.continuation.finish() }
         var renderedReasons = Set<String>()
@@ -55,12 +56,14 @@ final class ObservationDiagnosticsTests: XCTestCase {
             XCTAssertEqual(old.providerQuota, snapshot.providerQuota)
             XCTAssertEqual(old.observationDiagnostics?.flatMap { $0.sources.map(\.health) },
                            snapshot.observationDiagnostics?.flatMap { $0.sources.map(\.health) })
+            // Wait for the actual published frame. The preceding frame may still
+            // be completing an asynchronous ActivityKit update; this is not a latency test.
+            let applied = expectation(description: "Next upstream frame installed")
+            let subscription = store.$groups.dropFirst().sink { _ in applied.fulfill() }
             pipe.continuation.yield(snapshot)
-            for _ in 0..<100 {
-                if store.observationDiagnostics == snapshot.observationDiagnostics ?? [],
-                   store.allSessions.sorted(by: { $0.id < $1.id }) == snapshot.sessions.sorted(by: { $0.id < $1.id }) { break }
-                try await Task.sleep(for: .milliseconds(10))
-            }
+            let result = await XCTWaiter.fulfillment(of: [applied], timeout: 5)
+            XCTAssertEqual(result, .completed)
+            subscription.cancel()
             XCTAssertEqual(store.allSessions.sorted(by: { $0.id < $1.id }), snapshot.sessions.sorted(by: { $0.id < $1.id }))
             XCTAssertEqual(store.observationDiagnostics, snapshot.observationDiagnostics ?? [])
             for row in store.observationDiagnostics.flatMap(\.sources) {
@@ -105,15 +108,16 @@ final class ObservationDiagnosticsTests: XCTestCase {
         }
         let pipe = AsyncStream<Snapshot>.makeStream()
         let store = DashboardStore(streamer: ControlledDiagnosticStreamer(stream: pipe.stream),
-            notifier: SilentNotifier(), decisionClient: NullDecisionClient(), watchRelay: nil)
+            notifier: SilentNotifier(), decisionClient: NullDecisionClient(), watchRelay: nil, reportDevice: { _ in })
         store.start(PairingPayload(host: "127.0.0.1", port: 9, token: "test"))
         defer { store.stop(); pipe.continuation.finish() }
         for snapshot in snapshots {
+            let applied = expectation(description: "Next compatibility frame installed")
+            let subscription = store.$groups.dropFirst().sink { _ in applied.fulfill() }
             pipe.continuation.yield(snapshot)
-            for _ in 0..<100 {
-                if store.allSessions.first?.status == snapshot.sessions.first?.status { break }
-                try await Task.sleep(for: .milliseconds(10))
-            }
+            let result = await XCTWaiter.fulfillment(of: [applied], timeout: 5)
+            XCTAssertEqual(result, .completed)
+            subscription.cancel()
             XCTAssertEqual(store.allSessions.map(\.status), snapshot.sessions.map(\.status))
             XCTAssertEqual(store.observationDiagnostics, snapshot.observationDiagnostics)
         }
