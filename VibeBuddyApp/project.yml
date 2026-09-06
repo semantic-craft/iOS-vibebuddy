@@ -47,7 +47,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.app
         MARKETING_VERSION: "1.3"
-        CURRENT_PROJECT_VERSION: "7"
+        CURRENT_PROJECT_VERSION: "8"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"
         DEVELOPMENT_TEAM: LQAVR62TK2
@@ -82,7 +82,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.app.widget
         MARKETING_VERSION: "1.3"
-        CURRENT_PROJECT_VERSION: "7"
+        CURRENT_PROJECT_VERSION: "8"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"
         DEVELOPMENT_TEAM: LQAVR62TK2
@@ -112,7 +112,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.app.watchkitapp
         CODE_SIGN_ENTITLEMENTS: Watch/VibeBuddyWatch.entitlements
         MARKETING_VERSION: "1.3"
-        CURRENT_PROJECT_VERSION: "7"
+        CURRENT_PROJECT_VERSION: "8"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "4"
         DEVELOPMENT_TEAM: LQAVR62TK2
@@ -124,6 +124,7 @@ targets:
     sources:
       - path: WatchWidget
       - path: WatchShared
+      - path: Watch/Assets.xcassets
     dependencies:
       - package: VibeBuddyKit
         product: VibeBuddyKit
@@ -139,11 +140,12 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.app.watchkitapp.widget
         MARKETING_VERSION: "1.3"
-        CURRENT_PROJECT_VERSION: "7"
+        CURRENT_PROJECT_VERSION: "8"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "4"
         DEVELOPMENT_TEAM: LQAVR62TK2
         CODE_SIGN_STYLE: Automatic
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_ENTITLEMENTS: WatchWidget/VibeBuddyWatchWidget.entitlements
   VibeBuddyAppTests:
     type: bundle.unit-test
