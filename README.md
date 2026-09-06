@@ -26,7 +26,7 @@ You kick off three Claude Code sessions, switch to Codex for a fourth, walk away
 
 > ### 🟠 Needs response · 🔵 Working · 🟢 Done
 
-No more walking back to the desk to find a session has been blocked on a permission prompt for ten minutes. Your phone buzzes, you read the exact diff, and you tap **Approve** — or you tap the cat and **say "approve it."**
+No more walking back to the desk to find a session has been blocked on a permission prompt for ten minutes. Your phone buzzes, you review the diff preview, and you tap **Approve** — or you tap the cat and **say "approve it."**
 
 <div align="center">
 
@@ -72,7 +72,7 @@ The part nobody else has. Tap the cat and start a **real-time voice conversation
 Every session grouped into **Needs response / Working / Done**, each row showing project · branch · model · live token & context-window usage · the tool the agent is currently running · and a peek at its most recent output. Priority is honest: `needs response` always outranks `working`.
 
 ### ✅ Remote approvals
-When an agent asks to run a command or edit a file, review the **full command or diff** in the phone dashboard. **Approve / Deny** from the dashboard or a lock-screen notification (Approve requires unlocking); answerable question notifications offer text input. **Always allow this** / **Allow all this session** remain in the dashboard, not notification buttons. A read-only wait tells you to respond in the Mac's native prompt. Actions require pairing and a reachable Mac.
+When an agent asks to run a command or edit a file, review the command or **diff preview** in the phone dashboard. Diff previews show up to eight lines per side; inspect the full change on the Mac when more context is needed. **Approve / Deny** from the dashboard or a lock-screen notification (Approve requires unlocking); answerable question notifications offer text input. **Always allow this** / **Allow all this session** remain in the dashboard, not notification buttons. A read-only wait tells you to respond in the Mac's native prompt. Actions require pairing and a reachable Mac.
 
 ### 🔔 Notifications, Live Activity & Dynamic Island
 Approval and question banners request **Time Sensitive** delivery when their final delivery level includes sound; Quiet makes them ordinary silent banners. Other categories remain ordinary. Your category switches and system notification / Focus settings still apply. ActivityKit puts live counts on the **Lock Screen and Dynamic Island**, updated while the app is foregrounded or connected.
@@ -80,7 +80,7 @@ Approval and question banners request **Time Sensitive** delivery when their fin
 The current source supports APNs notifications with the iPhone app closed when the Mac sender is running, APNs signing is configured for the iPhone build, the phone has registered, and notifications are allowed. This is not yet a public-download setup promise: the distribution approach awaits [DEC-APNS](docs/adr/0013-apns-key-delivery.md), and lock-screen / Focus / Watch delivery still needs device acceptance. Responding requires a reachable paired Mac; away from that network, return to it before acting (an existing Tailscale connection is an advanced option).
 
 ### 🤖 Four first-class agents, plus community adapters
-**Claude Code, Codex, Grok, and Cursor** are the first-class tier: three-state tracking and remote approval are the required baseline; quota and jump support are best effort. This tier is a support commitment, not a claim that all four have completed device acceptance. **Qwen, Kimi, OpenCode, and Antigravity** adapters are community-tier, unverified, and fail-open. See the [hook setup guide](docs/multi-cli-hook-setup.md) for agent-specific setup.
+The first-class roadmap covers **Claude Code, Codex, Grok, and Cursor**: three-state tracking and remote approval are the required baseline; quota and jump support are best effort. Claude Code, Codex and Grok have adapters today; **Cursor is planned and is not yet supported**. Device acceptance remains a separate gate for each agent. **Qwen, Kimi, OpenCode, and Antigravity** adapters are community-tier, unverified, and fail-open. See the [hook setup guide](docs/multi-cli-hook-setup.md) for agent-specific setup.
 
 ### 📷 QR pairing, zero typing
 The Mac shows a QR encoding `host:port` + a bearer token. The phone scans it once — no manual IP entry. (The same QR can carry a Tailscale `100.x` address later, with no code change.)
@@ -89,7 +89,7 @@ The Mac shows a QR encoding `host:port` + a bearer token. The phone scans it onc
 A `MenuBarExtra` glance with live counts, a macOS notch glance, **jump-to-terminal** (open the right session with one click), launch-at-login, and a LAN bearer token persisted in the owner-only (`0600`) file `~/Library/Application Support/vibebuddy/token`. ⏎ / ⌘F dashboard shortcuts included. v1.1 uses a signed Sparkle update feed; original v1.0 users need a one-time manual installation.
 
 ### 🔒 Local-first & private by design
-vibebuddy talks **directly** between your Mac and your phone over your own network. Session data **never** touches a vibebuddy server — there is no vibebuddy cloud, no account, no analytics, no tracking. Daemon routes are bearer-token gated. (The optional voice companion sends microphone audio and selected session context only to the provider *you* chose, with *your* key, when you turn it on.)
+vibebuddy talks **directly** between your Mac and your phone over your own network. Session data **never** touches a vibebuddy server — there is no vibebuddy cloud, no account, no analytics, no tracking. Daemon routes are bearer-token gated. When APNs is configured, notification payloads (including titles and bodies) pass through Apple's push service. (The optional voice companion sends microphone audio and selected session context only to the provider *you* chose, with *your* key, when you turn it on.)
 
 ### 🌏 Bilingual + Demo mode
 Full English and Simplified-Chinese UI on both apps. Plus a **Demo mode** that loads the whole interface with sample data — explore everything with no Mac required.
