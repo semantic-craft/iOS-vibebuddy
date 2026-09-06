@@ -258,9 +258,21 @@ final class DashboardStore: ObservableObject {
         let demo = Self.demoSessions()
         buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: demo)
         install(demo, serverTime: Date())
+        Task { await postDemoBanners(demo) }
         let pendingAcknowledgements = pendingAcknowledgementIDs
         pendingAcknowledgementIDs.removeAll()
         for sessionId in pendingAcknowledgements { acknowledge(sessionId) }
+    }
+
+    /// Sample approval / question banners carry the same actions a live cue does.
+    private func postDemoBanners(_ sessions: [AgentSession]) async {
+        for session in sessions {
+            if session.pendingApproval != nil {
+                _ = await notifier.notify(SoundAlert(session: session, sound: .needsApproval))
+            } else if session.waitKind == .question {
+                _ = await notifier.notify(SoundAlert(session: session, sound: .needsAnswer))
+            }
+        }
     }
 
     func decide(_ approvalId: String, _ decision: ApprovalDecision) {

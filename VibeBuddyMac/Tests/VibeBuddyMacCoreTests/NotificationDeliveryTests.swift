@@ -190,6 +190,28 @@ struct NotificationDeliveryTests {
         #expect(ok.reason == nil)
     }
 
+    @Test("send preserves action category separately from the delivery ledger cue")
+    func sendPreservesActionMetadata() async throws {
+        let key = P256.Signing.PrivateKey()
+        let config = APNsConfig(teamID: "TEAM123456", keyID: "KEY7890AB",
+                                bundleID: "com.vibebuddy.app", p8PEM: key.pemRepresentation,
+                                useSandbox: true)
+        let http = ActionPayloadHTTP()
+        let recorder = SpyDelivery()
+        let pusher = try APNsPusher(config: config, http: http, recorder: recorder)
+        _ = await pusher.send(title: "t", body: "b", to: "fixture", sound: "",
+                              sessionID: "s", soundCategory: "needs_approval",
+                              category: "approval", timeSensitive: true, approvalId: "p")
+        let request = try #require(await http.request)
+        let data = try #require(request.httpBody)
+        let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let aps = try #require(payload["aps"] as? [String: Any])
+        #expect(aps["category"] as? String == "approval")
+        #expect(aps["interruption-level"] as? String == "time-sensitive")
+        #expect(payload["approvalId"] as? String == "p")
+        #expect(recorder.records.allSatisfy { $0.sound == "needs_approval" })
+    }
+
     private func sendViaStub(status: Int, body: String = "{}", recorder: SpyDelivery) async throws -> APNsSendResult {
         let key = P256.Signing.PrivateKey()
         let config = APNsConfig(teamID: "TEAM123456", keyID: "KEY7890AB",
@@ -224,5 +246,14 @@ private struct StubAPNsHTTP: APNsHTTPClient, Sendable {
         let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil,
                                        headerFields: nil)!
         return (Data(body.utf8), response)
+    }
+}
+
+private actor ActionPayloadHTTP: APNsHTTPClient {
+    private(set) var request: URLRequest?
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        self.request = request
+        return (Data(), HTTPURLResponse(url: request.url!, statusCode: 200,
+                                       httpVersion: nil, headerFields: nil)!)
     }
 }
