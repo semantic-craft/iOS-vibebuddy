@@ -21,43 +21,41 @@ public extension ProviderQuota {
         AccountUsageProvider.allCases.map { ProviderQuota(states[$0] ?? .disabled, provider: $0) }
     }
 
-    /// A window at least this long counts as the weekly allowance. Providers
-    /// describe their windows by duration rather than by name, so the weekly one
-    /// is identified by how long it lasts, not by which slot it arrived in.
-    static let weeklyWindowMinimumMinutes = 24 * 60
-
     init(_ state: AccountUsageState, provider: AccountUsageProvider) {
+        guard state.collectionEnabled else {
+            self = .unavailable(provider, reason: AccountUsageUnavailableReason.collectionDisabled.displayText(provider: provider))
+            return
+        }
         guard let snapshot = state.snapshot else {
-            // Nothing usable has ever arrived. That is unavailable, and the
-            // reason is the collector's own diagnosis.
-            self = .unavailable(
-                provider,
+            self = .unavailable(provider,
                 reason: (state.unavailableReason ?? .notYetLoaded).displayText(provider: provider))
             return
         }
-
-        let windows = snapshot.windows
-        let weekly = windows
-            .filter { ($0.windowDurationMinutes ?? 0) >= Self.weeklyWindowMinimumMinutes }
-            .max { ($0.windowDurationMinutes ?? 0) < ($1.windowDurationMinutes ?? 0) }
-        let short = windows
-            .filter { ($0.windowDurationMinutes ?? Int.max) < Self.weeklyWindowMinimumMinutes }
-            .max { ($0.windowDurationMinutes ?? 0) < ($1.windowDurationMinutes ?? 0) }
-
-        // A provider is available only when its weekly window is: a short window
-        // on its own says nothing about the week someone is planning.
+        let weekly = snapshot.windows.first { $0.windowDurationMinutes == 10080 }
+        let short = snapshot.windows.filter {
+            guard let minutes = $0.windowDurationMinutes else { return false }
+            return minutes > 0 && minutes < 1440
+        }.max { ($0.windowDurationMinutes ?? 0) < ($1.windowDurationMinutes ?? 0) }
+        let others = snapshot.windows.filter {
+            guard let minutes = $0.windowDurationMinutes else { return true }
+            return minutes != 10080 && !(minutes > 0 && minutes < 1440)
+        }.map {
+            QuotaWindow(remainingPercent: Self.remaining(fromUsedPercent: $0.usedPercent),
+                        durationMinutes: $0.windowDurationMinutes, resetsAt: $0.resetsAt,
+                        observedAt: snapshot.fetchedAt, isCached: state.isStale)
+        }
         let weeklyRemaining = Self.remaining(fromUsedPercent: weekly?.usedPercent)
-        let reason: String? = weeklyRemaining == nil
-            ? (state.unavailableReason ?? .incompatibleFormat).displayText(provider: provider)
-            : nil
-
-        self.init(
-            provider: provider,
-            weeklyRemainingPercent: weeklyRemaining,
-            weeklyResetsAt: weekly?.resetsAt,
-            shortWindowRemainingPercent: Self.remaining(fromUsedPercent: short?.usedPercent),
-            shortWindowResetsAt: short?.resetsAt,
-            observedAt: weeklyRemaining == nil ? nil : snapshot.fetchedAt,
-            unavailableReason: reason)
+        let shortRemaining = Self.remaining(fromUsedPercent: short?.usedPercent)
+        let usable = weeklyRemaining != nil || shortRemaining != nil || others.contains { $0.remainingPercent != nil }
+        self.init(provider: provider,
+                  weeklyRemainingPercent: weeklyRemaining, weeklyResetsAt: weekly?.resetsAt,
+                  weeklyWindowDurationMinutes: weekly?.windowDurationMinutes,
+                  shortWindowRemainingPercent: shortRemaining, shortWindowResetsAt: short?.resetsAt,
+                  shortWindowDurationMinutes: short?.windowDurationMinutes,
+                  otherWindows: others.isEmpty ? nil : others,
+                  observedAt: usable ? snapshot.fetchedAt : nil,
+                  unavailableReason: state.unavailableReason?.displayText(provider: provider)
+                    ?? (usable ? nil : AccountUsageUnavailableReason.incompatibleFormat.displayText(provider: provider)),
+                  isCached: state.isStale)
     }
 }

@@ -61,11 +61,6 @@ public struct AccountUsageSnapshot: Codable, Equatable, Sendable {
         self.fetchedAt = fetchedAt
     }
 
-    func fetched(at date: Date) -> AccountUsageSnapshot {
-        var copy = self
-        copy.fetchedAt = date
-        return copy
-    }
 }
 
 public enum AccountUsageUnavailableReason: String, Codable, Equatable, Sendable {
@@ -418,7 +413,7 @@ public actor AccountUsageCollector {
         let cachePermit = cacheCommitGate.permit(generation: currentGeneration)
 
         do {
-            let snapshot = try await provider.fetch().fetched(at: now)
+            let snapshot = try await provider.fetch()
             guard isEnabled, generation == currentGeneration else { return state }
             failureCount = 0
             state = .available(snapshot, nextRefreshAt: now.addingTimeInterval(refreshInterval))
@@ -455,7 +450,7 @@ public actor AccountUsageCollector {
         guard isEnabled else { return state }
         let currentGeneration = generation
         failureCount = 0
-        let live = snapshot.fetched(at: now)
+        let live = snapshot
         state = .available(live, nextRefreshAt: now.addingTimeInterval(holdFor))
         do {
             try await cache.save(live, permit: cacheCommitGate.permit(generation: currentGeneration))

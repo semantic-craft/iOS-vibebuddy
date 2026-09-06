@@ -82,3 +82,16 @@
 "Viewed — syncing with Mac" = "已查看，正在同步";
 "This task is unavailable. Return to the dashboard for current tasks." = "此任务不可用，请返回总览查看当前任务。";
 "Back to dashboard" = "返回总览";
+
+/* Independent quota windows */
+"Check the quota source on your Mac." = "请在 Mac 检查额度来源。";
+"Reset reached · awaiting update" = "已到重置时间 · 等待更新";
+"Before reset: %@" = "重置前：%@";
+"Window unavailable" = "此窗口暂无数据";
+"Cached reading" = "缓存读数";
+"Reset was %@ ago" = "重置时间已过 %@";
+"Window duration unknown" = "窗口时长未知";
+"%lld-day window" = "%lld 天窗口";
+"%lld-hour window" = "%lld 小时窗口";
+"%lld-minute window" = "%lld 分钟窗口";
+"Short window" = "短窗口";

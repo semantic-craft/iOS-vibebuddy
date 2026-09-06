@@ -9,6 +9,7 @@ struct WatchQuotaView: View {
     let state: WatchDashboardState
     let connection: WatchConnection
     let now: Date
+    var selection: WatchQuotaSelection = .both
 
     var body: some View {
         NavigationStack {
@@ -23,7 +24,8 @@ struct WatchQuotaView: View {
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                     } else {
-                        ForEach(state.quotas) { quota in
+                        ForEach(selection.providers) { provider in
+                            let quota = state.quotas.first { $0.provider == provider } ?? .unavailable(provider, reason: String(localized: "Window unavailable"))
                             WatchQuotaDetail(quota: quota, now: now)
                         }
                     }
@@ -42,73 +44,64 @@ private struct WatchQuotaDetail: View {
     let now: Date
 
     var body: some View {
-        let freshness = quota.freshness(now: now)
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(quota.provider.displayName)
-                    .font(.headline)
-                Spacer(minLength: 4)
-                if let remaining = quota.weeklyRemainingPercent {
-                    Text(WatchFormat.percent(remaining))
-                        .font(.headline)
-                        .monospacedDigit()
-                        .foregroundStyle(freshness == .stale ? .secondary : .primary)
-                }
+        VStack(alignment: .leading, spacing: 8) {
+            Text(quota.provider.displayName).font(.headline)
+            window(quota.window(.weekly), title: String(localized: "Weekly remaining"))
+            window(quota.window(.short), title: quota.shortWindowDurationMinutes == nil ? String(localized: "Short window") : WatchQuotaVoice.windowName(quota.window(.short)))
+            ForEach(Array((quota.otherWindows ?? []).enumerated()), id: \.offset) { _, reading in
+                window(reading, title: WatchQuotaVoice.windowName(reading))
             }
-
-            if let remaining = quota.weeklyRemainingPercent {
-                ProgressView(value: Double(remaining), total: 100)
-                    .tint(freshness == .stale ? .secondary : .primary)
-                row("Weekly remaining", resetText(quota.weeklyResetsAt))
-                if let short = quota.shortWindowRemainingPercent {
-                    row("5-hour window", String(localized: "\(WatchFormat.percent(short)) left"))
-                }
+            Text(WatchFormat.updated(quota.age(now: now)))
+                .font(.caption2).foregroundStyle(.secondary)
+            if let observedAt = quota.observedAt {
+                Text(observedAt.formatted(date: .abbreviated, time: .shortened))
+                    .font(.caption2).foregroundStyle(.secondary)
             }
-
-            HStack(spacing: 4) {
-                if let symbol = freshness.symbolName {
-                    Image(systemName: symbol).font(.system(size: 9))
-                }
-                Text(statusText(freshness))
-                    .monospacedDigit()
-                    .fixedSize(horizontal: false, vertical: true)
+            if let reason = quota.unavailableReason {
+                Text(reason).font(.caption2).foregroundStyle(.secondary)
+                Text("Check the quota source on your Mac.")
+                    .font(.caption2).foregroundStyle(.secondary)
             }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(quota.provider.displayName))
-        .accessibilityValue(Text(WatchQuotaVoice.summary(quota, freshness: freshness)))
+        .accessibilityElement(children: .combine)
     }
 
-    private func row(_ label: LocalizedStringKey, _ value: String) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(label)
-            Spacer(minLength: 4)
-            Text(value).monospacedDigit()
+    private func window(_ reading: QuotaWindow, title: String) -> some View {
+        let status = reading.status(now: now)
+        return VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text(title)
+                Spacer(minLength: 2)
+                Text(reading.currentRemainingPercent(now: now).map(WatchFormat.percent) ?? "—")
+                    .monospacedDigit()
+            }
+            if let remaining = reading.currentRemainingPercent(now: now) {
+                ProgressView(value: Double(remaining), total: 100)
+                    .tint(status == .stale ? .secondary : .primary)
+            }
+            if status == .awaitingReset {
+                Text("Reset reached · awaiting update")
+                if let previous = reading.remainingPercent {
+                    Text("Before reset: \(WatchFormat.percent(previous))")
+                }
+            } else if status == .unavailable {
+                Text("Window unavailable")
+            } else if status == .stale {
+                Text("Cached reading")
+            }
+            if let reset = reading.resetsAt {
+                Text(reset.formatted(date: .abbreviated, time: .shortened))
+                if reset > now {
+                    Text("Resets in \(WatchFormat.duration(reset.timeIntervalSince(now)))")
+                } else {
+                    Text("Reset was \(WatchFormat.duration(now.timeIntervalSince(reset))) ago")
+                }
+            } else {
+                Text("Reset time unknown")
+            }
         }
         .font(.caption2)
-        .foregroundStyle(.secondary)
-    }
-
-    private func resetText(_ resetsAt: Date?) -> String {
-        guard let resetsAt else { return String(localized: "Reset time unknown") }
-        return String(localized: "Resets in \(WatchFormat.duration(resetsAt.timeIntervalSince(now)))")
-    }
-
-    /// Stale keeps the last number on screen with its age; unavailable says why
-    /// instead of pretending the allowance is spent.
-    private func statusText(_ freshness: QuotaFreshness) -> String {
-        switch freshness {
-        case .live:
-            return WatchFormat.updated(quota.age(now: now))
-        case .stale:
-            return String(localized: "Stale · \(WatchFormat.updated(quota.age(now: now)))")
-        case .unavailable:
-            // The Mac's own diagnostic, kept verbatim behind a localized label.
-            guard let reason = quota.unavailableReason else { return String(localized: "Unavailable") }
-            return String(localized: "Unavailable · \(reason)")
-        }
+        .foregroundStyle(status == .live ? .primary : .secondary)
     }
 }

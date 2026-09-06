@@ -74,15 +74,15 @@ struct ProviderQuotaProjectionTests {
     // MARK: unavailable
 
     @Test("A short window alone says nothing about the week")
-    func shortWindowAloneIsUnavailable() {
+    func shortWindowAloneIsAvailable() {
         let state = AccountUsageState.available(
             snapshot(primary: window(.primary, used: 16, minutes: 300)), nextRefreshAt: nil)
         let result = quota(state)
         #expect(result.weeklyRemainingPercent == nil)
         #expect(result.shortWindowRemainingPercent == 84)
-        #expect(result.observedAt == nil)
-        #expect(result.freshness(now: fetchedAt) == .unavailable)
-        #expect(result.unavailableReason == "Codex returned an unsupported format")
+        #expect(result.observedAt == fetchedAt)
+        #expect(result.freshness(now: fetchedAt) == .live)
+        #expect(result.unavailableReason == nil)
     }
 
     @Test("A window with no duration cannot be claimed as the week")
@@ -90,7 +90,8 @@ struct ProviderQuotaProjectionTests {
         let state = AccountUsageState.available(
             snapshot(primary: window(.primary, used: 32, minutes: nil)), nextRefreshAt: nil)
         #expect(quota(state).weeklyRemainingPercent == nil)
-        #expect(quota(state).freshness(now: fetchedAt) == .unavailable)
+        #expect(quota(state).window(.weekly).status(now: fetchedAt) == .unavailable)
+        #expect(quota(state).otherWindows?.first?.remainingPercent == 68)
     }
 
     @Test("Every collector failure keeps its own diagnosis")
@@ -134,7 +135,7 @@ struct ProviderQuotaProjectionTests {
             reason: .cachedData, lastAttemptAt: fetchedAt, nextRefreshAt: nil)
         let result = quota(state)
         #expect(result.weeklyRemainingPercent == 68)
-        #expect(result.freshness(now: fetchedAt.addingTimeInterval(899)) == .live)
+        #expect(result.freshness(now: fetchedAt.addingTimeInterval(899)) == .stale)
         #expect(result.freshness(now: fetchedAt.addingTimeInterval(900)) == .stale)
     }
 
@@ -211,14 +212,14 @@ struct ProviderQuotaProjectionTests {
     }
 
     @Test("A Claude reading with only the session window says nothing about the week")
-    func claudeWithoutWeeklyIsUnavailable() throws {
+    func claudeWithoutWeeklyIsAvailable() throws {
         let now = Date(timeIntervalSince1970: 1_788_400_000)
         let result = try claudeQuota(
             "Current session: 43% used · resets Sep 3 at 2:30pm (Asia/Shanghai)", now: now)
         #expect(result.weeklyRemainingPercent == nil)
         #expect(result.shortWindowRemainingPercent == 57)
-        #expect(result.freshness(now: now) == .unavailable)
-        #expect(result.unavailableReason == "Claude returned an unsupported format")
+        #expect(result.freshness(now: now) == .live)
+        #expect(result.unavailableReason == nil)
     }
 
     @Test("A signed-out or malformed Claude reply never becomes a number")

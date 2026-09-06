@@ -112,7 +112,6 @@ struct FollowedTaskView: View {
     }
 }
 
-@main
 struct FollowedTaskWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: WatchComplicationStore.kind, provider: FollowedTaskProvider()) {
@@ -121,5 +120,13 @@ struct FollowedTaskWidget: Widget {
         .configurationDisplayName("Followed tasks")
         .description("The followed task that needs your attention next.")
         .supportedFamilies([.accessoryRectangular])
+    }
+}
+
+@main
+struct VibeBuddyWatchWidgets: WidgetBundle {
+    var body: some Widget {
+        FollowedTaskWidget()
+        QuotaWidget()
     }
 }

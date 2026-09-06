@@ -35,14 +35,21 @@ public enum CodexUsageResponseDecoder {
             if let error = usageEnvelope.error { throw AccountUsageError.classify(message: error.message) }
             guard let usage = usageEnvelope.result else { throw AccountUsageError.incompatibleFormat }
 
-            let limits = result.rateLimitsByLimitId?["codex"]
-                ?? result.rateLimitsByLimitId?.values.first(where: { $0.primary != nil || $0.secondary != nil })
-                ?? result.rateLimits
+            // A multi-bucket response must explicitly identify Codex. The old
+            // single main allowance is used only when no bucket map was sent.
+            let limits: RateLimitsDTO
+            if let buckets = result.rateLimitsByLimitId {
+                guard let codex = buckets["codex"] else { throw AccountUsageError.incompatibleFormat }
+                limits = codex
+            } else {
+                guard let main = result.rateLimits, main.limitId == nil || main.limitId == "codex" else { throw AccountUsageError.incompatibleFormat }
+                limits = main
+            }
             return AccountUsageSnapshot(
                 provider: .codex,
                 planType: limits.planType,
-                primary: try limits.primary.map { try $0.model(kind: .primary) },
-                secondary: try limits.secondary.map { try $0.model(kind: .secondary) },
+                primary: limits.primary.flatMap { $0.model(kind: .primary) },
+                secondary: limits.secondary.flatMap { $0.model(kind: .secondary) },
                 lifetimeTokens: usage.summary.lifetimeTokens,
                 latestDailyTokens: usage.dailyUsageBuckets?.max(by: { $0.startDate < $1.startDate })?.tokens,
                 fetchedAt: fetchedAt
@@ -554,30 +561,46 @@ private struct RateLimitsEnvelope: Decodable {
 }
 
 private struct RateLimitsResultDTO: Decodable {
-    var rateLimits: RateLimitsDTO
+    var rateLimits: RateLimitsDTO?
     var rateLimitsByLimitId: [String: RateLimitsDTO]?
 }
 
 private struct RateLimitsDTO: Decodable {
+    var limitId: String?
     var planType: String?
     var primary: RateLimitWindowDTO?
     var secondary: RateLimitWindowDTO?
+
+    private enum CodingKeys: String, CodingKey { case limitId, planType, primary, secondary }
+    init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        limitId = try values.decodeIfPresent(String.self, forKey: .limitId)
+        planType = try? values.decode(String.self, forKey: .planType)
+        primary = try? values.decode(RateLimitWindowDTO.self, forKey: .primary)
+        secondary = try? values.decode(RateLimitWindowDTO.self, forKey: .secondary)
+    }
 }
 
 private struct RateLimitWindowDTO: Decodable {
-    var usedPercent: Int
+    var usedPercent: Double?
     var windowDurationMins: Int?
     var resetsAt: Int?
 
-    func model(kind: AccountUsageWindowKind) throws -> AccountUsageWindow {
-        guard (0...100).contains(usedPercent) else {
-            throw AccountUsageError.incompatibleFormat
-        }
+    private enum CodingKeys: String, CodingKey { case usedPercent, windowDurationMins, resetsAt }
+    init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        usedPercent = try? values.decode(Double.self, forKey: .usedPercent)
+        windowDurationMins = try? values.decode(Int.self, forKey: .windowDurationMins)
+        resetsAt = try? values.decode(Int.self, forKey: .resetsAt)
+    }
+
+    func model(kind: AccountUsageWindowKind) -> AccountUsageWindow? {
+        guard let usedPercent, usedPercent.isFinite, (0...100).contains(usedPercent) else { return nil }
         return AccountUsageWindow(
             kind: kind,
-            usedPercent: usedPercent,
+            usedPercent: Int(usedPercent.rounded()),
             windowDurationMinutes: windowDurationMins,
-            resetsAt: resetsAt.map { Date(timeIntervalSince1970: TimeInterval($0)) }
+            resetsAt: resetsAt.flatMap { $0 > 0 ? Date(timeIntervalSince1970: TimeInterval($0)) : nil }
         )
     }
 }
