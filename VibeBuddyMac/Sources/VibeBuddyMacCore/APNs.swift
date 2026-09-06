@@ -123,29 +123,57 @@ public actor APNsPusher {
     private let jwt: APNsJWT
     private let http: any APNsHTTPClient
     private let recorder: (any NotificationDeliveryRecording)?
+    private let receipts: PhoneReceipts?
     private var cached: (token: String, issued: Date)?
 
+    /// `receipts` is where phones report the cues they posted themselves; a
+    /// push for a cue with such a receipt is filtered instead of sent.
     public init(
         config: APNsConfig,
         http: any APNsHTTPClient = URLSession.shared,
-        recorder: (any NotificationDeliveryRecording)? = nil
+        recorder: (any NotificationDeliveryRecording)? = nil,
+        receipts: PhoneReceipts? = nil
     ) throws {
         self.config = config
         self.http = http
         self.recorder = recorder
+        self.receipts = receipts
         self.jwt = try APNsJWT(teamID: config.teamID, keyID: config.keyID, p8PEM: config.p8PEM)
     }
 
     /// `sound` is a bundled CAF file name (e.g. `needs_approval.caf`) so the
     /// background alert matches the in-app sound pack; defaults to the system sound.
     /// 2xx is `accepted` by Apple's servers — not proof the device showed a banner.
+    ///
+    /// `waitSince` is the start of the wait (or completion) this cue announces;
+    /// with it, a phone's receipt for the same cue and wait stands the push
+    /// down (`skipped`, `phonePosted`). `holdForPhone` says a snapshot stream is open, so the
+    /// receipt may still be on its way and is worth waiting for briefly; without
+    /// it the check is immediate. Neither can turn a push into nothing: a cue
+    /// no phone reported is sent exactly as before.
     @discardableResult
     public func send(title: String, body: String, to deviceToken: String,
                      sound: String = "default", now: Date = Date(),
                      sessionID: String? = nil,
                      soundCategory: String? = nil,
-                     localized: PushLocalization? = nil) async -> APNsSendResult {
+                     localized: PushLocalization? = nil,
+                     waitSince: Date? = nil,
+                     holdForPhone: Bool = false) async -> APNsSendResult {
         let category = soundCategory ?? sound.replacingOccurrences(of: ".caf", with: "")
+        // The same identifier the phone gives its own local notification for
+        // this cue: the push's collapse id, and the name a phone's receipt uses.
+        let identifier: String? = {
+            guard let sessionID, let sound = NotificationSound(rawValue: category) else { return nil }
+            return NotificationIdentity.id(sessionID: sessionID, sound: sound)
+        }()
+        if let receipts, let identifier,
+           await receipts.receipt(for: identifier, since: waitSince,
+                                  from: deviceToken, hold: holdForPhone) != nil {
+            return await finish(
+                NotificationDeliveryClassification(
+                    outcome: .skipped, failureReason: CueSkipReason.phonePosted.rawValue),
+                status: nil, now: Date(), sessionID: sessionID, sound: category)
+        }
         guard let url = URL(string: "https://\(config.host)/3/device/\(deviceToken)"),
               let auth = try? providerToken(now: now) else {
             return await finish(
@@ -158,12 +186,12 @@ public actor APNsPusher {
         request.setValue(config.bundleID, forHTTPHeaderField: "apns-topic")
         request.setValue("alert", forHTTPHeaderField: "apns-push-type")
         request.setValue("10", forHTTPHeaderField: "apns-priority")
-        // The same identifier the phone gives its own local notification for
-        // this cue, so the two channels collapse into one banner instead of
-        // saying the same thing twice — once on the phone, twice on the Watch.
-        if let sessionID, let sound = NotificationSound(rawValue: category) {
-            request.setValue(NotificationIdentity.id(sessionID: sessionID, sound: sound),
-                             forHTTPHeaderField: "apns-collapse-id")
+        // Shared with the phone's local notification so two *pushes* for one
+        // cue replace each other. iOS does not collapse a local and a remote
+        // notification across that shared name (measured, ADR-0012); that is
+        // what the receipt check above is for.
+        if let identifier {
+            request.setValue(identifier, forHTTPHeaderField: "apns-collapse-id")
         }
         request.httpBody = Data(Self.alertPayload(title: title, body: body, sound: sound,
                                                   sessionID: sessionID, localized: localized).utf8)
@@ -253,6 +281,8 @@ public actor APNsPusher {
     /// push to a per-activity push token, on the `…push-type.liveactivity` topic.
     public func sendActivityUpdate(summary: TaskPresentationSummary,
                                    topProject: String?, topSessionId: String?,
+                                   approvalId: String? = nil, approvalTitle: String? = nil,
+                                   approvalDetail: String? = nil,
                                    to activityToken: String, now: Date = Date()) async {
         guard let url = URL(string: "https://\(config.host)/3/device/\(activityToken)"),
               let auth = try? providerToken(now: now) else { return }
@@ -265,6 +295,7 @@ public actor APNsPusher {
         request.httpBody = Data(Self.activityPayload(
             summary: summary,
             topProject: topProject, topSessionId: topSessionId,
+            approvalId: approvalId, approvalTitle: approvalTitle, approvalDetail: approvalDetail,
             timestamp: Int(now.timeIntervalSince1970)).utf8)
         _ = try? await URLSession.shared.data(for: request)
     }
@@ -273,10 +304,17 @@ public actor APNsPusher {
     /// `VibeBuddyActivityAttributes.ContentState`; optional strings are omitted when nil.
     nonisolated static func activityPayload(summary: TaskPresentationSummary,
                                             topProject: String?, topSessionId: String?,
+                                            approvalId: String? = nil, approvalTitle: String? = nil,
+                                            approvalDetail: String? = nil,
                                             timestamp: Int) -> String {
         var state = #""summary":{"idle":\#(summary.idle),"thinking":\#(summary.thinking),"completeUnread":\#(summary.completeUnread),"requiresInput":\#(summary.requiresInput),"error":\#(summary.error)}"#
         if let p = topProject { state += #","topProject":"\#(escape(p))""# }
         if let s = topSessionId { state += #","topSessionId":"\#(escape(s))""# }
+        // island-approve/01: the leading session's request, so a backgrounded
+        // phone shows the keys too.
+        if let a = approvalId { state += #","approvalId":"\#(escape(a))""# }
+        if let t = approvalTitle { state += #","approvalTitle":"\#(escape(t))""# }
+        if let d = approvalDetail { state += #","approvalDetail":"\#(escape(d))""# }
         return #"{"aps":{"timestamp":\#(timestamp),"event":"update","content-state":{\#(state)}}}"#
     }
 

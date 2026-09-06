@@ -75,9 +75,6 @@ final class MenuBarModel: ObservableObject {
     @Published var toggleGlanceHotkey: Hotkey = .toggleGlanceDefault
     /// Idle-cleanup window in hours; 0 means never. Default 2h.
     @Published var idleTimeoutHours: Double = 2
-    /// Agent groups the user folded in the menu bar list (persisted). A folded
-    /// group still shows its working rows — see `MenuSessionList`.
-    @Published private(set) var collapsedMenuAgents: Set<AgentKind> = []
     let port: Int
     private let token: String
     private let store: SessionStore
@@ -110,6 +107,9 @@ final class MenuBarModel: ObservableObject {
     // a backgrounded phone, so the phone hears the full pack (not just needs-you).
     private let pusher: APNsPusher?
     private let deviceTokens: DeviceTokens
+    /// What each phone said it posted itself (`POST /notified`); the pusher
+    /// stands its own push down for those (ADR-0012).
+    private let phoneReceipts: PhoneReceipts
     private let budgetMonitor = BudgetMonitor()
     /// Account usage is intentionally separate from `sessions`; refresh errors
     /// never enter SessionStore or the progress notification pipeline.
@@ -125,7 +125,6 @@ final class MenuBarModel: ObservableObject {
     private var pollTask: Task<Void, Never>?
     private var glance: GlanceWindow?
     private static let pairedPhoneInfoKey = "pairedPhoneInfo"
-    private static let collapsedMenuAgentsKey = "menuCollapsedAgents"
     private static let legacyPairedPhoneKey = "pairedPhone"
 
     /// The live model, for callers that only hold a `@Sendable` closure (the
@@ -165,8 +164,6 @@ final class MenuBarModel: ObservableObject {
             approvalRegistry: approvalRegistry, allowStore: allowStore, sessionAllow: sessionAllow,
             approvalContext: approvalContext, questionRegistry: questionRegistry,
             presence: presence)
-        collapsedMenuAgents = Set((UserDefaults.standard.stringArray(forKey: Self.collapsedMenuAgentsKey) ?? [])
-            .compactMap(AgentKind.init(rawValue:)))
         openDashboardHotkey = Hotkey.loadOpenDashboard()
         toggleGlanceHotkey = Hotkey.loadToggleGlance()
         usage = AccountUsageCoordinator(store: store, notifier: notifier, liveFeed: usageFeed)
@@ -178,7 +175,9 @@ final class MenuBarModel: ObservableObject {
         let recorder = NotificationDeliveryRecorder(
             url: deliveryURL, apnsConfigured: apnsConfig != nil)
         deliveryRecorder = recorder
-        pusher = apnsConfig.flatMap { try? APNsPusher(config: $0, recorder: recorder) }
+        let receipts = PhoneReceipts(recorder: recorder)
+        phoneReceipts = receipts
+        pusher = apnsConfig.flatMap { try? APNsPusher(config: $0, recorder: recorder, receipts: receipts) }
         notificationDeliveryHealth = NotificationDeliveryHealth(apnsConfigured: apnsConfig != nil)
         // The APNs registry outlives this process. Without the file, every Mac
         // restart emptied it and no push reached a closed phone until the phone
@@ -257,7 +256,8 @@ final class MenuBarModel: ObservableObject {
         // pusher: nil — push is driven from startPolling off the same cues the
         // Mac notifies on; the server only collects device tokens/prefs.
         let server = VibeBuddyServer(store: store, token: token, port: port,
-                                     pusher: nil, deviceTokens: deviceTokens,
+                                     pusher: nil, phoneReceipts: phoneReceipts,
+                                     deviceTokens: deviceTokens,
                                      activityTokens: activityTokens,
                                      codexRolloutMonitor: CodexRolloutMonitor(),
                                      codexAppServerMonitor: codexAppServerMonitor,
@@ -329,7 +329,9 @@ final class MenuBarModel: ObservableObject {
                     focusedSessionIDs: focused,                // …or looking at the session's own terminal
                     categories: NotificationCategoryPrefs.load()) // this Mac's own switches
                 await self.refreshNotificationDeliveryHealth()
-                await self.pushToPhones(alerts, focused: focused)
+                // Off the loop: a push may hold for the phone's receipt, and the
+                // glance must not wait with it.
+                Task { await self.pushToPhones(alerts, focused: focused) }
                 await self.pushActivityUpdates(snapshot.sessions)
                 await self.checkBudget(snapshot.sessions)
                 try? await Task.sleep(for: .seconds(2))
@@ -413,12 +415,19 @@ final class MenuBarModel: ObservableObject {
         let leading = sessions.leadingPresentationSession
         let topProject = leading?.project
         let topSession = leading?.id
-        let key = "\(summary)|\(topProject ?? "")|\(topSession ?? "")"
+        // The first pending approval, not necessarily the leading session (an
+        // error outranks it) — the island's keys answer this one.
+        let asking = sessions.first { $0.pendingApproval != nil }
+        let approval = asking?.pendingApproval
+        let approvalTitle = approval.map { "\(asking?.project ?? "") wants to \(CompanionCopy.requestVerb($0))" }
+        let key = "\(summary)|\(topProject ?? "")|\(topSession ?? "")|\(approval?.id ?? "")"
         guard key != lastActivityKey else { return }
         lastActivityKey = key
         for t in tokens {
             await pusher.sendActivityUpdate(summary: summary,
-                topProject: topProject, topSessionId: topSession, to: t)
+                topProject: topProject, topSessionId: topSession,
+                approvalId: approval?.id, approvalTitle: approvalTitle,
+                approvalDetail: approval?.commandPreview, to: t)
         }
     }
 
@@ -445,7 +454,8 @@ final class MenuBarModel: ObservableObject {
     /// how "the Mac banners and the phone never hears about it" went unexplained.
     @discardableResult
     private func push(_ alert: SoundAlert, to devices: [DeviceRegistrationPayload],
-                      focused: Set<String> = [], recordSkips: Bool = true) async -> Bool {
+                      focused: Set<String> = [], recordSkips: Bool = true,
+                      standDownForPhone: Bool = true) async -> Bool {
         let fanout = PushFanout.plan(alert, devices: devices, apnsConfigured: pusher != nil,
                                      focusedSessionIDs: focused)
         guard let pusher, !fanout.recipients.isEmpty else {
@@ -453,16 +463,28 @@ final class MenuBarModel: ObservableObject {
             return false
         }
         let copy = PushCopy.copy(for: alert.sound, session: alert.session)
+        // A phone with a live stream may be posting this cue itself right now:
+        // hold each push briefly for its receipt (ADR-0012), all devices side
+        // by side. A reminder says the same cue again on purpose, so it never
+        // stands down (`standDownForPhone: false`).
+        let hold: Bool = if standDownForPhone { await store.subscriberCount > 0 } else { false }
+        let waitSince: Date? = standDownForPhone ? alert.session.statusSince : nil
+        let registry = deviceTokens
         var sent = false
-        for recipient in fanout.recipients {
-            guard let deviceToken = recipient.device.token else { continue }
-            let sound = recipient.level.makesSound && recipient.device.playSound != false
-                ? alert.sound.fileName : ""
-            let result = await pusher.send(title: copy.title, body: copy.body, to: deviceToken, sound: sound,
-                                           sessionID: alert.sessionID, soundCategory: alert.sound.rawValue,
-                                           localized: PushLocalization(copy))
-            await deviceTokens.applySendResult(result, token: deviceToken)
-            sent = true
+        await withTaskGroup(of: Void.self) { group in
+            for recipient in fanout.recipients {
+                guard let deviceToken = recipient.device.token else { continue }
+                let sound = recipient.level.makesSound && recipient.device.playSound != false
+                    ? alert.sound.fileName : ""
+                sent = true
+                group.addTask {
+                    let result = await pusher.send(title: copy.title, body: copy.body, to: deviceToken, sound: sound,
+                                                   sessionID: alert.sessionID, soundCategory: alert.sound.rawValue,
+                                                   localized: PushLocalization(copy),
+                                                   waitSince: waitSince, holdForPhone: hold)
+                    await registry.applySendResult(result, token: deviceToken)
+                }
+            }
         }
         return sent
     }
@@ -489,7 +511,7 @@ final class MenuBarModel: ObservableObject {
         // pass of the server's 30s loop until something takes it, so recording
         // each one would bury the log. The completion's own cue already said why.
         let pushed = await push(SoundAlert(session: session, sound: .agentDone, delivery: level),
-                                to: devices, recordSkips: false)
+                                to: devices, recordSkips: false, standDownForPhone: false)
         if local || pushed { await refreshNotificationDeliveryHealth() }
         return local || pushed
     }
@@ -749,19 +771,6 @@ final class MenuBarModel: ObservableObject {
             await deviceTokens.forgetAll()
             deviceRegistry = await deviceTokens.summary()
         }
-    }
-
-    var menuSessionList: MenuSessionList {
-        MenuSessionList(sessions, collapsedAgents: collapsedMenuAgents)
-    }
-
-    func toggleMenuGroup(_ agent: AgentKind) {
-        if collapsedMenuAgents.contains(agent) {
-            collapsedMenuAgents.remove(agent)
-        } else {
-            collapsedMenuAgents.insert(agent)
-        }
-        UserDefaults.standard.set(collapsedMenuAgents.map(\.rawValue).sorted(), forKey: Self.collapsedMenuAgentsKey)
     }
 
     func setShowGlance(_ on: Bool) {

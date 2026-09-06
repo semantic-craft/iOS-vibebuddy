@@ -15,70 +15,65 @@ struct WatchAlertCard: View {
     let now: Date
     let alsoWaiting: Int
 
-    private var accent: Color { Color(taskStatus: TaskPresentationState.requiresInput.colorToken) }
+    private var accent: Color { CompanionPalette.status(.requiresInput) }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 6) {
-            Capsule()
-                .fill(accent)
-                .frame(width: 2)
-            content
+        content
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .accessibilityElement(children: .combine)
+    }
+
+    /// `<project> wants to <verb>` when the tool is known, else the plain kind.
+    private var label: String {
+        if alert.waitKind == .permission, let tool = alert.tool {
+            return "\(alert.project) wants to \(CompanionCopy.requestVerb(tool: tool))"
         }
-        .accessibilityElement(children: .combine)
+        return alert.waitKind == .permission
+            ? String(localized: "\(alert.project) needs approval")
+            : String(localized: "\(alert.project) asked a question")
+    }
+
+    /// The line that matters: the agent's summary, or the question itself.
+    private var title: String {
+        if alert.waitKind == .question, let request = alert.request { return request }
+        if let summary = alert.summary, !summary.isEmpty { return summary }
+        return alert.waitKind == .permission
+            ? String(localized: "Needs approval") : String(localized: "Asked a question")
     }
 
     private var content: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // Who and where, plus how long it has been waiting. The time sits
-            // here rather than beside the headline so the headline keeps the
-            // full width on a 40mm screen.
-            HStack(spacing: 4) {
-                Image(systemName: alert.agent.symbolName)
-                    .font(.system(size: 9))
-                Text("\(alert.agent.shortName) · \(alert.project)")
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                Spacer(minLength: 4)
-                Text(WatchFormat.duration(alert.waitedFor(now: now)))
-                    .monospacedDigit()
-            }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-
-            HStack(alignment: .firstTextBaseline, spacing: 5) {
-                Image(systemName: alert.waitKind == .permission ? "lock.shield.fill" : "questionmark")
-                    .font(.system(size: 12, weight: .bold))
-                Text(alert.waitKind == .permission ? "Needs approval" : "Asked a question")
-                    .font(.headline)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(label)
+                    .font(CompanionType.font(9, .heavy)).textCase(.uppercase).kerning(0.4)
+                    .foregroundStyle(accent)
                     .lineLimit(2)
                     .minimumScaleFactor(0.8)
-                Spacer(minLength: 0)
-            }
-            .foregroundStyle(accent)
-
-            if let request = alert.request {
-                VStack(alignment: .leading, spacing: 3) {
-                    if let tool = alert.tool {
-                        Text(tool)
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                    }
-                    // A command is code and must be read literally; a question
-                    // is prose and reads better in the system face.
-                    Text(request)
-                        .font(alert.waitKind == .permission
-                              ? .system(.caption2, design: .monospaced)
-                              : .caption2)
-                        .lineLimit(6)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(6)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-            } else if let summary = alert.summary {
-                Text(summary)
+                Spacer(minLength: 4)
+                Text(WatchFormat.duration(alert.waitedFor(now: now)))
                     .font(.caption2)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+
+            Text(title)
+                .font(CompanionType.font(15, .black))
+                .lineLimit(3)
+                .minimumScaleFactor(0.8)
+                .fixedSize(horizontal: false, vertical: true)
+
+            // A command is code and must be read literally; it sits in its own
+            // mono strip. A question already is the title above.
+            if alert.waitKind == .permission, let request = alert.request {
+                Text(request)
+                    .font(.system(.caption2, design: .monospaced))
+                    .lineLimit(4)
                     .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(6)
+                    .background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
 
             // What the agent offered as answers. Shown so the question makes
@@ -98,6 +93,12 @@ struct WatchAlertCard: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
             }
+
+            Text("\(alert.agent.shortName) · \(alert.project)")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
 
             if alert.isDecidable {
                 WatchApprovalActions(store: store, alert: alert)
@@ -149,9 +150,9 @@ struct WatchApprovalActions: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                button(.deny, title: "Deny", tint: Color(taskStatus: TaskPresentationState.error.colorToken))
-                button(.allow, title: "Approve", tint: Color(taskStatus: TaskPresentationState.completeUnread.colorToken))
+            VStack(spacing: 6) {
+                button(.allow, title: "Approve", tint: CompanionPalette.status(.completeUnread))
+                button(.deny, title: "Deny", tint: CompanionPalette.status(.error))
             }
             .disabled(blocked != nil || store.approval.isBusy)
 
@@ -174,13 +175,14 @@ struct WatchApprovalActions: View {
             store.submit(alert, choice)
         } label: {
             Text(title)
-                .font(.caption)
+                .font(CompanionType.font(14, .heavy))
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .frame(maxWidth: .infinity)
         }
         .tint(tint)
         .buttonStyle(.borderedProminent)
+        .buttonBorderShape(.capsule)
     }
 
     /// Never "Approved". The wrist knows only that the Mac took the decision;

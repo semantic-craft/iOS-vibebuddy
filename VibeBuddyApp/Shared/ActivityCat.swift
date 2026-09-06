@@ -9,6 +9,8 @@ import VibeBuddyKit
 struct ActivityCat: View {
     let state: TaskPresentationState
     var size: CGFloat = 40
+    /// The home widget sits on the Companion ground, not black.
+    var onDark: Bool = true
 
     private var showsBody: Bool { size >= BuddyCat.bodyThreshold }
 
@@ -16,7 +18,8 @@ struct ActivityCat: View {
         BuddyCatFace(mood: BuddyCat.Mood(state),
                      showsBody: showsBody,
                      showsMouth: size >= BuddyCat.mouthThreshold,
-                     onDark: true)
+                     shadow: !onDark,
+                     onDark: onDark)
             .frame(width: size, height: BuddyCat.height(forWidth: size, showsBody: showsBody))
     }
 }
