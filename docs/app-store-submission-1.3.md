@@ -1,6 +1,6 @@
 # VibeBuddy 1.3 — App Store 提交文案包
 
-截图素材已另备：[三端截图与上传清单](app-store-screenshots/1.3/README.md)、[完整 ZIP](app-store-screenshots/VibeBuddy-1.3-screenshots.zip)。含中英文环境原生实拍；中文未翻译标签及未收录的实际表盘组件见素材清单。
+截图素材已另备：[三端截图与上传清单](app-store-screenshots/1.3/README.md)。含中英文环境原生实拍；中文未翻译标签及未收录的实际表盘组件见素材清单。
 
 状态：文案草案，供开发完成后的提交使用；本文件不表示已上传、提交或通过审核。当前项目版本为 1.3，最终 build 以验收成品为准。保留既有 App 记录，不新建 App；账号和在线版本状态须提交时核对。
 
