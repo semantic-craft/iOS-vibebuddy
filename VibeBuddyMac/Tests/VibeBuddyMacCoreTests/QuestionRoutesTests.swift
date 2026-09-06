@@ -105,8 +105,8 @@ struct QuestionRoutesTests {
         }
     }
 
-    @Test("after the hook times out the card stays, and a later answer is typed into the terminal")
-    func timeoutFallsBackToInjection() async throws {
+    @Test("after the hook times out an Answer is refused and is not typed as an instruction")
+    func timeoutDoesNotTurnAnswerIntoInstruction() async throws {
         let store = SessionStore()
         let recorder = InjectionRecorder()
         let srv = server(store: store, timeout: .milliseconds(200), recorder: recorder)
@@ -117,20 +117,14 @@ struct QuestionRoutesTests {
                 #expect(String(buffer: res.body).isEmpty)          // Claude shows its own UI
             }
             #expect(await store.snapshot(now: Date()).sessions.first { $0.id == "qs" }?.pendingQuestion != nil)
-            // Nowhere to type: nothing waiting, no terminal → 202.
-            try await client.execute(uri: "/answer", method: .post,
-                headers: [.authorization: "Bearer t0k"],
-                body: ByteBuffer(string: #"{"sessionId":"qs","answers":{"q1":["Summary"]}}"#)) { res in
-                #expect(res.status == .accepted)
-            }
             await store.setTerminalRef(sessionID: "qs", TerminalRef(termProgram: "tmux", tty: "ttys001", tmux: "/tmp/sock,1,0", tmuxPane: "%1"))
             try await client.execute(uri: "/answer", method: .post,
                 headers: [.authorization: "Bearer t0k"],
-                body: ByteBuffer(string: #"{"sessionId":"qs","answers":{"q1":["Summary"],"q2":["Conclusion"]}}"#)) { res in
-                #expect(res.status == .ok)
+                body: ByteBuffer(string: #"{"sessionId":"qs","intent":"answer","requestId":"late","answers":{"q1":["Summary"]}}"#)) { res in
+                #expect(res.status == .conflict)
             }
-            #expect(recorder.all == ["Summary\nConclusion"])
-            #expect(await store.snapshot(now: Date()).sessions.first { $0.id == "qs" }?.pendingQuestion == nil)
+            #expect(recorder.all.isEmpty)
+            #expect(await store.snapshot(now: Date()).sessions.first { $0.id == "qs" }?.pendingQuestion != nil)
         }
     }
 

@@ -19,6 +19,10 @@ public struct CodexAppServerReducer: Sendable, Equatable {
         public var branch: String?
         public var model: String?
         public var loaded: Bool
+        /// The running turn, when the daemon has named one. `turn/steer`
+        /// sends it as `expectedTurnId` so a late steer cannot attach to
+        /// a later turn.
+        public var activeTurnID: String?
     }
 
     public private(set) var threads: [String: ThreadFacts] = [:]
@@ -33,7 +37,7 @@ public struct CodexAppServerReducer: Sendable, Equatable {
         guard let id = thread["id"] as? String, !id.isEmpty else { return [] }
         if Self.isSubagentThread(thread) { return [] }
         let source = Self.sourceName(thread["source"])
-        var facts = threads[id] ?? ThreadFacts(cwd: nil, isDesktop: false, branch: nil, model: nil, loaded: false)
+        var facts = threads[id] ?? ThreadFacts(cwd: nil, isDesktop: false, branch: nil, model: nil, loaded: false, activeTurnID: nil)
         if let cwd = thread["cwd"] as? String, !cwd.isEmpty { facts.cwd = cwd }
         facts.isDesktop = source == "vscode"
         if let git = thread["gitInfo"] as? [String: Any], let branch = git["branch"] as? String, !branch.isEmpty {
@@ -41,6 +45,7 @@ public struct CodexAppServerReducer: Sendable, Equatable {
         }
         let status = thread["status"] as? [String: Any]
         facts.loaded = (status?["type"] as? String).map { $0 != "notLoaded" } ?? false
+        if (status?["type"] as? String) == "idle" { facts.activeTurnID = nil }
         threads[id] = facts
         guard facts.loaded, let status else { return [] }
         return statusEvents(threadID: id, status: status, receivedAt: receivedAt, includeBranch: true)
@@ -58,18 +63,26 @@ public struct CodexAppServerReducer: Sendable, Equatable {
             return seed(thread: thread, receivedAt: receivedAt)
         case "thread/status/changed":
             guard let id = params["threadId"] as? String, let status = params["status"] as? [String: Any] else { return [] }
-            var facts = threads[id] ?? ThreadFacts(cwd: nil, isDesktop: false, branch: nil, model: nil, loaded: false)
+            var facts = threads[id] ?? ThreadFacts(cwd: nil, isDesktop: false, branch: nil, model: nil, loaded: false, activeTurnID: nil)
             facts.loaded = (status["type"] as? String) != "notLoaded"
+            if (status["type"] as? String) == "idle" { facts.activeTurnID = nil }
             threads[id] = facts
             guard facts.loaded else { return [] }
             return statusEvents(threadID: id, status: status, receivedAt: receivedAt, includeBranch: false)
         case "turn/started":
             guard let id = params["threadId"] as? String else { return [] }
             let turn = params["turn"] as? [String: Any]
+            if let turnID = turn?["id"] as? String {
+                var facts = threads[id] ?? ThreadFacts(cwd: nil, isDesktop: false, branch: nil, model: nil, loaded: true, activeTurnID: nil)
+                facts.activeTurnID = turnID
+                facts.loaded = true
+                threads[id] = facts
+            }
             return [event(.userPromptSubmit, threadID: id, receivedAt: receivedAt,
                           turnID: turn?["id"] as? String)]
         case "turn/completed":
             guard let id = params["threadId"] as? String else { return [] }
+            threads[id]?.activeTurnID = nil
             let turn = params["turn"] as? [String: Any] ?? [:]
             let status = turn["status"] as? String ?? "completed"
             let message: String?

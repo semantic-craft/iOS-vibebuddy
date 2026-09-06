@@ -284,33 +284,86 @@ final class DashboardStore: ObservableObject {
 
     /// Answers from the question card, keyed by question id.
     func answer(_ sessionId: String, answers: QuestionAnswers) {
-        guard !answers.isEmpty else { return }
-        if isDemo {
-            let flat = answers.values.flatMap { $0 }.joined(separator: ", ")
-            answer(sessionId, answer: flat)
-            return
-        }
-        guard let pairing else { return }
-        Task { await decisionClient.answer(pairing, sessionId: sessionId, answers: answers) }
+        Task { await submitAction(sessionId: sessionId, answers: answers) }
     }
 
     func answer(_ sessionId: String, answer: String) {
-        guard !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        if isDemo {
-            let resolved = (groups.needsResponse + groups.working + groups.done).map { s -> AgentSession in
-                guard s.id == sessionId else { return s }
-                var s = s
-                s.pendingQuestion = nil
-                s.waitKind = nil
-                s.status = .working
-                s.summary = "Answered from phone: \(answer)"
-                return s
-            }
-            install(resolved)
-            return
+        Task { await submitAction(sessionId: sessionId, text: answer) }
+    }
+
+    /// Send one existing-session action. Duplicate taps reuse the in-flight
+    /// request id; a lost receipt stays `unknown` and is not resent.
+    @discardableResult
+    func submitAction(sessionId: String, text: String? = nil, answers: QuestionAnswers? = nil) async -> SessionActionOutcome {
+        let typed = text?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if (typed == nil || typed?.isEmpty == true) && (answers == nil || answers?.isEmpty == true) {
+            return publishAction(.failed(String(localized: "Empty instruction")))
         }
-        guard let pairing else { return }
-        Task { await decisionClient.answer(pairing, sessionId: sessionId, answer: answer) }
+        if !isDemo {
+            guard pairing != nil, state == .connected else {
+                return publishAction(.notSent(String(localized: "Couldn't reach your Mac — not sent")))
+            }
+        }
+        guard let session = allSessions.first(where: { $0.id == sessionId }) else {
+            return publishAction(.failed(String(localized: "No matching session.")))
+        }
+        let support = SessionActionSupport.resolve(for: session)
+        if let reason = support.unsupportedReason {
+            return publishAction(.failed(reason))
+        }
+        if isDemo {
+            applyDemoAction(sessionId: sessionId, text: typed ?? answers.map { $0.values.flatMap { $0 }.joined(separator: ", ") } ?? "")
+            return publishAction(.accepted)
+        }
+        guard let pairing else {
+            return publishAction(.notSent(String(localized: "Couldn't reach your Mac — not sent")))
+        }
+        if actionPhase == .sending {
+            return actionReceipt ?? .unknown
+        }
+        let request = SessionActionRequest(
+            sessionID: sessionId,
+            intent: support.intent,
+            questionID: session.pendingQuestion?.id,
+            text: typed,
+            answers: answers)
+        inFlightRequestIDs.insert(request.requestID)
+        actionPhase = .sending
+        actionReceipt = nil
+        showToast(String(localized: "Sending…"))
+        let outcome = await decisionClient.submitSessionAction(pairing, request: request)
+        inFlightRequestIDs.remove(request.requestID)
+        actionPhase = .idle
+        return publishAction(outcome)
+    }
+
+    private func applyDemoAction(sessionId: String, text: String) {
+        let resolved = allSessions.map { s -> AgentSession in
+            guard s.id == sessionId else { return s }
+            var s = s
+            s.pendingQuestion = nil
+            s.waitKind = nil
+            s.status = .working
+            s.summary = "Answered from phone: \(text)"
+            return s
+        }
+        install(resolved)
+    }
+
+    private func publishAction(_ outcome: SessionActionOutcome) -> SessionActionOutcome {
+        actionReceipt = outcome
+        showToast(Self.actionMessage(outcome))
+        return outcome
+    }
+
+    /// Honest copy: accepted is not working or finished; unknown is not resent.
+    static func actionMessage(_ outcome: SessionActionOutcome) -> String {
+        switch outcome {
+        case .notSent(let why): return why
+        case .accepted: return String(localized: "Accepted — not yet working or finished")
+        case .failed(let why): return why
+        case .unknown: return String(localized: "Sent, but the result is unknown — not resent")
+        }
     }
 
     private static func demoSessions() -> [AgentSession] {
@@ -401,6 +454,16 @@ final class DashboardStore: ObservableObject {
     /// A brief, self-clearing status line for one-shot actions (e.g. jump result).
     @Published var toast: String?
     private var toastTask: Task<Void, Never>?
+    /// Last existing-session send: sending, or the receipt the composer shows.
+    @Published private(set) var actionPhase: ActionPhase = .idle
+    @Published private(set) var actionReceipt: SessionActionOutcome?
+    /// Request ids currently in flight, so a second tap is not another send.
+    private var inFlightRequestIDs: Set<String> = []
+
+    enum ActionPhase: Equatable {
+        case idle
+        case sending
+    }
 
     /// Start a new task on the Mac. Returns the Mac's answer as a toast-ready
     /// line; nil when it could not be reached.

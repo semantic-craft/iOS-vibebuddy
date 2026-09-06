@@ -563,17 +563,31 @@ final class MenuBarModel: ObservableObject {
     /// Back-compat for voice + existing callers.
     func decide(_ approvalId: String, approve: Bool) { decide(approvalId, approve ? .allow : .deny) }
 
-    /// Answer a session's question from the Mac card, the same way `/answer`
-    /// does for the phone: to the waiting agent through its own contract,
-    /// else typed into a tmux pane. Reports whether it had anywhere to go.
+    /// Answer or advance a session from the Mac card, the same contract as
+    /// `/answer`: waiting questions go to the agent; Codex steer / continue
+    /// are explicit and never rewrite each other.
     func answer(_ sessionID: String, answers: QuestionAnswers, text: String? = nil) {
-        let dispatch = AnswerDispatch(store: store, questions: questionRegistry,
-                                      inject: { ref, answer in TerminalInjector.inject(answer, into: ref) })
+        let monitor = codexAppServerMonitor
+        let session = sessions.first { $0.id == sessionID }
+        let support = session.map(SessionActionSupport.resolve(for:))
+        let dispatch = AnswerDispatch(
+            store: store, questions: questionRegistry,
+            inject: { ref, answer in TerminalInjector.inject(answer, into: ref) },
+            steer: { id, text in await monitor.steer(threadID: id, text: text) },
+            startTurn: { id, text in await monitor.startTurn(threadID: id, text: text) })
         Task { [weak self] in
-            let delivered = await dispatch.deliver(sessionID: sessionID, text: text,
-                                                   answers: answers.isEmpty ? nil : answers)
+            let result = await dispatch.deliver(SessionActionRequest(
+                sessionID: sessionID,
+                intent: support?.intent,
+                questionID: session?.pendingQuestion?.id,
+                text: text,
+                answers: answers.isEmpty ? nil : answers))
             await MainActor.run {
-                self?.answerFeedback[sessionID] = delivered ? nil : "Nothing was waiting for an answer, and there is no tmux pane to type into."
+                if case .failed(let why) = result {
+                    self?.answerFeedback[sessionID] = why
+                } else {
+                    self?.answerFeedback[sessionID] = nil
+                }
             }
         }
     }

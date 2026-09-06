@@ -12,6 +12,9 @@ protocol DecisionClient: Sendable {
     /// Structured answers keyed by question id (option labels, or a typed
     /// reply), for the agents that take them through their own contract.
     func answer(_ pairing: PairingPayload, sessionId: String, answers: QuestionAnswers) async
+    /// One existing-session action with intent and a request id. The outcome
+    /// is what the phone may show: accepted is not working or finished.
+    func submitSessionAction(_ pairing: PairingPayload, request: SessionActionRequest) async -> SessionActionOutcome
     /// Returns what the Mac reported, or `nil` if it couldn't be reached.
     func jump(_ pairing: PairingPayload, sessionId: String) async -> JumpOutcome?
     func acknowledge(_ pairing: PairingPayload, sessionId: String) async
@@ -24,6 +27,14 @@ protocol DecisionClient: Sendable {
 
 extension DecisionClient {
     func dispatch(_ pairing: PairingPayload, request: DispatchRequest) async -> DispatchOutcome? { nil }
+    func submitSessionAction(_ pairing: PairingPayload, request: SessionActionRequest) async -> SessionActionOutcome {
+        if let answers = request.answers, !answers.isEmpty {
+            await answer(pairing, sessionId: request.sessionID, answers: answers)
+        } else if let text = request.text {
+            await answer(pairing, sessionId: request.sessionID, answer: text)
+        }
+        return .accepted
+    }
 }
 
 extension DecisionClient {
@@ -75,23 +86,35 @@ struct HTTPDecisionClient: DecisionClient {
     }
 
     func answer(_ pairing: PairingPayload, sessionId: String, answer: String) async {
-        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/answer") else { return }
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: ["sessionId": sessionId, "answer": answer])
-        _ = try? await URLSession.shared.data(for: req)
+        _ = await submitSessionAction(pairing, request: SessionActionRequest(sessionID: sessionId, text: answer))
     }
 
     func answer(_ pairing: PairingPayload, sessionId: String, answers: QuestionAnswers) async {
-        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/answer") else { return }
+        _ = await submitSessionAction(pairing, request: SessionActionRequest(sessionID: sessionId, answers: answers))
+    }
+
+    func submitSessionAction(_ pairing: PairingPayload, request: SessionActionRequest) async -> SessionActionOutcome {
+        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/answer") else {
+            return .notSent(String(localized: "Couldn't reach your Mac — not sent"))
+        }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: ["sessionId": sessionId, "answers": answers])
-        _ = try? await URLSession.shared.data(for: req)
+        var body: [String: Any] = ["sessionId": request.sessionID, "requestId": request.requestID]
+        if let intent = request.intent { body["intent"] = intent.rawValue }
+        if let questionID = request.questionID { body["questionId"] = questionID }
+        if let text = request.text { body["answer"] = text }
+        if let answers = request.answers { body["answers"] = answers }
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        do {
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            guard let http = resp as? HTTPURLResponse else { return .unknown }
+            let fields = (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
+            return SessionActionOutcome.fromHTTP(statusCode: http.statusCode, body: fields)
+        } catch {
+            return .unknown
+        }
     }
 
     func dispatch(_ pairing: PairingPayload, request: DispatchRequest) async -> DispatchOutcome? {

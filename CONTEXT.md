@@ -76,9 +76,18 @@ code, and tests — don't drift to synonyms.
   the agent's own prompt takes the answer and the phone gets a **read-only
   card** (`answerable: false`); away → the daemon holds the prompt for the
   phone. Applies to the hook gate, the question relay and app-server requests.
-- **Steer** — free text for a Codex thread sent through the app-server daemon:
-  `turn/steer` while a turn runs, `turn/start` when idle (a cold thread is
-  resumed first). Codex threads never take typed input through a terminal.
+- **Steer** — free text for a running Codex turn (`turn/steer`, with
+  `expectedTurnId` when known). Failure is reported; it must not fall back to
+  `turn/start`. A finished session uses **continue** (`turn/start`) instead.
+  Codex threads never take typed input through a terminal.
+- **Session action / SessionActionIntent** — what free text on an existing
+  session means: **answer** (bind to the current question), **steer**
+  (supplement the running turn), **continue** (open the next turn). Distinct
+  from Approval and from New task. The daemon re-checks the live question /
+  turn before executing; an expired Answer does not become a steer. The
+  client shows not-sent / sending / accepted / failed / unknown; accepted is
+  not working or finished. Duplicate taps reuse a `requestId`; a lost receipt
+  stays unknown and is not resent. No connection (Q16) is not-sent.
 - **Attach** — the jump for a Claude *background session* (`claude --bg`,
   agent view, Desktop Dispatch): it has no window, so `ClaudeBackgroundSessions`
   reads the supervisor's `~/.claude/jobs/<id>/state.json` (read-only) and
