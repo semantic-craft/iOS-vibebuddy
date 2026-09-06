@@ -74,6 +74,47 @@ public enum GrokUsageResponseDecoder {
         return nil
     }
 
+    /// Decodes `GET …/v1/billing?format=credits` (CodexBar CLI-proxy shape).
+    /// Primary comes from `creditUsagePercent` when present; otherwise from a
+    /// positive on-demand cap/used pair. Period-only answers are not usable.
+    public static func decode(proxyCreditsResponse: Data, fetchedAt: Date) throws -> AccountUsageSnapshot {
+        let envelope: ProxyCreditsEnvelopeDTO
+        do {
+            envelope = try JSONDecoder().decode(ProxyCreditsEnvelopeDTO.self, from: proxyCreditsResponse)
+        } catch {
+            throw AccountUsageError.incompatibleFormat
+        }
+        let config = envelope.config
+        let tier = config?.subscriptionTier ?? envelope.subscriptionTier
+        if config?.creditPercent != nil {
+            return try snapshot(config: config, tier: tier, fetchedAt: fetchedAt)
+        }
+        // On-demand-only proxy answers still fill the single Grok primary window.
+        guard let config,
+              let cap = config.onDemandCap?.val, cap > 0 else {
+            throw AccountUsageError.incompatibleFormat
+        }
+        let used = config.onDemandUsedValue ?? 0
+        let percent = min(100, max(0, used / cap * 100))
+        guard percent.isFinite else { throw AccountUsageError.incompatibleFormat }
+        let start = parseTimestamp(config.periodStart)
+        let resetsAt = parseTimestamp(config.periodEnd)
+        return AccountUsageSnapshot(
+            provider: .grok,
+            planType: tier.flatMap { $0.isEmpty ? nil : $0 },
+            primary: AccountUsageWindow(
+                kind: .primary,
+                usedPercent: Int(percent.rounded()),
+                windowDurationMinutes: duration(from: start, to: resetsAt),
+                resetsAt: resetsAt
+            ),
+            secondary: nil,
+            lifetimeTokens: nil,
+            latestDailyTokens: nil,
+            fetchedAt: fetchedAt
+        )
+    }
+
     private static func snapshot(
         config: BillingConfigDTO?,
         tier: String?,
@@ -181,6 +222,11 @@ private struct BillingEnvelopeDTO: Decodable {
     var error: RPCErrorDTO?
 }
 
+private struct ProxyCreditsEnvelopeDTO: Decodable {
+    var config: BillingConfigDTO?
+    var subscriptionTier: String?
+}
+
 private struct BillingResultDTO: Decodable {
     var config: BillingConfigDTO?
     /// The handler answers `subscription_tier`; `/v1/settings` and some builds
@@ -223,6 +269,8 @@ private struct BillingConfigDTO: Decodable {
     var onDemandUsed: CentDTO?
     var billingPeriodStart: String?
     var billingPeriodEnd: String?
+    /// Present on some CLI-proxy credits payloads (CodexBar).
+    var subscriptionTier: String?
 
     /// Percent of the included allowance. The credits config reports it
     /// directly; the deprecated fields only carry an amount and a limit.
@@ -252,26 +300,39 @@ private struct UnifiedLogRecordDTO: Decodable {
 
 // MARK: - Provider
 
-/// Reads Grok Build's weekly credit quota through the CLI's own ACP server, so
-/// the bearer token in `~/.grok/auth.json` is never touched by VibeBuddy. When
-/// the agent cannot be spawned or reached, the last billing record the CLI
-/// wrote to its unified log stands in.
+/// Reads Grok Build's weekly credit quota through the CLI's own ACP server.
+/// When the agent cannot be spawned or reached, the last billing record the
+/// CLI wrote to its unified log stands in. If that still yields no usable
+/// percent, the CodexBar-documented CLI billing proxy is tried with the local
+/// `~/.grok/auth.json` bearer — same Grok row, never a second provider.
 public final class GrokUsageProvider: AccountUsageProviding, Sendable {
     private let executableURL: URL?
     private let arguments: [String]
     private let timeout: TimeInterval
     private let logURL: URL
+    private let authFileURL: URL
+    private let proxyEndpoint: URL
+    private let proxyTransport: GrokCreditsProxyTransport
+    private let proxyEnabled: Bool
 
     public init(
         executableURL: URL? = nil,
         arguments: [String] = ["agent", "--no-leader", "stdio"],
         timeout: TimeInterval = 10,
-        logURL: URL? = nil
+        logURL: URL? = nil,
+        authFileURL: URL? = nil,
+        proxyEndpoint: URL = GrokCreditsProxyClient.defaultEndpoint,
+        proxyTransport: GrokCreditsProxyTransport = URLSession.shared,
+        proxyEnabled: Bool = true
     ) {
         self.executableURL = executableURL ?? Self.resolveGrokExecutable()
         self.arguments = arguments
         self.timeout = timeout
         self.logURL = logURL ?? Self.defaultLogURL()
+        self.authFileURL = authFileURL ?? GrokHome.url.appendingPathComponent("auth.json")
+        self.proxyEndpoint = proxyEndpoint
+        self.proxyTransport = proxyTransport
+        self.proxyEnabled = proxyEnabled
     }
 
     public func fetch() async throws -> AccountUsageSnapshot {
@@ -305,14 +366,46 @@ public final class GrokUsageProvider: AccountUsageProviding, Sendable {
             } catch {
                 try Task.checkCancellation()
                 guard Self.allowsLogFallback(after: error) else { throw error }
-                guard let snapshot = GrokUsageResponseDecoder.decodeNewestLogRecord(
+                if let snapshot = GrokUsageResponseDecoder.decodeNewestLogRecord(
                     in: logURL,
                     now: Date()
-                ) else { throw error }
-                return snapshot
+                ) {
+                    return snapshot
+                }
+                if proxyEnabled, let snapshot = await Self.fetchProxyFallback(
+                    authFileURL: authFileURL,
+                    endpoint: proxyEndpoint,
+                    transport: proxyTransport
+                ) {
+                    return snapshot
+                }
+                throw error
             }
         } onCancel: {
             client.cancel()
+        }
+    }
+
+    /// Best-effort proxy: never upgrades a hard auth/format failure from ACP, and
+    /// never invents a reading when the bearer is missing.
+    static func fetchProxyFallback(
+        authFileURL: URL,
+        endpoint: URL,
+        transport: GrokCreditsProxyTransport,
+        now: Date = Date()
+    ) async -> AccountUsageSnapshot? {
+        guard let token = GrokCLIAuthToken.loadAccessToken(from: authFileURL, now: now) else {
+            return nil
+        }
+        do {
+            let data = try await GrokCreditsProxyClient.fetch(
+                accessToken: token,
+                endpoint: endpoint,
+                transport: transport
+            )
+            return try GrokUsageResponseDecoder.decode(proxyCreditsResponse: data, fetchedAt: now)
+        } catch {
+            return nil
         }
     }
 
