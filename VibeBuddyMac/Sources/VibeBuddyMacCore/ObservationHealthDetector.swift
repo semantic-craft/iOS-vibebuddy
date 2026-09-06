@@ -118,9 +118,9 @@ public enum ObservationHealthDetector {
     ]
 
     private enum RolloutInspection {
-        case supportedEvent
-        case metadataOnly
-        case unsupported
+        case readable(version: String, hasProgress: Bool)
+        case invalid(version: String?)
+        case unreadable
     }
 
     public static func detect(
@@ -420,7 +420,7 @@ public enum ObservationHealthDetector {
         fileManager fm: FileManager
     ) -> ObservationSourceDiagnostic {
         let signal = latestSignal(agent: agent, source: source, in: signals)
-        if let signal, signal.health == .unknownVersion {
+        if source != .rollout, let signal, signal.health == .unknownVersion {
             return diagnostic(source: source, signal: signal, fallback: .unknownVersion,
                               now: now, staleAfter: staleAfter, forceFallback: true)
         }
@@ -435,47 +435,88 @@ public enum ObservationHealthDetector {
 
         // Claude transcript paths arrive on hooks and are tracked as runtime
         // signals. Do not recursively walk every historical project transcript
-        // during a Settings refresh. Codex diagnostics take the newest rollout
-        // by mtime, including files outside the monitor recency window, so a
-        // restart still has freshness evidence.
+        // during a Settings refresh. Codex diagnostics inspect current rollouts
+        // plus the latest stale file so a restart retains freshness evidence.
         guard source == .rollout else {
             return diagnostic(source: source, signal: signal, fallback: .temporarilySilent,
                               reasonCode: "awaitingActivity",
                               now: now, staleAfter: staleAfter)
         }
 
-        switch CodexRolloutDiscovery.latest(in: root, now: now, fileManager: fm) {
-        case .unreadable:
-            return diagnostic(source: source, signal: signal, fallback: .sourceUnreadable,
-                              now: now, staleAfter: staleAfter, forceFallback: true)
-        case .empty:
-            return diagnostic(source: source, signal: signal, fallback: .eventsMissing,
-                              now: now, staleAfter: staleAfter)
-        case .found(let url, let modifiedAt):
-            guard isReadable(url, fileManager: fm) else {
-                return diagnostic(source: source, signal: signal, fallback: .sourceUnreadable,
-                                  now: now, staleAfter: staleAfter, forceFallback: true)
-            }
-            switch inspectRollout(at: url, fileManager: fm) {
-            case .unsupported:
-                return diagnostic(source: source, signal: signal, fallback: .unknownVersion,
-                                  lastObservedAt: modifiedAt,
-                                  now: now, staleAfter: staleAfter, forceFallback: true)
-            case .metadataOnly:
-                return diagnostic(source: source, signal: signal, fallback: .eventsMissing,
-                                  lastObservedAt: modifiedAt,
-                                  now: now, staleAfter: staleAfter)
-            case .supportedEvent:
-                if let signal {
-                    return diagnostic(source: source, signal: signal, fallback: .eventsMissing,
-                                      now: now, staleAfter: staleAfter)
-                }
-            }
-            let inferred = ObservationRuntimeSignal(
-                agent: agent, source: source, lastObservedAt: modifiedAt)
-            return diagnostic(source: source, signal: inferred, fallback: .eventsMissing,
-                              now: now, staleAfter: staleAfter)
+        return rolloutEvidence(root: root, signal: signal, now: now,
+                               staleAfter: staleAfter, fileManager: fm)
+    }
+
+    private static func rolloutEvidence(
+        root: URL, signal: ObservationRuntimeSignal?, now: Date,
+        staleAfter: TimeInterval, fileManager fm: FileManager
+    ) -> ObservationSourceDiagnostic {
+        func row(_ health: ObservationHealth, reason: String? = nil,
+                 version: String? = nil, observedAt: Date? = nil) -> ObservationSourceDiagnostic {
+            ObservationSourceDiagnostic(source: .rollout, health: health,
+                lastObservedAt: signal?.lastObservedAt ?? observedAt,
+                observedCoverage: signal?.observedCoverage ?? [],
+                reasonCode: reason, sourceVersion: version)
         }
+        let files: [CodexRolloutDiscovery.Candidate]
+        switch CodexRolloutDiscovery.candidates(in: root, now: now, window: nil, fileManager: fm) {
+        case .unreadable, .found(_, incomplete: true):
+            return row(.sourceUnreadable)
+        case .empty:
+            if signal?.health == .unknownVersion {
+                return row(.unknownVersion, reason: "invalidSourceData")
+            }
+            return diagnostic(source: .rollout, signal: signal, fallback: .eventsMissing,
+                              now: now, staleAfter: staleAfter)
+        case .found(let candidates, incomplete: false):
+            let ordered = candidates.sorted {
+                $0.modifiedAt == $1.modifiedAt ? $0.url.path < $1.url.path : $0.modifiedAt > $1.modifiedAt
+            }
+            // Check the monitor's current window, plus the latest file after a
+            // restart. A newer healthy thread must not hide another current
+            // thread's corrupt rollout. Never read all historical bodies.
+            files = ordered.enumerated().compactMap { index, file in
+                index == 0 || now.timeIntervalSince(file.modifiedAt) <= CodexRolloutDiscovery.recencyWindow
+                    ? file : nil
+            }
+        }
+        var readable: (version: String, progress: Bool, modifiedAt: Date)?
+        var unverified: String?
+        var invalidVersion: String?
+        var invalid = false
+        for file in files {
+            switch inspectRollout(at: file.url, fileManager: fm) {
+            case .unreadable: return row(.sourceUnreadable)
+            case .invalid(let version):
+                if !invalid { invalidVersion = version }
+                invalid = true
+            case .readable(let version, let progress):
+                if readable == nil { readable = (version, progress, file.modifiedAt) }
+                if unverified == nil, !isSupportedVersion(version) { unverified = version }
+            }
+        }
+        // Actual file/runtime failures outrank version certification and other
+        // fresh signals. These facts never enter the session reducer.
+        if signal?.health == .sourceUnreadable { return row(.sourceUnreadable) }
+        if invalid || signal?.health == .unknownVersion {
+            return row(.unknownVersion, reason: "invalidSourceData",
+                       version: invalid ? invalidVersion : readable?.version)
+        }
+        if let unverified {
+            return row(.unknownVersion, reason: "versionUnverified", version: unverified)
+        }
+        guard let readable else { return row(.eventsMissing) }
+        if let signal {
+            var result = diagnostic(source: .rollout, signal: signal, fallback: .eventsMissing,
+                                    now: now, staleAfter: staleAfter)
+            result.sourceVersion = readable.version
+            return result
+        }
+        guard readable.progress else {
+            return row(.eventsMissing, version: readable.version)
+        }
+        return row(now.timeIntervalSince(readable.modifiedAt) > staleAfter ? .temporarilySilent : .healthy,
+                   version: readable.version, observedAt: readable.modifiedAt)
     }
 
     private static func diagnostic(
@@ -559,43 +600,70 @@ public enum ObservationHealthDetector {
         fileManager fm: FileManager
     ) -> RolloutInspection {
         let limit = 1 << 20
-        guard var data = readData(at: url, upToCount: limit, fileManager: fm) else { return .unsupported }
+        guard var data = readData(at: url, upToCount: limit, fileManager: fm) else { return .unreadable }
         let fileSize = ((try? fm.attributesOfItem(atPath: url.path))?[.size] as? NSNumber)?.intValue
         let truncated = (fileSize ?? data.count) > data.count
-        // The byte limit can split a UTF-8 character as well as a JSON record.
-        // Drop the incomplete record before strict decoding, so a valid stream
-        // is not rejected merely because its 1 MiB boundary falls inside text.
+        // The cap can bisect JSON or UTF-8; only complete records are evidence.
         if truncated, data.last != 0x0A {
-            guard let newline = data.lastIndex(of: 0x0A) else { return .unsupported }
+            guard let newline = data.lastIndex(of: 0x0A) else { return .invalid(version: nil) }
             data = data.prefix(through: newline)
         }
-        guard let text = String(data: data, encoding: .utf8) else { return .unsupported }
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: true)
-
         var version: String?
-        var hasSupportedEvent = false
-        for line in lines {
-            guard let lineData = line.data(using: .utf8),
-                  let record = (try? JSONSerialization.jsonObject(with: lineData)) as? [String: Any],
-                  let type = record["type"] as? String else { return .unsupported }
+        var hasProgress = false
+        var invalid = false
+        for line in data.split(separator: 0x0A) {
+            guard let record = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any],
+                  let type = record["type"] as? String, !type.isEmpty else {
+                invalid = true
+                continue
+            }
+            // New unrelated optional record types are not schema failures.
+            guard ["session_meta", "event_msg", "response_item", "turn_context"].contains(type) else { continue }
+            guard let payload = record["payload"] as? [String: Any] else {
+                invalid = true
+                continue
+            }
             if type == "session_meta" {
-                guard let payload = record["payload"] as? [String: Any],
-                      let value = payload["cli_version"] as? String else { return .unsupported }
+                guard let value = payload["cli_version"] as? String,
+                      value.range(of: #"^\d+\.\d+\.\d+(?:-[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*)?(?:\+[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*)?$"#,
+                                  options: .regularExpression) != nil else {
+                    invalid = true
+                    continue
+                }
+                if let version, version != value { invalid = true }
                 version = value
-            } else if type == "event_msg" {
-                guard let payload = record["payload"] as? [String: Any],
-                      let event = payload["type"] as? String else { return .unsupported }
-                hasSupportedEvent = hasSupportedEvent || supportedEventMessages.contains(event)
-            } else if type == "response_item" {
-                guard let payload = record["payload"] as? [String: Any],
-                      let item = payload["type"] as? String else { return .unsupported }
-                hasSupportedEvent = hasSupportedEvent
-                    || supportedResponseItems.contains(item)
-                    || (item == "message" && payload["phase"] as? String == "final_answer")
+                // Without identity the parser discards every lifecycle event.
+                if (payload["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+                    invalid = true
+                }
+            } else if type == "event_msg" || type == "response_item" {
+                guard let event = payload["type"] as? String, !event.isEmpty else {
+                    invalid = true
+                    continue
+                }
+                if let turnID = payload["turn_id"], !(turnID is String), !(turnID is NSNull) {
+                    invalid = true
+                }
+                if type == "event_msg", event == "item_completed" {
+                    guard let item = payload["item"] as? [String: Any],
+                          let itemType = item["type"] as? String, !itemType.isEmpty else {
+                        invalid = true
+                        continue
+                    }
+                    // Unknown optional items cannot prove progress on their own.
+                    hasProgress = hasProgress || ["CommandExecution", "McpToolCall", "FileChange",
+                        "Extension", "ContextCompaction", "FunctionCallOutput", "CollabAgentToolCall",
+                        "ImageView"].contains(itemType)
+                } else {
+                    hasProgress = hasProgress || (type == "event_msg"
+                        ? supportedEventMessages.contains(event)
+                        : supportedResponseItems.contains(event)
+                            || (event == "message" && payload["phase"] as? String == "final_answer"))
+                }
             }
         }
-        guard let version, isSupportedVersion(version) else { return .unsupported }
-        return hasSupportedEvent ? .supportedEvent : .metadataOnly
+        guard !invalid, let version else { return .invalid(version: version) }
+        return .readable(version: version, hasProgress: hasProgress)
     }
 
     private static func isSupportedVersion(_ version: String) -> Bool {

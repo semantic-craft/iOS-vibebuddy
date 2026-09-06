@@ -33,7 +33,8 @@ let package = Package(
             dependencies: [
                 "VibeBuddyMacCore",
                 .product(name: "HummingbirdTesting", package: "hummingbird"),
-            ]
+            ],
+            resources: [.copy("Fixtures")]
         ),
     ]
 )
