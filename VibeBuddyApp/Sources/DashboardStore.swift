@@ -555,7 +555,7 @@ final class DashboardStore: ObservableObject {
         }
     }
 
-    private func showToast(_ message: String) {
+    func showToast(_ message: String) {
         toast = message
         toastTask?.cancel()
         toastTask = Task { [weak self] in

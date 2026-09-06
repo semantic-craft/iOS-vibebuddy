@@ -22,7 +22,6 @@
 "Needs response" = "需回应";
 "Working" = "进行中";
 "Done" = "完成";
-"Connected to %@" = "已连接到 %@";
 "Stuck" = "卡住";
 "Deny" = "拒绝";
 "Approve" = "批准";
@@ -41,6 +40,10 @@
 "Reconnecting" = "重连中";
 "Exit demo" = "退出演示";
 "Disconnect" = "断开连接";
+"Reconnect" = "重新连接";
+"Copy address" = "复制地址";
+"Address copied" = "已复制地址";
+"Demo" = "演示";
 
 /* MARK: Buddy header + voice strip */
 "Listening…" = "聆听中…";
