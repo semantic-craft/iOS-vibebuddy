@@ -625,7 +625,7 @@ public enum ObservationHealthDetector {
             }
             if type == "session_meta" {
                 guard let value = payload["cli_version"] as? String,
-                      value.range(of: #"^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$"#,
+                      value.range(of: #"^\d+\.\d+\.\d+(?:-[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*)?(?:\+[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*)?$"#,
                                   options: .regularExpression) != nil else {
                     invalid = true
                     continue

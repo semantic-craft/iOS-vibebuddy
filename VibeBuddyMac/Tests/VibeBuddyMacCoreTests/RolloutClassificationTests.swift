@@ -78,6 +78,28 @@ struct RolloutClassificationTests {
         #expect(metadata.sessions.isEmpty)
     }
 
+    @Test("prerelease and build metadata preserve certification and corruption classification")
+    func prereleaseWithBuildMetadata() async throws {
+        let home = try home()
+        defer { try? FileManager.default.removeItem(at: home) }
+        for (version, damage, health, reason) in [
+            ("0.151.0-alpha.1+local", "", ObservationHealth.healthy, nil as String?),
+            ("0.999.0-alpha.1+local", "", .unknownVersion, "versionUnverified"),
+            ("0.151.0-alpha.1+", "", .unknownVersion, "invalidSourceData"),
+            ("0.151.0-alpha.1+local", "\n{broken", .unknownVersion, "invalidSourceData")
+        ] {
+            _ = try write(meta.replacingOccurrences(of: "0.153.4", with: version)
+                + "\n" + started + damage, home: home)
+            let snapshot = await store(home).snapshot(now: now)
+            #expect(snapshot.rollout?.health == health)
+            #expect(snapshot.rollout?.reasonCode == reason)
+            if reason != "invalidSourceData" {
+                #expect(snapshot.rollout?.sourceVersion == version)
+            }
+            #expect(snapshot.sessions.isEmpty)
+        }
+    }
+
     @Test("corruption outranks fresh signals and newer readable threads without moving progress")
     func failuresAreIndependent() async throws {
         let home = try home()
