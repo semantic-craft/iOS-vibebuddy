@@ -759,7 +759,11 @@ final class MenuBarModel: ObservableObject {
     /// The session's recent output, for the detail pane's "Recent output" sheet.
     /// Reads off the store actor; empty when no transcript is known.
     func transcript(for sessionID: String) async -> [TranscriptEntry] {
-        await store.recentTranscript(sessionID: sessionID)
+        await recentOutput(for: sessionID).entries.map { TranscriptEntry(role: $0.role, text: $0.text) }
+    }
+
+    func recentOutput(for sessionID: String) async -> RecentOutput {
+        await store.recentOutput(sessionID: sessionID)
     }
 
     /// Execute a voice action against the matching session; returns a spoken confirmation.

@@ -369,4 +369,38 @@ struct VibeBuddyServerTests {
             }
         }
     }
+
+    @Test("/recent-output is token-gated, needs a sessionId, and does not acknowledge")
+    func recentOutputRoute() async throws {
+        let path = NSTemporaryDirectory() + "vb-ro-route-\(UUID().uuidString).jsonl"
+        try #"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"hello"}]}}"#
+            .write(toFile: path, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        let store = SessionStore()
+        await store.ingest(
+            Data(#"{"hook_event_name":"Stop","session_id":"s","cwd":"/x/demo","transcript_path":"\#(path)"}"#.utf8),
+            receivedAt: Date(timeIntervalSince1970: 2))
+        #expect(await store.snapshot(now: .now).sessions.first?.hasUnreadCompletion == true)
+
+        let server = VibeBuddyServer(store: store, token: "t0k")
+        try await server.buildApplication().test(.router) { client in
+            try await client.execute(uri: "/recent-output?sessionId=s", method: .get) { res in
+                #expect(res.status == .unauthorized)
+            }
+            try await client.execute(uri: "/recent-output", method: .get,
+                                     headers: [.authorization: "Bearer t0k"]) { res in
+                #expect(res.status == .badRequest)
+            }
+            try await client.execute(uri: "/recent-output?sessionId=s", method: .get,
+                                     headers: [.authorization: "Bearer t0k"]) { res in
+                #expect(res.status == .ok)
+                let output = try JSONDecoder().decode(RecentOutput.self, from: Data(buffer: res.body))
+                #expect(output.sessionId == "s")
+                #expect(output.source == .transcript)
+                #expect(output.entries.map(\.text) == ["hello"])
+            }
+        }
+        #expect(await store.snapshot(now: .now).sessions.first?.hasUnreadCompletion == true)
+    }
 }

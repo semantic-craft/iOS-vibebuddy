@@ -25,10 +25,13 @@ protocol DecisionClient: Sendable {
     /// Set how much a session may interrupt you, or `nil` to return it to the
     /// daemon's automatic level. The Mac owns the value.
     func setAttention(_ pairing: PairingPayload, sessionId: String, level: SessionAttention?) async
+    /// Bounded recent dialogue. Nil when the Mac could not be reached.
+    func recentOutput(_ pairing: PairingPayload, sessionId: String) async -> RecentOutput?
 }
 
 extension DecisionClient {
     func dispatch(_ pairing: PairingPayload, request: DispatchRequest) async -> DispatchOutcome? { nil }
+    func recentOutput(_ pairing: PairingPayload, sessionId: String) async -> RecentOutput? { nil }
     func decideResult(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> WaitActionResult {
         await decide(pairing, approvalId: approvalId, decision: decision) ? .accepted : .failed
     }
@@ -133,6 +136,18 @@ struct HTTPDecisionClient: DecisionClient {
         case 503: return .unavailable(fields["error"] ?? "Unavailable")
         default: return nil
         }
+    }
+
+    func recentOutput(_ pairing: PairingPayload, sessionId: String) async -> RecentOutput? {
+        var comps = URLComponents(string: "http://\(pairing.host):\(pairing.port)/recent-output")
+        comps?.queryItems = [URLQueryItem(name: "sessionId", value: sessionId)]
+        guard let url = comps?.url else { return nil }
+        var req = URLRequest(url: url)
+        req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              let http = resp as? HTTPURLResponse, http.statusCode == 200
+        else { return nil }
+        return try? JSONDecoder().decode(RecentOutput.self, from: data)
     }
 
     func jump(_ pairing: PairingPayload, sessionId: String) async -> JumpOutcome? {

@@ -27,6 +27,9 @@ final class DashboardStore: ObservableObject {
     /// Set when a Live Activity / deep link asks to open a specific session; the
     /// dashboard scrolls to and highlights it, then clears it via `clearFocus()`.
     @Published var focusedSessionId: String?
+    /// Last fetched recent-output slice per session. Opening the pane reads;
+    /// it never acknowledges a completion.
+    @Published private(set) var recentOutputs: [String: RecentOutput] = [:]
 
     private let streamer: SnapshotStreaming
     private let notifier: AttentionNotifier
@@ -459,6 +462,30 @@ final class DashboardStore: ObservableObject {
         }
         pendingAcknowledgementIDs.remove(sessionId)
         Task { await decisionClient.acknowledge(pairing, sessionId: sessionId) }
+    }
+
+    /// Fetch the bounded recent-output slice. Does not acknowledge completions.
+    func loadRecentOutput(_ sessionId: String) async {
+        if isDemo {
+            recentOutputs[sessionId] = Self.demoRecentOutput(sessionId, from: allSessions)
+            return
+        }
+        guard let pairing else { return }
+        if let output = await decisionClient.recentOutput(pairing, sessionId: sessionId) {
+            recentOutputs[sessionId] = output
+        }
+    }
+
+    private static func demoRecentOutput(_ sessionId: String, from sessions: [AgentSession]) -> RecentOutput {
+        guard let session = sessions.first(where: { $0.id == sessionId }) else {
+            return .unavailable(sessionId: sessionId, reason: .unknownSession)
+        }
+        if let summary = session.summary, !summary.isEmpty {
+            return RecentOutput(
+                sessionId: sessionId, source: .transcript, updatedAt: session.updatedAt,
+                entries: [RecentOutputEntry(role: "assistant", text: summary)])
+        }
+        return RecentOutput(sessionId: sessionId, source: .transcript, updatedAt: session.updatedAt)
     }
 
     /// Set, or with `nil` return to automatic, how much a session may interrupt

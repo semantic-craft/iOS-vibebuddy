@@ -534,6 +534,7 @@ private struct SessionDetailSheet: View {
                         Text(summary).font(CompanionType.font(14, .semibold)).foregroundStyle(CompanionPalette.ink)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    RecentOutputCard(output: dashboard.recentOutputs[session.id])
                     metaCard
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Notifications").font(CompanionType.font(10, .heavy)).textCase(.uppercase).kerning(0.6)
@@ -573,6 +574,7 @@ private struct SessionDetailSheet: View {
         }
         .presentationDetents([.medium, .large])
         .tint(CompanionPalette.accent)
+        .task { await dashboard.loadRecentOutput(session.id) }
     }
 
     private var metaCard: some View {
@@ -615,6 +617,89 @@ private struct SessionDetailSheet: View {
             Spacer()
             Text(value).font(CompanionType.mono(11)).foregroundStyle(CompanionPalette.ink).lineLimit(1).truncationMode(.middle)
         }
+    }
+}
+
+/// Expandable bounded recent dialogue. The expanded text is the same slice
+/// the collapsed preview came from — there is no fuller history behind it.
+private struct RecentOutputCard: View {
+    let output: RecentOutput?
+    @State private var expanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                expanded.toggle()
+            } label: {
+                HStack {
+                    Text("Recent output").font(CompanionType.font(10, .heavy)).textCase(.uppercase).kerning(0.6)
+                        .foregroundStyle(CompanionPalette.ink3)
+                    Spacer()
+                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(CompanionPalette.ink3)
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(expanded ? "Hide recent output" : "Show recent output")
+
+            if let output {
+                meta(output)
+                if expanded {
+                    entries(output)
+                } else if let last = output.entries.last {
+                    preview(last)
+                }
+                if !output.statusLine.isEmpty {
+                    Text(output.statusLine)
+                        .font(CompanionType.font(11, .semibold))
+                        .foregroundStyle(CompanionPalette.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else {
+                Text("Loading recent output…")
+                    .font(CompanionType.font(11, .semibold))
+                    .foregroundStyle(CompanionPalette.ink3)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .companionCard()
+    }
+
+    private func meta(_ output: RecentOutput) -> some View {
+        HStack(spacing: 6) {
+            Text(output.sourceLabel)
+            if let updatedAt = output.updatedAt {
+                Text("·")
+                Text(updatedAt, style: .relative).monospacedDigit()
+            }
+        }
+        .font(CompanionType.font(10, .semibold))
+        .foregroundStyle(CompanionPalette.ink3)
+    }
+
+    @ViewBuilder
+    private func entries(_ output: RecentOutput) -> some View {
+        ForEach(Array(output.entries.enumerated()), id: \.offset) { _, entry in
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.role == "assistant" ? "Assistant" : "You")
+                    .font(CompanionType.font(10, .heavy))
+                    .foregroundStyle(entry.role == "assistant" ? CompanionPalette.accent : CompanionPalette.ink3)
+                Text(entry.text)
+                    .font(CompanionType.font(13, .semibold))
+                    .foregroundStyle(CompanionPalette.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
+        }
+    }
+
+    private func preview(_ entry: RecentOutputEntry) -> some View {
+        Text(entry.text)
+            .font(CompanionType.font(13, .semibold))
+            .foregroundStyle(CompanionPalette.ink)
+            .lineLimit(3)
     }
 }
 

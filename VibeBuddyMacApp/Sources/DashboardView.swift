@@ -536,7 +536,7 @@ private struct TranscriptSheet: View {
     let session: AgentSession
     @ObservedObject var model: MenuBarModel
     @Environment(\.dismiss) private var dismiss
-    @State private var entries: [TranscriptEntry] = []
+    @State private var output: RecentOutput?
     @State private var loaded = false
 
     var body: some View {
@@ -555,7 +555,7 @@ private struct TranscriptSheet: View {
         }
         .frame(minWidth: 460, minHeight: 360)
         .task {
-            entries = await model.transcript(for: session.id)
+            output = await model.recentOutput(for: session.id)
             loaded = true
         }
     }
@@ -564,15 +564,29 @@ private struct TranscriptSheet: View {
     private var content: some View {
         if !loaded {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if entries.isEmpty {
+        } else if let output, output.entries.isEmpty {
             ContentUnavailableView(
                 "No recent output", systemImage: "text.alignleft",
-                description: Text("This session hasn't reported a transcript yet."))
+                description: Text(output.statusLine.isEmpty
+                                  ? "This session hasn't reported a transcript yet."
+                                  : output.statusLine))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
+        } else if let output {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
+                    HStack(spacing: 6) {
+                        Text(output.sourceLabel)
+                        if let updatedAt = output.updatedAt {
+                            Text("·")
+                            Text(updatedAt, style: .relative).monospacedDigit()
+                        }
+                    }
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    if !output.statusLine.isEmpty {
+                        Text(output.statusLine).font(.caption).foregroundStyle(.secondary)
+                    }
+                    ForEach(Array(output.entries.enumerated()), id: \.offset) { _, entry in
                         VStack(alignment: .leading, spacing: 3) {
                             Text(entry.role == "assistant" ? "Assistant" : "You")
                                 .font(.caption2.weight(.semibold))

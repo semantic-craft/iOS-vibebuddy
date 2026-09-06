@@ -132,6 +132,12 @@ code, and tests — don't drift to synonyms.
 
 ## Observability (2026-09)
 
+- **RecentOutput** — a bounded, authenticated, read-only dialogue slice for one
+  Session (Q31). Carries source (`transcript` / `rollout` / `appserver`),
+  `updatedAt`, a truncation flag, and an unavailability reason when there is no
+  dialogue to show. Thinking, full tool results, images, and terminal dumps are
+  dropped; fetching it never acknowledges a completion or moves Session state.
+  The phone can expand the same slice; it is not a full history.
 - **ObservationSource / ObservationHealth** — which signal currently backs a
   session (`appserver`, `hook`, `rollout`, `transcript`, `recovery`) plus its last-seen time
   and a health verdict (healthy / degraded / unsupported / eventsMissing). Never

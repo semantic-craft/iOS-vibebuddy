@@ -437,6 +437,22 @@ public struct VibeBuddyServer: Sendable {
             )
         }
 
+        // Bounded recent dialogue for one session. Token-gated, read-only:
+        // fetching never acknowledges a completion or moves Session state.
+        let rolloutMonitor = self.codexRolloutMonitor
+        authed.get("recent-output") { request, _ -> Response in
+            guard let sessionID = request.uri.queryParameters["sessionId"].map(String.init),
+                  !sessionID.isEmpty else { throw HTTPError(.badRequest) }
+            let path = await rolloutMonitor?.rolloutPath(for: sessionID)
+            let output = await store.recentOutput(sessionID: sessionID, rolloutPath: path)
+            let data = try JSONEncoder().encode(output)
+            return Response(
+                status: .ok,
+                headers: [.contentType: "application/json"],
+                body: .init(byteBuffer: ByteBuffer(bytes: data))
+            )
+        }
+
         // Privacy-minimized local diagnostics. Token-gated because stable
         // session IDs remain local user metadata.
         authed.get("lifecycle") { _, _ -> Response in
