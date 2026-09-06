@@ -63,8 +63,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.mac
-        MARKETING_VERSION: "1.1"
-        CURRENT_PROJECT_VERSION: "3"
+        MARKETING_VERSION: "1.2"
+        CURRENT_PROJECT_VERSION: "5"
         SWIFT_VERSION: "6.0"
         # Build signs ad-hoc; tools/redeploy-mac.sh re-signs the built .app with a
         # stable local Apple Development identity so Keychain ACLs / TCC grants

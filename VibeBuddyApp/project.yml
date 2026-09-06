@@ -46,8 +46,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.app
-        MARKETING_VERSION: "1.1"
-        CURRENT_PROJECT_VERSION: "4"
+        MARKETING_VERSION: "1.2"
+        CURRENT_PROJECT_VERSION: "5"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"
         DEVELOPMENT_TEAM: LQAVR62TK2
@@ -81,8 +81,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.app.widget
-        MARKETING_VERSION: "1.1"
-        CURRENT_PROJECT_VERSION: "4"
+        MARKETING_VERSION: "1.2"
+        CURRENT_PROJECT_VERSION: "5"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"
         DEVELOPMENT_TEAM: LQAVR62TK2
@@ -111,8 +111,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.app.watchkitapp
         CODE_SIGN_ENTITLEMENTS: Watch/VibeBuddyWatch.entitlements
-        MARKETING_VERSION: "1.1"
-        CURRENT_PROJECT_VERSION: "4"
+        MARKETING_VERSION: "1.2"
+        CURRENT_PROJECT_VERSION: "5"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "4"
         DEVELOPMENT_TEAM: LQAVR62TK2
@@ -138,8 +138,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.app.watchkitapp.widget
-        MARKETING_VERSION: "1.1"
-        CURRENT_PROJECT_VERSION: "4"
+        MARKETING_VERSION: "1.2"
+        CURRENT_PROJECT_VERSION: "5"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "4"
         DEVELOPMENT_TEAM: LQAVR62TK2
