@@ -140,7 +140,7 @@ td.mono{white-space:nowrap}
 <header class="top">
   <div class="title">
     <h1>vibebuddy 1.2 路线图</h1>
-    <p>2026-09-06 12:01 · main ca3cde6（#52 #53 #54 #60 #61 已合，两天累计 30 个 PR）· <b>开发从此转交 Codex</b>：点 CODEX 节点复制接手提示词；本页正本在仓库 <code>docs/planning/roadmap-2026-09.html</code> · 开放 PR：第一波 #57 已合；#56 → #55 待修评审；#59 Companion 已合并；#62 手表表盘草稿（抢救自主工作区）· 1.2 = 可靠性 + 官方接口 + 手机 / 手表任务交互；1.3 = 陌生用户路径 + 图标 + UI + App Store</p>
+    <p>2026-09-06 12:10 · main 99f3a06（#52 #53 #54 #60 #61 已合，两天累计 30 个 PR）· <b>开发从此转交 Codex</b>：点 CODEX 节点复制接手提示词；本页正本在仓库 <code>docs/planning/roadmap-2026-09.html</code> · 开放 PR：第一波 #57、#56 已合；#55 修评审中；#59 Companion 已合并；#62 手表表盘草稿（抢救自主工作区）· 1.2 = 可靠性 + 官方接口 + 手机 / 手表任务交互；1.3 = 陌生用户路径 + 图标 + UI + App Store</p>
   </div>
   <div class="stats" id="stats"></div>
 </header>
@@ -355,7 +355,7 @@ td.mono{white-space:nowrap}
   <div class="tbl"><table id="tbl"><thead><tr><th>ID</th><th>工作包</th><th>内容</th><th>版本</th><th>状态</th><th>依赖</th><th>归属</th><th></th></tr></thead><tbody></tbody></table></div>
 </section>
 
-<p class="foot">数据来源：<code>docs/planning/vision-2026-09.md</code>、<code>.scratch/*/issues</code> 的 Status 行、<code>.scratch/mobile-watch-task-control/</code> PRD（11 张票）、<code>gh pr list</code>、各 worktree 的 <code>git status</code>、Claude Code 会话列表。状态以仓库文件为准，本页是 2026-09-06 12:01 的快照（main ca3cde6；开放 #55 #56 #62）。正本是仓库里的 <code>docs/planning/roadmap-2026-09.html</code>：改 <code>&lt;script&gt;</code> 里的 T / SESSIONS 数组与三处时间戳，再跑 <code>node tools/export-roadmap.js docs/planning/roadmap-2026-09.html docs/planning</code> 重新导出 JSON 与提示词文件，随 PR 一起提交。协调会话每次轮询都应先 git fetch 再核对。</p>
+<p class="foot">数据来源：<code>docs/planning/vision-2026-09.md</code>、<code>.scratch/*/issues</code> 的 Status 行、<code>.scratch/mobile-watch-task-control/</code> PRD（11 张票）、<code>gh pr list</code>、各 worktree 的 <code>git status</code>、Claude Code 会话列表。状态以仓库文件为准，本页是 2026-09-06 12:10 的快照（main 99f3a06；开放 #55 #62）。正本是仓库里的 <code>docs/planning/roadmap-2026-09.html</code>：改 <code>&lt;script&gt;</code> 里的 T / SESSIONS 数组与三处时间戳，再跑 <code>node tools/export-roadmap.js docs/planning/roadmap-2026-09.html docs/planning</code> 重新导出 JSON 与提示词文件，随 PR 一起提交。协调会话每次轮询都应先 git fetch 再核对。</p>
 
 <script>
 const VISION = {
@@ -417,7 +417,7 @@ const T = [
    spec:{goal:"设计会话八轮 grill 定下的 Companion 方向已经实现成 PR #59：Kit 共享主题与文案规则，Mac 仪表盘按三态分组、下拉以猫的心情句开头、Glance 保留灵动岛语法；iPhone 仪表盘改成消息流（审批与提问在气泡内作答，reply-to 编辑器按语义命名发送键）；Watch 卡片以「项目 wants to 动词」开头；灵动岛 Live Activity 直接 Approve / Deny。",scope:"审查 #59 的 25 个文件，合 main（第一波之后），处理 Codex 评审线程，合并；真机看一眼三端。",non:"不在本 PR 里改行为语义（M-02 / M-03 的语义票仍独立）；Mac 是基础设施，不再追加 Mac 视觉工作。",accept:"PR #59 合并；Codex 评审线程全部解决；Kit / MacCore / iOS 三套测试通过，三端构建通过。截图与残项归 G-6。",verify:"Kit / MacCore / iOS 测试；三端构建；已部署到 Mac 与 Hermes 试用。",skills:"code-review、resolving-merge-conflicts"},
    body:"这是设计会话的收尾：PR #59 已开（UNSTABLE，等 CI 与 Codex 评审）。顺序：等 #57 → #56 → #55 合完后，在分支上 git merge origin/main（会与 #56 的 iPhone QuestionCardView / ApprovalCardView、#55 的 Mac 设置页相碰，以 main 的行为为准、#59 的外观为准），跑三套测试与三端构建，处理评审线程，合并。合并后 G-6 只剩截图与验收。"},
 
-  {id:"A-05",lane:"A",kind:"running",ver:"1.2",title:"PR #56 待评审合并：Time Sensitive + 可操作横幅",path:".scratch/notification-categories/issues/05-time-sensitive-and-actionable-banners.md",q:["Q18","Q23","Q4"],deps:[],
+  {id:"A-05",lane:"A",kind:"done",ver:"1.2",title:"已合并 #56：Time Sensitive + 可操作横幅",path:".scratch/notification-categories/issues/05-time-sensitive-and-actionable-banners.md",q:["Q18","Q23","Q4"],deps:[],
    spec:{goal:"审批横幅 Approve（需解锁）/ Deny，提问横幅文本作答；审批与提问 Time Sensitive；Mac 横幅同样；APNs 带 category。",scope:"Kit 类别 id、iOS UNNotificationCategory 与 didReceive、Mac 类别与 action、APNs payload、entitlement、Demo 样本。",non:"Always allow 不上横幅；Watch 不写代码（镜像自动继承）。",accept:"票 05 全部勾选；Demo 模式横幅带按钮；payload 测试覆盖 category 与 interruption-level。",verify:"Kit / MacCore 测试；iOS 与 Mac 构建。",skills:"implement、tdd、code-review"},
    body:"实现票 05。Kit：共享通知类别 id（approval、question）与 action id；SoundAlert 暴露 isTimeSensitive（bannerSound × approval/question × 非 muted）。iPhone：启动注册 UNNotificationCategory，approval = Approve（.authenticationRequired）+ Deny（.destructive），question = UNTextInputNotificationAction；Notifier.post 设 categoryIdentifier、interruptionLevel、userInfo（sessionId、approval id）；AppDelegate.didReceive 处理三个 action，经 DecisionClient.decide / .answer，404/409 时改为打开会话。Mac：同样注册类别，action 走进程内 decide / answer。APNs：payload 加 category、interruption-level、approval id，补测试。xcodegen 加 time-sensitive entitlement 并记入 docs/app-store-submission-checklist.md。Demo 样本横幅带按钮。"},
   {id:"A-06",lane:"A",kind:"done",ver:"1.2",title:"已合并 #57：quota 第七类",path:".scratch/notification-categories/issues/06-quota-category.md",q:["Q24"],deps:[],
@@ -573,8 +573,8 @@ const SESSIONS = [
   ["长条折叠方案（#32）","已合并","菜单栏列表分层","无","—"],
   ["macOS 手表图表与 iOS 图标重设计（#30）","已合并","白色小猫图标","无","—"],
   ["开发计划完成情况确认（#36）","已合并","竞品调研","无","—"],
-  ["协调会话（coord-log）","已交接 Codex 总控（11:37）","Codex 已 fetch 核对；#57 合并 ca3cde6；A-05 子代理自 12:00 在 codex/a-05-review 修复，统一验证由总控执行；M-02 有 cursor-grok 执行登记，暂不重复派","每轮先 fetch；第一波串行 #57 → #56 → #55，再整合 #62","COORD"],
-  ["A-05 / A-06 / A-08 执行会话","Codex：#57 已合；#56 修六条评审与五处冲突；#55 排队","#56（6 条，已冲突）#57（3 条）#55（4 条），各自测试通过","Codex 接手：#57 已合，接着 #56 → #55；iOS 测试用已通过的 iOS 26.2 模拟器","A-05 A-06 A-08"],
+  ["协调会话（coord-log）","已交接 Codex 总控（11:37）","Codex 已 fetch 核对；#57 ca3cde6、#56 99f3a06 已合；A-08 子代理自 12:09 在 codex/a-08-review 修复，统一构建由总控执行；M-02 有 cursor-grok 执行登记，暂不重复派","每轮先 fetch；第一波串行 #57 → #56 → #55，再整合 #62","COORD"],
+  ["A-05 / A-06 / A-08 执行会话","Codex：#57、#56 已合；#55 自 12:09 修四条评审并验证","#56（6 条，已冲突）#57（3 条）#55（4 条），各自测试通过","Codex 接手：#57 已合，接着 #56 → #55；iOS 测试用已通过的 iOS 26.2 模拟器","A-05 A-06 A-08"],
   ["A-11 ADR","已合并 #53 + #61","docs/adr/0013：三条路对比；token 视为不透明；路 A 写明 /device 明文注册把 token 与 bearer 一起暴露给 LAN 观察者","DEC-APNS 读 0013 拍板","A-11 → DEC-APNS"],
   ["Claude Code 收尾会话（本页作者）","收尾中","合了 #52 #53 #54 #60 #61；开了 #62；把路线图正本、导出脚本、Codex 接手提示词提交进仓库","转交后不再派工；剩余 Claude 会话只完成各自 PR","CODEX"],
   ["去重 S-2（Claude）","已合并 #54","手机回执 /notified + PushCoverage 等回执 ≤3 s；ADR-0012 占号","三场景真机验收并入 A-03","S-2 → A-03"],
@@ -697,7 +697,7 @@ async function copyText(text, toast, ta){
   setTimeout(()=>{ if(toast) toast.textContent=""; },2500);
 }
 document.getElementById("copyjson").addEventListener("click",()=>{
-  const data = { generatedAt:"2026-09-06T12:01+08:00", main:"ca3cde6", lanes: LANES.map(l=>({id:l[0],name:l[1]})),
+  const data = { generatedAt:"2026-09-06T12:10+08:00", main:"99f3a06", lanes: LANES.map(l=>({id:l[0],name:l[1]})),
     nodes: T.filter(t=>!["COORD","CODEX","REVIEW"].includes(t.id)).map(t=>({id:t.id,lane:t.lane,title:t.title,version:t.ver,owner:t.kind==="you"?"U":"A",status:(statusOf(t)==="running" ? (/^退回修改/.test(t.title) ? "changes-requested" : /#\d+/.test(t.title) ? "pr-open" : "in-progress") : statusOf(t)),deps:t.deps,ticket:t.path,vision:t.q,spec:t.spec,prompt:promptFor(t)})) };
   copyText(JSON.stringify(data,null,1), document.getElementById("jsontoast"), null);
 });
