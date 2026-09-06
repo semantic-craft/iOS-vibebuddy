@@ -546,7 +546,7 @@ const T = [
   {id:"H-1",lane:"H",kind:"you",ver:"1.2",title:"四家验收矩阵",path:".scratch/qa-shots/<agent>/",q:["Q27","Q5"],deps:["A-03","B-U","M-11"],
    spec:{goal:"每家一份真机清单：三态各一次、手机批准一次、手表批准一次、App 被杀后 APNs 送达一次。",scope:"Claude、Codex（含 Desktop）、Grok；Cursor 在 1.3。",non:"—",accept:"截图与结果存目录。",verify:"真机。",skills:"—"},
    body:"三家（Cursor 留 1.3）各一份真机清单，截图存 .scratch/qa-shots/<agent>/。"},
-  {id:"H-2",lane:"H",kind:"you",ver:"1.2",title:"半小时零漏接",path:".scratch/release-1.2/issues/02-half-hour-acceptance.md",q:["Q4","Q28"],deps:["S-6","B-3","A-10","OH-3"],
+  {id:"H-2",lane:"H",kind:"you",deferred:true,ver:"1.2",title:"等待新候选锁定：半小时零漏接",path:".scratch/release-1.2/issues/02-half-hour-acceptance.md",q:["Q4","Q28"],deps:["S-6","B-3","A-10","OH-3"],
    spec:{goal:"冻结候选连续半小时无新增漏接；修复后重新计时。",scope:"以获准安装的冻结候选执行半小时体验，记录起止时间与漏接增量。",non:"—",accept:"验收窗口内新增漏接为 0；任何一次漏接开票修复后重计半小时。",verify:"Mac 设置页。",skills:"—"},
    body:"按 release-1.2 票02，在具体设备操作获准后使用冻结候选执行连续半小时真实体验。记录成品身份、起止时间、漏接增量和非预期重复；失败修复后锁定新候选并重新计时，不自动安装或替换运行中的 App。"},
   {id:"H-3",lane:"H",kind:"you",ver:"1.2",title:"1.2 候选打包与发布（Mac + 自装 iPhone / Watch）",path:".scratch/release-1.2/issues/03-publish-and-update.md",q:["Q28"],deps:["H-2"],
