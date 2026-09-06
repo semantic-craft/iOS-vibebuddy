@@ -17,17 +17,20 @@ final class ConnectionStore: ObservableObject {
     init() {
         if ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1" {
             demo = true
+        } else if let fromEnvironment = Self.environmentPairing() {
+            pairing = fromEnvironment
+            Self.observePairing(fromEnvironment)
         } else if let data = defaults.data(forKey: key),
            let saved = try? JSONDecoder().decode(PairingPayload.self, from: data) {
             pairing = saved
-        } else {
-            pairing = Self.environmentPairing()
-            if let pairing { Self.observePairing(pairing) }
+            Self.observePairing(saved)
         }
     }
 
-    /// Optional config via env (VIBEBUDDY_HOST/PORT/TOKEN) — handy for the
-    /// Simulator and power users; ignored when a saved pairing exists.
+    /// Optional config via env (VIBEBUDDY_HOST/PORT/TOKEN) — for the Simulator,
+    /// and for pointing a device build at a second Mac instance from
+    /// `devicectl` during acceptance. It wins over the saved pairing for that
+    /// launch only and is never saved; only a developer tool can set it.
     static func environmentPairing() -> PairingPayload? {
         let env = ProcessInfo.processInfo.environment
         guard let host = env["VIBEBUDDY_HOST"],

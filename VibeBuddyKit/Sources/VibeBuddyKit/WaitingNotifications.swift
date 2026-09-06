@@ -25,6 +25,11 @@ public enum NotificationIdentity {
         while session.utf8.count > room { session.removeFirst() }
         return session + suffix
     }
+
+    /// The cue an identifier names, read back from its suffix.
+    public static func sound(of identifier: String) -> NotificationSound? {
+        NotificationSound.allCases.first { identifier.hasSuffix("-\($0.rawValue)") }
+    }
 }
 
 extension SoundAlert {

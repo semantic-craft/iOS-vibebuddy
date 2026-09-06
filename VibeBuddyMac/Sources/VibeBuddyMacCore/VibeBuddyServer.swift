@@ -13,6 +13,10 @@ public struct VibeBuddyServer: Sendable {
     public let host: String
     public let port: Int
     public let pusher: APNsPusher?
+    /// Where phones report the cues they posted themselves (`POST /notified`),
+    /// so the push for the same cue can stand down (ADR-0012). Shared with the
+    /// pusher, which is what consults it.
+    public let phoneReceipts: PhoneReceipts
     private let deliveryRecorder: (any NotificationDeliveryRecording)?
     public let deviceTokens: DeviceTokens
     /// Live Activity push tokens registered by phones (dynamic-island/02).
@@ -70,6 +74,7 @@ public struct VibeBuddyServer: Sendable {
 
     public init(store: SessionStore, token: String, host: String = "0.0.0.0",
                 port: Int = 9876, pusher: APNsPusher? = nil,
+                phoneReceipts: PhoneReceipts = PhoneReceipts(),
                 deliveryRecorder: (any NotificationDeliveryRecording)? = nil,
                 deviceTokens: DeviceTokens = DeviceTokens(),
                 activityTokens: ActivityTokens = ActivityTokens(),
@@ -101,6 +106,7 @@ public struct VibeBuddyServer: Sendable {
         self.host = host
         self.port = port
         self.pusher = pusher
+        self.phoneReceipts = phoneReceipts
         self.deliveryRecorder = deliveryRecorder
         self.deviceTokens = deviceTokens
         self.activityTokens = activityTokens
@@ -244,15 +250,24 @@ public struct VibeBuddyServer: Sendable {
                         }
                         return
                     }
-                    for recipient in fanout.recipients {
-                        guard let deviceToken = recipient.device.token else { continue }
-                        let soundFile = recipient.level.makesSound && recipient.device.playSound != false
-                            ? sound.fileName : ""
-                        let result = await pusher.send(title: copy.title, body: copy.body, to: deviceToken,
-                                                       sound: soundFile,
-                                                       sessionID: session.id, soundCategory: sound.rawValue,
-                                                       localized: PushLocalization(copy))
-                        await deviceTokens.applySendResult(result, token: deviceToken)
+                    // A phone with a live stream may be posting this cue itself
+                    // right now: hold each push briefly for its receipt
+                    // (ADR-0012). The devices wait side by side, not in turn.
+                    let hold = await store.subscriberCount > 0
+                    await withTaskGroup(of: Void.self) { group in
+                        for recipient in fanout.recipients {
+                            guard let deviceToken = recipient.device.token else { continue }
+                            let soundFile = recipient.level.makesSound && recipient.device.playSound != false
+                                ? sound.fileName : ""
+                            group.addTask {
+                                let result = await pusher.send(title: copy.title, body: copy.body, to: deviceToken,
+                                                               sound: soundFile,
+                                                               sessionID: session.id, soundCategory: sound.rawValue,
+                                                               localized: PushLocalization(copy),
+                                                               waitSince: session.statusSince, holdForPhone: hold)
+                                await deviceTokens.applySendResult(result, token: deviceToken)
+                            }
+                        }
                     }
                 }
             }
@@ -367,6 +382,18 @@ public struct VibeBuddyServer: Sendable {
                 await deviceTokens.add(body)
                 onDevicePaired(DeviceRegistrationPayload(token: body))
             }
+            return .ok
+        }
+
+        // A phone says what it did about some cues itself: posted them, or left
+        // them to a push that had already landed. Token-gated. The pusher
+        // consults this before every push (ADR-0012).
+        let phoneReceipts = self.phoneReceipts
+        authed.post("notified") { request, _ -> HTTPResponse.Status in
+            let buffer = try await request.body.collect(upTo: 1 << 16)
+            guard let payload = try? JSONDecoder().decode(NotifiedPayload.self, from: Data(buffer: buffer)),
+                  !payload.token.isEmpty else { throw HTTPError(.badRequest) }
+            await phoneReceipts.record(payload)
             return .ok
         }
 

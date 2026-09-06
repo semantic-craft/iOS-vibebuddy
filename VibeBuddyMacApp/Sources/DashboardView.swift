@@ -2,11 +2,13 @@ import SwiftUI
 import VibeBuddyKit
 import VibeBuddyMacCore
 
+/// The dashboard window, Companion style (docs/design/mac-companion-redesign.md):
+/// a top bar with the cat and its speech bubble, sessions grouped by state
+/// (Needs you / Working / Done) and one detail card on the right.
 struct DashboardView: View {
     @ObservedObject var model: MenuBarModel
     @Environment(\.openSettings) private var openSettings
     @State private var statusFilter: TaskPresentationState? = nil
-    @State private var agentFilter: AgentKind? = nil
     @State private var query: String = ""
     @State private var showNewTask = false
     // Demo instance pre-selects the approval session so the detail pane (diff +
@@ -17,7 +19,7 @@ struct DashboardView: View {
     @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
 
     private var filtered: [AgentSession] {
-        SessionFilter.apply(model.sessions, status: nil, agent: agentFilter, query: query)
+        SessionFilter.apply(model.sessions, status: nil, agent: nil, query: query)
             .filter { statusFilter == nil || $0.presentationState == statusFilter }
             .sorted {
                 $0.presentationState.attentionRank != $1.presentationState.attentionRank
@@ -25,47 +27,18 @@ struct DashboardView: View {
                     : $0.updatedAt > $1.updatedAt
             }
     }
+    private var groups: StateGroups { StateGroups(filtered) }
     private var selectedSession: AgentSession? { model.sessions.first { $0.id == selection } }
 
     var body: some View {
-        NavigationSplitView {
-            sidebar
-        } content: {
-            List(filtered, selection: $selection) { s in
-                SessionRowView(session: s,
-                               isSelected: selection == s.id,
-                               included: model.buddySessionIDs.contains(s.id),
-                               showInclude: companionEnabled,
-                               onToggleInclude: { model.toggleBuddy(s.id) })
-                    .tag(s.id)
-                    .contextMenu {
-                        AttentionPicker(session: s, model: model, style: .menu)
-                    }
-            }
-            .searchable(text: $query, prompt: "Search sessions")
-            .searchFocusedCompat($searchFocused)
-            .navigationTitle("vibebuddy")
-            .overlay {
-                if filtered.isEmpty {
-                    ContentUnavailableView(
-                        model.sessions.isEmpty ? "No sessions reporting" : "No matching sessions",
-                        systemImage: "waveform.path.ecg",
-                        description: Text(model.sessions.isEmpty
-                            ? "Start a Claude Code or Codex turn. If nothing appears, repair hooks in Settings."
-                            : "Clear a filter or try another search.")
-                    )
-                }
-            }
-            .safeAreaInset(edge: .top, spacing: 0) {
-                MacBuddyBar(model: model, voice: model.voiceChat)
-            }
-        } detail: {
-            if let s = selectedSession {
-                DetailView(session: s, model: model)
-            } else {
-                ContentUnavailableView("Select a session", systemImage: "sidebar.right")
+        VStack(spacing: 0) {
+            MacBuddyBar(model: model, voice: model.voiceChat, query: $query, searchFocused: $searchFocused)
+            HStack(alignment: .top, spacing: 0) {
+                groupsColumn
+                detailColumn
             }
         }
+        .background(MacTheme.bg)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button { showNewTask = true } label: { Image(systemName: "plus.bubble") }
@@ -88,10 +61,8 @@ struct DashboardView: View {
                 Button("") { statusFilter = nil }.keyboardShortcut("0", modifiers: .command)
                 // ⌘F focuses the sessions search field.
                 Button("") { searchFocused = true }.keyboardShortcut("f", modifiers: .command)
-                // ⏎ jumps to the selected session's terminal. Sessions without a
-                // terminalRef are not excluded — they answer with "No terminal
-                // recorded" in the detail pane. Ignored while typing in search so
-                // it doesn't shadow the field's own Return.
+                // ⏎ jumps to the selected session's terminal. Ignored while typing in
+                // search so it doesn't shadow the field's own Return.
                 Button("") { if !searchFocused, let s = selectedSession { model.jump(s) } }
                     .keyboardShortcut(.return, modifiers: [])
             }
@@ -104,96 +75,111 @@ struct DashboardView: View {
         .onDisappear { AppActivationPolicy.leave() }
     }
 
-    private var sidebar: some View {
-        List {
-            Section("Status") {
-                allSessionsItem
-                statusItem(.error)
-                statusItem(.requiresInput)
-                statusItem(.thinking)
-                statusItem(.completeUnread)
-                statusItem(.idle)
-            }
-            Section("Agent") {
-                ForEach(SessionFilter.presentAgents(model.sessions), id: \.self) { a in
-                    Button {
-                        agentFilter = (agentFilter == a) ? nil : a
-                    } label: {
-                        HStack {
-                            Text(a.displayName)
-                            Spacer()
-                            if agentFilter == a { Image(systemName: "checkmark") }
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            ForEach(AccountUsageProvider.allCases, id: \.self) { provider in
-                if model.isUsageCollectionEnabled(provider) {
-                    Section("\(provider.displayName) Usage") {
-                        AccountUsageSummaryView(
-                            provider: provider,
-                            state: model.usageState(for: provider),
-                            compact: true
-                        )
+    private var groupsColumn: some View {
+        ScrollView {
+            VStack(spacing: 12) {
+                if filtered.isEmpty {
+                    ContentUnavailableView(
+                        model.sessions.isEmpty ? "No sessions reporting" : "No matching sessions",
+                        systemImage: "waveform.path.ecg",
+                        description: Text(model.sessions.isEmpty
+                            ? "Start a Claude Code or Codex turn. If nothing appears, repair hooks in Settings."
+                            : "Clear a filter or try another search."))
+                        .padding(.top, 60)
+                } else {
+                    ForEach(groups.buckets) { group in
+                        StateGroupPanel(title: group.title, sessions: group.sessions, warm: group.warm,
+                                        selection: $selection, model: model,
+                                        showInclude: companionEnabled)
                     }
                 }
             }
+            .padding(.horizontal, 20).padding(.top, 4).padding(.bottom, 16)
         }
+        .frame(maxWidth: .infinity)
     }
 
-    private var allSessionsItem: some View {
-        Button { statusFilter = nil } label: {
-            HStack {
-                Image(systemName: "rectangle.stack")
-                    .frame(width: 9)
-                    .foregroundStyle(.secondary)
-                Text("All Sessions")
-                Spacer()
-                if statusFilter == nil { Image(systemName: "checkmark").font(.caption) }
-                Text("\(model.sessions.count)").foregroundStyle(.secondary).monospacedDigit()
+    private var detailColumn: some View {
+        ScrollView {
+            VStack(spacing: 12) {
+                Group {
+                    if let s = selectedSession {
+                        DetailCard(session: s, model: model)
+                    } else {
+                        ContentUnavailableView("Select a session", systemImage: "sidebar.right")
+                            .frame(maxWidth: .infinity, minHeight: 200)
+                    }
+                }
+                .companionCard(radius: MacTheme.panelRadius)
+                usageCard
             }
-            .contentShape(Rectangle())
+            .padding(.trailing, 20).padding(.top, 4).padding(.bottom, 16)
         }
-        .buttonStyle(.plain)
+        .frame(width: 380)
     }
 
-    private func statusItem(_ status: TaskPresentationState) -> some View {
-        let count = model.sessions.filter { $0.presentationState == status }.count
-        let selected = statusFilter == status
-        return Button {
-            statusFilter = selected ? nil : status   // click again to clear the filter
-        } label: {
-            HStack {
-                TaskStatusIndicator(status, size: 9)
-                Image(systemName: status.symbolName).font(.caption)
-                Text(status.label)
-                Spacer()
-                if selected { Image(systemName: "checkmark").font(.caption) }
-                Text("\(count)").foregroundStyle(.secondary).monospacedDigit()
+    @ViewBuilder private var usageCard: some View {
+        let providers = AccountUsageProvider.allCases.filter { model.isUsageCollectionEnabled($0) }
+        if !providers.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(providers, id: \.self) { provider in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("\(provider.displayName) usage").font(MacTheme.font(11, .heavy))
+                            .foregroundStyle(MacTheme.ink3).textCase(.uppercase).kerning(0.6)
+                        AccountUsageSummaryView(provider: provider, state: model.usageState(for: provider), compact: true)
+                    }
+                }
             }
-            .contentShape(Rectangle())   // whole row is clickable, not just the text
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-private extension View {
-    /// `.searchFocused` is macOS 15+; on 14 we degrade gracefully (⌘F no-ops).
-    @ViewBuilder
-    func searchFocusedCompat(_ binding: FocusState<Bool>.Binding) -> some View {
-        if #available(macOS 15.0, *) {
-            searchFocused(binding)
-        } else {
-            self
+            .font(MacTheme.font(12))
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .companionCard(radius: MacTheme.panelRadius)
         }
     }
 }
 
-/// The buddy header on the Mac dashboard: tap the face to talk to it.
+/// One state bucket: a soft panel with a title row and summary-first rows.
+private struct StateGroupPanel: View {
+    let title: String
+    let sessions: [AgentSession]
+    let warm: Bool
+    @Binding var selection: String?
+    @ObservedObject var model: MenuBarModel
+    let showInclude: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text(title).font(MacTheme.font(14, .black)).foregroundStyle(MacTheme.ink)
+                Text("\(sessions.count)").font(MacTheme.font(12, .heavy)).foregroundStyle(MacTheme.ink2)
+                    .monospacedDigit()
+                Spacer()
+            }
+            .padding(.horizontal, 6).padding(.top, 2)
+            ForEach(sessions) { s in
+                SummaryRow(session: s, isSelected: selection == s.id,
+                           included: model.buddySessionIDs.contains(s.id), showInclude: showInclude,
+                           onToggleInclude: { model.toggleBuddy(s.id) })
+                    .onTapGesture { selection = s.id }
+                    .contextMenu { AttentionPicker(session: s, model: model, style: .menu) }
+            }
+        }
+        .padding(12)
+        .background(ground, in: RoundedRectangle(cornerRadius: MacTheme.panelRadius, style: .continuous))
+    }
+
+    private var ground: some ShapeStyle {
+        warm ? AnyShapeStyle(MacTheme.status(.requiresInput).opacity(0.10).blendMode(.normal))
+             : AnyShapeStyle(MacTheme.bg2)
+    }
+}
+
+/// The buddy header: cat + speech bubble on the left, search on the right.
 private struct MacBuddyBar: View {
     @ObservedObject var model: MenuBarModel
     @ObservedObject var voice: VoiceChat
+    @Binding var query: String
+    var searchFocused: FocusState<Bool>.Binding
     @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
     @State private var greet = 0
 
@@ -214,45 +200,314 @@ private struct MacBuddyBar: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            PetFace(state: model.buddyState, voice: .init(voice.phase), greet: greet)
+            PetFace(state: model.buddyState, voice: .init(voice.phase), greet: greet, bare: true, scale: 0.9)
                 .onTapGesture { greet += 1; voice.toggle() }
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 6) {
-                    if !companionEnabled {
-                        Image(systemName: "mic.slash").font(.caption).foregroundStyle(.secondary)
+            SpeechBubble {
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 6) {
+                        if !companionEnabled {
+                            Image(systemName: "mic.slash").font(.caption).foregroundStyle(MacTheme.ink2)
+                        }
+                        Text(headline).font(MacTheme.font(13, .heavy)).foregroundStyle(MacTheme.ink)
+                        if companionEnabled {
+                            Text((voice.activeProvider ?? VoiceSettings.provider).display)
+                                .font(MacTheme.font(10, .heavy))
+                                .foregroundStyle(MacTheme.ink2)
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(MacTheme.bg2, in: Capsule())
+                        }
                     }
-                    Text(headline).font(.headline)
-                    if companionEnabled {
-                        Text((voice.activeProvider ?? VoiceSettings.provider).display)
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 6).padding(.vertical, 1)
-                            .background(.quaternary, in: Capsule())
+                    if let err = voice.errorText {
+                        Text(err).font(MacTheme.font(11)).foregroundStyle(MacTheme.status(.error)).lineLimit(2)
+                    } else if !voice.lastReply.isEmpty {
+                        Text(voice.lastReply).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2).lineLimit(2)
+                    } else if !voice.lastUserText.isEmpty {
+                        Text(voice.lastUserText).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2).lineLimit(1)
+                    } else {
+                        Text(companionEnabled ? scopeLine : "Enable it in Settings › Voice, or tap the cat.")
+                            .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink2)
                     }
-                }
-                if let err = voice.errorText {
-                    Text(err).font(.caption).foregroundStyle(.red).lineLimit(2)
-                } else if !voice.lastReply.isEmpty {
-                    Text(voice.lastReply).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                } else if !voice.lastUserText.isEmpty {
-                    Text(voice.lastUserText).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                }
-                if companionEnabled {
-                    Text(scopeLine).font(.caption2).foregroundStyle(.tertiary)
                 }
             }
-            Spacer(minLength: 0)
+            Spacer(minLength: 12)
+            SearchPill(query: $query, focused: searchFocused)
         }
-        .padding(.horizontal, 16).padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.bar)
+        .padding(.horizontal, 20).padding(.top, 6).padding(.bottom, 12)
         .sheet(isPresented: $voice.showConsent) { VoiceConsentSheet(voice: voice) }
     }
 }
 
-/// Inline consent before the voice companion's first use: you tapped to talk, so
-/// the ask is here, not buried in Settings. Enabling persists; it does not open
-/// the mic — the next tap starts the call.
+private struct SearchPill: View {
+    @Binding var query: String
+    var focused: FocusState<Bool>.Binding
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass").font(.system(size: 11, weight: .bold)).foregroundStyle(MacTheme.ink3)
+            TextField("Search sessions", text: $query)
+                .textFieldStyle(.plain)
+                .font(MacTheme.font(12, .semibold))
+                .focused(focused)
+            if query.isEmpty {
+                Text("⌘F").font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink3)
+            } else {
+                Button { query = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(MacTheme.ink3) }
+                    .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 12).frame(width: 220, height: 30)
+        .companionCard(radius: 15)
+    }
+}
+
+/// Summary-first row (round 3): the agent's last summary is the main line,
+/// the project is the eyebrow, the activity sits in small caps underneath.
+private struct SummaryRow: View {
+    let session: AgentSession
+    var isSelected = false
+    var included = false           // in the buddy's scoped context
+    var showInclude = false        // only when the voice companion is on
+    var onToggleInclude: () -> Void = {}
+
+    private var state: TaskPresentationState { session.presentationState }
+    private var mainLine: String {
+        if let s = session.summary, !s.isEmpty { return s }
+        return ToolActivity.label(for: session)
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            StateGlyph(state: state)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(session.displayTitle).font(MacTheme.font(12, .bold)).foregroundStyle(MacTheme.ink2)
+                    if session.name != nil {
+                        Text(session.project).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink3)
+                    }
+                    AgentBadge(agent: session.agent)
+                    if let branch = session.branch {
+                        Text(branch).font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink3).lineLimit(1)
+                    }
+                    if session.isStuck {
+                        Label("Stuck", systemImage: "exclamationmark.triangle.fill")
+                            .font(MacTheme.font(10, .heavy)).foregroundStyle(MacTheme.status(.error))
+                    }
+                    if let glyph = session.effectiveAttention.rowGlyph {
+                        Image(systemName: glyph).font(.caption2).foregroundStyle(MacTheme.ink3)
+                            .help(session.effectiveAttention.title)
+                    }
+                    Spacer(minLength: 4)
+                    Text(session.updatedAt, style: .relative)
+                        .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink3).monospacedDigit()
+                    if showInclude {
+                        Button(action: onToggleInclude) {
+                            Image(systemName: included ? "waveform.circle.fill" : "waveform.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(included ? MacTheme.accent : MacTheme.ink3)
+                        .help(included ? "In the buddy's context" : "Add to the buddy's context")
+                    }
+                }
+                Text(mainLine)
+                    .font(MacTheme.font(14, .heavy)).foregroundStyle(MacTheme.ink)
+                    .lineLimit(1).truncationMode(.tail)
+                HStack(spacing: 6) {
+                    Text(ToolActivity.label(for: session))
+                        .font(MacTheme.font(10, .heavy)).textCase(.uppercase).kerning(0.6)
+                        .foregroundStyle(MacTheme.status(state))
+                    if let cost = session.estimatedCostUSD {
+                        Text("\(session.costUSD == nil ? "≈ " : "")$\(cost, specifier: "%.2f")").font(MacTheme.font(10, .semibold))
+                            .foregroundStyle(MacTheme.ink3).monospacedDigit()
+                    }
+                    if let effort = session.effort {
+                        Text("effort \(effort)").font(MacTheme.font(10, .semibold)).foregroundStyle(MacTheme.ink3)
+                    }
+                    if let pr = session.prNumber {
+                        Text("PR #\(pr)").font(MacTheme.font(10, .heavy)).foregroundStyle(MacTheme.ink2).monospacedDigit()
+                    }
+                    if let worktree = session.worktree {
+                        Text(worktree).font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink3).lineLimit(1)
+                    }
+                    if let observation = session.observationDescription {
+                        Text(observation).font(MacTheme.font(10, .semibold)).foregroundStyle(MacTheme.ink3)
+                    }
+                }
+                .lineLimit(1)
+                if let child = ToolActivity.childSummary(for: session) {
+                    Text(child).font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink2)
+                        .monospacedDigit().lineLimit(1)
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .companionCard()
+        .overlay {
+            if isSelected {
+                RoundedRectangle(cornerRadius: MacTheme.cardRadius, style: .continuous)
+                    .strokeBorder(MacTheme.accent, lineWidth: 2)
+            }
+        }
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+/// The detail card: a request card while an approval is pending, otherwise the
+/// session's summary and its controls.
+private struct DetailCard: View {
+    let session: AgentSession
+    @ObservedObject var model: MenuBarModel
+    @State private var showTranscript = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(session.displayTitle).font(MacTheme.font(26, .black)).foregroundStyle(MacTheme.ink)
+                .lineLimit(1).minimumScaleFactor(0.7)
+            if session.name != nil {
+                Text(session.project).font(MacTheme.font(12, .bold)).foregroundStyle(MacTheme.ink3)
+            }
+            HStack(spacing: 6) {
+                Image(systemName: session.presentationState.symbolName).font(.system(size: 10, weight: .bold))
+                Text(session.presentationState.label)
+            }
+            .font(MacTheme.font(12, .heavy))
+            .foregroundStyle(MacTheme.status(session.presentationState))
+            .padding(.horizontal, 12).padding(.vertical, 4)
+            .background(MacTheme.status(session.presentationState).opacity(0.14), in: Capsule())
+
+            if let approval = session.pendingApproval {
+                RequestCard(session: session, approval: approval, model: model)
+            } else {
+                if let question = session.pendingQuestion {
+                    if question.isAnswerable {
+                        QuestionCardView(question: question) { answers in
+                            model.answer(session.id, answers: answers)
+                        }
+                    } else {
+                        Text(question.prompt).font(MacTheme.font(14, .heavy)).foregroundStyle(MacTheme.ink)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Label("You're at the Mac — answer this in the agent's own prompt.", systemImage: "keyboard")
+                            .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink2)
+                    }
+                } else if let s = session.summary, !s.isEmpty {
+                    Text(s).font(MacTheme.font(14, .semibold)).foregroundStyle(MacTheme.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if session.agent == .codex {
+                    // Free text for a Codex thread: joins the running turn or
+                    // opens a new one, through the app-server daemon.
+                    InstructionComposer(placeholder: session.status == .done
+                                        ? "Start a new turn…" : "Add to the current turn…") { text in
+                        model.answer(session.id, answers: [:], text: text)
+                    }
+                }
+                if let feedback = model.answerFeedback[session.id] {
+                    Label(feedback, systemImage: "exclamationmark.bubble")
+                        .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink2)
+                }
+                HStack(spacing: 8) {
+                    Button(session.jumpsToDesktopThread ? "Open thread in ChatGPT" : "Jump to terminal") { model.jump(session) }
+                        .buttonStyle(PillButtonStyle(kind: .filled(MacTheme.accent)))
+                    Button { showTranscript = true } label: { Label("Recent output", systemImage: "text.alignleft") }
+                        .buttonStyle(PillButtonStyle(kind: .soft))
+                }
+            }
+            // What the last jump actually achieved — focused the pane, only
+            // raised the app, or found nothing to raise. Same wording as the
+            // glance rows.
+            if let outcome = model.jumpFeedback[session.id] {
+                Label(outcome.macMessage(for: session), systemImage: "arrow.uturn.forward")
+                    .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink2)
+                    .contentTransition(.opacity)
+            }
+            if session.pendingApproval != nil {
+                Button { showTranscript = true } label: { Label("Recent output", systemImage: "text.alignleft") }
+                    .buttonStyle(PillButtonStyle(kind: .soft, size: .small))
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Notifications").font(MacTheme.font(11, .heavy)).foregroundStyle(MacTheme.ink3)
+                    .textCase(.uppercase).kerning(0.6)
+                AttentionPicker(session: session, model: model, style: .segmented)
+                Text(session.attentionOverride == nil
+                     ? "Automatic: \(session.effectiveAttention.title.lowercased()) — followed while you're driving it, normal otherwise."
+                     : session.effectiveAttention.explanation)
+                    .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 6) {
+                if let m = session.model { Label(m, systemImage: "cpu") }
+                if let observation = session.observationDescription {
+                    Text("·"); Text(observation)
+                }
+            }
+            .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink3)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .animation(.smooth(duration: 0.18), value: model.jumpFeedback)
+        .sheet(isPresented: $showTranscript) {
+            TranscriptSheet(session: session, model: model)
+        }
+    }
+}
+
+/// Round 4, detail pane: the request as a card you can judge before answering —
+/// who asks, what for, the diff or command, then Approve ▾ / Deny / Jump.
+private struct RequestCard: View {
+    let session: AgentSession
+    let approval: PendingApproval
+    @ObservedObject var model: MenuBarModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                AgentAvatar(agent: session.agent)
+                VStack(alignment: .leading, spacing: 1) {
+                    (Text(session.project).fontWeight(.black) + Text(" wants to \(MacSummaryCopy.requestVerb(approval))"))
+                        .font(MacTheme.font(13, .semibold)).foregroundStyle(MacTheme.ink)
+                    Text([approval.tool, session.summary].compactMap { $0 }.joined(separator: " · "))
+                        .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink3).lineLimit(1)
+                }
+            }
+            ApprovalBody(approval: approval)
+            if !approval.isAnswerable {
+                // Presence: the agent's own prompt is taking this one.
+                Label("You're at the Mac — answer this in the agent's own prompt.", systemImage: "keyboard")
+                    .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink2)
+                Button(session.jumpsToDesktopThread ? "Open thread" : "Jump ⏎") { model.jump(session) }
+                    .buttonStyle(PillButtonStyle(kind: .filled(MacTheme.accent)))
+            } else {
+            HStack(spacing: 8) {
+                SplitApproveButton(
+                    approve: { model.decide(approval.id, .allow) },
+                    always: { model.decide(approval.id, .alwaysAllow) },
+                    session: { model.decide(approval.id, .allowSession) })
+                    .background { Button("") { model.decide(approval.id, .allow) }.keyboardShortcut("a", modifiers: []).opacity(0) }
+                Button("Deny") { model.decide(approval.id, .deny) }
+                    .buttonStyle(PillButtonStyle(kind: .ghost))
+                    .keyboardShortcut("d", modifiers: [])
+                Button(session.jumpsToDesktopThread ? "Open thread" : "Jump ⏎") { model.jump(session) }
+                    .buttonStyle(PillButtonStyle(kind: .ghost))
+            }
+            if let rule = approval.suggestedRule {
+                Text("Always allow adds \(rule) to Claude's own permission rules — the same rule the terminal dialog offers.")
+                    .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            }
+            if session.agent == .grok, let mode = approval.permissionMode, mode != "bypassPermissions" {
+                Label {
+                    Text("Grok will still ask in the terminal after Allow (permission mode: \(mode)). Set permission_mode = \"always-approve\" to approve from here.")
+                } icon: {
+                    Image(systemName: "terminal")
+                }
+                .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink2)
+            }
+        }
+    }
+}
+
 private struct VoiceConsentSheet: View {
     @ObservedObject var voice: VoiceChat
     @Environment(\.dismiss) private var dismiss
@@ -277,229 +532,6 @@ private struct VoiceConsentSheet: View {
     }
 }
 
-private struct SessionRowView: View {
-    let session: AgentSession
-    var isSelected: Bool = false
-    var included: Bool = false           // in the buddy's scoped context
-    var showInclude: Bool = false        // only when the voice companion is on
-    var onToggleInclude: () -> Void = {}
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                TaskStatusIndicator(session.presentationState, isSelected: isSelected, size: 9)
-                Text(session.displayTitle).font(.headline)   // row subject = .headline (matches iOS)
-                if session.name != nil {
-                    Text(session.project).font(.caption).foregroundStyle(.secondary)
-                }
-                AgentSourceBadge(agent: session.agent)
-                if session.isStuck {
-                    Label("Stuck", systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(Color(taskStatus: TaskPresentationState.error.colorToken))
-                }
-                if let glyph = session.effectiveAttention.rowGlyph {
-                    Image(systemName: glyph)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .help(session.effectiveAttention.title)
-                }
-                if showInclude {
-                    Spacer(minLength: 8)
-                    Button(action: onToggleInclude) {
-                        Image(systemName: included ? "waveform.circle.fill" : "waveform.circle")
-                    }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(included ? Color.accentColor : Color.secondary)
-                    .help(included ? "In the buddy's context" : "Add to the buddy's context")
-                }
-            }
-            HStack(spacing: 5) {
-                Text(ToolActivity.label(for: session)).fontWeight(.medium)
-                if let summary = session.summary, !summary.isEmpty {
-                    Text("·").foregroundStyle(.tertiary)
-                    Text(summary).lineLimit(1)
-                }
-            }
-            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            if let child = ToolActivity.childSummary(for: session) {
-                Text(child)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-                    .lineLimit(1)
-            }
-            HStack(spacing: 6) {
-                Text(session.updatedAt, style: .relative).monospacedDigit()
-                if let cost = session.estimatedCostUSD {
-                    Text("\(session.costUSD == nil ? "≈ " : "")$\(cost, specifier: "%.2f")").monospacedDigit()
-                }
-                if let effort = session.effort { Text("· effort \(effort)") }
-                if let pr = session.prNumber { Text("· PR #\(pr)").monospacedDigit() }
-                if let worktree = session.worktree { Text("· \(worktree)").lineLimit(1) }
-            }
-            .font(.caption2).foregroundStyle(.tertiary)
-            if let observation = session.observationDescription {
-                HStack(spacing: 5) {
-                    Label(observation, systemImage: "waveform.path.ecg")
-                    if let last = session.lastObservedAt {
-                        Text("· \(last, style: .relative)")
-                    }
-                }
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
-            }
-        }
-        .padding(.vertical, 2)
-    }
-    private var statusColor: Color {
-        switch session.status {
-        case .needsResponse: return .orange
-        case .working: return .blue
-        case .done: return .green
-        }
-    }
-}
-
-struct AgentSourceBadge: View {
-    let agent: AgentKind
-
-    var body: some View {
-        Text(agent.displayName)
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 1)
-            .background(.quaternary, in: Capsule())
-    }
-}
-
-private struct DetailView: View {
-    let session: AgentSession
-    @ObservedObject var model: MenuBarModel
-    @State private var showTranscript = false
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                Text(session.project).font(.title2.bold())
-                Label(session.presentationState.label, systemImage: session.presentationState.symbolName)
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(Color(taskStatus: session.presentationState.colorToken))
-                if let approval = session.pendingApproval {
-                    Text("Claude wants to run this — approve?").font(.headline)
-                    Text(approval.commandPreview)
-                        .font(.system(.body, design: .monospaced))
-                        .padding(10)
-                        .background(Color(nsColor: .textBackgroundColor))
-                        .cornerRadius(8)
-                    if approval.isAnswerable {
-                        HStack(spacing: 10) {
-                            Button("Approve") { model.decide(approval.id, .allow) }
-                                .keyboardShortcut("a", modifiers: []).tint(.green)
-                            Button("Deny") { model.decide(approval.id, .deny) }
-                                .keyboardShortcut("d", modifiers: []).tint(.red)
-                            Button(session.jumpsToDesktopThread ? "Open thread in ChatGPT" : "Jump to terminal") {
-                                model.jump(session)
-                            }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        HStack(spacing: 10) {
-                            Button("Always allow this") { model.decide(approval.id, .alwaysAllow) }
-                            Button("Allow all this session") { model.decide(approval.id, .allowSession) }
-                        }
-                        .buttonStyle(.bordered).controlSize(.small)
-                        .help("Always allow: auto-approve this exact command in future. Allow all this session: stop asking for the rest of this run.")
-                    } else {
-                        Label("You're at the Mac — answer this in the agent's own prompt.", systemImage: "keyboard")
-                            .font(.caption).foregroundStyle(.secondary)
-                        Button(session.jumpsToDesktopThread ? "Open thread in ChatGPT" : "Jump to terminal") {
-                            model.jump(session)
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-                    if let rule = approval.suggestedRule, approval.isAnswerable {
-                        Text("Always allow adds \(rule) to Claude's own permission rules — the same rule the terminal dialog offers.")
-                            .font(.caption).foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    if session.agent == .grok, let mode = approval.permissionMode, mode != "bypassPermissions" {
-                        Label {
-                            Text("Grok will still ask in the terminal after Allow (permission mode: \(mode)). Set permission_mode = \"always-approve\" to approve from here.")
-                        } icon: {
-                            Image(systemName: "terminal")
-                        }
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    }
-                } else {
-                    if let question = session.pendingQuestion {
-                        if question.isAnswerable {
-                            QuestionCardView(question: question) { answers in
-                                model.answer(session.id, answers: answers)
-                            }
-                        } else {
-                            Text(question.prompt)
-                            Label("You're at the Mac — answer this in the agent's own prompt.", systemImage: "keyboard")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                        if let feedback = model.answerFeedback[session.id] {
-                            Label(feedback, systemImage: "exclamationmark.bubble")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    } else if let s = session.summary { Text(s).foregroundStyle(.secondary) }
-                    if session.agent == .codex {
-                        // Free text for a Codex thread: joins the running turn or
-                        // opens a new one, through the app-server daemon.
-                        InstructionComposer(placeholder: session.status == .done
-                                            ? "Start a new turn…" : "Add to the current turn…") { text in
-                            model.answer(session.id, answers: [:], text: text)
-                        }
-                        if session.pendingQuestion == nil, let feedback = model.answerFeedback[session.id] {
-                            Label(feedback, systemImage: "exclamationmark.bubble")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                    Button(session.jumpsToDesktopThread ? "Open thread in ChatGPT" : "Jump to terminal") {
-                        model.jump(session)
-                    }
-                }
-                // What the last jump actually achieved — focused the pane, only
-                // raised the app, or found nothing to raise. Same wording as the
-                // glance rows.
-                if let outcome = model.jumpFeedback[session.id] {
-                    Label(outcome.macMessage(for: session), systemImage: "arrow.uturn.forward")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .contentTransition(.opacity)
-                }
-                // Peek at what the agent has been doing without leaving the app.
-                Button { showTranscript = true } label: {
-                    Label("Recent output", systemImage: "text.alignleft")
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Notifications").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                    AttentionPicker(session: session, model: model, style: .segmented)
-                    Text(session.attentionOverride == nil
-                         ? "Automatic: \(session.effectiveAttention.title.lowercased()) — followed while you're driving it, normal otherwise."
-                         : session.effectiveAttention.explanation)
-                        .font(.caption2).foregroundStyle(.tertiary)
-                }
-                if let m = session.model {
-                    Label(m, systemImage: "cpu").font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            .padding(20)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .animation(.smooth(duration: 0.18), value: model.jumpFeedback)
-        }
-        .sheet(isPresented: $showTranscript) {
-            TranscriptSheet(session: session, model: model)
-        }
-    }
-}
-
-/// A read-only peek at a session's recent output (user prompts + assistant
-/// prose / tool activity), loaded on demand off the store actor.
 private struct TranscriptSheet: View {
     let session: AgentSession
     @ObservedObject var model: MenuBarModel
@@ -567,10 +599,14 @@ struct InstructionComposer: View {
     var body: some View {
         HStack(spacing: 8) {
             TextField(placeholder, text: $draft, axis: .vertical)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.plain)
+                .font(MacTheme.font(13, .semibold))
                 .lineLimit(1...4)
+                .padding(.horizontal, 12).padding(.vertical, 7)
+                .background(MacTheme.bg2, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .onSubmit(submit)
             Button("Send", action: submit)
+                .buttonStyle(PillButtonStyle(kind: .filled(MacTheme.accent)))
                 .keyboardShortcut(.return, modifiers: .command)
                 .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }

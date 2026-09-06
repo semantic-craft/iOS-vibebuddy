@@ -9,9 +9,16 @@ struct NewTaskSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var agent: AgentKind = .claudeCode
     @State private var directory = ""
-    @State private var prompt = ""
+    @State private var prompt: String
     @State private var name = ""
     @State private var busy = false
+
+    /// `initialPrompt` carries text typed into the dashboard's composer with
+    /// no reply target — the composer's "new task" meaning lands here.
+    init(dashboard: DashboardStore, initialPrompt: String = "") {
+        self.dashboard = dashboard
+        _prompt = State(initialValue: initialPrompt)
+    }
 
     var body: some View {
         NavigationStack {

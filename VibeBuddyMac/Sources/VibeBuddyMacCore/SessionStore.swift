@@ -558,6 +558,12 @@ public actor SessionStore {
         subscribers[id] = nil
     }
 
+    /// Open snapshot streams right now. Only `/ws` clients subscribe — a phone,
+    /// or a debugging tool — so this is "could a phone be about to act on the
+    /// snapshot just broadcast". It cannot say *which* phone, nor whether the
+    /// app behind a socket is still running; `PhoneReceipts` answers that.
+    public var subscriberCount: Int { subscribers.count }
+
     private func broadcast() {
         let snapshot = currentSnapshot(now: Date())
         for continuation in subscribers.values {

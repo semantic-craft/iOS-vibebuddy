@@ -13,7 +13,7 @@ struct EmptyStreamer: SnapshotStreaming {
 
 struct SilentNotifier: AttentionNotifier {
     func requestAuthorization() {}
-    func notify(_ alert: SoundAlert) {}
+    func notify(_ alert: SoundAlert) async -> Bool { true }
     func withdraw(_ identifiers: [String]) {}
     func confirmPairing() {}
 }
@@ -29,7 +29,10 @@ final class RecordingNotifier: AttentionNotifier, @unchecked Sendable {
     var withdrawn: [String] { lock.withLock { _withdrawn } }
 
     func requestAuthorization() {}
-    func notify(_ alert: SoundAlert) { lock.withLock { _posted.append(alert.notificationID) } }
+    func notify(_ alert: SoundAlert) async -> Bool {
+        lock.withLock { _posted.append(alert.notificationID) }
+        return true
+    }
     func withdraw(_ identifiers: [String]) { lock.withLock { _withdrawn.append(contentsOf: identifiers) } }
     func confirmPairing() {}
 }
