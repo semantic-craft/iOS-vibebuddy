@@ -89,8 +89,7 @@ public actor CodexAppServerMonitor {
         let threadID: String
         let kind: Kind
     }
-    /// The last full `account/rateLimits/read` result; sparse
-    /// `account/rateLimits/updated` notifications are merged into it.
+    /// The last full result supplies identity/plan metadata, never old window readings.
     private var lastRateLimits: [String: Any]?
     private var lastUsage: [String: Any]?
 
@@ -220,7 +219,7 @@ public actor CodexAppServerMonitor {
             }
             switch message["method"] as? String {
             case "account/rateLimits/updated":
-                await mergeRateLimits(message["params"] as? [String: Any])
+                await publishRateLimits(message["params"] as? [String: Any])
                 continue
             case "serverRequest/resolved":
                 await requestResolved(message["params"] as? [String: Any], store: store)
@@ -550,24 +549,26 @@ public actor CodexAppServerMonitor {
         }
     }
 
-    /// `account/rateLimits/updated` is a sparse rolling update: merge what it
-    /// carries into the last full read and publish the result.
-    private func mergeRateLimits(_ params: [String: Any]?) async {
-        guard let usageFeed, var merged = lastRateLimits,
-              let update = params?["rateLimits"] as? [String: Any] else { return }
-        var limits = merged["rateLimits"] as? [String: Any] ?? [:]
-        for (key, value) in update { limits[key] = value }
-        merged["rateLimits"] = limits
-        if let id = update["limitId"] as? String,
-           var byID = merged["rateLimitsByLimitId"] as? [String: Any] {
-            var entry = byID[id] as? [String: Any] ?? [:]
-            for (key, value) in update { entry[key] = value }
-            byID[id] = entry
-            merged["rateLimitsByLimitId"] = byID
+    /// Missing windows in an update are unknown. Reusing old window values here
+    /// would renew their observation time whenever an unrelated bucket changes.
+    private func publishRateLimits(_ params: [String: Any]?) async {
+        guard let usageFeed, var update = params?["rateLimits"] as? [String: Any] else { return }
+        let id = update["limitId"] as? String
+        if let id {
+            guard id == "codex" else { return }
+        } else {
+            // An unlabelled update is only meaningful for a single-main source.
+            guard let lastRateLimits, lastRateLimits["rateLimitsByLimitId"] == nil,
+                  let main = lastRateLimits["rateLimits"] as? [String: Any],
+                  main["limitId"] == nil || main["limitId"] as? String == "codex" else { return }
         }
-        lastRateLimits = merged
+        let previous = (lastRateLimits?["rateLimitsByLimitId"] as? [String: Any])?["codex"] as? [String: Any]
+            ?? lastRateLimits?["rateLimits"] as? [String: Any]
+        if update["planType"] == nil { update["planType"] = previous?["planType"] }
+        let payload: [String: Any] = id == "codex"
+            ? ["rateLimitsByLimitId": ["codex": update]] : ["rateLimits": update]
         if let snapshot = try? CodexUsageResponseDecoder.decode(
-            rateLimits: merged, usage: lastUsage, fetchedAt: Date()) {
+            rateLimits: payload, usage: lastUsage, fetchedAt: Date()) {
             await usageFeed.publish(snapshot)
         }
     }

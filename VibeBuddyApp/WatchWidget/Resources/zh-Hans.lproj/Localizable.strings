@@ -25,3 +25,25 @@
 "Sync pending" = "待同步";
 
 "Done" = "已完成";
+"Quota" = "额度";
+"Platform" = "平台";
+"Window" = "数据窗口";
+"Weekly window" = "周窗口";
+"Short window" = "短窗口";
+"Choose the allowance to show on your watch face." = "选择表盘显示的平台和额度窗口。";
+"Codex and Claude remaining allowance." = "Codex 和 Claude 的剩余额度。";
+"Wk" = "周";
+"Short" = "短";
+"Remaining" = "剩余";
+"Cached reading" = "缓存读数";
+"Window unavailable" = "窗口不可用";
+"Reset reached · awaiting update" = "已到重置时间 · 等待更新";
+
+"Style" = "样式";
+"Remaining ring" = "剩余圆环";
+"Numbers first" = "数字优先";
+"Ten-segment ring" = "十段圆环";
+"Two windows" = "双窗口";
+"Reset countdown" = "重置倒计时";
+"Reset time unknown" = "重置时间未知";
+"Reset" = "重置";

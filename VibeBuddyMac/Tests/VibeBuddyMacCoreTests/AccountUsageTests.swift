@@ -135,19 +135,15 @@ struct AccountUsageTests {
             "is_error": false,
             "result": output,
         ])
-        #expect(throws: AccountUsageError.incompatibleFormat) {
-            try ClaudeUsageResponseDecoder.decode(claudeData, fetchedAt: now)
-        }
+        let partial = try ClaudeUsageResponseDecoder.decode(claudeData, fetchedAt: now)
+        #expect(partial.primary == nil)
+        #expect(partial.secondary?.usedPercent == 15)
 
         let codexLimits = Data(#"{"jsonrpc":"2.0","id":2,"result":{"rateLimits":{"primary":{"usedPercent":-1,"windowDurationMins":300}}}}"#.utf8)
         let codexUsage = Data(#"{"jsonrpc":"2.0","id":3,"result":{"summary":{}}}"#.utf8)
-        #expect(throws: AccountUsageError.incompatibleFormat) {
-            try CodexUsageResponseDecoder.decode(
-                rateLimitsResponse: codexLimits,
-                usageResponse: codexUsage,
-                fetchedAt: now
-            )
-        }
+        let invalid = try CodexUsageResponseDecoder.decode(
+            rateLimitsResponse: codexLimits, usageResponse: codexUsage, fetchedAt: now)
+        #expect(invalid.primary == nil)
     }
 
     @Test("Claude CLI timeout and cancellation reap their child process")
@@ -257,17 +253,19 @@ struct AccountUsageTests {
     }
 
     @Test("a changed response shape is unavailable instead of becoming zero usage")
-    func formatChange() {
+    func formatChange() throws {
         let malformed = Data(#"{"jsonrpc":"2.0","id":2,"result":{"rateLimits":{"primary":{"windowDurationMins":300}}}}"#.utf8)
         let usage = Data(#"{"jsonrpc":"2.0","id":3,"result":{"summary":{}}}"#.utf8)
 
-        #expect(throws: AccountUsageError.incompatibleFormat) {
-            try CodexUsageResponseDecoder.decode(
-                rateLimitsResponse: malformed,
-                usageResponse: usage,
-                fetchedAt: now
-            )
-        }
+        let snapshot = try CodexUsageResponseDecoder.decode(
+            rateLimitsResponse: malformed, usageResponse: usage, fetchedAt: now)
+        #expect(snapshot.primary == nil)
+        #expect(snapshot.secondary == nil)
+        let quota = ProviderQuota(.available(snapshot, nextRefreshAt: nil), provider: .codex)
+        #expect(quota.observedAt == nil)
+        #expect(quota.freshness(now: now) == .unavailable)
+        #expect(quota.weeklyRemainingPercent == nil)
+        #expect(quota.shortWindowRemainingPercent == nil)
     }
 
     @Test("successful refresh is cached as the last known good value")
@@ -287,7 +285,7 @@ struct AccountUsageTests {
         let state = await collector.refresh(now: now)
 
         #expect(state.snapshot?.primary?.usedPercent == 55)
-        #expect(state.snapshot?.fetchedAt == now)
+        #expect(state.snapshot?.fetchedAt == snapshot.fetchedAt)
         #expect(!state.isStale)
         #expect(state.unavailableReason == nil)
         #expect(await cache.value()?.primary?.usedPercent == 55)

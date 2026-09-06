@@ -256,12 +256,12 @@ struct WatchDashboardStateTests {
         #expect(ProviderQuota.unavailable(.codex, reason: "signed out").unavailableReason == "signed out")
     }
 
-    @Test("Percentages are clamped; absent values stay absent")
-    func percentagesAreClamped() {
+    @Test("Invalid percentages and absent values stay unknown")
+    func invalidPercentagesStayUnknown() {
         let quota = ProviderQuota(provider: .codex, weeklyRemainingPercent: 140,
                                shortWindowRemainingPercent: -20, observedAt: now)
-        #expect(quota.weeklyRemainingPercent == 100)
-        #expect(quota.shortWindowRemainingPercent == 0)
+        #expect(quota.weeklyRemainingPercent == nil)
+        #expect(quota.shortWindowRemainingPercent == nil)
         #expect(ProviderQuota(provider: .codex, observedAt: now).shortWindowRemainingPercent == nil)
     }
 
