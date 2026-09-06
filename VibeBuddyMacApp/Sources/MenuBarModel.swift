@@ -132,6 +132,7 @@ final class MenuBarModel: ObservableObject {
     /// daemon's presence check). Weak: the model owns the app's lifetime, not
     /// the other way round.
     private(set) static weak var shared: MenuBarModel?
+    private var snapshotSourceID: String?
 
     init(runtimeEnabled: Bool = true) {
         port = ProcessInfo.processInfo.environment["VIBEBUDDY_PORT"].flatMap(Int.init) ?? 9876
@@ -139,6 +140,7 @@ final class MenuBarModel: ObservableObject {
         idleTimeoutHours = savedIdleTimeout
         store = SessionStore(
             staleAfter: Self.staleInterval(forHours: savedIdleTimeout),
+            sourceID: DaemonIdentity.load(),
             diagnosticsHome: FileManager.default.homeDirectoryForCurrentUser,
             journalURL: ProcessInfo.processInfo.environment["VIBEBUDDY_JOURNAL_PATH"].map {
                 URL(fileURLWithPath: $0)
@@ -327,6 +329,7 @@ final class MenuBarModel: ObservableObject {
                 guard let self else { return }
                 await self.store.applyBackgroundSessions(ClaudeBackgroundSessions.load())
                 let snapshot = await self.store.snapshot(now: Date())
+                self.snapshotSourceID = snapshot.sourceID
                 self.sessions = snapshot.sessions
                 self.observationDiagnostics = snapshot.observationDiagnostics ?? []
                 self.recentDirectories = snapshot.recentDirectories ?? []
@@ -734,7 +737,16 @@ final class MenuBarModel: ObservableObject {
             sessions[index].hasUnreadCompletion = false
             return
         }
-        Task { [store] in await store.acknowledgeCompletion(sessionID: sessionID) }
+        guard let sourceID = snapshotSourceID,
+              let session = sessions.first(where: { $0.id == sessionID }) else { return }
+        if session.status == .needsResponse {
+            let read = WaitReadRequest(sourceID: sourceID, session: session)
+            Task { [store] in _ = await store.acknowledgeWait(read) }
+            return
+        }
+        guard session.hasUnreadCompletion, let completionID = session.completionID else { return }
+        let request = CompletionReadRequest(sourceID: sourceID, sessionID: sessionID, completionID: completionID)
+        Task { [store] in _ = await store.acknowledgeCompletion(request) }
     }
 
     /// Set, or with `nil` return to automatic, how much this session may

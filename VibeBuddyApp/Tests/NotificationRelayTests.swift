@@ -22,16 +22,17 @@ final class NotificationRelayTests: XCTestCase {
     }
 
     private func run(_ snapshots: [[AgentSession]]) async -> RecordingNotifier {
-        let notifier = RecordingNotifier()
+        let applied = expectation(description: "All snapshots reached notification reconciliation")
+        applied.expectedFulfillmentCount = snapshots.count
+        let notifier = RecordingNotifier(onWithdrawal: { applied.fulfill() })
         let store = DashboardStore(
             streamer: ScriptedStreamer(snapshots: snapshots.map { Snapshot(sessions: $0, serverTime: now) }),
             notifier: notifier,
             decisionClient: NullDecisionClient(),
-            watchRelay: nil)
+            watchRelay: nil, reportDevice: { _ in })
         store.start(PairingPayload(host: "127.0.0.1", port: 9, token: "test"))
-        // The store consumes the stream on its own task; give it a moment, then
-        // stop before the reconnect loop starts a second pass.
-        try? await Task.sleep(for: .milliseconds(200))
+        // Wait for actual notification reconciliation, not a 200 ms scheduling guess.
+        await fulfillment(of: [applied], timeout: 10)
         store.stop()
         return notifier
     }

@@ -13,7 +13,7 @@ private final class ScriptedWaitClient: DecisionClient, @unchecked Sendable {
         self.answerStatus = answerStatus
     }
 
-    func acknowledge(_ pairing: PairingPayload, sessionId: String) async {}
+    func acknowledge(_ pairing: PairingPayload, request: CompletionReadRequest) async -> CompletionReadOutcome { .accepted }
     func decide(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> Bool {
         decideStatus == .accepted
     }

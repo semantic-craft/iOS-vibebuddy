@@ -95,18 +95,27 @@ struct VibeBuddyServerTests {
                            receivedAt: Date(timeIntervalSince1970: 1))
         await store.ingest(Data(#"{"hook_event_name":"Stop","session_id":"s","cwd":"/x/demo"}"#.utf8),
                            receivedAt: Date(timeIntervalSince1970: 2))
+        let read = try await completionReadRequest(store, sessionID: "s")
+        let body = ByteBuffer(bytes: try JSONEncoder().encode(read))
         let server = VibeBuddyServer(store: store, token: "t0k")
 
         try await server.buildApplication().test(.router) { client in
             try await client.execute(uri: "/acknowledge", method: .post,
-                                     body: ByteBuffer(string: #"{"sessionId":"s"}"#)) { response in
+                                     body: body) { response in
                 #expect(response.status == .unauthorized)
             }
             #expect(await store.snapshot(now: .now).sessions.first?.hasUnreadCompletion == true)
             try await client.execute(uri: "/acknowledge", method: .post,
                                      headers: [.authorization: "Bearer t0k"],
                                      body: ByteBuffer(string: #"{"sessionId":"s"}"#)) { response in
+                #expect(response.status == .badRequest)
+            }
+            try await client.execute(uri: "/acknowledge", method: .post,
+                                     headers: [.authorization: "Bearer t0k"],
+                                     body: body) { response in
                 #expect(response.status == .ok)
+                let result = try JSONDecoder().decode(CompletionReadResponse.self, from: Data(buffer: response.body))
+                #expect(result.outcome == .accepted)
             }
             #expect(await store.snapshot(now: .now).sessions.first?.presentationState == .idle)
         }
@@ -149,7 +158,7 @@ struct VibeBuddyServerTests {
         #expect(schedule.remindersSent(for: "s") == 1)
 
         // Read anywhere: nothing further is asked.
-        await store.acknowledgeCompletion(sessionID: "s")
+        _ = await store.acknowledgeCompletion(try await completionReadRequest(store, sessionID: "s"))
         await server.remindFollowedCompletions(&schedule, now: completedAt.addingTimeInterval(1300))
         #expect(box.asked.count == 3)
     }

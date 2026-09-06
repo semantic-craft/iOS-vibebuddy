@@ -19,7 +19,8 @@ protocol DecisionClient: Sendable {
     func answer(_ pairing: PairingPayload, sessionId: String, answers: QuestionAnswers) async
     /// Returns what the Mac reported, or `nil` if it couldn't be reached.
     func jump(_ pairing: PairingPayload, sessionId: String) async -> JumpOutcome?
-    func acknowledge(_ pairing: PairingPayload, sessionId: String) async
+    func acknowledgeWait(_ pairing: PairingPayload, request: WaitReadRequest) async -> Bool
+    func acknowledge(_ pairing: PairingPayload, request: CompletionReadRequest) async -> CompletionReadOutcome
     /// Start a new task; nil when the Mac could not be reached.
     func dispatch(_ pairing: PairingPayload, request: DispatchRequest) async -> DispatchOutcome?
     /// Set how much a session may interrupt you, or `nil` to return it to the
@@ -28,6 +29,7 @@ protocol DecisionClient: Sendable {
 }
 
 extension DecisionClient {
+    func acknowledgeWait(_ pairing: PairingPayload, request: WaitReadRequest) async -> Bool { false }
     func dispatch(_ pairing: PairingPayload, request: DispatchRequest) async -> DispatchOutcome? { nil }
     func decideResult(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> WaitActionResult {
         await decide(pairing, approvalId: approvalId, decision: decision) ? .accepted : .failed
@@ -50,14 +52,30 @@ extension DecisionClient {
 }
 
 struct HTTPDecisionClient: DecisionClient {
-    func acknowledge(_ pairing: PairingPayload, sessionId: String) async {
-        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/acknowledge") else { return }
+    func acknowledgeWait(_ pairing: PairingPayload, request: WaitReadRequest) async -> Bool {
+        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/acknowledge-wait") else { return false }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: ["sessionId": sessionId])
-        _ = try? await URLSession.shared.data(for: req)
+        req.httpBody = try? JSONEncoder().encode(request)
+        guard let (_, response) = try? await URLSession.shared.data(for: req) else { return false }
+        return (response as? HTTPURLResponse)?.statusCode == 200
+    }
+
+    func acknowledge(_ pairing: PairingPayload, request: CompletionReadRequest) async -> CompletionReadOutcome {
+        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/acknowledge") else { return .failed }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 15
+        req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONEncoder().encode(request)
+        guard let (data, response) = try? await URLSession.shared.data(for: req),
+              let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+              let result = try? JSONDecoder().decode(CompletionReadResponse.self, from: data)
+        else { return .failed }
+        return result.outcome
     }
 
     func setAttention(_ pairing: PairingPayload, sessionId: String, level: SessionAttention?) async {

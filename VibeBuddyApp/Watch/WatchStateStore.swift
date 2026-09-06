@@ -1,6 +1,7 @@
 import Foundation
 import VibeBuddyKit
 import WatchConnectivity
+import WidgetKit
 
 /// Everything the Watch knows, and where it came from.
 ///
@@ -14,6 +15,12 @@ import WatchConnectivity
 @MainActor
 final class WatchStateStore: NSObject, ObservableObject {
     @Published private(set) var state: WatchDashboardState?
+    @Published var taskLink: WatchTaskLink?
+    @Published private(set) var completionQueue = WatchCompletionQueue()
+    private var completionAttempt: WatchCompletionRequest?
+    private var retryTask: Task<Void, Never>?
+    private var retryAfter: [WatchTaskLink: Date] = [:]
+    private var retryCount: [WatchTaskLink: Int] = [:]
     /// The one decision in flight, and everything the wrist may claim about it.
     @Published private(set) var approval = WatchApprovalActionState()
     /// Whether the iPhone is in range right now. It is the only way the Watch
@@ -29,16 +36,11 @@ final class WatchStateStore: NSObject, ObservableObject {
     let launchedAt: Date
     let initialPage: WatchPage
 
-    private static let storageKey = "vibebuddy.watch.lastState"
-
     private var inbox = WatchStateInbox()
-    private let defaults: UserDefaults
     private var session: WCSession?
 
     init(environment: [String: String] = ProcessInfo.processInfo.environment,
-         defaults: UserDefaults = .standard,
          now: Date = Date()) {
-        self.defaults = defaults
         launchedAt = now
         isDemo = environment["VIBEBUDDY_DEMO"] == "1"
         initialPage = environment["VIBEBUDDY_WATCH_PAGE"]
@@ -54,10 +56,95 @@ final class WatchStateStore: NSObject, ObservableObject {
             // A cold launch shows the last state the iPhone managed to deliver.
             // Its age is recomputed from the current clock, never restored as a
             // verdict, so old numbers cannot masquerade as live ones.
-            inbox.accept(defaults.data(forKey: Self.storageKey))
-            state = inbox.state
+            if let saved = WatchComplicationStore.loadState() {
+                completionQueue = saved.queue
+                inbox = WatchStateInbox(state: saved.state)
+                state = saved.state
+                completionQueue.reconcile(with: saved.state)
+            }
             activate()
+            retryTask = Task { @MainActor [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(5))
+                    guard !Task.isCancelled else { return }
+                    self?.flushCompletions()
+                }
+            }
         }
+    }
+
+    deinit { retryTask?.cancel() }
+
+    func openTask(_ url: URL) {
+        guard let link = WatchTaskLink(url: url) else { return }
+        taskLink = link
+    }
+
+    /// Called only by the exact detail body after it has appeared.
+    func viewed(_ link: WatchTaskLink) {
+        if !isDemo, let task = link.task(in: state), task.presentation == .requiresInput,
+           let session, isPhoneReachable {
+            let request = WatchWaitReadRequest(pairingEpoch: link.pairingEpoch,
+                read: WaitReadRequest(sourceID: link.sourceID, sessionID: link.sessionID,
+                                      statusSince: task.statusSince, waitKind: task.waitKind ?? .question,
+                                      pendingID: task.pendingID))
+            if let payload = try? JSONEncoder().encode(request) {
+                // Best effort only: no approval and no claim that an offline read synced.
+                session.sendMessage([WatchWaitReadRequest.messageKey: payload],
+                                    replyHandler: { @Sendable _ in }, errorHandler: { @Sendable _ in })
+            }
+        }
+        completionQueue.viewed(link, state: state)
+        persistCompletions()
+        flushCompletions()
+    }
+
+    private func persistCompletions() {
+        // Demo interactions must never replace the live cache or pending reads.
+        guard !isDemo else { return }
+        retryAfter = retryAfter.filter { completionQueue.links.contains($0.key) }
+        retryCount = retryCount.filter { completionQueue.links.contains($0.key) }
+        if let state, WatchComplicationStore.save(state, queue: completionQueue) {
+            WidgetCenter.shared.reloadTimelines(ofKind: WatchComplicationStore.kind)
+        }
+    }
+
+    private func flushCompletions() {
+        guard !isDemo, completionAttempt == nil, isPhoneReachable,
+              let session, session.isReachable, let state,
+              let link = completionQueue.links.first(where: {
+                  $0.sourceID == state.sourceID && $0.pairingEpoch == state.pairingEpoch
+                    && (retryAfter[$0] ?? .distantPast) <= Date()
+              }) else { return }
+        let request = WatchCompletionRequest(attemptID: UUID().uuidString, link: link)
+        guard let payload = try? JSONEncoder().encode(request) else { return }
+        completionAttempt = request
+        session.sendMessage([WatchCompletionRequest.messageKey: payload], replyHandler: { @Sendable [weak self] reply in
+            let data = reply[WatchCompletionResult.messageKey] as? Data
+            let result = data.flatMap { try? JSONDecoder().decode(WatchCompletionResult.self, from: $0) }
+            Task { @MainActor [weak self] in self?.completionReturned(result, request: request) }
+        }, errorHandler: { @Sendable [weak self] _ in
+            Task { @MainActor [weak self] in self?.completionReturned(nil, request: request) }
+        })
+        // WatchConnectivity replies are not guaranteed to arrive. Release only
+        // this attempt; the persisted exact-round record remains retryable.
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(20))
+            self?.completionReturned(nil, request: request)
+        }
+    }
+
+    private func completionReturned(_ result: WatchCompletionResult?, request: WatchCompletionRequest) {
+        guard completionAttempt?.attemptID == request.attemptID else { return }
+        guard result == nil || result?.attemptID == request.attemptID else { return }
+        completionAttempt = nil
+        let tries = min(4, (retryCount[request.link] ?? 0) + 1)
+        retryCount[request.link] = tries
+        retryAfter[request.link] = Date().addingTimeInterval(min(60, 5 * pow(2, Double(tries - 1))))
+        // Even accepted/alreadyAcknowledged is only a receipt. Reconciliation
+        // with the Mac's next snapshot clears this record and the face candidate.
+        if let state { completionQueue.reconcile(with: state); persistCompletions() }
+        flushCompletions()
     }
 
     /// Whether a decision could be sent at all. Demo Mode resolves its samples
@@ -87,7 +174,7 @@ final class WatchStateStore: NSObject, ObservableObject {
         }
         session.sendMessage(
             [WatchApprovalRequest.messageKey: payload],
-            replyHandler: { [weak self] reply in
+            replyHandler: { @Sendable [weak self] reply in
                 // A reply we cannot read tells us nothing landed; treat it as a
                 // delivery failure so the tap can be made again.
                 let data = reply[WatchApprovalResult.messageKey] as? Data
@@ -98,7 +185,7 @@ final class WatchStateStore: NSObject, ObservableObject {
                     else { self.approval.fail(attemptId: request.attemptId) }
                 }
             },
-            errorHandler: { [weak self] _ in
+            errorHandler: { @Sendable [weak self] _ in
                 Task { @MainActor [weak self] in
                     self?.approval.fail(attemptId: request.attemptId)
                 }
@@ -119,8 +206,25 @@ final class WatchStateStore: NSObject, ObservableObject {
 
     /// Record a new state and let any in-flight decision see it.
     private func install(_ next: WatchDashboardState) {
+        if state?.sourceID != next.sourceID || state?.pairingEpoch != next.pairingEpoch {
+            approval = WatchApprovalActionState()
+        }
         state = next
         approval.reconcile(with: next)
+        completionQueue.reconcile(with: next)
+        persistCompletions()
+        if let request = completionAttempt,
+           request.link.sourceID != next.sourceID || request.link.pairingEpoch != next.pairingEpoch {
+            completionAttempt = nil
+        }
+        flushCompletions()
+    }
+
+    func becameActive() {
+        guard !isDemo, let session else { return }
+        // Incorporate the actual latest context before sending persisted work.
+        receive(session.receivedApplicationContext[WatchStateInbox.contextKey] as? Data)
+        linkChanged(reachable: session.isReachable)
     }
 
     private func activate() {
@@ -133,6 +237,7 @@ final class WatchStateStore: NSObject, ObservableObject {
 
     fileprivate func linkChanged(reachable: Bool) {
         isPhoneReachable = reachable
+        flushCompletions()
     }
 
     /// Take a payload from the relay. A payload that cannot be decoded leaves
@@ -140,7 +245,6 @@ final class WatchStateStore: NSObject, ObservableObject {
     fileprivate func receive(_ payload: Data?) {
         guard inbox.accept(payload), let accepted = inbox.state else { return }
         install(accepted)
-        defaults.set(WatchStateInbox.encode(accepted), forKey: Self.storageKey)
     }
 }
 
@@ -155,8 +259,8 @@ extension WatchStateStore: WCSessionDelegate {
         let payload = session.receivedApplicationContext[WatchStateInbox.contextKey] as? Data
         let reachable = session.isReachable
         Task { @MainActor [weak self] in
-            self?.linkChanged(reachable: reachable)
             self?.receive(payload)
+            self?.linkChanged(reachable: reachable)
         }
     }
 

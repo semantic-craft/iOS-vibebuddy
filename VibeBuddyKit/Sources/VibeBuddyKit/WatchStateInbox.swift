@@ -27,16 +27,35 @@ public struct WatchStateInbox: Equatable, Sendable {
     ///
     /// Anything missing, truncated, or written by an incompatible build is
     /// rejected and the last known good state stays up — a decode failure is a
-    /// reason to keep showing honest old data, not to blank the screen. A
-    /// payload older than the one already held is rejected too, so a late
-    /// delivery cannot walk the Watch backwards.
+    /// reason to keep showing honest old data, not to blank the screen. The iPhone
+    /// assigns persistent revisions across Mac/epoch changes. Mac clocks are
+    /// unrelated and cannot establish message order. Missing revisions are rejected.
     @discardableResult
     public mutating func accept(_ data: Data?) -> Bool {
         guard let data,
               let incoming = try? JSONDecoder().decode(WatchDashboardState.self, from: data)
         else { return false }
-        if let current = state, incoming.observedAt < current.observedAt { return false }
-        state = incoming
+        // Phone Demo data is never an authority for the live Watch or its retry queue.
+        guard !incoming.isDemo, incoming.relayRevision > 0 else { return false }
+        if let current = state {
+            guard incoming.relayRevision >= current.relayRevision else { return false }
+            if incoming.relayRevision == current.relayRevision {
+                guard incoming.sourceID == current.sourceID,
+                      incoming.pairingEpoch == current.pairingEpoch,
+                      incoming.observedAt == current.observedAt else { return false }
+            }
+        }
+        // A phone cold launch knows its pairing before it has a Mac snapshot.
+        // Preserve that epoch's last content and age while recording disconnect.
+        if let current = state, current.sourceID != nil, incoming.sourceID == nil,
+           current.pairingEpoch == incoming.pairingEpoch {
+            var disconnected = current
+            disconnected.relay = .disconnected
+            disconnected.relayRevision = incoming.relayRevision
+            state = disconnected
+        } else {
+            state = incoming
+        }
         return true
     }
 }

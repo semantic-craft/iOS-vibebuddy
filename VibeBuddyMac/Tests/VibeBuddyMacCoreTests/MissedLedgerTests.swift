@@ -218,9 +218,11 @@ struct MissedRouteTests {
         }
     }
 
-    @Test("/acknowledge cancels the missed timer")
+    @Test("/acknowledge-wait cancels the exact missed timer")
     func acknowledgeCancels() async throws {
-        try await expectCancel(uri: "/acknowledge", body: #"{"sessionId":"s"}"#)
+        let read = WaitReadRequest(sourceID: "mac", sessionID: "s", statusSince: t0, waitKind: .permission)
+        let body = String(data: try JSONEncoder().encode(read), encoding: .utf8)!
+        try await expectCancel(uri: "/acknowledge-wait", body: body)
     }
 
     @Test("/jump cancels the missed timer")
@@ -310,13 +312,99 @@ struct MissedRouteTests {
         }
     }
 
+    @Test("a replacement pending request has its own deadline and rejects the old read")
+    func replacementWaitIdentity() async {
+        let store = SessionStore(sourceID: "mac")
+        await store.ingest(notification(session: "s", at: t0), receivedAt: t0)
+        await store.beginQuestion(sessionID: "s", PendingQuestion(id: "a", prompt: "A?"), at: t0)
+        let readA = WaitReadRequest(sourceID: "mac", sessionID: "s", statusSince: t0,
+                                   waitKind: .question, pendingID: "a")
+        #expect(await store.acknowledgeWait(readA, now: t0.addingTimeInterval(60)))
+        await store.beginQuestion(sessionID: "s", PendingQuestion(id: "b", prompt: "B?"), at: t0.addingTimeInterval(120))
+        #expect(!((await store.acknowledgeWait(readA, now: t0.addingTimeInterval(130)))))
+        #expect(await store.snapshot(now: t0.addingTimeInterval(130)).sessions.first?.pendingQuestion?.id == "b")
+        // Re-observing B with richer content must not restart its timer.
+        await store.beginQuestion(sessionID: "s", PendingQuestion(id: "b", prompt: "B detail"), at: t0.addingTimeInterval(180))
+        #expect(await store.missedCounts(week: t0, now: t0.addingTimeInterval(419)).count == 0)
+        #expect(await store.missedCounts(week: t0, now: t0.addingTimeInterval(420)).count == 1)
+    }
+
+    @Test("pending identity rejects stale reads even when source timestamps collide")
+    func collidingWaitTimestamps() async {
+        let store = SessionStore(sourceID: "mac")
+        await store.ingest(notification(session: "s", at: t0), receivedAt: t0)
+        await store.beginQuestion(sessionID: "s", PendingQuestion(id: "a", prompt: "A?"), at: t0)
+        let old = WaitReadRequest(sourceID: "mac", sessionID: "s", statusSince: t0,
+                                  waitKind: .question, pendingID: "a")
+        await store.beginQuestion(sessionID: "s", PendingQuestion(id: "b", prompt: "B?"), at: t0)
+        #expect(!((await store.acknowledgeWait(old, now: t0.addingTimeInterval(60)))))
+        #expect(await store.missedCounts(week: t0, now: t0.addingTimeInterval(300)).count == 1)
+    }
+
+    @Test("late metadata for an existing wait retains its notification boundary")
+    func lateWaitMetadata() async {
+        let store = SessionStore(sourceID: "mac")
+        await store.ingest(notification(session: "s", at: t0), receivedAt: t0)
+        await store.beginApproval(sessionID: "s", PendingApproval(id: "a", tool: "Bash", commandPreview: "pwd"),
+                                  at: t0.addingTimeInterval(60))
+        await store.beginApproval(sessionID: "s", PendingApproval(id: "a", tool: "Bash", commandPreview: "pwd detail"),
+                                  at: t0.addingTimeInterval(120))
+        #expect(await store.snapshot(now: t0.addingTimeInterval(120)).sessions.first?.statusSince == t0)
+        #expect(await store.missedCounts(week: t0, now: t0.addingTimeInterval(300)).count == 1)
+    }
+
+    @Test("late metadata preserves a prior view or miss instead of starting another ledger key")
+    func lateMetadataKeepsReadOrMiss() async {
+        for viewed in [false, true] {
+            let store = SessionStore(sourceID: "mac")
+            await store.ingest(notification(session: "s", at: t0), receivedAt: t0)
+            if viewed {
+                let read = WaitReadRequest(sourceID: "mac", sessionID: "s", statusSince: t0, waitKind: .permission)
+                #expect(await store.acknowledgeWait(read, now: t0.addingTimeInterval(60)))
+            }
+            await store.evaluateMissed(now: t0.addingTimeInterval(300))
+            await store.beginApproval(sessionID: "s", PendingApproval(id: "a", tool: "Bash", commandPreview: "pwd"),
+                                      at: t0.addingTimeInterval(310))
+            #expect(await store.missedCounts(week: t0, now: t0.addingTimeInterval(400)).count == (viewed ? 0 : 1))
+        }
+    }
+
+    @Test("viewing an exact wait respects its deadline without answering it", arguments: [60.0, 301.0])
+    func waitReadRoute(elapsed: TimeInterval) async throws {
+        let now = Date()
+        let since = now.addingTimeInterval(-elapsed)
+        let store = SessionStore(sourceID: "mac")
+        await store.ingest(notification(session: "s", at: since), receivedAt: since)
+        let server = VibeBuddyServer(store: store, token: "t0k")
+        try await server.buildApplication().test(.router) { client in
+            for read in [
+                WaitReadRequest(sourceID: "other", sessionID: "s", statusSince: since, waitKind: .permission),
+                WaitReadRequest(sourceID: "mac", sessionID: "s", statusSince: since.addingTimeInterval(-1), waitKind: .permission)
+            ] {
+                try await client.execute(uri: "/acknowledge-wait", method: .post,
+                    headers: [.authorization: "Bearer t0k"],
+                    body: ByteBuffer(data: try JSONEncoder().encode(read))) { response in
+                    #expect(response.status == .conflict)
+                }
+            }
+            let read = WaitReadRequest(sourceID: "mac", sessionID: "s", statusSince: since, waitKind: .permission)
+            try await client.execute(uri: "/acknowledge-wait", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(data: try JSONEncoder().encode(read))) { response in
+                #expect(response.status == .ok)
+            }
+        }
+        #expect(await store.snapshot(now: now).sessions.first?.status == .needsResponse)
+        #expect(await store.missedCounts(week: now, now: now.addingTimeInterval(400)).count == (elapsed >= 300 ? 1 : 0))
+    }
+
     private func expectCancel(
         uri: String,
         body: String,
         setup: ((SessionStore) async -> Void)? = nil,
         server: ((SessionStore) -> VibeBuddyServer)? = nil
     ) async throws {
-        let store = SessionStore()
+        let store = SessionStore(sourceID: "mac")
         await store.ingest(notification(session: "s", at: t0), receivedAt: t0)
         if let setup { await setup(store) }
         let srv = server?(store) ?? VibeBuddyServer(store: store, token: "t0k",

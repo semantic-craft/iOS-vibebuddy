@@ -37,7 +37,8 @@ struct JumpRoutesTests {
                 #expect(res.status == .ok)
             }
             #expect(box.jumped == ["%5"])
-            #expect(await store.snapshot(now: .now).sessions.first?.hasUnreadCompletion == false)
+            // Jump alone cannot identify which completion the user actually read.
+            #expect(await store.snapshot(now: .now).sessions.first?.hasUnreadCompletion == true)
         }
     }
 

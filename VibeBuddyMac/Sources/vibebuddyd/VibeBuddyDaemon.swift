@@ -47,6 +47,7 @@ struct VibeBuddyDaemon {
         let questionRegistry = QuestionRegistry()
         let server = VibeBuddyServer(
             store: SessionStore(
+                sourceID: DaemonIdentity.load(),
                 diagnosticsHome: FileManager.default.homeDirectoryForCurrentUser,
                 journalURL: journalURL,
                 attentionURL: AttentionOverrides.defaultURL(),

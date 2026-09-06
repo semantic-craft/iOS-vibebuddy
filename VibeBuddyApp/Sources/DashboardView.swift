@@ -96,7 +96,7 @@ struct DashboardView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button(connection.demo ? LocalizedStringKey("Exit demo") : LocalizedStringKey("Disconnect")) {
-                    dashboard.stop(); connection.clear()
+                    connection.clear(); dashboard.forgetPairing()
                 }
                 .font(.subheadline)
             }
@@ -116,6 +116,7 @@ struct DashboardView: View {
             if let session = dashboard.allSessions.first(where: { $0.id == target.id }) {
                 SessionDetailSheet(session: session, onReply: { replyTo = session.id; detailId = nil })
                     .environmentObject(dashboard)
+                    .onAppear { dashboard.acknowledge(session.id) }
             }
         }
         .overlay(alignment: .bottom) {
@@ -158,6 +159,7 @@ struct DashboardView: View {
     private func focus(_ proxy: ScrollViewProxy) {
         guard let id = dashboard.focusedSessionId,
               dashboard.allSessions.contains(where: { $0.id == id }) else { return }
+        dashboard.acknowledge(id)
         dashboard.clearFocus()
         withAnimation(.smooth) { proxy.scrollTo(id, anchor: .center) }
         highlightId = id

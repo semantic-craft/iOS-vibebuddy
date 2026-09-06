@@ -3,7 +3,7 @@ import VibeBuddyKit
 
 /// Pure reducer: folds a stream of `HookEvent`s into the current set of
 /// `AgentSession`s. No I/O and no `Date()` — time comes from the events — so it
-/// is fully deterministic and unit-testable. Transcript/git enrichment (model,
+/// is unit-testable; completion identity is an opaque UUID minted once per ending. Transcript/git enrichment (model,
 /// tokens, branch) is layered on by the server, not here.
 public struct SessionReducer: Sendable {
     public private(set) var sessions: [String: AgentSession] = [:]
@@ -51,6 +51,7 @@ public struct SessionReducer: Sendable {
             if let turnID = event.turnID { currentTurnID[event.sessionID] = turnID }
             upsert(event, status: .working, waitKind: nil)
             sessions[event.sessionID]?.hasUnreadCompletion = false
+            sessions[event.sessionID]?.completionID = nil
             sessions[event.sessionID]?.failed = false
             sessions[event.sessionID]?.probeRetired = nil
             sessions[event.sessionID]?.activeTool = nil
@@ -61,6 +62,7 @@ public struct SessionReducer: Sendable {
             } else {
                 upsert(event, status: .working, waitKind: nil)
                 sessions[event.sessionID]?.hasUnreadCompletion = false
+                sessions[event.sessionID]?.completionID = nil
                 sessions[event.sessionID]?.probeRetired = nil
                 if event.kind == .preToolUse {
                     sessions[event.sessionID]?.activeTool = event.toolName
@@ -76,6 +78,7 @@ public struct SessionReducer: Sendable {
                    summary: event.message)
             sessions[event.sessionID]?.failed = false       // waiting on you, not stuck
             sessions[event.sessionID]?.hasUnreadCompletion = false
+            sessions[event.sessionID]?.completionID = nil
             sessions[event.sessionID]?.activeTool = nil      // no tool running while waiting
         case .stop:
             // A settle report for a turn the session has already moved past is
@@ -87,6 +90,8 @@ public struct SessionReducer: Sendable {
                let current = currentTurnID[event.sessionID], current != turnID {
                 break
             }
+            let previousCompletion = sessions[event.sessionID]?.completionID
+            let wasDone = sessions[event.sessionID]?.status == .done
             // Create-if-missing so a late-observed lifecycle still shows as done;
             // carry the agent's final summary when present.
             upsert(event, status: .done, waitKind: nil, summary: event.message)
@@ -95,6 +100,7 @@ public struct SessionReducer: Sendable {
             // completion — no unread-complete badge and no agentDone cue.
             if event.probeRetirement {
                 sessions[event.sessionID]?.hasUnreadCompletion = false
+                sessions[event.sessionID]?.completionID = nil
                 sessions[event.sessionID]?.failed = false
                 sessions[event.sessionID]?.probeRetired = true
                 break
@@ -106,7 +112,17 @@ public struct SessionReducer: Sendable {
             // A clean result remains green until an explicit read acknowledgement.
             // Failed endings stay red and do not manufacture a completion unread.
             let cleanCompletion = sessions[event.sessionID]?.isStuck == false
-            sessions[event.sessionID]?.hasUnreadCompletion = cleanCompletion
+            if cleanCompletion {
+                if !wasDone || previousCompletion == nil {
+                    sessions[event.sessionID]?.completionID = UUID().uuidString
+                    sessions[event.sessionID]?.hasUnreadCompletion = true
+                }
+                // Repeated idle/stop evidence for this ending cannot resurrect
+                // an explicitly read result or manufacture a new identity.
+            } else {
+                sessions[event.sessionID]?.hasUnreadCompletion = false
+                sessions[event.sessionID]?.completionID = nil
+            }
         case .sessionEnd:
             // The session is over (exit / clear / logout). Drop it entirely so
             // an idle "needs you" prompt doesn't outlive the session it belonged to.
@@ -283,12 +299,17 @@ public struct SessionReducer: Sendable {
     /// Mark a known session as blocked on a remote approval.
     public mutating func setPendingApproval(sessionID: String, _ approval: PendingApproval, at: Date) {
         guard var s = sessions[sessionID] else { return }
-        if s.status != .needsResponse { s.statusSince = at }
+        let replacesWait = s.pendingQuestion != nil
+            || s.pendingApproval.map { $0.id != approval.id } == true
+        // Late metadata for the same request keeps its original boundary.
+        // A different concrete request starts its own five-minute wait.
+        if s.status != .needsResponse || replacesWait { s.statusSince = at }
         s.status = .needsResponse
         s.waitKind = .permission
         s.pendingApproval = approval
         s.pendingQuestion = nil
         s.hasUnreadCompletion = false
+        s.completionID = nil
         s.updatedAt = at
         sessions[sessionID] = s
     }
@@ -300,6 +321,7 @@ public struct SessionReducer: Sendable {
         s.waitKind = nil
         s.status = .working
         s.hasUnreadCompletion = false
+        s.completionID = nil
         s.statusSince = at
         s.updatedAt = at
         sessions[sessionID] = s
@@ -309,13 +331,16 @@ public struct SessionReducer: Sendable {
     /// its own contract (a blocking hook, an app-server request).
     public mutating func setPendingQuestion(sessionID: String, _ question: PendingQuestion, at: Date) {
         guard var s = sessions[sessionID] else { return }
-        if s.status != .needsResponse { s.statusSince = at }
+        let replacesWait = s.pendingApproval != nil
+            || s.pendingQuestion.map { $0.id != question.id } == true
+        if s.status != .needsResponse || replacesWait { s.statusSince = at }
         s.status = .needsResponse
         s.waitKind = .question
         s.pendingQuestion = question
         s.pendingApproval = nil
         s.summary = question.prompt
         s.hasUnreadCompletion = false
+        s.completionID = nil
         s.activeTool = nil
         s.updatedAt = at
         sessions[sessionID] = s
@@ -328,6 +353,7 @@ public struct SessionReducer: Sendable {
         s.waitKind = nil
         s.status = .working
         s.hasUnreadCompletion = false
+        s.completionID = nil
         s.statusSince = at
         s.updatedAt = at
         sessions[sessionID] = s
@@ -349,8 +375,9 @@ public struct SessionReducer: Sendable {
     /// Mark a clean completion as read without changing lifecycle timestamps or
     /// list order. Returns whether authoritative state changed.
     @discardableResult
-    public mutating func acknowledgeCompletion(sessionID: String) -> Bool {
-        guard var session = sessions[sessionID], session.hasUnreadCompletion else { return false }
+    public mutating func acknowledgeCompletion(sessionID: String, completionID: String) -> Bool {
+        guard var session = sessions[sessionID], session.status == .done,
+              session.completionID == completionID, session.hasUnreadCompletion else { return false }
         session.hasUnreadCompletion = false
         sessions[sessionID] = session
         return true

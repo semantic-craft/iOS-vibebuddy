@@ -474,13 +474,24 @@ public struct VibeBuddyServer: Sendable {
 
         // Explicit read acknowledgement. Merely receiving/rendering a snapshot
         // never clears unread state; a client calls this only after selection or open.
-        authed.post("acknowledge") { request, _ -> HTTPResponse.Status in
+        authed.post("acknowledge") { request, _ -> Response in
             let buffer = try await request.body.collect(upTo: 4096)
-            guard let object = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
-                  let sessionID = object["sessionId"] as? String,
-                  !sessionID.isEmpty else { throw HTTPError(.badRequest) }
-            await store.acknowledgeCompletion(sessionID: sessionID)
-            return .ok
+            guard let read = try? JSONDecoder().decode(CompletionReadRequest.self, from: Data(buffer: buffer)),
+                  !read.sourceID.isEmpty, !read.sessionID.isEmpty, !read.completionID.isEmpty
+            else { throw HTTPError(.badRequest) }
+            let result = await store.acknowledgeCompletion(read)
+            let data = try JSONEncoder().encode(result)
+            return Response(status: .ok, headers: [.contentType: "application/json"],
+                            body: .init(byteBuffer: ByteBuffer(bytes: data)))
+        }
+
+        // A read is not a decision; keep this separate from exact completion reads.
+        authed.post("acknowledge-wait") { request, _ -> Response in
+            let buffer = try await request.body.collect(upTo: 4096)
+            guard let read = try? JSONDecoder().decode(WaitReadRequest.self, from: Data(buffer: buffer)),
+                  !read.sourceID.isEmpty, !read.sessionID.isEmpty else { throw HTTPError(.badRequest) }
+            let accepted = await store.acknowledgeWait(read)
+            return Response(status: accepted ? .ok : .conflict)
         }
 
         // Blocking approval intake — bearer-token gated (the approval hook reads
@@ -742,9 +753,8 @@ public struct VibeBuddyServer: Sendable {
             let buffer = try await request.body.collect(upTo: 4096)
             guard let o = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
                   let sid = o["sessionId"] as? String else { throw HTTPError(.badRequest) }
-            // Jumping is an explicit return to the task, even if this terminal
-            // type cannot ultimately be focused.
-            await store.acknowledgeCompletion(sessionID: sid)
+            // A jump names no completion round. The caller sends an explicit
+            // round-qualified read separately after displaying that result.
             await store.recordInteraction(sessionID: sid)
             // Report what actually happened so the phone can give honest feedback.
             // The jumper answers after it has run, so `focused` means the exact

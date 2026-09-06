@@ -10,6 +10,7 @@ public struct MissedEntry: Codable, Sendable, Equatable, Identifiable {
     public let agent: AgentKind
     public let waitKind: WaitKind
     public let statusSince: Date
+    public var pendingID: String?
     public let missedAt: Date
 }
 
@@ -48,6 +49,8 @@ struct MissedLedger {
     struct WaitKey: Hashable, Codable {
         var sessionID: String
         var statusSince: Date
+        var waitKind: WaitKind?
+        var pendingID: String?
     }
 
     private struct Envelope: Codable {
@@ -84,10 +87,13 @@ struct MissedLedger {
         flush(now: now)
         var live = Set<WaitKey>()
         for session in sessions where session.status == .needsResponse {
-            let key = WaitKey(sessionID: session.id, statusSince: session.statusSince)
+            let key = WaitKey(sessionID: session.id, statusSince: session.statusSince,
+                              waitKind: session.waitKind ?? (session.pendingApproval != nil ? .permission : .question),
+                              pendingID: session.pendingApproval?.id ?? session.pendingQuestion?.id)
             live.insert(key)
+            adoptPendingIdentity(for: key)
             if resolved.contains(key) || recorded(key) { continue }
-            pending[key] = Pending(agent: session.agent, waitKind: session.waitKind ?? .question)
+            pending[key] = Pending(agent: session.agent, waitKind: key.waitKind ?? .question)
         }
         pending = pending.filter { live.contains($0.key) }
         flush(now: now)
@@ -151,6 +157,7 @@ struct MissedLedger {
                 agent: wait.agent,
                 waitKind: wait.waitKind,
                 statusSince: key.statusSince,
+                pendingID: key.pendingID,
                 missedAt: key.statusSince.addingTimeInterval(Self.waitTimeout)
             ))
             pending[key] = nil
@@ -171,8 +178,30 @@ struct MissedLedger {
         return changed
     }
 
+    /// A hook can describe a wait before its richer pending request arrives.
+    /// That metadata upgrade keeps the original acknowledgement/miss, while a
+    /// replacement concrete ID is always a distinct key.
+    private mutating func adoptPendingIdentity(for key: WaitKey) {
+        guard key.pendingID != nil else { return }
+        let generic = WaitKey(sessionID: key.sessionID, statusSince: key.statusSince,
+                              waitKind: key.waitKind, pendingID: nil)
+        var changed = false
+        if resolved.remove(generic) != nil {
+            resolved.insert(key)
+            changed = true
+        }
+        for index in entries.indices where entries[index].sessionID == key.sessionID
+            && entries[index].statusSince == key.statusSince
+            && entries[index].waitKind == key.waitKind && entries[index].pendingID == nil {
+            entries[index].pendingID = key.pendingID
+            changed = true
+        }
+        if changed { persistBestEffort() }
+    }
+
     private func recorded(_ key: WaitKey) -> Bool {
-        entries.contains { $0.sessionID == key.sessionID && $0.statusSince == key.statusSince }
+        entries.contains { $0.sessionID == key.sessionID && $0.statusSince == key.statusSince
+            && $0.waitKind == key.waitKind && $0.pendingID == key.pendingID }
     }
 
     private static func pruned(_ entries: [MissedEntry], now: Date) -> [MissedEntry] {

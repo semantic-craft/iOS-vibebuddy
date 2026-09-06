@@ -101,7 +101,7 @@ struct SessionStoreTests {
     }
 
     @Test("snapshot delivery is passive; only explicit acknowledgement clears unread")
-    func unreadAcknowledgementIsAuthoritative() async {
+    func unreadAcknowledgementIsAuthoritative() async throws {
         let store = SessionStore()
         await store.ingest(Data(#"{"hook_event_name":"UserPromptSubmit","session_id":"s","cwd":"/x/p"}"#.utf8),
                            receivedAt: t0)
@@ -110,7 +110,8 @@ struct SessionStoreTests {
 
         #expect(await store.snapshot(now: t0).sessions.first?.hasUnreadCompletion == true)
         #expect(await store.snapshot(now: t0.addingTimeInterval(2)).sessions.first?.hasUnreadCompletion == true)
-        #expect(await store.acknowledgeCompletion(sessionID: "s"))
+        let request = try await completionReadRequest(store, sessionID: "s")
+        #expect(await store.acknowledgeCompletion(request).outcome == .accepted)
         #expect(await store.snapshot(now: t0.addingTimeInterval(3)).sessions.first?.presentationState == .idle)
     }
 
