@@ -18,9 +18,9 @@ struct QuestionCardView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label(items.count > 1 ? "\(items.count) questions" : "Question", systemImage: "questionmark.bubble")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(Color(taskStatus: TaskPresentationState.requiresInput.colorToken))
+            Text(items.count > 1 ? "\(items.count) questions" : "Question")
+                .font(MacTheme.font(10, .heavy)).textCase(.uppercase).kerning(0.6)
+                .foregroundStyle(MacTheme.status(.requiresInput))
             if question.isBlocking == false, let expires = question.expiresAt {
                 Text("Codex moves on by itself in \(expires, style: .timer)")
                     .font(.caption2).foregroundStyle(.secondary).monospacedDigit()
@@ -30,13 +30,14 @@ struct QuestionCardView: View {
                     if let header = item.header, items.count > 1 {
                         Text(header).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                     }
-                    Text(item.text).font(.body).fixedSize(horizontal: false, vertical: true)
+                    Text(item.text).font(MacTheme.font(14, .heavy)).foregroundStyle(MacTheme.ink)
+                        .fixedSize(horizontal: false, vertical: true)
                     if item.multiSelect { Text("Choose any").font(.caption2).foregroundStyle(.tertiary) }
                     ForEach(item.options) { option in
                         Button { choose(option, in: item) } label: {
                             HStack(spacing: 8) {
                                 Image(systemName: isPicked(option, in: item) ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(isPicked(option, in: item) ? Color.accentColor : Color.secondary)
+                                    .foregroundStyle(isPicked(option, in: item) ? MacTheme.accent : MacTheme.ink3)
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(option.label).fontWeight(.semibold)
                                     if let description = option.description {
@@ -47,26 +48,30 @@ struct QuestionCardView: View {
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(PillButtonStyle(kind: .soft, size: .small))
                     }
                     if item.allowsOther {
                         TextField(item.options.isEmpty ? "Your answer" : "Other…",
                                   text: binding(for: item.id), axis: .vertical)
-                            .textFieldStyle(.roundedBorder)
+                            .textFieldStyle(.plain)
+                            .font(MacTheme.font(13, .semibold))
                             .lineLimit(1...4)
+                            .padding(.horizontal, 12).padding(.vertical, 7)
+                            .background(MacTheme.bg3, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                             .onSubmit { if sendsOnTap || items.count == 1 { send() } }
                     }
                 }
             }
             if !sendsOnTap {
                 Button("Send answer\(items.count > 1 ? "s" : "")") { send() }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(PillButtonStyle(kind: .filled(MacTheme.accent)))
                     .disabled(!complete)
                     .keyboardShortcut(.return, modifiers: .command)
             }
         }
         .padding(12)
-        .background(Color(nsColor: .controlBackgroundColor), in: .rect(cornerRadius: 8))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(MacTheme.bg2, in: RoundedRectangle(cornerRadius: MacTheme.cardRadius, style: .continuous))
         .onChange(of: question.id) { _, _ in picked = [:]; typed = [:] }
     }
 

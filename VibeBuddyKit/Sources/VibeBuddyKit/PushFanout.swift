@@ -29,6 +29,12 @@ public enum CueSkipReason: String, Sendable, Equatable, Codable {
     /// would claim they all agreed — and the registry is a dictionary, so which
     /// one you got would not even be stable between runs.
     case mixed
+    /// That phone reported posting this cue itself, so the push for it stood
+    /// down (ADR-0012).
+    case phonePosted
+    /// The phone left this waiting cue to a push that had already delivered it
+    /// (ADR-0012). Reported by the phone; recorded on the `phone` channel.
+    case pushCovered
 }
 
 /// One phone this cue is going to, and how loud it will be there.
@@ -100,5 +106,41 @@ public struct PushFanout: Equatable, Sendable {
         }
         guard recipients.isEmpty else { return PushFanout(recipients: recipients, skip: nil) }
         return PushFanout(recipients: [], skip: refusals.count == 1 ? refusals.first : .mixed)
+    }
+}
+
+/// Who hears a budget / usage notice. Independent of `DeliveryMatrix`: only the
+/// `quota` category switch applies, and Quiet mode does not drop it. Missing
+/// phone prefs are the phone default (quota off).
+public struct QuotaPushPlan: Equatable, Sendable {
+    public let recipients: [DeviceRegistrationPayload]
+    public let skip: CueSkipReason?
+
+    public init(recipients: [DeviceRegistrationPayload], skip: CueSkipReason?) {
+        self.recipients = recipients
+        self.skip = skip
+    }
+}
+
+public enum QuotaNoticeFanout {
+    /// `nil` means this Mac's quota switch is on; otherwise the skip to log.
+    public static func localSkip(categories: NotificationCategoryPrefs) -> CueSkipReason? {
+        categories.isEnabled(.quota) ? nil : .category
+    }
+
+    public static func plan(devices: [DeviceRegistrationPayload],
+                            apnsConfigured: Bool) -> QuotaPushPlan {
+        guard apnsConfigured else {
+            return QuotaPushPlan(recipients: [], skip: .apnsNotConfigured)
+        }
+        let registered = devices.filter { $0.token?.isEmpty == false }
+        guard !registered.isEmpty else {
+            return QuotaPushPlan(recipients: [], skip: .noRegisteredDevice)
+        }
+        let wanted = registered.filter { ($0.categories ?? .default).isEnabled(.quota) }
+        if wanted.isEmpty {
+            return QuotaPushPlan(recipients: [], skip: .category)
+        }
+        return QuotaPushPlan(recipients: wanted, skip: nil)
     }
 }

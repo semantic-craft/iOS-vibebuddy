@@ -17,6 +17,11 @@ public enum NotificationDeliveryOutcome: String, Codable, Sendable, CaseIterable
 public enum NotificationDeliveryChannel: String, Codable, Sendable, Equatable {
     case local
     case apns
+    /// The phone's own local notification, as the phone reported it
+    /// (`POST /notified`): `scheduled` when it posted the cue itself,
+    /// `skipped` (`pushCovered`) when it left the cue to a push that had
+    /// already landed. Reported, not observed — it never moves this Mac's health.
+    case phone
 }
 
 public enum NotificationAuthorization: String, Sendable, Equatable {
@@ -186,6 +191,8 @@ public struct NotificationDeliveryHealthTracker: Equatable, Sendable {
     /// Returns true only when a new failure diagnostic should surface.
     @discardableResult
     public mutating func apply(_ record: NotificationDeliveryRecord, now: Date) -> Bool {
+        // What the phone did says nothing about this Mac's banners or its APNs key.
+        guard record.channel != .phone else { return false }
         lastAttempt = record
         switch record.outcome {
         case .scheduled, .accepted:
