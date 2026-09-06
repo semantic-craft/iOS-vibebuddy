@@ -71,6 +71,9 @@ final class PushRegistration {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONEncoder().encode(DeviceRegistrationPayload(
             token: token,
+            // A retained Keychain identity lets a rotated token replace this
+            // phone's existing record on the Mac.
+            deviceID: PushDeviceIdentity.current(),
             name: UIDevice.current.name,
             model: UIDevice.current.model,
             systemVersion: "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)",

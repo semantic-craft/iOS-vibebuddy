@@ -37,6 +37,69 @@ public enum KeychainStore {
     }
 }
 
+/// The phone's stable push identity: one UUID, minted on first use and kept in
+/// the Keychain to retain it when the app container is replaced. Reinstall
+/// and restore behavior still require device acceptance. Without an identity
+/// surviving token rotation the Mac's registry sees each new token as a new phone and keeps
+/// the old one — with the switches it uploaded last time. See
+/// `DeviceRegistrationPayload.deviceID`.
+public enum PushDeviceIdentity {
+    public static let keychainKey = "pushDeviceID"
+
+    public enum Lookup: Equatable {
+        case found(String), missing, unavailable
+    }
+
+    /// Create only when storage positively reports no identity. Transient
+    /// access failures must not replace an existing ID or advertise a new one.
+    public static func current(
+        read: (String) -> Lookup = readIdentity,
+        write: (String, String) -> Bool = addIdentity,
+        mint: () -> String = { UUID().uuidString }
+    ) -> String? {
+        switch read(keychainKey) {
+        case .found(let value): return valid(value)
+        case .unavailable: return nil
+        case .missing:
+            _ = write(mint(), keychainKey)
+            // Add-only also handles another caller winning creation: read the
+            // durable winner instead of overwriting it with our own UUID.
+            guard case .found(let stored) = read(keychainKey) else { return nil }
+            return valid(stored)
+        }
+    }
+
+    private static func valid(_ value: String) -> String? {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : value
+    }
+
+    private static func query(_ key: String) -> [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword,
+         kSecAttrService as String: "com.vibebuddy.secrets",
+         kSecAttrAccount as String: key]
+    }
+
+    public static func readIdentity(_ key: String) -> Lookup {
+        var request = query(key)
+        request[kSecReturnData as String] = true
+        request[kSecMatchLimit as String] = kSecMatchLimitOne
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(request as CFDictionary, &item)
+        if status == errSecItemNotFound { return .missing }
+        guard status == errSecSuccess, let data = item as? Data,
+              let value = String(data: data, encoding: .utf8) else { return .unavailable }
+        return .found(value)
+    }
+
+    public static func addIdentity(_ value: String, for key: String) -> Bool {
+        guard let data = valid(value)?.data(using: .utf8) else { return false }
+        var request = query(key)
+        request[kSecValueData as String] = data
+        request[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        return SecItemAdd(request as CFDictionary, nil) == errSecSuccess
+    }
+}
+
 /// The language the voice companion converses in — drives speech recognition,
 /// the model's reply language, and the spoken voice. Independent of the app's UI
 /// language (which is English).
