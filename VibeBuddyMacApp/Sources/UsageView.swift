@@ -110,6 +110,8 @@ struct AccountUsageSettings: View {
     @ObservedObject var model: MenuBarModel
     @AppStorage("accountUsageAlertThreshold") private var alertThreshold = 90
     @State private var cursorCookie: String = CursorSessionCookieStore.load() ?? ""
+    @State private var cursorCookieMode: CursorCookieSourceMode = CursorCookieSourceSettings.mode()
+    @State private var cursorImportMessage: String?
 
     var body: some View {
         Form {
@@ -130,23 +132,58 @@ struct AccountUsageSettings: View {
             }
 
             Section {
-                SecureField("Cookie header from cursor.com", text: $cursorCookie)
-                    .textFieldStyle(.roundedBorder)
-                    .onChange(of: cursorCookie) { _, value in
-                        CursorSessionCookieStore.save(value)
+                Picker("Cookie source", selection: $cursorCookieMode) {
+                    ForEach(CursorCookieSourceMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode)
                     }
-                Button("Paste Cookie") {
-                    guard let pasted = NSPasteboard.general.string(forType: .string) else { return }
-                    let trimmed = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !trimmed.isEmpty else { return }
-                    cursorCookie = trimmed
-                    CursorSessionCookieStore.save(trimmed)
                 }
-                .accessibilityIdentifier("paste-cursorCookie")
+                .onChange(of: cursorCookieMode) { _, mode in
+                    CursorCookieSourceSettings.setMode(mode)
+                }
+
+                if cursorCookieMode == .manual {
+                    SecureField("Cookie header from cursor.com", text: $cursorCookie)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: cursorCookie) { _, value in
+                            CursorSessionCookieStore.save(value)
+                        }
+                    Button("Paste Cookie") {
+                        guard let pasted = NSPasteboard.general.string(forType: .string) else { return }
+                        let trimmed = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !trimmed.isEmpty else { return }
+                        cursorCookie = trimmed
+                        CursorSessionCookieStore.save(trimmed)
+                    }
+                    .accessibilityIdentifier("paste-cursorCookie")
+                } else {
+                    Button("Import Cookie from browser now") {
+                        cursorImportMessage = nil
+                        do {
+                            let header = try CursorBrowserCookieImporter()
+                                .importSessionCookieHeader(allowKeychainPrompt: true)
+                            CursorSessionCookieStore.save(header)
+                            cursorCookie = header
+                            cursorImportMessage = "Imported a Cursor session cookie from the browser."
+                        } catch {
+                            cursorImportMessage = "No usable Cursor session found in the browser. Paste a Cookie header, or sign in at cursor.com and try again."
+                        }
+                    }
+                    .accessibilityIdentifier("import-cursorCookie")
+                    if let cursorImportMessage {
+                        Text(cursorImportMessage)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    SecureField("Last imported / fallback Cookie", text: $cursorCookie)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: cursorCookie) { _, value in
+                            CursorSessionCookieStore.save(value)
+                        }
+                }
             } header: {
                 Text("Cursor session")
             } footer: {
-                Text("Copy the Cookie request header from a logged-in cursor.com network request, then paste it here. Browser auto-import is a later ticket.")
+                Text("Paste mode stores the Cookie header in the Keychain. Browser import reads Safari/Chrome/Firefox cookies for cursor.com (may prompt for Keychain or Full Disk Access); refresh uses a non-interactive import and falls back to the saved Cookie.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
