@@ -1,12 +1,12 @@
 # How the APNs provider key reaches the Mac
 
-**Status:** Proposed (awaiting DEC-APNS)
+**Status:** Proposed (project-operated relay rejected; key-delivery choice remains open)
 
 **Ticket:** ready-for-human
 
 **Executor:** cursor-grok-4.6 · 分支 claude/a-11-apns-key-delivery · 2026-09-06 04:12 +0800
 
-DEC-APNS picks exactly one of A / B / C. This ADR compares them. It does not pick.
+The owner reaffirmed on 2026-09-06: “我们不运营服务” (we do not operate a service). Option C is rejected. The remaining key-delivery choice is not yet accepted; this decision does not authorize bundling the project key or expanding the public product promise.
 
 ## Context
 
@@ -104,7 +104,7 @@ Settings (or a first-run file drop) takes the user's Team ID / Key ID / `.p8`. `
 
 **Ops.** Docs and a file picker. No server. 1.3 cannot promise closed-app push to the public.
 
-### C — Minimal relay
+### C — Minimal relay (rejected by owner, 2026-09-06)
 
 A tiny HTTPS service the project runs holds the `.p8`. The Mac, after pairing, POSTs `{deviceToken, payload}` (or a wake-only payload) with a project or per-install relay credential. The relay signs the JWT and talks to APNs. The Mac never sees the Apple key.
 
@@ -153,7 +153,9 @@ Not implementation. A-12 writes the ticket and the code after DEC-APNS.
 
 ## Decision
 
-Not taken. DEC-APNS writes the choice and the reason here, sets **Status: Accepted**, and leaves exactly one option in force.
+On 2026-09-06 the owner explicitly rejected operating a service. Option C is out of scope, preserving Q8 / Q16 and ADR-0002. Do not propose or implement a project-operated relay as the default next step.
+
+This is a binding product boundary, not acceptance of option A or B for public distribution. Keep the existing owner-controlled push path while developing the personal-use release. Reassess public closed-app delivery within the no-operated-service boundary; bring only a concrete directional trade-off back to the owner. A-12 remains blocked until the key-delivery choice is accepted. Do not bundle or distribute project credentials on the strength of this decision.
 
 ## Comments
 
