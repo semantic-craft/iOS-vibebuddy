@@ -521,7 +521,8 @@ final class DashboardStore: ObservableObject {
             sessions: snapshot.sessions,
             now: Date(),
             appActive: UIApplication.shared.applicationState == .active,
-            quietMode: SoundPrefs.effectiveQuiet())))
+            quietMode: SoundPrefs.effectiveQuiet(),
+            focusedSessionIDs: Set(snapshot.sessions.filter(\.nativePromptHoldsWait).map(\.id)))))
         var rang = false
         for alert in alerts {
             // A cue a push already delivered is not posted again (ADR-0012), and

@@ -141,7 +141,7 @@ private struct SetupSettings: View {
                     get: { model.alwaysAskPhone },
                     set: { model.setAlwaysAskPhone($0) }))
             } header: { Text("Approvals and questions") } footer: {
-                Text("Off: while you are at the Mac — the session's terminal or Codex Desktop in front, screen unlocked, input within the last two minutes — the agent's own prompt takes the answer and the phone shows a read-only card. On: every prompt waits for the phone even at the desk.")
+                Text("Off: while you are at the Mac — the session's terminal or Codex Desktop in front, screen unlocked, input within the last two minutes — the agent's own prompt takes the answer, the phone shows a read-only card, and ordinary reminders stay on the Mac. Leaving, locking, or going idle restores the reminder; the card stays read-only. On: every prompt waits for the phone even at the desk.")
                     .font(.caption)
             }
 

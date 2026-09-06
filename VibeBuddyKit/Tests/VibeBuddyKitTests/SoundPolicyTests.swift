@@ -246,6 +246,61 @@ struct SoundPolicyTests {
         #expect(alerts.map { "\($0.sound.rawValue):\($0.delivery)" } == ["agent_done:list", "needs_approval:list"])
     }
 
+    @Test("leaving presence restores a still-open wait at full matrix level")
+    func leavingPresenceRestoresWait() {
+        let p = SoundPolicy()
+        let waiting = session("a", .needsResponse, wait: .permission, since: 1)
+        _ = p.evaluate(input([session("a", .working)], now: 0))
+        let present = p.evaluate(input([waiting], now: 1, focused: ["a"]))
+        #expect(present.map(\.delivery) == [.list])
+        let away = p.evaluate(input([waiting], now: 3, focused: []))
+        #expect(away.map(\.sound) == [.needsApproval])
+        #expect(away.map(\.delivery) == [.bannerSound])
+    }
+
+    @Test("an answered wait is not replayed after leaving presence")
+    func leavingPresenceDoesNotReplayHandledWait() {
+        let p = SoundPolicy()
+        _ = p.evaluate(input([session("a", .working)], now: 0))
+        _ = p.evaluate(input([session("a", .needsResponse, wait: .question, since: 1)], now: 1, focused: ["a"]))
+        _ = p.evaluate(input([session("a", .working, since: 2)], now: 2, focused: ["a"]))
+        let away = p.evaluate(input([session("a", .working, since: 2)], now: 3, focused: []))
+        #expect(away.isEmpty)
+    }
+
+    @Test("leaving presence a second time does not re-ring the same wait")
+    func leavingPresenceRestoresOnce() {
+        let p = SoundPolicy()
+        let waiting = session("a", .needsResponse, wait: .question, since: 1)
+        _ = p.evaluate(input([session("a", .working)], now: 0))
+        _ = p.evaluate(input([waiting], now: 1, focused: ["a"]))
+        _ = p.evaluate(input([waiting], now: 3, focused: []))
+        _ = p.evaluate(input([waiting], now: 4, focused: ["a"]))
+        let again = p.evaluate(input([waiting], now: 5, focused: []))
+        #expect(again.isEmpty)
+    }
+
+    @Test("Quiet mode still caps a restored wait — presence never outranks Focus")
+    func leavingPresenceRespectsQuiet() {
+        let p = SoundPolicy()
+        let waiting = session("a", .needsResponse, wait: .permission, since: 1)
+        _ = p.evaluate(input([session("a", .working)], now: 0))
+        _ = p.evaluate(input([waiting], now: 1, focused: ["a"]))
+        let away = p.evaluate(input([waiting], now: 3, quiet: true, focused: []))
+        #expect(away.map(\.sound) == [.needsApproval])
+        #expect(away.map(\.delivery) == [.banner])
+    }
+
+    @Test("a wait first seen while present still restores after leaving — the arrival verdict does not freeze")
+    func firstSnapshotPresentThenLeaveRestores() {
+        let p = SoundPolicy()
+        let waiting = session("a", .needsResponse, wait: .permission, since: 0)
+        #expect(p.evaluate(input([waiting], now: 0, focused: ["a"])).isEmpty)
+        let away = p.evaluate(input([waiting], now: 2, focused: []))
+        #expect(away.map(\.sound) == [.needsApproval])
+        #expect(away.map(\.delivery) == [.bannerSound])
+    }
+
     @Test("done still rings for a session whose terminal is NOT the focused one")
     func doneOtherTerminalRings() {
         let p = SoundPolicy()
