@@ -9,15 +9,15 @@ struct VibeBuddyMenuBarApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var model: MenuBarModel
     private let role: AppRuntime.Role
-    // Settings → General → "Show icon in menu bar". `isInserted` keeps the
-    // MenuBarExtra scene in the graph (so its label still bridges the global
-    // hotkey to openWindow) while removing the icon from the menu bar.
+    // Visibility affects only the icon; app-level commands stay available.
     @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
 
     init() {
         let role = AppRuntime.role
         self.role = role
-        _model = StateObject(wrappedValue: MenuBarModel(runtimeEnabled: role == .primary))
+        let model = MenuBarModel(runtimeEnabled: role == .primary)
+        _model = StateObject(wrappedValue: model)
+        delegate.model = model
     }
 
     var body: some Scene {
@@ -30,14 +30,18 @@ struct VibeBuddyMenuBarApp: App {
         }
         .menuBarExtraStyle(.window)
 
-        Window("vibebuddy", id: "dashboard") {
-            DashboardView(model: model)
-                .frame(minWidth: 760, minHeight: 480)
-        }
-        .windowResizability(.contentMinSize)
-
-        Settings {
-            SettingsView(model: model)
+        .commands {
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") {
+                    NotificationCenter.default.post(name: .openAppSettings, object: nil)
+                }
+                .keyboardShortcut(",", modifiers: .command)
+            }
+            CommandGroup(after: .windowArrangement) {
+                Button("Open Dashboard") {
+                    NotificationCenter.default.post(name: .openDashboard, object: nil)
+                }
+            }
         }
     }
 }
@@ -82,9 +86,30 @@ private enum AppRuntime {
 }
 
 /// Hide the Dock icon — menu-bar-only app.
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let log = Logger(subsystem: "com.vibebuddy.app", category: "lifecycle")
     private var openRequestObserver: NSObjectProtocol?
+    var model: MenuBarModel!
+    private var windows: AppWindows?
+
+    @objc private func openDashboard() {
+        windows?.showDashboard()
+    }
+
+    @objc private func openSettings() {
+        windows?.showSettings()
+    }
+
+    @objc private func toggleGlance() {
+        model.setShowGlance(!model.showGlance)
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        // A visible Glance or Settings window does not satisfy a Dashboard request.
+        openDashboard()
+        return false
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard AppRuntime.role == .primary else {
@@ -93,6 +118,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async { NSApp.terminate(nil) }
             return
         }
+        windows = AppWindows(
+            dashboard: AnyView(DashboardView(model: model)),
+            settings: AnyView(SettingsView(model: model)))
+        NotificationCenter.default.addObserver(self, selector: #selector(openDashboard), name: .openDashboard, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(openSettings), name: .openAppSettings, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(toggleGlance), name: .toggleGlance, object: nil)
         NSApp.setActivationPolicy(.accessory)
         // Keep the background daemon alive. macOS cleanly auto-terminates idle
         // accessory apps to reclaim resources (no crash report — exactly the
@@ -103,12 +134,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         openRequestObserver = AppRuntime.observeOpenRequests()
         GlobalHotkey.install()
         Self.log.notice("didFinishLaunching")
+        // Explicit launches show a usable window even when the menu icon is hidden.
+        // Login-item launches remain quiet.
+        let loginLaunch = NSAppleEventManager.shared().currentAppleEvent?
+            .paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
+        if !loginLaunch {
+            if ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO_PAGE"] == "settings" {
+                openSettings()
+            } else {
+                openDashboard()
+            }
+        }
     }
 
-    /// A menu-bar app must NOT quit when the dashboard/settings window closes.
-    /// (Likely cause of the observed clean exits: a window opens via
-    /// AppActivationPolicy.enter() → .regular, then closing the last window
-    /// terminates the app.) Returning false keeps the daemon alive.
+    /// Closing ordinary windows must leave the daemon and Glance running.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         Self.log.notice("shouldTerminateAfterLastWindowClosed -> false")
         return false
@@ -153,14 +192,9 @@ enum MenuBarGlyph {
     }()
 }
 
-/// The MenuBarExtra label. Always instantiated while the app runs, so its
-/// `.onReceive` is a reliable bridge from the global Carbon hotkey
-/// (`.openDashboard` notification) to SwiftUI's `openWindow`, which is only
-/// available from a View's environment.
+/// Presentation only; hiding the label cannot disconnect app commands.
 struct MenuBarLabel: View {
     @ObservedObject var model: MenuBarModel
-    @Environment(\.openWindow) private var openWindow
-    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         let state = model.presentationSummary.primaryState
@@ -183,28 +217,7 @@ struct MenuBarLabel: View {
                     .accessibilityLabel("\(count) \(state.label)")
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .openDashboard)) { _ in
-            AppActivationPolicy.enter()
-            openWindow(id: "dashboard")
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .toggleGlance)) { _ in
-            model.setShowGlance(!model.showGlance)
-        }
-        .task {
-            // Screenshot/exploration mode is intentionally self-contained: open
-            // the window to shoot without depending on a global hotkey or menu
-            // click. A demo instance shares the installed app's bundle id, so
-            // driving its menus over Accessibility is ambiguous — the env var is
-            // the only reliable way to aim a screenshot at Settings.
-            if ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1" {
-                AppActivationPolicy.enter()
-                if ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO_PAGE"] == "settings" {
-                    openSettings()
-                } else {
-                    openWindow(id: "dashboard")
-                }
-            }
-        }
+
     }
 }
 
@@ -220,16 +233,13 @@ struct MenuContent: View {
     @ObservedObject var model: MenuBarModel
     @State private var listContentHeight: CGFloat = 0
     @State private var greet = 0
-    @Environment(\.openWindow) private var openWindow
-    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             summaryHead
 
             Button {
-                AppActivationPolicy.enter()
-                openWindow(id: "dashboard")
+                NotificationCenter.default.post(name: .openDashboard, object: nil)
             } label: {
                 HStack(spacing: 8) {
                     Label("Open Dashboard", systemImage: "macwindow")
@@ -312,14 +322,13 @@ struct MenuContent: View {
 
             HStack {
                 Button {
-                    AppActivationPolicy.enter()
-                    openSettings()
+                    NotificationCenter.default.post(name: .openAppSettings, object: nil)
                 } label: {
                     Label("Settings…", systemImage: "gearshape")
                 }
                 .buttonStyle(.borderless)
                 Button {
-                    AppActivationPolicy.enter()
+                    NSApp.activate(ignoringOtherApps: true)
                     Updater.shared.checkForUpdates()
                 } label: {
                     Label("Check for Updates…", systemImage: "arrow.down.circle")
