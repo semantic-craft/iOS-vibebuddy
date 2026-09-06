@@ -110,6 +110,9 @@ final class MenuBarModel: ObservableObject {
     // a backgrounded phone, so the phone hears the full pack (not just needs-you).
     private let pusher: APNsPusher?
     private let deviceTokens: DeviceTokens
+    /// What each phone said it posted itself (`POST /notified`); the pusher
+    /// stands its own push down for those (ADR-0012).
+    private let phoneReceipts: PhoneReceipts
     private let budgetMonitor = BudgetMonitor()
     /// Account usage is intentionally separate from `sessions`; refresh errors
     /// never enter SessionStore or the progress notification pipeline.
@@ -178,7 +181,9 @@ final class MenuBarModel: ObservableObject {
         let recorder = NotificationDeliveryRecorder(
             url: deliveryURL, apnsConfigured: apnsConfig != nil)
         deliveryRecorder = recorder
-        pusher = apnsConfig.flatMap { try? APNsPusher(config: $0, recorder: recorder) }
+        let receipts = PhoneReceipts(recorder: recorder)
+        phoneReceipts = receipts
+        pusher = apnsConfig.flatMap { try? APNsPusher(config: $0, recorder: recorder, receipts: receipts) }
         notificationDeliveryHealth = NotificationDeliveryHealth(apnsConfigured: apnsConfig != nil)
         // The APNs registry outlives this process. Without the file, every Mac
         // restart emptied it and no push reached a closed phone until the phone
@@ -257,7 +262,8 @@ final class MenuBarModel: ObservableObject {
         // pusher: nil — push is driven from startPolling off the same cues the
         // Mac notifies on; the server only collects device tokens/prefs.
         let server = VibeBuddyServer(store: store, token: token, port: port,
-                                     pusher: nil, deviceTokens: deviceTokens,
+                                     pusher: nil, phoneReceipts: phoneReceipts,
+                                     deviceTokens: deviceTokens,
                                      activityTokens: activityTokens,
                                      codexRolloutMonitor: CodexRolloutMonitor(),
                                      codexAppServerMonitor: codexAppServerMonitor,
@@ -329,7 +335,9 @@ final class MenuBarModel: ObservableObject {
                     focusedSessionIDs: focused,                // …or looking at the session's own terminal
                     categories: NotificationCategoryPrefs.load()) // this Mac's own switches
                 await self.refreshNotificationDeliveryHealth()
-                await self.pushToPhones(alerts, focused: focused)
+                // Off the loop: a push may hold for the phone's receipt, and the
+                // glance must not wait with it.
+                Task { await self.pushToPhones(alerts, focused: focused) }
                 await self.pushActivityUpdates(snapshot.sessions)
                 await self.checkBudget(snapshot.sessions)
                 try? await Task.sleep(for: .seconds(2))
@@ -445,7 +453,8 @@ final class MenuBarModel: ObservableObject {
     /// how "the Mac banners and the phone never hears about it" went unexplained.
     @discardableResult
     private func push(_ alert: SoundAlert, to devices: [DeviceRegistrationPayload],
-                      focused: Set<String> = [], recordSkips: Bool = true) async -> Bool {
+                      focused: Set<String> = [], recordSkips: Bool = true,
+                      standDownForPhone: Bool = true) async -> Bool {
         let fanout = PushFanout.plan(alert, devices: devices, apnsConfigured: pusher != nil,
                                      focusedSessionIDs: focused)
         guard let pusher, !fanout.recipients.isEmpty else {
@@ -453,16 +462,28 @@ final class MenuBarModel: ObservableObject {
             return false
         }
         let copy = PushCopy.copy(for: alert.sound, session: alert.session)
+        // A phone with a live stream may be posting this cue itself right now:
+        // hold each push briefly for its receipt (ADR-0012), all devices side
+        // by side. A reminder says the same cue again on purpose, so it never
+        // stands down (`standDownForPhone: false`).
+        let hold: Bool = if standDownForPhone { await store.subscriberCount > 0 } else { false }
+        let waitSince: Date? = standDownForPhone ? alert.session.statusSince : nil
+        let registry = deviceTokens
         var sent = false
-        for recipient in fanout.recipients {
-            guard let deviceToken = recipient.device.token else { continue }
-            let sound = recipient.level.makesSound && recipient.device.playSound != false
-                ? alert.sound.fileName : ""
-            let result = await pusher.send(title: copy.title, body: copy.body, to: deviceToken, sound: sound,
-                                           sessionID: alert.sessionID, soundCategory: alert.sound.rawValue,
-                                           localized: PushLocalization(copy))
-            await deviceTokens.applySendResult(result, token: deviceToken)
-            sent = true
+        await withTaskGroup(of: Void.self) { group in
+            for recipient in fanout.recipients {
+                guard let deviceToken = recipient.device.token else { continue }
+                let sound = recipient.level.makesSound && recipient.device.playSound != false
+                    ? alert.sound.fileName : ""
+                sent = true
+                group.addTask {
+                    let result = await pusher.send(title: copy.title, body: copy.body, to: deviceToken, sound: sound,
+                                                   sessionID: alert.sessionID, soundCategory: alert.sound.rawValue,
+                                                   localized: PushLocalization(copy),
+                                                   waitSince: waitSince, holdForPhone: hold)
+                    await registry.applySendResult(result, token: deviceToken)
+                }
+            }
         }
         return sent
     }
@@ -489,7 +510,7 @@ final class MenuBarModel: ObservableObject {
         // pass of the server's 30s loop until something takes it, so recording
         // each one would bury the log. The completion's own cue already said why.
         let pushed = await push(SoundAlert(session: session, sound: .agentDone, delivery: level),
-                                to: devices, recordSkips: false)
+                                to: devices, recordSkips: false, standDownForPhone: false)
         if local || pushed { await refreshNotificationDeliveryHealth() }
         return local || pushed
     }
