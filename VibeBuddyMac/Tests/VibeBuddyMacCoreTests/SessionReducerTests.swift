@@ -81,12 +81,12 @@ struct SessionReducerTests {
         r.apply(ev(.stop, message: "Finished", at: 2))
         let before = r.sessions["s1"]
 
-        let firstAcknowledgement = r.acknowledgeCompletion(sessionID: "s1")
+        let firstAcknowledgement = r.acknowledgeCompletion(sessionID: "s1", completionID: before?.completionID ?? "missing")
         #expect(firstAcknowledgement)
         #expect(r.sessions["s1"]?.presentationState == .idle)
         #expect(r.sessions["s1"]?.statusSince == before?.statusSince)
         #expect(r.sessions["s1"]?.updatedAt == before?.updatedAt)
-        let secondAcknowledgement = r.acknowledgeCompletion(sessionID: "s1")
+        let secondAcknowledgement = r.acknowledgeCompletion(sessionID: "s1", completionID: before?.completionID ?? "missing")
         #expect(!secondAcknowledgement)
     }
 

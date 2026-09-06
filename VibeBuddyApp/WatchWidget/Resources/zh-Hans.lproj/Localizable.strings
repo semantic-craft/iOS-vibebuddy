@@ -1,0 +1,27 @@
+"Needs response" = "需要你回应";
+"Error" = "出错";
+"Done, unread" = "已完成，未读";
+"Working" = "正在执行";
+"Followed tasks" = "关注任务";
+"%lld more" = "另有 %lld 项";
+"Unnamed task" = "未命名任务";
+"Updated" = "更新于";
+"Last known state" = "上次同步的状态";
+"Waiting for your response" = "等待你回应";
+"Task reported an error" = "任务报告了错误";
+"Open the app to view the result" = "打开应用查看结果";
+"Task is running" = "任务正在执行";
+"Waiting for iPhone" = "等待手机同步";
+"No followed tasks" = "尚未关注任务";
+"All results read" = "关注任务已读完";
+"The followed task that needs your attention next." = "显示当前最需要你关注的任务。";
+"Task" = "任务";
+"Read" = "已读";
+"Task status changed. This newer result has not been marked read." = "任务状态已变化，新的结果尚未标记已读。";
+"Viewed — syncing with Mac" = "已查看，正在同步";
+"This task is unavailable. Return to the dashboard for current tasks." = "此任务不可用，请返回总览查看当前任务。";
+"Back to dashboard" = "返回总览";
+
+"Sync pending" = "待同步";
+
+"Done" = "已完成";

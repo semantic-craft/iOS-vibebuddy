@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import VibeBuddyKit
 
 /// Persists the pairing (host/port/token) so the app reconnects automatically.
@@ -21,6 +22,7 @@ final class ConnectionStore: ObservableObject {
             pairing = saved
         } else {
             pairing = Self.environmentPairing()
+            if let pairing { Self.observePairing(pairing) }
         }
     }
 
@@ -34,7 +36,42 @@ final class ConnectionStore: ObservableObject {
         return PairingPayload(host: host, port: port, token: token)
     }
 
+    static var pairingEpoch: String {
+        if let value = UserDefaults.standard.string(forKey: "vibebuddy.pairingEpoch") { return value }
+        return rotateEpoch()
+    }
+    @discardableResult
+    static func rotateEpoch() -> String {
+        let value = UUID().uuidString
+        UserDefaults.standard.set(value, forKey: "vibebuddy.pairingEpoch")
+        return value
+    }
+
+    /// Persist only a digest here, so env-based reconnects detect a changed
+    /// authority without storing another copy of its credential.
+    static func observePairing(_ payload: PairingPayload) {
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(payload) else { return }
+        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        let key = "vibebuddy.pairingFingerprint"
+        if UserDefaults.standard.string(forKey: key) != digest {
+            rotateEpoch()
+            UserDefaults.standard.set(digest, forKey: key)
+        }
+    }
+
+    /// Monotonic across process restarts and all pairing epochs. A wall clock
+    /// seed also prevents a fresh simulator install from reusing tiny revisions.
+    static func nextRelayRevision() -> UInt64 {
+        let key = "vibebuddy.watchRelayRevision"
+        let previous = UInt64(UserDefaults.standard.string(forKey: key) ?? "0") ?? 0
+        let next = max(previous + 1, UInt64(max(0, Date().timeIntervalSince1970) * 1_000_000))
+        UserDefaults.standard.set(String(next), forKey: key)
+        return next
+    }
+
     func save(_ payload: PairingPayload) {
+        Self.observePairing(payload)
         pairing = payload
         if let data = try? JSONEncoder().encode(payload) {
             defaults.set(data, forKey: key)
@@ -44,8 +81,10 @@ final class ConnectionStore: ObservableObject {
     func enterDemo() { demo = true }
 
     func clear() {
+        Self.rotateEpoch()
         pairing = nil
         demo = false
         defaults.removeObject(forKey: key)
+        defaults.removeObject(forKey: "vibebuddy.pairingFingerprint")
     }
 }

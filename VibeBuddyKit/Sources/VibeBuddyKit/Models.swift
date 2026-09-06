@@ -424,6 +424,8 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     /// A clean completion result that has not yet been explicitly opened,
     /// selected, or jumped to. The Mac reducer is authoritative for this value.
     public var hasUnreadCompletion: Bool
+    /// Authoritative completion identity, populated by the Mac lifecycle.
+    public var completionID: String?
     /// Cumulative tokens spent across this session's turns (input+output),
     /// accumulated by the reducer. Drives the estimated cost + budget alert.
     public var spentTokens: Int?
@@ -488,6 +490,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         contextWindow: Int? = nil,
         failed: Bool? = nil,
         hasUnreadCompletion: Bool = false,
+        completionID: String? = nil,
         spentTokens: Int? = nil,
         activeTool: String? = nil,
         observations: [ObservationEvidence]? = nil,
@@ -522,6 +525,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         self.contextWindow = contextWindow
         self.failed = failed
         self.hasUnreadCompletion = hasUnreadCompletion
+        self.completionID = completionID
         self.spentTokens = spentTokens
         self.activeTool = activeTool
         self.observations = observations
@@ -565,6 +569,8 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
 
 /// Full state of every known session — sent on initial load and on reconnect.
 public struct Snapshot: Codable, Sendable, Equatable {
+    /// Opaque persistent daemon identity; never a host or credential.
+    public var sourceID: String?
     public var sessions: [AgentSession]
     public var serverTime: Date
     /// Mac-side source diagnostics, mirrored to iOS. Optional preserves wire
@@ -585,6 +591,7 @@ public struct Snapshot: Codable, Sendable, Equatable {
     public init(
         sessions: [AgentSession],
         serverTime: Date,
+        sourceID: String? = nil,
         observationDiagnostics: [AgentObservationDiagnostic]? = nil,
         providerQuota: [ProviderQuota]? = nil,
         recentDirectories: [String]? = nil,
@@ -592,6 +599,7 @@ public struct Snapshot: Codable, Sendable, Equatable {
     ) {
         self.sessions = sessions
         self.serverTime = serverTime
+        self.sourceID = sourceID
         self.observationDiagnostics = observationDiagnostics
         self.providerQuota = providerQuota
         self.recentDirectories = recentDirectories

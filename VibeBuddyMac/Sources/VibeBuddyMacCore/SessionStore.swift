@@ -7,6 +7,7 @@ import VibeBuddyKit
 public actor SessionStore {
     private static let diagnosticStaleAfter: TimeInterval = 10 * 60
     private var reducer = SessionReducer()
+    public let sourceID: String?
     /// Account allowance, kept beside the reducer rather than inside it.
     private var providerQuota: [ProviderQuota] = []
     private var subscribers: [UUID: AsyncStream<Snapshot>.Continuation] = [:]
@@ -39,12 +40,14 @@ public actor SessionStore {
 
     public init(
         staleAfter: TimeInterval = 2 * 60 * 60,
+        sourceID: String? = UUID().uuidString,
         diagnosticsHome: URL? = nil,
         journalURL: URL? = nil,
         attentionURL: URL? = nil,
         grokHome: URL? = nil,
         now: Date = Date()
     ) {
+        self.sourceID = sourceID
         self.staleAfter = staleAfter
         self.diagnosticsHome = diagnosticsHome
         self.grokHome = grokHome ?? GrokHome.url
@@ -426,11 +429,33 @@ public actor SessionStore {
 
     /// Authoritative read acknowledgement. Snapshot delivery and passive list
     /// visibility never call this; only explicit selection/open/jump actions do.
-    @discardableResult
-    public func acknowledgeCompletion(sessionID: String) -> Bool {
-        let changed = reducer.acknowledgeCompletion(sessionID: sessionID)
-        if changed { broadcast() }
-        return changed
+    public func acknowledgeCompletion(_ request: CompletionReadRequest, now: Date = Date()) -> CompletionReadResponse {
+        guard let sourceID, request.sourceID == sourceID else {
+            return CompletionReadResponse(outcome: .sourceMismatch)
+        }
+        guard let session = reducer.sessions[request.sessionID] else {
+            return CompletionReadResponse(outcome: .unavailable)
+        }
+        guard session.status == .done, session.completionID == request.completionID,
+              !request.completionID.isEmpty else {
+            return CompletionReadResponse(outcome: .staleCompletion)
+        }
+        guard session.hasUnreadCompletion else {
+            return CompletionReadResponse(outcome: .alreadyAcknowledged)
+        }
+        let previousReducer = reducer
+        let previousJournal = lifecycleJournal
+        guard reducer.acknowledgeCompletion(sessionID: request.sessionID, completionID: request.completionID) else {
+            return CompletionReadResponse(outcome: .staleCompletion)
+        }
+        guard appendJournal(sessionID: request.sessionID, agent: session.agent,
+                            event: "completionAcknowledged", source: .recovery, at: now) else {
+            reducer = previousReducer
+            lifecycleJournal = previousJournal
+            return CompletionReadResponse(outcome: .failed)
+        }
+        broadcast()
+        return CompletionReadResponse(outcome: .accepted)
     }
 
     public func snapshot(now: Date) -> Snapshot {
@@ -452,6 +477,7 @@ public actor SessionStore {
     /// from the reducer, allowance from beside it.
     private func currentSnapshot(now: Date) -> Snapshot {
         var snapshot = reducer.snapshot(now: now, observationDiagnostics: diagnostics(now: now))
+        snapshot.sourceID = sourceID
         snapshot.providerQuota = providerQuota.isEmpty ? nil : providerQuota
         let directories = recentDirectories()
         snapshot.recentDirectories = directories.isEmpty ? nil : directories
@@ -539,19 +565,20 @@ public actor SessionStore {
         }
     }
 
+    @discardableResult
     private func appendJournal(
         sessionID: String,
         agent: AgentKind,
         event: String,
         source: ObservationSource,
         at timestamp: Date
-    ) {
+    ) -> Bool {
         // Session IDs are normally UUID-sized. Refuse an untrusted oversized ID
         // so the record-count limit also remains a practical byte-size bound.
-        guard sessionID.utf8.count <= 256 else { return }
-        guard var journal = lifecycleJournal else { return }
+        guard sessionID.utf8.count <= 256 else { return false }
+        guard var journal = lifecycleJournal else { return true }
         let result = reducer.sessions[sessionID]
-        journal.append(LifecycleJournalEntry(
+        let persisted = journal.append(LifecycleJournalEntry(
             sessionID: sessionID,
             agent: agent,
             event: event,
@@ -561,9 +588,14 @@ public actor SessionStore {
             waitKind: result?.waitKind,
             // The reducer's "—" placeholder means no cwd yet; don't persist it.
             // The entry itself bounds the label (LifecycleJournalEntry.maxProjectBytes).
-            project: result.flatMap { $0.project == "—" ? nil : $0.project }
+            project: result.flatMap { $0.project == "—" ? nil : $0.project },
+            completionID: result?.completionID,
+            hasUnreadCompletion: result?.hasUnreadCompletion,
+            statusSince: result?.statusSince,
+            failed: result?.failed
         ), now: timestamp)
         lifecycleJournal = journal
+        return persisted
     }
 
     private func diagnostics(now: Date) -> [AgentObservationDiagnostic]? {

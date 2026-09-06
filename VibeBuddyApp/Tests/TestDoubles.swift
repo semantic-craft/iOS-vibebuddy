@@ -47,7 +47,7 @@ struct ScriptedStreamer: SnapshotStreaming {
 }
 
 struct NullDecisionClient: DecisionClient {
-    func acknowledge(_ pairing: PairingPayload, sessionId: String) async {}
+    func acknowledge(_ pairing: PairingPayload, request: CompletionReadRequest) async -> CompletionReadOutcome { .accepted }
     func decide(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> Bool { true }
     func answer(_ pairing: PairingPayload, sessionId: String, answer: String) async {}
     func jump(_ pairing: PairingPayload, sessionId: String) async -> JumpOutcome? { nil }
@@ -59,7 +59,7 @@ struct NullDecisionClient: DecisionClient {
 actor UnreachableDecisionClient: DecisionClient {
     private(set) var attempts = 0
 
-    func acknowledge(_ pairing: PairingPayload, sessionId: String) async {}
+    func acknowledge(_ pairing: PairingPayload, request: CompletionReadRequest) async -> CompletionReadOutcome { .accepted }
     func decide(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> Bool {
         attempts += 1
         return false

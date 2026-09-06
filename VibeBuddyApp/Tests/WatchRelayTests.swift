@@ -4,6 +4,7 @@ import VibeBuddyKit
 
 @MainActor
 private final class FakeWatchTransport: WatchStateTransport {
+    var onCompletionRequest: ((WatchCompletionRequest) async -> WatchCompletionResult)?
     var isAvailable = true
     var onReady: (() -> Void)?
     var onApprovalRequest: ((WatchApprovalRequest) async -> WatchApprovalResult)?
@@ -54,9 +55,11 @@ final class WatchRelayTests: XCTestCase {
             AgentSession(id: "s\($0)", agent: .claudeCode, project: "vibebuddy",
                          status: .working, statusSince: now, updatedAt: now)
         }
-        return WatchDashboardProjection.make(
+        var result = WatchDashboardProjection.make(
             snapshot: Snapshot(sessions: sessions, serverTime: now),
             quotas: [], relay: relay, now: now.addingTimeInterval(offset))
+        result.relayRevision = UInt64(100 + offset)
+        return result
     }
 
     func testEquivalentStateIsNotResent() {
@@ -65,9 +68,9 @@ final class WatchRelayTests: XCTestCase {
 
         XCTAssertTrue(relay.publish(state(working: 1)))
         XCTAssertFalse(relay.publish(state(working: 1, at: 30)))
-        XCTAssertFalse(relay.publish(state(working: 1, at: 900)))
+        XCTAssertTrue(relay.publish(state(working: 1, at: 900)))
 
-        XCTAssertEqual(transport.sent.count, 1)
+        XCTAssertEqual(transport.sent.count, 2)
     }
 
     func testMeaningfulChangeProducesANewContext() {
@@ -288,14 +291,21 @@ final class WatchRelayTests: XCTestCase {
     func testAnUnreachableMacReportsFailedAndTheTapCanBeMadeAgain() async throws {
         let transport = FakeWatchTransport()
         let decisions = UnreachableDecisionClient()
-        let store = DashboardStore(streamer: EmptyStreamer(), notifier: SilentNotifier(),
-                                   decisionClient: decisions,
-                                   watchRelay: WatchRelay(transport: transport))
-        // Demo Mode fills the dashboard; the pairing is what makes it live, so
-        // the decision goes to the (refusing) Mac rather than resolving locally.
-        store.startDemo()
-        let alert = try relayedAlert(transport, decidable: true)
+        let sampleStore = demoStore(FakeWatchTransport())
+        let samples = sampleStore.allSessions
+        sampleStore.stop()
+        let store = DashboardStore(
+            streamer: ScriptedStreamer(snapshots: [Snapshot(sessions: samples, serverTime: Date())]),
+            notifier: SilentNotifier(), decisionClient: decisions,
+            watchRelay: WatchRelay(transport: transport), reportDevice: { _ in })
+        // An authenticated snapshot supplies the waiting task. Switching from
+        // sample data to a pairing intentionally clears the previous source.
         store.start(PairingPayload(host: "127.0.0.1", port: 9, token: "test"))
+        for _ in 0..<50 {
+            if !store.allSessions.isEmpty { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let alert = try relayedAlert(transport, decidable: true)
         let request = WatchApprovalRequest(attemptId: "t-1", sessionId: alert.sessionId,
                                            approvalId: try XCTUnwrap(alert.approvalId),
                                            choice: .allow)

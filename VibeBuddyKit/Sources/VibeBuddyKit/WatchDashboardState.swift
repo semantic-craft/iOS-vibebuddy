@@ -155,6 +155,11 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
 
     /// The three buckets the Watch renders. The wrist has room for three lines,
     /// and this is the split the prototype validated.
+    public var sourceID: String?
+    public var pairingEpoch: String?
+    /// Persistent iPhone publication order; never derived from the Mac clock.
+    public var relayRevision: UInt64
+    public var followedTasks: [WatchFollowedTask]
     public var counts: WatchSessionCounts
     /// The app's five-state aggregate, shared with the Mac, the iPhone list,
     /// the Live Activity and the widget. It is a different partition, not a
@@ -166,12 +171,16 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
     public var alerts: [WatchAlert]
     public var quotas: [ProviderQuota]
     public var relay: WatchRelayState
-    /// When the iPhone produced this state.
+    /// When the backing state was observed (the live phone relay passes the Mac snapshot time).
     public var observedAt: Date
     /// Sample data, so the Watch can say so out loud.
     public var isDemo: Bool
 
     public init(
+        sourceID: String? = nil,
+        pairingEpoch: String? = nil,
+        relayRevision: UInt64 = 0,
+        followedTasks: [WatchFollowedTask] = [],
         counts: WatchSessionCounts = WatchSessionCounts(),
         presentation: TaskPresentationSummary = TaskPresentationSummary(),
         alerts: [WatchAlert] = [],
@@ -180,6 +189,10 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
         observedAt: Date,
         isDemo: Bool = false
     ) {
+        self.sourceID = sourceID
+        self.pairingEpoch = pairingEpoch
+        self.relayRevision = relayRevision
+        self.followedTasks = followedTasks
         self.counts = counts
         self.presentation = presentation
         self.alerts = alerts
@@ -254,6 +267,7 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
     public func isEquivalent(to other: WatchDashboardState) -> Bool {
         var mine = self
         mine.observedAt = other.observedAt
+        mine.relayRevision = other.relayRevision
         return mine == other
     }
 
@@ -285,6 +299,8 @@ public enum WatchDashboardProjection {
     ) -> WatchDashboardState {
         let groups = SessionGroups(snapshot.sessions)
         return WatchDashboardState(
+            sourceID: snapshot.sourceID,
+            followedTasks: snapshot.sessions.filter { $0.effectiveAttention == .followed }.map(WatchFollowedTask.init),
             counts: WatchSessionCounts(groups),
             presentation: TaskPresentationSummary(sessions: snapshot.sessions),
             alerts: groups.needsResponse.map(alert(for:)),

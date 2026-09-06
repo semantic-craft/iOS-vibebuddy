@@ -82,7 +82,8 @@ struct WatchConnectionTests {
     @Test("A state restored from disk ages against the current clock, not its own")
     func restoredStateGoesStaleOnItsOwn() throws {
         var inbox = WatchStateInbox()
-        inbox.accept(WatchStateInbox.encode(state(.live)))
+        var cached = state(.live); cached.relayRevision = 1
+        inbox.accept(WatchStateInbox.encode(cached))
         let restored = try #require(inbox.state)
 
         // Cold launch an hour later: nothing new arrived, and it must not claim

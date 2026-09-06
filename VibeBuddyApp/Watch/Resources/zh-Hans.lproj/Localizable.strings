@@ -71,3 +71,14 @@
 "Might need a look" = "可能需要看一眼";
 "Connected" = "已连接";
 "VibeBuddy is watching your sessions." = "VibeBuddy 正在盯着你的会话。";
+
+/* Followed task details */
+"Unnamed task" = "未命名任务";
+"Task" = "任务";
+"Read" = "已读";
+"Error" = "出错";
+"Done, unread" = "完成未读";
+"Task status changed. This newer result has not been marked read." = "任务状态已变化，新的结果尚未标记已读。";
+"Viewed — syncing with Mac" = "已查看，正在同步";
+"This task is unavailable. Return to the dashboard for current tasks." = "此任务不可用，请返回总览查看当前任务。";
+"Back to dashboard" = "返回总览";

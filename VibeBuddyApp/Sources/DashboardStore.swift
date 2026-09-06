@@ -38,6 +38,7 @@ final class DashboardStore: ObservableObject {
     /// The Mac's own clock for the last snapshot, so the relayed state says when
     /// the Mac saw the world rather than when this phone re-rendered it.
     private var lastServerTime = Date()
+    private var sourceID: String?
     /// Account allowance as the Mac last reported it. The phone forwards it
     /// untouched — normalization already happened where the provider's own
     /// convention was still known.
@@ -54,7 +55,7 @@ final class DashboardStore: ObservableObject {
     private var isDemo = false
     /// Deep links can arrive before `start(_:)` installs the pairing on a cold
     /// launch. Keep those explicit reads until they can reach the Mac authority.
-    private var pendingAcknowledgementIDs: Set<String> = []
+    private var pairingEpoch = ConnectionStore.pairingEpoch
     /// Judges taps that arrive from the wrist against the sessions this phone
     /// actually holds. The Watch's screen is a memory of a snapshot; this is the
     /// only copy that was ever authenticated.
@@ -83,6 +84,10 @@ final class DashboardStore: ObservableObject {
         // Report the Live Activity's push token to the Mac so it can update the
         // activity in the background (dynamic-island/02).
         liveActivity.onPushToken = { [weak self] hex in self?.uploadActivityToken(hex) }
+        watchRelay?.onCompletionRequest = { [weak self] request in
+            guard let self else { return WatchCompletionResult(attemptID: request.attemptID, outcome: .failed) }
+            return await self.acknowledgeFromWatch(request)
+        }
         // The wrist's only way to act. It asks; this decides.
         watchRelay?.onApprovalRequest = { [weak self] request in
             guard let self else {
@@ -124,6 +129,23 @@ final class DashboardStore: ObservableObject {
         }
     }
 
+    func acknowledgeFromWatch(_ message: WatchCompletionRequest) async -> WatchCompletionResult {
+        func result(_ outcome: CompletionReadOutcome) -> WatchCompletionResult {
+            WatchCompletionResult(attemptID: message.attemptID, outcome: outcome)
+        }
+        let link = message.link
+        guard link.sourceID == sourceID, link.pairingEpoch == pairingEpoch,
+              pairingEpoch == ConnectionStore.pairingEpoch else { return result(.sourceMismatch) }
+        guard state == .connected, let pairing, let request = link.readRequest else { return result(.failed) }
+        // The daemon is authoritative for round and read state. A stale phone
+        // snapshot must not manufacture a positive or negative receipt.
+        let outcome = await decisionClient.acknowledge(pairing, request: request)
+        guard self.pairing == pairing, link.sourceID == sourceID,
+              link.pairingEpoch == self.pairingEpoch,
+              pairingEpoch == ConnectionStore.pairingEpoch else { return result(.sourceMismatch) }
+        return result(outcome)
+    }
+
     /// Register this Live Activity's APNs push token with the Mac. Best-effort.
     private func uploadActivityToken(_ token: String) {
         guard !isDemo, let pairing,
@@ -140,12 +162,12 @@ final class DashboardStore: ObservableObject {
         stop()
         isDemo = false
         self.pairing = pairing
-        let pendingAcknowledgements = pendingAcknowledgementIDs
-        pendingAcknowledgementIDs.removeAll()
-        for sessionId in pendingAcknowledgements {
-            Task { await decisionClient.acknowledge(pairing, sessionId: sessionId) }
-        }
+        ConnectionStore.observePairing(pairing)
+        pairingEpoch = ConnectionStore.pairingEpoch
+        sourceID = nil
+        groups = SessionGroups([])
         state = .connecting
+        relayToWatch([])
         policy = SoundPolicy()                        // fresh connection → suppress the backlog
         runTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -170,6 +192,17 @@ final class DashboardStore: ObservableObject {
         runTask?.cancel()
         runTask = nil
         Task { await liveActivity.end() }
+    }
+
+    func forgetPairing() {
+        stop()
+        pairing = nil
+        sourceID = nil
+        pairingEpoch = ConnectionStore.pairingEpoch
+        state = .connecting
+        groups = SessionGroups([])
+        lastProviderQuota = []
+        relayToWatch([])
     }
 
     /// Play the pairing-success cue. Called once when a fresh pairing is saved
@@ -206,12 +239,15 @@ final class DashboardStore: ObservableObject {
     private func relayToWatch(_ sessions: [AgentSession]) {
         guard let watchRelay else { return }
         let now = Date()
-        watchRelay.publish(WatchDashboardProjection.make(
-            snapshot: Snapshot(sessions: sessions, serverTime: lastServerTime),
+        var projection = WatchDashboardProjection.make(
+            snapshot: Snapshot(sessions: sessions, serverTime: lastServerTime, sourceID: sourceID),
             quotas: isDemo ? WatchDemoScenario.normal.quotas(now: now) : lastProviderQuota,
             relay: state == .connected ? .live : .disconnected,
-            now: now,
-            isDemo: isDemo))
+            now: lastServerTime,
+            isDemo: isDemo)
+        projection.pairingEpoch = pairingEpoch
+        projection.relayRevision = ConnectionStore.nextRelayRevision()
+        watchRelay.publish(projection)
     }
 
     /// The sessions the buddy is actually grounded in, honouring the scope toggles
@@ -258,9 +294,7 @@ final class DashboardStore: ObservableObject {
         let demo = Self.demoSessions()
         buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: demo)
         install(demo, serverTime: Date())
-        let pendingAcknowledgements = pendingAcknowledgementIDs
-        pendingAcknowledgementIDs.removeAll()
-        for sessionId in pendingAcknowledgements { acknowledge(sessionId) }
+
     }
 
     func decide(_ approvalId: String, _ decision: ApprovalDecision) {
@@ -421,6 +455,7 @@ final class DashboardStore: ObservableObject {
 
     func jump(_ sessionId: String) {
         guard let pairing else { showToast(String(localized: "Couldn't reach your Mac")); return }
+        acknowledge(sessionId)
         let desktopThread = allSessions.first { $0.id == sessionId }?.jumpsToDesktopThread ?? false
         Task {
             let outcome = await decisionClient.jump(pairing, sessionId: sessionId)
@@ -441,12 +476,12 @@ final class DashboardStore: ObservableObject {
             install(sessions)
             return
         }
-        guard let pairing else {
-            pendingAcknowledgementIDs.insert(sessionId)
-            return
-        }
-        pendingAcknowledgementIDs.remove(sessionId)
-        Task { await decisionClient.acknowledge(pairing, sessionId: sessionId) }
+        guard let pairing, let sourceID,
+              let session = allSessions.first(where: { $0.id == sessionId }),
+              session.hasUnreadCompletion, let completionID = session.completionID else { return }
+        let request = CompletionReadRequest(sourceID: sourceID, sessionID: sessionId, completionID: completionID)
+        Task { _ = await decisionClient.acknowledge(pairing, request: request) }
+
     }
 
     /// Set, or with `nil` return to automatic, how much a session may interrupt
@@ -525,6 +560,7 @@ final class DashboardStore: ObservableObject {
         lastProviderQuota = snapshot.providerQuota ?? []
         buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: snapshot.sessions)
         state = .connected
+        sourceID = snapshot.sourceID
         install(snapshot.sessions, serverTime: snapshot.serverTime)
         await liveActivity.sync(sessions: snapshot.sessions)
     }
@@ -533,7 +569,6 @@ final class DashboardStore: ObservableObject {
     func open(_ url: URL) {
         guard let id = VibeBuddyDeepLink.sessionId(from: url) else { return }
         focusedSessionId = id
-        acknowledge(id)
     }
 
     func clearFocus() { focusedSessionId = nil }

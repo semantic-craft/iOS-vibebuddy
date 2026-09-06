@@ -99,7 +99,7 @@ struct LifecycleJournalTests {
         #expect(siblings == ["journal.json"])
     }
 
-    @Test("restart restores only recent active and waiting sessions")
+    @Test("restart restores recent activity and current completed rounds")
     func restoresMeaningfulStateOnly() async {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("vibebuddy-journal-\(UUID().uuidString)")
@@ -119,7 +119,7 @@ struct LifecycleJournalTests {
                                      now: now.addingTimeInterval(2))
         let sessions = await restarted.snapshot(now: now.addingTimeInterval(2)).sessions
 
-        #expect(Set(sessions.map(\.id)) == ["working", "waiting"])
+        #expect(Set(sessions.map(\.id)) == ["working", "waiting", "done"])
         #expect(sessions.first(where: { $0.id == "working" })?.status == .working)
         #expect(sessions.first(where: { $0.id == "waiting" })?.status == .needsResponse)
         #expect(sessions.first(where: { $0.id == "working" })?.project == "work")

@@ -13,9 +13,11 @@ struct WatchStateInboxTests {
                          status: .working,
                          statusSince: now, updatedAt: now)
         }
-        return WatchDashboardProjection.make(
+        var result = WatchDashboardProjection.make(
             snapshot: Snapshot(sessions: sessions, serverTime: now),
             quotas: [], relay: .live, now: now.addingTimeInterval(offset))
+        result.relayRevision = UInt64(100 + offset)
+        return result
     }
 
     @Test("A first launch with nothing stored is no-data, not an empty dashboard")

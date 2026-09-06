@@ -20,6 +20,10 @@ public struct LifecycleJournalEntry: Codable, Sendable, Equatable, Identifiable 
     /// placeholder until its next event arrives. Optional so journals written
     /// before the field existed still decode.
     public let project: String?
+    public let completionID: String?
+    public let hasUnreadCompletion: Bool?
+    public let statusSince: Date?
+    public let failed: Bool?
 
     /// A hook may hand the reducer an arbitrarily long slash-free `cwd`, which
     /// becomes the whole project label; persisting that unbounded would let one
@@ -35,7 +39,11 @@ public struct LifecycleJournalEntry: Codable, Sendable, Equatable, Identifiable 
         timestamp: Date,
         status: SessionStatus?,
         waitKind: WaitKind?,
-        project: String? = nil
+        project: String? = nil,
+        completionID: String? = nil,
+        hasUnreadCompletion: Bool? = nil,
+        statusSince: Date? = nil,
+        failed: Bool? = nil
     ) {
         self.id = id
         self.sessionID = sessionID
@@ -46,6 +54,10 @@ public struct LifecycleJournalEntry: Codable, Sendable, Equatable, Identifiable 
         self.status = status
         self.waitKind = waitKind
         self.project = project.map(Self.boundedProject)
+        self.completionID = completionID
+        self.hasUnreadCompletion = hasUnreadCompletion
+        self.statusSince = statusSince
+        self.failed = failed
     }
 
     /// The label cut to `maxProjectBytes` of UTF-8 on a character boundary.
@@ -77,12 +89,16 @@ struct LifecycleJournal {
     private struct Envelope: Codable {
         let schemaVersion: Int
         let entries: [LifecycleJournalEntry]
+        // Current business state is not diagnostic history: event count/age
+        // pruning must never forget which completion a wrist already read.
+        let completions: [String: LifecycleJournalEntry]?
     }
 
     let url: URL
     private let capacity: Int
     private let retention: TimeInterval
     private(set) var entries: [LifecycleJournalEntry]
+    private var completions: [String: LifecycleJournalEntry] = [:]
 
     init(
         url: URL,
@@ -100,6 +116,7 @@ struct LifecycleJournal {
             entries = []
             return
         }
+        completions = envelope.completions ?? [:]
         entries = Self.pruned(
             envelope.entries,
             capacity: self.capacity,
@@ -108,25 +125,32 @@ struct LifecycleJournal {
         )
     }
 
-    mutating func append(_ entry: LifecycleJournalEntry, now: Date) {
+    @discardableResult
+    mutating func append(_ entry: LifecycleJournalEntry, now: Date) -> Bool {
+        if entry.status == .done, entry.completionID != nil {
+            completions[entry.sessionID] = entry
+        } else {
+            completions.removeValue(forKey: entry.sessionID)
+        }
         entries.append(entry)
         entries = Self.pruned(entries, capacity: capacity, retention: retention, now: now)
-        persistBestEffort()
+        return persistBestEffort()
     }
 
     func recent(limit: Int) -> [LifecycleJournalEntry] {
         Array(entries.suffix(max(0, limit)).reversed())
     }
 
-    /// Recover only a recent final active/wait state per session. A later done,
-    /// session-end, or reconciliation record tombstones earlier active state.
+    /// Active/wait recovery has an age limit. Current completed rounds survive
+    /// independently until a new round or session removal retires them.
     func restorableSessions(now: Date, meaningfulFor: TimeInterval) -> [AgentSession] {
         var latest: [String: LifecycleJournalEntry] = [:]
         for entry in entries { latest[entry.sessionID] = entry }
+        for (id, entry) in completions { latest[id] = entry }
         return latest.values.compactMap { entry in
             guard let status = entry.status,
-                  status == .working || status == .needsResponse,
-                  now.timeIntervalSince(entry.timestamp) <= max(0, meaningfulFor)
+                  (status == .working || status == .needsResponse || entry.completionID != nil),
+                  (entry.completionID != nil || now.timeIntervalSince(entry.timestamp) <= max(0, meaningfulFor))
             else { return nil }
             return AgentSession(
                 id: entry.sessionID,
@@ -134,12 +158,15 @@ struct LifecycleJournal {
                 project: entry.project ?? "—",
                 status: status,
                 waitKind: entry.waitKind,
+                failed: entry.failed,
+                hasUnreadCompletion: entry.hasUnreadCompletion ?? false,
+                completionID: entry.completionID,
                 observations: [ObservationEvidence(
                     source: .recovery,
                     lastObservedAt: entry.timestamp,
                     health: .healthy
                 )],
-                statusSince: entry.timestamp,
+                statusSince: entry.statusSince ?? entry.timestamp,
                 updatedAt: entry.timestamp
             )
         }
@@ -149,6 +176,14 @@ struct LifecycleJournal {
     /// keep the in-memory entries so the UI accurately shows that data remains
     /// and can offer the clear action again after permissions are repaired.
     mutating func clear() -> Bool {
+        // Clear diagnostic history, not the active completion contract.
+        if !completions.isEmpty {
+            let previous = entries
+            entries.removeAll()
+            if persistBestEffort() { return true }
+            entries = previous
+            return false
+        }
         guard FileManager.default.fileExists(atPath: url.path) else {
             entries.removeAll()
             return true
@@ -173,7 +208,7 @@ struct LifecycleJournal {
         return Array(retained.suffix(capacity))
     }
 
-    private func persistBestEffort() {
+    private func persistBestEffort() -> Bool {
         do {
             let directory = url.deletingLastPathComponent()
             try FileManager.default.createDirectory(
@@ -187,10 +222,13 @@ struct LifecycleJournal {
             )
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
-            let data = try encoder.encode(Envelope(schemaVersion: 1, entries: entries))
+            let data = try encoder.encode(Envelope(schemaVersion: 1, entries: entries, completions: completions))
             try publishSecurely(data, in: directory)
+            return true
         } catch {
-            // Fail open: persistence must never affect hook/rollout processing.
+            // Hook processing remains fail-open; explicit acknowledgement can
+            // use this result to avoid reporting a read it cannot recover.
+            return false
         }
     }
 

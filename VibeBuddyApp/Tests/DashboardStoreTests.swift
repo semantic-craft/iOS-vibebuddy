@@ -4,10 +4,13 @@ import VibeBuddyKit
 
 private actor DecisionRecorder: DecisionClient {
     private(set) var acknowledgedSessionIDs: [String] = []
+    private(set) var completionRequests: [CompletionReadRequest] = []
     private(set) var attentions: [(sessionId: String, level: SessionAttention?)] = []
 
-    func acknowledge(_ pairing: PairingPayload, sessionId: String) async {
-        acknowledgedSessionIDs.append(sessionId)
+    func acknowledge(_ pairing: PairingPayload, request: CompletionReadRequest) async -> CompletionReadOutcome {
+        acknowledgedSessionIDs.append(request.sessionID)
+        completionRequests.append(request)
+        return .accepted
     }
 
     func setAttention(_ pairing: PairingPayload, sessionId: String, level: SessionAttention?) async {
@@ -21,7 +24,7 @@ private actor DecisionRecorder: DecisionClient {
 
 @MainActor
 final class DashboardStoreTests: XCTestCase {
-    func testColdStartDeepLinkReplaysAcknowledgementAfterPairingStarts() async throws {
+    func testColdStartDeepLinkDoesNotAcknowledgeAnUnseenRound() async throws {
         let decisions = DecisionRecorder()
         let store = DashboardStore(streamer: EmptyStreamer(), notifier: SilentNotifier(),
                                    decisionClient: decisions)
@@ -37,7 +40,37 @@ final class DashboardStoreTests: XCTestCase {
         }
 
         let afterStart = await decisions.acknowledgedSessionIDs
-        XCTAssertEqual(afterStart, ["completed-task"])
+        XCTAssertEqual(afterStart, [])
+        store.stop()
+    }
+
+    func testWatchAcknowledgementCarriesExactRoundAndRejectsAnotherSource() async throws {
+        let decisions = DecisionRecorder()
+        let now = Date()
+        var completed = AgentSession(id: "task", agent: .claudeCode, project: "Task",
+                                     status: .done, hasUnreadCompletion: true,
+                                     statusSince: now, updatedAt: now)
+        completed.completionID = "round-1"
+        let store = DashboardStore(
+            streamer: ScriptedStreamer(snapshots: [Snapshot(sessions: [completed], serverTime: now, sourceID: "mac-a")]),
+            notifier: SilentNotifier(), decisionClient: decisions, watchRelay: nil, reportDevice: { _ in })
+        store.start(PairingPayload(host: "127.0.0.1", port: 9, token: "test"))
+        for _ in 0..<50 {
+            if !store.allSessions.isEmpty { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let epoch = ConnectionStore.pairingEpoch
+        let wrong = WatchTaskLink(sourceID: "mac-b", pairingEpoch: epoch, sessionID: "task", completionID: "round-1")
+        let refused = await store.acknowledgeFromWatch(WatchCompletionRequest(attemptID: "wrong", link: wrong))
+        XCTAssertEqual(refused.outcome, .sourceMismatch)
+        // Local explicit selection captures this exact visible result.
+        store.acknowledge("task")
+        for _ in 0..<50 {
+            if !(await decisions.completionRequests).isEmpty { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let sent = await decisions.completionRequests
+        XCTAssertEqual(sent, [CompletionReadRequest(sourceID: "mac-a", sessionID: "task", completionID: "round-1")])
         store.stop()
     }
 

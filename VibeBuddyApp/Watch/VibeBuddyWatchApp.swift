@@ -3,11 +3,19 @@ import VibeBuddyKit
 
 @main
 struct VibeBuddyWatchApp: App {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var store = WatchStateStore()
 
     var body: some Scene {
         WindowGroup {
             WatchRootView(store: store)
+                .onOpenURL { store.openTask($0) }
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .active { store.becameActive() }
+                }
+                .sheet(item: $store.taskLink) { link in
+                    WatchTaskDetailView(store: store, link: link)
+                }
         }
     }
 }

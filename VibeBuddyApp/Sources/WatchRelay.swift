@@ -16,6 +16,7 @@ protocol WatchStateTransport: AnyObject {
     /// happened, and the transport hands that straight back to the wrist — the
     /// Watch never assumes a tap landed.
     var onApprovalRequest: ((WatchApprovalRequest) async -> WatchApprovalResult)? { get set }
+    var onCompletionRequest: ((WatchCompletionRequest) async -> WatchCompletionResult)? { get set }
     /// Hand over the newest state, replacing any earlier one the Watch has not
     /// picked up yet. Throws when the session cannot take it right now.
     func send(_ payload: Data) throws
@@ -45,6 +46,11 @@ final class WatchRelay {
         set { transport.onApprovalRequest = newValue }
     }
 
+    var onCompletionRequest: ((WatchCompletionRequest) async -> WatchCompletionResult)? {
+        get { transport.onCompletionRequest }
+        set { transport.onCompletionRequest = newValue }
+    }
+
     init(transport: WatchStateTransport) {
         self.transport = transport
         transport.onReady = { [weak self] in self?.flush() }
@@ -56,7 +62,8 @@ final class WatchRelay {
             pending = state
             return false
         }
-        if pending == nil, let lastDelivered, lastDelivered.isEquivalent(to: state) {
+        if pending == nil, let lastDelivered, lastDelivered.isEquivalent(to: state),
+           state.observedAt.timeIntervalSince(lastDelivered.observedAt) < 60 {
             return false
         }
         return deliver(state)
@@ -66,8 +73,8 @@ final class WatchRelay {
     /// intermediate states it missed are exactly what latest-value delivery is
     /// allowed to drop.
     func flush() {
-        guard let pending, transport.isAvailable else { return }
-        deliver(pending)
+        guard transport.isAvailable, let newest = pending ?? lastDelivered else { return }
+        deliver(newest)
     }
 
     @discardableResult
@@ -104,6 +111,7 @@ final class WatchRelay {
 final class WatchConnectivityTransport: NSObject, WatchStateTransport {
     var onReady: (() -> Void)?
     var onApprovalRequest: ((WatchApprovalRequest) async -> WatchApprovalResult)?
+    var onCompletionRequest: ((WatchCompletionRequest) async -> WatchCompletionResult)?
 
     private let session: WCSession?
 
@@ -156,6 +164,18 @@ final class WatchConnectivityTransport: NSObject, WatchStateTransport {
         }
     }
 
+    fileprivate nonisolated func handle(completion payload: Data,
+                                        reply: @escaping @Sendable ([String: Any]) -> Void) {
+        guard let request = try? JSONDecoder().decode(WatchCompletionRequest.self, from: payload) else {
+            reply([WatchCompletionResult.messageKey: Data()]); return
+        }
+        Task { @MainActor [weak self] in
+            let result = await self?.onCompletionRequest?(request)
+                ?? WatchCompletionResult(attemptID: request.attemptID, outcome: .failed)
+            reply([WatchCompletionResult.messageKey: (try? JSONEncoder().encode(result)) ?? Data()])
+        }
+    }
+
     /// Activation, pairing, and reachability all arrive off the main actor.
     fileprivate nonisolated func readyChanged() {
         Task { @MainActor [weak self] in
@@ -198,7 +218,11 @@ extension WatchConnectivityTransport: WCSessionDelegate {
         // Sendable, and nothing else in the message is ours.
         let payload = message[WatchApprovalRequest.messageKey] as? Data
         let reply = UncheckedSendable(replyHandler)
-        handle(approval: payload) { reply.value($0) }
+        if let completion = message[WatchCompletionRequest.messageKey] as? Data {
+            handle(completion: completion) { reply.value($0) }
+        } else {
+            handle(approval: payload) { reply.value($0) }
+        }
     }
 }
 
