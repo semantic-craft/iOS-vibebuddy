@@ -574,11 +574,90 @@ public actor SessionStore {
     /// for the detail pane. Empty when the session has no known transcript, so
     /// the UI can show a graceful "no transcript" state.
     public func recentTranscript(sessionID: String, limit: Int = 12) -> [TranscriptEntry] {
-        if let directory = grokDirectories[sessionID] {
-            return GrokSessionReader.recentEntries(directory: directory, limit: limit)
+        let output = recentOutput(sessionID: sessionID, limit: limit)
+        return output.entries.map { TranscriptEntry(role: $0.role, text: $0.text) }
+    }
+
+    /// Authenticated recent-output payload for the phone. Read-only: does not
+    /// acknowledge completions or otherwise move Session state.
+    public func recentOutput(
+        sessionID: String,
+        limit: Int = 12,
+        perEntryLimit: Int = 600,
+        rolloutPath: String? = nil,
+        appServerItems: [[String: Any]]? = nil
+    ) -> RecentOutput {
+        guard let session = reducer.sessions[sessionID] else {
+            return .unavailable(sessionId: sessionID, reason: .unknownSession)
         }
-        guard let path = transcriptPaths[sessionID] else { return [] }
-        return TranscriptReader.recentEntries(path: path, limit: limit) ?? []
+        if let directory = grokDirectories[sessionID] {
+            let path = directory.appendingPathComponent("updates.jsonl").path
+            guard let data = Self.readTail(path: path, maxBytes: GrokSessionReader.updatesTailBytes) else {
+                return .unavailable(sessionId: sessionID, reason: .unreadable, source: .transcript)
+            }
+            return finish(
+                sessionID: sessionID, source: .transcript, path: path,
+                RecentOutputReader.grok(updatesTail: data, limit: limit, perEntryLimit: perEntryLimit))
+        }
+        if session.agent == .codex, let items = appServerItems, !items.isEmpty {
+            return finish(
+                sessionID: sessionID, source: .appserver, path: nil,
+                RecentOutputReader.codexAppServer(
+                    items: items, limit: limit, perEntryLimit: perEntryLimit))
+        }
+        let path = rolloutPath ?? transcriptPaths[sessionID]
+        guard let path else {
+            return .unavailable(sessionId: sessionID, reason: .noSource)
+        }
+        let source: ObservationSource = session.agent == .codex ? .rollout : .transcript
+        guard let data = Self.readTail(path: path, maxBytes: 262_144) else {
+            return .unavailable(sessionId: sessionID, reason: .unreadable, source: source)
+        }
+        let slice: RecentOutputSlice
+        switch session.agent {
+        case .codex:
+            let rollout = RecentOutputReader.codexRollout(
+                tail: data, limit: limit, perEntryLimit: perEntryLimit)
+            slice = rollout.entries.isEmpty
+                ? RecentOutputReader.claude(tail: data, limit: limit, perEntryLimit: perEntryLimit)
+                : rollout
+        case .claudeCode:
+            slice = RecentOutputReader.claude(tail: data, limit: limit, perEntryLimit: perEntryLimit)
+        default:
+            let claude = RecentOutputReader.claude(
+                tail: data, limit: limit, perEntryLimit: perEntryLimit)
+            slice = claude.entries.isEmpty
+                ? RecentOutputReader.codexRollout(tail: data, limit: limit, perEntryLimit: perEntryLimit)
+                : claude
+        }
+        return finish(sessionID: sessionID, source: source, path: path, slice)
+    }
+
+    private func finish(
+        sessionID: String,
+        source: ObservationSource,
+        path: String?,
+        _ slice: RecentOutputSlice
+    ) -> RecentOutput {
+        RecentOutput(
+            sessionId: sessionID,
+            source: source,
+            updatedAt: slice.updatedAt ?? path.flatMap(Self.modificationDate),
+            truncated: slice.truncated,
+            entries: slice.entries.map { RecentOutputEntry(role: $0.role, text: $0.text) })
+    }
+
+    private static func readTail(path: String, maxBytes: Int) -> Data? {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? handle.close() }
+        do {
+            let end = try handle.seekToEnd()
+            let start = end > UInt64(maxBytes) ? end - UInt64(maxBytes) : 0
+            try handle.seek(toOffset: start)
+            return try handle.readToEnd() ?? Data()
+        } catch {
+            return nil
+        }
     }
 
     /// Privacy-minimized lifecycle diagnostics, newest first.

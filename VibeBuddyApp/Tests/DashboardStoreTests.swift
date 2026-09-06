@@ -11,6 +11,10 @@ private actor DecisionRecorder: DecisionClient {
     }
     private(set) var completionRequests: [CompletionReadRequest] = []
     private(set) var attentions: [(sessionId: String, level: SessionAttention?)] = []
+    private(set) var recentOutputIDs: [String] = []
+    private var nextOutput: RecentOutput?
+
+    func setNext(_ output: RecentOutput) { nextOutput = output }
 
     func acknowledge(_ pairing: PairingPayload, request: CompletionReadRequest) async -> CompletionReadOutcome {
         acknowledgedSessionIDs.append(request.sessionID)
@@ -20,6 +24,11 @@ private actor DecisionRecorder: DecisionClient {
 
     func setAttention(_ pairing: PairingPayload, sessionId: String, level: SessionAttention?) async {
         attentions.append((sessionId, level))
+    }
+
+    func recentOutput(_ pairing: PairingPayload, sessionId: String) async -> RecentOutput? {
+        recentOutputIDs.append(sessionId)
+        return nextOutput ?? RecentOutput(sessionId: sessionId, source: .transcript)
     }
 
     func decide(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> Bool { true }
@@ -157,5 +166,31 @@ final class DashboardStoreTests: XCTestCase {
 
         XCTAssertGreaterThanOrEqual(reports.count, 2)
         XCTAssertEqual(reports.first?.host, "127.0.0.1")
+    }
+
+    func testLoadingRecentOutputDoesNotAcknowledgeCompletion() async throws {
+        let decisions = DecisionRecorder()
+        await decisions.setNext(RecentOutput(
+            sessionId: "s", source: .transcript,
+            entries: [RecentOutputEntry(role: "assistant", text: "done")]))
+        let t = Date(timeIntervalSince1970: 0)
+        let done = AgentSession(id: "s", agent: .claudeCode, project: "p",
+                                status: .done, hasUnreadCompletion: true,
+                                statusSince: t, updatedAt: t)
+        let store = DashboardStore(
+            streamer: ScriptedStreamer(snapshots: [Snapshot(sessions: [done], serverTime: t)]),
+            notifier: SilentNotifier(), decisionClient: decisions, watchRelay: nil)
+        store.start(PairingPayload(host: "127.0.0.1", port: 9, token: "test"))
+        for _ in 0..<50 {
+            if !store.allSessions.isEmpty { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        await store.loadRecentOutput("s")
+        XCTAssertEqual(store.recentOutputs["s"]?.entries.map(\.text), ["done"])
+        XCTAssertEqual(store.allSessions.first?.hasUnreadCompletion, true)
+        let acknowledged = await decisions.acknowledgedSessionIDs
+        XCTAssertEqual(acknowledged, [])
+        store.stop()
     }
 }

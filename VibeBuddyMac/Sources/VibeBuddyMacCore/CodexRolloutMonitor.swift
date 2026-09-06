@@ -989,7 +989,12 @@ public actor CodexRolloutMonitor {
     /// One deterministic discovery/recovery pass, public so the file-tail
     /// contract can be tested without timers or a running HTTP server.
     public func poll(now: Date) -> [HookEvent] {
-        scan(now: now, installWatchers: isRunning).events
+        scan(now: now, installWatchers: isRunning).events.map(stampPath)
+    }
+
+    /// The rollout file currently tailed for this thread, when the monitor has one.
+    public func rolloutPath(for sessionID: String) -> String? {
+        cursors.first { $0.value.parser.sessionID == sessionID }?.key
     }
 
     public func diagnostics() -> CodexRolloutMonitorDiagnostics {
@@ -1263,10 +1268,17 @@ public actor CodexRolloutMonitor {
         enqueue(result.retired, recordsEvidence: false)
     }
 
+    private func stampPath(_ event: HookEvent) -> HookEvent {
+        if event.transcriptPath != nil { return event }
+        guard let path = cursors.first(where: { $0.value.parser.sessionID == event.sessionID })?.key
+        else { return event }
+        return event.withTranscriptPath(path)
+    }
+
     private func enqueue(_ events: [HookEvent], recordsEvidence: Bool = true) {
         guard isRunning, !events.isEmpty else { return }
         eventQueue.append(contentsOf: events.map {
-            QueuedEvent(event: $0, recordsEvidence: recordsEvidence)
+            QueuedEvent(event: stampPath($0), recordsEvidence: recordsEvidence)
         })
         guard deliveryTask == nil else { return }
         deliveryTask = Task { [weak self] in
