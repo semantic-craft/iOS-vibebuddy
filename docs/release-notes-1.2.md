@@ -7,6 +7,9 @@ This release focuses on the capabilities already implemented and verified in the
 - Identified phones keep one push registration when their token changes, with current preferences. Historical registrations without a device identity are not automatically removed when their ownership cannot be determined.
 - Companion presentation across Mac, iPhone and Watch, including the followed-task Watch complication, exact completion-read synchronization, and recovery across disconnection or source changes.
 - Clear local guidance when Codex hooks are disabled, without rewriting the user's Codex configuration.
+- Mac and phone diagnostics distinguish sources awaiting activity, optional information not enabled, unverified versions and actual data failures. Codex 0.153.4 remains unverified where lifecycle evidence is incomplete.
+- Reliable Mac dashboard reopening and Glance position retention, plus explicit paste controls for voice-provider settings on Mac and iPhone.
+- A simpler paired-Mac connection menu on the phone and shared agent brand icons across companion views.
 
 The existing Claude Code, Codex and Grok integrations retain their individual capability limits. Phone actions require a reachable paired Mac. Existing new-task dispatch applies to supported Claude Code and Codex configurations; it is not a general remote terminal.
 
