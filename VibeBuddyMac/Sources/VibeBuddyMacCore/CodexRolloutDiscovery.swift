@@ -7,8 +7,8 @@ import Foundation
 /// — they must not each invent a date-directory assumption.
 ///
 /// `candidates` keeps the monitor's recency window (what to tail). Diagnostics
-/// request metadata without a time bound, then inspect recent files plus the
-/// newest stale file so a restart retains freshness evidence.
+/// request metadata without a time bound, then inspect recent files, or the
+/// newest file when none are recent, so a restart retains freshness evidence.
 ///
 /// The root is `~/.codex/sessions` (or a test/CODEX_HOME stand-in), never the
 /// Codex home itself: that tree also holds `archived_sessions`, cache, backups,
