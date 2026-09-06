@@ -1,6 +1,6 @@
 {
- "generatedAt": "2026-09-06T12:43+08:00",
- "main": "0080801",
+ "generatedAt": "2026-09-06T12:50+08:00",
+ "main": "cc668ee",
  "howToUse": "正本是 docs/planning/roadmap-2026-09.html；本文件由 tools/export-roadmap.js 导出，不要手改。status 是快照，以仓库事实为准：agent 节点 done = PR 已合并（描述第一行为节点 id）或票 Status done；pr-open = 有开放 PR（pr 字段）；in-progress = 有会话或未提交改动在做；可派 = deps 全 done 且自身非 done/in-progress/pr-open 且 owner A；并发上限 4；优先级 S > A > M > 其余 1.2 > 1.3。票的 Status 只用仓库规定的标签与 done；工作流状态只写 HTML（kind 与标题前缀）。每轮先 git fetch origin 再判断。合并顺序：#57 → #56 → #55（三者都改 Kit 通知类型与 Mac Settings / MenuBarModel，每合一个让下一个合 main）→ #59（Companion 三端，与 #56 的 iPhone 卡片、#55 的 Mac 设置页相碰）→ #62（W-1..3 草稿，先验证）。主工作区 ~/Projects/iOS-vibebuddy 的 main 上仍有 W-1..3 的未提交原件：不 reset、不在主工作区开发。codex/notification-dedup worktree 已被 #54 取代，删除不开 PR。",
  "vision": {
   "Q1": "面向 App Store 公众，你是第一用户",
@@ -319,10 +319,10 @@
   {
    "id": "XC27",
    "lane": "gate",
-   "title": "安装 Xcode 27",
+   "title": "暂缓：Xcode 27，发布后再议",
    "version": "1.3",
    "owner": "U",
-   "status": "ready",
+   "status": "blocked",
    "pr": null,
    "deps": [],
    "ticket": "App Store / developer.apple.com",
@@ -337,7 +337,7 @@
     "verify": "xcodebuild -version",
     "skills": "—"
    },
-   "prompt": "你在 iOS-vibebuddy 仓库工作（~/Projects/iOS-vibebuddy）。任务：XC27 安装 Xcode 27。\n票 / 位置：App Store / developer.apple.com\n\n先按顺序读：AGENTS.md → CONTEXT.md → docs/planning/vision-2026-09.md（本任务服务的决策：Q22 Xcode 27 SDK，部署目标不动）→ 上面的票及其引用的 PRD / ADR。已读且未变化的内容不用重复读。\n\n规格（以票为准，这里是摘要）：\n  目标：E-1 与 G-4 的工具前置。\n  范围：装 Xcode 27，xcode-select 切换，保留 26.6。\n  不做：不升级部署目标。\n  验收：xcodebuild -version 显示 27；三端能在 27 下构建。\n  验证：xcodebuild -version\n  建议技能：—（技能在 .agents/skills/，按其触发条件用；grill-with-docs 只在票里仍有未决取舍时用，问完立刻把结论写回票）\n\n任务正文：\n安装 Xcode 27 并切换 xcode-select；保留 26.6 以便回退。完成后在本图把 XC27 标 done。\n\n这一步只有你本人能做（真机、签名、账号或决策）。完成后把结果写回票的 Status 行与验收段，截图放票里指定的目录；有失败就开修复票而不是改判据。做完在本图把 XC27 标 done，协调会话会据此派下游。"
+   "prompt": "你在 iOS-vibebuddy 仓库工作（~/Projects/iOS-vibebuddy）。任务：XC27 暂缓：Xcode 27，发布后再议。\n票 / 位置：App Store / developer.apple.com\n\n先按顺序读：AGENTS.md → CONTEXT.md → docs/planning/vision-2026-09.md（本任务服务的决策：Q22 Xcode 27 SDK，部署目标不动）→ 上面的票及其引用的 PRD / ADR。已读且未变化的内容不用重复读。\n\n规格（以票为准，这里是摘要）：\n  目标：E-1 与 G-4 的工具前置。\n  范围：装 Xcode 27，xcode-select 切换，保留 26.6。\n  不做：不升级部署目标。\n  验收：xcodebuild -version 显示 27；三端能在 27 下构建。\n  验证：xcodebuild -version\n  建议技能：—（技能在 .agents/skills/，按其触发条件用；grill-with-docs 只在票里仍有未决取舍时用，问完立刻把结论写回票）\n\n任务正文：\n用户于2026-09-06明确暂缓，当前不催办、不安装；待发布后再议。未来获授权后安装 Xcode 27 并切换 xcode-select；保留 26.6 以便回退。完成后在本图把 XC27 标 done。\n\n这一步只有你本人能做（真机、签名、账号或决策）。完成后把结果写回票的 Status 行与验收段，截图放票里指定的目录；有失败就开修复票而不是改判据。做完在本图把 XC27 标 done，协调会话会据此派下游。"
   },
   {
    "id": "DEC-APNS",
