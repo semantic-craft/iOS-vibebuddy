@@ -468,14 +468,14 @@ private struct NotificationSettings: View {
             } header: {
                 Text("Notify me about")
             } footer: {
-                Text("A category that is off is never shown here, whether or not sound is on. Quiet mode still narrows what is left to approvals.")
+                Text("Disabled categories never notify. Quiet mode and Quiet hours silence session alerts except silent approvals and questions. Enabled quota alerts are unaffected.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             .disabled(!notify)
             Section {
-                Toggle("Quiet mode (approvals only)", isOn: $quiet).disabled(!notify)
+                Toggle("Quiet mode (quota unaffected)", isOn: $quiet).disabled(!notify)
             } footer: {
-                Text("For night or focus time: only security approvals make a sound. Everything else stays silent.")
+                Text("Quiet mode keeps approvals and questions silent and suppresses other session alerts. Enabled quota alerts still follow the Sound setting.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {

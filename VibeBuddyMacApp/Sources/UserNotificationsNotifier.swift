@@ -7,6 +7,7 @@ import VibeBuddyMacCore
 /// `UNUserNotificationCenter`; *which* cue, *when* and *how loud* are decided
 /// by `SoundPolicy` (unit-tested), so this type stays pure system I/O: it maps
 /// the alert's `DeliveryLevel` onto sound / banner / list-only presentation.
+@MainActor
 final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotificationCenterDelegate {
     private let center = UNUserNotificationCenter.current()
 
@@ -55,10 +56,10 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
     }
 
     /// A session crossed the spend budget — a gentle heads-up (estimate).
-    /// Returns whether a banner was posted; the caller records delivery.
+    /// Returns the actual scheduling result; the caller records delivery.
     @discardableResult
-    func notifyBudget(project: String, cost: String) -> Bool {
-        notifyQuota(
+    func notifyBudget(project: String, cost: String) async -> LocalNotificationAttempt {
+        await notifyQuota(
             title: String(localized: "\(project) over budget"),
             body: String(localized: "≈ \(cost) spent this session (estimate)"),
             id: "budget-\(project)")
@@ -71,9 +72,9 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
         provider: AccountUsageProvider,
         window: AccountUsageWindow,
         threshold: Int
-    ) -> Bool {
+    ) async -> LocalNotificationAttempt {
         let copy = Self.usageCopy(provider: provider, window: window, threshold: threshold)
-        return notifyQuota(title: copy.title, body: copy.body, id: copy.id)
+        return await notifyQuota(title: copy.title, body: copy.body, id: copy.id)
     }
 
     static func usageCopy(
@@ -95,16 +96,22 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
     /// Chrome quota / budget banner. No session sound file — the system
     /// default plays when sound is on, rather than borrowing `longWaitNudge`.
     @discardableResult
-    func notifyQuota(title: String, body: String, id: String) -> Bool {
+    func notifyQuota(title: String, body: String, id: String) async -> LocalNotificationAttempt {
         guard Self.flag("notifyOnNeedsResponse"),
               QuotaNoticeFanout.localSkip(categories: NotificationCategoryPrefs.loadMac()) == nil
-        else { return false }
+        else { return .skipped }
+        guard await isAuthorized() else { return .failed(reason: "permissionDenied") }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = Self.flag("playNotificationSound") ? .default : nil
-        center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
-        return true
+        do {
+            try await center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
+            return .scheduled()
+        } catch {
+            return .failed(reason: LocalNotificationDelivery.classify(
+                authorized: true, scheduleError: error).failureReason ?? "scheduleFailed")
+        }
     }
 
     private func enqueue(title: String, body: String, sound: NotificationSound, id: String) {
@@ -124,7 +131,7 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
         }
     }
 
-    private static let deliveryKey = "delivery"
+    nonisolated private static let deliveryKey = "delivery"
 
     private func post(title: String, body: String, sound: NotificationSound,
                       delivery: DeliveryLevel, id: String) async throws {
@@ -147,7 +154,7 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
     /// what was said can still be found later. Chrome cues (pairing, budget,
     /// usage) carry no delivery level and are shown in full. Budget / usage
     /// no longer borrow `longWaitNudge`.
-    func userNotificationCenter(
+    nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
@@ -164,7 +171,7 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
     }
 
     /// A Bool default that treats an absent key as `true` (on by default).
-    private static func flag(_ key: String) -> Bool {
+    nonisolated private static func flag(_ key: String) -> Bool {
         UserDefaults.standard.object(forKey: key) == nil ? true : UserDefaults.standard.bool(forKey: key)
     }
 

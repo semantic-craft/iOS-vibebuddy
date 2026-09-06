@@ -205,7 +205,7 @@ final class AccountUsageCoordinator: ObservableObject {
         let windows = alertMonitor.newlyCrossed(
             in: state,
             thresholdPercent: threshold,
-            notificationsSuppressed: NotificationQuietMode.isEffective()
+            notificationsSuppressed: false // Quota uses its category switch, independently of Quiet.
         )
         Self.saveAlertedWindows(alertMonitor.alertedWindowKeys)
         guard let provider = state.snapshot?.provider else { return }
@@ -213,7 +213,7 @@ final class AccountUsageCoordinator: ObservableObject {
             if let onUsageAlert {
                 onUsageAlert(provider, window, threshold)
             } else {
-                notifier.notifyUsage(provider: provider, window: window, threshold: threshold)
+                Task { await notifier.notifyUsage(provider: provider, window: window, threshold: threshold) }
             }
         }
     }

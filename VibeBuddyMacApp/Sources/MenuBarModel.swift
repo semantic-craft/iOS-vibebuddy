@@ -543,18 +543,18 @@ final class MenuBarModel: ObservableObject {
     /// switch). Quota is not a session cue: the attention matrix is not applied.
     private func deliverQuotaNotice(title: String, body: String, id: String,
                                     sessionID: String?) async {
-        let posted = notifier.notifyQuota(title: title, body: body, id: id)
+        let attempt = await notifier.notifyQuota(title: title, body: body, id: id)
         let localSkip = QuotaNoticeFanout.localSkip(categories: NotificationCategoryPrefs.loadMac())
         if let reason = localSkip {
             await deliveryRecorder.record(NotificationDeliveryRecord(
                 channel: .local, outcome: .skipped, sessionID: sessionID,
                 sound: NotificationCategory.quota.rawValue,
                 failureReason: reason.rawValue, timestamp: Date()))
-        } else if posted {
+        } else if attempt.shouldRecord {
             await deliveryRecorder.record(NotificationDeliveryRecord(
-                channel: .local, outcome: .scheduled, sessionID: sessionID,
+                channel: .local, outcome: attempt.outcome, sessionID: sessionID,
                 sound: NotificationCategory.quota.rawValue,
-                failureReason: nil, timestamp: Date()))
+                failureReason: attempt.failureReason, timestamp: Date()))
         }
 
         let devices = pusher == nil ? [] : await deviceTokens.devices()
