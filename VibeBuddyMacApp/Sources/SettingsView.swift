@@ -213,6 +213,10 @@ private struct SetupSettings: View {
                 Text(issue?.explanation ?? source.diagnosticExplanation)
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                if let version = source.sourceVersion, source.reasonCode != "versionUnverified" {
+                    Text("Source version \(version)")
+                        .font(.caption2).foregroundStyle(.tertiary)
+                }
                 if let last = source.lastObservedAt {
                     Text("Last signal \(last, style: .relative)")
                         .font(.caption2).foregroundStyle(.tertiary)
@@ -243,6 +247,7 @@ private struct SetupSettings: View {
 private extension ObservationSourceDiagnostic {
     var isInformational: Bool {
         health == .temporarilySilent || reasonCode == "optionalSourceNotConfigured"
+            || reasonCode == "versionUnverified"
     }
     var diagnosticIcon: String {
         health.isHealthy ? "checkmark.circle.fill"
@@ -252,6 +257,8 @@ private extension ObservationSourceDiagnostic {
     var diagnosticTitle: String {
         switch reasonCode {
         case "awaitingActivity": source == .hook ? "Configured, awaiting first activity" : "Awaiting activity"
+        case "versionUnverified": "Version \(sourceVersion ?? "unknown") not yet verified"
+        case "invalidSourceData": "Invalid source data"
         case "configurationIncomplete": "Configuration incomplete"
         case "optionalSourceNotConfigured": "Status line information not enabled"
         default: health == .temporarilySilent ? "No recent activity" : health.displayName
@@ -267,6 +274,10 @@ private extension ObservationSourceDiagnostic {
             let missing = ObservationEventCoverage.allCases.filter { !configuredCoverage.contains($0) }
                 .map(\.displayName).joined(separator: ", ")
             return "Missing hook configuration: \(missing). Configured coverage is separate from events received this launch."
+        case "versionUnverified":
+            return "No format error was found in the inspected records, but this Rollout version has not completed lifecycle verification. Hook repair does not verify a Rollout version."
+        case "invalidSourceData":
+            return "Rollout data could not be parsed or a required event structure is invalid. Check the Rollout source data; reinstalling Hooks does not repair it."
         case "optionalSourceNotConfigured":
             return "Optional Claude status line information is not enabled. Hook and Transcript monitoring can continue."
         default:

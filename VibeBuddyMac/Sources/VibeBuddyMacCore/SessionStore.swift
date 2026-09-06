@@ -718,6 +718,9 @@ public actor SessionStore {
             Set(row.observedCoverage).union(signal.observedCoverage)).sorted()
         if signal.health != .healthy {
             row.health = signal.health
+            if signal.source == .rollout, signal.health == .unknownVersion {
+                row.reasonCode = "invalidSourceData"
+            }
         } else {
             row.health = cache.at.timeIntervalSince(signal.lastObservedAt)
                 > Self.diagnosticStaleAfter ? .temporarilySilent : .healthy

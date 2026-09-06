@@ -117,7 +117,7 @@ struct ObservationHealthDetectorTests {
         defer { try? FileManager.default.removeItem(at: home) }
         try write("model = \"gpt\"\n", to: home.appendingPathComponent(".codex/config.toml"))
         let rollout = home.appendingPathComponent(".codex/sessions/2023/11/14/rollout-test.jsonl")
-        try write(#"{"type":"session_meta","payload":{"cli_version":"1.2.3"}}"#, to: rollout)
+        try write(#"{"type":"session_meta","payload":{"id":"diagnostic-test","cli_version":"1.2.3"}}"#, to: rollout)
         try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: rollout.path)
 
         let result = detect(home: home)
@@ -150,7 +150,7 @@ struct ObservationHealthDetectorTests {
         try write("model = \"gpt\"\n", to: futureHome.appendingPathComponent(".codex/config.toml"))
         let future = futureHome.appendingPathComponent(".codex/sessions/2023/11/14/rollout-future.jsonl")
         try write(
-            #"{"type":"session_meta","payload":{"cli_version":"0.999.0"}}"# + "\n" +
+            #"{"type":"session_meta","payload":{"id":"diagnostic-test","cli_version":"0.999.0"}}"# + "\n" +
             #"{"type":"event_msg","payload":{"type":"task_started"}}"#,
             to: future)
         let futureResult = detect(home: futureHome)
@@ -160,13 +160,13 @@ struct ObservationHealthDetectorTests {
         defer { try? FileManager.default.removeItem(at: metadataHome) }
         try write("model = \"gpt\"\n", to: metadataHome.appendingPathComponent(".codex/config.toml"))
         let metadata = metadataHome.appendingPathComponent(".codex/sessions/2023/11/14/rollout-metadata.jsonl")
-        try write(#"{"type":"session_meta","payload":{"cli_version":"0.151.0-alpha.7.2"}}"#,
+        try write(#"{"type":"session_meta","payload":{"id":"diagnostic-test","cli_version":"0.151.0-alpha.7.2"}}"#,
                   to: metadata)
         let metadataResult = detect(home: metadataHome)
         #expect(metadataResult.health(agent: .codex, source: .rollout) == .eventsMissing)
 
         try write(
-            #"{"type":"session_meta","payload":{"cli_version":"0.151.0-alpha.7.2"}}"# + "\n" +
+            #"{"type":"session_meta","payload":{"id":"diagnostic-test","cli_version":"0.151.0-alpha.7.2"}}"# + "\n" +
             #"{"type":"event_msg","payload":{"type":"task_started"}}"#,
             to: metadata)
         let supportedResult = detect(home: metadataHome)
@@ -216,7 +216,7 @@ struct ObservationHealthDetectorTests {
         let home = try tempHome()
         defer { try? FileManager.default.removeItem(at: home) }
         let rollout = home.appendingPathComponent(".codex/sessions/rollout-boundary.jsonl")
-        let prefix = #"{"type":"session_meta","payload":{"cli_version":"0.153.3"}}"# + "\n"
+        let prefix = #"{"type":"session_meta","payload":{"id":"diagnostic-test","cli_version":"0.153.3"}}"# + "\n"
             + #"{"type":"event_msg","payload":{"type":"task_started"}}"# + "\n"
         let messageStart = #"{"type":"response_item","payload":{"type":"message","text":""#
         // Like the real H2 rollouts, the 1 MiB read ends inside a valid character
@@ -240,7 +240,7 @@ struct ObservationHealthDetectorTests {
         try write("model = \"gpt\"\n", to: home.appendingPathComponent(".codex/config.toml"))
         let rollout = home.appendingPathComponent(".codex/sessions/2023/11/14/rollout-stale.jsonl")
         try write(
-            #"{"type":"session_meta","payload":{"cli_version":"0.151.0-alpha.7.2"}}"# + "\n" +
+            #"{"type":"session_meta","payload":{"id":"diagnostic-test","cli_version":"0.151.0-alpha.7.2"}}"# + "\n" +
             #"{"type":"event_msg","payload":{"type":"task_started"}}"#,
             to: rollout)
         let staleAt = now.addingTimeInterval(-2 * 60 * 60)
@@ -264,7 +264,7 @@ struct ObservationHealthDetectorTests {
         // `now` is 2023-11-14. The old today/yesterday walk cannot see October.
         let old = home.appendingPathComponent(".codex/sessions/2023/10/01/rollout-resumed.jsonl")
         try write(
-            #"{"type":"session_meta","payload":{"cli_version":"0.151.0-alpha.7.2"}}"# + "\n" +
+            #"{"type":"session_meta","payload":{"id":"diagnostic-test","cli_version":"0.151.0-alpha.7.2"}}"# + "\n" +
             #"{"type":"event_msg","payload":{"type":"task_started"}}"#,
             to: old)
 
@@ -280,13 +280,13 @@ struct ObservationHealthDetectorTests {
         try write("model = \"gpt\"\n", to: home.appendingPathComponent(".codex/config.toml"))
         let readable = home.appendingPathComponent(".codex/sessions/2023/11/13/rollout-old.jsonl")
         try write(
-            #"{"type":"session_meta","payload":{"cli_version":"0.151.0-alpha.7.2"}}"# + "\n" +
+            #"{"type":"session_meta","payload":{"id":"diagnostic-test","cli_version":"0.151.0-alpha.7.2"}}"# + "\n" +
             #"{"type":"event_msg","payload":{"type":"task_started"}}"#,
             to: readable)
         let hiddenDir = home.appendingPathComponent(".codex/sessions/2023/11/14", isDirectory: true)
         let hidden = hiddenDir.appendingPathComponent("rollout-newer.jsonl")
         try write(
-            #"{"type":"session_meta","payload":{"cli_version":"0.151.0-alpha.7.2"}}"# + "\n" +
+            #"{"type":"session_meta","payload":{"id":"diagnostic-test","cli_version":"0.151.0-alpha.7.2"}}"# + "\n" +
             #"{"type":"event_msg","payload":{"type":"task_started"}}"#,
             to: hidden)
         try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: hiddenDir.path)

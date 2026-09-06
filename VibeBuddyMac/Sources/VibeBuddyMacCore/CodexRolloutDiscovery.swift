@@ -6,9 +6,9 @@ import Foundation
 /// to that old file. Both callers walk the injected `sessions` root recursively
 /// — they must not each invent a date-directory assumption.
 ///
-/// `candidates` keeps the monitor's recency window (what to tail). `latest` is
-/// unbounded by mtime so diagnostics can still classify a stale rollout after
-/// an app or daemon restart.
+/// `candidates` keeps the monitor's recency window (what to tail). Diagnostics
+/// request metadata without a time bound, then inspect recent files plus the
+/// newest stale file so a restart retains freshness evidence.
 ///
 /// The root is `~/.codex/sessions` (or a test/CODEX_HOME stand-in), never the
 /// Codex home itself: that tree also holds `archived_sessions`, cache, backups,
@@ -27,15 +27,9 @@ enum CodexRolloutDiscovery {
     /// must not collapse into `.empty`.
     enum Lookup: Equatable {
         /// `incomplete` is true when some subdirectory could not be read.
-        /// The monitor still tails the accessible files; `latest` treats that
-        /// as `.unreadable` so a hidden newer rollout cannot look healthy.
+        /// The monitor still tails accessible files; diagnostics treat this as
+        /// unreadable so a hidden rollout cannot make the source look healthy.
         case found([Candidate], incomplete: Bool)
-        case empty
-        case unreadable
-    }
-
-    enum Latest: Equatable {
-        case found(url: URL, modifiedAt: Date)
         case empty
         case unreadable
     }
@@ -95,25 +89,6 @@ enum CodexRolloutDiscovery {
 
         if files.isEmpty { return sawUnreadable ? .unreadable : .empty }
         return .found(files, incomplete: sawUnreadable)
-    }
-
-    /// Diagnostics inspect one file: the newest rollout by mtime, including
-    /// files outside the monitor recency window. Same three-way result as
-    /// `candidates` — `.unreadable` must not collapse into `.empty`.
-    static func latest(
-        in root: URL,
-        now: Date,
-        fileManager fm: FileManager = .default
-    ) -> Latest {
-        switch candidates(in: root, now: now, window: nil, fileManager: fm) {
-        case .empty: return .empty
-        case .unreadable, .found(_, incomplete: true): return .unreadable
-        case .found(let files, incomplete: false):
-            guard let newest = files.max(by: { $0.modifiedAt < $1.modifiedAt }) else {
-                return .empty
-            }
-            return .found(url: newest.url, modifiedAt: newest.modifiedAt)
-        }
     }
 
     static func isReadableDirectory(_ url: URL, fileManager fm: FileManager) -> Bool {

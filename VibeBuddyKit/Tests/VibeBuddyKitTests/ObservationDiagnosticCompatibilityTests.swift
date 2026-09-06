@@ -12,6 +12,8 @@ struct ObservationDiagnosticCompatibilityTests {
                 configuredCoverage: ObservationEventCoverage.allCases, reasonCode: "awaitingActivity"),
             ObservationSourceDiagnostic(source: .statusline, health: .notInstalled,
                 reasonCode: "optionalSourceNotConfigured"),
+            ObservationSourceDiagnostic(source: .rollout, health: .unknownVersion,
+                reasonCode: "versionUnverified", sourceVersion: "0.153.4"),
             ObservationSourceDiagnostic(source: .transcript, health: .eventsMissing,
                 reasonCode: "futureReason", sourceVersion: "futureVersion")
         ]
