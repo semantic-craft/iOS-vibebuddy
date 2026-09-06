@@ -1,7 +1,7 @@
 {
- "generatedAt": "2026-09-06T05:02+08:00",
- "main": "7b41256",
- "howToUse": "status 是快照，以仓库事实为准：agent 节点 done = PR 已合并（描述第一行为节点 id）或票 Status done；pr-open = 有开放 PR（pr 字段）；可派 = deps 全 done 且自身非 done/in-progress/pr-open 且 owner A；并发上限 4；优先级 S > A > M > 其余 1.2 > 1.3。票的 Status 只用仓库规定的标签与 done；工作流状态只写本文件。合并顺序提醒：#57 → #56 → #55（三者都改 Kit 通知类型与 Mac Settings / MenuBarModel，每合一个让下一个合 main）；#53 与 #54 都建了 docs/adr/0012-*，后合者改 0013；S-2 以 #54 为准，codex/notification-dedup 弃用。",
+ "generatedAt": "2026-09-06T11:10+08:00",
+ "main": "c5c01c6",
+ "howToUse": "status 是快照，以仓库事实为准：agent 节点 done = PR 已合并（描述第一行为节点 id）或票 Status done；pr-open = 有开放 PR（pr 字段）；in-progress = 有会话或未提交改动在做（executor 字段）；可派 = deps 全 done 且自身非 done/in-progress/pr-open 且 owner A；并发上限 4；优先级 S > A > M > 其余 1.2 > 1.3。票的 Status 只用仓库规定的标签与 done；工作流状态只写本文件。每轮先 git fetch origin 再判断（协调会话曾因没 fetch 连续六小时报错 main）。合并顺序：#57 → #56 → #55（三者都改 Kit 通知类型与 Mac Settings / MenuBarModel，每合一个让下一个合 main），然后 #59（Companion 三端，与 #56 的 iPhone 卡片、#55 的 Mac 设置页相碰）；#53 的 ADR 合并前改名 docs/adr/0013-apns-key-delivery.md（0012 已被 #54 占用）。W-1..3 的实现已存在但未提交，在主工作区 ~/Projects/iOS-vibebuddy 的 main 分支上：先上分支、合 origin/main、开一个 PR，不重做、不 reset。codex/notification-dedup worktree 已被 #54 取代，删除不开 PR。",
  "vision": {
   "Q1": "面向 App Store 公众，你是第一用户",
   "Q3": "不发起？已修订：允许派新活与复杂回复，不做远程终端",
@@ -92,9 +92,9 @@
  "sessions": [
   {
    "session": "Mac版设计界面风格",
-   "state": "运行中",
-   "output": "设计画布，5 种气质 → 已选 Companion，正在出面板结构变体",
-   "whenDone": "产出 DECISIONS.md，进入 G-6 实施（1.3）",
+   "state": "PR #59 开着（UNSTABLE）",
+   "output": "八轮 grill 定 Companion；已实现三端 + 灵动岛审批，部署到 Mac 与 Hermes 试用",
+   "whenDone": "第一波合完后合 main、审查合并；G-6 只剩截图与残项",
    "nodes": "S-5 → G-6"
   },
   {
@@ -190,37 +190,37 @@
   },
   {
    "session": "协调会话（coord-log）",
-   "state": "运行中",
-   "output": "第一波已派：A-05 #56、A-06 #57、A-08 #55、A-11 #53；S-2 #54；候补 M-02 → M-04 → M-05 → F/W → B-3 → D-1 → D-2",
-   "whenDone": "第一波合并后派候补",
+   "state": "运行中，但判断失真",
+   "output": "每 20 分钟对账；04:45 起一直报 main ed37ad3（没 fetch），也没登记主工作区的 W-1..3 实现；候补 M-02 → M-04 → M-05 → B-3 → D-1 → D-2",
+   "whenDone": "让它先 git fetch；派候补前以本页与 gh pr list 为准",
    "nodes": "COORD"
   },
   {
-   "session": "A-05 / A-06 / A-08 / A-11 执行会话",
+   "session": "A-05 / A-06 / A-08 / A-11 执行会话（cursor-grok）",
    "state": "PR 开着",
-   "output": "#56 #57 #55 #53，各自测试通过",
-   "whenDone": "审查合并（顺序 #57 → #56 → #55；#53 的 ADR 与 #54 撞号）",
+   "output": "#56 #57 #55 #53，各自测试通过；#56 已与 main 冲突（DIRTY）",
+   "whenDone": "审查合并（顺序 #57 → #56 → #55；#53 的 ADR 改号 0013）",
    "nodes": "A-05 A-06 A-08 A-11"
   },
   {
    "session": "去重 S-2（Claude）",
-   "state": "PR #54 开着",
-   "output": "手机回执 /notified + Mac 暂缓推送 ≤3 s；ADR-0012（撞号）",
-   "whenDone": "审查合并；需你两项真机实测确认",
-   "nodes": "S-2"
+   "state": "已合并 #54",
+   "output": "手机回执 /notified + PushCoverage 等回执 ≤3 s；ADR-0012 占号",
+   "whenDone": "三场景真机验收并入 A-03",
+   "nodes": "S-2 → A-03"
   },
   {
    "session": "去重 S-2（Codex worktree）",
-   "state": "进行中，改 vision 文档",
-   "output": "codex/notification-dedup，无 PR",
-   "whenDone": "弃用，以 #54 为准；不要合并它对 vision 的改动",
+   "state": "已被 #54 取代",
+   "output": "codex/notification-dedup，无 PR，改过 vision 文档",
+   "whenDone": "删 worktree 与分支，不开 PR",
    "nodes": "—"
   },
   {
-   "session": "手表表盘组件规格会话",
-   "state": "规格与原型完成",
-   "output": "watch-complication PRD + PROTOTYPE.html + 三张票与 handoff",
-   "whenDone": "W-1 → W-2 → W-3 可派",
+   "session": "手表表盘组件（执行者未登记）",
+   "state": "主工作区有 41 个未提交文件",
+   "output": "W-1..3 的实现直接写在 ~/Projects/iOS-vibebuddy 的 main 上（04:32–05:18），落后 origin 10 个提交，三张票仍是 ready-for-agent",
+   "whenDone": "上分支、合 main、开一个 PR；票写 Executor 行",
    "nodes": "W-1 W-2 W-3"
   },
   {
@@ -296,7 +296,7 @@
    "deps": [
     "A-11"
    ],
-   "ticket": "docs/adr/0012-apns-key-*.md（A-11 产出）",
+   "ticket": "docs/adr/0013-apns-key-delivery.md（A-11 产出，#53 合并后）",
    "vision": [
     "Q8",
     "Q4"
@@ -309,7 +309,7 @@
     "verify": "—",
     "skills": "—"
    },
-   "prompt": "你在 iOS-vibebuddy 仓库工作（~/Projects/iOS-vibebuddy）。任务：DEC-APNS 拍板 APNs 密钥方案（读 A-11 的 ADR）。\n票 / 位置：docs/adr/0012-apns-key-*.md（A-11 产出）\n\n先按顺序读：AGENTS.md → CONTEXT.md → docs/planning/vision-2026-09.md（本任务服务的决策：Q8 关闭 App 后送达：不做中继，手段待 ADR；Q4 一周零漏接）→ 上面的票及其引用的 PRD / ADR。已读且未变化的内容不用重复读。\n\n规格（以票为准，这里是摘要）：\n  目标：在三条路里定一条：内置密钥（含轮换与只向配对 token 发送）、每个用户自己的开发者密钥、极小中继。\n  范围：读 ADR，写下决定与理由。\n  不做：—\n  验收：ADR Status 改为 Accepted，选项唯一。\n  验证：—\n  建议技能：—（技能在 .agents/skills/，按其触发条件用；grill-with-docs 只在票里仍有未决取舍时用，问完立刻把结论写回票）\n\n任务正文：\n读 A-11 写好的 ADR（三条路的利弊、Codex 评审对内置密钥的反对意见、每条路对陌生用户的影响），在 ADR 上写下你的决定和理由，Status 改 Accepted。A-12 等这个决定。\n\n这一步只有你本人能做（真机、签名、账号或决策）。完成后把结果写回票的 Status 行与验收段，截图放票里指定的目录；有失败就开修复票而不是改判据。做完在本图把 DEC-APNS 标 done，协调会话会据此派下游。"
+   "prompt": "你在 iOS-vibebuddy 仓库工作（~/Projects/iOS-vibebuddy）。任务：DEC-APNS 拍板 APNs 密钥方案（读 A-11 的 ADR）。\n票 / 位置：docs/adr/0013-apns-key-delivery.md（A-11 产出，#53 合并后）\n\n先按顺序读：AGENTS.md → CONTEXT.md → docs/planning/vision-2026-09.md（本任务服务的决策：Q8 关闭 App 后送达：不做中继，手段待 ADR；Q4 一周零漏接）→ 上面的票及其引用的 PRD / ADR。已读且未变化的内容不用重复读。\n\n规格（以票为准，这里是摘要）：\n  目标：在三条路里定一条：内置密钥（含轮换与只向配对 token 发送）、每个用户自己的开发者密钥、极小中继。\n  范围：读 ADR，写下决定与理由。\n  不做：—\n  验收：ADR Status 改为 Accepted，选项唯一。\n  验证：—\n  建议技能：—（技能在 .agents/skills/，按其触发条件用；grill-with-docs 只在票里仍有未决取舍时用，问完立刻把结论写回票）\n\n任务正文：\n读 A-11 写好的 ADR（三条路的利弊、Codex 评审对内置密钥的反对意见、每条路对陌生用户的影响），在 ADR 上写下你的决定和理由，Status 改 Accepted。A-12 等这个决定。\n\n这一步只有你本人能做（真机、签名、账号或决策）。完成后把结果写回票的 Status 行与验收段，截图放票里指定的目录；有失败就开修复票而不是改判据。做完在本图把 DEC-APNS 标 done，协调会话会据此派下游。"
   },
   {
    "id": "S-1",
@@ -393,16 +393,16 @@
   {
    "id": "S-2",
    "lane": "S",
-   "title": "PR #54 待评审合并：一次提醒只弹一条（手机回执 /notified）",
+   "title": "已合并 #54：一次提醒只弹一条（手机回执 /notified，ADR-0012）",
    "version": "1.2",
    "owner": "A",
-   "status": "pr-open",
-   "executor": "claude-executor (#54); codex worktree superseded",
+   "status": "done",
+   "executor": "claude (notification-dedup session); codex worktree superseded",
    "pr": 54,
    "deps": [
     "S-3"
    ],
-   "ticket": ".scratch/notification-categories/issues/13-local-apns-dedupe.md · PR #54（Claude）· codex/notification-dedup 另一份，弃用",
+   "ticket": "docs/adr/0012-one-banner-per-cue-phone-receipts.md · PR #54 已合并 · codex/notification-dedup worktree 弃用",
    "vision": [
     "Q4"
    ],
@@ -414,7 +414,7 @@
     "verify": "两项真机实测先做：iOS 后台 WebSocket 存活时间、本地 add 撞同 id 远程通知的行为；然后三套测试与构建。",
     "skills": "grill-with-docs（先定方案）、diagnosing-bugs、tdd"
    },
-   "prompt": "你在 iOS-vibebuddy 仓库工作（~/Projects/iOS-vibebuddy）。任务：S-2 PR #54 待评审合并：一次提醒只弹一条（手机回执 /notified）。\n票 / 位置：.scratch/notification-categories/issues/13-local-apns-dedupe.md · PR #54（Claude）· codex/notification-dedup 另一份，弃用\n\n先按顺序读：AGENTS.md → CONTEXT.md → docs/planning/vision-2026-09.md（本任务服务的决策：Q4 一周零漏接）→ 上面的票及其引用的 PRD / ADR。已读且未变化的内容不用重复读。\n\n规格（以票为准，这里是摘要）：\n  目标：同一次权限请求不再在手机上出现两条（本地通知 + APNs 推送），且任何场景都不比现在少收到。\n  范围：三个候选（Mac 按在线状态跳过 / 手机撤回同 id 远程通知 / 后台完全交给 APNs）选一或组合，写依据，实现，真机验收。\n  不做：不减少任何一种场景的提醒；不引入新的不稳定因素。\n  验收：前台、刚退后台 10 秒内、退后台 5 分钟后各触发一次审批：每种恰好一条横幅、一次声音、点击打开会话；关闭 APNs 时行为不变少；Watch 不重复。\n  验证：两项真机实测先做：iOS 后台 WebSocket 存活时间、本地 add 撞同 id 远程通知的行为；然后三套测试与构建。\n  建议技能：grill-with-docs（先定方案）、diagnosing-bugs、tdd（技能在 .agents/skills/，按其触发条件用；grill-with-docs 只在票里仍有未决取舍时用，问完立刻把结论写回票）\n\n任务正文：\n票 .scratch/notification-categories/issues/13-local-apns-dedupe.md 已写好（现象、现有机制、三个候选方案、决策要求、验收）。硬约束：不能让任何场景比现在更少收到提醒。方案 1（Mac 按手机在线状态跳过推送）需要把 /ws 连接与设备 token 关联并加静默超时兜底；方案 2（手机 post 本地通知前撤回同 identifier 的远程通知）零 Mac 改动但只覆盖一种到达顺序；方案 3（后台完全交给 APNs）依赖 APNs 可达。两项真机实测（后台 ws 存活时间、本地 add 撞同 id 远程通知）由用户在 Hermes 上完成后再定；决策记进 docs/planning 或 ADR，PR 描述写排除依据。\n\n分支与工作区：从 origin/main 新建分支 claude/s-2-<slug>（若票指定了现有 worktree / 分支则用它），worktree 放 .claude/worktrees/<slug>；不要 rebase 到本地 main；不要用 bare git stash（栈是共享的）；main 只接受 PR。若依赖的 PR 尚未合并，把工作叠在那个 PR 分支上并在 PR 描述里说明。\n\n票据回写：领票时不改票的 Status（只用仓库规定的标签：needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix，以及既有的收口词 done），在票里加一行「**Executor:** <你> · 分支 <名> · <时间>」；完成时把 Status 改为 ready-for-human（需要真机）或 done（纯代码且已验证），附证据；不要把「代码完成」写成 done。新票按 docs/agents/issue-tracker.md 的格式建在票路径所示位置。\n\n验证（至少跑改动覆盖到的部分，把命令与结果数字写进 PR）：\n  cd VibeBuddyKit && swift test\n  cd VibeBuddyMac && swift test\n  cd VibeBuddyApp && xcodegen generate && xcodebuild -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build\n  cd VibeBuddyApp && xcodebuild test -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:VibeBuddyAppTests CODE_SIGNING_ALLOWED=NO\n  cd VibeBuddyMacApp && xcodegen generate && xcodebuild -project VibeBuddyMacApp.xcodeproj -scheme VibeBuddyMacApp -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build\n不要给 iOS scheme 传 -sdk iphonesimulator（会把 Watch 目标编到 iOS SDK，产生假错误）。\n\n边界：不部署、不发布、不改已安装的 App、不碰端口 9876 上正在运行的守护进程、不动真机、不改 ~/.claude 全局配置、不读取或打印任何密钥；这些只有用户能做。\n\nPR：标题用 Conventional Commits；描述分 Summary / Validation / Not verified here；不加署名行。main 的规则要求每条评审线程（含 Codex 机器人的 P1 / P2）先修复或答复后解决才能合并；合并由协调会话或用户执行。收尾回复里给出 PR 链接、跑过的验证与留给真机的项，并把本图的节点 id（S-2）写在 PR 描述第一行，方便协调会话对账。"
+   "prompt": "你在 iOS-vibebuddy 仓库工作（~/Projects/iOS-vibebuddy）。任务：S-2 已合并 #54：一次提醒只弹一条（手机回执 /notified，ADR-0012）。\n票 / 位置：docs/adr/0012-one-banner-per-cue-phone-receipts.md · PR #54 已合并 · codex/notification-dedup worktree 弃用\n\n先按顺序读：AGENTS.md → CONTEXT.md → docs/planning/vision-2026-09.md（本任务服务的决策：Q4 一周零漏接）→ 上面的票及其引用的 PRD / ADR。已读且未变化的内容不用重复读。\n\n规格（以票为准，这里是摘要）：\n  目标：同一次权限请求不再在手机上出现两条（本地通知 + APNs 推送），且任何场景都不比现在少收到。\n  范围：三个候选（Mac 按在线状态跳过 / 手机撤回同 id 远程通知 / 后台完全交给 APNs）选一或组合，写依据，实现，真机验收。\n  不做：不减少任何一种场景的提醒；不引入新的不稳定因素。\n  验收：前台、刚退后台 10 秒内、退后台 5 分钟后各触发一次审批：每种恰好一条横幅、一次声音、点击打开会话；关闭 APNs 时行为不变少；Watch 不重复。\n  验证：两项真机实测先做：iOS 后台 WebSocket 存活时间、本地 add 撞同 id 远程通知的行为；然后三套测试与构建。\n  建议技能：grill-with-docs（先定方案）、diagnosing-bugs、tdd（技能在 .agents/skills/，按其触发条件用；grill-with-docs 只在票里仍有未决取舍时用，问完立刻把结论写回票）\n\n任务正文：\n票 .scratch/notification-categories/issues/13-local-apns-dedupe.md 已写好（现象、现有机制、三个候选方案、决策要求、验收）。硬约束：不能让任何场景比现在更少收到提醒。方案 1（Mac 按手机在线状态跳过推送）需要把 /ws 连接与设备 token 关联并加静默超时兜底；方案 2（手机 post 本地通知前撤回同 identifier 的远程通知）零 Mac 改动但只覆盖一种到达顺序；方案 3（后台完全交给 APNs）依赖 APNs 可达。两项真机实测（后台 ws 存活时间、本地 add 撞同 id 远程通知）由用户在 Hermes 上完成后再定；决策记进 docs/planning 或 ADR，PR 描述写排除依据。\n\n分支与工作区：从 origin/main 新建分支 claude/s-2-<slug>（若票指定了现有 worktree / 分支则用它），worktree 放 .claude/worktrees/<slug>；不要 rebase 到本地 main；不要用 bare git stash（栈是共享的）；main 只接受 PR。若依赖的 PR 尚未合并，把工作叠在那个 PR 分支上并在 PR 描述里说明。\n\n票据回写：领票时不改票的 Status（只用仓库规定的标签：needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix，以及既有的收口词 done），在票里加一行「**Executor:** <你> · 分支 <名> · <时间>」；完成时把 Status 改为 ready-for-human（需要真机）或 done（纯代码且已验证），附证据；不要把「代码完成」写成 done。新票按 docs/agents/issue-tracker.md 的格式建在票路径所示位置。\n\n验证（至少跑改动覆盖到的部分，把命令与结果数字写进 PR）：\n  cd VibeBuddyKit && swift test\n  cd VibeBuddyMac && swift test\n  cd VibeBuddyApp && xcodegen generate && xcodebuild -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build\n  cd VibeBuddyApp && xcodebuild test -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:VibeBuddyAppTests CODE_SIGNING_ALLOWED=NO\n  cd VibeBuddyMacApp && xcodegen generate && xcodebuild -project VibeBuddyMacApp.xcodeproj -scheme VibeBuddyMacApp -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build\n不要给 iOS scheme 传 -sdk iphonesimulator（会把 Watch 目标编到 iOS SDK，产生假错误）。\n\n边界：不部署、不发布、不改已安装的 App、不碰端口 9876 上正在运行的守护进程、不动真机、不改 ~/.claude 全局配置、不读取或打印任何密钥；这些只有用户能做。\n\nPR：标题用 Conventional Commits；描述分 Summary / Validation / Not verified here；不加署名行。main 的规则要求每条评审线程（含 Codex 机器人的 P1 / P2）先修复或答复后解决才能合并；合并由协调会话或用户执行。收尾回复里给出 PR 链接、跑过的验证与留给真机的项，并把本图的节点 id（S-2）写在 PR 描述第一行，方便协调会话对账。"
   },
   {
    "id": "S-6",
@@ -446,27 +446,28 @@
   {
    "id": "S-5",
    "lane": "S",
-   "title": "Mac 界面风格：Companion 方向收敛",
+   "title": "PR #59 待评审合并：Companion 三端重设计 + 灵动岛审批（已含 G-6 实施）",
    "version": "1.3",
    "owner": "A",
-   "status": "in-progress",
-   "executor": "claude-design-session",
-   "pr": null,
+   "status": "pr-open",
+   "executor": "claude (mac-design session)",
+   "pr": 59,
    "deps": [],
-   "ticket": "会话「Mac版设计界面风格」· 设计画布 78619df8",
+   "ticket": "PR #59 · docs/design/mac-companion-redesign.md · 分支 claude/mac-design-interface-style-67f537 · Kit Companion.swift / CompanionViews.swift",
    "vision": [
     "Q6",
-    "Q21"
+    "Q21",
+    "Q18"
    ],
    "spec": {
-    "goal": "在已选定的 Companion 气质下，收敛仪表盘、菜单栏下拉、Glance 的面板结构与组件。",
-    "scope": "设计画布上的逐层变体与选择；产出一份可实施的设计决定（结构、组件、令牌）。",
-    "non": "本节点不写产品代码。",
-    "accept": "画布上每个面板有唯一选定结构；决定写进 .scratch/mac-design/DECISIONS.md（含截图与令牌）。",
-    "verify": "用户在画布上确认。",
-    "skills": "design-ui、prototype、grill-me"
+    "goal": "设计会话八轮 grill 定下的 Companion 方向已经实现成 PR #59：Kit 共享主题与文案规则，Mac 仪表盘按三态分组、下拉以猫的心情句开头、Glance 保留灵动岛语法；iPhone 仪表盘改成消息流（审批与提问在气泡内作答，reply-to 编辑器按语义命名发送键）；Watch 卡片以「项目 wants to 动词」开头；灵动岛 Live Activity 直接 Approve / Deny。",
+    "scope": "审查 #59 的 25 个文件，合 main（第一波之后），处理 Codex 评审线程，合并；真机看一眼三端。",
+    "non": "不在本 PR 里改行为语义（M-02 / M-03 的语义票仍独立）；Mac 是基础设施，不再追加 Mac 视觉工作。",
+    "accept": "PR #59 合并；Codex 评审线程全部解决；Kit / MacCore / iOS 三套测试通过，三端构建通过。截图与残项归 G-6。",
+    "verify": "Kit / MacCore / iOS 测试；三端构建；已部署到 Mac 与 Hermes 试用。",
+    "skills": "code-review、resolving-merge-conflicts"
    },
-   "prompt": "你在 iOS-vibebuddy 仓库工作（~/Projects/iOS-vibebuddy）。任务：S-5 Mac 界面风格：Companion 方向收敛。\n票 / 位置：会话「Mac版设计界面风格」· 设计画布 78619df8\n\n先按顺序读：AGENTS.md → CONTEXT.md → docs/planning/vision-2026-09.md（本任务服务的决策：Q6 Mac 是基础设施，界面只维持；Q21 UI 顺序：首次运行 → iPhone 首屏 → Settings）→ 上面的票及其引用的 PRD / ADR。已读且未变化的内容不用重复读。\n\n规格（以票为准，这里是摘要）：\n  目标：在已选定的 Companion 气质下，收敛仪表盘、菜单栏下拉、Glance 的面板结构与组件。\n  范围：设计画布上的逐层变体与选择；产出一份可实施的设计决定（结构、组件、令牌）。\n  不做：本节点不写产品代码。\n  验收：画布上每个面板有唯一选定结构；决定写进 .scratch/mac-design/DECISIONS.md（含截图与令牌）。\n  验证：用户在画布上确认。\n  建议技能：design-ui、prototype、grill-me（技能在 .agents/skills/，按其触发条件用；grill-with-docs 只在票里仍有未决取舍时用，问完立刻把结论写回票）\n\n任务正文：\n这是正在跑的设计会话。收尾产物：把 Companion 方向下每个面板（仪表盘、菜单栏下拉、Glance）的最终结构、组件与设计令牌写成 .scratch/mac-design/DECISIONS.md，附画布链接与截图；标明哪些是 1.3 实施范围。G-6 依赖它。\n\n分支与工作区：从 origin/main 新建分支 claude/s-5-<slug>（若票指定了现有 worktree / 分支则用它），worktree 放 .claude/worktrees/<slug>；不要 rebase 到本地 main；不要用 bare git stash（栈是共享的）；main 只接受 PR。若依赖的 PR 尚未合并，把工作叠在那个 PR 分支上并在 PR 描述里说明。\n\n票据回写：领票时不改票的 Status（只用仓库规定的标签：needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix，以及既有的收口词 done），在票里加一行「**Executor:** <你> · 分支 <名> · <时间>」；完成时把 Status 改为 ready-for-human（需要真机）或 done（纯代码且已验证），附证据；不要把「代码完成」写成 done。新票按 docs/agents/issue-tracker.md 的格式建在票路径所示位置。\n\n验证（至少跑改动覆盖到的部分，把命令与结果数字写进 PR）：\n  cd VibeBuddyKit && swift test\n  cd VibeBuddyMac && swift test\n  cd VibeBuddyApp && xcodegen generate && xcodebuild -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build\n  cd VibeBuddyApp && xcodebuild test -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:VibeBuddyAppTests CODE_SIGNING_ALLOWED=NO\n  cd VibeBuddyMacApp && xcodegen generate && xcodebuild -project VibeBuddyMacApp.xcodeproj -scheme VibeBuddyMacApp -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build\n不要给 iOS scheme 传 -sdk iphonesimulator（会把 Watch 目标编到 iOS SDK，产生假错误）。\n\n边界：不部署、不发布、不改已安装的 App、不碰端口 9876 上正在运行的守护进程、不动真机、不改 ~/.claude 全局配置、不读取或打印任何密钥；这些只有用户能做。\n\nPR：标题用 Conventional Commits；描述分 Summary / Validation / Not verified here；不加署名行。main 的规则要求每条评审线程（含 Codex 机器人的 P1 / P2）先修复或答复后解决才能合并；合并由协调会话或用户执行。收尾回复里给出 PR 链接、跑过的验证与留给真机的项，并把本图的节点 id（S-5）写在 PR 描述第一行，方便协调会话对账。"
+   "prompt": "你在 iOS-vibebuddy 仓库工作（~/Projects/iOS-vibebuddy）。任务：S-5 PR #59 待评审合并：Companion 三端重设计 + 灵动岛审批（已含 G-6 实施）。\n票 / 位置：PR #59 · docs/design/mac-companion-redesign.md · 分支 claude/mac-design-interface-style-67f537 · Kit Companion.swift / CompanionViews.swift\n\n先按顺序读：AGENTS.md → CONTEXT.md → docs/planning/vision-2026-09.md（本任务服务的决策：Q6 Mac 是基础设施，界面只维持；Q21 UI 顺序：首次运行 → iPhone 首屏 → Settings；Q18 横幅 Approve / Deny，提问文本作答）→ 上面的票及其引用的 PRD / ADR。已读且未变化的内容不用重复读。\n\n规格（以票为准，这里是摘要）：\n  目标：设计会话八轮 grill 定下的 Companion 方向已经实现成 PR #59：Kit 共享主题与文案规则，Mac 仪表盘按三态分组、下拉以猫的心情句开头、Glance 保留灵动岛语法；iPhone 仪表盘改成消息流（审批与提问在气泡内作答，reply-to 编辑器按语义命名发送键）；Watch 卡片以「项目 wants to 动词」开头；灵动岛 Live Activity 直接 Approve / Deny。\n  范围：审查 #59 的 25 个文件，合 main（第一波之后），处理 Codex 评审线程，合并；真机看一眼三端。\n  不做：不在本 PR 里改行为语义（M-02 / M-03 的语义票仍独立）；Mac 是基础设施，不再追加 Mac 视觉工作。\n  验收：PR #59 合并；Codex 评审线程全部解决；Kit / MacCore / iOS 三套测试通过，三端构建通过。截图与残项归 G-6。\n  验证：Kit / MacCore / iOS 测试；三端构建；已部署到 Mac 与 Hermes 试用。\n  建议技能：code-review、resolving-merge-conflicts（技能在 .agents/skills/，按其触发条件用；grill-with-docs 只在票里仍有未决取舍时用，问完立刻把结论写回票）\n\n任务正文：\n这是设计会话的收尾：PR #59 已开（UNSTABLE，等 CI 与 Codex 评审）。顺序：等 #57 → #56 → #55 合完后，在分支上 git merge origin/main（会与 #56 的 iPhone QuestionCardView / ApprovalCardView、#55 的 Mac 设置页相碰，以 main 的行为为准、#59 的外观为准），跑三套测试与三端构建，处理评审线程，合并。合并后 G-6 只剩截图与验收。\n\n分支与工作区：从 origin/main 新建分支 claude/s-5-<slug>（若票指定了现有 worktree / 分支则用它），worktree 放 .claude/worktrees/<slug>；不要 rebase 到本地 main；不要用 bare git stash（栈是共享的）；main 只接受 PR。若依赖的 PR 尚未合并，把工作叠在那个 PR 分支上并在 PR 描述里说明。\n\n票据回写：领票时不改票的 Status（只用仓库规定的标签：needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix，以及既有的收口词 done），在票里加一行「**Executor:** <你> · 分支 <名> · <时间>」；完成时把 Status 改为 ready-for-human（需要真机）或 done（纯代码且已验证），附证据；不要把「代码完成」写成 done。新票按 docs/agents/issue-tracker.md 的格式建在票路径所示位置。\n\n验证（至少跑改动覆盖到的部分，把命令与结果数字写进 PR）：\n  cd VibeBuddyKit && swift test\n  cd VibeBuddyMac && swift test\n  cd VibeBuddyApp && xcodegen generate && xcodebuild -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build\n  cd VibeBuddyApp && xcodebuild test -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:VibeBuddyAppTests CODE_SIGNING_ALLOWED=NO\n  cd VibeBuddyMacApp && xcodegen generate && xcodebuild -project VibeBuddyMacApp.xcodeproj -scheme VibeBuddyMacApp -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build\n不要给 iOS scheme 传 -sdk iphonesimulator（会把 Watch 目标编到 iOS SDK，产生假错误）。\n\n边界：不部署、不发布、不改已安装的 App、不碰端口 9876 上正在运行的守护进程、不动真机、不改 ~/.claude 全局配置、不读取或打印任何密钥；这些只有用户能做。\n\nPR：标题用 Conventional Commits；描述分 Summary / Validation / Not verified here；不加署名行。main 的规则要求每条评审线程（含 Codex 机器人的 P1 / P2）先修复或答复后解决才能合并；合并由协调会话或用户执行。收尾回复里给出 PR 链接、跑过的验证与留给真机的项，并把本图的节点 id（S-5）写在 PR 描述第一行，方便协调会话对账。"
   },
   {
    "id": "A-05",
@@ -546,14 +547,14 @@
   {
    "id": "A-11",
    "lane": "A",
-   "title": "PR #53 待评审合并：APNs 密钥方案 ADR",
+   "title": "PR #53 待评审合并：APNs 密钥方案 ADR（合并前改号 0013）",
    "version": "1.2",
    "owner": "A",
    "status": "pr-open",
    "executor": "claude-executor",
    "pr": 53,
    "deps": [],
-   "ticket": "docs/adr/0012-apns-key-delivery.md（#53；与 #54 的 0012 撞号，后合者改 0013）",
+   "ticket": "docs/adr/0012-apns-key-delivery.md（#53）→ 改名 docs/adr/0013-apns-key-delivery.md（0012 已被 #54 占用，在 main）",
    "vision": [
     "Q8",
     "Q4"
@@ -566,7 +567,7 @@
     "verify": "—",
     "skills": "research（查 Apple 文档与同类开源做法）、writing-for-agents"
    },
-   "prompt": "你在 iOS-vibebuddy 仓库工作（~/Projects/iOS-vibebuddy）。任务：A-11 PR #53 待评审合并：APNs 密钥方案 ADR。\n票 / 位置：docs/adr/0012-apns-key-delivery.md（#53；与 #54 的 0012 撞号，后合者改 0013）\n\n先按顺序读：AGENTS.md → CONTEXT.md → docs/planning/vision-2026-09.md（本任务服务的决策：Q8 关闭 App 后送达：不做中继，手段待 ADR；Q4 一周零漏接）→ 上面的票及其引用的 PRD / ADR。已读且未变化的内容不用重复读。\n\n规格（以票为准，这里是摘要）：\n  目标：给用户一份能拍板的 ADR：内置 .p8（含轮换、只向配对登记 token 发送）、每用户自己的开发者密钥、极小中继，各自的安全影响面、陌生用户体验、运维成本。\n  范围：只写 ADR 与迁移草图，不写实现。\n  不做：不在 ADR 里替用户选。\n  验收：ADR 含三条路的对比表、Codex 评审的反对意见原文与回应、每条路对 1.2 与 1.3 的影响；Status: Proposed。\n  验证：—\n  建议技能：research（查 Apple 文档与同类开源做法）、writing-for-agents（技能在 .agents/skills/，按其触发条件用；grill-with-docs 只在票里仍有未决取舍时用，问完立刻把结论写回票）\n\n任务正文：\n写 docs/adr/0012-apns-key-delivery.md。背景：vision Q8 目标是关闭 App 后仍能送达且不做 vibebuddy 中继；PR #40 的 Codex 评审指出把 APNs 签名密钥打进公开分发的 App 不是成熟做法（任何下载者可提取伪造推送，泄露只能全量换钥）。比较三条路：1）内置密钥 + 轮换 + 只向配对流程登记的 token 发送 + 隐私说明；2）每个用户自己的 Apple 开发者密钥（陌生用户几乎不可能）；3）极小中继（违反无服务器决定，多一份运维）。用 /research 查 Apple 对 provider token 的安全指引与同类开源 Mac App 的做法，附引用。Status: Proposed，等 DEC-APNS。\n\n分支与工作区：从 origin/main 新建分支 claude/a-11-<slug>（若票指定了现有 worktree / 分支则用它），worktree 放 .claude/worktrees/<slug>；不要 rebase 到本地 main；不要用 bare git stash（栈是共享的）；main 只接受 PR。若依赖的 PR 尚未合并，把工作叠在那个 PR 分支上并在 PR 描述里说明。\n\n票据回写：领票时不改票的 Status（只用仓库规定的标签：needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix，以及既有的收口词 done），在票里加一行「**Executor:** <你> · 分支 <名> · <时间>」；完成时把 Status 改为 ready-for-human（需要真机）或 done（纯代码且已验证），附证据；不要把「代码完成」写成 done。新票按 docs/agents/issue-tracker.md 的格式建在票路径所示位置。\n\n验证（至少跑改动覆盖到的部分，把命令与结果数字写进 PR）：\n  cd VibeBuddyKit && swift test\n  cd VibeBuddyMac && swift test\n  cd VibeBuddyApp && xcodegen generate && xcodebuild -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build\n  cd VibeBuddyApp && xcodebuild test -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:VibeBuddyAppTests CODE_SIGNING_ALLOWED=NO\n  cd VibeBuddyMacApp && xcodegen generate && xcodebuild -project VibeBuddyMacApp.xcodeproj -scheme VibeBuddyMacApp -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build\n不要给 iOS scheme 传 -sdk iphonesimulator（会把 Watch 目标编到 iOS SDK，产生假错误）。\n\n边界：不部署、不发布、不改已安装的 App、不碰端口 9876 上正在运行的守护进程、不动真机、不改 ~/.claude 全局配置、不读取或打印任何密钥；这些只有用户能做。\n\nPR：标题用 Conventional Commits；描述分 Summary / Validation / Not verified here；不加署名行。main 的规则要求每条评审线程（含 Codex 机器人的 P1 / P2）先修复或答复后解决才能合并；合并由协调会话或用户执行。收尾回复里给出 PR 链接、跑过的验证与留给真机的项，并把本图的节点 id（A-11）写在 PR 描述第一行，方便协调会话对账。"
+   "prompt": "你在 iOS-vibebuddy 仓库工作（~/Projects/iOS-vibebuddy）。任务：A-11 PR #53 待评审合并：APNs 密钥方案 ADR（合并前改号 0013）。\n票 / 位置：docs/adr/0012-apns-key-delivery.md（#53）→ 改名 docs/adr/0013-apns-key-delivery.md（0012 已被 #54 占用，在 main）\n\n先按顺序读：AGENTS.md → CONTEXT.md → docs/planning/vision-2026-09.md（本任务服务的决策：Q8 关闭 App 后送达：不做中继，手段待 ADR；Q4 一周零漏接）→ 上面的票及其引用的 PRD / ADR。已读且未变化的内容不用重复读。\n\n规格（以票为准，这里是摘要）：\n  目标：给用户一份能拍板的 ADR：内置 .p8（含轮换、只向配对登记 token 发送）、每用户自己的开发者密钥、极小中继，各自的安全影响面、陌生用户体验、运维成本。\n  范围：只写 ADR 与迁移草图，不写实现。\n  不做：不在 ADR 里替用户选。\n  验收：ADR 含三条路的对比表、Codex 评审的反对意见原文与回应、每条路对 1.2 与 1.3 的影响；Status: Proposed。\n  验证：—\n  建议技能：research（查 Apple 文档与同类开源做法）、writing-for-agents（技能在 .agents/skills/，按其触发条件用；grill-with-docs 只在票里仍有未决取舍时用，问完立刻把结论写回票）\n\n任务正文：\n写 docs/adr/0012-apns-key-delivery.md。背景：vision Q8 目标是关闭 App 后仍能送达且不做 vibebuddy 中继；PR #40 的 Codex 评审指出把 APNs 签名密钥打进公开分发的 App 不是成熟做法（任何下载者可提取伪造推送，泄露只能全量换钥）。比较三条路：1）内置密钥 + 轮换 + 只向配对流程登记的 token 发送 + 隐私说明；2）每个用户自己的 Apple 开发者密钥（陌生用户几乎不可能）；3）极小中继（违反无服务器决定，多一份运维）。用 /research 查 Apple 对 provider token 的安全指引与同类开源 Mac App 的做法，附引用。Status: Proposed，等 DEC-APNS。\n\n分支与工作区：从 origin/main 新建分支 claude/a-11-<slug>（若票指定了现有 worktree / 分支则用它），worktree 放 .claude/worktrees/<slug>；不要 rebase 到本地 main；不要用 bare git stash（栈是共享的）；main 只接受 PR。若依赖的 PR 尚未合并，把工作叠在那个 PR 分支上并在 PR 描述里说明。\n\n票据回写：领票时不改票的 Status（只用仓库规定的标签：needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix，以及既有的收口词 done），在票里加一行「**Executor:** <你> · 分支 <名> · <时间>」；完成时把 Status 改为 ready-for-human（需要真机）或 done（纯代码且已验证），附证据；不要把「代码完成」写成 done。新票按 docs/agents/issue-tracker.md 的格式建在票路径所示位置。\n\n验证（至少跑改动覆盖到的部分，把命令与结果数字写进 PR）：\n  cd VibeBuddyKit && swift test\n  cd VibeBuddyMac && swift test\n  cd VibeBuddyApp && xcodegen generate && xcodebuild -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build\n  cd VibeBuddyApp && xcodebuild test -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:VibeBuddyAppTests CODE_SIGNING_ALLOWED=NO\n  cd VibeBuddyMacApp && xcodegen generate && xcodebuild -project VibeBuddyMacApp.xcodeproj -scheme VibeBuddyMacApp -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build\n不要给 iOS scheme 传 -sdk iphonesimulator（会把 Watch 目标编到 iOS SDK，产生假错误）。\n\n边界：不部署、不发布、不改已安装的 App、不碰端口 9876 上正在运行的守护进程、不动真机、不改 ~/.claude 全局配置、不读取或打印任何密钥；这些只有用户能做。\n\nPR：标题用 Conventional Commits；描述分 Summary / Validation / Not verified here；不加署名行。main 的规则要求每条评审线程（含 Codex 机器人的 P1 / P2）先修复或答复后解决才能合并；合并由协调会话或用户执行。收尾回复里给出 PR 链接、跑过的验证与留给真机的项，并把本图的节点 id（A-11）写在 PR 描述第一行，方便协调会话对账。"
   },
   {
    "id": "A-12",
@@ -1009,14 +1010,14 @@
   {
    "id": "W-1",
    "lane": "M",
-   "title": "关注任务表盘组件（模块表盘看最需要关注的任务）",
+   "title": "实现中（主工作区未提交）：关注任务表盘组件",
    "version": "1.2",
    "owner": "A",
-   "status": "ready",
-   "executor": null,
+   "status": "in-progress",
+   "executor": "unregistered: uncommitted in ~/Projects/iOS-vibebuddy main checkout",
    "pr": null,
    "deps": [],
-   "ticket": ".scratch/watch-complication/issues/01-followed-task-complication.md · PRD + PROTOTYPE.html",
+   "ticket": ".scratch/watch-complication/issues/01-followed-task-complication.md · 主工作区未提交：VibeBuddyApp/WatchWidget/FollowedTaskWidget.swift、WatchShared/WatchComplicationStore.swift、Kit WatchFollowedTask.swift",
    "vision": [
     "Q12",
     "Q33"
@@ -1029,16 +1030,16 @@
     "verify": "Watch 构建；真机在 M-11。",
     "skills": "implement"
    },
-   "prompt": "你在 iOS-vibebuddy 仓库工作（~/Projects/iOS-vibebuddy）。任务：W-1 关注任务表盘组件（模块表盘看最需要关注的任务）。\n票 / 位置：.scratch/watch-complication/issues/01-followed-task-complication.md · PRD + PROTOTYPE.html\n\n先按顺序读：AGENTS.md → CONTEXT.md → docs/planning/vision-2026-09.md（本任务服务的决策：Q12 手表成为独立交互端；Q33 重要任务优先提醒，尊重系统路由）→ 上面的票及其引用的 PRD / ADR。已读且未变化的内容不用重复读。\n\n规格（以票为准，这里是摘要）：\n  目标：模块表盘上一眼看到当前最需要关注的任务（任务名优先布局，已由用户在原型上确认）。\n  范围：watchOS WidgetKit 复杂功能；数据经 App Group 来自 iPhone 转发的 WatchDashboardState；票 01 的 handoff 文件已写好实现步骤。\n  不做：Smart Stack 与三色计数另议。\n  验收：票 01 的验收项；Simulator 各尺寸截图。\n  验证：Watch 构建；真机在 M-11。\n  建议技能：implement（技能在 .agents/skills/，按其触发条件用；grill-with-docs 只在票里仍有未决取舍时用，问完立刻把结论写回票）\n\n任务正文：\n按 .scratch/watch-complication/PRD.md、PROTOTYPE.html 与 issues/01-handoff.md 实现：模块表盘复杂功能显示最需要关注的任务（任务名优先）；数据来源 App Group 共享的 WatchDashboardState。\n\n分支与工作区：从 origin/main 新建分支 claude/w-1-<slug>（若票指定了现有 worktree / 分支则用它），worktree 放 .claude/worktrees/<slug>；不要 rebase 到本地 main；不要用 bare git stash（栈是共享的）；main 只接受 PR。若依赖的 PR 尚未合并，把工作叠在那个 PR 分支上并在 PR 描述里说明。\n\n票据回写：领票时不改票的 Status（只用仓库规定的标签：needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix，以及既有的收口词 done），在票里加一行「**Executor:** <你> · 分支 <名> · <时间>」；完成时把 Status 改为 ready-for-human（需要真机）或 done（纯代码且已验证），附证据；不要把「代码完成」写成 done。新票按 docs/agents/issue-tracker.md 的格式建在票路径所示位置。\n\n验证（至少跑改动覆盖到的部分，把命令与结果数字写进 PR）：\n  cd VibeBuddyKit && swift test\n  cd VibeBuddyMac && swift test\n  cd VibeBuddyApp && xcodegen generate && xcodebuild -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build\n  cd VibeBuddyApp && xcodebuild test -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:VibeBuddyAppTests CODE_SIGNING_ALLOWED=NO\n  cd VibeBuddyMacApp && xcodegen generate && xcodebuild -project VibeBuddyMacApp.xcodeproj -scheme VibeBuddyMacApp -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build\n不要给 iOS scheme 传 -sdk iphonesimulator（会把 Watch 目标编到 iOS SDK，产生假错误）。\n\n边界：不部署、不发布、不改已安装的 App、不碰端口 9876 上正在运行的守护进程、不动真机、不改 ~/.claude 全局配置、不读取或打印任何密钥；这些只有用户能做。\n\nPR：标题用 Conventional Commits；描述分 Summary / Validation / Not verified here；不加署名行。main 的规则要求每条评审线程（含 Codex 机器人的 P1 / P2）先修复或答复后解决才能合并；合并由协调会话或用户执行。收尾回复里给出 PR 链接、跑过的验证与留给真机的项，并把本图的节点 id（W-1）写在 PR 描述第一行，方便协调会话对账。"
+   "prompt": "你在 iOS-vibebuddy 仓库工作（~/Projects/iOS-vibebuddy）。任务：W-1 实现中（主工作区未提交）：关注任务表盘组件。\n票 / 位置：.scratch/watch-complication/issues/01-followed-task-complication.md · 主工作区未提交：VibeBuddyApp/WatchWidget/FollowedTaskWidget.swift、WatchShared/WatchComplicationStore.swift、Kit WatchFollowedTask.swift\n\n先按顺序读：AGENTS.md → CONTEXT.md → docs/planning/vision-2026-09.md（本任务服务的决策：Q12 手表成为独立交互端；Q33 重要任务优先提醒，尊重系统路由）→ 上面的票及其引用的 PRD / ADR。已读且未变化的内容不用重复读。\n\n规格（以票为准，这里是摘要）：\n  目标：模块表盘上一眼看到当前最需要关注的任务（任务名优先布局，已由用户在原型上确认）。\n  范围：watchOS WidgetKit 复杂功能；数据经 App Group 来自 iPhone 转发的 WatchDashboardState；票 01 的 handoff 文件已写好实现步骤。\n  不做：Smart Stack 与三色计数另议。\n  验收：票 01 的验收项；Simulator 各尺寸截图。\n  验证：Watch 构建；真机在 M-11。\n  建议技能：implement（技能在 .agents/skills/，按其触发条件用；grill-with-docs 只在票里仍有未决取舍时用，问完立刻把结论写回票）\n\n任务正文：\n主工作区 ~/Projects/iOS-vibebuddy（分支 main，落后 origin/main 10 个提交）已有一份未提交实现，覆盖 W-1 / W-2 / W-3（41 个文件：WatchWidget 目标、WatchComplicationStore、WatchFollowedTask、CompletionAcknowledgement、DaemonIdentity、WatchTaskDetailView、project.yml、三套测试）。接手步骤：在主工作区 git status 确认清单 → git switch -c claude/w-1-3-watch-complication → 提交全部 → git merge origin/main（Kit Models.swift、WatchDashboardState、VibeBuddyServer、MenuBarModel 会与 #46–#54 相碰）→ 跑 Kit / MacCore / iOS（含 Watch）测试与三端构建 → 对照票 01 / 02 / 03 的验收项逐条核对，缺的补 → 开 PR（描述第一行 W-1 W-2 W-3），三张票各写 Executor 行。不要 reset、不要在主工作区继续开发。\n\n分支与工作区：从 origin/main 新建分支 claude/w-1-<slug>（若票指定了现有 worktree / 分支则用它），worktree 放 .claude/worktrees/<slug>；不要 rebase 到本地 main；不要用 bare git stash（栈是共享的）；main 只接受 PR。若依赖的 PR 尚未合并，把工作叠在那个 PR 分支上并在 PR 描述里说明。\n\n票据回写：领票时不改票的 Status（只用仓库规定的标签：needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix，以及既有的收口词 done），在票里加一行「**Executor:** <你> · 分支 <名> · <时间>」；完成时把 Status 改为 ready-for-human（需要真机）或 done（纯代码且已验证），附证据；不要把「代码完成」写成 done。新票按 docs/agents/issue-tracker.md 的格式建在票路径所示位置。\n\n验证（至少跑改动覆盖到的部分，把命令与结果数字写进 PR）：\n  cd VibeBuddyKit && swift test\n  cd VibeBuddyMac && swift test\n  cd VibeBuddyApp && xcodegen generate && xcodebuild -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build\n  cd VibeBuddyApp && xcodebuild test -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:VibeBuddyAppTests CODE_SIGNING_ALLOWED=NO\n  cd VibeBuddyMacApp && xcodegen generate && xcodebuild -project VibeBuddyMacApp.xcodeproj -scheme VibeBuddyMacApp -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build\n不要给 iOS scheme 传 -sdk iphonesimulator（会把 Watch 目标编到 iOS SDK，产生假错误）。\n\n边界：不部署、不发布、不改已安装的 App、不碰端口 9876 上正在运行的守护进程、不动真机、不改 ~/.claude 全局配置、不读取或打印任何密钥；这些只有用户能做。\n\nPR：标题用 Conventional Commits；描述分 Summary / Validation / Not verified here；不加署名行。main 的规则要求每条评审线程（含 Codex 机器人的 P1 / P2）先修复或答复后解决才能合并；合并由协调会话或用户执行。收尾回复里给出 PR 链接、跑过的验证与留给真机的项，并把本图的节点 id（W-1）写在 PR 描述第一行，方便协调会话对账。"
   },
   {
    "id": "W-2",
    "lane": "M",
-   "title": "点击表盘进入任务并同步已读",
+   "title": "实现中（与 W-1 同一份未提交改动）：点击表盘进入任务并同步已读",
    "version": "1.2",
    "owner": "A",
-   "status": "blocked",
-   "executor": null,
+   "status": "in-progress",
+   "executor": "same uncommitted change as W-1",
    "pr": null,
    "deps": [
     "W-1"
@@ -1056,16 +1057,16 @@
     "verify": "构建；真机 M-11。",
     "skills": "implement"
    },
-   "prompt": "你在 iOS-vibebuddy 仓库工作（~/Projects/iOS-vibebuddy）。任务：W-2 点击表盘进入任务并同步已读。\n票 / 位置：.scratch/watch-complication/issues/02-open-and-acknowledge-completion.md（含 02-handoff、02-mac-handoff）\n\n先按顺序读：AGENTS.md → CONTEXT.md → docs/planning/vision-2026-09.md（本任务服务的决策：Q12 手表成为独立交互端；Q37 Watch 按状态呈现）→ 上面的票及其引用的 PRD / ADR。已读且未变化的内容不用重复读。\n\n规格（以票为准，这里是摘要）：\n  目标：点表盘进入对应任务；该轮完成的已读状态经 iPhone 同步到 Mac（acknowledge）。\n  范围：深链、WatchRelay、Mac 侧 acknowledge 路径（02-mac-handoff）。\n  不做：—\n  验收：票 02 验收项。\n  验证：构建；真机 M-11。\n  建议技能：implement（技能在 .agents/skills/，按其触发条件用；grill-with-docs 只在票里仍有未决取舍时用，问完立刻把结论写回票）\n\n任务正文：\n按票 02 与两份 handoff 实现：表盘点击深链到任务详情；完成已读经 WatchRelay → iPhone → /acknowledge 同步；Mac 侧按 02-mac-handoff 补路径。\n\n分支与工作区：从 origin/main 新建分支 claude/w-2-<slug>（若票指定了现有 worktree / 分支则用它），worktree 放 .claude/worktrees/<slug>；不要 rebase 到本地 main；不要用 bare git stash（栈是共享的）；main 只接受 PR。若依赖的 PR 尚未合并，把工作叠在那个 PR 分支上并在 PR 描述里说明。\n\n票据回写：领票时不改票的 Status（只用仓库规定的标签：needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix，以及既有的收口词 done），在票里加一行「**Executor:** <你> · 分支 <名> · <时间>」；完成时把 Status 改为 ready-for-human（需要真机）或 done（纯代码且已验证），附证据；不要把「代码完成」写成 done。新票按 docs/agents/issue-tracker.md 的格式建在票路径所示位置。\n\n验证（至少跑改动覆盖到的部分，把命令与结果数字写进 PR）：\n  cd VibeBuddyKit && swift test\n  cd VibeBuddyMac && swift test\n  cd VibeBuddyApp && xcodegen generate && xcodebuild -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build\n  cd VibeBuddyApp && xcodebuild test -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:VibeBuddyAppTests CODE_SIGNING_ALLOWED=NO\n  cd VibeBuddyMacApp && xcodegen generate && xcodebuild -project VibeBuddyMacApp.xcodeproj -scheme VibeBuddyMacApp -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build\n不要给 iOS scheme 传 -sdk iphonesimulator（会把 Watch 目标编到 iOS SDK，产生假错误）。\n\n边界：不部署、不发布、不改已安装的 App、不碰端口 9876 上正在运行的守护进程、不动真机、不改 ~/.claude 全局配置、不读取或打印任何密钥；这些只有用户能做。\n\nPR：标题用 Conventional Commits；描述分 Summary / Validation / Not verified here；不加署名行。main 的规则要求每条评审线程（含 Codex 机器人的 P1 / P2）先修复或答复后解决才能合并；合并由协调会话或用户执行。收尾回复里给出 PR 链接、跑过的验证与留给真机的项，并把本图的节点 id（W-2）写在 PR 描述第一行，方便协调会话对账。"
+   "prompt": "你在 iOS-vibebuddy 仓库工作（~/Projects/iOS-vibebuddy）。任务：W-2 实现中（与 W-1 同一份未提交改动）：点击表盘进入任务并同步已读。\n票 / 位置：.scratch/watch-complication/issues/02-open-and-acknowledge-completion.md（含 02-handoff、02-mac-handoff）\n\n先按顺序读：AGENTS.md → CONTEXT.md → docs/planning/vision-2026-09.md（本任务服务的决策：Q12 手表成为独立交互端；Q37 Watch 按状态呈现）→ 上面的票及其引用的 PRD / ADR。已读且未变化的内容不用重复读。\n\n规格（以票为准，这里是摘要）：\n  目标：点表盘进入对应任务；该轮完成的已读状态经 iPhone 同步到 Mac（acknowledge）。\n  范围：深链、WatchRelay、Mac 侧 acknowledge 路径（02-mac-handoff）。\n  不做：—\n  验收：票 02 验收项。\n  验证：构建；真机 M-11。\n  建议技能：implement（技能在 .agents/skills/，按其触发条件用；grill-with-docs 只在票里仍有未决取舍时用，问完立刻把结论写回票）\n\n任务正文：\n主工作区那份未提交改动已含本票的主体（WatchTaskDetailView、CompletionAcknowledgement、Mac 侧 CompletionReadTests）。随 W-1 一起上分支、开一个 PR；审查时按票 02 与两份 handoff 逐项核对：表盘点击深链到任务详情，完成已读经 WatchRelay → iPhone → /acknowledge 同步到 Mac。\n\n分支与工作区：从 origin/main 新建分支 claude/w-2-<slug>（若票指定了现有 worktree / 分支则用它），worktree 放 .claude/worktrees/<slug>；不要 rebase 到本地 main；不要用 bare git stash（栈是共享的）；main 只接受 PR。若依赖的 PR 尚未合并，把工作叠在那个 PR 分支上并在 PR 描述里说明。\n\n票据回写：领票时不改票的 Status（只用仓库规定的标签：needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix，以及既有的收口词 done），在票里加一行「**Executor:** <你> · 分支 <名> · <时间>」；完成时把 Status 改为 ready-for-human（需要真机）或 done（纯代码且已验证），附证据；不要把「代码完成」写成 done。新票按 docs/agents/issue-tracker.md 的格式建在票路径所示位置。\n\n验证（至少跑改动覆盖到的部分，把命令与结果数字写进 PR）：\n  cd VibeBuddyKit && swift test\n  cd VibeBuddyMac && swift test\n  cd VibeBuddyApp && xcodegen generate && xcodebuild -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build\n  cd VibeBuddyApp && xcodebuild test -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:VibeBuddyAppTests CODE_SIGNING_ALLOWED=NO\n  cd VibeBuddyMacApp && xcodegen generate && xcodebuild -project VibeBuddyMacApp.xcodeproj -scheme VibeBuddyMacApp -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build\n不要给 iOS scheme 传 -sdk iphonesimulator（会把 Watch 目标编到 iOS SDK，产生假错误）。\n\n边界：不部署、不发布、不改已安装的 App、不碰端口 9876 上正在运行的守护进程、不动真机、不改 ~/.claude 全局配置、不读取或打印任何密钥；这些只有用户能做。\n\nPR：标题用 Conventional Commits；描述分 Summary / Validation / Not verified here；不加署名行。main 的规则要求每条评审线程（含 Codex 机器人的 P1 / P2）先修复或答复后解决才能合并；合并由协调会话或用户执行。收尾回复里给出 PR 链接、跑过的验证与留给真机的项，并把本图的节点 id（W-2）写在 PR 描述第一行，方便协调会话对账。"
   },
   {
    "id": "W-3",
    "lane": "M",
-   "title": "表盘组件跨断连 / 重启 / 来源切换保持正确",
+   "title": "实现中（与 W-1 同一份未提交改动）：表盘跨断连 / 重启 / 来源切换保持正确",
    "version": "1.2",
    "owner": "A",
-   "status": "blocked",
-   "executor": null,
+   "status": "in-progress",
+   "executor": "same uncommitted change as W-1",
    "pr": null,
    "deps": [
     "W-1",
@@ -1084,7 +1085,7 @@
     "verify": "构建 + 断连场景 Simulator；真机 M-11。",
     "skills": "tdd、implement"
    },
-   "prompt": "你在 iOS-vibebuddy 仓库工作（~/Projects/iOS-vibebuddy）。任务：W-3 表盘组件跨断连 / 重启 / 来源切换保持正确。\n票 / 位置：.scratch/watch-complication/issues/03-recovery-and-source-isolation.md\n\n先按顺序读：AGENTS.md → CONTEXT.md → docs/planning/vision-2026-09.md（本任务服务的决策：Q12 手表成为独立交互端；Q35 官方依据、真机验证；steer 失败不得静默改 start）→ 上面的票及其引用的 PRD / ADR。已读且未变化的内容不用重复读。\n\n规格（以票为准，这里是摘要）：\n  目标：断连、重启、观测来源切换时表盘不显示过期或错误任务；无数据显示占位而不是 0。\n  范围：状态过期判定、来源隔离、恢复路径。\n  不做：—\n  验收：票 03 验收项。\n  验证：构建 + 断连场景 Simulator；真机 M-11。\n  建议技能：tdd、implement（技能在 .agents/skills/，按其触发条件用；grill-with-docs 只在票里仍有未决取舍时用，问完立刻把结论写回票）\n\n任务正文：\n按票 03 实现过期与恢复规则，补断连 / 重启 / 来源切换的测试。\n\n分支与工作区：从 origin/main 新建分支 claude/w-3-<slug>（若票指定了现有 worktree / 分支则用它），worktree 放 .claude/worktrees/<slug>；不要 rebase 到本地 main；不要用 bare git stash（栈是共享的）；main 只接受 PR。若依赖的 PR 尚未合并，把工作叠在那个 PR 分支上并在 PR 描述里说明。\n\n票据回写：领票时不改票的 Status（只用仓库规定的标签：needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix，以及既有的收口词 done），在票里加一行「**Executor:** <你> · 分支 <名> · <时间>」；完成时把 Status 改为 ready-for-human（需要真机）或 done（纯代码且已验证），附证据；不要把「代码完成」写成 done。新票按 docs/agents/issue-tracker.md 的格式建在票路径所示位置。\n\n验证（至少跑改动覆盖到的部分，把命令与结果数字写进 PR）：\n  cd VibeBuddyKit && swift test\n  cd VibeBuddyMac && swift test\n  cd VibeBuddyApp && xcodegen generate && xcodebuild -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build\n  cd VibeBuddyApp && xcodebuild test -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:VibeBuddyAppTests CODE_SIGNING_ALLOWED=NO\n  cd VibeBuddyMacApp && xcodegen generate && xcodebuild -project VibeBuddyMacApp.xcodeproj -scheme VibeBuddyMacApp -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build\n不要给 iOS scheme 传 -sdk iphonesimulator（会把 Watch 目标编到 iOS SDK，产生假错误）。\n\n边界：不部署、不发布、不改已安装的 App、不碰端口 9876 上正在运行的守护进程、不动真机、不改 ~/.claude 全局配置、不读取或打印任何密钥；这些只有用户能做。\n\nPR：标题用 Conventional Commits；描述分 Summary / Validation / Not verified here；不加署名行。main 的规则要求每条评审线程（含 Codex 机器人的 P1 / P2）先修复或答复后解决才能合并；合并由协调会话或用户执行。收尾回复里给出 PR 链接、跑过的验证与留给真机的项，并把本图的节点 id（W-3）写在 PR 描述第一行，方便协调会话对账。"
+   "prompt": "你在 iOS-vibebuddy 仓库工作（~/Projects/iOS-vibebuddy）。任务：W-3 实现中（与 W-1 同一份未提交改动）：表盘跨断连 / 重启 / 来源切换保持正确。\n票 / 位置：.scratch/watch-complication/issues/03-recovery-and-source-isolation.md\n\n先按顺序读：AGENTS.md → CONTEXT.md → docs/planning/vision-2026-09.md（本任务服务的决策：Q12 手表成为独立交互端；Q35 官方依据、真机验证；steer 失败不得静默改 start）→ 上面的票及其引用的 PRD / ADR。已读且未变化的内容不用重复读。\n\n规格（以票为准，这里是摘要）：\n  目标：断连、重启、观测来源切换时表盘不显示过期或错误任务；无数据显示占位而不是 0。\n  范围：状态过期判定、来源隔离、恢复路径。\n  不做：—\n  验收：票 03 验收项。\n  验证：构建 + 断连场景 Simulator；真机 M-11。\n  建议技能：tdd、implement（技能在 .agents/skills/，按其触发条件用；grill-with-docs 只在票里仍有未决取舍时用，问完立刻把结论写回票）\n\n任务正文：\n主工作区那份未提交改动已含本票的主体（DaemonIdentity 来源 id、WatchStoredState、WatchRecoveryTests）。随 W-1 / W-2 同一个 PR；审查时按票 03 核对：断连、重启、来源切换时表盘不显示过期或错误任务，无数据显示占位而不是 0；缺的测试补上。\n\n分支与工作区：从 origin/main 新建分支 claude/w-3-<slug>（若票指定了现有 worktree / 分支则用它），worktree 放 .claude/worktrees/<slug>；不要 rebase 到本地 main；不要用 bare git stash（栈是共享的）；main 只接受 PR。若依赖的 PR 尚未合并，把工作叠在那个 PR 分支上并在 PR 描述里说明。\n\n票据回写：领票时不改票的 Status（只用仓库规定的标签：needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix，以及既有的收口词 done），在票里加一行「**Executor:** <你> · 分支 <名> · <时间>」；完成时把 Status 改为 ready-for-human（需要真机）或 done（纯代码且已验证），附证据；不要把「代码完成」写成 done。新票按 docs/agents/issue-tracker.md 的格式建在票路径所示位置。\n\n验证（至少跑改动覆盖到的部分，把命令与结果数字写进 PR）：\n  cd VibeBuddyKit && swift test\n  cd VibeBuddyMac && swift test\n  cd VibeBuddyApp && xcodegen generate && xcodebuild -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build\n  cd VibeBuddyApp && xcodebuild test -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:VibeBuddyAppTests CODE_SIGNING_ALLOWED=NO\n  cd VibeBuddyMacApp && xcodegen generate && xcodebuild -project VibeBuddyMacApp.xcodeproj -scheme VibeBuddyMacApp -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build\n不要给 iOS scheme 传 -sdk iphonesimulator（会把 Watch 目标编到 iOS SDK，产生假错误）。\n\n边界：不部署、不发布、不改已安装的 App、不碰端口 9876 上正在运行的守护进程、不动真机、不改 ~/.claude 全局配置、不读取或打印任何密钥；这些只有用户能做。\n\nPR：标题用 Conventional Commits；描述分 Summary / Validation / Not verified here；不加署名行。main 的规则要求每条评审线程（含 Codex 机器人的 P1 / P2）先修复或答复后解决才能合并；合并由协调会话或用户执行。收尾回复里给出 PR 链接、跑过的验证与留给真机的项，并把本图的节点 id（W-3）写在 PR 描述第一行，方便协调会话对账。"
   },
   {
    "id": "F-3",
@@ -1485,7 +1486,7 @@
   {
    "id": "G-6",
    "lane": "G",
-   "title": "Mac Companion 风格实施",
+   "title": "Companion 三端收尾：#59 合并后的截图、验收与残项",
    "version": "1.3",
    "owner": "A",
    "status": "blocked",
@@ -1494,20 +1495,20 @@
    "deps": [
     "S-5"
    ],
-   "ticket": ".scratch/mac-design/DECISIONS.md（S-5 产出）→ ui-1.2/issues/04",
+   "ticket": "docs/design/mac-companion-redesign.md（#59 已实现主体）→ 残项开票到 .scratch/ui-1.2/issues/04",
    "vision": [
     "Q6",
     "Q21"
    ],
    "spec": {
-    "goal": "按 S-5 定稿的 Companion 结构与令牌实施仪表盘、菜单栏下拉、Glance，不改行为。",
-    "scope": "MacApp 视图层；设计令牌进 Kit（若 S-5 决定）。",
-    "non": "改交互逻辑；Mac 是基础设施，投入以 S-5 定的范围为限。",
-    "accept": "每个面板前后截图与设计稿并排；测试不变。",
-    "verify": "Mac 构建；MacCore 测试。",
+    "goal": "#59 合并后把三端 Companion 收干净：前后截图并排进 docs/design/，Demo 模式样本覆盖新布局，设计文档里标出的残项（消息流的空态 / 长会话、Watch 卡片超长项目名、暗色）逐条处理或开票。",
+    "scope": "三端视图层小修；Demo 样本；截图。",
+    "non": "不改交互逻辑；Mac 是基础设施，不再追加 Mac 视觉范围。",
+    "accept": "截图并排；残项清零或各有票；测试不变。",
+    "verify": "三端构建；Kit / MacCore / iOS 测试。",
     "skills": "design-ui、implement"
    },
-   "prompt": "你在 iOS-vibebuddy 仓库工作（~/Projects/iOS-vibebuddy）。任务：G-6 Mac Companion 风格实施。\n票 / 位置：.scratch/mac-design/DECISIONS.md（S-5 产出）→ ui-1.2/issues/04\n\n先按顺序读：AGENTS.md → CONTEXT.md → docs/planning/vision-2026-09.md（本任务服务的决策：Q6 Mac 是基础设施，界面只维持；Q21 UI 顺序：首次运行 → iPhone 首屏 → Settings）→ 上面的票及其引用的 PRD / ADR。已读且未变化的内容不用重复读。\n\n规格（以票为准，这里是摘要）：\n  目标：按 S-5 定稿的 Companion 结构与令牌实施仪表盘、菜单栏下拉、Glance，不改行为。\n  范围：MacApp 视图层；设计令牌进 Kit（若 S-5 决定）。\n  不做：改交互逻辑；Mac 是基础设施，投入以 S-5 定的范围为限。\n  验收：每个面板前后截图与设计稿并排；测试不变。\n  验证：Mac 构建；MacCore 测试。\n  建议技能：design-ui、implement（技能在 .agents/skills/，按其触发条件用；grill-with-docs 只在票里仍有未决取舍时用，问完立刻把结论写回票）\n\n任务正文：\n读 .scratch/mac-design/DECISIONS.md，按面板逐个实施 Companion 风格，行为不变；每面板附前后截图。\n\n分支与工作区：从 origin/main 新建分支 claude/g-6-<slug>（若票指定了现有 worktree / 分支则用它），worktree 放 .claude/worktrees/<slug>；不要 rebase 到本地 main；不要用 bare git stash（栈是共享的）；main 只接受 PR。若依赖的 PR 尚未合并，把工作叠在那个 PR 分支上并在 PR 描述里说明。\n\n票据回写：领票时不改票的 Status（只用仓库规定的标签：needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix，以及既有的收口词 done），在票里加一行「**Executor:** <你> · 分支 <名> · <时间>」；完成时把 Status 改为 ready-for-human（需要真机）或 done（纯代码且已验证），附证据；不要把「代码完成」写成 done。新票按 docs/agents/issue-tracker.md 的格式建在票路径所示位置。\n\n验证（至少跑改动覆盖到的部分，把命令与结果数字写进 PR）：\n  cd VibeBuddyKit && swift test\n  cd VibeBuddyMac && swift test\n  cd VibeBuddyApp && xcodegen generate && xcodebuild -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build\n  cd VibeBuddyApp && xcodebuild test -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:VibeBuddyAppTests CODE_SIGNING_ALLOWED=NO\n  cd VibeBuddyMacApp && xcodegen generate && xcodebuild -project VibeBuddyMacApp.xcodeproj -scheme VibeBuddyMacApp -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build\n不要给 iOS scheme 传 -sdk iphonesimulator（会把 Watch 目标编到 iOS SDK，产生假错误）。\n\n边界：不部署、不发布、不改已安装的 App、不碰端口 9876 上正在运行的守护进程、不动真机、不改 ~/.claude 全局配置、不读取或打印任何密钥；这些只有用户能做。\n\nPR：标题用 Conventional Commits；描述分 Summary / Validation / Not verified here；不加署名行。main 的规则要求每条评审线程（含 Codex 机器人的 P1 / P2）先修复或答复后解决才能合并；合并由协调会话或用户执行。收尾回复里给出 PR 链接、跑过的验证与留给真机的项，并把本图的节点 id（G-6）写在 PR 描述第一行，方便协调会话对账。"
+   "prompt": "你在 iOS-vibebuddy 仓库工作（~/Projects/iOS-vibebuddy）。任务：G-6 Companion 三端收尾：#59 合并后的截图、验收与残项。\n票 / 位置：docs/design/mac-companion-redesign.md（#59 已实现主体）→ 残项开票到 .scratch/ui-1.2/issues/04\n\n先按顺序读：AGENTS.md → CONTEXT.md → docs/planning/vision-2026-09.md（本任务服务的决策：Q6 Mac 是基础设施，界面只维持；Q21 UI 顺序：首次运行 → iPhone 首屏 → Settings）→ 上面的票及其引用的 PRD / ADR。已读且未变化的内容不用重复读。\n\n规格（以票为准，这里是摘要）：\n  目标：#59 合并后把三端 Companion 收干净：前后截图并排进 docs/design/，Demo 模式样本覆盖新布局，设计文档里标出的残项（消息流的空态 / 长会话、Watch 卡片超长项目名、暗色）逐条处理或开票。\n  范围：三端视图层小修；Demo 样本；截图。\n  不做：不改交互逻辑；Mac 是基础设施，不再追加 Mac 视觉范围。\n  验收：截图并排；残项清零或各有票；测试不变。\n  验证：三端构建；Kit / MacCore / iOS 测试。\n  建议技能：design-ui、implement（技能在 .agents/skills/，按其触发条件用；grill-with-docs 只在票里仍有未决取舍时用，问完立刻把结论写回票）\n\n任务正文：\n前提：#59 已合并（Companion 主体已在 main：Kit Companion.swift / CompanionViews.swift，Mac DashboardView / GlanceView / MenuBarModel，iPhone DashboardView 消息流，Watch 卡片，灵动岛审批）。本票不重做实现。要做：1）读 docs/design/mac-companion-redesign.md，把其中标为残项的条目逐条处理或各开一张票到 .scratch/ui-1.2/issues/04；2）Demo 模式（VIBEBUDDY_DEMO=1）样本覆盖消息流、审批气泡、Watch 卡片与灵动岛审批的新布局；3）Mac、iPhone、Watch 各一张前后截图并排放进 docs/design/；4）跑三端构建与三套测试，行为不变。\n\n分支与工作区：从 origin/main 新建分支 claude/g-6-<slug>（若票指定了现有 worktree / 分支则用它），worktree 放 .claude/worktrees/<slug>；不要 rebase 到本地 main；不要用 bare git stash（栈是共享的）；main 只接受 PR。若依赖的 PR 尚未合并，把工作叠在那个 PR 分支上并在 PR 描述里说明。\n\n票据回写：领票时不改票的 Status（只用仓库规定的标签：needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix，以及既有的收口词 done），在票里加一行「**Executor:** <你> · 分支 <名> · <时间>」；完成时把 Status 改为 ready-for-human（需要真机）或 done（纯代码且已验证），附证据；不要把「代码完成」写成 done。新票按 docs/agents/issue-tracker.md 的格式建在票路径所示位置。\n\n验证（至少跑改动覆盖到的部分，把命令与结果数字写进 PR）：\n  cd VibeBuddyKit && swift test\n  cd VibeBuddyMac && swift test\n  cd VibeBuddyApp && xcodegen generate && xcodebuild -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build\n  cd VibeBuddyApp && xcodebuild test -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:VibeBuddyAppTests CODE_SIGNING_ALLOWED=NO\n  cd VibeBuddyMacApp && xcodegen generate && xcodebuild -project VibeBuddyMacApp.xcodeproj -scheme VibeBuddyMacApp -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build\n不要给 iOS scheme 传 -sdk iphonesimulator（会把 Watch 目标编到 iOS SDK，产生假错误）。\n\n边界：不部署、不发布、不改已安装的 App、不碰端口 9876 上正在运行的守护进程、不动真机、不改 ~/.claude 全局配置、不读取或打印任何密钥；这些只有用户能做。\n\nPR：标题用 Conventional Commits；描述分 Summary / Validation / Not verified here；不加署名行。main 的规则要求每条评审线程（含 Codex 机器人的 P1 / P2）先修复或答复后解决才能合并；合并由协调会话或用户执行。收尾回复里给出 PR 链接、跑过的验证与留给真机的项，并把本图的节点 id（G-6）写在 PR 描述第一行，方便协调会话对账。"
   },
   {
    "id": "H-1",
