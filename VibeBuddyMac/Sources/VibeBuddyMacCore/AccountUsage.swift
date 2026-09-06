@@ -12,6 +12,7 @@ public struct AccountUsageWindow: Codable, Equatable, Sendable, Identifiable {
     public var usedPercent: Int
     public var windowDurationMinutes: Int?
     public var resetsAt: Date?
+    public var label: String?
 
     public var id: AccountUsageWindowKind { kind }
 
@@ -19,12 +20,14 @@ public struct AccountUsageWindow: Codable, Equatable, Sendable, Identifiable {
         kind: AccountUsageWindowKind,
         usedPercent: Int,
         windowDurationMinutes: Int?,
-        resetsAt: Date?
+        resetsAt: Date?,
+        label: String? = nil
     ) {
         self.kind = kind
         self.usedPercent = usedPercent
         self.windowDurationMinutes = windowDurationMinutes
         self.resetsAt = resetsAt
+        self.label = label
     }
 }
 

@@ -148,9 +148,24 @@ struct SessionStoreTests {
         #expect(after.observationDiagnostics?.health(agent: .codex, source: .rollout) == .healthy)
         #expect(after.observationDiagnostics?.lastObserved(agent: .codex, source: .rollout) == observedAt)
     }
+
+    @Test("wire gate omits cursor from Snapshot while peer vocab remains")
+    func omitsCursorFromWireSnapshot() async {
+        let store = SessionStore(sourceID: "test")
+        await store.setProviderQuota([
+            ProviderQuota(provider: .codex, weeklyRemainingPercent: 70),
+            ProviderQuota(provider: .claude, weeklyRemainingPercent: 40),
+            ProviderQuota(provider: .grok, weeklyRemainingPercent: 55),
+            ProviderQuota(provider: .cursor, weeklyRemainingPercent: 60),
+        ])
+        let snap = await store.snapshot(now: Date(timeIntervalSince1970: 1_700_000_000))
+        #expect(snap.providerQuota?.map(\.provider) == [.codex, .claude, .grok])
+        #expect(snap.providerQuota?.contains { $0.provider == .cursor } != true)
+    }
 }
 
 private extension Array where Element == AgentObservationDiagnostic {
+
     func health(agent: AgentKind, source: ObservationSource) -> ObservationHealth? {
         first(where: { $0.agent == agent })?.sources
             .first(where: { $0.source == source })?.health

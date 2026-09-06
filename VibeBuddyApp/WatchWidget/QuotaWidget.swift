@@ -4,10 +4,11 @@ import WidgetKit
 import VibeBuddyKit
 
 enum QuotaPlatform: String, AppEnum {
-    case codex, claude, both
+    case codex, claude, grok, cursor, both, all
     static let typeDisplayRepresentation: TypeDisplayRepresentation = "Platform"
     static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
-        .codex: "Codex", .claude: "Claude", .both: "Codex + Claude"
+        .codex: "Codex", .claude: "Claude", .grok: "Grok", .cursor: "Cursor",
+        .both: "Codex + Claude", .all: "All providers"
     ]
     var selection: WatchQuotaSelection { WatchQuotaSelection(rawValue: rawValue)! }
 }
@@ -63,7 +64,7 @@ struct QuotaProvider: AppIntentTimelineProvider {
         let quotas = readQuotas()
         let windows = quotas.filter { configuration.platform.selection.providers.contains($0.provider) }
             .flatMap { quota in
-                configuration.style == .dualWindow ? QuotaWindowKind.allCases.map { quota.window($0) } : [quota.window(configuration.period.kind)]
+                configuration.style == .dualWindow ? QuotaWindowKind.allCases.map { quota.window($0) } : [quota.displayWindow(preferring: configuration.period.kind)]
             }
         let boundaries = windows.flatMap { window in
             [window.observedAt?.addingTimeInterval(ProviderQuota.staleAfter), window.resetsAt].compactMap { $0 }
@@ -117,7 +118,15 @@ struct QuotaWidgetView: View {
     private var now: Date { max(entry.date, Date()) }
     private var providers: [AccountUsageProvider] { entry.configuration.platform.selection.providers }
     private func window(_ provider: AccountUsageProvider, kind: QuotaWindowKind? = nil) -> QuotaWindow {
-        entry.quotas.first { $0.provider == provider }?.window(kind ?? entry.configuration.period.kind)
+        let preferred = kind ?? entry.configuration.period.kind
+        // Single-period styles fall back to otherWindows when weekly/short are
+        // missing (Cursor/Grok billing periods). Dual-window keeps exact kinds.
+        let quota = entry.quotas.first { $0.provider == provider }
+        if kind == nil {
+            return quota?.displayWindow(preferring: preferred)
+                ?? QuotaWindow(remainingPercent: nil, durationMinutes: nil, resetsAt: nil, observedAt: nil)
+        }
+        return quota?.window(preferred)
             ?? QuotaWindow(remainingPercent: nil, durationMinutes: nil, resetsAt: nil, observedAt: nil)
     }
     private func label(_ provider: AccountUsageProvider) -> String {
@@ -137,8 +146,9 @@ struct QuotaWidgetView: View {
         }
     }
     private func periodLabel(_ reading: QuotaWindow, kind: QuotaWindowKind? = nil) -> String {
-        if (kind ?? entry.configuration.period.kind) == .weekly { return String(localized: "Wk") }
+        if reading.durationMinutes == 10080 { return String(localized: "Wk") }
         guard let minutes = reading.durationMinutes else { return String(localized: "Short") }
+        if minutes >= 1440 { return "\(minutes / 1440)d" }
         return minutes % 60 == 0 ? "\(minutes / 60)h" : "\(minutes)m"
     }
     private var differentPeriods: Bool {
@@ -216,7 +226,7 @@ struct QuotaWidgetView: View {
                     Text(label(provider)).fontWeight(.bold)
                     VStack(spacing: 0) {
                         ForEach(QuotaWindowKind.allCases, id: \.self) { kind in
-                            let reading = window(provider, kind: kind)
+                            let reading = window(provider, kind: entry.configuration.style == .dualWindow ? kind : nil)
                             Text("\(periodLabel(reading, kind: kind)) \(value(reading))")
                         }
                     }
@@ -260,7 +270,7 @@ struct QuotaWidgetView: View {
         providers.map { provider in
             let kinds = entry.configuration.style == .dualWindow ? QuotaWindowKind.allCases : [entry.configuration.period.kind]
             return kinds.map { kind in
-            let reading = window(provider, kind: kind)
+            let reading = window(provider, kind: entry.configuration.style == .dualWindow ? kind : nil)
             let status: String
             switch reading.status(now: now) {
             case .live: status = String(localized: "Remaining")
@@ -281,7 +291,7 @@ struct QuotaWidget: Widget {
             QuotaWidgetView(entry: $0)
         }
         .configurationDisplayName("Quota")
-        .description("Codex and Claude remaining allowance.")
+        .description("Codex, Claude, Cursor, and Grok remaining allowance.")
         .supportedFamilies([.accessoryCircular])
     }
 }
