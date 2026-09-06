@@ -1,6 +1,6 @@
 {
- "generatedAt": "2026-09-06T17:34+08:00",
- "main": "4058a2f",
+ "generatedAt": "2026-09-06T18:07+08:00",
+ "main": "4b33c69",
  "howToUse": "正本是 docs/planning/roadmap-2026-09.html；本文件由 tools/export-roadmap.js 导出，不要手改。status 是快照，以仓库事实为准：agent 节点 done = PR 已合并（描述第一行为节点 id）或票 Status done；pr-open = 有开放 PR（pr 字段）；in-progress = 有会话或未提交改动在做；可派 = deps 全 done 且自身非 done/in-progress/pr-open 且 owner A；并发上限 4；优先级 S > A > M > 其余 1.2 > 1.3。票的 Status 只用仓库规定的标签与 done；工作流状态只写 HTML（kind 与标题前缀）。每轮先 git fetch origin 再判断。合并顺序：#57 → #56 → #55（三者都改 Kit 通知类型与 Mac Settings / MenuBarModel，每合一个让下一个合 main）→ #59（Companion 三端，与 #56 的 iPhone 卡片、#55 的 Mac 设置页相碰）→ #62（W-1..3 草稿，先验证）。主工作区 ~/Projects/iOS-vibebuddy 的 main 上仍有 W-1..3 的未提交原件：不 reset、不在主工作区开发。codex/notification-dedup worktree 已被 #54 取代，删除不开 PR。",
  "vision": {
   "Q1": "面向 App Store 公众，你是第一用户",
@@ -90,6 +90,13 @@
   }
  ],
  "sessions": [
+  {
+   "session": "1.2（6）候选安装",
+   "state": "已安装三端，验收未开始",
+   "output": "来源46c9c17 / PR87；Mac公证和签名通过，手机与Watch签名构建通过；回退包保留",
+   "whenDone": "真实体验后再发布，不复用旧半小时",
+   "nodes": "H-2 H-3"
+  },
   {
    "session": "Mac 观察诊断修正",
    "state": "已合并 #78，真机待验 · 01a07591-038d-7cd3-8c2e-0315d2f50f5f",
@@ -1647,10 +1654,10 @@
   {
    "id": "H-2",
    "lane": "H",
-   "title": "等待新候选锁定：半小时零漏接",
+   "title": "1.2（6）已安装，待半小时实际验收",
    "version": "1.2",
    "owner": "U",
-   "status": "blocked",
+   "status": "ready",
    "pr": null,
    "deps": [
     "S-6",
@@ -1671,7 +1678,7 @@
     "verify": "Mac 设置页。",
     "skills": "—"
    },
-   "prompt": "你在 iOS-vibebuddy 仓库工作（~/Projects/iOS-vibebuddy）。任务：H-2 等待新候选锁定：半小时零漏接。\n票 / 位置：.scratch/release-1.2/issues/02-half-hour-acceptance.md\n\n先按顺序读：AGENTS.md → CONTEXT.md → docs/planning/vision-2026-09.md（本任务服务的决策：Q4 半小时零漏接；Q28 先发一版：1.2 可靠性 + 官方接口 + 手机手表；1.3 陌生用户路径 + App Store）→ 上面的票及其引用的 PRD / ADR。已读且未变化的内容不用重复读。\n\n规格（以票为准，这里是摘要）：\n  目标：冻结候选连续半小时无新增漏接；修复后重新计时。\n  范围：以获准安装的冻结候选执行半小时体验，记录起止时间与漏接增量。\n  不做：—\n  验收：验收窗口内新增漏接为 0；任何一次漏接开票修复后重计半小时。\n  验证：Mac 设置页。\n  建议技能：—（技能在 .agents/skills/，按其触发条件用；grill-with-docs 只在票里仍有未决取舍时用，问完立刻把结论写回票）\n\n任务正文：\n按 release-1.2 票02，在具体设备操作获准后使用冻结候选执行连续半小时真实体验。记录成品身份、起止时间、漏接增量和非预期重复；失败修复后锁定新候选并重新计时，不自动安装或替换运行中的 App。\n\n这一步只有你本人能做（真机、签名、账号或决策）。完成后把结果写回票的 Status 行与验收段，截图放票里指定的目录；有失败就开修复票而不是改判据。做完在本图把 H-2 标 done，协调会话会据此派下游。"
+   "prompt": "你在 iOS-vibebuddy 仓库工作（~/Projects/iOS-vibebuddy）。任务：H-2 1.2（6）已安装，待半小时实际验收。\n票 / 位置：.scratch/release-1.2/issues/02-half-hour-acceptance.md\n\n先按顺序读：AGENTS.md → CONTEXT.md → docs/planning/vision-2026-09.md（本任务服务的决策：Q4 半小时零漏接；Q28 先发一版：1.2 可靠性 + 官方接口 + 手机手表；1.3 陌生用户路径 + App Store）→ 上面的票及其引用的 PRD / ADR。已读且未变化的内容不用重复读。\n\n规格（以票为准，这里是摘要）：\n  目标：冻结候选连续半小时无新增漏接；修复后重新计时。\n  范围：以获准安装的冻结候选执行半小时体验，记录起止时间与漏接增量。\n  不做：—\n  验收：验收窗口内新增漏接为 0；任何一次漏接开票修复后重计半小时。\n  验证：Mac 设置页。\n  建议技能：—（技能在 .agents/skills/，按其触发条件用；grill-with-docs 只在票里仍有未决取舍时用，问完立刻把结论写回票）\n\n任务正文：\n按 release-1.2 票02，在具体设备操作获准后使用冻结候选执行连续半小时真实体验。记录成品身份、起止时间、漏接增量和非预期重复；失败修复后锁定新候选并重新计时，不自动安装或替换运行中的 App。\n\n这一步只有你本人能做（真机、签名、账号或决策）。完成后把结果写回票的 Status 行与验收段，截图放票里指定的目录；有失败就开修复票而不是改判据。做完在本图把 H-2 标 done，协调会话会据此派下游。"
   },
   {
    "id": "H-3",
