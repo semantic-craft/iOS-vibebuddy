@@ -65,13 +65,10 @@
 
 /* MARK: Settings */
 "Sound" = "声音";
-"Focus mode (only permission cues)" = "专注模式（仅权限提示音）";
-"Each status change gets a short built-in cue — needs you, permission, done, stuck. Only status boundaries sound; nothing interrupts mid-task. In Focus mode only permission prompts make a sound." = "每次状态变化都有一段简短的内置提示音——需要你、权限、完成、卡住。只有状态边界会响，任务进行中不打扰。专注模式下只有权限请求才出声。";
 "Auto-mute at night" = "夜间自动静音";
 "Night" = "夜间";
 "Start" = "开始";
 "End" = "结束";
-"During this window the app auto-enters Focus mode — only permission prompts make a sound." = "在这个时间段内，应用自动进入专注模式——只有权限请求才出声。";
 "Voice provider" = "语音服务商";
 "Conversation language" = "对话语言";
 "Voice companion" = "语音伙伴";
@@ -115,13 +112,13 @@
 
 /* Notification categories (Settings) */
 "Notify me about" = "通知我这些事";
-"Off means no banner on your iPhone or Apple Watch for that kind of event, even with sound on. What you keep still goes quiet in Focus mode, except permission prompts." = "关闭后，这类事件不会在 iPhone 和 Apple Watch 上弹出，即使声音是开着的。保留的类别在专注模式下仍会静音，权限请求除外。";
 "Permission requests" = "权限请求";
 "Questions and waiting for input" = "提问与等待输入";
 "Errors and stuck sessions" = "出错与卡住";
 "Task completed" = "任务完成";
 "Still-waiting reminders" = "久等催促";
 "Pairing confirmation" = "配对成功提示";
+"Usage and budget" = "配额与预算";
 
 /* Attention level (Dashboard swipe / long-press) */
 "Attention" = "关注度";
@@ -131,3 +128,11 @@
 "Normal" = "普通";
 "Followed" = "已关注";
 "Muted" = "已静音";
+
+"Disabled categories never notify your iPhone or Apple Watch. Quiet mode and quiet hours silence session alerts except silent approvals and questions. Enabled quota alerts are unaffected." = "关闭的类别不会在 iPhone 或 Apple Watch 提醒。安静模式及安静时段仅保留无声的审批和提问提醒；已开启的额度提醒不受影响。";
+
+"Quiet mode (quota unaffected)" = "安静模式（额度提醒不受影响）";
+
+"Status changes can play a short cue. Quiet mode keeps approvals and questions silent and suppresses other session alerts. Enabled quota alerts still follow the Sound setting." = "状态变化可播放短提示音。安静模式无声显示审批和提问，并抑制其他会话提醒。已开启的额度提醒仍遵循声音设置。";
+
+"During this window Quiet mode applies to session alerts. Enabled quota alerts are unaffected." = "此时段对会话提醒应用安静模式；已开启的额度提醒不受影响。";

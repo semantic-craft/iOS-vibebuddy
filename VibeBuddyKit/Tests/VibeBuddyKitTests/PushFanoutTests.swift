@@ -127,4 +127,34 @@ struct PushFanoutTests {
         #expect(plan.recipients.map(\.device.token) == ["listening"])
         #expect(plan.skip == nil)
     }
+
+    @Test("quota is independent of attention: only the category switch decides")
+    func quotaIgnoresAttentionAndQuiet() {
+        #expect(QuotaNoticeFanout.localSkip(categories: .default) == .category)
+        #expect(QuotaNoticeFanout.localSkip(categories: .macDefault) == nil)
+
+        var phoneOn = NotificationCategoryPrefs.default
+        phoneOn.set(.quota, enabled: true)
+        let off = NotificationCategoryPrefs.default
+        let plan = QuotaNoticeFanout.plan(
+            devices: [
+                device("legacy", categories: nil),
+                device("off", categories: off),
+                device("on", quiet: true, categories: phoneOn),
+            ],
+            apnsConfigured: true)
+        #expect(plan.recipients.map(\.token) == ["on"])
+        #expect(plan.skip == nil)
+    }
+
+    @Test("quota push names the same skip reasons as session cues")
+    func quotaPushSkipReasons() {
+        var phoneOn = NotificationCategoryPrefs.default
+        phoneOn.set(.quota, enabled: true)
+        #expect(QuotaNoticeFanout.plan(devices: [device(categories: phoneOn)],
+                                       apnsConfigured: false).skip == .apnsNotConfigured)
+        #expect(QuotaNoticeFanout.plan(devices: [], apnsConfigured: true).skip == .noRegisteredDevice)
+        #expect(QuotaNoticeFanout.plan(devices: [device(categories: nil)],
+                                       apnsConfigured: true).skip == .category)
+    }
 }

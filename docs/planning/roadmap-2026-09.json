@@ -1,6 +1,6 @@
 {
- "generatedAt": "2026-09-06T11:27+08:00",
- "main": "35e87b1",
+ "generatedAt": "2026-09-06T11:42+08:00",
+ "main": "32f47d6",
  "howToUse": "正本是 docs/planning/roadmap-2026-09.html；本文件由 tools/export-roadmap.js 导出，不要手改。status 是快照，以仓库事实为准：agent 节点 done = PR 已合并（描述第一行为节点 id）或票 Status done；pr-open = 有开放 PR（pr 字段）；in-progress = 有会话或未提交改动在做；可派 = deps 全 done 且自身非 done/in-progress/pr-open 且 owner A；并发上限 4；优先级 S > A > M > 其余 1.2 > 1.3。票的 Status 只用仓库规定的标签与 done；工作流状态只写 HTML（kind 与标题前缀）。每轮先 git fetch origin 再判断。合并顺序：#57 → #56 → #55（三者都改 Kit 通知类型与 Mac Settings / MenuBarModel，每合一个让下一个合 main）→ #59（Companion 三端，与 #56 的 iPhone 卡片、#55 的 Mac 设置页相碰）→ #62（W-1..3 草稿，先验证）。主工作区 ~/Projects/iOS-vibebuddy 的 main 上仍有 W-1..3 的未提交原件：不 reset、不在主工作区开发。codex/notification-dedup worktree 已被 #54 取代，删除不开 PR。",
  "vision": {
   "Q1": "面向 App Store 公众，你是第一用户",
@@ -92,9 +92,9 @@
  "sessions": [
   {
    "session": "Mac版设计界面风格",
-   "state": "PR #59 开着（UNSTABLE）",
+   "state": "已合并 #59（2026-09-06）",
    "output": "八轮 grill 定 Companion；已实现三端 + 灵动岛审批，部署到 Mac 与 Hermes 试用",
-   "whenDone": "第一波合完后合 main、审查合并；G-6 只剩截图与残项",
+   "whenDone": "第一波整合保留 Companion 外观；G-6 只剩截图与残项，三端观感待用户",
    "nodes": "S-5 → G-6"
   },
   {
@@ -190,14 +190,14 @@
   },
   {
    "session": "协调会话（coord-log）",
-   "state": "运行中，但判断失真",
-   "output": "每 20 分钟对账；04:45 起一直报 main ed37ad3（没 fetch），也没登记主工作区的 W-1..3 实现；候补 M-02 → M-04 → M-05 → B-3 → D-1 → D-2",
-   "whenDone": "让它先 git fetch；派候补前以本页与 gh pr list 为准",
+   "state": "已交接 Codex 总控（11:37）",
+   "output": "Codex 已 fetch 核对；#57 独立工作区 codex/a-06-review 修复评审并验证；M-02 有 cursor-grok 执行登记，暂不重复派",
+   "whenDone": "每轮先 fetch；第一波串行 #57 → #56 → #55，再整合 #62",
    "nodes": "COORD"
   },
   {
    "session": "A-05 / A-06 / A-08 执行会话",
-   "state": "PR 开着，各有 Codex 线程未处理",
+   "state": "Codex 接手，#57 三条修复验证中；#56 / #55 排队",
    "output": "#56（6 条，已冲突）#57（3 条）#55（4 条），各自测试通过",
    "whenDone": "Codex 接手：修线程、合 main、按 #57 → #56 → #55 合并",
    "nodes": "A-05 A-06 A-08"
@@ -453,10 +453,10 @@
   {
    "id": "S-5",
    "lane": "S",
-   "title": "PR #59 待评审合并：Companion 三端重设计 + 灵动岛审批（已含 G-6 实施）",
+   "title": "已合并 #59：Companion 三端重设计 + 灵动岛审批（已含 G-6 实施）",
    "version": "1.3",
    "owner": "A",
-   "status": "pr-open",
+   "status": "done",
    "pr": 59,
    "deps": [],
    "ticket": "PR #59 · docs/design/mac-companion-redesign.md · 分支 claude/mac-design-interface-style-67f537 · Kit Companion.swift / CompanionViews.swift",
@@ -473,7 +473,7 @@
     "verify": "Kit / MacCore / iOS 测试；三端构建；已部署到 Mac 与 Hermes 试用。",
     "skills": "code-review、resolving-merge-conflicts"
    },
-   "prompt": "你在 iOS-vibebuddy 仓库工作（~/Projects/iOS-vibebuddy）。任务：S-5 PR #59 待评审合并：Companion 三端重设计 + 灵动岛审批（已含 G-6 实施）。\n票 / 位置：PR #59 · docs/design/mac-companion-redesign.md · 分支 claude/mac-design-interface-style-67f537 · Kit Companion.swift / CompanionViews.swift\n\n先按顺序读：AGENTS.md → CONTEXT.md → docs/planning/vision-2026-09.md（本任务服务的决策：Q6 Mac 是基础设施，界面只维持；Q21 UI 顺序：首次运行 → iPhone 首屏 → Settings；Q18 横幅 Approve / Deny，提问文本作答）→ 上面的票及其引用的 PRD / ADR。已读且未变化的内容不用重复读。\n\n规格（以票为准，这里是摘要）：\n  目标：设计会话八轮 grill 定下的 Companion 方向已经实现成 PR #59：Kit 共享主题与文案规则，Mac 仪表盘按三态分组、下拉以猫的心情句开头、Glance 保留灵动岛语法；iPhone 仪表盘改成消息流（审批与提问在气泡内作答，reply-to 编辑器按语义命名发送键）；Watch 卡片以「项目 wants to 动词」开头；灵动岛 Live Activity 直接 Approve / Deny。\n  范围：审查 #59 的 25 个文件，合 main（第一波之后），处理 Codex 评审线程，合并；真机看一眼三端。\n  不做：不在本 PR 里改行为语义（M-02 / M-03 的语义票仍独立）；Mac 是基础设施，不再追加 Mac 视觉工作。\n  验收：PR #59 合并；Codex 评审线程全部解决；Kit / MacCore / iOS 三套测试通过，三端构建通过。截图与残项归 G-6。\n  验证：Kit / MacCore / iOS 测试；三端构建；已部署到 Mac 与 Hermes 试用。\n  建议技能：code-review、resolving-merge-conflicts（技能在 .agents/skills/，按其触发条件用；grill-with-docs 只在票里仍有未决取舍时用，问完立刻把结论写回票）\n\n任务正文：\n这是设计会话的收尾：PR #59 已开（UNSTABLE，等 CI 与 Codex 评审）。顺序：等 #57 → #56 → #55 合完后，在分支上 git merge origin/main（会与 #56 的 iPhone QuestionCardView / ApprovalCardView、#55 的 Mac 设置页相碰，以 main 的行为为准、#59 的外观为准），跑三套测试与三端构建，处理评审线程，合并。合并后 G-6 只剩截图与验收。\n\n分支与工作区：从 origin/main 新建分支 codex/s-5-<slug>（若票或 PR 已指定分支则用它），worktree 放 .scratch/worktrees/<slug>（gitignore；不要在主工作区 ~/Projects/iOS-vibebuddy 改代码）；不要 rebase 到本地 main；不要用 bare git stash（栈是共享的）；main 只接受 PR。若依赖的 PR 尚未合并，把工作叠在那个 PR 分支上并在 PR 描述里说明。\n\n票据回写：领票时不改票的 Status（只用仓库规定的标签：needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix，以及既有的收口词 done），在票里加一行「**Executor:** <你> · 分支 <名> · <时间>」；完成时把 Status 改为 ready-for-human（需要真机）或 done（纯代码且已验证），附证据；不要把「代码完成」写成 done。新票按 docs/agents/issue-tracker.md 的格式建在票路径所示位置。\n\n验证（至少跑改动覆盖到的部分，把命令与结果数字写进 PR）：\n  cd VibeBuddyKit && swift test\n  cd VibeBuddyMac && swift test\n  cd VibeBuddyApp && xcodegen generate && xcodebuild -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build\n  cd VibeBuddyApp && xcodebuild test -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:VibeBuddyAppTests CODE_SIGNING_ALLOWED=NO\n  cd VibeBuddyMacApp && xcodegen generate && xcodebuild -project VibeBuddyMacApp.xcodeproj -scheme VibeBuddyMacApp -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build\n不要给 iOS scheme 传 -sdk iphonesimulator（会把 Watch 目标编到 iOS SDK，产生假错误）。\n\n边界：不部署、不发布、不改已安装的 App、不碰端口 9876 上正在运行的守护进程、不动真机、不改 ~/.claude 全局配置、不读取或打印任何密钥；这些只有用户能做。\n\nPR：标题用 Conventional Commits；描述分 Summary / Validation / Not verified here；不加署名行。main 的规则要求每条评审线程（含 Codex 机器人的 P1 / P2）先修复或答复后解决才能合并；合并由协调会话或用户执行。收尾回复里给出 PR 链接、跑过的验证与留给真机的项，并把本图的节点 id（S-5）写在 PR 描述第一行，方便协调会话对账。"
+   "prompt": "你在 iOS-vibebuddy 仓库工作（~/Projects/iOS-vibebuddy）。任务：S-5 已合并 #59：Companion 三端重设计 + 灵动岛审批（已含 G-6 实施）。\n票 / 位置：PR #59 · docs/design/mac-companion-redesign.md · 分支 claude/mac-design-interface-style-67f537 · Kit Companion.swift / CompanionViews.swift\n\n先按顺序读：AGENTS.md → CONTEXT.md → docs/planning/vision-2026-09.md（本任务服务的决策：Q6 Mac 是基础设施，界面只维持；Q21 UI 顺序：首次运行 → iPhone 首屏 → Settings；Q18 横幅 Approve / Deny，提问文本作答）→ 上面的票及其引用的 PRD / ADR。已读且未变化的内容不用重复读。\n\n规格（以票为准，这里是摘要）：\n  目标：设计会话八轮 grill 定下的 Companion 方向已经实现成 PR #59：Kit 共享主题与文案规则，Mac 仪表盘按三态分组、下拉以猫的心情句开头、Glance 保留灵动岛语法；iPhone 仪表盘改成消息流（审批与提问在气泡内作答，reply-to 编辑器按语义命名发送键）；Watch 卡片以「项目 wants to 动词」开头；灵动岛 Live Activity 直接 Approve / Deny。\n  范围：审查 #59 的 25 个文件，合 main（第一波之后），处理 Codex 评审线程，合并；真机看一眼三端。\n  不做：不在本 PR 里改行为语义（M-02 / M-03 的语义票仍独立）；Mac 是基础设施，不再追加 Mac 视觉工作。\n  验收：PR #59 合并；Codex 评审线程全部解决；Kit / MacCore / iOS 三套测试通过，三端构建通过。截图与残项归 G-6。\n  验证：Kit / MacCore / iOS 测试；三端构建；已部署到 Mac 与 Hermes 试用。\n  建议技能：code-review、resolving-merge-conflicts（技能在 .agents/skills/，按其触发条件用；grill-with-docs 只在票里仍有未决取舍时用，问完立刻把结论写回票）\n\n任务正文：\n这是设计会话的收尾：PR #59 已开（UNSTABLE，等 CI 与 Codex 评审）。顺序：等 #57 → #56 → #55 合完后，在分支上 git merge origin/main（会与 #56 的 iPhone QuestionCardView / ApprovalCardView、#55 的 Mac 设置页相碰，以 main 的行为为准、#59 的外观为准），跑三套测试与三端构建，处理评审线程，合并。合并后 G-6 只剩截图与验收。\n\n分支与工作区：从 origin/main 新建分支 codex/s-5-<slug>（若票或 PR 已指定分支则用它），worktree 放 .scratch/worktrees/<slug>（gitignore；不要在主工作区 ~/Projects/iOS-vibebuddy 改代码）；不要 rebase 到本地 main；不要用 bare git stash（栈是共享的）；main 只接受 PR。若依赖的 PR 尚未合并，把工作叠在那个 PR 分支上并在 PR 描述里说明。\n\n票据回写：领票时不改票的 Status（只用仓库规定的标签：needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix，以及既有的收口词 done），在票里加一行「**Executor:** <你> · 分支 <名> · <时间>」；完成时把 Status 改为 ready-for-human（需要真机）或 done（纯代码且已验证），附证据；不要把「代码完成」写成 done。新票按 docs/agents/issue-tracker.md 的格式建在票路径所示位置。\n\n验证（至少跑改动覆盖到的部分，把命令与结果数字写进 PR）：\n  cd VibeBuddyKit && swift test\n  cd VibeBuddyMac && swift test\n  cd VibeBuddyApp && xcodegen generate && xcodebuild -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build\n  cd VibeBuddyApp && xcodebuild test -project VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:VibeBuddyAppTests CODE_SIGNING_ALLOWED=NO\n  cd VibeBuddyMacApp && xcodegen generate && xcodebuild -project VibeBuddyMacApp.xcodeproj -scheme VibeBuddyMacApp -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build\n不要给 iOS scheme 传 -sdk iphonesimulator（会把 Watch 目标编到 iOS SDK，产生假错误）。\n\n边界：不部署、不发布、不改已安装的 App、不碰端口 9876 上正在运行的守护进程、不动真机、不改 ~/.claude 全局配置、不读取或打印任何密钥；这些只有用户能做。\n\nPR：标题用 Conventional Commits；描述分 Summary / Validation / Not verified here；不加署名行。main 的规则要求每条评审线程（含 Codex 机器人的 P1 / P2）先修复或答复后解决才能合并；合并由协调会话或用户执行。收尾回复里给出 PR 链接、跑过的验证与留给真机的项，并把本图的节点 id（S-5）写在 PR 描述第一行，方便协调会话对账。"
   },
   {
    "id": "A-05",
@@ -713,7 +713,7 @@
    "title": "手机可靠地回应和推进已有任务",
    "version": "1.2",
    "owner": "A",
-   "status": "ready",
+   "status": "in-progress",
    "pr": null,
    "deps": [],
    "ticket": ".scratch/mobile-watch-task-control/issues/02-existing-session-actions.md",
@@ -1457,7 +1457,7 @@
    "title": "Companion 三端收尾：#59 合并后的截图、验收与残项",
    "version": "1.3",
    "owner": "A",
-   "status": "blocked",
+   "status": "ready",
    "pr": null,
    "deps": [
     "S-5"
