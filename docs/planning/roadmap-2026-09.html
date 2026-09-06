@@ -698,7 +698,7 @@ async function copyText(text, toast, ta){
 }
 document.getElementById("copyjson").addEventListener("click",()=>{
   const data = { generatedAt:"2026-09-06T11:27+08:00", main:"35e87b1", lanes: LANES.map(l=>({id:l[0],name:l[1]})),
-    nodes: T.filter(t=>!["COORD","CODEX","REVIEW"].includes(t.id)).map(t=>({id:t.id,lane:t.lane,title:t.title,version:t.ver,owner:t.kind==="you"?"U":"A",status:statusOf(t),deps:t.deps,ticket:t.path,vision:t.q,spec:t.spec,prompt:promptFor(t)})) };
+    nodes: T.filter(t=>!["COORD","CODEX","REVIEW"].includes(t.id)).map(t=>({id:t.id,lane:t.lane,title:t.title,version:t.ver,owner:t.kind==="you"?"U":"A",status:(statusOf(t)==="running" ? (/^退回修改/.test(t.title) ? "changes-requested" : /#\d+/.test(t.title) ? "pr-open" : "in-progress") : statusOf(t)),deps:t.deps,ticket:t.path,vision:t.q,spec:t.spec,prompt:promptFor(t)})) };
   copyText(JSON.stringify(data,null,1), document.getElementById("jsontoast"), null);
 });
 
