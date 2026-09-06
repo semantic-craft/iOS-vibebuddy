@@ -1,6 +1,17 @@
 import Foundation
 import VibeBuddyKit
 
+/// Mac-only configuration diagnosis. Kept outside ObservationHealth so this
+/// local setting cannot introduce a new value into the phone snapshot contract.
+public enum CodexHookConfigurationIssue: Sendable, Equatable {
+    case hooksFeatureDisabled
+
+    public var displayName: String { "Hooks feature disabled" }
+    public var explanation: String {
+        "Codex hooks are disabled in the user configuration. Run codex features enable hooks, then start a fresh Codex session."
+    }
+}
+
 /// A runtime signal recorded by `SessionStore`. Event families are accumulated
 /// per source, while health and time come from the newest signal.
 public struct ObservationRuntimeSignal: Sendable, Equatable {
@@ -28,6 +39,56 @@ public struct ObservationRuntimeSignal: Sendable, Equatable {
 /// Read-only compatibility and source health inspection. It never inspects a
 /// process list and never mutates hook files or session progress.
 public enum ObservationHealthDetector {
+    /// Hooks are installed at user level; project and profile overrides are
+    /// outside this diagnostic's scope. Never writes the configuration. A fresh
+    /// healthy runtime signal takes precedence over the file's static setting.
+    public static func codexHookConfigurationIssue(
+        home: URL?, hook: ObservationSourceDiagnostic?, now: Date,
+        staleAfter: TimeInterval = 10 * 60
+    ) -> CodexHookConfigurationIssue? {
+        if let hook, hook.health == .healthy, let observed = hook.lastObservedAt,
+           now.timeIntervalSince(observed) <= staleAfter { return nil }
+        guard let home,
+              let data = readData(at: home.appendingPathComponent(".codex/config.toml"),
+                                  upToCount: (1 << 20) + 1, fileManager: .default),
+              data.count <= 1 << 20, let text = String(data: data, encoding: .utf8)
+        else { return nil }
+        // Same deliberately narrow scalar scan as install-codex-hooks.py.
+        // Skip multiline string bodies: example keys are not settings.
+        var inFeatures = false
+        var multiline: String?
+        var values: [String: Bool] = [:]
+        for raw in text.split(separator: "\n") {
+            if let delimiter = multiline {
+                if raw.contains(delimiter) { multiline = nil }
+                continue
+            }
+            let line = raw.split(separator: "#", maxSplits: 1,
+                                 omittingEmptySubsequences: false)[0]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let delimiters = ["\"\"\"", "'''"]
+                .compactMap { mark in line.range(of: mark).map { ($0, mark) } }
+                .sorted { $0.0.lowerBound < $1.0.lowerBound }
+            if let (range, mark) = delimiters.first {
+                if !line[range.upperBound...].contains(mark) { multiline = mark }
+                continue
+            }
+            if line.hasPrefix("[") {
+                inFeatures = line == "[features]"
+                continue
+            }
+            let parts = line.split(separator: "=", maxSplits: 1)
+            guard inFeatures, parts.count == 2 else { continue }
+            let key = parts[0].trimmingCharacters(in: .whitespaces)
+            let value = parts[1].trimmingCharacters(in: .whitespaces)
+            if ["hooks", "codex_hooks"].contains(key), ["true", "false"].contains(value) {
+                values[key] = value == "true"
+            }
+        }
+        // The canonical key wins over the deprecated alias.
+        return (values["hooks"] ?? values["codex_hooks"]) == false ? .hooksFeatureDisabled : nil
+    }
+
     private static let requiredHookCoverage = Set(ObservationEventCoverage.allCases)
     private static let supportedEventMessages: Set<String> = [
         "task_started", "task_complete", "turn_aborted",

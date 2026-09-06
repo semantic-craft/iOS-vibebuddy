@@ -54,6 +54,45 @@ struct ObservationHealthDetectorTests {
         #expect(missingEvents.health(agent: .claudeCode, source: .hook) == .eventsMissing)
     }
 
+    @Test("Codex disabled hooks are explicit; fresh signals win and configs stay untouched")
+    func codexHooksFeatureDisabled() throws {
+        struct Fixture: Decodable { let name: String; let config: String; let disabled: Bool }
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let fixtures = try JSONDecoder().decode([Fixture].self, from: Data(contentsOf:
+            root.appendingPathComponent("hooks/fixtures/codex-hooks-feature.json")))
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let config = home.appendingPathComponent(".codex/config.toml")
+        let fresh = ObservationRuntimeSignal(agent: .codex, source: .hook, lastObservedAt: now)
+        let stale = ObservationRuntimeSignal(agent: .codex, source: .hook,
+                                             lastObservedAt: now.addingTimeInterval(-601))
+        for fixture in fixtures {
+            try write(fixture.config, to: config)
+            let result = detect(home: home)
+            // The new reason is local to Mac Settings; wire health is unchanged.
+            #expect(result.health(agent: .codex, source: .hook) == .eventsMissing)
+            let issue = ObservationHealthDetector.codexHookConfigurationIssue(
+                home: home, hook: result.diagnostic(agent: .codex, source: .hook), now: now)
+            #expect(issue == (fixture.disabled ? .hooksFeatureDisabled : nil))
+            if fixture.disabled {
+                #expect(issue?.explanation.contains("codex features enable hooks") == true)
+                #expect(ObservationHealthDetector.codexHookConfigurationIssue(home: home,
+                    hook: detect(home: home, signals: [stale]).diagnostic(agent: .codex, source: .hook),
+                    now: now) == .hooksFeatureDisabled)
+            }
+            #expect(ObservationHealthDetector.codexHookConfigurationIssue(home: home,
+                hook: detect(home: home, signals: [fresh]).diagnostic(agent: .codex, source: .hook),
+                now: now) == nil)
+            #expect(try String(contentsOf: config, encoding: .utf8) == fixture.config)
+        }
+        try write("[features]\nhooks = false\n", to: config)
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: config.path)
+        #expect(ObservationHealthDetector.codexHookConfigurationIssue(home: home, hook: nil, now: now) == nil)
+        try FileManager.default.removeItem(at: config)
+        #expect(ObservationHealthDetector.codexHookConfigurationIssue(home: home, hook: nil, now: now) == nil)
+    }
+
     @Test("Codex async incompatibility is reported explicitly")
     func codexAsyncIncompatible() throws {
         let home = try tempHome()

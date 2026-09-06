@@ -197,18 +197,21 @@ private struct SetupSettings: View {
         agent: AgentKind,
         source: ObservationSourceDiagnostic
     ) -> some View {
+        let issue = agent == .codex && source.source == .hook
+            ? ObservationHealthDetector.codexHookConfigurationIssue(
+                home: FileManager.default.homeDirectoryForCurrentUser, hook: source, now: Date()) : nil
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: source.health.isHealthy
+            Image(systemName: source.health.isHealthy && issue == nil
                   ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                .foregroundStyle(source.health.isHealthy ? .green : .orange)
+                .foregroundStyle(source.health.isHealthy && issue == nil ? .green : .orange)
                 .frame(width: 16)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 5) {
                     Text(source.source.displayName).fontWeight(.semibold)
-                    Text("· \(source.health.displayName)")
+                    Text("· \(issue?.displayName ?? source.health.displayName)")
                         .foregroundStyle(.secondary)
                 }
-                Text(source.health.explanation(for: source.source))
+                Text(issue?.explanation ?? source.health.explanation(for: source.source))
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 if let last = source.lastObservedAt {
@@ -224,7 +227,7 @@ private struct SetupSettings: View {
                 }
             }
             Spacer(minLength: 8)
-            if source.source == .hook, source.health.needsHookRepair {
+            if source.source == .hook, issue == nil, source.health.needsHookRepair {
                 Button("Repair") { setup.repair(agent) }
                     .disabled(setup.running)
                     .help("Runs the bundled idempotent installer and preserves your other hooks.")

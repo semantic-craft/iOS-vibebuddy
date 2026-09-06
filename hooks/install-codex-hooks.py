@@ -206,6 +206,45 @@ def write(data):
             os.unlink(temporary)
 
 
+def hooks_feature_disabled():
+    # Only the user-level file: our hooks live there. Profile and project
+    # overrides are outside this diagnostic's scope. A minimal scalar scanner,
+    # not a TOML parser. Skip multiline strings so example keys are not settings.
+    try:
+        with open(os.path.expanduser("~/.codex/config.toml"), "rb") as handle:
+            data = handle.read((1 << 20) + 1)
+            if len(data) > 1 << 20:
+                return False
+            text = data.decode("utf-8")
+    except (OSError, UnicodeError):
+        return False
+    in_features = False
+    multiline = None
+    values = {}
+    for raw in text.splitlines():
+        if multiline is not None:
+            if multiline in raw:
+                multiline = None
+            continue
+        line = raw.split("#", 1)[0].strip()
+        delimiters = [(line.find(mark), mark) for mark in ['"""', "'''"] if mark in line]
+        if delimiters:
+            index, mark = min(delimiters)
+            if mark not in line[index + 3:]:
+                multiline = mark
+            continue
+        if line.startswith("["):
+            in_features = line == "[features]"
+            continue
+        if not in_features or "=" not in line:
+            continue
+        key, value = (part.strip() for part in line.split("=", 1))
+        if key in {"hooks", "codex_hooks"} and value in {"true", "false"}:
+            values[key] = value == "true"
+    # The canonical key wins over its deprecated alias.
+    return values.get("hooks", values.get("codex_hooks")) is False
+
+
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "--dry-run"
     if mode not in {"--dry-run", "--install", "--uninstall", "--approval"}:
@@ -239,6 +278,9 @@ def main():
             print("installed the blocking phone-approval gate on PermissionRequest")
         if mode in {"--install", "--approval"}:
             print("next: start a fresh Codex session, run /hooks, and trust the VibeBuddy entries")
+
+    if mode != "--uninstall" and hooks_feature_disabled():
+        print("Hooks feature disabled: run codex features enable hooks, then start a fresh Codex session.")
 
 
 if __name__ == "__main__":
