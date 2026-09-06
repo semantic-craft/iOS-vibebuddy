@@ -7,7 +7,6 @@ import VibeBuddyMacCore
 /// (Needs you / Working / Done) and one detail card on the right.
 struct DashboardView: View {
     @ObservedObject var model: MenuBarModel
-    @Environment(\.openSettings) private var openSettings
     @State private var statusFilter: TaskPresentationState? = nil
     @State private var query: String = ""
     @State private var showNewTask = false
@@ -46,7 +45,7 @@ struct DashboardView: View {
                     .disabled(model.recentDirectories.isEmpty || model.dispatchAgents.isEmpty)
             }
             ToolbarItem(placement: .primaryAction) {
-                Button { openSettings() } label: { Image(systemName: "gearshape") }
+                Button { NotificationCenter.default.post(name: .openAppSettings, object: nil) } label: { Image(systemName: "gearshape") }
                     .help("Settings")
             }
         }
@@ -68,11 +67,9 @@ struct DashboardView: View {
             }
             .opacity(0)
         }
-        .onAppear { AppActivationPolicy.activateFront() }
         .onChange(of: selection) { _, id in
             if let id { model.acknowledge(id) }
         }
-        .onDisappear { AppActivationPolicy.leave() }
     }
 
     private var groupsColumn: some View {

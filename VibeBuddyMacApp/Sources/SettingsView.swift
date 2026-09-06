@@ -9,25 +9,66 @@ import VibeBuddyMacCore
 struct SettingsView: View {
     @ObservedObject var model: MenuBarModel
 
-    var body: some View {
-        TabView {
-            GeneralSettings(model: model)
-                .tabItem { Label("General", systemImage: "gearshape") }
-            SetupSettings(model: model)
-                .tabItem { Label("Setup", systemImage: "checklist") }
-            GlanceSettings(model: model)
-                .tabItem { Label("Glance", systemImage: "menubar.rectangle") }
-            DeviceSettings(model: model)
-                .tabItem { Label("Devices", systemImage: "iphone.gen3") }
-            NotificationSettings(model: model)
-                .tabItem { Label("Notifications", systemImage: "bell") }
-            AccountUsageSettings(model: model)
-                .tabItem { Label("Usage", systemImage: "gauge.with.dots.needle.50percent") }
-            VoiceSettingsTab(model: model)
-                .tabItem { Label("Voice", systemImage: "waveform") }
+    @StateObject private var hookSetup = HookSetup()
+    @State private var selectedTab: SettingsTab = .general
+
+    private enum SettingsTab: String, CaseIterable {
+        case general = "General", setup = "Setup", glance = "Glance", devices = "Devices"
+        case notifications = "Notifications", usage = "Usage", voice = "Voice"
+
+        var symbol: String {
+            switch self {
+            case .general: "gearshape"
+            case .setup: "checklist"
+            case .glance: "menubar.rectangle"
+            case .devices: "iphone.gen3"
+            case .notifications: "bell"
+            case .usage: "gauge.with.dots.needle.50percent"
+            case .voice: "waveform"
+            }
         }
-        .frame(width: 500, height: 400)
-        .onDisappear { AppActivationPolicy.leave() }
+    }
+
+    var body: some View {
+        // Render navigation in the content, independent of SwiftUI Settings-scene
+        // toolbar adaptation (which collapses all tabs in an AppKit-hosted window).
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                ForEach(SettingsTab.allCases, id: \.self) { tab in
+                    Button { selectedTab = tab } label: {
+                        VStack(spacing: 5) {
+                            Image(systemName: tab.symbol).font(.system(size: 20))
+                            Text(LocalizedStringKey(tab.rawValue)).font(.system(size: 10))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .contentShape(Rectangle())
+                        .foregroundStyle(selectedTab == tab ? Color.accentColor : Color.secondary)
+                        .background(selectedTab == tab ? Color.accentColor.opacity(0.08) : .clear,
+                                    in: RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(LocalizedStringKey(tab.rawValue))
+                    .accessibilityAddTraits(selectedTab == tab ? .isSelected : [])
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            Divider()
+            Group {
+                switch selectedTab {
+                case .general: GeneralSettings(model: model)
+                case .setup: SetupSettings(model: model, setup: hookSetup)
+                case .glance: GlanceSettings(model: model)
+                case .devices: DeviceSettings(model: model)
+                case .notifications: NotificationSettings(model: model)
+                case .usage: AccountUsageSettings(model: model)
+                case .voice: VoiceSettingsTab(model: model)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(width: 500, height: 480)
     }
 }
 
@@ -37,7 +78,7 @@ struct SettingsView: View {
 /// configs — so it's only ever an explicit button click here.
 private struct SetupSettings: View {
     @ObservedObject var model: MenuBarModel
-    @StateObject private var setup = HookSetup()
+    @ObservedObject var setup: HookSetup
 
     var body: some View {
         Form {
