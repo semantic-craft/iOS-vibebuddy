@@ -64,7 +64,7 @@ struct QuotaProvider: AppIntentTimelineProvider {
         let quotas = readQuotas()
         let windows = quotas.filter { configuration.platform.selection.providers.contains($0.provider) }
             .flatMap { quota in
-                configuration.style == .dualWindow ? QuotaWindowKind.allCases.map { quota.window($0) } : [quota.window(configuration.period.kind)]
+                configuration.style == .dualWindow ? QuotaWindowKind.allCases.map { quota.window($0) } : [quota.displayWindow(preferring: configuration.period.kind)]
             }
         let boundaries = windows.flatMap { window in
             [window.observedAt?.addingTimeInterval(ProviderQuota.staleAfter), window.resetsAt].compactMap { $0 }
@@ -146,8 +146,9 @@ struct QuotaWidgetView: View {
         }
     }
     private func periodLabel(_ reading: QuotaWindow, kind: QuotaWindowKind? = nil) -> String {
-        if (kind ?? entry.configuration.period.kind) == .weekly { return String(localized: "Wk") }
+        if reading.durationMinutes == 10080 { return String(localized: "Wk") }
         guard let minutes = reading.durationMinutes else { return String(localized: "Short") }
+        if minutes >= 1440 { return "\(minutes / 1440)d" }
         return minutes % 60 == 0 ? "\(minutes / 60)h" : "\(minutes)m"
     }
     private var differentPeriods: Bool {
@@ -225,7 +226,7 @@ struct QuotaWidgetView: View {
                     Text(label(provider)).fontWeight(.bold)
                     VStack(spacing: 0) {
                         ForEach(QuotaWindowKind.allCases, id: \.self) { kind in
-                            let reading = window(provider, kind: kind)
+                            let reading = window(provider, kind: entry.configuration.style == .dualWindow ? kind : nil)
                             Text("\(periodLabel(reading, kind: kind)) \(value(reading))")
                         }
                     }
@@ -269,7 +270,7 @@ struct QuotaWidgetView: View {
         providers.map { provider in
             let kinds = entry.configuration.style == .dualWindow ? QuotaWindowKind.allCases : [entry.configuration.period.kind]
             return kinds.map { kind in
-            let reading = window(provider, kind: kind)
+            let reading = window(provider, kind: entry.configuration.style == .dualWindow ? kind : nil)
             let status: String
             switch reading.status(now: now) {
             case .live: status = String(localized: "Remaining")
