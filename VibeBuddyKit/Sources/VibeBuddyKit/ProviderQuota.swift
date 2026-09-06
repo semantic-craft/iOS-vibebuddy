@@ -188,7 +188,8 @@ public extension ProviderQuota {
         let alternate: QuotaWindowKind = kind == .weekly ? .short : .weekly
         let secondary = window(alternate)
         if secondary.remainingPercent != nil { return secondary }
-        if let other = (otherWindows ?? []).first(where: { $0.remainingPercent != nil }) {
+        if var other = (otherWindows ?? []).first(where: { $0.remainingPercent != nil }) {
+            other.isCached = other.isCached == true || isCached == true
             return other
         }
         return preferred

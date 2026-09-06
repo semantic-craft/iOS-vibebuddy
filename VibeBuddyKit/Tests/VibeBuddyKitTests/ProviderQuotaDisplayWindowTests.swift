@@ -59,6 +59,15 @@ struct ProviderQuotaDisplayWindowTests {
         #expect(quota.displayWindow(preferring: .short).remainingPercent == 60)
     }
 
+    @Test("Relay cache state applies to monthly fallback")
+    func cachedMonthlyFallback() {
+        var quota = ProviderQuota(provider: .cursor, otherWindows: [
+            QuotaWindow(remainingPercent: 60, durationMinutes: 43200, resetsAt: nil, observedAt: now)
+        ], observedAt: now)
+        quota.isCached = true
+        #expect(quota.displayWindow().status(now: now) == .stale)
+    }
+
     @Test("Unavailable stays unavailable when nothing is usable")
     func unavailableWhenEmpty() {
         let quota = ProviderQuota.unavailable(.cursor, reason: "Collection is turned off")
