@@ -93,6 +93,19 @@ struct SoundPolicyTests {
             == [NotificationUserInfoKey.sessionId: "s", NotificationUserInfoKey.approvalId: "ap"])
     }
 
+    @Test("read-only native waits have no banner actions on any surface")
+    func readOnlyWaitsHaveNoActions() {
+        var waiting = session("a", .needsResponse, wait: .permission)
+        waiting.pendingApproval = PendingApproval(id: "p", tool: "Bash", commandPreview: "pwd")
+        #expect(SoundAlert(session: waiting, sound: .needsApproval).actionCategory == .approval)
+        waiting.pendingApproval = PendingApproval(id: "p", tool: "Bash", commandPreview: "pwd", answerable: false)
+        #expect(SoundAlert(session: waiting, sound: .needsApproval).actionCategory == nil)
+        waiting.pendingQuestion = PendingQuestion(id: "q", prompt: "Continue?", answerable: false)
+        #expect(SoundAlert(session: waiting, sound: .needsAnswer).actionCategory == nil)
+        waiting.pendingQuestion = PendingQuestion(id: "q", prompt: "Continue?", answerable: true)
+        #expect(SoundAlert(session: waiting, sound: .needsAnswer).actionCategory == .question)
+    }
+
     // MARK: First snapshot — no backlog noise
 
     @Test("the first snapshot's already-waiting sessions stay silent")

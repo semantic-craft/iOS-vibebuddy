@@ -100,7 +100,8 @@ struct HTTPDecisionClient: DecisionClient {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try? JSONSerialization.data(withJSONObject: ["sessionId": sessionId, "answer": answer])
         guard let (_, response) = try? await URLSession.shared.data(for: req) else { return .failed }
-        return WaitActionResult(statusCode: (response as? HTTPURLResponse)?.statusCode)
+        let status = (response as? HTTPURLResponse)?.statusCode
+        return status == 202 ? .alreadyResolved : WaitActionResult(statusCode: status)
     }
 
     func answer(_ pairing: PairingPayload, sessionId: String, answers: QuestionAnswers) async {

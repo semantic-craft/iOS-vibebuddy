@@ -81,6 +81,16 @@ final class BannerActionRunnerTests: XCTestCase {
         XCTAssertEqual(outcome, .openSession("s1"))
     }
 
+    func testFailedBackgroundRequestOpensTheSession() async {
+        let client = ScriptedWaitClient(decideStatus: .failed, answerStatus: .failed)
+        for action in [NotificationActionID.approve, .deny, .answer] {
+            let outcome = await BannerActionRunner.perform(
+                actionIdentifier: action.rawValue, userInfo: info, text: "yes",
+                pairing: pairing, client: client)
+            XCTAssertEqual(outcome, .openSession("s1"))
+        }
+    }
+
     func testNoPairingOpensTheSession() async {
         let outcome = await BannerActionRunner.perform(
             actionIdentifier: NotificationActionID.approve.rawValue,

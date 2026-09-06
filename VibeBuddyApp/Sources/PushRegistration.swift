@@ -29,10 +29,33 @@ final class PushRegistration {
         upload()
     }
 
+    /// Background actions can arrive before any dashboard view has loaded.
+    func pairingForBannerAction() -> PairingPayload? {
+        if let pairing { return pairing }
+        return ConnectionStore().pairing
+    }
+
     /// Re-report this device to the Mac: on a preference change, and on every
     /// dashboard (re)connection. The Mac's registry can have been emptied by a
     /// restart while this app never relaunched, and this is what repairs it.
     func reportPrefs() { upload() }
+
+    /// Tell the Mac what this phone did about some cues itself: `posted` lets it
+    /// drop the push it may be holding for them; `coveredByPush` names waiting
+    /// cues left to a push that had already landed (ADR-0012). Keyed by the
+    /// APNs token because that is the name the Mac pushes to; with no token
+    /// there is no push to stand down, so nothing is sent.
+    func report(posted: [NotifiedPayload.Cue] = [], coveredByPush: [NotifiedPayload.Cue] = []) async {
+        guard let token = deviceToken, let pairing, !(posted.isEmpty && coveredByPush.isEmpty),
+              let url = URL(string: "http://\(pairing.host):\(pairing.port)/notified") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONEncoder().encode(NotifiedPayload(
+            token: token, posted: posted, coveredByPush: coveredByPush))
+        _ = try? await URLSession.shared.data(for: request)
+    }
 
     /// The single `POST /device` path. The APNs token is included once it is
     /// known and omitted before that, so an un-entitled build still reports its
@@ -79,6 +102,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         // No paid account / entitlement yet — expected until APNs is set up.
     }
 
+    func applicationDidBecomeActive(_ application: UIApplication) {
+        Task { await PushCoverage.shared.noteActivated() }
+    }
+
     /// A tapped banner opens its session. Both channels name the session the
     /// same way — the local notification's `userInfo["sessionId"]` and the Mac
     /// push's top-level `sessionId` — and both go through the Live Activity's
@@ -88,6 +115,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
+        // A tapped push leaves Notification Center; remember it so the stream's
+        // catch-up does not announce the same wait a second time (ADR-0012).
+        let request = response.notification.request
+        if request.trigger is UNPushNotificationTrigger {
+            await PushCoverage.shared.noteTapped(identifier: request.identifier,
+                                                 deliveredAt: response.notification.date)
+        }
         let userInfo = response.notification.request.content.userInfo
         if response.actionIdentifier == UNNotificationDefaultActionIdentifier {
             guard let id = userInfo[NotificationUserInfoKey.sessionId] as? String, !id.isEmpty else { return }
@@ -97,7 +131,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             return
         }
         let text = (response as? UNTextInputNotificationResponse)?.userText
-        let pairing = await MainActor.run { PushRegistration.shared.pairing }
+        let pairing = await MainActor.run { PushRegistration.shared.pairingForBannerAction() }
         let outcome = await BannerActionRunner.perform(
             actionIdentifier: response.actionIdentifier,
             userInfo: userInfo,

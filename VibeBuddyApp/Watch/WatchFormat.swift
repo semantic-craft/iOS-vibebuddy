@@ -19,7 +19,7 @@ enum WatchBucket: CaseIterable {
 
     var title: LocalizedStringResource {
         switch self {
-        case .needsResponse: return "Needs response"
+        case .needsResponse: return "Needs you"
         case .working: return "Working"
         case .done: return "Done"
         }

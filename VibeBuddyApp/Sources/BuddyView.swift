@@ -1,9 +1,9 @@
 import SwiftUI
 import VibeBuddyKit
 
-/// The ambient status buddy, drawn with SwiftUI and SF Symbols so it has no
-/// bundled third-party mascot artwork. Its mood mirrors the sound pack so the
-/// face you see matches the cue you hear.
+/// The iPhone header: the cat and its speech bubble. The cat says one line
+/// about the whole snapshot (Companion, round 5); the voice status takes the
+/// line over while the companion is listening or speaking.
 struct BuddyView: View {
     let groups: SessionGroups
     var pulse: Int = 0          // bumped when a cue fires → the buddy reacts
@@ -14,6 +14,10 @@ struct BuddyView: View {
     @State private var react = false
     @State private var greet = 0
 
+    private var summary: TaskPresentationSummary {
+        TaskPresentationSummary(sessions: groups.needsResponse + groups.working + groups.done)
+    }
+
     var body: some View {
         // A slow clock so a long wait can turn the buddy impatient over time.
         TimelineView(.periodic(from: .now, by: 30)) { ctx in
@@ -23,16 +27,16 @@ struct BuddyView: View {
                     .scaleEffect(react ? 1.08 : 1)
                     .animation(.spring(response: 0.3, dampingFraction: 0.4), value: react)
                     .onTapGesture { greet += 1; onTap?() }
-                VStack(alignment: .leading, spacing: 1) {
-                    if !companionEnabled {
-                        Label("Voice companion off", systemImage: "mic.slash")
-                            .font(.headline).foregroundStyle(.secondary)
-                    } else {
-                        Text(voice == .listening ? "Listening…" : (voice == .speaking ? "Speaking…" : title(state))).font(.headline)
-                    }
-                    Text(subtitle).font(.caption).foregroundStyle(.secondary)
-                    if companionEnabled {
-                        Text(scopeLine).font(.caption2).foregroundStyle(.tertiary)
+                SpeechBubble {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(headline)
+                            .font(CompanionType.font(15, .black))
+                            .foregroundStyle(CompanionPalette.ink)
+                            .lineLimit(2)
+                        Text(subline)
+                            .font(CompanionType.font(11, .bold))
+                            .foregroundStyle(CompanionPalette.ink2)
+                            .lineLimit(2)
                     }
                 }
                 Spacer(minLength: 0)
@@ -40,7 +44,6 @@ struct BuddyView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.bar)
             .animation(.smooth, value: state)
             .onChange(of: pulse) { _, _ in
                 react = true
@@ -49,32 +52,27 @@ struct BuddyView: View {
         }
     }
 
-    private func title(_ state: BuddyState) -> LocalizedStringKey {
-        switch state {
-        case .approval: "Waiting for approval"
-        case .question: "Waiting for your answer"
-        case .longWait: "Been waiting a while…"
-        case .working:  "Working…"
-        case .stuck:    "Stuck"
-        case .done:     "All done"
-        case .idle:     "Idle"
-        case .sleeping: "Napping…"
+    private var headline: String {
+        switch voice {
+        case .listening: return String(localized: "Listening…")
+        case .speaking: return String(localized: "Speaking…")
+        case .thinking: return String(localized: "Thinking…")
+        case .none: break
         }
+        if groups.isEmpty { return String(localized: "Napping — no sessions") }
+        return CompanionCopy.moodLine(summary)
     }
 
-    /// "Buddy: all sessions" when nothing is scoped, else "Buddy: N selected".
-    private var scopeLine: LocalizedStringKey {
-        buddyScopeCount == 0 ? "Buddy: all sessions" : "Buddy: \(buddyScopeCount) selected"
-    }
-
-    private var subtitle: String {
-        if groups.isEmpty { return String(localized: "No active sessions") }
-        let sessions = groups.needsResponse + groups.working + groups.done
-        let summary = TaskPresentationSummary(sessions: sessions)
+    private var subline: String {
         var parts: [String] = []
-        for state in [TaskPresentationState.error, .requiresInput, .thinking, .completeUnread, .idle] {
-            let count = summary.count(for: state)
-            if count > 0 { parts.append("\(count) \(state.label.lowercased())") }
+        let rest = CompanionCopy.restLine(summary)
+        if !rest.isEmpty { parts.append(rest) }
+        if !companionEnabled {
+            parts.append(String(localized: "Voice companion off"))
+        } else if buddyScopeCount > 0 {
+            parts.append(String(localized: "Buddy: \(buddyScopeCount) selected"))
+        } else {
+            parts.append(String(localized: "Tap me to talk"))
         }
         return parts.joined(separator: " · ")
     }

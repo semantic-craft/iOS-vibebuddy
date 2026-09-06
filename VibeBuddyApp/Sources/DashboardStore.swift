@@ -175,7 +175,7 @@ final class DashboardStore: ObservableObject {
     /// Play the pairing-success cue. Called once when a fresh pairing is saved
     /// (a QR scan or manual connect), not on automatic reconnects.
     func confirmPairing() {
-        guard SoundPrefs.categories.isEnabled(.pairSuccess) else { return }
+        guard SoundPrefs.categories.isEnabled(NotificationSound.pairSuccess) else { return }
         notifier.confirmPairing()
     }
 
@@ -258,19 +258,19 @@ final class DashboardStore: ObservableObject {
         let demo = Self.demoSessions()
         buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: demo)
         install(demo, serverTime: Date())
-        postDemoBanners(demo)
+        Task { await postDemoBanners(demo) }
         let pendingAcknowledgements = pendingAcknowledgementIDs
         pendingAcknowledgementIDs.removeAll()
         for sessionId in pendingAcknowledgements { acknowledge(sessionId) }
     }
 
     /// Sample approval / question banners carry the same actions a live cue does.
-    private func postDemoBanners(_ sessions: [AgentSession]) {
+    private func postDemoBanners(_ sessions: [AgentSession]) async {
         for session in sessions {
             if session.pendingApproval != nil {
-                notifier.notify(SoundAlert(session: session, sound: .needsApproval))
+                _ = await notifier.notify(SoundAlert(session: session, sound: .needsApproval))
             } else if session.waitKind == .question {
-                notifier.notify(SoundAlert(session: session, sound: .needsAnswer))
+                _ = await notifier.notify(SoundAlert(session: session, sound: .needsAnswer))
             }
         }
     }
@@ -522,11 +522,15 @@ final class DashboardStore: ObservableObject {
             now: Date(),
             appActive: UIApplication.shared.applicationState == .active,
             quietMode: SoundPrefs.effectiveQuiet())))
+        var rang = false
         for alert in alerts {
-            notifier.notify(alert)
-            if alert.delivery.interrupts { Haptics.play(for: alert.sound) }   // a tasteful tap to go with the cue
+            // A cue a push already delivered is not posted again (ADR-0012), and
+            // then it earns no tap and no buddy reaction either.
+            guard await notifier.notify(alert), alert.delivery.interrupts else { continue }
+            Haptics.play(for: alert.sound)   // a tasteful tap to go with the cue
+            rang = true
         }
-        if alerts.contains(where: \.delivery.interrupts) { cuePulse += 1 }   // let the buddy react
+        if rang { cuePulse += 1 }   // let the buddy react
         // Answered on the Mac, or gone entirely: the banner it left on the phone
         // and on the wrist is describing something nobody is blocked on.
         notifications.record(alerts)

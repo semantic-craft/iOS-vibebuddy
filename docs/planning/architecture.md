@@ -134,6 +134,7 @@ On every event the daemon also refreshes derived metadata via **TranscriptReader
 | `GET /health` | none | liveness probe for the connection screen |
 | `GET /snapshot` | bearer token | full `Snapshot` JSON for explicit REST callers; not used by the current iOS reconnect path |
 | `GET /ws` | bearer token | WebSocket stream; current `Snapshot` immediately after upgrade, then subsequent `ServerEvent` frames |
+| `POST /notified` | bearer token | the phone's receipt for cues it posted itself (`NotifiedPayload`); the Mac's push for those stands down (**ADR-0012**) |
 
 **Hooks → daemon (bearer token; query token allowed per ADR-0009):**
 
@@ -157,6 +158,7 @@ The forwarder reads `VIBEBUDDY_TOKEN` or the token file selected by `VIBEBUDDY_T
 5. **Source-agnostic sessions.** `agent: AgentKind` on every session; Claude Code and Codex are adapters normalizing their payloads into one `AgentSession`. Codex is additive.
 6. **Server library.** The current server is implemented directly with **Hummingbird 2** and HummingbirdWebSocket. There is no `NWListener` backend or `Server` protocol layer in the current implementation.
 7. **Transport is config, not code.** `host:port` + token are data (delivered by QR), so LAN→Tailscale is a value swap.
+8. **One banner per cue, decided by the phone (ADR-0012).** The phone's local notification and the Mac's APNs push share one identifier, but iOS keeps them as two banners. The phone reports what it posted (`POST /notified`); the Mac holds a push for up to 3 s while a `/ws` subscriber exists and drops it on that receipt, otherwise sends as before. In the other order the phone declines a waiting cue whose push is already in Notification Center. Both rules fail toward "push": nothing can remove the only alert. Measured on device: iOS tears the socket down about 2 s after the app leaves the foreground, and a backgrounded app can reconnect on its own tens of seconds later — the source of the original duplicate.
 
 ## Testing Seams (for TDD / to-spec)
 

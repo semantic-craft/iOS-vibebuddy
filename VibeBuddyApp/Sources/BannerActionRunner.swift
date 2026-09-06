@@ -36,6 +36,8 @@ enum BannerActionRunner {
             guard !reply.isEmpty else { return .openSession(sessionId) }
             result = await client.answerResult(pairing, sessionId: sessionId, answer: reply)
         }
-        return result.shouldOpenSession ? .openSession(sessionId) : .ignored
+        // A failed background request must bring the user to the session,
+        // where the existing connection state makes a retry possible.
+        return result == .accepted ? .ignored : .openSession(sessionId)
     }
 }
