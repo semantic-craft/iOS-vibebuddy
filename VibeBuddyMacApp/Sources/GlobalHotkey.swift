@@ -3,6 +3,7 @@ import AppKit
 import VibeBuddyMacCore
 
 extension Notification.Name {
+    static let openAppSettings = Notification.Name("vibebuddy.openAppSettings")
     static let openDashboard = Notification.Name("vibebuddy.openDashboard")
     static let toggleGlance = Notification.Name("vibebuddy.toggleGlance")
 }

@@ -9,25 +9,66 @@ import VibeBuddyMacCore
 struct SettingsView: View {
     @ObservedObject var model: MenuBarModel
 
-    var body: some View {
-        TabView {
-            GeneralSettings(model: model)
-                .tabItem { Label("General", systemImage: "gearshape") }
-            SetupSettings(model: model)
-                .tabItem { Label("Setup", systemImage: "checklist") }
-            GlanceSettings(model: model)
-                .tabItem { Label("Glance", systemImage: "menubar.rectangle") }
-            DeviceSettings(model: model)
-                .tabItem { Label("Devices", systemImage: "iphone.gen3") }
-            NotificationSettings(model: model)
-                .tabItem { Label("Notifications", systemImage: "bell") }
-            AccountUsageSettings(model: model)
-                .tabItem { Label("Usage", systemImage: "gauge.with.dots.needle.50percent") }
-            VoiceSettingsTab(model: model)
-                .tabItem { Label("Voice", systemImage: "waveform") }
+    @StateObject private var hookSetup = HookSetup()
+    @State private var selectedTab: SettingsTab = .general
+
+    private enum SettingsTab: String, CaseIterable {
+        case general = "General", setup = "Setup", glance = "Glance", devices = "Devices"
+        case notifications = "Notifications", usage = "Usage", voice = "Voice"
+
+        var symbol: String {
+            switch self {
+            case .general: "gearshape"
+            case .setup: "checklist"
+            case .glance: "menubar.rectangle"
+            case .devices: "iphone.gen3"
+            case .notifications: "bell"
+            case .usage: "gauge.with.dots.needle.50percent"
+            case .voice: "waveform"
+            }
         }
-        .frame(width: 500, height: 400)
-        .onDisappear { AppActivationPolicy.leave() }
+    }
+
+    var body: some View {
+        // Render navigation in the content, independent of SwiftUI Settings-scene
+        // toolbar adaptation (which collapses all tabs in an AppKit-hosted window).
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                ForEach(SettingsTab.allCases, id: \.self) { tab in
+                    Button { selectedTab = tab } label: {
+                        VStack(spacing: 5) {
+                            Image(systemName: tab.symbol).font(.system(size: 20))
+                            Text(LocalizedStringKey(tab.rawValue)).font(.system(size: 10))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .contentShape(Rectangle())
+                        .foregroundStyle(selectedTab == tab ? Color.accentColor : Color.secondary)
+                        .background(selectedTab == tab ? Color.accentColor.opacity(0.08) : .clear,
+                                    in: RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(LocalizedStringKey(tab.rawValue))
+                    .accessibilityAddTraits(selectedTab == tab ? .isSelected : [])
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            Divider()
+            Group {
+                switch selectedTab {
+                case .general: GeneralSettings(model: model)
+                case .setup: SetupSettings(model: model, setup: hookSetup)
+                case .glance: GlanceSettings(model: model)
+                case .devices: DeviceSettings(model: model)
+                case .notifications: NotificationSettings(model: model)
+                case .usage: AccountUsageSettings(model: model)
+                case .voice: VoiceSettingsTab(model: model)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(width: 500, height: 480)
     }
 }
 
@@ -37,7 +78,7 @@ struct SettingsView: View {
 /// configs — so it's only ever an explicit button click here.
 private struct SetupSettings: View {
     @ObservedObject var model: MenuBarModel
-    @StateObject private var setup = HookSetup()
+    @ObservedObject var setup: HookSetup
 
     var body: some View {
         Form {
@@ -600,14 +641,16 @@ private struct ProviderSection: View {
         Section {
             // API key
             field(caption: "API Key — paste your own (kept in the Keychain)",
-                  link: "Get an API key", icon: "key", url: provider.apiKeyURL) {
+                  link: "Get an API key", icon: "key", url: provider.apiKeyURL,
+                  pasteInto: $apiKey, id: "voiceAPIKey") {
                 SecureField("Paste your \(provider.display) key", text: $apiKey)
                     .textFieldStyle(.roundedBorder)
                     .autocorrectionDisabled()
             }
             // Model ID — clearly editable
             field(caption: "Model ID — editable, type any model",
-                  link: "Browse available models", icon: "arrow.up.right.square", url: provider.modelsURL) {
+                  link: "Browse available models", icon: "arrow.up.right.square", url: provider.modelsURL,
+                  pasteInto: $model, id: "voiceModelID") {
                 TextField(provider.defaultModel, text: $model)
                     .textFieldStyle(.roundedBorder)
                     .font(.body.monospaced())
@@ -615,7 +658,8 @@ private struct ProviderSection: View {
             }
             // Voice ID — clearly editable
             field(caption: "Voice ID — editable (blank = auto by language)",
-                  link: "Browse available voices", icon: "arrow.up.right.square", url: provider.voicesURL) {
+                  link: "Browse available voices", icon: "arrow.up.right.square", url: provider.voicesURL,
+                  pasteInto: $voice, id: "voiceID") {
                 TextField(exampleVoice, text: $voice)
                     .textFieldStyle(.roundedBorder)
                     .font(.body.monospaced())
@@ -623,7 +667,8 @@ private struct ProviderSection: View {
             }
             if provider == .qwen {
                 field(caption: "Workspace ID — optional; uses the workspace endpoint when set",
-                      link: "Find your workspace ID", icon: "arrow.up.right.square", url: VoiceProvider.qwenWorkspaceIDURL) {
+                      link: "Find your workspace ID", icon: "arrow.up.right.square", url: VoiceProvider.qwenWorkspaceIDURL,
+                      pasteInto: $workspaceID, id: "qwenWorkspaceID") {
                     TextField("e.g. llm-xxxxxxxx", text: $workspaceID)
                         .textFieldStyle(.roundedBorder)
                         .font(.body.monospaced())
@@ -648,10 +693,30 @@ private struct ProviderSection: View {
     /// provider's list of valid values.
     @ViewBuilder
     private func field<F: View>(caption: LocalizedStringKey, link: LocalizedStringKey, icon: String, url: URL,
+                                pasteInto value: Binding<String>, id: String,
                                 @ViewBuilder _ input: () -> F) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(caption).font(.caption).foregroundStyle(.secondary)
-            input()
+            HStack(spacing: 8) {
+                input()
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier(id)
+                Button {
+                    guard let pasted = NSPasteboard.general.string(forType: .string) else { return }
+                    let trimmed = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else { return }
+                    value.wrappedValue = trimmed
+                } label: {
+                    Label("Paste", systemImage: "doc.on.clipboard")
+                        .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+                .fixedSize()
+                .help("Paste")
+                .accessibilityIdentifier("paste-\(id)")
+            }
             Link(destination: url) {
                 Label(link, systemImage: icon).font(.caption)
             }
@@ -749,6 +814,13 @@ struct HotkeyRecorderView: View {
             }
         }
         .onDisappear { stop() }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in
+            guard let window = notification.object as? NSWindow,
+                  window.identifier == NSUserInterfaceItemIdentifier("com.vibebuddy.settings") else { return }
+            // AppWindows retains the hosting controller after close, so view
+            // disappearance alone cannot own the local keyboard monitor cleanup.
+            stop()
+        }
     }
 
     private func start() {
