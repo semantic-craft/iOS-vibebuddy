@@ -53,5 +53,50 @@
     "name": "settingAfterMultiline",
     "config": "notes = \"\"\"\n[features]\nhooks = true\n\"\"\"\n[features]\nhooks = false\n",
     "disabled": true
+  },
+  {
+    "name": "spacedTablefalse",
+    "config": "[features ]\nhooks = false\n",
+    "disabled": true
+  },
+  {
+    "name": "spacedTabletrue",
+    "config": "[features ]\nhooks = true\n",
+    "disabled": false
+  },
+  {
+    "name": "quotedKeysfalse",
+    "config": "[ \"features\" ]\n'hooks' = false\n",
+    "disabled": true
+  },
+  {
+    "name": "quotedKeystrue",
+    "config": "[ \"features\" ]\n'hooks' = true\n",
+    "disabled": false
+  },
+  {
+    "name": "dottedKeyfalse",
+    "config": "features.hooks = false\n",
+    "disabled": true
+  },
+  {
+    "name": "dottedKeytrue",
+    "config": "features.hooks = true\n",
+    "disabled": false
+  },
+  {
+    "name": "quotedDottedParts",
+    "config": "\"features\" . 'codex_hooks' = false\n",
+    "disabled": true
+  },
+  {
+    "name": "literalDottedKey",
+    "config": "\"features.hooks\" = false\n",
+    "disabled": false
+  },
+  {
+    "name": "profileDottedKey",
+    "config": "[profiles.test]\nfeatures.hooks = false\n",
+    "disabled": false
   }
 ]

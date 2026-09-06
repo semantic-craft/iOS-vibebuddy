@@ -12,6 +12,7 @@ to Codex Computer Use or another notifier. Lifecycle progress belongs in
 """
 import json
 import os
+import re
 import shlex
 import shutil
 import sys
@@ -206,6 +207,20 @@ def write(data):
             os.unlink(temporary)
 
 
+def feature_key_path(text):
+    # Bare and simply quoted path components; a quoted literal containing a dot
+    # is not the equivalent dotted path and deliberately does not match.
+    result = []
+    for part in text.split("."):
+        token = part.strip()
+        if token[:1] in {"'", '"'} and len(token) >= 2 and token[-1] == token[0]:
+            token = token[1:-1]
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", token):
+            return None
+        result.append(token)
+    return result
+
+
 def hooks_feature_disabled():
     # Only the user-level file: our hooks live there. Profile and project
     # overrides are outside this diagnostic's scope. A minimal scalar scanner,
@@ -218,7 +233,7 @@ def hooks_feature_disabled():
             text = data.decode("utf-8")
     except (OSError, UnicodeError):
         return False
-    in_features = False
+    table = []
     multiline = None
     values = {}
     for raw in text.splitlines():
@@ -234,13 +249,16 @@ def hooks_feature_disabled():
                 multiline = mark
             continue
         if line.startswith("["):
-            in_features = line == "[features]"
+            table = feature_key_path(line[1:-1]) if line.endswith("]") else None
             continue
-        if not in_features or "=" not in line:
+        if table is None or "=" not in line:
             continue
         key, value = (part.strip() for part in line.split("=", 1))
-        if key in {"hooks", "codex_hooks"} and value in {"true", "false"}:
-            values[key] = value == "true"
+        path = feature_key_path(key)
+        if path is not None:
+            path = table + path
+            if path in [["features", "hooks"], ["features", "codex_hooks"]] and value in {"true", "false"}:
+                values[path[-1]] = value == "true"
     # The canonical key wins over its deprecated alias.
     return values.get("hooks", values.get("codex_hooks")) is False
 

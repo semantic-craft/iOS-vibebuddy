@@ -55,7 +55,7 @@ public enum ObservationHealthDetector {
         else { return nil }
         // Same deliberately narrow scalar scan as install-codex-hooks.py.
         // Skip multiline string bodies: example keys are not settings.
-        var inFeatures = false
+        var table: [String]? = []
         var multiline: String?
         var values: [String: Bool] = [:]
         for raw in text.split(separator: "\n") {
@@ -74,19 +74,36 @@ public enum ObservationHealthDetector {
                 continue
             }
             if line.hasPrefix("[") {
-                inFeatures = line == "[features]"
+                table = line.hasSuffix("]") ? featureKeyPath(String(line.dropFirst().dropLast())) : nil
                 continue
             }
             let parts = line.split(separator: "=", maxSplits: 1)
-            guard inFeatures, parts.count == 2 else { continue }
-            let key = parts[0].trimmingCharacters(in: .whitespaces)
+            guard let table, parts.count == 2, let key = featureKeyPath(String(parts[0])) else { continue }
+            let path = table + key
             let value = parts[1].trimmingCharacters(in: .whitespaces)
-            if ["hooks", "codex_hooks"].contains(key), ["true", "false"].contains(value) {
-                values[key] = value == "true"
+            if [["features", "hooks"], ["features", "codex_hooks"]].contains(path),
+               ["true", "false"].contains(value), let name = path.last {
+                values[name] = value == "true"
             }
         }
         // The canonical key wins over the deprecated alias.
         return (values["hooks"] ?? values["codex_hooks"]) == false ? .hooksFeatureDisabled : nil
+    }
+
+    /// Bare or simply quoted TOML components. A quoted key containing a dot
+    /// is a literal, not an equivalent dotted path, and does not match here.
+    private static func featureKeyPath(_ text: String) -> [String]? {
+        var path: [String] = []
+        for part in text.split(separator: ".", omittingEmptySubsequences: false) {
+            var token = part.trimmingCharacters(in: .whitespaces)
+            if let quote = token.first, quote == "\"" || quote == "'",
+               token.count >= 2, token.last == quote {
+                token = String(token.dropFirst().dropLast())
+            }
+            guard token.range(of: "^[A-Za-z0-9_-]+$", options: .regularExpression) != nil else { return nil }
+            path.append(token)
+        }
+        return path
     }
 
     private static let requiredHookCoverage = Set(ObservationEventCoverage.allCases)
