@@ -365,18 +365,22 @@ public final class GrokUsageProvider: AccountUsageProviding, Sendable {
                 )
             } catch {
                 try Task.checkCancellation()
-                guard Self.allowsLogFallback(after: error) else { throw error }
-                if let snapshot = GrokUsageResponseDecoder.decodeNewestLogRecord(
+                // Log and proxy are independent: incompatibleFormat must not
+                // read a stale log, but still may try the billing proxy.
+                if Self.allowsLogFallback(after: error),
+                   let snapshot = GrokUsageResponseDecoder.decodeNewestLogRecord(
                     in: logURL,
                     now: Date()
-                ) {
+                   ) {
                     return snapshot
                 }
-                if proxyEnabled, let snapshot = await Self.fetchProxyFallback(
+                if Self.allowsProxyFallback(after: error),
+                   proxyEnabled,
+                   let snapshot = await Self.fetchProxyFallback(
                     authFileURL: authFileURL,
                     endpoint: proxyEndpoint,
                     transport: proxyTransport
-                ) {
+                   ) {
                     return snapshot
                 }
                 throw error
@@ -386,8 +390,9 @@ public final class GrokUsageProvider: AccountUsageProviding, Sendable {
         }
     }
 
-    /// Best-effort proxy: never upgrades a hard auth/format failure from ACP, and
-    /// never invents a reading when the bearer is missing.
+    /// Best-effort proxy: never upgrades a hard auth failure from ACP, and
+    /// never invents a reading when the bearer is missing. Format failures
+    /// (no usable percent) are eligible — that is the billing-proxy case.
     static func fetchProxyFallback(
         authFileURL: URL,
         endpoint: URL,
@@ -419,6 +424,23 @@ public final class GrokUsageProvider: AccountUsageProviding, Sendable {
             switch usage {
             case .providerUnavailable, .timedOut, .offline, .unknown: return true
             case .notLoggedIn, .rateLimited, .incompatibleFormat: return false
+            }
+        default: return true
+        }
+    }
+
+    /// Proxy covers the same unreachable/timeout cases as the log, plus
+    /// `.incompatibleFormat` (ACP answered but with no usable percent). Hard
+    /// auth, rate limits, and cancellation stay terminal.
+    static func allowsProxyFallback(after error: any Error) -> Bool {
+        switch error {
+        case is CancellationError: return false
+        case let usage as AccountUsageError:
+            switch usage {
+            case .providerUnavailable, .timedOut, .offline, .unknown, .incompatibleFormat:
+                return true
+            case .notLoggedIn, .rateLimited:
+                return false
             }
         default: return true
         }
