@@ -31,7 +31,7 @@
 - 启动输入：`VIBEBUDDY_DEMO=1`；英文 `-AppleLanguages '(en)' -AppleLocale en_US`；中文 `-AppleLanguages '(zh-Hans)' -AppleLocale zh_CN`。Watch 概览用 `VIBEBUDDY_WATCH_SCENARIO=normal`、`VIBEBUDDY_WATCH_PAGE=home`，额度用 `quota`。交付图使用默认文字大小。
 - iPhone 与 Watch 使用隔离截图模拟器并运行本轮最终移动构建。iPhone 状态栏时间固定为 9:41；Watch 模拟器不支持该覆盖，保留系统显示时间。
 - 原生采集：`xcrun simctl io <device> screenshot --type=jpeg <path>`；Mac `screencapture -x -o -l <windowID> -t jpg <path>`，1280×800 点窗口得到 2560×1600 像素图片。没有后期缩放、叠字或合成。
-- 本轮移动构建产物和日志位于隔离发布工作树 `.scratch/worktrees/appstore-1.3/build-screenshots/` 与 `build-screenshots.log`；Mac 既有采集记录保留于 `.scratch/store-shots-1.3/`。
+- 本轮截图构建成功后，按用户释放磁盘空间的要求清理了专用 `build-screenshots/` 缓存及日志，保留上述可复现命令、最终图片与哈希；正式送审 archive / IPA 保留。Mac 既有采集记录位于 `.scratch/store-shots-1.3/`。
 - `manifest.json` 记录每张图片的尺寸、色彩模式、字节数和 SHA-256。
 
 ## 预览
