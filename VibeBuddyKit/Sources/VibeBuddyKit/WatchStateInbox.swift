@@ -35,7 +35,8 @@ public struct WatchStateInbox: Equatable, Sendable {
         guard let data,
               let incoming = try? JSONDecoder().decode(WatchDashboardState.self, from: data)
         else { return false }
-        guard incoming.relayRevision > 0 else { return false }
+        // Phone Demo data is never an authority for the live Watch or its retry queue.
+        guard !incoming.isDemo, incoming.relayRevision > 0 else { return false }
         if let current = state {
             guard incoming.relayRevision >= current.relayRevision else { return false }
             if incoming.relayRevision == current.relayRevision {

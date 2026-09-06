@@ -9,6 +9,20 @@ struct WatchRecoveryTests {
                             relay: .live, observedAt: Date(timeIntervalSince1970: observed))
     }
 
+    @Test("phone Demo cannot replace live state or advance its authority revision")
+    func demoIsolation() {
+        let live = state("a", epoch: "p1", revision: 10, observed: 2000)
+        var inbox = WatchStateInbox(state: live)
+        var demo = live
+        demo.isDemo = true; demo.relayRevision = 100
+        let acceptedDemo = inbox.accept(WatchStateInbox.encode(demo))
+        #expect(!acceptedDemo)
+        #expect(inbox.state == live)
+        var next = live; next.relayRevision = 11
+        let acceptedLive = inbox.accept(WatchStateInbox.encode(next))
+        #expect(acceptedLive)
+    }
+
     @Test("Phone order survives restart and unrelated Mac clocks")
     func sourceOrder() throws {
         var inbox = WatchStateInbox()

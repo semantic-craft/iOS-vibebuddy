@@ -299,7 +299,11 @@ public struct SessionReducer: Sendable {
     /// Mark a known session as blocked on a remote approval.
     public mutating func setPendingApproval(sessionID: String, _ approval: PendingApproval, at: Date) {
         guard var s = sessions[sessionID] else { return }
-        if s.status != .needsResponse { s.statusSince = at }
+        let replacesWait = s.pendingQuestion != nil
+            || s.pendingApproval.map { $0.id != approval.id } == true
+        // Late metadata for the same request keeps its original boundary.
+        // A different concrete request starts its own five-minute wait.
+        if s.status != .needsResponse || replacesWait { s.statusSince = at }
         s.status = .needsResponse
         s.waitKind = .permission
         s.pendingApproval = approval
@@ -327,7 +331,9 @@ public struct SessionReducer: Sendable {
     /// its own contract (a blocking hook, an app-server request).
     public mutating func setPendingQuestion(sessionID: String, _ question: PendingQuestion, at: Date) {
         guard var s = sessions[sessionID] else { return }
-        if s.status != .needsResponse { s.statusSince = at }
+        let replacesWait = s.pendingApproval != nil
+            || s.pendingQuestion.map { $0.id != question.id } == true
+        if s.status != .needsResponse || replacesWait { s.statusSince = at }
         s.status = .needsResponse
         s.waitKind = .question
         s.pendingQuestion = question

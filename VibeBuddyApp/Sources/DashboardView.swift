@@ -116,6 +116,7 @@ struct DashboardView: View {
             if let session = dashboard.allSessions.first(where: { $0.id == target.id }) {
                 SessionDetailSheet(session: session, onReply: { replyTo = session.id; detailId = nil })
                     .environmentObject(dashboard)
+                    .onAppear { dashboard.acknowledge(session.id) }
             }
         }
         .overlay(alignment: .bottom) {

@@ -352,7 +352,7 @@ private struct NotificationSettings: View {
     @AppStorage("quietMode") private var quiet = false
     @AppStorage("sessionBudgetUSD") private var budgetUSD = 0.0
     @State private var quietHours = NotificationSettings.loadQuietHours()
-    @State private var categories = NotificationCategoryPrefs.load()
+    @State private var categories = NotificationCategoryPrefs.loadMac()
 
     var body: some View {
         Form {
@@ -453,6 +453,25 @@ private struct NotificationSettings: View {
             }
 
             Section {
+                LabeledContent("Missed this week") {
+                    Text("\(model.missedThisWeek.count)")
+                        .monospacedDigit()
+                }
+                ForEach(model.missedThisWeek.agentRows, id: \.agent) { row in
+                    LabeledContent(row.agent.displayName) {
+                        Text("\(row.count)")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } header: {
+                Text("Reliability")
+            } footer: {
+                Text("A needs-response wait with no acknowledgement, decision, answer, or jump on any device for five minutes. Muted sessions count. This week's number is the 1.2 ship gate.")
+                    .font(.caption)
+            }
+
+            Section {
                 Toggle("Show notifications", isOn: $notify)
                 Toggle("Play sound", isOn: $sound).disabled(!notify)
             } footer: {
@@ -460,22 +479,22 @@ private struct NotificationSettings: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {
-                ForEach(NotificationCategoryPrefs.displayOrder, id: \.rawValue) { sound in
-                    Toggle(sound.categoryTitle, isOn: Binding(
-                        get: { categories.isEnabled(sound) },
-                        set: { categories.set(sound, enabled: $0) }))
+                ForEach(NotificationCategoryPrefs.displayOrder, id: \.rawValue) { category in
+                    Toggle(category.categoryTitle, isOn: Binding(
+                        get: { categories.isEnabled(category) },
+                        set: { categories.set(category, enabled: $0) }))
                 }
             } header: {
                 Text("Notify me about")
             } footer: {
-                Text("A category that is off is never shown here, whether or not sound is on. Quiet mode still narrows what is left to approvals.")
+                Text("Disabled categories never notify. Quiet mode and Quiet hours silence session alerts except silent approvals and questions. Enabled quota alerts are unaffected.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             .disabled(!notify)
             Section {
-                Toggle("Quiet mode (approvals only)", isOn: $quiet).disabled(!notify)
+                Toggle("Quiet mode (quota unaffected)", isOn: $quiet).disabled(!notify)
             } footer: {
-                Text("For night or focus time: only security approvals make a sound. Everything else stays silent.")
+                Text("Quiet mode keeps approvals and questions silent and suppresses other session alerts. Enabled quota alerts still follow the Sound setting.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {

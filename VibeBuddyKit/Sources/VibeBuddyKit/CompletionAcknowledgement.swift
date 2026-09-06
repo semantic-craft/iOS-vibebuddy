@@ -98,3 +98,32 @@ public struct WatchCompletionQueue: Codable, Equatable, Sendable {
         }
     }
 }
+
+/// Viewing a wait is distinct from approving it or reading a completion.
+/// The source and wait boundary prevent a delayed read from cancelling a newer wait.
+public struct WaitReadRequest: Codable, Equatable, Sendable {
+    public let sourceID: String
+    public let sessionID: String
+    public let statusSince: Date
+    public let waitKind: WaitKind
+    public let pendingID: String?
+    public init(sourceID: String, sessionID: String, statusSince: Date,
+                waitKind: WaitKind, pendingID: String? = nil) {
+        self.sourceID = sourceID; self.sessionID = sessionID; self.statusSince = statusSince
+        self.waitKind = waitKind; self.pendingID = pendingID
+    }
+    public init(sourceID: String, session: AgentSession) {
+        self.init(sourceID: sourceID, sessionID: session.id, statusSince: session.statusSince,
+                  waitKind: session.waitKind ?? (session.pendingApproval != nil ? .permission : .question),
+                  pendingID: session.pendingApproval?.id ?? session.pendingQuestion?.id)
+    }
+}
+
+public struct WatchWaitReadRequest: Codable, Sendable {
+    public static let messageKey = "vibebuddy.watch.waitRead"
+    public let pairingEpoch: String
+    public let read: WaitReadRequest
+    public init(pairingEpoch: String, read: WaitReadRequest) {
+        self.pairingEpoch = pairingEpoch; self.read = read
+    }
+}

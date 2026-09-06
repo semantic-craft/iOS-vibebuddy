@@ -4,6 +4,7 @@ import VibeBuddyKit
 
 @MainActor
 private final class FakeWatchTransport: WatchStateTransport {
+    var onWaitReadRequest: ((WatchWaitReadRequest) async -> Bool)?
     var onCompletionRequest: ((WatchCompletionRequest) async -> WatchCompletionResult)?
     var isAvailable = true
     var onReady: (() -> Void)?

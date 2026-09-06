@@ -82,12 +82,26 @@ final class WatchStateStore: NSObject, ObservableObject {
 
     /// Called only by the exact detail body after it has appeared.
     func viewed(_ link: WatchTaskLink) {
+        if !isDemo, let task = link.task(in: state), task.presentation == .requiresInput,
+           let session, isPhoneReachable {
+            let request = WatchWaitReadRequest(pairingEpoch: link.pairingEpoch,
+                read: WaitReadRequest(sourceID: link.sourceID, sessionID: link.sessionID,
+                                      statusSince: task.statusSince, waitKind: task.waitKind ?? .question,
+                                      pendingID: task.pendingID))
+            if let payload = try? JSONEncoder().encode(request) {
+                // Best effort only: no approval and no claim that an offline read synced.
+                session.sendMessage([WatchWaitReadRequest.messageKey: payload],
+                                    replyHandler: { @Sendable _ in }, errorHandler: { @Sendable _ in })
+            }
+        }
         completionQueue.viewed(link, state: state)
         persistCompletions()
         flushCompletions()
     }
 
     private func persistCompletions() {
+        // Demo interactions must never replace the live cache or pending reads.
+        guard !isDemo else { return }
         retryAfter = retryAfter.filter { completionQueue.links.contains($0.key) }
         retryCount = retryCount.filter { completionQueue.links.contains($0.key) }
         if let state, WatchComplicationStore.save(state, queue: completionQueue) {

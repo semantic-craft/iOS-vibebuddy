@@ -84,6 +84,10 @@ final class DashboardStore: ObservableObject {
         // Report the Live Activity's push token to the Mac so it can update the
         // activity in the background (dynamic-island/02).
         liveActivity.onPushToken = { [weak self] hex in self?.uploadActivityToken(hex) }
+        watchRelay?.onWaitReadRequest = { [weak self] request in
+            guard let self else { return false }
+            return await self.acknowledgeWaitFromWatch(request)
+        }
         watchRelay?.onCompletionRequest = { [weak self] request in
             guard let self else { return WatchCompletionResult(attemptID: request.attemptID, outcome: .failed) }
             return await self.acknowledgeFromWatch(request)
@@ -127,6 +131,14 @@ final class DashboardStore: ObservableObject {
             watchApprovals.commit(request.attemptId)
             return result(.accepted)
         }
+    }
+
+    func acknowledgeWaitFromWatch(_ message: WatchWaitReadRequest) async -> Bool {
+        guard message.read.sourceID == sourceID, message.pairingEpoch == pairingEpoch,
+              pairingEpoch == ConnectionStore.pairingEpoch, state == .connected, let pairing else { return false }
+        let accepted = await decisionClient.acknowledgeWait(pairing, request: message.read)
+        return accepted && self.pairing == pairing && message.read.sourceID == sourceID
+            && message.pairingEpoch == self.pairingEpoch && pairingEpoch == ConnectionStore.pairingEpoch
     }
 
     func acknowledgeFromWatch(_ message: WatchCompletionRequest) async -> WatchCompletionResult {
@@ -208,7 +220,7 @@ final class DashboardStore: ObservableObject {
     /// Play the pairing-success cue. Called once when a fresh pairing is saved
     /// (a QR scan or manual connect), not on automatic reconnects.
     func confirmPairing() {
-        guard SoundPrefs.categories.isEnabled(.pairSuccess) else { return }
+        guard SoundPrefs.categories.isEnabled(NotificationSound.pairSuccess) else { return }
         notifier.confirmPairing()
     }
 
@@ -294,7 +306,18 @@ final class DashboardStore: ObservableObject {
         let demo = Self.demoSessions()
         buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: demo)
         install(demo, serverTime: Date())
+        Task { await postDemoBanners(demo) }
+    }
 
+    /// Sample approval / question banners carry the same actions a live cue does.
+    private func postDemoBanners(_ sessions: [AgentSession]) async {
+        for session in sessions {
+            if session.pendingApproval != nil {
+                _ = await notifier.notify(SoundAlert(session: session, sound: .needsApproval))
+            } else if session.waitKind == .question {
+                _ = await notifier.notify(SoundAlert(session: session, sound: .needsAnswer))
+            }
+        }
     }
 
     func decide(_ approvalId: String, _ decision: ApprovalDecision) {
@@ -477,8 +500,13 @@ final class DashboardStore: ObservableObject {
             return
         }
         guard let pairing, let sourceID,
-              let session = allSessions.first(where: { $0.id == sessionId }),
-              session.hasUnreadCompletion, let completionID = session.completionID else { return }
+              let session = allSessions.first(where: { $0.id == sessionId }) else { return }
+        if session.status == .needsResponse {
+            let read = WaitReadRequest(sourceID: sourceID, session: session)
+            Task { _ = await decisionClient.acknowledgeWait(pairing, request: read) }
+            return
+        }
+        guard session.hasUnreadCompletion, let completionID = session.completionID else { return }
         let request = CompletionReadRequest(sourceID: sourceID, sessionID: sessionId, completionID: completionID)
         Task { _ = await decisionClient.acknowledge(pairing, request: request) }
 

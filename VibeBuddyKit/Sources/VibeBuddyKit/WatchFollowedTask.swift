@@ -7,6 +7,8 @@ public struct WatchFollowedTask: Codable, Equatable, Sendable, Identifiable {
     public var title: String
     public var summary: String?
     public var presentation: TaskPresentationState
+    public var waitKind: WaitKind?
+    public var pendingID: String?
     public var statusSince: Date
     public var id: String { sessionID }
 
@@ -29,6 +31,9 @@ public struct WatchFollowedTask: Codable, Equatable, Sendable, Identifiable {
         presentation = session.status == .needsResponse ? .requiresInput :
             TaskPresentationState.project(status: session.status, waitKind: session.waitKind,
                 failed: session.failed == true, hasUnreadCompletion: session.hasUnreadCompletion)
+        waitKind = session.status == .needsResponse
+            ? (session.waitKind ?? (session.pendingApproval != nil ? .permission : .question)) : nil
+        pendingID = session.pendingApproval?.id ?? session.pendingQuestion?.id
         statusSince = session.statusSince
     }
 

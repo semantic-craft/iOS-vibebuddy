@@ -24,6 +24,9 @@ final class RecordingNotifier: AttentionNotifier, @unchecked Sendable {
     private let lock = NSLock()
     private var _posted: [String] = []
     private var _withdrawn: [String] = []
+    private let onWithdrawal: (@Sendable () -> Void)?
+
+    init(onWithdrawal: (@Sendable () -> Void)? = nil) { self.onWithdrawal = onWithdrawal }
 
     var posted: [String] { lock.withLock { _posted } }
     var withdrawn: [String] { lock.withLock { _withdrawn } }
@@ -33,7 +36,10 @@ final class RecordingNotifier: AttentionNotifier, @unchecked Sendable {
         lock.withLock { _posted.append(alert.notificationID) }
         return true
     }
-    func withdraw(_ identifiers: [String]) { lock.withLock { _withdrawn.append(contentsOf: identifiers) } }
+    func withdraw(_ identifiers: [String]) {
+        lock.withLock { _withdrawn.append(contentsOf: identifiers) }
+        onWithdrawal?()
+    }
     func confirmPairing() {}
 }
 

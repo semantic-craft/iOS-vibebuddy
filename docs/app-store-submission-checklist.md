@@ -13,6 +13,7 @@
 - [ ] B2. 🤖 **Mac 端发 production 推送**:运行守护进程时 `APNS_SANDBOX=0`(或 config `sandbox:false`),否则 production token 收不到推送。
 - [ ] B3. 🧑 在 Developer portal 注册 App ID `com.vibebuddy.app`、`com.vibebuddy.app.widget` 和 `com.vibebuddy.app.watchkitapp`(Watch app,`project.yml` 里的 `VibeBuddyWatch` target),勾 **Push Notifications**(用 Automatic 签名时 Xcode 会代办)。
 - [x] B4. 🤖 核 `VibeBuddyApp.entitlements`:Push ✓;**需要 App Group** `group.com.vibebuddy.app`——app 与 Widget(`VibeBuddyWidget.entitlements`)都声明了同一个 group,Widget 靠它读主 app 写入的共享状态。Watch app(`VibeBuddyWatch`)不在此列:它只走 WatchConnectivity,不声明任何 entitlements,不用 App Group。
+- [x] B4b. 🤖 **Time Sensitive Notifications** entitlement `com.apple.developer.usernotifications.time-sensitive`（Debug + Release entitlements）。审批 / 提问横幅用 `interruption-level: time-sensitive`（愿景 Q23）。🧑 在 Developer portal 给 App ID `com.vibebuddy.app` 勾 Time Sensitive Notifications，否则真机横幅仍是普通级别。
 - [x] B5. 🤖 版本号 `MARKETING_VERSION` 0.1 → **1.0**(首发),build = 3(`project.yml` 的 `CURRENT_PROJECT_VERSION`,三个 target 保持一致)。
 - [x] B6. 🤖 加 `ITSAppUsesNonExemptEncryption = NO`(只用标准 HTTPS),省得每次问 export compliance。
 - [x] B7. 图标:1024 marketing icon 已有 ✓(无需补)。

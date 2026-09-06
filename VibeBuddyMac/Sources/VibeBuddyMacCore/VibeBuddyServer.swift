@@ -264,6 +264,9 @@ public struct VibeBuddyServer: Sendable {
                                                                sound: soundFile,
                                                                sessionID: session.id, soundCategory: sound.rawValue,
                                                                localized: PushLocalization(copy),
+                                                               category: alert.actionCategory?.rawValue,
+                                                               timeSensitive: alert.isTimeSensitive && recipient.level == .bannerSound,
+                                                               approvalId: alert.actionCategory == .approval ? session.pendingApproval?.id : nil,
                                                                waitSince: session.statusSince, holdForPhone: hold)
                                 await deviceTokens.applySendResult(result, token: deviceToken)
                             }
@@ -452,6 +455,23 @@ public struct VibeBuddyServer: Sendable {
             return .ok
         }
 
+        // Missed-response counts for a week (Monday 06:00 local). `week` is
+        // `yyyy-MM-dd`; omit it for the week containing now. Snapshot is
+        // untouched — this is a separate ledger.
+        authed.get("missed") { request, _ -> Response in
+            let raw = request.uri.queryParameters["week"].map(String.init)
+            let now = Date()
+            guard let week = MissedLedger.parseWeek(raw, now: now) else {
+                throw HTTPError(.badRequest)
+            }
+            let data = try JSONEncoder().encode(await store.missedCounts(week: week, now: now))
+            return Response(
+                status: .ok,
+                headers: [.contentType: "application/json"],
+                body: .init(byteBuffer: ByteBuffer(bytes: data))
+            )
+        }
+
         // Explicit read acknowledgement. Merely receiving/rendering a snapshot
         // never clears unread state; a client calls this only after selection or open.
         authed.post("acknowledge") { request, _ -> Response in
@@ -463,6 +483,15 @@ public struct VibeBuddyServer: Sendable {
             let data = try JSONEncoder().encode(result)
             return Response(status: .ok, headers: [.contentType: "application/json"],
                             body: .init(byteBuffer: ByteBuffer(bytes: data)))
+        }
+
+        // A read is not a decision; keep this separate from exact completion reads.
+        authed.post("acknowledge-wait") { request, _ -> Response in
+            let buffer = try await request.body.collect(upTo: 4096)
+            guard let read = try? JSONDecoder().decode(WaitReadRequest.self, from: Data(buffer: buffer)),
+                  !read.sourceID.isEmpty, !read.sessionID.isEmpty else { throw HTTPError(.badRequest) }
+            let accepted = await store.acknowledgeWait(read)
+            return Response(status: accepted ? .ok : .conflict)
         }
 
         // Blocking approval intake — bearer-token gated (the approval hook reads

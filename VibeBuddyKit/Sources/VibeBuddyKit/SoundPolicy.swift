@@ -17,6 +17,26 @@ public struct SoundAlert: Equatable, Sendable {
         self.sound = sound
         self.delivery = delivery
     }
+
+    /// Presence may leave a read-only wait for the Mac's native dialog.
+    /// Such a notification still opens its session, but offers no remote action.
+    public var actionCategory: NotificationCategoryID? {
+        switch sound {
+        case .needsApproval:
+            return session.pendingApproval?.isAnswerable == true ? .approval : nil
+        case .needsAnswer:
+            return session.pendingQuestion?.isAnswerable == false ? nil : .question
+        default:
+            return nil
+        }
+    }
+
+    /// Time Sensitive only for a loud approval or question. A muted session
+    /// (and Quiet mode, which reads as muted) lands at `.banner`, so it stays
+    /// ordinary. Q23 / PRD decision 8.
+    public var isTimeSensitive: Bool {
+        delivery == .bannerSound && (sound == .needsApproval || sound == .needsAnswer)
+    }
 }
 
 /// Thresholds for the sounding rules. Defaults match the product spec.

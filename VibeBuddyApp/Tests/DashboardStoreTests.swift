@@ -4,6 +4,11 @@ import VibeBuddyKit
 
 private actor DecisionRecorder: DecisionClient {
     private(set) var acknowledgedSessionIDs: [String] = []
+    private(set) var waitRequests: [WaitReadRequest] = []
+    func acknowledgeWait(_ pairing: PairingPayload, request: WaitReadRequest) async -> Bool {
+        waitRequests.append(request)
+        return true
+    }
     private(set) var completionRequests: [CompletionReadRequest] = []
     private(set) var attentions: [(sessionId: String, level: SessionAttention?)] = []
 
@@ -72,6 +77,36 @@ final class DashboardStoreTests: XCTestCase {
         let sent = await decisions.completionRequests
         XCTAssertEqual(sent, [CompletionReadRequest(sourceID: "mac-a", sessionID: "task", completionID: "round-1")])
         store.stop()
+    }
+
+    func testPhoneAndWatchReadTheExactWaitWithoutAnsweringIt() async throws {
+        let decisions = DecisionRecorder()
+        let now = Date()
+        let waiting = AgentSession(id: "task", agent: .claudeCode, project: "Task",
+                                   status: .needsResponse, waitKind: .question,
+                                   statusSince: now, updatedAt: now)
+        let store = DashboardStore(
+            streamer: ScriptedStreamer(snapshots: [Snapshot(sessions: [waiting], serverTime: now, sourceID: "mac-a")]),
+            notifier: SilentNotifier(), decisionClient: decisions, watchRelay: nil, reportDevice: { _ in })
+        store.start(PairingPayload(host: "127.0.0.1", port: 9, token: "test"))
+        defer { store.stop() }
+        for _ in 0..<50 where store.allSessions.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+        store.acknowledge("task")
+        for _ in 0..<50 {
+            if !(await decisions.waitRequests).isEmpty { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let read = WaitReadRequest(sourceID: "mac-a", sessionID: "task", statusSince: now, waitKind: .question)
+        let epoch = ConnectionStore.pairingEpoch
+        let rejected = await store.acknowledgeWaitFromWatch(WatchWaitReadRequest(pairingEpoch: "other", read: read))
+        XCTAssertFalse(rejected)
+        let accepted = await store.acknowledgeWaitFromWatch(WatchWaitReadRequest(pairingEpoch: epoch, read: read))
+        XCTAssertTrue(accepted)
+        let sent = await decisions.waitRequests
+        XCTAssertEqual(sent, [read, read])
+        let completions = await decisions.completionRequests
+        XCTAssertTrue(completions.isEmpty)
+        XCTAssertEqual(store.allSessions.first?.status, .needsResponse)
     }
 
     func testFollowFlipsTheRowAtOnceAndTellsTheMac() async throws {

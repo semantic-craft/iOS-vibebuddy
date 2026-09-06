@@ -7,17 +7,53 @@ import VibeBuddyMacCore
 /// `UNUserNotificationCenter`; *which* cue, *when* and *how loud* are decided
 /// by `SoundPolicy` (unit-tested), so this type stays pure system I/O: it maps
 /// the alert's `DeliveryLevel` onto sound / banner / list-only presentation.
+@MainActor
 final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotificationCenterDelegate {
     private let center = UNUserNotificationCenter.current()
+    /// Approve / Deny / Reply from a banner. The Mac model hops to the main
+    /// actor.
+    var onBannerAction: ((NotificationActionID, String, String?, String?) -> Void)?
 
     override init() {
         super.init()
         center.delegate = self
+        Self.registerCategories(on: center)
     }
 
     /// Ask once for alert + sound permission. A denial just makes posting a no-op.
     func requestAuthorization() {
+        Self.registerCategories(on: center)
         center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    }
+
+    static func registerCategories(on center: UNUserNotificationCenter) {
+        let approve = UNNotificationAction(
+            identifier: NotificationActionID.approve.rawValue,
+            title: String(localized: "Approve"),
+            options: [.authenticationRequired])
+        let deny = UNNotificationAction(
+            identifier: NotificationActionID.deny.rawValue,
+            title: String(localized: "Deny"),
+            options: [.destructive])
+        let approval = UNNotificationCategory(
+            identifier: NotificationCategoryID.approval.rawValue,
+            actions: [approve, deny],
+            intentIdentifiers: [])
+        let reply = UNTextInputNotificationAction(
+            identifier: NotificationActionID.answer.rawValue,
+            title: String(localized: "Reply"),
+            options: [],
+            textInputButtonTitle: String(localized: "Send"),
+            textInputPlaceholder: String(localized: "Answer"))
+        let question = UNNotificationCategory(
+            identifier: NotificationCategoryID.question.rawValue,
+            actions: [reply],
+            intentIdentifiers: [])
+        center.setNotificationCategories([approval, question])
+    }
+
+    func notifyDetached(_ alert: SoundAlert) {
+        Task { _ = await self.notify(alert) }
     }
 
     func notify(_ alert: SoundAlert) async -> LocalNotificationAttempt {
@@ -31,7 +67,9 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
         do {
             // The same identifier the phone uses, so the ledger can name it.
             try await post(title: title, body: body, sound: alert.sound, delivery: alert.delivery,
-                           id: alert.notificationID)
+                           id: alert.notificationID, sessionID: alert.sessionID,
+                           approvalId: alert.session.pendingApproval?.id,
+                           timeSensitive: alert.isTimeSensitive, category: alert.actionCategory)
             return .scheduled()
         } catch {
             return .failed(reason: LocalNotificationDelivery.classify(
@@ -48,39 +86,69 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
     /// A phone just paired — the one chrome cue that isn't tied to a session.
     func confirmPairing(deviceName: String) {
         guard Self.flag("notifyOnNeedsResponse"),
-              NotificationCategoryPrefs.load().isEnabled(.pairSuccess) else { return }
+              NotificationCategoryPrefs.loadMac().isEnabled(NotificationSound.pairSuccess) else { return }
         enqueue(title: String(localized: "Paired with \(deviceName)"),
                 body: String(localized: "VibeBuddy is watching your sessions."),
                 sound: .pairSuccess, id: "pair-success")
     }
 
     /// A session crossed the spend budget — a gentle heads-up (estimate).
-    func notifyBudget(project: String, cost: String) {
-        guard Self.flag("notifyOnNeedsResponse") else { return }
-        enqueue(title: String(localized: "\(project) over budget"),
-                body: String(localized: "≈ \(cost) spent this session (estimate)"),
-                sound: .longWaitNudge, id: "budget-\(project)")
+    /// Returns the actual scheduling result; the caller records delivery.
+    @discardableResult
+    func notifyBudget(project: String, cost: String) async -> LocalNotificationAttempt {
+        await notifyQuota(
+            title: String(localized: "\(project) over budget"),
+            body: String(localized: "≈ \(cost) spent this session (estimate)"),
+            id: "budget-\(project)")
     }
 
     /// Account quota alert. This is separate from session-state sounds and is
     /// only called for a fresh, non-stale threshold crossing.
+    @discardableResult
     func notifyUsage(
         provider: AccountUsageProvider,
         window: AccountUsageWindow,
         threshold: Int
-    ) {
-        guard Self.flag("notifyOnNeedsResponse"),
-              !NotificationQuietMode.isEffective() else { return }
-        let duration = window.windowDurationMinutes.map(Self.durationText) ?? String(localized: "quota")
+    ) async -> LocalNotificationAttempt {
+        let copy = Self.usageCopy(provider: provider, window: window, threshold: threshold)
+        return await notifyQuota(title: copy.title, body: copy.body, id: copy.id)
+    }
+
+    static func usageCopy(
+        provider: AccountUsageProvider,
+        window: AccountUsageWindow,
+        threshold: Int
+    ) -> (title: String, body: String, id: String) {
+        let duration = window.windowDurationMinutes.map(durationText) ?? String(localized: "quota")
         let reset = window.resetsAt.map {
             String(localized: " Resets \($0.formatted(date: .abbreviated, time: .shortened)).")
         } ?? ""
-        enqueue(
+        return (
             title: String(localized: "\(provider.displayName) usage reached \(threshold)%"),
             body: String(localized: "\(window.usedPercent)% used in the \(duration) window.\(reset)"),
-            sound: .longWaitNudge,
             id: "\(provider.rawValue)-usage-\(window.kind.rawValue)-\(window.resetsAt?.timeIntervalSince1970 ?? 0)"
         )
+    }
+
+    /// Chrome quota / budget banner. No session sound file — the system
+    /// default plays when sound is on, rather than borrowing `longWaitNudge`.
+    @discardableResult
+    func notifyQuota(title: String, body: String, id: String) async -> LocalNotificationAttempt {
+        guard Self.flag("notifyOnNeedsResponse"),
+              QuotaNoticeFanout.localSkip(categories: NotificationCategoryPrefs.loadMac()) == nil
+        else { return .skipped }
+        guard await isAuthorized() else { return .failed(reason: "permissionDenied") }
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = Self.flag("playNotificationSound") ? .default : nil
+        do {
+            try await center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
+            return .scheduled()
+        } catch {
+            return .failed(reason: LocalNotificationDelivery.classify(
+                authorized: true, scheduleError: error).failureReason ?? "scheduleFailed")
+        }
     }
 
     private func enqueue(title: String, body: String, sound: NotificationSound, id: String) {
@@ -100,20 +168,34 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
         }
     }
 
-    private static let deliveryKey = "delivery"
+    nonisolated private static let deliveryKey = "delivery"
 
     private func post(title: String, body: String, sound: NotificationSound,
-                      delivery: DeliveryLevel, id: String) async throws {
+                      delivery: DeliveryLevel, id: String,
+                      sessionID: String? = nil, approvalId: String? = nil,
+                      timeSensitive: Bool = false, category: NotificationCategoryID? = nil) async throws {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = delivery.makesSound && Self.flag("playNotificationSound")
             ? UNNotificationSound(named: UNNotificationSoundName(rawValue: sound.fileName))
             : nil
+        if let category {
+            content.categoryIdentifier = category.rawValue
+        }
         // Carried to `willPresent`, which is where an accessory app actually
-        // decides what the system shows.
-        content.userInfo = [Self.deliveryKey: delivery.rawValue]
-        if delivery == .list { content.interruptionLevel = .passive }
+        // decides what the system shows. Session / approval ids ride along so
+        // a banner button can resolve the wait in-process.
+        var info: [String: Any] = [Self.deliveryKey: delivery.rawValue]
+        for (key, value) in NotificationUserInfoKey.make(sessionId: sessionID, approvalId: approvalId) {
+            info[key] = value
+        }
+        content.userInfo = info
+        if timeSensitive {
+            content.interruptionLevel = .timeSensitive
+        } else if delivery == .list {
+            content.interruptionLevel = .passive
+        }
         try await center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
     }
 
@@ -121,8 +203,9 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
     /// app runs as an accessory: a list-only cue lands in Notification Center
     /// without a banner; everything else banners *and* stays in the list, so
     /// what was said can still be found later. Chrome cues (pairing, budget,
-    /// usage) carry no level and are shown in full.
-    func userNotificationCenter(
+    /// usage) carry no delivery level and are shown in full. Budget / usage
+    /// no longer borrow `longWaitNudge`.
+    nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
@@ -138,8 +221,22 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
         }
     }
 
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse
+    ) async {
+        guard let action = NotificationActionID(rawValue: response.actionIdentifier) else { return }
+        let info = response.notification.request.content.userInfo
+        guard let sessionId = info[NotificationUserInfoKey.sessionId] as? String, !sessionId.isEmpty else { return }
+        let approvalId = info[NotificationUserInfoKey.approvalId] as? String
+        let text = (response as? UNTextInputNotificationResponse)?.userText
+        await MainActor.run {
+            self.onBannerAction?(action, sessionId, approvalId, text)
+        }
+    }
+
     /// A Bool default that treats an absent key as `true` (on by default).
-    private static func flag(_ key: String) -> Bool {
+    nonisolated private static func flag(_ key: String) -> Bool {
         UserDefaults.standard.object(forKey: key) == nil ? true : UserDefaults.standard.bool(forKey: key)
     }
 

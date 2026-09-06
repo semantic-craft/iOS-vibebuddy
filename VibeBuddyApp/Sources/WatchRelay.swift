@@ -17,6 +17,7 @@ protocol WatchStateTransport: AnyObject {
     /// Watch never assumes a tap landed.
     var onApprovalRequest: ((WatchApprovalRequest) async -> WatchApprovalResult)? { get set }
     var onCompletionRequest: ((WatchCompletionRequest) async -> WatchCompletionResult)? { get set }
+    var onWaitReadRequest: ((WatchWaitReadRequest) async -> Bool)? { get set }
     /// Hand over the newest state, replacing any earlier one the Watch has not
     /// picked up yet. Throws when the session cannot take it right now.
     func send(_ payload: Data) throws
@@ -49,6 +50,11 @@ final class WatchRelay {
     var onCompletionRequest: ((WatchCompletionRequest) async -> WatchCompletionResult)? {
         get { transport.onCompletionRequest }
         set { transport.onCompletionRequest = newValue }
+    }
+
+    var onWaitReadRequest: ((WatchWaitReadRequest) async -> Bool)? {
+        get { transport.onWaitReadRequest }
+        set { transport.onWaitReadRequest = newValue }
     }
 
     init(transport: WatchStateTransport) {
@@ -113,6 +119,8 @@ final class WatchConnectivityTransport: NSObject, WatchStateTransport {
     var onApprovalRequest: ((WatchApprovalRequest) async -> WatchApprovalResult)?
     var onCompletionRequest: ((WatchCompletionRequest) async -> WatchCompletionResult)?
 
+    var onWaitReadRequest: ((WatchWaitReadRequest) async -> Bool)?
+
     private let session: WCSession?
 
     override init() {
@@ -176,6 +184,17 @@ final class WatchConnectivityTransport: NSObject, WatchStateTransport {
         }
     }
 
+    fileprivate nonisolated func handle(waitRead payload: Data,
+                                        reply: @escaping @Sendable ([String: Any]) -> Void) {
+        guard let request = try? JSONDecoder().decode(WatchWaitReadRequest.self, from: payload) else {
+            reply(["accepted": false]); return
+        }
+        Task { @MainActor [weak self] in
+            let accepted = await self?.onWaitReadRequest?(request) ?? false
+            reply(["accepted": accepted])
+        }
+    }
+
     /// Activation, pairing, and reachability all arrive off the main actor.
     fileprivate nonisolated func readyChanged() {
         Task { @MainActor [weak self] in
@@ -218,7 +237,9 @@ extension WatchConnectivityTransport: WCSessionDelegate {
         // Sendable, and nothing else in the message is ours.
         let payload = message[WatchApprovalRequest.messageKey] as? Data
         let reply = UncheckedSendable(replyHandler)
-        if let completion = message[WatchCompletionRequest.messageKey] as? Data {
+        if let wait = message[WatchWaitReadRequest.messageKey] as? Data {
+            handle(waitRead: wait) { reply.value($0) }
+        } else if let completion = message[WatchCompletionRequest.messageKey] as? Data {
             handle(completion: completion) { reply.value($0) }
         } else {
             handle(approval: payload) { reply.value($0) }

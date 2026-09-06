@@ -42,6 +42,7 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var codexAppServerDiagnostics = CodexAppServerMonitor.Diagnostics()
     @Published private(set) var lifecycleTimeline: [LifecycleJournalEntry] = []
     @Published private(set) var lifecycleJournalClearFailed = false
+    @Published private(set) var missedThisWeek = MissedCounts.empty
     @Published private(set) var notificationDeliveryHealth = NotificationDeliveryHealth()
     @Published private(set) var recentNotificationDeliveries: [NotificationDeliveryRecord] = []
     /// How many phones the Mac can push to right now, and when the newest of
@@ -144,7 +145,10 @@ final class MenuBarModel: ObservableObject {
             journalURL: ProcessInfo.processInfo.environment["VIBEBUDDY_JOURNAL_PATH"].map {
                 URL(fileURLWithPath: $0)
             } ?? LifecycleJournalLocation.defaultURL(),
-            attentionURL: AttentionOverrides.defaultURL()
+            attentionURL: AttentionOverrides.defaultURL(),
+            missedURL: ProcessInfo.processInfo.environment["VIBEBUDDY_MISSED_PATH"].map {
+                URL(fileURLWithPath: $0)
+            } ?? MissedLedgerLocation.defaultURL()
         )
         // File-based store (owner-only): no Keychain ACL, so an ad-hoc rebuild
         // never re-prompts. Shared with vibebuddyd's default store.
@@ -193,10 +197,22 @@ final class MenuBarModel: ObservableObject {
         // The views read usage through this model's facades, so the coordinator's
         // changes have to reach the same `objectWillChange` they observe. Set up
         // after every stored property is initialized: the capture needs `self`.
+        usage.onUsageAlert = { [weak self] provider, window, threshold in
+            guard let self else { return }
+            let copy = UserNotificationsNotifier.usageCopy(
+                provider: provider, window: window, threshold: threshold)
+            Task { await self.deliverQuotaNotice(title: copy.title, body: copy.body, id: copy.id,
+                                                 sessionID: nil) }
+        }
         usageObserver = usage.objectWillChange.sink { [weak self] in
             self?.objectWillChange.send()
         }
         Self.shared = self
+        notifier.onBannerAction = { [weak self] action, sessionId, approvalId, text in
+            Task { @MainActor in
+                self?.handleBannerAction(action, sessionId: sessionId, approvalId: approvalId, text: text)
+            }
+        }
         // Screenshot / exploration instance: seed sample sessions and skip the
         // server, polling, pairing, and notifications entirely. It never binds the
         // port or pushes to a phone, so it runs harmlessly alongside a real
@@ -233,8 +249,13 @@ final class MenuBarModel: ObservableObject {
             // The demo never polls, so no cue is ever earned: unfold the sample
             // approval as a card once the glance exists, for screenshots / QA.
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
-                guard let self, let demo = self.sessions.first(where: { $0.pendingApproval != nil }) else { return }
-                _ = self.presentGlanceCard(SoundAlert(session: demo, sound: .needsApproval))
+                guard let self else { return }
+                if let demo = self.sessions.first(where: { $0.pendingApproval != nil }) {
+                    _ = self.presentGlanceCard(SoundAlert(session: demo, sound: .needsApproval))
+                }
+                // Glance card replaces the banner when the glance is up; still
+                // post the sample banners so Demo mode shows Approve / Deny / Reply.
+                self.postDemoBanners()
             }
         }
     }
@@ -318,6 +339,7 @@ final class MenuBarModel: ObservableObject {
                 if self.codexAppServerDiagnostics.connected { agents.append(.codex) }
                 self.dispatchAgents = agents
                 self.lifecycleTimeline = await self.store.recentLifecycle()
+                self.missedThisWeek = await self.store.missedCounts()
                 self.buddySessionIDs = BuddyScope.pruned(self.buddySessionIDs, toLive: snapshot.sessions)
                 self.tickGlanceCards()
                 // Precise suppression: a finishing session stays silent when *its
@@ -330,7 +352,7 @@ final class MenuBarModel: ObservableObject {
                     appActive: NSApp.isActive,                 // user looking at VibeBuddy?
                     quietMode: Self.effectiveQuiet(),          // Focus mode (manual or nightly) → every session muted
                     focusedSessionIDs: focused,                // …or looking at the session's own terminal
-                    categories: NotificationCategoryPrefs.load()) // this Mac's own switches
+                    categories: NotificationCategoryPrefs.loadMac()) // this Mac's own switches
                 await self.refreshNotificationDeliveryHealth()
                 // Off the loop: a push may hold for the phone's receipt, and the
                 // glance must not wait with it.
@@ -484,6 +506,9 @@ final class MenuBarModel: ObservableObject {
                     let result = await pusher.send(title: copy.title, body: copy.body, to: deviceToken, sound: sound,
                                                    sessionID: alert.sessionID, soundCategory: alert.sound.rawValue,
                                                    localized: PushLocalization(copy),
+                                                   category: alert.actionCategory?.rawValue,
+                                                   timeSensitive: alert.isTimeSensitive && recipient.level == .bannerSound,
+                                                   approvalId: alert.actionCategory == .approval ? alert.session.pendingApproval?.id : nil,
                                                    waitSince: waitSince, holdForPhone: hold)
                     await registry.applySendResult(result, token: deviceToken)
                 }
@@ -507,7 +532,7 @@ final class MenuBarModel: ObservableObject {
     @MainActor
     private func deliverCompletionReminder(_ session: AgentSession) async -> Bool {
         let local = await notificationCoordinator.remind(
-            session, quietMode: Self.effectiveQuiet(), categories: NotificationCategoryPrefs.load())
+            session, quietMode: Self.effectiveQuiet(), categories: NotificationCategoryPrefs.loadMac())
         let devices = await deviceTokens.devices()
         let level = DeliveryMatrix.level(for: .agentDone, attention: session.effectiveAttention)
         // `recordSkips: false`: an undelivered reminder is re-proposed on every
@@ -525,20 +550,78 @@ final class MenuBarModel: ObservableObject {
         let budget = UserDefaults.standard.double(forKey: "sessionBudgetUSD")
         let alerts = budgetMonitor.newlyOverBudget(sessions, budgetUSD: budget)
         guard !alerts.isEmpty else { return }
-        let devices = pusher == nil ? [] : await deviceTokens.devices()
         for alert in alerts {
             let cost = String(format: "$%.2f", alert.estimatedUSD)
-            notifier.notifyBudget(project: alert.session.project, cost: cost)
-            for device in devices {
-                guard let deviceToken = device.token, device.quietMode != true else { continue }  // not an approval → quiet suppresses
-                let sound = device.playSound != false ? NotificationSound.longWaitNudge.fileName : ""
-                guard let result = await pusher?.send(
-                    title: "\(alert.session.project) over budget",
-                    body: "≈ \(cost) spent this session (estimate)",
-                    to: deviceToken, sound: sound) else { continue }
-                await deviceTokens.applySendResult(result, token: deviceToken)
+            await deliverQuotaNotice(
+                title: "\(alert.session.project) over budget",
+                body: "≈ \(cost) spent this session (estimate)",
+                id: "budget-\(alert.session.project)",
+                sessionID: alert.session.id)
+        }
+    }
+
+    private func handleBannerAction(_ action: NotificationActionID, sessionId: String,
+                                    approvalId: String?, text: String?) {
+        switch action {
+        case .approve:
+            if let approvalId { decide(approvalId, .allow) }
+        case .deny:
+            if let approvalId { decide(approvalId, .deny) }
+        case .answer:
+            if let text { answer(sessionId, answers: [:], text: text) }
+        }
+    }
+
+    /// Sample approval / question banners carry the same actions a live cue does.
+    private func postDemoBanners() {
+        for session in sessions {
+            if session.pendingApproval != nil {
+                notifier.notifyDetached(SoundAlert(session: session, sound: .needsApproval))
+            } else if session.waitKind == .question {
+                notifier.notifyDetached(SoundAlert(session: session, sound: .needsAnswer))
             }
         }
+    }
+
+    /// Local banner (this Mac's quota switch) and APNs (each phone's uploaded
+    /// switch). Quota is not a session cue: the attention matrix is not applied.
+    private func deliverQuotaNotice(title: String, body: String, id: String,
+                                    sessionID: String?) async {
+        let attempt = await notifier.notifyQuota(title: title, body: body, id: id)
+        let localSkip = QuotaNoticeFanout.localSkip(categories: NotificationCategoryPrefs.loadMac())
+        if let reason = localSkip {
+            await deliveryRecorder.record(NotificationDeliveryRecord(
+                channel: .local, outcome: .skipped, sessionID: sessionID,
+                sound: NotificationCategory.quota.rawValue,
+                failureReason: reason.rawValue, timestamp: Date()))
+        } else if attempt.shouldRecord {
+            await deliveryRecorder.record(NotificationDeliveryRecord(
+                channel: .local, outcome: attempt.outcome, sessionID: sessionID,
+                sound: NotificationCategory.quota.rawValue,
+                failureReason: attempt.failureReason, timestamp: Date()))
+        }
+
+        let devices = pusher == nil ? [] : await deviceTokens.devices()
+        let plan = QuotaNoticeFanout.plan(devices: devices, apnsConfigured: pusher != nil)
+        guard let pusher, !plan.recipients.isEmpty else {
+            if let reason = plan.skip {
+                await deliveryRecorder.record(NotificationDeliveryRecord(
+                    channel: .apns, outcome: .skipped, sessionID: sessionID,
+                    sound: NotificationCategory.quota.rawValue,
+                    failureReason: reason.rawValue, timestamp: Date()))
+            }
+            await refreshNotificationDeliveryHealth()
+            return
+        }
+        for device in plan.recipients {
+            guard let deviceToken = device.token else { continue }
+            let sound = device.playSound != false ? "default" : ""
+            let result = await pusher.send(
+                title: title, body: body, to: deviceToken, sound: sound,
+                sessionID: sessionID, soundCategory: NotificationCategory.quota.rawValue)
+            await deviceTokens.applySendResult(result, token: deviceToken)
+        }
+        await refreshNotificationDeliveryHealth()
     }
 
     /// Resolve a pending approval from the Mac (Dashboard buttons / shortcuts).
@@ -572,9 +655,10 @@ final class MenuBarModel: ObservableObject {
     func answer(_ sessionID: String, answers: QuestionAnswers, text: String? = nil) {
         let dispatch = AnswerDispatch(store: store, questions: questionRegistry,
                                       inject: { ref, answer in TerminalInjector.inject(answer, into: ref) })
-        Task { [weak self] in
+        Task { [weak self, store] in
             let delivered = await dispatch.deliver(sessionID: sessionID, text: text,
                                                    answers: answers.isEmpty ? nil : answers)
+            if delivered { await store.recordInteraction(sessionID: sessionID) }
             await MainActor.run {
                 self?.answerFeedback[sessionID] = delivered ? nil : "Nothing was waiting for an answer, and there is no tmux pane to type into."
             }
@@ -654,8 +738,13 @@ final class MenuBarModel: ObservableObject {
             return
         }
         guard let sourceID = snapshotSourceID,
-              let session = sessions.first(where: { $0.id == sessionID }),
-              session.hasUnreadCompletion, let completionID = session.completionID else { return }
+              let session = sessions.first(where: { $0.id == sessionID }) else { return }
+        if session.status == .needsResponse {
+            let read = WaitReadRequest(sourceID: sourceID, session: session)
+            Task { [store] in _ = await store.acknowledgeWait(read) }
+            return
+        }
+        guard session.hasUnreadCompletion, let completionID = session.completionID else { return }
         let request = CompletionReadRequest(sourceID: sourceID, sessionID: sessionID, completionID: completionID)
         Task { [store] in _ = await store.acknowledgeCompletion(request) }
     }

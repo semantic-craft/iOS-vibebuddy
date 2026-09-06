@@ -1,4 +1,5 @@
 import UIKit
+import UserNotifications
 import VibeBuddyKit
 
 /// Registers for APNs, captures the device token, and uploads it to the Mac so
@@ -12,7 +13,7 @@ final class PushRegistration {
     static let shared = PushRegistration()
 
     private var deviceToken: String?
-    private var pairing: PairingPayload?
+    private(set) var pairing: PairingPayload?
 
     func registerForRemoteNotifications() {
         UIApplication.shared.registerForRemoteNotifications()
@@ -26,6 +27,12 @@ final class PushRegistration {
     func update(pairing: PairingPayload?) {
         self.pairing = pairing
         upload()
+    }
+
+    /// Background actions can arrive before any dashboard view has loaded.
+    func pairingForBannerAction() -> PairingPayload? {
+        if let pairing { return pairing }
+        return ConnectionStore().pairing
     }
 
     /// Re-report this device to the Mac: on a preference change, and on every
@@ -81,6 +88,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         // Present our cues while the app is foreground — otherwise iOS swallows
         // the sound, and the in-app sound pack would never be heard.
         UNUserNotificationCenter.current().delegate = self
+        LocalNotifier.registerCategories()
         return true
     }
 
@@ -107,9 +115,6 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
-        guard response.actionIdentifier == UNNotificationDefaultActionIdentifier,
-              let id = response.notification.request.content.userInfo["sessionId"] as? String,
-              !id.isEmpty else { return }
         // A tapped push leaves Notification Center; remember it so the stream's
         // catch-up does not announce the same wait a second time (ADR-0012).
         let request = response.notification.request
@@ -117,8 +122,26 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             await PushCoverage.shared.noteTapped(identifier: request.identifier,
                                                  deliveredAt: response.notification.date)
         }
-        await MainActor.run {
-            _ = UIApplication.shared.open(VibeBuddyDeepLink.sessionURL(id: id))
+        let userInfo = response.notification.request.content.userInfo
+        if response.actionIdentifier == UNNotificationDefaultActionIdentifier {
+            guard let id = userInfo[NotificationUserInfoKey.sessionId] as? String, !id.isEmpty else { return }
+            await MainActor.run {
+                _ = UIApplication.shared.open(VibeBuddyDeepLink.sessionURL(id: id))
+            }
+            return
+        }
+        let text = (response as? UNTextInputNotificationResponse)?.userText
+        let pairing = await MainActor.run { PushRegistration.shared.pairingForBannerAction() }
+        let outcome = await BannerActionRunner.perform(
+            actionIdentifier: response.actionIdentifier,
+            userInfo: userInfo,
+            text: text,
+            pairing: pairing,
+            client: HTTPDecisionClient())
+        if case .openSession(let id) = outcome {
+            await MainActor.run {
+                _ = UIApplication.shared.open(VibeBuddyDeepLink.sessionURL(id: id))
+            }
         }
     }
 
