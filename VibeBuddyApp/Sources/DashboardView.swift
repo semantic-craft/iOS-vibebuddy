@@ -21,6 +21,12 @@ struct DashboardView: View {
     private var stream: [AgentSession] { dashboard.allSessions.sorted { $0.updatedAt < $1.updatedAt } }
     private var replyTarget: AgentSession? { replyTo.flatMap { id in dashboard.allSessions.first { $0.id == id } } }
     private var detailSession: AgentSession? { detailId.flatMap { id in dashboard.allSessions.first { $0.id == id } } }
+    /// The paired Mac's name is the page title; the demo has no Mac.
+    private var macTitle: String {
+        let name = connection.pairing?.macName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !name.isEmpty { return name }
+        return connection.demo ? String(localized: "Demo") : "Mac"
+    }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -62,9 +68,6 @@ struct DashboardView: View {
                 if voice.phase != .idle || voice.errorText != nil {
                     VoiceStrip(voice: voice)
                 }
-                if let pairing = connection.pairing {
-                    PairedMacStrip(pairing: pairing, state: dashboard.state)
-                }
             }
             .background(CompanionPalette.bg)
         }
@@ -79,26 +82,30 @@ struct DashboardView: View {
         .overlay {
             if dashboard.groups.isEmpty { EmptyStateView(state: dashboard.state) }
         }
-        .navigationTitle("vibebuddy")
+        .navigationTitle(macTitle)
         // The cat's bubble is the header now; a large title above it only
         // spends a screen's worth of blank space (and on iOS 26 hides behind
         // the inset).
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) { ConnectionDot(state: dashboard.state) }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { newTaskDraft = ""; showNewTask = true } label: { Image(systemName: "plus.bubble") }
-                    .disabled(dashboard.recentDirectories.isEmpty || dashboard.dispatchAgents.isEmpty)
-                    .accessibilityLabel("New task")
+            // The title is the paired Mac: a status dot, its name, and a menu
+            // holding everything about the link (address, reconnect, forget).
+            // "New task" lives in the composer; nothing else earns the bar.
+            ToolbarItem(placement: .principal) {
+                MacTitleMenu(title: macTitle, pairing: connection.pairing, demo: connection.demo,
+                             state: dashboard.state,
+                             reconnect: { if let p = connection.pairing { dashboard.start(p) } },
+                             copyAddress: {
+                                 if let p = connection.pairing {
+                                     UIPasteboard.general.string = "\(p.host):\(String(p.port))"
+                                     dashboard.showToast(String(localized: "Address copied"))
+                                 }
+                             },
+                             disconnect: { connection.clear(); dashboard.forgetPairing() })
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showSettings = true } label: { Image(systemName: "gearshape") }
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button(connection.demo ? LocalizedStringKey("Exit demo") : LocalizedStringKey("Disconnect")) {
-                    connection.clear(); dashboard.forgetPairing()
-                }
-                .font(.subheadline)
+                    .accessibilityLabel("Settings")
             }
         }
         .tint(CompanionPalette.accent)
@@ -620,42 +627,6 @@ private struct SessionDetailSheet: View {
     }
 }
 
-private struct PairedMacStrip: View {
-    let pairing: PairingPayload
-    let state: DashboardStore.ConnectionState
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "laptopcomputer.and.iphone")
-                .foregroundStyle(color)
-                .frame(width: 18)
-            Text("Connected to \(macName)")
-                .font(CompanionType.font(11, .bold))
-                .foregroundStyle(CompanionPalette.ink2)
-                .lineLimit(1)
-            Text(verbatim: "\(pairing.host):\(String(pairing.port))")   // no "9,877" grouping
-                .font(CompanionType.mono(10))
-                .foregroundStyle(CompanionPalette.ink3)
-            Spacer(minLength: 8)
-        }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 6)
-    }
-
-    private var macName: String {
-        let trimmed = pairing.macName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmed.isEmpty ? "Mac" : trimmed
-    }
-
-    private var color: Color {
-        switch state {
-        case .connected: CompanionPalette.accent
-        case .connecting: CompanionPalette.status(.requiresInput)
-        case .failed: CompanionPalette.status(.error)
-        }
-    }
-}
-
 /// A thin per-session context-window usage bar: used / window, coloured by fill.
 private struct ContextBar: View {
     let used: Int
@@ -675,28 +646,56 @@ private struct ContextBar: View {
     private func short(_ n: Int) -> String { n >= 1000 ? "\(n / 1000)k" : "\(n)" }
 }
 
-private struct ConnectionDot: View {
+/// The navigation title as a menu about the paired Mac: a dot for the link
+/// state, the Mac's name, and inside it the address, reconnect, copy and
+/// forget. Tapping the name is the one place to manage the connection.
+private struct MacTitleMenu: View {
+    let title: String
+    let pairing: PairingPayload?
+    let demo: Bool
     let state: DashboardStore.ConnectionState
+    let reconnect: () -> Void
+    let copyAddress: () -> Void
+    let disconnect: () -> Void
 
     var body: some View {
-        HStack(spacing: 5) {
-            Circle().fill(color).frame(width: 7, height: 7)
-            Text(label).font(.caption).foregroundStyle(.secondary)
+        Menu {
+            if let pairing {
+                Text(verbatim: "\(statusText) · \(pairing.host):\(String(pairing.port))")   // no "9,877" grouping
+                Button(action: reconnect) { Label("Reconnect", systemImage: "arrow.clockwise") }
+                Button(action: copyAddress) { Label("Copy address", systemImage: "doc.on.doc") }
+            }
+            Button(role: .destructive, action: disconnect) {
+                Label(demo ? LocalizedStringKey("Exit demo") : LocalizedStringKey("Disconnect"), systemImage: "eject")
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Circle().fill(color).frame(width: 8, height: 8)
+                Text(title)
+                    .font(CompanionType.font(17, .bold))
+                    .foregroundStyle(CompanionPalette.ink)
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(CompanionPalette.ink3)
+            }
         }
+        .accessibilityLabel(Text(verbatim: "\(title), \(statusText)"))
     }
 
     private var color: Color {
         switch state {
-        case .connecting: .yellow
-        case .connected: .green
-        case .failed: .red
+        case .connected: CompanionPalette.accent
+        case .connecting: CompanionPalette.status(.requiresInput)
+        case .failed: CompanionPalette.status(.error)
         }
     }
-    private var label: LocalizedStringKey {
+
+    private var statusText: String {
         switch state {
-        case .connecting: "Connecting"
-        case .connected: "Connected"
-        case .failed: "Reconnecting"
+        case .connecting: String(localized: "Connecting")
+        case .connected: String(localized: "Connected")
+        case .failed: String(localized: "Reconnecting")
         }
     }
 }
