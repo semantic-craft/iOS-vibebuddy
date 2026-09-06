@@ -334,21 +334,23 @@ final class MenuBarModel: ObservableObject {
                 self.lifecycleTimeline = await self.store.recentLifecycle()
                 self.buddySessionIDs = BuddyScope.pruned(self.buddySessionIDs, toLive: snapshot.sessions)
                 self.tickGlanceCards()
-                // Precise suppression: a finishing session stays silent when *its
-                // own* terminal is frontmost, not just when VibeBuddy is.
-                let frontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-                let focused = ForegroundTerminal.focusedSessionIDs(
-                    among: snapshot.sessions, frontmostBundleID: frontmost)
+                // PresencePolicy, not just "terminal frontmost": idle, lock, or
+                // "always ask the phone" empty the set so a stale verdict cannot
+                // keep suppressing. The 2s poll re-evaluates without a new event.
+                let present = Set(snapshot.sessions.compactMap { session in
+                    PresencePolicy.decide(self.presenceInput(for: session.id)) == .present
+                        ? session.id : nil
+                })
                 let alerts = await self.notificationCoordinator.observe(
                     snapshot.sessions,
                     appActive: NSApp.isActive,                 // user looking at VibeBuddy?
                     quietMode: Self.effectiveQuiet(),          // Focus mode (manual or nightly) → every session muted
-                    focusedSessionIDs: focused,                // …or looking at the session's own terminal
+                    focusedSessionIDs: present,                // present sessions cap to the list
                     categories: NotificationCategoryPrefs.loadMac()) // this Mac's own switches
                 await self.refreshNotificationDeliveryHealth()
                 // Off the loop: a push may hold for the phone's receipt, and the
                 // glance must not wait with it.
-                Task { await self.pushToPhones(alerts, focused: focused) }
+                Task { await self.pushToPhones(alerts, focused: present) }
                 await self.pushActivityUpdates(snapshot.sessions)
                 await self.checkBudget(snapshot.sessions)
                 try? await Task.sleep(for: .seconds(2))

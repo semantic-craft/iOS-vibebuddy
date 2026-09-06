@@ -540,6 +540,12 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         self.updatedAt = updatedAt
     }
 
+    /// The Mac is holding this wait for the agent's own prompt. The phone card
+    /// is read-only; restoring a reminder does not make it answerable.
+    public var nativePromptHoldsWait: Bool {
+        pendingApproval?.isAnswerable == false || pendingQuestion?.isAnswerable == false
+    }
+
     /// Whether a jump has anywhere to land: a terminal to raise, or a Codex
     /// Desktop thread to open. The one thing every jump control is gated on, so
     /// a Desktop session's button is live for the same reason a terminal

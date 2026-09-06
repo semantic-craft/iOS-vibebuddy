@@ -66,10 +66,9 @@ public struct SoundPolicyInput: Sendable {
     public var appActive: Bool
     /// Quiet / Focus mode: every session is treated as `muted`.
     public var quietMode: Bool
-    /// IDs of sessions whose own terminal window is currently frontmost — the user
-    /// is already looking at them, and the native prompt is right there, so
-    /// nothing about them interrupts: every cue is capped to the list. The Mac
-    /// fills this from the frontmost terminal app; iOS leaves it empty.
+    /// Sessions PresencePolicy currently treats as present (Mac: focused surface,
+    /// unlocked, recent input, override off). Their cues cap to the list. Leaving
+    /// the set restores a still-open wait. iOS fills this from read-only cards.
     public var focusedSessionIDs: Set<String>
 
     public init(sessions: [AgentSession], now: Date, appActive: Bool, quietMode: Bool,
@@ -90,9 +89,10 @@ public struct SoundPolicyInput: Sendable {
 ///     you're not already watching the app;
 ///   - a failed / aborted ending rings the duller `agentStuck` instead;
 ///   - one gentle `longWaitNudge` after a wait drags past the threshold;
-///   - then `DeliveryMatrix` decides how loud each cue is from the session's
-///     attention level, Quiet mode reads every session as `muted`, a focused
-///     terminal caps its session to the list, and a `drop` is never emitted.
+    ///   - then `DeliveryMatrix` decides how loud each cue is from the session's
+    ///     attention level, Quiet mode reads every session as `muted`, a present
+    ///     session caps to the list, leaving presence restores a still-open wait,
+    ///     and a `drop` is never emitted.
 /// Shared by the Mac menu bar, the Mac's push to the phone, and the iOS app so
 /// all three behave identically.
 public final class SoundPolicy {
@@ -102,6 +102,10 @@ public final class SoundPolicy {
     private var lastWaitingSoundAt: [String: Date] = [:]
     /// `statusSince` of the wait we've already nudged, keyed by session id.
     private var nudgedWaitSince: [String: Date] = [:]
+    /// Waits capped because the session was present, keyed by session → statusSince.
+    private var presenceSuppressedWaits: [String: Date] = [:]
+    /// Waits already restored after leaving, so a second leave does not re-ring.
+    private var presenceRestoredWaits: [String: Date] = [:]
 
     public init(config: SoundPolicyConfig = .init()) {
         self.config = config
@@ -112,6 +116,7 @@ public final class SoundPolicy {
         defer {
             previous = Dictionary(uniqueKeysWithValues: input.sessions.map { ($0.id, $0) })
             seenFirstSnapshot = true
+            rememberPresence(input)
         }
         // Never ring the backlog already waiting when we first connect.
         guard seenFirstSnapshot else { return [] }
@@ -120,13 +125,57 @@ public final class SoundPolicy {
         for session in input.sessions {
             guard let sound = boundarySound(prev: previous[session.id], now: session, input: input)
             else { continue }
-            let attention: SessionAttention = input.quietMode ? .muted : session.effectiveAttention
-            var level = DeliveryMatrix.level(for: sound, attention: attention)
-            if input.focusedSessionIDs.contains(session.id) { level = min(level, .list) }
-            guard level != .drop else { continue }
-            alerts.append(SoundAlert(session: session, sound: sound, delivery: level))
+            guard let alert = alert(session: session, sound: sound, input: input) else { continue }
+            alerts.append(alert)
+        }
+        for session in input.sessions {
+            guard let alert = restoredWait(session, input: input) else { continue }
+            alerts.append(alert)
         }
         return alerts
+    }
+
+    private func alert(session: AgentSession, sound: NotificationSound,
+                       input: SoundPolicyInput) -> SoundAlert? {
+        let attention: SessionAttention = input.quietMode ? .muted : session.effectiveAttention
+        var level = DeliveryMatrix.level(for: sound, attention: attention)
+        if input.focusedSessionIDs.contains(session.id) { level = min(level, .list) }
+        guard level != .drop else { return nil }
+        return SoundAlert(session: session, sound: sound, delivery: level)
+    }
+
+    private func rememberPresence(_ input: SoundPolicyInput) {
+        let live = Set(input.sessions.map(\.id))
+        for id in presenceSuppressedWaits.keys where !live.contains(id) {
+            presenceSuppressedWaits.removeValue(forKey: id)
+            presenceRestoredWaits.removeValue(forKey: id)
+        }
+        for session in input.sessions {
+            guard session.status == .needsResponse else {
+                presenceSuppressedWaits.removeValue(forKey: session.id)
+                presenceRestoredWaits.removeValue(forKey: session.id)
+                continue
+            }
+            guard input.focusedSessionIDs.contains(session.id) else { continue }
+            if presenceRestoredWaits[session.id] != session.statusSince {
+                presenceSuppressedWaits[session.id] = session.statusSince
+            }
+        }
+    }
+
+    /// A still-open wait that was capped while present earns its waiting cue
+    /// again once PresencePolicy says away. Handled waits are already cleared.
+    private func restoredWait(_ session: AgentSession, input: SoundPolicyInput) -> SoundAlert? {
+        guard session.status == .needsResponse,
+              presenceSuppressedWaits[session.id] == session.statusSince,
+              !input.focusedSessionIDs.contains(session.id),
+              presenceRestoredWaits[session.id] != session.statusSince
+        else { return nil }
+        presenceRestoredWaits[session.id] = session.statusSince
+        presenceSuppressedWaits.removeValue(forKey: session.id)
+        let sound: NotificationSound = session.waitKind == .permission ? .needsApproval : .needsAnswer
+        lastWaitingSoundAt[session.id] = input.now
+        return alert(session: session, sound: sound, input: input)
     }
 
     /// The cue earned by `session` given its prior state, before the matrix.

@@ -73,9 +73,13 @@ code, and tests — don't drift to synonyms.
   surface (its terminal app, or Codex Desktop for a Desktop thread) is
   frontmost, the screen is unlocked and there was input within two minutes,
   unless the Settings override "Always ask the phone first" is on. Present →
-  the agent's own prompt takes the answer and the phone gets a **read-only
-  card** (`answerable: false`); away → the daemon holds the prompt for the
-  phone. Applies to the hook gate, the question relay and app-server requests.
+  the agent's own prompt takes the answer, the phone gets a **read-only
+  card** (`answerable: false`), and `DeliveryMatrix` caps ordinary cues to
+  `list` (logged as `focusedTerminal`). Away, idle, lock, or an uncertain
+  observation empties that set so a still-open wait recovers its interrupting
+  reminder; the card stays read-only — restoring a cue does not mint remote
+  answer rights. Applies to the hook gate, the question relay, app-server
+  requests, and notification fan-out. Active phone/Watch entries stay visible.
 - **Steer** — free text for a Codex thread sent through the app-server daemon:
   `turn/steer` while a turn runs, `turn/start` when idle (a cold thread is
   resumed first). Codex threads never take typed input through a terminal.
@@ -189,8 +193,9 @@ code, and tests — don't drift to synonyms.
   three surfaces agree. Approvals and questions interrupt at every level (a
   muted session shows them silently); a completion banners for followed and
   normal, is dropped for muted; the nudge is list-only unless followed. Quiet /
-  Focus mode reads every session as `muted`; a session whose own terminal is
-  frontmost is capped to `list`. `list` and `drop` never push.
+  Focus mode reads every session as `muted`; a session `PresencePolicy` says
+  is present is capped to `list`. Leaving presence restores a still-open
+  wait at the matrix level. `list` and `drop` never push.
 - **Completion reminder** — `CompletionReminderSchedule` re-issues the
   `agentDone` cue for a `done`, unread session whose effective attention is
   `followed`, every 5 minutes, at most 12 times per completion (keyed by
