@@ -72,6 +72,51 @@ struct CursorUsageProviderTests {
         #expect(snapshot.primary?.usedPercent == 40)
     }
 
+    @Test("cookie source mode is re-read on each fetch, not frozen at init")
+    func cookieModeRereadEachFetch() async throws {
+        let endpoint = URL(string: "https://cursor.test/api/usage-summary")!
+        let body = try Self.fixture("usage-summary-plan-only")
+        final class FetchProbe: @unchecked Sendable {
+            var mode: CursorCookieSourceMode = .manual
+            var cookiesSeen: [String] = []
+            let lock = NSLock()
+            func noteCookie(_ value: String) {
+                lock.lock(); cookiesSeen.append(value); lock.unlock()
+            }
+            func snapshotCookies() -> [String] {
+                lock.lock(); defer { lock.unlock() }; return cookiesSeen
+            }
+        }
+        let probe = FetchProbe()
+        let transport = ScriptedCursorTransport { request in
+            probe.noteCookie(request.value(forHTTPHeaderField: "Cookie") ?? "")
+            let response = HTTPURLResponse(
+                url: endpoint, statusCode: 200, httpVersion: nil, headerFields: nil
+            )!
+            return (body, response)
+        }
+        let provider = CursorUsageProvider(
+            cookie: "WorkosCursorSessionToken=manual",
+            cookieMode: { probe.mode },
+            cookieImporter: ScriptedModeImporter(header: "WorkosCursorSessionToken=imported"),
+            persistImportedCookie: { _ in },
+            endpoint: endpoint,
+            transport: transport
+        )
+        _ = try await provider.fetch()
+        probe.mode = .browserAuto
+        _ = try await provider.fetch()
+        #expect(probe.snapshotCookies() == [
+            "WorkosCursorSessionToken=manual",
+            "WorkosCursorSessionToken=imported",
+        ])
+    }
+
+    private struct ScriptedModeImporter: CursorBrowserCookieImporting {
+        let header: String
+        func importSessionCookieHeader(allowKeychainPrompt: Bool) throws -> String { header }
+    }
+
     private struct ScriptedCursorTransport: CursorUsageTransport {
         let handler: @Sendable (URLRequest) async throws -> (Data, URLResponse)
         func cursorData(for request: URLRequest) async throws -> (Data, URLResponse) {

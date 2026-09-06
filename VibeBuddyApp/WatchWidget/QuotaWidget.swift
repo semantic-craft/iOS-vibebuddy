@@ -4,10 +4,11 @@ import WidgetKit
 import VibeBuddyKit
 
 enum QuotaPlatform: String, AppEnum {
-    case codex, claude, both
+    case codex, claude, grok, cursor, both, all
     static let typeDisplayRepresentation: TypeDisplayRepresentation = "Platform"
     static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
-        .codex: "Codex", .claude: "Claude", .both: "Codex + Claude"
+        .codex: "Codex", .claude: "Claude", .grok: "Grok", .cursor: "Cursor",
+        .both: "Codex + Claude", .all: "All providers"
     ]
     var selection: WatchQuotaSelection { WatchQuotaSelection(rawValue: rawValue)! }
 }
@@ -117,7 +118,15 @@ struct QuotaWidgetView: View {
     private var now: Date { max(entry.date, Date()) }
     private var providers: [AccountUsageProvider] { entry.configuration.platform.selection.providers }
     private func window(_ provider: AccountUsageProvider, kind: QuotaWindowKind? = nil) -> QuotaWindow {
-        entry.quotas.first { $0.provider == provider }?.window(kind ?? entry.configuration.period.kind)
+        let preferred = kind ?? entry.configuration.period.kind
+        // Single-period styles fall back to otherWindows when weekly/short are
+        // missing (Cursor/Grok billing periods). Dual-window keeps exact kinds.
+        let quota = entry.quotas.first { $0.provider == provider }
+        if kind == nil {
+            return quota?.displayWindow(preferring: preferred)
+                ?? QuotaWindow(remainingPercent: nil, durationMinutes: nil, resetsAt: nil, observedAt: nil)
+        }
+        return quota?.window(preferred)
             ?? QuotaWindow(remainingPercent: nil, durationMinutes: nil, resetsAt: nil, observedAt: nil)
     }
     private func label(_ provider: AccountUsageProvider) -> String {
@@ -281,7 +290,7 @@ struct QuotaWidget: Widget {
             QuotaWidgetView(entry: $0)
         }
         .configurationDisplayName("Quota")
-        .description("Codex and Claude remaining allowance.")
+        .description("Codex, Claude, Cursor, and Grok remaining allowance.")
         .supportedFamilies([.accessoryCircular])
     }
 }
