@@ -223,7 +223,7 @@ Task data is sourced from the user's Mac; this does not mean all app traffic sta
 ## 本次在线提交补充
 
 - 中英文描述及审核 Notes 明示：公开 Mac 下载不包含项目 APNs 凭据；关闭 App 后的远程推送不是开箱即用功能，需 App 签名团队授权的提供者。没有运营中的 VibeBuddy 云服务。
-- 审核 Notes 明示 Mac 1.3（7）下载、移动 1.3（10）、演示与真实功能的区别，以及 Watch 配置页冷启动首次可能占位、重新打开显示图标的限制。
+- 审核 Notes 明示 Mac 1.3（7）下载、移动 1.3（11）、演示与真实功能的区别，以及 Watch 配置页冷启动首次可能占位、重新打开显示图标的限制。
 - 审核联系人已按用户本轮提供内容填写；个人电话和邮箱不写入仓库。
 - 当前设备仍为移动 1.3（9）；本次未用送审包替换设备安装。
-- App Store 设置为审核通过后自动发布；当前事实仅为 Waiting for Review。
+- App Store 设置为审核通过后自动发布；构建 10 因 ITMS-90455 被退回，修正后的构建 11 已上传，等待处理后重新提交。
