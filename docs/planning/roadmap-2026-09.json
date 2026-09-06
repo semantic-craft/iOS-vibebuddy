@@ -1,6 +1,6 @@
 {
- "generatedAt": "2026-09-06T19:52+08:00",
- "main": "90da1f7",
+ "generatedAt": "2026-09-06T21:17+08:00",
+ "main": "2d927a7",
  "howToUse": "正本是 docs/planning/roadmap-2026-09.html；本文件由 tools/export-roadmap.js 导出，不要手改。status 是快照，以仓库事实为准：agent 节点 done = PR 已合并（描述第一行为节点 id）或票 Status done；pr-open = 有开放 PR（pr 字段）；in-progress = 有会话或未提交改动在做；可派 = deps 全 done 且自身非 done/in-progress/pr-open 且 owner A；并发上限 4；优先级 S > A > M > 其余 1.2 > 1.3。票的 Status 只用仓库规定的标签与 done；工作流状态只写 HTML（kind 与标题前缀）。每轮先 git fetch origin 再判断。合并顺序：#57 → #56 → #55（三者都改 Kit 通知类型与 Mac Settings / MenuBarModel，每合一个让下一个合 main）→ #59（Companion 三端，与 #56 的 iPhone 卡片、#55 的 Mac 设置页相碰）→ #62（W-1..3 草稿，先验证）。主工作区 ~/Projects/iOS-vibebuddy 的 main 上仍有 W-1..3 的未提交原件：不 reset、不在主工作区开发。codex/notification-dedup worktree 已被 #54 取代，删除不开 PR。",
  "vision": {
   "Q1": "面向 App Store 公众，你是第一用户",
@@ -92,9 +92,9 @@
  "sessions": [
   {
    "session": "额度配置页图标修复",
-   "state": "总控19:10起继续诊断，review_build6定向只读调查",
-   "output": "#93资源补齐但build8真机同页仍白网格；三参数正常",
-   "whenDone": "视觉验收失败，当前无需用户操作；未发布",
+   "state": "已合并 #96，移动1.3(9)已安装",
+   "output": "同页猫图标截图通过；冷启动首次占位、重开正常",
+   "whenDone": "半小时实际验收未开始，未发布",
    "nodes": "WQ-4 H-2"
   },
   {
@@ -368,11 +368,11 @@
   {
    "id": "WQ-4",
    "lane": "M",
-   "title": "诊断中：额度配置页仍显示占位图标，真机验收失败",
+   "title": "已合并 #96：配置页图标恢复，冷启动首次占位限制保留",
    "version": "1.3",
    "owner": "A",
-   "status": "in-progress",
-   "pr": null,
+   "status": "done",
+   "pr": 96,
    "deps": [
     "WQ-I"
    ],
@@ -389,7 +389,7 @@
     "verify": "生成工程、签名设备构建、产物检查、独立审查、同页实际验收。",
     "skills": "按需"
    },
-   "prompt": "你在 iOS-vibebuddy 仓库工作（~/Projects/iOS-vibebuddy）。任务：WQ-4 诊断中：额度配置页仍显示占位图标，真机验收失败。\n票 / 位置：.scratch/watch-quota/issues/04-configuration-icon.md\n\n先按顺序读：AGENTS.md → CONTEXT.md → docs/planning/vision-2026-09.md（本任务服务的决策：Q12 手表成为独立交互端；Q35 官方依据、真机验证；steer 失败不得静默改 start）→ 上面的票及其引用的 PRD / ADR。已读且未变化的内容不用重复读。\n\n规格（以票为准，这里是摘要）：\n  目标：补齐WatchWidget图标资源并在同一配置页验收。\n  范围：共享Watch现有AppIcon，配置编译名称；手机与Watch四bundle升1.3(8)，Mac保持1.3(7)。\n  不做：不改额度逻辑、不重画图标、不重置设备、不发布、不留回退。\n  验收：最终扩展含watch AppIcon及生成元数据，正常升级同页显示正确图标；参数及原验收要求不变。\n  验证：生成工程、签名设备构建、产物检查、独立审查、同页实际验收。\n  建议技能：按需（技能在 .agents/skills/，按其触发条件用；grill-with-docs 只在票里仍有未决取舍时用，问完立刻把结论写回票）\n\n任务正文：\n全文读取主仓库~/Projects/iOS-vibebuddy/.scratch/watch-quota/issues/04-configuration-icon.md及acceptance/defect-quota-configuration-icon.md和icon-trace证据。此前资源修复已合并PR 93，移动1.3(8)真机仍占位，不重复实施旧资源补齐或安装build8。Claude已验证同一Watch包在iOS/watchOS模拟器MobileIcons变体41/42可渲染真实图标；NanoTimeKit配置编辑器经Watch宿主app.icon取图。继续区分AppConduit列表未收录、app.icon异步nil和NanoResourceGrabber远端/本地取图失败；无日志不足以证明缓存命中。先用有区分力的只读证据定位，确认必要变更后再独立工作树最小修复、验证与安排安装；不要提交猜测性补丁。操作真机由总控统一协调。保留用户和其他执行者改动，不卸载、不清设备缓存、不改验收判据、不发布、不创建回退。票Status保持ready-for-agent，证据明确区分模拟器与真机。"
+   "prompt": "你在 iOS-vibebuddy 仓库工作（~/Projects/iOS-vibebuddy）。任务：WQ-4 已合并 #96：配置页图标恢复，冷启动首次占位限制保留。\n票 / 位置：.scratch/watch-quota/issues/04-configuration-icon.md\n\n先按顺序读：AGENTS.md → CONTEXT.md → docs/planning/vision-2026-09.md（本任务服务的决策：Q12 手表成为独立交互端；Q35 官方依据、真机验证；steer 失败不得静默改 start）→ 上面的票及其引用的 PRD / ADR。已读且未变化的内容不用重复读。\n\n规格（以票为准，这里是摘要）：\n  目标：补齐WatchWidget图标资源并在同一配置页验收。\n  范围：共享Watch现有AppIcon，配置编译名称；手机与Watch四bundle升1.3(8)，Mac保持1.3(7)。\n  不做：不改额度逻辑、不重画图标、不重置设备、不发布、不留回退。\n  验收：最终扩展含watch AppIcon及生成元数据，正常升级同页显示正确图标；参数及原验收要求不变。\n  验证：生成工程、签名设备构建、产物检查、独立审查、同页实际验收。\n  建议技能：按需（技能在 .agents/skills/，按其触发条件用；grill-with-docs 只在票里仍有未决取舍时用，问完立刻把结论写回票）\n\n任务正文：\n已合并PR96，代码19956e8。移动1.3(9)已安装到Hermes与Watch，独立审查和四bundle严格签名通过；同页重开显示猫图标及vibebuddy名，三参数正常，无额外ClockKit条目。完整证据见主仓库.scratch/watch-quota/acceptance/defect-quota-configuration-icon.md及icon-trace/after-1.3.9-config-page.png。已知限制：手机Watch app冷启动首次打开仍可能占位，重开正常；不能宣称所有情形彻底消失。不要重复实施或安装。Mac仍1.3(7)，半小时实际验收未开始，未发布。"
   },
   {
    "id": "WQ-I",
@@ -1728,10 +1728,10 @@
   {
    "id": "H-2",
    "lane": "H",
-   "title": "移动1.3（8）图标同页验收失败，修复后再集中半小时体验",
+   "title": "移动1.3（9）已安装，集中半小时体验待完成",
    "version": "1.3",
    "owner": "U",
-   "status": "blocked",
+   "status": "ready",
    "pr": null,
    "deps": [
     "S-6",
@@ -1754,7 +1754,7 @@
     "verify": "Mac 设置页。",
     "skills": "—"
    },
-   "prompt": "你在 iOS-vibebuddy 仓库工作（~/Projects/iOS-vibebuddy）。任务：H-2 移动1.3（8）图标同页验收失败，修复后再集中半小时体验。\n票 / 位置：.scratch/release-1.2/issues/02-half-hour-acceptance.md\n\n先按顺序读：AGENTS.md → CONTEXT.md → docs/planning/vision-2026-09.md（本任务服务的决策：Q4 半小时零漏接；Q28 先发一版：1.2 可靠性 + 官方接口 + 手机手表；1.3 陌生用户路径 + App Store）→ 上面的票及其引用的 PRD / ADR。已读且未变化的内容不用重复读。\n\n规格（以票为准，这里是摘要）：\n  目标：冻结候选连续半小时无新增漏接；修复后重新计时。\n  范围：以获准安装的冻结候选执行半小时体验，记录起止时间与漏接增量。\n  不做：—\n  验收：验收窗口内新增漏接为 0；任何一次漏接开票修复后重计半小时。\n  验证：Mac 设置页。\n  建议技能：—（技能在 .agents/skills/，按其触发条件用；grill-with-docs 只在票里仍有未决取舍时用，问完立刻把结论写回票）\n\n任务正文：\n按 release-1.2 票02，在具体设备操作获准后使用冻结候选执行连续半小时真实体验。记录成品身份、起止时间、漏接增量和非预期重复；失败修复后锁定新候选并重新计时，不自动安装或替换运行中的 App。\n\n这一步只有你本人能做（真机、签名、账号或决策）。完成后把结果写回票的 Status 行与验收段，截图放票里指定的目录；有失败就开修复票而不是改判据。做完在本图把 H-2 标 done，协调会话会据此派下游。"
+   "prompt": "你在 iOS-vibebuddy 仓库工作（~/Projects/iOS-vibebuddy）。任务：H-2 移动1.3（9）已安装，集中半小时体验待完成。\n票 / 位置：.scratch/release-1.2/issues/02-half-hour-acceptance.md\n\n先按顺序读：AGENTS.md → CONTEXT.md → docs/planning/vision-2026-09.md（本任务服务的决策：Q4 半小时零漏接；Q28 先发一版：1.2 可靠性 + 官方接口 + 手机手表；1.3 陌生用户路径 + App Store）→ 上面的票及其引用的 PRD / ADR。已读且未变化的内容不用重复读。\n\n规格（以票为准，这里是摘要）：\n  目标：冻结候选连续半小时无新增漏接；修复后重新计时。\n  范围：以获准安装的冻结候选执行半小时体验，记录起止时间与漏接增量。\n  不做：—\n  验收：验收窗口内新增漏接为 0；任何一次漏接开票修复后重计半小时。\n  验证：Mac 设置页。\n  建议技能：—（技能在 .agents/skills/，按其触发条件用；grill-with-docs 只在票里仍有未决取舍时用，问完立刻把结论写回票）\n\n任务正文：\n按 release-1.2 票02，在具体设备操作获准后使用冻结候选执行连续半小时真实体验。记录成品身份、起止时间、漏接增量和非预期重复；失败修复后锁定新候选并重新计时，不自动安装或替换运行中的 App。\n\n这一步只有你本人能做（真机、签名、账号或决策）。完成后把结果写回票的 Status 行与验收段，截图放票里指定的目录；有失败就开修复票而不是改判据。做完在本图把 H-2 标 done，协调会话会据此派下游。"
   },
   {
    "id": "H-3",
