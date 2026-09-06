@@ -21,6 +21,18 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section {
+                    NavigationLink {
+                        MacCompanionSetupView()
+                    } label: {
+                        Label("Download or update the Mac app", systemImage: "desktopcomputer")
+                    }
+                } header: {
+                    Text("Mac companion")
+                } footer: {
+                    Text("Your live tasks come from your own Mac. Install the free Mac companion and scan its code to unlock connected features.")
+                }
+
+                Section {
                     if dashboard.observationDiagnostics.isEmpty {
                         Text("No observation diagnostics received from the Mac yet.")
                             .foregroundStyle(.secondary)

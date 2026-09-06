@@ -1,5 +1,7 @@
 # vibebuddy iOS — App Store 提交逐步清单
 
+> 1.3 更新请从 [新版提交文案包](app-store-submission-1.3.md) 开始。本文件保留历史准备记录；旧版本号、构建号、截图与在线状态不可直接沿用。
+
 图例:🧑 = 只能你做(登录/付费/网页/截图) · 🤖 = 我能帮你做(代码/配置/文案)
 现状:本机仍需付费 Apple Developer Program / App Store Connect 人工动作；代码侧已切好 iOS Release/Archive `aps-environment=production`、Debug `development`、version 1.0、build 3、`ITSAppUsesNonExemptEncryption=NO`; 有 1024 图标 ✓;Watch app(`VibeBuddyWatch`,WatchConnectivity-only,不用 App Group)已随 iOS app 自动内嵌;`tools/archive-ios.sh` 打包时会自动核对以上配置以及 Widget / Watch 是否正确内嵌与签名。
 
