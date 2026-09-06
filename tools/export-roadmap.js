@@ -6,8 +6,10 @@ const fs = require("fs"), vm = require("vm");
 const [html, outDir] = process.argv.slice(2);
 if (!html || !outDir) { console.error("usage: export-roadmap.js <roadmap.html> <outDir>"); process.exit(2); }
 const h = fs.readFileSync(html, "utf8");
-const m = h.match(/<script>([\s\S]*?)<\/script>/);
-const src = m[1].slice(0, m[1].indexOf("// ----- graph layout -----"));
+// The page's data block starts at `const VISION` and ends at the layout marker; no HTML parsing needed.
+const start = h.indexOf("const VISION = {"), end = h.indexOf("// ----- graph layout -----");
+if (start < 0 || end < 0) { console.error("roadmap markers not found"); process.exit(1); }
+const src = h.slice(start, end);
 const ctx = {}; vm.createContext(ctx);
 vm.runInContext(src + ";this.T=T;this.LANES=LANES;this.VISION=VISION;this.SESSIONS=SESSIONS;this.REVIEW_PROMPT=REVIEW_PROMPT;this.COORD_PROMPT=COORD_PROMPT;this.CODEX_PROMPT=CODEX_PROMPT;this.promptFor=promptFor;", ctx);
 const { T, LANES, VISION, SESSIONS } = ctx;
