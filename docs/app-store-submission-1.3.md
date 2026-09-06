@@ -2,15 +2,15 @@
 
 截图素材已另备：[三端截图与上传清单](app-store-screenshots/1.3/README.md)。含中英文环境原生实拍；中文未翻译标签及未收录的实际表盘组件见素材清单。
 
-状态：文案草案，供开发完成后的提交使用；本文件不表示已上传、提交或通过审核。当前项目版本为 1.3，最终 build 以验收成品为准。保留既有 App 记录，不新建 App；账号和在线版本状态须提交时核对。
+状态（2026-09-06 21:52）：按用户明确授权，iPhone / Watch **1.3（10）已提交 App Store，Waiting for Review**；尚未获批或公开上架。Submission ID：`447e220d-5bcb-4344-9335-051f0ee2e891`。Mac **1.3（7）** 已公开在 [GitHub v1.3](https://github.com/semantic-craft/iOS-vibebuddy/releases/tag/v1.3)。中英文 iPhone / Watch 共 8 张商店截图均从本次最终移动构建重拍上传，旧版截图已移除。半小时真实体验未在本轮补做；提交审核不代表该验收完成。
 
-本包是本次商店描述、更新日志和审核说明的入口；旧 `app-store-paste-sheet.md` 是 1.1 历史材料。以下“可粘贴”内容须在对应功能验收、配套 Mac 包公开可下载后使用。下载引导 Ticket 位于 `.scratch/mac-companion-download/issues/01-guide-mac-companion-download.md`，已完成本地实现和模拟器检查，真实配对验收尚待完成。
+本包是本次商店描述、更新日志和审核说明的入口；旧 `app-store-paste-sheet.md` 是 1.1 历史材料。以下保留文案来源；在线提交已补充公开包不含 APNs 凭据及相关能力边界。下载引导 Ticket 位于 `.scratch/mac-companion-download/issues/01-guide-mac-companion-download.md`，已完成本地实现和模拟器检查，真实配对验收尚待完成。
 
 ## 阅读与使用顺序
 
 - **审核员说明**：第 6 节，按“用途与依赖 → 演示 → 真实功能 → 权限与数据”阅读。仅此节用于 App Review Notes。
 - **面向用户**：第 2–5 节分别用于 Description 与 What's New；不将内部验收记录混入商店字段。
-- **提交负责人**：先完成第 7 节。当前是待验收文案，不能靠文字替代可运行的审核环境。
+- **提交负责人**：第 7 节保留内部验收事项；已提交状态不等于全部实际体验通过。
 
 ## 1. 定位与搜索字段
 
@@ -147,7 +147,7 @@ https://github.com/semantic-craft/iOS-vibebuddy/releases/latest
 
 Apple Watch requires a paired iPhone. Remote actions require a reachable Mac. Agent actions and quota data depend on source support.
 
-## 6. App Review Information（待最终验收；仅下方英文用于 Notes）
+## 6. App Review Information（文案来源）
 
 ### Purpose and requirements
 
@@ -219,3 +219,11 @@ Task data is sourced from the user's Mac; this does not mean all app traffic sta
 2026-09-06 核对 Apple 官方 [App Review Guidelines](https://developer.apple.com/app-store/review/guidelines/)（Before You Submit、2.1、2.3、5.1）及 [App Review](https://developer.apple.com/app-store/review/)。重点是完整访问、可复现的特殊环境、准确元数据与明确数据用途。这里采用短标题、编号步骤和明确预期结果，是为减少阅读负担所作的编辑选择，并非 Apple 规定的固定模板或对审核员个人审美的推断。
 
 审核说明不复述市场口号，不使用“完美兼容”“所有最新 Agent”“保证送达”“全部数据不离设备”等无法由当前成品支持的绝对表述。新功能须对应审核路径；演示、真机录屏、构建成功、审核通过分别陈述。
+
+## 本次在线提交补充
+
+- 中英文描述及审核 Notes 明示：公开 Mac 下载不包含项目 APNs 凭据；关闭 App 后的远程推送不是开箱即用功能，需 App 签名团队授权的提供者。没有运营中的 VibeBuddy 云服务。
+- 审核 Notes 明示 Mac 1.3（7）下载、移动 1.3（10）、演示与真实功能的区别，以及 Watch 配置页冷启动首次可能占位、重新打开显示图标的限制。
+- 审核联系人已按用户本轮提供内容填写；个人电话和邮箱不写入仓库。
+- 当前设备仍为移动 1.3（9）；本次未用送审包替换设备安装。
+- App Store 设置为审核通过后自动发布；当前事实仅为 Waiting for Review。
