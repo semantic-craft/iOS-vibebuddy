@@ -140,7 +140,7 @@ td.mono{white-space:nowrap}
 <header class="top">
   <div class="title">
     <h1>vibebuddy 1.2 路线图</h1>
-    <p>2026-09-06 12:34 · main b578eb8（第一波 #57 #56 #55 已合）· <b>开发从此转交 Codex</b>：点 CODEX 节点复制接手提示词；本页正本在仓库 <code>docs/planning/roadmap-2026-09.html</code> · 开放 PR：第一波 #57、#56、#55 全部已合；#62 整合验证中；#64 #65 原执行者已交付，#66 A-10 已合并；#59 Companion 已合并 · 1.2 = 可靠性 + 官方接口 + 手机 / 手表任务交互；1.3 = 陌生用户路径 + 图标 + UI + App Store</p>
+    <p>2026-09-06 12:43 · main 0080801（第一波 #57 #56 #55 已合）· <b>开发从此转交 Codex</b>：点 CODEX 节点复制接手提示词；本页正本在仓库 <code>docs/planning/roadmap-2026-09.html</code> · 开放 PR：第一波 #57、#56、#55 全部已合；#62 已合并；#64 #65 原执行者已交付，#66 A-10 已合并；#59 Companion 已合并 · 1.2 = 可靠性 + 官方接口 + 手机 / 手表任务交互；1.3 = 陌生用户路径 + 图标 + UI + App Store</p>
   </div>
   <div class="stats" id="stats"></div>
 </header>
@@ -184,28 +184,27 @@ td.mono{white-space:nowrap}
 <section class="section">
   <h2>怎么用</h2>
   <p class="lead">列是<b>波次</b>：同一列互不依赖，可以同时派给不同 agent；一张票只有左边连线指向的节点全部完成后才能开始。行是<b>工作包</b>。点节点看它的规格、上下游、同波次伙伴和提示词；提示词自带读取顺序、分支规则、验证命令、票据回写和技能提示，agent 不需要看这个页面。<b>接手</b>：开发已转交 Codex，复制 CODEX 节点的提示词开一个 Codex 会话，它读仓库文件、合第一波 PR、按前沿派工并维护本页。<b>正本</b>是仓库里的 <code>docs/planning/roadmap-2026-09.html</code>，JSON 与提示词文件都由它导出（<code>tools/export-roadmap.js</code>）。</p>
-  <div class="warn"><b>交接时的五个雷区。</b>1）第一波 #57 / #56 / #55 各有 Codex 机器人的 P1 / P2 线程尚未处理（3 / 6 / 4 条，正文见 CODEX 提示词），三者都改 Kit 通知类型与 Mac Settings / MenuBarModel：按 #57 → #56（已与 main 冲突）→ #55 顺序合，每合一个让下一个合一次 main。2）APNs 密钥 ADR 现在是 <code>docs/adr/0013-apns-key-delivery.md</code>（#53 + #61），DEC-APNS 读它；路 A 的安全面已写明 /device 明文注册会把 token 和 bearer 一起暴露给 LAN 观察者。3）<b>主工作区</b>（<code>~/Projects/iOS-vibebuddy</code>，分支 main，落后 origin）仍有 41 个未提交文件：W-1..3 手表表盘实现。#62 已把它们原样复制到分支 <code>claude/w-1-3-watch-complication</code>（草稿 PR，未构建未测试）；主工作区那份不要 reset，也不要在主工作区继续开发，等 #62 合并后由用户清理。4）#59 改 25 个文件，与 #56 的 iPhone 卡片、#55 的 Mac 设置页会碰：第一波合完再合 #59，#59 先合一次 main。5）旧协调会话的 coord-log 从 04:45 起报错 main（不 fetch），<code>codex/notification-dedup</code> worktree 已被 #54 取代：接手后先写一条接手记录，确认无人使用后删那个 worktree。</div>
+  <div class="warn"><b>当前交接状态。</b>第一波 #57 → #56 → #55 已按序合并，13 条原评审线程全部解决。#59 已随整合验证；#62 已合并，Kit 287 / MacCore 675 / iOS 34 项测试及三端构建通过。<b>主工作区原件仍保留，清理由用户决定。</b>DEC-APNS 仍读 <code>docs/adr/0013-apns-key-delivery.md</code> 拍板。旧去重 worktree 已在保留调查证据并确认无人使用后移除。原执行者 #64 / #65 待评审，M-05 保留归属；新派工由 Codex 总控统一执行。</div>
 </section>
 
 <section class="section">
   <h2>进度总览：已完成与未完成</h2>
   <div class="cols">
-    <div class="card"><h3>已进 main（2026-09-05 → 06，29 个 PR）</h3><ul>
+    <div class="card"><h3>已进 main（持续按仓库核对）</h3><ul>
       <li><b>可靠性</b>：#44 关注度矩阵（followed / normal / muted × 七类开关）、#46 三处文案同源与按会话分组、#47 没推到手机的原因进日志（skipped）、#48 推送注册表落盘 + 只对 BadDeviceToken 驱逐 + 忘记手机阻止重注册、<b>#54 一次提醒只弹一条</b>（手机回执 <code>POST /notified</code>，Mac 推送前等回执 ≤3 s，ADR-0012）。</li>
       <li><b>官方接口</b>：#31 Claude 审批门迁到 PermissionRequest、#26 Codex CLI 审批、#42 app-server 守护进程观测与审批、steer、AskUserQuestion、statusline、在场门控、attach、派新活。</li>
       <li><b>皮</b>：#30 白色小猫图标、#35 代码绘制同一只猫 + 动效、#33 / #45 灵动岛与横幅、#37 Mac glance 灵动岛语法、#32 / #39 菜单栏列表。</li>
       <li><b>文档</b>：#40 愿景（Q1–Q37）、#36 竞品、#49 / #51 / #58 / #60 路线图与提示词、#52 AGENTS 交付边界、#53 / #61 APNs 密钥三条路 ADR（docs/adr/0013）。</li>
     </ul></div>
-    <div class="card"><h3>PR 开着，等评审合并（第一波）</h3><ul>
-      <li>A-05 #56 Time Sensitive + 可操作横幅（Kit 269 / MacCore 测试通过）。</li>
-      <li>A-06 #57 quota 第七类（Kit 273 / MacCore 633 通过）。</li>
-      <li>A-08 #55 漏接计数 MissedLedger + <code>GET /missed</code> + Mac 设置页。</li>
-            <li>S-5 / G-6 #59 Companion 三端重设计 + 灵动岛审批（25 个文件，Kit 共享主题；等第一波合完再合）。</li>
-      <li>W-1..3 #62 手表表盘组件草稿：从主工作区抢救的 43 个文件，未构建未测试，先验证再转正式 PR。</li>
+    <div class="card"><h3>本轮已完成</h3><ul>
+      <li>A-05 #56 可操作横幅；A-06 #57 配额通知；A-08 #55 漏接计数。</li>
+      <li>S-5 #59 Companion 已合并；W-1..3 #62 表盘、精确已读与恢复已合并。三端观感和真实设备验收单列。</li>
+      <li>A-10 #66 词表与双语 README 已合并；APNs 数据流、Cursor 计划支持、diff 预览范围已校准。</li>
     </ul></div>
-    <div class="card"><h3>未开始（agent 可派，按优先级）</h3><ul>
-      <li><b>1.2</b>：M-02 手机回应语义 → M-03 派新活语义；M-04 在场提醒；M-05 最近输出；S-6 注册表按设备 id 去重（#50 关闭后需重提）；B-3 Codex hooks 关闭诊断；D-1 Qwen 重拨；D-2 语音文案；F-3 类别震动（等 A-06）。<b>W-1 → W-2 → W-3</b> 的实现已在 #62（草稿），验证后合并，不重做。</li>
-      <li><b>1.3</b>：C-1 Swift 安装器 → C-2 Cursor 适配器 → C-3 首次运行 / C-4 Demo 四家 / C-5 分级；E-1 分层图标、G-4（等 Xcode 27）；G-2 / G-3 / G-6 UI。</li>
+    <div class="card"><h3>执行中与待派</h3><ul>
+      <li>S-6 注册表去重、B-3 hooks 关闭诊断：Codex 自 12:40 执行。</li>
+      <li>M-02 #64、M-04 #65 待评审；M-05 原执行者在做，不重复派工。</li>
+      <li>后续按依赖与优先级派 F-3、D-1、D-2 及其余节点；DEC-APNS 未定前不派 A-12。</li>
     </ul></div>
     <div class="card"><h3>只有你能做</h3><ul>
       <li>DEC-APNS 拍板（读 docs/adr/0013）；装 Xcode 27；#59 在真机上看一眼 Companion 三端；#62 合并后清理主工作区的未提交文件。</li>
@@ -355,7 +354,7 @@ td.mono{white-space:nowrap}
   <div class="tbl"><table id="tbl"><thead><tr><th>ID</th><th>工作包</th><th>内容</th><th>版本</th><th>状态</th><th>依赖</th><th>归属</th><th></th></tr></thead><tbody></tbody></table></div>
 </section>
 
-<p class="foot">数据来源：<code>docs/planning/vision-2026-09.md</code>、<code>.scratch/*/issues</code> 的 Status 行、<code>.scratch/mobile-watch-task-control/</code> PRD（11 张票）、<code>gh pr list</code>、各 worktree 的 <code>git status</code>、Claude Code 会话列表。状态以仓库文件为准，本页是 2026-09-06 12:34 的快照（main b578eb8；开放 #62 #64 #65）。正本是仓库里的 <code>docs/planning/roadmap-2026-09.html</code>：改 <code>&lt;script&gt;</code> 里的 T / SESSIONS 数组与三处时间戳，再跑 <code>node tools/export-roadmap.js docs/planning/roadmap-2026-09.html docs/planning</code> 重新导出 JSON 与提示词文件，随 PR 一起提交。协调会话每次轮询都应先 git fetch 再核对。</p>
+<p class="foot">数据来源：<code>docs/planning/vision-2026-09.md</code>、<code>.scratch/*/issues</code> 的 Status 行、<code>.scratch/mobile-watch-task-control/</code> PRD（11 张票）、<code>gh pr list</code>、各 worktree 的 <code>git status</code>、Claude Code 会话列表。状态以仓库文件为准，本页是 2026-09-06 12:43 的快照（main 0080801；开放 #64 #65）。正本是仓库里的 <code>docs/planning/roadmap-2026-09.html</code>：改 <code>&lt;script&gt;</code> 里的 T / SESSIONS 数组与三处时间戳，再跑 <code>node tools/export-roadmap.js docs/planning/roadmap-2026-09.html docs/planning</code> 重新导出 JSON 与提示词文件，随 PR 一起提交。协调会话每次轮询都应先 git fetch 再核对。</p>
 
 <script>
 const VISION = {
@@ -410,9 +409,9 @@ const T = [
   {id:"S-2",lane:"S",kind:"done",ver:"1.2",title:"已合并 #54：一次提醒只弹一条（手机回执 /notified，ADR-0012）",path:"docs/adr/0012-one-banner-per-cue-phone-receipts.md · PR #54 已合并 · codex/notification-dedup worktree 弃用",q:["Q4"],deps:["S-3"],
    spec:{goal:"同一次权限请求不再在手机上出现两条（本地通知 + APNs 推送），且任何场景都不比现在少收到。",scope:"三个候选（Mac 按在线状态跳过 / 手机撤回同 id 远程通知 / 后台完全交给 APNs）选一或组合，写依据，实现，真机验收。",non:"不减少任何一种场景的提醒；不引入新的不稳定因素。",accept:"前台、刚退后台 10 秒内、退后台 5 分钟后各触发一次审批：每种恰好一条横幅、一次声音、点击打开会话；关闭 APNs 时行为不变少；Watch 不重复。",verify:"两项真机实测先做：iOS 后台 WebSocket 存活时间、本地 add 撞同 id 远程通知的行为；然后三套测试与构建。",skills:"grill-with-docs（先定方案）、diagnosing-bugs、tdd"},
    body:"票 .scratch/notification-categories/issues/13-local-apns-dedupe.md 已写好（现象、现有机制、三个候选方案、决策要求、验收）。硬约束：不能让任何场景比现在更少收到提醒。方案 1（Mac 按手机在线状态跳过推送）需要把 /ws 连接与设备 token 关联并加静默超时兜底；方案 2（手机 post 本地通知前撤回同 identifier 的远程通知）零 Mac 改动但只覆盖一种到达顺序；方案 3（后台完全交给 APNs）依赖 APNs 可达。两项真机实测（后台 ws 存活时间、本地 add 撞同 id 远程通知）由用户在 Hermes 上完成后再定；决策记进 docs/planning 或 ADR，PR 描述写排除依据。"},
-  {id:"S-6",lane:"S",kind:"agent",ver:"1.2",title:"注册表一台手机一条记录（设备 id；#50 关闭需重提）",path:".scratch/notification-categories/issues/14-one-record-per-phone.md（code complete）· 原 PR #50 已关闭",q:["Q4","Q8"],deps:["S-4"],
+  {id:"S-6",lane:"S",kind:"running",ver:"1.2",title:"注册表一台手机一条记录（设备 id）",path:".scratch/notification-categories/issues/14-one-record-per-phone.md（code complete）· 原 PR #50 已关闭",q:["Q4","Q8"],deps:["S-4"],
    spec:{goal:"手机的 APNs token 会轮换；注册表按 token 记录会留下带旧开关的僵尸记录并被推送。手机上报稳定的 deviceID，注册表按它合并。",scope:"DeviceRegistrationPayload.deviceID；DeviceRegistry 按设备合并、token 轮换时替换；手机端生成并持久化 id。",non:"不改密钥来源。",accept:"票 14 的验收：同一手机换 token 后只有一条记录，旧 token 不再被推；测试覆盖。",verify:"MacCore / Kit / iOS 测试；两端构建。",skills:"tdd、implement"},
-   body:"票 14 的代码已在 PR #50 分支（claude/push-registration-defects-dda1f9）上写完但 PR 被关闭（叠在 #48 上，#48 已合）。从 origin/main 新开分支，把 #50 的提交 cherry-pick 或重做：手机生成稳定 deviceID 并随 DeviceRegistrationPayload 上报；DeviceRegistry 按 deviceID 合并，token 轮换时替换旧 token 并沿用开关与 lastAcceptedAt；无 deviceID 的旧手机仍按 token。跑测试与两端构建，开 PR（描述第一行 S-6）。"},
+   body:"票 14 的代码已在 PR #50 分支（claude/push-registration-defects-dda1f9）上写完但 PR 被关闭（叠在 #48 上，#48 已合）。从 origin/main 新开分支，把 #50 的提交 cherry-pick 或重做：手机生成稳定 deviceID 并随 DeviceRegistrationPayload 上报；DeviceRegistry 按 deviceID 合并，token 轮换时替换旧 token 并沿用开关；lastAcceptedAt 仅在 token 不变时沿用，新 token 清空；无 deviceID 的旧手机仍按 token。跑测试与两端构建，开 PR（描述第一行 S-6）。"},
   {id:"S-5",lane:"S",kind:"done",ver:"1.3",title:"已合并 #59：Companion 三端重设计 + 灵动岛审批（已含 G-6 实施）",path:"PR #59 · docs/design/mac-companion-redesign.md · 分支 claude/mac-design-interface-style-67f537 · Kit Companion.swift / CompanionViews.swift",q:["Q6","Q21","Q18"],deps:[],
    spec:{goal:"设计会话八轮 grill 定下的 Companion 方向已经实现成 PR #59：Kit 共享主题与文案规则，Mac 仪表盘按三态分组、下拉以猫的心情句开头、Glance 保留灵动岛语法；iPhone 仪表盘改成消息流（审批与提问在气泡内作答，reply-to 编辑器按语义命名发送键）；Watch 卡片以「项目 wants to 动词」开头；灵动岛 Live Activity 直接 Approve / Deny。",scope:"审查 #59 的 25 个文件，合 main（第一波之后），处理 Codex 评审线程，合并；真机看一眼三端。",non:"不在本 PR 里改行为语义（M-02 / M-03 的语义票仍独立）；Mac 是基础设施，不再追加 Mac 视觉工作。",accept:"PR #59 合并；Codex 评审线程全部解决；Kit / MacCore / iOS 三套测试通过，三端构建通过。截图与残项归 G-6。",verify:"Kit / MacCore / iOS 测试；三端构建；已部署到 Mac 与 Hermes 试用。",skills:"code-review、resolving-merge-conflicts"},
    body:"这是设计会话的收尾：PR #59 已开（UNSTABLE，等 CI 与 Codex 评审）。顺序：等 #57 → #56 → #55 合完后，在分支上 git merge origin/main（会与 #56 的 iPhone QuestionCardView / ApprovalCardView、#55 的 Mac 设置页相碰，以 main 的行为为准、#59 的外观为准），跑三套测试与三端构建，处理评审线程，合并。合并后 G-6 只剩截图与验收。"},
@@ -442,7 +441,7 @@ const T = [
   {id:"B-U",lane:"B",kind:"you",ver:"1.2",title:"#42 真机验收（含派新活）",path:"claude-official-surfaces/01–06 · codex-official-surfaces/01–05 · codex-desktop-monitoring/01,02,04,06",q:["Q5","Q27","Q29"],deps:[],
    spec:{goal:"#42 已合并的 11 项能力在真机上各走一次。",scope:"Codex Desktop 审批与提问到手机、先答者生效；配额一秒内更新；Claude AskUserQuestion 手机作答；statusline；在场门控；claude attach；Desktop 线程跳转；steer；派新活 Claude 与 Codex 各一次。",non:"—",accept:"各票的验收段勾选；失败开票。",verify:"真机；先修本机 Codex 守护进程默认模型问题。",skills:"—"},
    body:"tools/redeploy-mac.sh 重装 Mac，从 main 直装 iPhone。先修本机 Codex 守护进程因默认模型出错的问题。按各票的验收段逐项跑，结果写回票。"},
-  {id:"B-3",lane:"B",kind:"agent",ver:"1.2",title:"Codex hooks 被关闭时的诊断",path:".scratch/agent-observability-v2/issues/09-codex-hooks-feature-disabled.md",q:["Q5","Q9"],deps:[],
+  {id:"B-3",lane:"B",kind:"running",ver:"1.2",title:"Codex hooks 被关闭时的诊断",path:".scratch/agent-observability-v2/issues/09-codex-hooks-feature-disabled.md",q:["Q5","Q9"],deps:[],
    spec:{goal:"用户执行过 codex features disable hooks 时，Mac 设置页给出独立原因与修复提示，安装器也提醒。",scope:"只读用户级 config.toml，识别 hooks 与废弃别名 codex_hooks；有健康信号时信号优先；不改写 TOML、不引入 TOML 依赖。",non:"不改 Codex 配置。",accept:"两侧各一条测试；票的验收项全勾。",verify:"MacCore 测试；hooks/test_install_agent_hooks.py。",skills:"implement、tdd"},
    body:"实现票 09（会话「Codex 配置指南集成」写好，附两次实测证据）。按票的验收项做：只读 ~/.codex/config.toml 的 [features] hooks / codex_hooks，Mac 设置页新增诊断原因，安装器 --install 时提醒；不写 TOML，不加依赖。"},
 
@@ -479,13 +478,13 @@ const T = [
   {id:"M-11",lane:"M",kind:"you",ver:"1.2",title:"跨端整体验收与支持范围收尾",path:".scratch/mobile-watch-task-control/issues/11-cross-device-acceptance.md",q:["Q35","Q27"],deps:["M-06","M-09","M-10","W-3"],
    spec:{goal:"Mac 在场 / 离场、手机锁定 / 解锁、Watch 佩戴 / 锁定、Focus、网络中断、语音误识别、重复点击、跨端确认撤销全部走一遍；未通过的能力不得宣传为已支持。",scope:"真机矩阵与文案收尾。",non:"—",accept:"票 11 勾选；README 与 App Store 文案只写通过的能力。",verify:"真机。",skills:"—"},
    body:"按票 11 的矩阵在 Hermes、手表与 Mac 上验收，结果写回；未通过的能力从 README / 文案里去掉或标未支持。"},
-  {id:"W-1",lane:"M",kind:"running",ver:"1.2",title:"PR #62 草稿待验证：关注任务表盘组件（抢救自主工作区）",path:".scratch/watch-complication/issues/01-followed-task-complication.md · PR #62 分支 claude/w-1-3-watch-complication（VibeBuddyApp/WatchWidget、WatchShared/WatchComplicationStore、Kit WatchFollowedTask）",q:["Q12","Q33"],deps:[],
+  {id:"W-1",lane:"M",kind:"done",ver:"1.2",title:"已合并 #62：关注任务表盘组件（抢救自主工作区）",path:".scratch/watch-complication/issues/01-followed-task-complication.md · PR #62 分支 claude/w-1-3-watch-complication（VibeBuddyApp/WatchWidget、WatchShared/WatchComplicationStore、Kit WatchFollowedTask）",q:["Q12","Q33"],deps:[],
    spec:{goal:"模块表盘上一眼看到当前最需要关注的任务（任务名优先布局，已由用户在原型上确认）。",scope:"watchOS WidgetKit 复杂功能；数据经 App Group 来自 iPhone 转发的 WatchDashboardState；票 01 的 handoff 文件已写好实现步骤。",non:"Smart Stack 与三色计数另议。",accept:"票 01 的验收项；Simulator 各尺寸截图。",verify:"Watch 构建；真机在 M-11。",skills:"implement"},
    body:"PR #62（草稿，分支 claude/w-1-3-watch-complication）已把主工作区那份未提交实现原样搬上分支并合了 origin/main（唯一冲突 ConnectionStore.init 已解：env 配对优先，observePairing 对选中的配对调用）。它覆盖 W-1 / W-2 / W-3 共 43 个文件，但还没有构建或测试过。接手步骤：在 .scratch/worktrees/ 里检出该分支 → 跑 Kit / MacCore 测试、iOS 测试（单独跑，不与 Mac xcodebuild 同时）、iOS + Watch 构建 → 对照票 01 / 02 / 03 的验收项逐条核对，缺的补、错的改 → 三张票各写 Executor 行 → gh pr ready 62 转正式 PR，处理 Codex 线程后合并。不要碰主工作区里那份原件。"},
-  {id:"W-2",lane:"M",kind:"running",ver:"1.2",title:"PR #62 草稿待验证（与 W-1 同一 PR）：点击表盘进入任务并同步已读",path:".scratch/watch-complication/issues/02-open-and-acknowledge-completion.md（含 02-handoff、02-mac-handoff）",q:["Q12","Q37"],deps:["W-1"],
+  {id:"W-2",lane:"M",kind:"done",ver:"1.2",title:"已合并 #62：点击表盘进入任务并同步已读",path:".scratch/watch-complication/issues/02-open-and-acknowledge-completion.md（含 02-handoff、02-mac-handoff）",q:["Q12","Q37"],deps:["W-1"],
    spec:{goal:"点表盘进入对应任务；该轮完成的已读状态经 iPhone 同步到 Mac（acknowledge）。",scope:"深链、WatchRelay、Mac 侧 acknowledge 路径（02-mac-handoff）。",non:"—",accept:"票 02 验收项。",verify:"构建；真机 M-11。",skills:"implement"},
    body:"PR #62 已含本票的主体（WatchTaskDetailView、CompletionAcknowledgement、Mac 侧 CompletionReadTests）。随 W-1 在同一 PR 里验证；按票 02 与两份 handoff 逐项核对：表盘点击深链到任务详情，完成已读经 WatchRelay → iPhone → /acknowledge 同步到 Mac。"},
-  {id:"W-3",lane:"M",kind:"running",ver:"1.2",title:"PR #62 草稿待验证（与 W-1 同一 PR）：表盘跨断连 / 重启 / 来源切换保持正确",path:".scratch/watch-complication/issues/03-recovery-and-source-isolation.md",q:["Q12","Q35"],deps:["W-1","W-2"],
+  {id:"W-3",lane:"M",kind:"done",ver:"1.2",title:"已合并 #62：表盘跨断连 / 重启 / 来源切换保持正确",path:".scratch/watch-complication/issues/03-recovery-and-source-isolation.md",q:["Q12","Q35"],deps:["W-1","W-2"],
    spec:{goal:"断连、重启、观测来源切换时表盘不显示过期或错误任务；无数据显示占位而不是 0。",scope:"状态过期判定、来源隔离、恢复路径。",non:"—",accept:"票 03 验收项。",verify:"构建 + 断连场景 Simulator；真机 M-11。",skills:"tdd、implement"},
    body:"PR #62 已含本票的主体（DaemonIdentity 来源 id、WatchStoredState、WatchRecoveryTests）。随 W-1 / W-2 同一 PR 验证；按票 03 核对：断连、重启、来源切换时表盘不显示过期或错误任务，无数据显示占位而不是 0；缺的测试补上。"},
   {id:"F-3",lane:"M",kind:"agent",ver:"1.2",title:"按类别区分震动",path:".scratch/watchos-companion/issues/11-haptics-by-category.md（待建）",q:["Q12"],deps:["A-06"],
@@ -559,6 +558,8 @@ const T = [
 ];
 
 const SESSIONS = [
+  ["S-6（Codex）","执行中，自 12:40","codex/s-6-device-registry 独立工作区；票14优先","总控统一构建与评审","S-6"],
+  ["B-3（Codex）","执行中，自 12:40","codex/b-3-hooks-diagnostic 独立工作区","只读配置诊断；不改全局配置","B-3"],
   ["M-02 / M-04 原执行会话","PR #64 / #65 待评审","cursor-grok 原派工，保留所有权","总控纳入队列，不重复派工","M-02 M-04"],
   ["M-05 原执行会话","执行登记自 12:20","cursor-grok · claude/m-05-phone-recent-output","保留所有权，等待交付","M-05"],
   ["旧 F-2 执行登记","12:20 检出，待核对","旧节点已由 W-1..3 / #62 替代；不据旧 JSON 再派","保留现场，避免重复并入","W-1 W-2 W-3"],
@@ -577,13 +578,13 @@ const SESSIONS = [
   ["长条折叠方案（#32）","已合并","菜单栏列表分层","无","—"],
   ["macOS 手表图表与 iOS 图标重设计（#30）","已合并","白色小猫图标","无","—"],
   ["开发计划完成情况确认（#36）","已合并","竞品调研","无","—"],
-  ["协调会话（coord-log）","已交接 Codex 总控（11:37）","Codex 已完成第一波；W-1..3 自 12:18 集成 #62，A-10 自 12:18 交付 #66；发现原执行者 #64 #65 与 M-05 登记，避免重复派工","每轮先 fetch；第一波串行 #57 → #56 → #55，再整合 #62","COORD"],
+  ["协调会话（coord-log）","已交接 Codex 总控（11:37）","Codex 已完成第一波；W-1..3 自 12:18 集成 #62，A-10 自 12:18 交付 #66；发现原执行者 #64 #65 与 M-05 登记，避免重复派工","每轮先 fetch；第一波与 #62 已完成，S-6 / B-3 在做","COORD"],
   ["A-05 / A-06 / A-08 执行会话","Codex：#57、#56、#55 全部已合；13 条原评审线程已修复并解决","#56（6 条，已冲突）#57（3 条）#55（4 条），各自测试通过","第一波已收口；保留三端真机验收","A-05 A-06 A-08"],
   ["A-11 ADR","已合并 #53 + #61","docs/adr/0013：三条路对比；token 视为不透明；路 A 写明 /device 明文注册把 token 与 bearer 一起暴露给 LAN 观察者","DEC-APNS 读 0013 拍板","A-11 → DEC-APNS"],
   ["Claude Code 收尾会话（本页作者）","收尾中","合了 #52 #53 #54 #60 #61；开了 #62；把路线图正本、导出脚本、Codex 接手提示词提交进仓库","转交后不再派工；剩余 Claude 会话只完成各自 PR","CODEX"],
   ["去重 S-2（Claude）","已合并 #54","手机回执 /notified + PushCoverage 等回执 ≤3 s；ADR-0012 占号","三场景真机验收并入 A-03","S-2 → A-03"],
   ["去重 S-2（Codex worktree）","已移除（12:04，#54 取代）","历史调查全文与补丁保留于 .scratch/planning/retained-notification-dedup-20260906；无独有代码","无需 PR；未清理主工作区","—"],
-  ["手表表盘组件（执行者未登记）","PR #62 草稿，Codex 自 12:18 整合验证","W-1..3 的实现原本直接写在主工作区 main 上（04:32–05:18）；已原样复制到分支并合 main，未构建未测试；主工作区原件仍在","Codex 验证、对照票 01–03、转正式 PR、合并；之后用户清理主工作区","W-1 W-2 W-3"],
+  ["手表表盘组件（Codex）","已合并 #62，12:18–12:40","0811d64；Kit287 / MacCore675 / iOS34 与三端构建通过；独立评审修复完成","真机验收与主工作区清理由用户完成","W-1 W-2 W-3"],
   ["AGENTS 规则审阅会话","已合并 #52","AGENTS.md 交付边界与验证策略；~/Projects/AGENTS.md 引用改为条件式","无","—"],
   ["push-registration-defects（#50）","已关闭","票 14：一台手机一条记录（设备 id），代码完成","重提为 S-6","S-6"],
   ["Codex 配置指南集成","空闲，无代码","票 observability-v2/09（ready-for-agent）、desktop-monitoring/12（deferred）","做票 09","B-3"],
@@ -701,7 +702,7 @@ async function copyText(text, toast, ta){
   setTimeout(()=>{ if(toast) toast.textContent=""; },2500);
 }
 document.getElementById("copyjson").addEventListener("click",()=>{
-  const data = { generatedAt:"2026-09-06T12:34+08:00", main:"b578eb8", lanes: LANES.map(l=>({id:l[0],name:l[1]})),
+  const data = { generatedAt:"2026-09-06T12:43+08:00", main:"0080801", lanes: LANES.map(l=>({id:l[0],name:l[1]})),
     nodes: T.filter(t=>!["COORD","CODEX","REVIEW"].includes(t.id)).map(t=>({id:t.id,lane:t.lane,title:t.title,version:t.ver,owner:t.kind==="you"?"U":"A",status:(statusOf(t)==="running" ? (/^退回修改/.test(t.title) ? "changes-requested" : /#\d+/.test(t.title) ? "pr-open" : "in-progress") : statusOf(t)),deps:t.deps,ticket:t.path,vision:t.q,spec:t.spec,prompt:promptFor(t)})) };
   copyText(JSON.stringify(data,null,1), document.getElementById("jsontoast"), null);
 });
