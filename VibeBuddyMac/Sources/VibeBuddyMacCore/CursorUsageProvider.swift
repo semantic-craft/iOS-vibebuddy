@@ -171,31 +171,41 @@ struct CursorLegacyModelUsageDTO: Decodable {
     var maxRequestUsage: Int?
 }
 
-/// Reads Cursor plan allowance via a pasted session Cookie + `usage-summary`.
+/// Reads Cursor plan allowance via session Cookie + `usage-summary`.
+/// Cookie may come from a pasted header (#104) or optional browser import (#105).
 public struct CursorUsageProvider: AccountUsageProviding {
     public static let defaultEndpoint = URL(string: "https://cursor.com/api/usage-summary")!
 
     private let cookie: String?
+    private let cookieMode: CursorCookieSourceMode
+    private let cookieImporter: CursorBrowserCookieImporting
     private let endpoint: URL
     private let transport: CursorUsageTransport
     private let timeout: TimeInterval
 
     public init(
         cookie: String? = nil,
+        cookieMode: CursorCookieSourceMode = CursorCookieSourceSettings.mode(),
+        cookieImporter: CursorBrowserCookieImporting = CursorBrowserCookieImporter(),
         endpoint: URL = defaultEndpoint,
         transport: CursorUsageTransport = URLSession.shared,
         timeout: TimeInterval = 15
     ) {
-        self.cookie = cookie ?? CursorSessionCookieStore.load()
+        self.cookie = cookie
+        self.cookieMode = cookieMode
+        self.cookieImporter = cookieImporter
         self.endpoint = endpoint
         self.transport = transport
         self.timeout = timeout
     }
 
     public func fetch() async throws -> AccountUsageSnapshot {
-        guard let cookie, !cookie.isEmpty else {
-            throw AccountUsageError.notLoggedIn
-        }
+        let cookie = try CursorCookieResolver.resolve(
+            mode: cookieMode,
+            manualCookie: cookie,
+            importer: cookieImporter,
+            allowKeychainPrompt: false
+        )
         var request = URLRequest(url: endpoint)
         request.httpMethod = "GET"
         request.timeoutInterval = timeout

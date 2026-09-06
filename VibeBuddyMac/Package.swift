@@ -13,6 +13,7 @@ let package = Package(
         .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.0.0"),
         .package(url: "https://github.com/hummingbird-project/hummingbird-websocket.git", from: "2.0.0"),
         .package(url: "https://github.com/apple/swift-crypto.git", "3.0.0" ..< "5.0.0"),
+        .package(url: "https://github.com/steipete/SweetCookieKit", from: "0.5.2"),
     ],
     targets: [
         .target(
@@ -22,6 +23,7 @@ let package = Package(
                 .product(name: "Hummingbird", package: "hummingbird"),
                 .product(name: "HummingbirdWebSocket", package: "hummingbird-websocket"),
                 .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "SweetCookieKit", package: "SweetCookieKit"),
             ]
         ),
         .executableTarget(

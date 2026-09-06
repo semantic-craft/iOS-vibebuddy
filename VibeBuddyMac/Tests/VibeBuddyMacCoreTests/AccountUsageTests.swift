@@ -655,7 +655,7 @@ struct AccountUsageTests {
 
     @Test("Cursor collector without a cookie stays unavailable, never 0%")
     func cursorProviderRequiresCookie() async throws {
-        let provider = CursorUsageProvider(cookie: nil, transport: MissingCookieTransport())
+        let provider = CursorUsageProvider(cookie: nil, cookieMode: .manual, transport: MissingCookieTransport())
         do {
             _ = try await provider.fetch()
             Issue.record("CursorUsageProvider must not succeed without a cookie")
