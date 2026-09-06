@@ -17,7 +17,7 @@ const gen = h.match(/generatedAt:"([^"]+)", main:"([^"]+)"/);
 const done = new Set(T.filter(t => t.kind === "done").map(t => t.id));
 const prOf = t => { const x = t.title.match(/#(\d+)/); return x ? +x[1] : null; };
 // Workflow states: done | pr-open | in-progress | changes-requested (title prefix 退回修改) | ready | blocked
-const statusOf = t => t.kind === "done" ? "done" : t.kind === "running" ? (/^退回修改/.test(t.title) ? "changes-requested" : prOf(t) ? "pr-open" : "in-progress") : (t.deps.every(d => done.has(d)) ? "ready" : "blocked");
+const statusOf = t => t.deferred ? "blocked" : t.kind === "done" ? "done" : t.kind === "running" ? (/^退回修改/.test(t.title) ? "changes-requested" : prOf(t) ? "pr-open" : "in-progress") : (t.deps.every(d => done.has(d)) ? "ready" : "blocked");
 const control = new Set(["CODEX", "COORD", "REVIEW"]);
 const data = {
   generatedAt: gen[1], main: gen[2],
