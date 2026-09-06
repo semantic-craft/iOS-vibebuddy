@@ -29,6 +29,12 @@ public enum CueSkipReason: String, Sendable, Equatable, Codable {
     /// would claim they all agreed — and the registry is a dictionary, so which
     /// one you got would not even be stable between runs.
     case mixed
+    /// That phone reported posting this cue itself, so the push for it stood
+    /// down (ADR-0012).
+    case phonePosted
+    /// The phone left this waiting cue to a push that had already delivered it
+    /// (ADR-0012). Reported by the phone; recorded on the `phone` channel.
+    case pushCovered
 }
 
 /// One phone this cue is going to, and how loud it will be there.

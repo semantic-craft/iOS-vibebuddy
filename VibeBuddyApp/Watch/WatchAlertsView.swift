@@ -30,7 +30,7 @@ struct WatchAlertsView: View {
     }
 
     private func row(_ alert: WatchAlert, isTop: Bool) -> some View {
-        let accent = Color(taskStatus: TaskPresentationState.requiresInput.colorToken)
+        let accent = CompanionPalette.status(.requiresInput)
         return HStack(alignment: .top, spacing: 6) {
             Capsule()
                 .fill(isTop ? accent : Color.secondary)
@@ -49,25 +49,14 @@ struct WatchAlertsView: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
 
-                HStack(spacing: 4) {
-                    Image(systemName: alert.waitKind == .permission
-                          ? "lock.shield.fill" : "questionmark")
-                        .font(.system(size: 10, weight: .bold))
-                    Text(alert.waitKind == .permission ? "Needs approval" : "Asked a question")
-                        .font(.caption)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                    Spacer(minLength: 0)
-                }
-                .foregroundStyle(isTop ? accent : .secondary)
-
-                if let request = alert.request {
-                    Text(request)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                Text(alert.summary ?? alert.request
+                     ?? (alert.waitKind == .permission ? String(localized: "Needs approval") : String(localized: "Asked a question")))
+                    .font(CompanionType.font(13, .heavy))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(alert.waitKind == .permission ? "Needs approval" : "Asked a question")
+                    .font(CompanionType.font(9, .heavy)).textCase(.uppercase).kerning(0.4)
+                    .foregroundStyle(isTop ? accent : .secondary)
             }
         }
         .accessibilityElement(children: .combine)
