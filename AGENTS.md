@@ -9,10 +9,13 @@ file and any more specific instructions for the files being changed. Project
 rules specialize inherited defaults; they do not override higher-priority
 session instructions or grant permission for external or destructive actions.
 
-For this checkout, `~/Projects/AGENTS.md` supplies cross-machine sync and repo
-authority rules. Its GitHub issue-tracker default is replaced by the local
-Markdown convention below. Consult its sync runbook and live authority state
-when cross-machine work is requested; routine local work does not trigger sync.
+On the maintainer's machines, `~/Projects/AGENTS.md` supplies cross-machine
+sync and repo authority rules; consult its sync runbook and live authority state
+when cross-machine work is requested. When that file is absent (any other clone,
+CI, a review sandbox), there is no fleet: treat the checkout as the only copy,
+commit and push through the normal PR flow, and do not attempt cross-machine
+sync. Its GitHub issue-tracker default is replaced by the local Markdown
+convention below in every checkout. Routine local work never triggers sync.
 
 ## Project delivery boundaries
 
