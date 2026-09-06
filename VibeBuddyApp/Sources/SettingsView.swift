@@ -29,34 +29,14 @@ struct SettingsView: View {
                         VStack(alignment: .leading, spacing: 7) {
                             Text(agent.agent.displayName).font(.headline)
                             ForEach(agent.sources) { source in
-                                HStack(alignment: .top, spacing: 8) {
-                                    Image(systemName: source.health.isHealthy
-                                          ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                                        .foregroundStyle(source.health.isHealthy ? .green : .orange)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text("\(source.source.displayName) · \(source.health.displayName)")
-                                            .fontWeight(.semibold)
-                                        Text(source.health.explanation(for: source.source))
-                                            .font(.caption).foregroundStyle(.secondary)
-                                        if let last = source.lastObservedAt {
-                                            Text("Last signal \(last, style: .relative)")
-                                                .font(.caption2).foregroundStyle(.tertiary)
-                                        }
-                                        if !source.configuredCoverage.isEmpty || !source.observedCoverage.isEmpty {
-                                            let configured = source.configuredCoverageDescription
-                                            let observed = source.observedCoverageDescription
-                                            Text("Coverage: configured \(configured.isEmpty ? "none" : configured); observed \(observed.isEmpty ? "none" : observed)")
-                                                .font(.caption2).foregroundStyle(.tertiary)
-                                        }
-                                    }
-                                }
+                                ObservationDiagnosticRow(source: source)
                             }
                         }
                     }
                 } header: {
                     Text("Observation health")
                 } footer: {
-                    Text("Repairs are only available on the Mac and run only after you press Repair there.")
+                    Text("Each row describes one source. Configuration changes are made on the Mac; a healthy source does not verify every session or its approvals.")
                 }
 
                 Section {
