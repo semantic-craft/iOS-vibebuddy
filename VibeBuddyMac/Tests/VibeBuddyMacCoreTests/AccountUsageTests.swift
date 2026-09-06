@@ -628,6 +628,43 @@ struct AccountUsageTests {
         )
     }
 
+    @Test("Cursor is a first-class usage provider with its own cache and labels")
+    func cursorProviderRegistration() {
+        #expect(AccountUsageProvider.allCases.contains(.cursor))
+        #expect(AccountUsageProvider.cursor.displayName == "Cursor")
+        #expect(AccountUsageProvider.cursor.rawValue == "cursor")
+
+        let home = URL(fileURLWithPath: "/Users/example")
+        let cacheURL = AccountUsageFileCache.defaultFileURL(provider: .cursor, home: home)
+        #expect(cacheURL.lastPathComponent == "cursor-usage.json")
+        #expect(cacheURL != AccountUsageFileCache.defaultFileURL(provider: .codex, home: home))
+
+        #expect(
+            AccountUsageUnavailableReason.notLoggedIn.displayText(provider: .cursor)
+                == "Cursor is not signed in"
+        )
+        #expect(
+            AccountUsageUnavailableReason.collectionDisabled.displayText(provider: .cursor)
+                == "Collection is turned off"
+        )
+        #expect(
+            AccountUsageUnavailableReason.notYetLoaded.displayText(provider: .cursor)
+                == "Waiting for the first refresh"
+        )
+    }
+
+    @Test("Cursor pending provider never invents a 0% remaining reading")
+    func cursorPendingProviderStaysUnavailable() async throws {
+        let provider = CursorPendingUsageProvider()
+        do {
+            _ = try await provider.fetch()
+            Issue.record("CursorPendingUsageProvider must not succeed before #104")
+        } catch let error as AccountUsageError {
+            #expect(error == .notLoggedIn)
+            #expect(error.unavailableReason.displayText(provider: .cursor) == "Cursor is not signed in")
+        }
+    }
+
     @Test("a Grok crossing alerts independently of the other providers")
     func grokAlertsAreIndependent() {
         var monitor = AccountUsageAlertMonitor()

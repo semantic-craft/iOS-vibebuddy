@@ -8,6 +8,7 @@ public enum AccountUsageProvider: String, Codable, CaseIterable, Sendable, Ident
     case codex
     case claude
     case grok
+    case cursor
 
     public var id: String { rawValue }
 
@@ -16,6 +17,7 @@ public enum AccountUsageProvider: String, Codable, CaseIterable, Sendable, Ident
         case .codex: return "Codex"
         case .claude: return "Claude"
         case .grok: return "Grok"
+        case .cursor: return "Cursor"
         }
     }
 }
