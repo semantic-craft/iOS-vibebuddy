@@ -636,14 +636,16 @@ private struct ProviderSection: View {
         Section {
             // API key
             field(caption: "API Key — paste your own (kept in the Keychain)",
-                  link: "Get an API key", icon: "key", url: provider.apiKeyURL) {
+                  link: "Get an API key", icon: "key", url: provider.apiKeyURL,
+                  pasteInto: $apiKey, id: "voiceAPIKey") {
                 SecureField("Paste your \(provider.display) key", text: $apiKey)
                     .textFieldStyle(.roundedBorder)
                     .autocorrectionDisabled()
             }
             // Model ID — clearly editable
             field(caption: "Model ID — editable, type any model",
-                  link: "Browse available models", icon: "arrow.up.right.square", url: provider.modelsURL) {
+                  link: "Browse available models", icon: "arrow.up.right.square", url: provider.modelsURL,
+                  pasteInto: $model, id: "voiceModelID") {
                 TextField(provider.defaultModel, text: $model)
                     .textFieldStyle(.roundedBorder)
                     .font(.body.monospaced())
@@ -651,7 +653,8 @@ private struct ProviderSection: View {
             }
             // Voice ID — clearly editable
             field(caption: "Voice ID — editable (blank = auto by language)",
-                  link: "Browse available voices", icon: "arrow.up.right.square", url: provider.voicesURL) {
+                  link: "Browse available voices", icon: "arrow.up.right.square", url: provider.voicesURL,
+                  pasteInto: $voice, id: "voiceID") {
                 TextField(exampleVoice, text: $voice)
                     .textFieldStyle(.roundedBorder)
                     .font(.body.monospaced())
@@ -659,7 +662,8 @@ private struct ProviderSection: View {
             }
             if provider == .qwen {
                 field(caption: "Workspace ID — optional; uses the workspace endpoint when set",
-                      link: "Find your workspace ID", icon: "arrow.up.right.square", url: VoiceProvider.qwenWorkspaceIDURL) {
+                      link: "Find your workspace ID", icon: "arrow.up.right.square", url: VoiceProvider.qwenWorkspaceIDURL,
+                      pasteInto: $workspaceID, id: "qwenWorkspaceID") {
                     TextField("e.g. llm-xxxxxxxx", text: $workspaceID)
                         .textFieldStyle(.roundedBorder)
                         .font(.body.monospaced())
@@ -684,10 +688,30 @@ private struct ProviderSection: View {
     /// provider's list of valid values.
     @ViewBuilder
     private func field<F: View>(caption: LocalizedStringKey, link: LocalizedStringKey, icon: String, url: URL,
+                                pasteInto value: Binding<String>, id: String,
                                 @ViewBuilder _ input: () -> F) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(caption).font(.caption).foregroundStyle(.secondary)
-            input()
+            HStack(spacing: 8) {
+                input()
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier(id)
+                Button {
+                    guard let pasted = NSPasteboard.general.string(forType: .string) else { return }
+                    let trimmed = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else { return }
+                    value.wrappedValue = trimmed
+                } label: {
+                    Label("Paste", systemImage: "doc.on.clipboard")
+                        .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+                .fixedSize()
+                .help("Paste")
+                .accessibilityIdentifier("paste-\(id)")
+            }
             Link(destination: url) {
                 Label(link, systemImage: icon).font(.caption)
             }
