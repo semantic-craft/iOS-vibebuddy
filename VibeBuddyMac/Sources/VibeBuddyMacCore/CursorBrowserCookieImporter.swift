@@ -79,6 +79,8 @@ public struct CursorBrowserCookieImporter: CursorBrowserCookieImporting {
     }
 
     public func importSessionCookieHeader(allowKeychainPrompt: Bool) throws -> String {
+        // SweetCookieKit `.suffix` over-fetches (`evilcursor.com`); we re-filter
+        // with dot-boundary matching before accepting any cookie (#114 M3).
         let query = BrowserCookieQuery(domains: Self.cookieDomains, domainMatch: .suffix)
         let load: () throws -> [BrowserCookieStoreRecords] = {
             try self.client.records(matching: query, in: self.browsers)
@@ -90,15 +92,36 @@ public struct CursorBrowserCookieImporter: CursorBrowserCookieImporting {
             groups = try BrowserCookieKeychainAccessGate.withUserInteractionDisallowed(load)
         }
 
-        // Prefer a known session cookie name; otherwise accept any non-empty
-        // Cursor-domain cookie set (new auth cookie names).
+        // Prefer known session cookie names only. Do not accept the weak
+        // "any cookie on a Cursor-ish domain" fallback — that path can persist
+        // junk into Keychain (#114 M3).
         if let header = Self.cookieHeader(from: groups, requireKnownSessionName: true) {
             return header
         }
-        if let header = Self.cookieHeader(from: groups, requireKnownSessionName: false) {
-            return header
-        }
         throw AccountUsageError.notLoggedIn
+    }
+
+    /// Dot-boundary domain match: `host == domain || host.hasSuffix("." + domain)`.
+    /// Rejects suffix collisions such as `evilcursor.com` vs `cursor.com`.
+    public static func matchesAllowedDomain(
+        _ host: String,
+        allowedDomains: [String] = cookieDomains
+    ) -> Bool {
+        let haystack = normalizeDomain(host)
+        guard !haystack.isEmpty else { return false }
+        return allowedDomains.contains { pattern in
+            let needle = normalizeDomain(pattern)
+            guard !needle.isEmpty else { return false }
+            return haystack == needle || haystack.hasSuffix("." + needle)
+        }
+    }
+
+    static func normalizeDomain(_ raw: String) -> String {
+        var value = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if value.hasPrefix(".") {
+            value.removeFirst()
+        }
+        return value
     }
 
     static func cookieHeader(
@@ -106,7 +129,9 @@ public struct CursorBrowserCookieImporter: CursorBrowserCookieImporting {
         requireKnownSessionName: Bool
     ) -> String? {
         for group in groups {
-            let cookies = BrowserCookieClient.makeHTTPCookies(group.records, origin: .domainBased)
+            let allowed = group.records.filter { matchesAllowedDomain($0.domain) }
+            guard !allowed.isEmpty else { continue }
+            let cookies = BrowserCookieClient.makeHTTPCookies(allowed, origin: .domainBased)
             guard !cookies.isEmpty else { continue }
             let hasNamed = cookies.contains { sessionCookieNames.contains($0.name) }
             if requireKnownSessionName, !hasNamed { continue }
@@ -121,11 +146,14 @@ public enum CursorCookieResolver {
     public static func resolve(
         mode: CursorCookieSourceMode = CursorCookieSourceSettings.mode(),
         manualCookie: String? = nil,
+        loadManual: () -> String? = { CursorSessionCookieStore.loadManual() },
         importer: CursorBrowserCookieImporting = CursorBrowserCookieImporter(),
         allowKeychainPrompt: Bool = false,
-        persistImportedCookie: (String) -> Void = { CursorSessionCookieStore.save($0) }
+        persistImportedCookie: (String) -> Void = {
+            _ = CursorSessionCookieStore.saveImportedIfChanged($0)
+        }
     ) throws -> String {
-        let manual = (manualCookie ?? CursorSessionCookieStore.load())?
+        let manual = (manualCookie ?? loadManual())?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         switch mode {
         case .manual:
@@ -139,6 +167,7 @@ public enum CursorCookieResolver {
                 persistImportedCookie(imported)
                 return imported
             } catch {
+                // Independent manual slot — never the imported account (#114 M1).
                 if let manual, !manual.isEmpty { return manual }
                 throw (error as? AccountUsageError) ?? AccountUsageError.notLoggedIn
             }

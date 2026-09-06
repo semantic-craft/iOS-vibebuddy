@@ -109,9 +109,10 @@ struct AccountUsageSummaryView: View {
 struct AccountUsageSettings: View {
     @ObservedObject var model: MenuBarModel
     @AppStorage("accountUsageAlertThreshold") private var alertThreshold = 90
-    @State private var cursorCookie: String = CursorSessionCookieStore.load() ?? ""
+    @State private var cursorCookie: String = CursorSessionCookieStore.loadManual() ?? ""
     @State private var cursorCookieMode: CursorCookieSourceMode = CursorCookieSourceSettings.mode()
     @State private var cursorImportMessage: String?
+    @FocusState private var cursorCookieFocused: Bool
 
     var body: some View {
         Form {
@@ -144,15 +145,19 @@ struct AccountUsageSettings: View {
                 if cursorCookieMode == .manual {
                     SecureField("Cookie header from cursor.com", text: $cursorCookie)
                         .textFieldStyle(.roundedBorder)
-                        .onChange(of: cursorCookie) { _, value in
-                            CursorSessionCookieStore.save(value)
+                        .focused($cursorCookieFocused)
+                        .onSubmit { CursorSessionCookieStore.saveManual(cursorCookie) }
+                        .onChange(of: cursorCookieFocused) { _, focused in
+                            if !focused {
+                                CursorSessionCookieStore.saveManual(cursorCookie)
+                            }
                         }
                     Button("Paste Cookie") {
                         guard let pasted = NSPasteboard.general.string(forType: .string) else { return }
                         let trimmed = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !trimmed.isEmpty else { return }
                         cursorCookie = trimmed
-                        CursorSessionCookieStore.save(trimmed)
+                        CursorSessionCookieStore.saveManual(trimmed)
                     }
                     .accessibilityIdentifier("paste-cursorCookie")
                 } else {
@@ -161,8 +166,7 @@ struct AccountUsageSettings: View {
                         do {
                             let header = try CursorBrowserCookieImporter()
                                 .importSessionCookieHeader(allowKeychainPrompt: true)
-                            CursorSessionCookieStore.save(header)
-                            cursorCookie = header
+                            _ = CursorSessionCookieStore.saveImportedIfChanged(header)
                             cursorImportMessage = "Imported a Cursor session cookie from the browser."
                         } catch {
                             cursorImportMessage = "No usable Cursor session found in the browser. Paste a Cookie header, or sign in at cursor.com and try again."
@@ -174,16 +178,20 @@ struct AccountUsageSettings: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    SecureField("Last imported / fallback Cookie", text: $cursorCookie)
+                    SecureField("Manual fallback Cookie", text: $cursorCookie)
                         .textFieldStyle(.roundedBorder)
-                        .onChange(of: cursorCookie) { _, value in
-                            CursorSessionCookieStore.save(value)
+                        .focused($cursorCookieFocused)
+                        .onSubmit { CursorSessionCookieStore.saveManual(cursorCookie) }
+                        .onChange(of: cursorCookieFocused) { _, focused in
+                            if !focused {
+                                CursorSessionCookieStore.saveManual(cursorCookie)
+                            }
                         }
                 }
             } header: {
                 Text("Cursor session")
             } footer: {
-                Text("Paste mode stores the Cookie header in the Keychain. Browser import reads Safari/Chrome/Firefox cookies for cursor.com (may prompt for Keychain or Full Disk Access); refresh uses a non-interactive import and falls back to the saved Cookie.")
+                Text("Paste mode stores the Cookie in a Keychain slot separate from browser import. Browser import reads Safari/Chrome/Firefox cookies for cursor.com (may prompt for Keychain or Full Disk Access); refresh writes the imported slot only when the value changes and falls back to the manual Cookie.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import VibeBuddyKit
 
 #if canImport(FoundationNetworking)
@@ -16,19 +17,65 @@ extension URLSession: CursorUsageTransport {
     }
 }
 
-/// Keychain account for the pasted Cursor session Cookie header (#104).
+/// Keychain accounts for Cursor session Cookie headers (#104 / #114).
+/// Manual paste and browser-imported cookies stay in separate slots so
+/// `browserAuto` refresh cannot wipe the user's pasted fallback.
 public enum CursorSessionCookieStore {
-    public static let keychainAccount = "cursorSessionCookie"
+    /// Manual paste slot (also the browserAuto fallback).
+    public static let manualKeychainAccount = "cursorSessionCookie"
+    /// Browser-imported slot; written only when the imported value changes.
+    public static let importedKeychainAccount = "cursorSessionCookie.imported"
+    /// Back-compat alias for the manual paste account.
+    public static let keychainAccount = manualKeychainAccount
 
-    public static func load(read: (String) -> String? = KeychainStore.get) -> String? {
-        read(keychainAccount)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .nilIfEmpty
+    public static func loadManual(read: (String) -> String? = { KeychainStore.get($0) }) -> String? {
+        normalize(read(manualKeychainAccount))
     }
 
-    public static func save(_ value: String?, write: (String?, String) -> Void = KeychainStore.set) {
-        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
-        write(trimmed?.nilIfEmpty, keychainAccount)
+    @discardableResult
+    public static func saveManual(
+        _ value: String?,
+        write: (String?, String) -> OSStatus = { KeychainStore.set($0, for: $1) }
+    ) -> OSStatus {
+        write(normalize(value), manualKeychainAccount)
+    }
+
+    public static func loadImported(read: (String) -> String? = { KeychainStore.get($0) }) -> String? {
+        normalize(read(importedKeychainAccount))
+    }
+
+    /// Persists the imported cookie only when it differs from the stored value.
+    /// Returns `nil` when no write was needed; otherwise the Keychain OSStatus.
+    @discardableResult
+    public static func saveImportedIfChanged(
+        _ value: String?,
+        read: (String) -> String? = { KeychainStore.get($0) },
+        write: (String?, String) -> OSStatus = { KeychainStore.set($0, for: $1) }
+    ) -> OSStatus? {
+        let trimmed = normalize(value)
+        let previous = normalize(read(importedKeychainAccount))
+        guard trimmed != previous else { return nil }
+        return write(trimmed, importedKeychainAccount)
+    }
+
+    /// Back-compat: load the manual paste slot.
+    public static func load(read: (String) -> String? = { KeychainStore.get($0) }) -> String? {
+        loadManual(read: read)
+    }
+
+    /// Back-compat: save into the manual paste slot.
+    @discardableResult
+    public static func save(
+        _ value: String?,
+        write: (String?, String) -> OSStatus = { KeychainStore.set($0, for: $1) }
+    ) -> OSStatus {
+        saveManual(value, write: write)
+    }
+
+    private static func normalize(_ value: String?) -> String? {
+        value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
     }
 }
 
@@ -182,6 +229,7 @@ public struct CursorUsageProvider: AccountUsageProviding {
     private let endpoint: URL
     private let transport: CursorUsageTransport
     private let timeout: TimeInterval
+    private let importTimeout: TimeInterval
 
     public init(
         cookie: String? = nil,
@@ -189,7 +237,8 @@ public struct CursorUsageProvider: AccountUsageProviding {
         cookieImporter: CursorBrowserCookieImporting = CursorBrowserCookieImporter(),
         endpoint: URL = defaultEndpoint,
         transport: CursorUsageTransport = URLSession.shared,
-        timeout: TimeInterval = 15
+        timeout: TimeInterval = 15,
+        importTimeout: TimeInterval = 10
     ) {
         self.cookie = cookie
         self.cookieMode = cookieMode
@@ -197,15 +246,14 @@ public struct CursorUsageProvider: AccountUsageProviding {
         self.endpoint = endpoint
         self.transport = transport
         self.timeout = timeout
+        self.importTimeout = importTimeout
     }
 
     public func fetch() async throws -> AccountUsageSnapshot {
-        let cookie = try CursorCookieResolver.resolve(
-            mode: cookieMode,
-            manualCookie: cookie,
-            importer: cookieImporter,
-            allowKeychainPrompt: false
-        )
+        try Task.checkCancellation()
+        let cookie = try await resolveCookieHeader()
+        try Task.checkCancellation()
+
         var request = URLRequest(url: endpoint)
         request.httpMethod = "GET"
         request.timeoutInterval = timeout
@@ -237,6 +285,54 @@ public struct CursorUsageProvider: AccountUsageProviding {
             throw AccountUsageError.rateLimited
         default:
             throw AccountUsageError.providerUnavailable
+        }
+    }
+
+    /// Manual resolve stays on the cooperative pool (Keychain read only).
+    /// Browser import mirrors Grok: blocking SweetCookieKit I/O runs on a
+    /// utility queue behind a continuation, with an import timeout.
+    private func resolveCookieHeader() async throws -> String {
+        switch cookieMode {
+        case .manual:
+            return try CursorCookieResolver.resolve(
+                mode: .manual,
+                manualCookie: cookie,
+                importer: cookieImporter,
+                allowKeychainPrompt: false
+            )
+        case .browserAuto:
+            return try await importBrowserCookieOffPool()
+        }
+    }
+
+    private func importBrowserCookieOffPool() async throws -> String {
+        let importer = cookieImporter
+        let manualOverride = cookie
+        let seconds = importTimeout
+        return try await withThrowingTaskGroup(of: String.self) { group in
+            group.addTask {
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+                    DispatchQueue.global(qos: .utility).async {
+                        continuation.resume(with: Result {
+                            try CursorCookieResolver.resolve(
+                                mode: .browserAuto,
+                                manualCookie: manualOverride,
+                                importer: importer,
+                                allowKeychainPrompt: false
+                            )
+                        })
+                    }
+                }
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                throw AccountUsageError.timedOut
+            }
+            defer { group.cancelAll() }
+            guard let first = try await group.next() else {
+                throw AccountUsageError.unknown
+            }
+            return first
         }
     }
 }
