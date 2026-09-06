@@ -4,6 +4,7 @@ import VibeBuddyKit
 /// App and extension restore the same atomic privacy-minimized envelope.
 enum WatchComplicationStore {
     static let kind = "FollowedTask"
+    static let quotaKind = "ProviderQuota"
     static let group = "group.com.vibebuddy.app.watch"
     static var url: URL? {
         FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group)?

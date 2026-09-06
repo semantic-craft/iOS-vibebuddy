@@ -16,6 +16,7 @@ import WidgetKit
 final class WatchStateStore: NSObject, ObservableObject {
     @Published private(set) var state: WatchDashboardState?
     @Published var taskLink: WatchTaskLink?
+    @Published var quotaSelection: WatchQuotaSelection?
     @Published private(set) var completionQueue = WatchCompletionQueue()
     private var completionAttempt: WatchCompletionRequest?
     private var retryTask: Task<Void, Never>?
@@ -76,7 +77,13 @@ final class WatchStateStore: NSObject, ObservableObject {
     deinit { retryTask?.cancel() }
 
     func openTask(_ url: URL) {
+        if let selection = WatchQuotaSelection(url: url) {
+            taskLink = nil
+            quotaSelection = selection
+            return
+        }
         guard let link = WatchTaskLink(url: url) else { return }
+        quotaSelection = nil
         taskLink = link
     }
 
@@ -106,6 +113,7 @@ final class WatchStateStore: NSObject, ObservableObject {
         retryCount = retryCount.filter { completionQueue.links.contains($0.key) }
         if let state, WatchComplicationStore.save(state, queue: completionQueue) {
             WidgetCenter.shared.reloadTimelines(ofKind: WatchComplicationStore.kind)
+            WidgetCenter.shared.reloadTimelines(ofKind: WatchComplicationStore.quotaKind)
         }
     }
 

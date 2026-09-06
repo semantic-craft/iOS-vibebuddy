@@ -67,23 +67,25 @@ public enum ClaudeUsageResponseDecoder {
         calendar: Calendar
     ) throws -> AccountUsageWindow? {
         let escaped = NSRegularExpression.escapedPattern(for: name)
-        let pattern = "(?m)^\(escaped):\\s*([0-9]+(?:\\.[0-9]+)?)% used\\s*·\\s*resets\\s+(.+?)\\s+\\(([^()]+)\\)\\s*$"
+        let pattern = "(?m)^\(escaped):\\s*([0-9]+(?:\\.[0-9]+)?)% used([^\\n]*)$"
         let expression = try NSRegularExpression(pattern: pattern)
         let range = NSRange(output.startIndex..<output.endIndex, in: output)
-        guard let match = expression.firstMatch(in: output, range: range) else { return nil }
-        guard let percentRange = Range(match.range(at: 1), in: output),
-              let percent = Double(output[percentRange]),
-              percent.isFinite,
-              (0...100).contains(percent),
-              let resetRange = Range(match.range(at: 2), in: output),
-              let zoneRange = Range(match.range(at: 3), in: output),
-              let reset = parseReset(
-                String(output[resetRange]),
-                timeZoneID: String(output[zoneRange]),
-                now: now,
-                calendar: calendar
-              ) else {
-            throw AccountUsageError.incompatibleFormat
+        guard let match = expression.firstMatch(in: output, range: range),
+              let percentRange = Range(match.range(at: 1), in: output),
+              let percent = Double(output[percentRange]), percent.isFinite,
+              (0...100).contains(percent) else { return nil }
+        // A missing or malformed date cannot erase an independently valid percentage.
+        var reset: Date?
+        if let suffixRange = Range(match.range(at: 2), in: output) {
+            let suffix = String(output[suffixRange])
+            let datePattern = #"resets\s+(.+?)\s+\(([^()]+)\)\s*$"#
+            let regex = try NSRegularExpression(pattern: datePattern)
+            if let dateMatch = regex.firstMatch(in: suffix, range: NSRange(suffix.startIndex..<suffix.endIndex, in: suffix)),
+               let dateRange = Range(dateMatch.range(at: 1), in: suffix),
+               let zoneRange = Range(dateMatch.range(at: 2), in: suffix) {
+                reset = parseReset(String(suffix[dateRange]), timeZoneID: String(suffix[zoneRange]),
+                                   now: now, calendar: calendar, durationMinutes: durationMinutes)
+            }
         }
         return AccountUsageWindow(
             kind: kind,
@@ -102,7 +104,8 @@ public enum ClaudeUsageResponseDecoder {
         _ value: String,
         timeZoneID: String,
         now: Date,
-        calendar: Calendar
+        calendar: Calendar,
+        durationMinutes: Int
     ) -> Date? {
         guard let timeZone = TimeZone(identifier: timeZoneID) else { return nil }
         var localCalendar = calendar
@@ -112,14 +115,19 @@ public enum ClaudeUsageResponseDecoder {
         formatter.calendar = localCalendar
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = timeZone
-        guard var candidate = resetFormats.lazy.compactMap({ format -> Date? in
-            formatter.dateFormat = format
-            return formatter.date(from: "\(value) \(year)")
-        }).first else { return nil }
-        if candidate < now.addingTimeInterval(-60) {
-            candidate = localCalendar.date(byAdding: .year, value: 1, to: candidate) ?? candidate
-        }
-        return candidate
+        formatter.isLenient = false
+        // The CLI omits the year. Only candidates near this window are plausible,
+        // including December/January in either direction. Never roll arbitrary
+        // stale September dates into next year.
+        let horizon = TimeInterval(durationMinutes * 60) + 24 * 60 * 60
+        let candidates = (year - 1...year + 1).flatMap { candidateYear in
+            resetFormats.compactMap { format -> Date? in
+                formatter.dateFormat = format
+                return formatter.date(from: "\(value) \(candidateYear)")
+            }
+        }.filter { abs($0.timeIntervalSince(now)) <= horizon }
+        return candidates.min { abs($0.timeIntervalSince(now)) < abs($1.timeIntervalSince(now)) }
+
     }
 }
 /// Reads subscription quota through Claude Code's own read-only `/usage`

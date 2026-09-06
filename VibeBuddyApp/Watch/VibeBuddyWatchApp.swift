@@ -13,6 +13,17 @@ struct VibeBuddyWatchApp: App {
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active { store.becameActive() }
                 }
+                .sheet(item: $store.quotaSelection) { selection in
+                    TimelineView(.periodic(from: .now, by: 5)) { context in
+                        if let state = store.state {
+                            WatchQuotaView(state: state,
+                                           connection: state.connection(now: context.date, phoneReachable: store.isPhoneReachable),
+                                           now: context.date, selection: selection)
+                        } else {
+                            WatchNoDataView()
+                        }
+                    }
+                }
                 .sheet(item: $store.taskLink) { link in
                     WatchTaskDetailView(store: store, link: link)
                 }

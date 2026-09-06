@@ -122,17 +122,25 @@ extension QuotaFreshness {
 }
 
 enum WatchQuotaVoice {
-    /// One spoken sentence per provider, so VoiceOver never has to infer a bar.
-    static func summary(_ quota: ProviderQuota, freshness: QuotaFreshness) -> String {
-        guard let remaining = quota.weeklyRemainingPercent else {
-            guard let reason = quota.unavailableReason else { return String(localized: "Unavailable") }
-            return String(localized: "Unavailable · \(reason)")
-        }
-        let weekly = String(localized: "\(WatchFormat.percent(remaining)) of the weekly allowance remaining")
-        switch freshness {
-        case .live: return weekly
-        case .stale: return String(localized: "\(weekly), stale")
-        case .unavailable: return String(localized: "Unavailable")
-        }
+    static func windowName(_ window: QuotaWindow) -> String {
+        guard let minutes = window.durationMinutes else { return String(localized: "Window duration unknown") }
+        if minutes == 10080 { return String(localized: "Weekly remaining") }
+        if minutes % 1440 == 0 { return String(localized: "\(minutes / 1440)-day window") }
+        if minutes % 60 == 0 { return String(localized: "\(minutes / 60)-hour window") }
+        return String(localized: "\(minutes)-minute window")
+    }
+
+    static func summary(_ quota: ProviderQuota, freshness: QuotaFreshness, now: Date) -> String {
+        QuotaWindowKind.allCases.map { kind in
+            let reading = quota.window(kind)
+            let name = kind == .weekly ? String(localized: "Weekly remaining") : windowName(reading)
+            switch reading.status(now: now) {
+            case .awaitingReset: return name + ": " + String(localized: "Reset reached · awaiting update")
+            case .unavailable: return name + ": " + String(localized: "Unavailable")
+            case .live, .stale:
+                let value = reading.currentRemainingPercent(now: now).map(WatchFormat.percent) ?? "—"
+                return name + ": " + value + (reading.status(now: now) == .stale ? ", " + String(localized: "Cached reading") : "")
+            }
+        }.joined(separator: "; ")
     }
 }

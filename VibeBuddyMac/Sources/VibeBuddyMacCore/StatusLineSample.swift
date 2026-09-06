@@ -78,9 +78,9 @@ public struct StatusLineSample: Sendable, Equatable {
 
     private static func window(_ value: Any?, kind: AccountUsageWindowKind, minutes: Int) -> AccountUsageWindow? {
         guard let object = value as? [String: Any],
-              let used = double(object["used_percentage"]), used.isFinite else { return nil }
-        let resets = double(object["resets_at"]).map { Date(timeIntervalSince1970: $0) }
-        return AccountUsageWindow(kind: kind, usedPercent: Int(min(100, max(0, used)).rounded()),
+              let used = double(object["used_percentage"]), used.isFinite, (0...100).contains(used) else { return nil }
+        let resets = double(object["resets_at"]).flatMap { $0.isFinite && $0 > 0 ? Date(timeIntervalSince1970: $0) : nil }
+        return AccountUsageWindow(kind: kind, usedPercent: Int(used.rounded()),
                                   windowDurationMinutes: minutes, resetsAt: resets)
     }
 

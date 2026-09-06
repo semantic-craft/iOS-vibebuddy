@@ -52,6 +52,15 @@ struct AccountUsageLiveTests {
         #expect(later.snapshot?.primary?.usedPercent == 50)
     }
 
+    @Test("Receiving an old live sample preserves its original observation time")
+    func delayedLiveDoesNotRenew() async {
+        let collector = AccountUsageCollector(provider: CountingProvider(), cache: MemoryCache(), enabled: true)
+        let state = await collector.acceptLive(live(usedPercent: 33), holdFor: 60, now: now.addingTimeInterval(1000))
+        #expect(state.snapshot?.fetchedAt == now)
+        let quota = ProviderQuota(state, provider: .codex)
+        #expect(quota.window(.short).status(now: now.addingTimeInterval(1000)) == .stale)
+    }
+
     @Test("a disabled collector ignores live samples")
     func disabledIgnoresLive() async {
         let collector = AccountUsageCollector(provider: CountingProvider(), cache: MemoryCache(), enabled: false)
@@ -87,7 +96,7 @@ struct CodexAppServerLiveUsageTests {
                                           "primary": ["usedPercent": 11, "windowDurationMins": 10080, "resetsAt": 1_789_207_457]]],
     ]
 
-    @Test("connecting publishes the daemon's rate limits, and a sparse update re-publishes them merged")
+    @Test("connecting publishes quota; sparse notifications replace windows and ignore unrelated buckets")
     func liveRateLimits() async throws {
         let socket = FileManager.default.temporaryDirectory.appendingPathComponent("vb-sock-\(UUID().uuidString)")
         FileManager.default.createFile(atPath: socket.path, contents: Data())
@@ -121,6 +130,27 @@ struct CodexAppServerLiveUsageTests {
         let merged = try #require(await feed.latest(for: .codex))
         #expect(merged.planType == "pro")          // kept from the full read
         #expect(merged.lifetimeTokens == 4242)     // kept from the usage read
+        connection.push(["method": "account/rateLimits/updated",
+                         "params": ["rateLimits": ["limitId": "codex",
+                             "secondary": ["usedPercent": 14, "windowDurationMins": 300]]]])
+        #expect(await waitFor { await feed.latest(for: .codex)?.secondary?.usedPercent == 14 })
+        let shortOnly = try #require(await feed.latest(for: .codex))
+        #expect(shortOnly.primary == nil)
+        #expect(ProviderQuota(.available(shortOnly, nextRefreshAt: nil), provider: .codex).weeklyRemainingPercent == nil)
+        let subscription = await feed.subscribe()
+        connection.push(["method": "account/rateLimits/updated",
+                         "params": ["rateLimits": ["limitId": "other",
+                             "primary": ["usedPercent": 99, "windowDurationMins": 10080]]]])
+        // A following supported notification acts as a processing barrier.
+        connection.push(["method": "account/rateLimits/updated",
+                         "params": ["rateLimits": ["limitId": "codex",
+                             "secondary": ["usedPercent": 15, "windowDurationMins": 300]]]])
+        #expect(await waitFor { await feed.latest(for: .codex)?.secondary?.usedPercent == 15 })
+        #expect(await feed.latest(for: .codex)?.primary == nil)
+        var iterator = subscription.stream.makeAsyncIterator()
+        let published = await iterator.next()
+        #expect(published?.secondary?.usedPercent == 15)
+        await feed.unsubscribe(subscription.id)
         #expect(await monitor.diagnostics().connected)
     }
 }

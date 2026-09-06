@@ -156,7 +156,7 @@ struct WatchQuotaStrips: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(width: 44, alignment: .leading)
-            if let remaining = quota.weeklyRemainingPercent {
+            if let remaining = quota.window(.weekly).currentRemainingPercent(now: now) {
                 ProgressView(value: Double(remaining), total: 100)
                     .tint(freshness == .stale ? Color.secondary
                           : (remaining <= 10 ? CompanionPalette.status(.requiresInput) : CompanionPalette.accent))
@@ -165,7 +165,7 @@ struct WatchQuotaStrips: View {
                     .monospacedDigit()
                     .frame(width: 32, alignment: .trailing)
             } else {
-                Text("Unavailable")
+                Text(quota.window(.weekly).status(now: now) == .awaitingReset ? "Reset reached · awaiting update" : "Window unavailable")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -178,6 +178,6 @@ struct WatchQuotaStrips: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(quota.provider.displayName))
-        .accessibilityValue(Text(WatchQuotaVoice.summary(quota, freshness: freshness)))
+        .accessibilityValue(Text(WatchQuotaVoice.summary(quota, freshness: freshness, now: now)))
     }
 }
