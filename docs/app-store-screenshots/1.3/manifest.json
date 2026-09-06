@@ -1,40 +1,56 @@
 {
   "captured": "2026-09-06",
-  "sourceHead": "90da1f7ce78eee7a4bc8e3c4197f5defdec449da",
+  "sourceHead": "b3116ef4fa707de0c89a9ccdc24fd0c8e9388737",
   "sampleData": true,
-  "uploaded": false,
+  "uploaded": true,
   "images": [
     {
       "file": "ios/en-US/01-dashboard.jpg",
       "width": 1320,
       "height": 2868,
       "mode": "RGB",
-      "bytes": 436229,
-      "sha256": "923a8a99d76fd323661a0714cf876dca14cde21502c08a156a82f695eef3a040"
+      "bytes": 442787,
+      "sha256": "c1c8dcdb7f2435907f78bae5c36bc21ded76fd7203855fa501d9b85d791a1fa2",
+      "sourceHead": "b3116ef4fa707de0c89a9ccdc24fd0c8e9388737",
+      "sourceVersion": "1.3(10)",
+      "sourceNote": "Recaptured from final Release simulator build; WATCHOS_DEPLOYMENT_TARGET=26.5 command override only; formal source unchanged.",
+      "uploaded": true
     },
     {
       "file": "ios/en-US/02-codex-task.jpg",
       "width": 1320,
       "height": 2868,
       "mode": "RGB",
-      "bytes": 289584,
-      "sha256": "73020a661bb956aa29e219654f4e794759dd4838e5edf14b0374f4aaa72afe5a"
+      "bytes": 289694,
+      "sha256": "87629af2c58ec1022da8d9d95723818a564cd0caaa5ad75590db3597038056b7",
+      "sourceHead": "b3116ef4fa707de0c89a9ccdc24fd0c8e9388737",
+      "sourceVersion": "1.3(10)",
+      "sourceNote": "Recaptured from final Release simulator build; WATCHOS_DEPLOYMENT_TARGET=26.5 command override only; formal source unchanged.",
+      "uploaded": true
     },
     {
       "file": "ios/zh-Hans/01-dashboard.jpg",
       "width": 1320,
       "height": 2868,
       "mode": "RGB",
-      "bytes": 432840,
-      "sha256": "133de0e698fa6835097b3ff3c26c72414cb5d5ccc4937c9a0451319cfa4af06a"
+      "bytes": 438010,
+      "sha256": "06d232ef81fee1c1aa851094272e4da329484030ba0bcd884cced8ee3abf9f19",
+      "sourceHead": "b3116ef4fa707de0c89a9ccdc24fd0c8e9388737",
+      "sourceVersion": "1.3(10)",
+      "sourceNote": "Recaptured from final Release simulator build; WATCHOS_DEPLOYMENT_TARGET=26.5 command override only; formal source unchanged.",
+      "uploaded": true
     },
     {
       "file": "ios/zh-Hans/02-codex-task.jpg",
       "width": 1320,
       "height": 2868,
       "mode": "RGB",
-      "bytes": 287937,
-      "sha256": "1ec091fa407c2861fe9a58e05abeba7df8c572939399b03fd6c9f19b1beae268"
+      "bytes": 287832,
+      "sha256": "ad510c9522877437cd63518a798f098f1d53445cf55f49de1c5cc5cf7e09fb40",
+      "sourceHead": "b3116ef4fa707de0c89a9ccdc24fd0c8e9388737",
+      "sourceVersion": "1.3(10)",
+      "sourceNote": "Recaptured from final Release simulator build; WATCHOS_DEPLOYMENT_TARGET=26.5 command override only; formal source unchanged.",
+      "uploaded": true
     },
     {
       "file": "macos/en-US/01-dashboard-approval.jpg",
@@ -42,7 +58,10 @@
       "height": 1600,
       "mode": "RGB",
       "bytes": 356670,
-      "sha256": "68867140a140a41c9d58376c110bd19de969f52b1d975a2af72ed987d9947fd9"
+      "sha256": "68867140a140a41c9d58376c110bd19de969f52b1d975a2af72ed987d9947fd9",
+      "sourceVersion": "1.3(7)",
+      "sourceNote": "Retained capture from unchanged released Mac 1.3(7), isolated installed-app copy; not recaptured this round.",
+      "uploaded": false
     },
     {
       "file": "macos/zh-Hans/01-dashboard-approval.jpg",
@@ -50,7 +69,10 @@
       "height": 1600,
       "mode": "RGB",
       "bytes": 352401,
-      "sha256": "1ca262c5e2a03d6243f80a8581ea89e0cf6bc3363c2f900be494d48e15edc7a3"
+      "sha256": "1ca262c5e2a03d6243f80a8581ea89e0cf6bc3363c2f900be494d48e15edc7a3",
+      "sourceVersion": "1.3(7)",
+      "sourceNote": "Retained capture from unchanged released Mac 1.3(7), isolated installed-app copy; not recaptured this round.",
+      "uploaded": false
     },
     {
       "file": "reviewer/en-US/ios-pairing.jpg",
@@ -59,7 +81,10 @@
       "mode": "RGB",
       "bytes": 462679,
       "sha256": "6f800de132e2d939dae109c8d4c1fdfe109d58c6da5da87cd2a162a0308de56d",
-      "sourceNote": "HEAD + local Mac companion onboarding implementation, 2026-09-06"
+      "sourceNote": "Recaptured from final Release simulator build; WATCHOS_DEPLOYMENT_TARGET=26.5 command override only; formal source unchanged. Recaptured bytes match the prior image.",
+      "sourceHead": "b3116ef4fa707de0c89a9ccdc24fd0c8e9388737",
+      "sourceVersion": "1.3(10)",
+      "uploaded": false
     },
     {
       "file": "reviewer/zh-Hans/ios-pairing.jpg",
@@ -68,39 +93,62 @@
       "mode": "RGB",
       "bytes": 449500,
       "sha256": "03a51aac0d4d20ca05e8076c2ca50da4f50da5773304bb1521bdd524b5f47d53",
-      "sourceNote": "HEAD + local Mac companion onboarding implementation, 2026-09-06"
+      "sourceNote": "Recaptured from final Release simulator build; WATCHOS_DEPLOYMENT_TARGET=26.5 command override only; formal source unchanged. Recaptured bytes match the prior image.",
+      "sourceHead": "b3116ef4fa707de0c89a9ccdc24fd0c8e9388737",
+      "sourceVersion": "1.3(10)",
+      "uploaded": false
     },
     {
       "file": "watchos/en-US/01-task-overview.jpg",
       "width": 416,
       "height": 496,
       "mode": "RGB",
-      "bytes": 43014,
-      "sha256": "24bc10191b4cdbd82dab809eb97914dbc75e6a7548be14b704e6ab6c216fa2aa"
+      "bytes": 43164,
+      "sha256": "9209fb67d52ae667ccd2df1edfd91729cc65c3987a2f9d04489a5983472aaa52",
+      "sourceHead": "b3116ef4fa707de0c89a9ccdc24fd0c8e9388737",
+      "sourceVersion": "1.3(10)",
+      "sourceNote": "Recaptured from final Release simulator build; WATCHOS_DEPLOYMENT_TARGET=26.5 command override only; formal source unchanged.",
+      "uploaded": true
     },
     {
       "file": "watchos/en-US/02-quota.jpg",
       "width": 416,
       "height": 496,
       "mode": "RGB",
-      "bytes": 54029,
-      "sha256": "128c04d9f6f05a1e6a494960d015e21ebdb443ac067fde7f6f67b1b2f49a424c"
+      "bytes": 53746,
+      "sha256": "128a80be588fc80efedf8a310fd6a4ddc1985f342be11525f268fbd90aa17656",
+      "sourceHead": "b3116ef4fa707de0c89a9ccdc24fd0c8e9388737",
+      "sourceVersion": "1.3(10)",
+      "sourceNote": "Recaptured from final Release simulator build; WATCHOS_DEPLOYMENT_TARGET=26.5 command override only; formal source unchanged.",
+      "uploaded": true
     },
     {
       "file": "watchos/zh-Hans/01-task-overview.jpg",
       "width": 416,
       "height": 496,
       "mode": "RGB",
-      "bytes": 41626,
-      "sha256": "18e6655e8d0240bab1b7b357c18ea65c96ca03e39eccd5c8aee783c0187fb6f6"
+      "bytes": 41959,
+      "sha256": "d0b222ef91a1238425931187fed30f6f9a20d15d28777029d0987918f60e0415",
+      "sourceHead": "b3116ef4fa707de0c89a9ccdc24fd0c8e9388737",
+      "sourceVersion": "1.3(10)",
+      "sourceNote": "Recaptured from final Release simulator build; WATCHOS_DEPLOYMENT_TARGET=26.5 command override only; formal source unchanged.",
+      "uploaded": true
     },
     {
       "file": "watchos/zh-Hans/02-quota.jpg",
       "width": 416,
       "height": 496,
       "mode": "RGB",
-      "bytes": 50701,
-      "sha256": "c8f08002504118814258be7dfdbab995d5dfd45f7dada5e85cd75d4dd3cb253a"
+      "bytes": 50915,
+      "sha256": "14b524c57fcbb28cf8f4716a8edf5bbbe2dd93c968f8082cad3ef85e7523925d",
+      "sourceHead": "b3116ef4fa707de0c89a9ccdc24fd0c8e9388737",
+      "sourceVersion": "1.3(10)",
+      "sourceNote": "Recaptured from final Release simulator build; WATCHOS_DEPLOYMENT_TARGET=26.5 command override only; formal source unchanged.",
+      "uploaded": true
     }
-  ]
+  ],
+  "status": "uploaded",
+  "sourceNote": "All 10 mobile/reviewer images recaptured from final 1.3(10) Release simulator build; Mac images retained from unchanged released 1.3(7).",
+  "uploadedImageCount": 8,
+  "uploadScope": "8 marketing images only: ios and watchos; reviewer and macos not uploaded"
 }
