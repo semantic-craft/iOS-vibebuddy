@@ -49,7 +49,9 @@ struct VibeBuddyDaemon {
             store: SessionStore(
                 diagnosticsHome: FileManager.default.homeDirectoryForCurrentUser,
                 journalURL: journalURL,
-                attentionURL: AttentionOverrides.defaultURL()
+                attentionURL: AttentionOverrides.defaultURL(),
+                missedURL: env["VIBEBUDDY_MISSED_PATH"].map { URL(fileURLWithPath: $0) }
+                    ?? MissedLedgerLocation.defaultURL()
             ),
             token: token, port: port, pusher: pusher, phoneReceipts: phoneReceipts,
             deliveryRecorder: deliveryRecorder,

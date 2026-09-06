@@ -455,6 +455,23 @@ public struct VibeBuddyServer: Sendable {
             return .ok
         }
 
+        // Missed-response counts for a week (Monday 06:00 local). `week` is
+        // `yyyy-MM-dd`; omit it for the week containing now. Snapshot is
+        // untouched — this is a separate ledger.
+        authed.get("missed") { request, _ -> Response in
+            let raw = request.uri.queryParameters["week"].map(String.init)
+            let now = Date()
+            guard let week = MissedLedger.parseWeek(raw, now: now) else {
+                throw HTTPError(.badRequest)
+            }
+            let data = try JSONEncoder().encode(await store.missedCounts(week: week, now: now))
+            return Response(
+                status: .ok,
+                headers: [.contentType: "application/json"],
+                body: .init(byteBuffer: ByteBuffer(bytes: data))
+            )
+        }
+
         // Explicit read acknowledgement. Merely receiving/rendering a snapshot
         // never clears unread state; a client calls this only after selection or open.
         authed.post("acknowledge") { request, _ -> HTTPResponse.Status in

@@ -42,6 +42,7 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var codexAppServerDiagnostics = CodexAppServerMonitor.Diagnostics()
     @Published private(set) var lifecycleTimeline: [LifecycleJournalEntry] = []
     @Published private(set) var lifecycleJournalClearFailed = false
+    @Published private(set) var missedThisWeek = MissedCounts.empty
     @Published private(set) var notificationDeliveryHealth = NotificationDeliveryHealth()
     @Published private(set) var recentNotificationDeliveries: [NotificationDeliveryRecord] = []
     /// How many phones the Mac can push to right now, and when the newest of
@@ -142,7 +143,10 @@ final class MenuBarModel: ObservableObject {
             journalURL: ProcessInfo.processInfo.environment["VIBEBUDDY_JOURNAL_PATH"].map {
                 URL(fileURLWithPath: $0)
             } ?? LifecycleJournalLocation.defaultURL(),
-            attentionURL: AttentionOverrides.defaultURL()
+            attentionURL: AttentionOverrides.defaultURL(),
+            missedURL: ProcessInfo.processInfo.environment["VIBEBUDDY_MISSED_PATH"].map {
+                URL(fileURLWithPath: $0)
+            } ?? MissedLedgerLocation.defaultURL()
         )
         // File-based store (owner-only): no Keychain ACL, so an ad-hoc rebuild
         // never re-prompts. Shared with vibebuddyd's default store.
@@ -332,6 +336,7 @@ final class MenuBarModel: ObservableObject {
                 if self.codexAppServerDiagnostics.connected { agents.append(.codex) }
                 self.dispatchAgents = agents
                 self.lifecycleTimeline = await self.store.recentLifecycle()
+                self.missedThisWeek = await self.store.missedCounts()
                 self.buddySessionIDs = BuddyScope.pruned(self.buddySessionIDs, toLive: snapshot.sessions)
                 self.tickGlanceCards()
                 // Precise suppression: a finishing session stays silent when *its
@@ -647,9 +652,10 @@ final class MenuBarModel: ObservableObject {
     func answer(_ sessionID: String, answers: QuestionAnswers, text: String? = nil) {
         let dispatch = AnswerDispatch(store: store, questions: questionRegistry,
                                       inject: { ref, answer in TerminalInjector.inject(answer, into: ref) })
-        Task { [weak self] in
+        Task { [weak self, store] in
             let delivered = await dispatch.deliver(sessionID: sessionID, text: text,
                                                    answers: answers.isEmpty ? nil : answers)
+            if delivered { await store.recordInteraction(sessionID: sessionID) }
             await MainActor.run {
                 self?.answerFeedback[sessionID] = delivered ? nil : "Nothing was waiting for an answer, and there is no tmux pane to type into."
             }
