@@ -4,8 +4,8 @@
 
 # vibebuddy
 
-**Your AI coding agents — on your phone.**
-Glance at every session, get pinged the moment one needs you, approve from a lock-screen notification after unlocking — or just **talk to your agents out loud**.
+**Claude Code and Codex, connected across iPhone, Apple Watch and Mac.**
+Step away from your desk. Check progress, see what needs you, and handle supported approvals and questions—with a little cat keeping you company.
 
 [**⬇️ Download for macOS**](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest) · [Features](#-features) · [How it works](#-how-it-works) · [Build from source](#️-build--run) · [简体中文](./README.zh-CN.md)
 
@@ -15,6 +15,31 @@ Glance at every session, get pinged the moment one needs you, approve from a loc
 [![Latest release](https://img.shields.io/github/v/release/semantic-craft/iOS-vibebuddy)](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest)
 
 </div>
+
+---
+
+## From a status dashboard to a three-device companion
+
+**The 1.3 candidate is a major step beyond the original phone dashboard.** The first release focused on session status and local alerts. This update brings deeper Codex integration, Watch complications and a more consistent companion experience.
+
+| Upgrade | What it means for you |
+|---|---|
+| **Updated agent integrations** | Improved task, permission and question handling for Claude Code and Codex. See the capability limits below. |
+| **Deeper Codex integration** | Observe Desktop and CLI tasks; answer questions, send follow-up instructions and start tasks through supported connections. |
+| **New Apple Watch complications** | Followed tasks in a rectangular slot; Claude, Codex or combined remaining quota in a circular slot, with five display styles. |
+| **Refreshed icons and interactions** | A shared cat identity and agent icons across devices, a simpler phone connection menu and clearer task states. |
+| **Updated macOS UI** | Menu-bar status, notch glance and task cards, with improved dashboard reopening and glance position recovery. |
+
+> These are current-source and 1.3 candidate features, pending release and device acceptance. The latest public Mac download is currently 1.1. Update the Mac companion when the new release is available. Watch refresh timing is system-controlled; quota depends on available provider data.
+
+## New here? Start with your Mac
+
+1. **[Download the free Mac companion](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest)**. Under Assets, choose the DMG and drag the app into Applications. Requires Apple Silicon and macOS 14 or later.
+2. **Open “Pair a phone” in the Mac menu bar**, with your iPhone and Mac on the same local network.
+3. **Tap “Scan to pair” on iPhone** and scan the Mac's QR code. Follow Setup in the Mac settings to connect your agent.
+4. **Just exploring?** Tap “See the demo (no Mac needed)” on the iPhone connection screen. Live tasks require a reachable paired Mac.
+
+Apple Watch also requires a paired iPhone. See Download below for current iPhone availability; the new App Store listing is being prepared.
 
 ---
 
@@ -66,7 +91,7 @@ No more walking back to the desk to find a session has been blocked on a permiss
 ## ✨ Features
 
 ### 🎙️ Talk to your agents — voice companion
-The part nobody else has. Tap the cat and start a **real-time voice conversation** with your running agents. Ask "what's the payments session waiting on?", and **approve, deny, or answer a prompt by voice** — it acts through structured function calling, not screen-scraping. Runs on **your own AI key** (OpenAI, Google Gemini, or Alibaba DashScope / Qwen), stays **completely off until you add a key**, streams speech to your chosen provider, speaks fluent 中文 (Aoede voice), and is hard-wired to **refuse to leak the agent's system prompt**.
+Voice is off by default. Select a provider, enter your own API key, accept the data disclosure, and grant microphone access before explicitly starting a conversation. Ask about task status or respond to supported requests. Audio and selected task context go directly to your chosen provider (OpenAI, Google Gemini, or Alibaba DashScope / Qwen); provider fees may apply. Available actions depend on the connection and request. The dashboard and button approvals work without voice.
 
 ### 📊 The three-bucket dashboard
 Every session grouped into **Needs response / Working / Done**, each row showing project · branch · model · live token & context-window usage · the tool the agent is currently running · and a peek at its most recent output. Priority is honest: `needs response` always outranks `working`.
@@ -92,7 +117,7 @@ A `MenuBarExtra` glance with live counts, a macOS notch glance, **jump-to-termin
 vibebuddy talks **directly** between your Mac and your phone over your own network. Session data **never** touches a vibebuddy server — there is no vibebuddy cloud, no account, no analytics, no tracking. Daemon routes are bearer-token gated. When APNs is configured, notification payloads (including titles and bodies) pass through Apple's push service. (The optional voice companion sends microphone audio and selected session context only to the provider *you* chose, with *your* key, when you turn it on.)
 
 ### 🌏 Bilingual + Demo mode
-Full English and Simplified-Chinese UI on both apps. Plus a **Demo mode** that loads the whole interface with sample data — explore everything with no Mac required.
+Full English and Simplified-Chinese UI on both apps. Plus a **Demo mode** that loads the whole interface with sample data — explore sample tasks with no Mac required.
 
 ---
 

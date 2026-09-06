@@ -701,6 +701,7 @@ private struct MacTitleMenu: View {
 }
 
 private struct EmptyStateView: View {
+    @State private var showMacHelp = false
     let state: DashboardStore.ConnectionState
 
     var body: some View {
@@ -712,8 +713,15 @@ private struct EmptyStateView: View {
                 "No active sessions", systemImage: "moon.zzz",
                 description: Text("Start a Claude Code or Codex session and it'll show up here."))
         case .failed(let message):
-            ContentUnavailableView(
-                "Disconnected", systemImage: "wifi.exclamationmark", description: Text(message))
+            ContentUnavailableView {
+                Label("Disconnected", systemImage: "wifi.exclamationmark")
+            } description: {
+                Text(message)
+                Text("Check that the Mac app is running, both devices are on the same local network, and Local Network access is enabled in Settings.")
+            } actions: {
+                Button("Need the Mac companion?") { showMacHelp = true }
+            }
+            .sheet(isPresented: $showMacHelp) { MacCompanionSetupSheet() }
         }
     }
 }
