@@ -157,13 +157,17 @@ public actor APNsPusher {
                      sessionID: String? = nil,
                      soundCategory: String? = nil,
                      localized: PushLocalization? = nil,
+                     category: String? = nil,
+                     timeSensitive: Bool = false,
+                     approvalId: String? = nil,
                      waitSince: Date? = nil,
                      holdForPhone: Bool = false) async -> APNsSendResult {
-        let category = soundCategory ?? sound.replacingOccurrences(of: ".caf", with: "")
+
+        let cueCategory = soundCategory ?? sound.replacingOccurrences(of: ".caf", with: "")
         // The same identifier the phone gives its own local notification for
         // this cue: the push's collapse id, and the name a phone's receipt uses.
         let identifier: String? = {
-            guard let sessionID, let sound = NotificationSound(rawValue: category) else { return nil }
+            guard let sessionID, let sound = NotificationSound(rawValue: cueCategory) else { return nil }
             return NotificationIdentity.id(sessionID: sessionID, sound: sound)
         }()
         if let receipts, let identifier,
@@ -172,13 +176,13 @@ public actor APNsPusher {
             return await finish(
                 NotificationDeliveryClassification(
                     outcome: .skipped, failureReason: CueSkipReason.phonePosted.rawValue),
-                status: nil, now: Date(), sessionID: sessionID, sound: category)
+                status: nil, now: Date(), sessionID: sessionID, sound: cueCategory)
         }
         guard let url = URL(string: "https://\(config.host)/3/device/\(deviceToken)"),
               let auth = try? providerToken(now: now) else {
             return await finish(
                 APNsDelivery.classify(status: nil, error: SendFailure.unreachable),
-                status: nil, now: now, sessionID: sessionID, sound: category)
+                status: nil, now: now, sessionID: sessionID, sound: cueCategory)
         }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -194,18 +198,20 @@ public actor APNsPusher {
             request.setValue(identifier, forHTTPHeaderField: "apns-collapse-id")
         }
         request.httpBody = Data(Self.alertPayload(title: title, body: body, sound: sound,
-                                                  sessionID: sessionID, localized: localized).utf8)
+                                                  sessionID: sessionID, localized: localized,
+                                                  category: category, timeSensitive: timeSensitive,
+                                                  approvalId: approvalId).utf8)
         do {
             let (data, response) = try await http.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode
             return await finish(
                 APNsDelivery.classify(status: status, error: nil),
-                status: status, now: now, sessionID: sessionID, sound: category,
+                status: status, now: now, sessionID: sessionID, sound: cueCategory,
                 reason: Self.errorReason(in: data))
         } catch {
             return await finish(
                 APNsDelivery.classify(status: nil, error: error),
-                status: nil, now: now, sessionID: sessionID, sound: category)
+                status: nil, now: now, sessionID: sessionID, sound: cueCategory)
         }
     }
 
@@ -229,7 +235,10 @@ public actor APNsPusher {
     /// copy so the banner reads in the phone's language.
     nonisolated static func alertPayload(title: String, body: String, sound: String,
                                          sessionID: String?,
-                                         localized: PushLocalization? = nil) -> String {
+                                         localized: PushLocalization? = nil,
+                                         category: String? = nil,
+                                         timeSensitive: Bool = false,
+                                         approvalId: String? = nil) -> String {
         var alert = #""title":"\#(escape(title))","body":"\#(escape(body))""#
         if let localized {
             let args = localized.titleArgs.map { #""\#(escape($0))""# }.joined(separator: ",")
@@ -240,8 +249,11 @@ public actor APNsPusher {
         }
         let soundField = sound.isEmpty ? "" : #","sound":"\#(escape(sound))""#
         let threadField = sessionID.map { #","thread-id":"\#(escape($0))""# } ?? ""
+        let categoryField = category.map { #","category":"\#(escape($0))""# } ?? ""
+        let interruptionField = timeSensitive ? #","interruption-level":"time-sensitive""# : ""
         let sessionField = sessionID.map { #","sessionId":"\#(escape($0))""# } ?? ""
-        return #"{"aps":{"alert":{\#(alert)}\#(soundField)\#(threadField)}\#(sessionField)}"#
+        let approvalField = approvalId.map { #","approvalId":"\#(escape($0))""# } ?? ""
+        return #"{"aps":{"alert":{\#(alert)}\#(soundField)\#(threadField)\#(categoryField)\#(interruptionField)}\#(sessionField)\#(approvalField)}"#
     }
 
     /// APNs answers every failure with `{"reason":"…"}`; success bodies are empty.

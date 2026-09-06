@@ -264,6 +264,9 @@ public struct VibeBuddyServer: Sendable {
                                                                sound: soundFile,
                                                                sessionID: session.id, soundCategory: sound.rawValue,
                                                                localized: PushLocalization(copy),
+                                                               category: alert.actionCategory?.rawValue,
+                                                               timeSensitive: alert.isTimeSensitive && recipient.level == .bannerSound,
+                                                               approvalId: alert.actionCategory == .approval ? session.pendingApproval?.id : nil,
                                                                waitSince: session.statusSince, holdForPhone: hold)
                                 await deviceTokens.applySendResult(result, token: deviceToken)
                             }

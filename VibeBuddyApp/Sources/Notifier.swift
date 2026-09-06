@@ -48,8 +48,37 @@ struct LocalNotifier: AttentionNotifier {
     private static let chain = SerialTaskChain()
 
     func requestAuthorization() {
+        Self.registerCategories()
         UNUserNotificationCenter.current()
             .requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+    }
+
+    /// Approve / Deny on permission banners; a text field on questions.
+    /// Same identifiers the Mac registers and APNs puts in `aps.category`.
+    static func registerCategories() {
+        let approve = UNNotificationAction(
+            identifier: NotificationActionID.approve.rawValue,
+            title: String(localized: "Approve"),
+            options: [.authenticationRequired])
+        let deny = UNNotificationAction(
+            identifier: NotificationActionID.deny.rawValue,
+            title: String(localized: "Deny"),
+            options: [.destructive])
+        let approval = UNNotificationCategory(
+            identifier: NotificationCategoryID.approval.rawValue,
+            actions: [approve, deny],
+            intentIdentifiers: [])
+        let reply = UNTextInputNotificationAction(
+            identifier: NotificationActionID.answer.rawValue,
+            title: String(localized: "Reply"),
+            options: [],
+            textInputButtonTitle: String(localized: "Send"),
+            textInputPlaceholder: String(localized: "Answer"))
+        let question = UNNotificationCategory(
+            identifier: NotificationCategoryID.question.rawValue,
+            actions: [reply],
+            intentIdentifiers: [])
+        UNUserNotificationCenter.current().setNotificationCategories([approval, question])
     }
 
     /// Post the cue — unless, for a waiting cue, the Mac's push for this very
@@ -72,7 +101,9 @@ struct LocalNotifier: AttentionNotifier {
             }
             do {
                 try await Self.post(title: title, body: body, sound: sound, delivery: delivery,
-                                    id: cue.identifier, sessionID: sessionID)
+                                    id: cue.identifier, sessionID: sessionID,
+                                    approvalId: alert.session.pendingApproval?.id,
+                                    timeSensitive: alert.isTimeSensitive, category: alert.actionCategory)
             } catch {
                 return false   // nothing shown, so nothing for the Mac to stand down for
             }
@@ -104,21 +135,29 @@ struct LocalNotifier: AttentionNotifier {
 
     private static func post(title: String, body: String, sound: NotificationSound,
                              delivery: DeliveryLevel = .bannerSound,
-                             id: String, sessionID: String? = nil) async throws {
+                             id: String, sessionID: String? = nil,
+                             approvalId: String? = nil, timeSensitive: Bool = false,
+                             category: NotificationCategoryID? = nil) async throws {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = delivery.makesSound && soundOn
             ? UNNotificationSound(named: UNNotificationSoundName(rawValue: sound.fileName))
             : nil
-        // A list-only cue is filed in Notification Center without a banner.
-        if delivery == .list { content.interruptionLevel = .passive }
+        if let category {
+            content.categoryIdentifier = category.rawValue
+        }
+        if timeSensitive {
+            content.interruptionLevel = .timeSensitive
+        } else if delivery == .list {
+            content.interruptionLevel = .passive
+        }
         // Everything said about one session groups and opens as that session,
         // on the phone and on the wrist alike.
         if let sessionID {
             content.threadIdentifier = sessionID
             content.targetContentIdentifier = sessionID
-            content.userInfo = ["sessionId": sessionID]
+            content.userInfo = NotificationUserInfoKey.make(sessionId: sessionID, approvalId: approvalId)
         }
         try await UNUserNotificationCenter.current()
             .add(UNNotificationRequest(identifier: id, content: content, trigger: nil))

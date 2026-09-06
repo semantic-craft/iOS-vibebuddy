@@ -45,6 +45,24 @@ struct ActivityPushTests {
         #expect(silent == #"{"aps":{"alert":{"title":"t","body":"b"}}}"#)
     }
 
+    @Test("an approval push carries category, time-sensitive interruption, and the approval id")
+    func alertPayloadActionableTimeSensitive() {
+        let payload = APNsPusher.alertPayload(
+            title: "p needs permission", body: "rm -rf x", sound: "needs_approval.caf",
+            sessionID: "s1", category: NotificationCategoryID.approval.rawValue,
+            timeSensitive: true, approvalId: "ap-9")
+        #expect(payload.contains(#""category":"approval""#))
+        #expect(payload.contains(#""interruption-level":"time-sensitive""#))
+        #expect(payload.contains(#""approvalId":"ap-9""#))
+        #expect(payload.contains(#""sessionId":"s1""#))
+        let quiet = APNsPusher.alertPayload(
+            title: "t", body: "b", sound: "agent_done.caf", sessionID: "s",
+            category: nil, timeSensitive: false, approvalId: nil)
+        #expect(!quiet.contains("category"))
+        #expect(!quiet.contains("interruption-level"))
+        #expect(!quiet.contains("approvalId"))
+    }
+
     @Test("a localized push carries the phone's string keys next to the English copy")
     func alertPayloadLocalized() {
         let free = APNsPusher.alertPayload(
