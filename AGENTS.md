@@ -87,6 +87,14 @@ Five canonical triage roles use their **default strings** (`needs-triage`,
 `Status:` line in each issue file. When assigning or changing triage state, follow
 `docs/agents/triage-labels.md`.
 
+## Next-work discovery
+
+When planning the next development cycle or changing macOS distribution,
+sandboxing, or agent integration, read `docs/agents/mac-app-store.md` and its
+local checklist. The owner has designated the Mac App Store edition as an
+important next direction while retaining direct distribution. This pointer
+does not authorize starting that work or overriding the user's current task.
+
 ## Domain docs
 
 **Single-context** layout — one `CONTEXT.md` + `docs/adr/` at the repo root.
