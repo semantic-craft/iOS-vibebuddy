@@ -32,6 +32,7 @@ final class AccountUsageCoordinator: ObservableObject {
         case .claude: 15 * 60
         case .codex: 20 * 60
         case .grok: 15 * 60
+        case .cursor: 15 * 60
         }
     }
     private let collectors: [AccountUsageProvider: AccountUsageCollector]
@@ -47,10 +48,12 @@ final class AccountUsageCoordinator: ObservableObject {
         let codexEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey(for: .codex), default: true)
         let claudeEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey(for: .claude), default: true)
         let grokEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey(for: .grok), default: true)
+        let cursorEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey(for: .cursor), default: true)
         collectionEnabled = [
             .codex: codexEnabled,
             .claude: claudeEnabled,
             .grok: grokEnabled,
+            .cursor: cursorEnabled,
         ]
         states = [
             .codex: codexEnabled
@@ -60,6 +63,9 @@ final class AccountUsageCoordinator: ObservableObject {
                 ? .unavailable(.notYetLoaded, lastAttemptAt: nil, nextRefreshAt: nil)
                 : .disabled,
             .grok: grokEnabled
+                ? .unavailable(.notYetLoaded, lastAttemptAt: nil, nextRefreshAt: nil)
+                : .disabled,
+            .cursor: cursorEnabled
                 ? .unavailable(.notYetLoaded, lastAttemptAt: nil, nextRefreshAt: nil)
                 : .disabled,
         ]
@@ -78,6 +84,11 @@ final class AccountUsageCoordinator: ObservableObject {
                 provider: GrokUsageProvider(),
                 cache: AccountUsageFileCache(provider: .grok),
                 enabled: grokEnabled
+            ),
+            .cursor: AccountUsageCollector(
+                provider: CursorPendingUsageProvider(),
+                cache: AccountUsageFileCache(provider: .cursor),
+                enabled: cursorEnabled
             ),
         ]
         alertMonitor = AccountUsageAlertMonitor(

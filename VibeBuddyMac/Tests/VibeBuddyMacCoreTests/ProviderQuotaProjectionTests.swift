@@ -264,6 +264,9 @@ struct ProviderQuotaProjectionTests {
         #expect(quotas.map(\.provider) == AccountUsageProvider.allCases)
         #expect(quotas.first { $0.provider == .codex }?.weeklyRemainingPercent == 68)
         #expect(quotas.first { $0.provider == .claude }?.weeklyRemainingPercent == 42)
+        #expect(quotas.first { $0.provider == .cursor }?.weeklyRemainingPercent == nil)
+        #expect(quotas.first { $0.provider == .cursor }?.unavailableReason
+                == "Collection is turned off")
     }
 
     @Test("A failing or disabled provider never changes what the other one reports")

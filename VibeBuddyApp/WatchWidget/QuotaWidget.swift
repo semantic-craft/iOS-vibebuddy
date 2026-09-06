@@ -120,8 +120,22 @@ struct QuotaWidgetView: View {
         entry.quotas.first { $0.provider == provider }?.window(kind ?? entry.configuration.period.kind)
             ?? QuotaWindow(remainingPercent: nil, durationMinutes: nil, resetsAt: nil, observedAt: nil)
     }
-    private func label(_ provider: AccountUsageProvider) -> String { provider == .codex ? "C" : "CL" }
-    private func color(_ provider: AccountUsageProvider) -> Color { provider == .codex ? .cyan : .orange }
+    private func label(_ provider: AccountUsageProvider) -> String {
+        switch provider {
+        case .codex: return "C"
+        case .claude: return "CL"
+        case .grok: return "G"
+        case .cursor: return "Cu"
+        }
+    }
+    private func color(_ provider: AccountUsageProvider) -> Color {
+        switch provider {
+        case .codex: return .cyan
+        case .claude: return .orange
+        case .grok: return .indigo
+        case .cursor: return .purple
+        }
+    }
     private func periodLabel(_ reading: QuotaWindow, kind: QuotaWindowKind? = nil) -> String {
         if (kind ?? entry.configuration.period.kind) == .weekly { return String(localized: "Wk") }
         guard let minutes = reading.durationMinutes else { return String(localized: "Short") }
