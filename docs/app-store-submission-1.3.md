@@ -2,7 +2,7 @@
 
 截图素材已另备：[三端截图与上传清单](app-store-screenshots/1.3/README.md)。含中英文环境原生实拍；中文未翻译标签及未收录的实际表盘组件见素材清单。
 
-状态（2026-09-06 21:52）：按用户明确授权，iPhone / Watch **1.3（10）已提交 App Store，Waiting for Review**；尚未获批或公开上架。Submission ID：`447e220d-5bcb-4344-9335-051f0ee2e891`。Mac **1.3（7）** 已公开在 [GitHub v1.3](https://github.com/semantic-craft/iOS-vibebuddy/releases/tag/v1.3)。中英文 iPhone / Watch 共 8 张商店截图均从本次最终移动构建重拍上传，旧版截图已移除。半小时真实体验未在本轮补做；提交审核不代表该验收完成。
+状态（2026-09-06 22:09）：移动版 **1.3（10）** 提交后被 Apple 自动校验退回，邮件明确为 **ITMS-90455**：Watch 包的 `MinimumOSVersion=26.6` 不受支持。已将 Watch 宿主与扩展的最低版本改为 **26.5**，四个移动目标统一升至 **1.3（11）**，正在重新打包送审。Submission ID：`447e220d-5bcb-4344-9335-051f0ee2e891`。Mac **1.3（7）** 已公开在 [GitHub v1.3](https://github.com/semantic-craft/iOS-vibebuddy/releases/tag/v1.3)。商店 8 张中英文截图来自构建 10；构建 11 只调整系统版本要求及构建号，界面与功能一致，继续使用该组截图。半小时真实体验未在本轮补做；提交审核不代表验收、获批或公开上架。
 
 本包是本次商店描述、更新日志和审核说明的入口；旧 `app-store-paste-sheet.md` 是 1.1 历史材料。以下保留文案来源；在线提交已补充公开包不含 APNs 凭据及相关能力边界。下载引导 Ticket 位于 `.scratch/mac-companion-download/issues/01-guide-mac-companion-download.md`，已完成本地实现和模拟器检查，真实配对验收尚待完成。
 
