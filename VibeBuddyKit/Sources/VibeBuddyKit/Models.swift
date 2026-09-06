@@ -12,6 +12,7 @@ public enum AgentKind: String, Codable, Sendable, CaseIterable {
     case grok
     case opencode
     case copilot
+    case cursor
 }
 
 /// The three buckets the dashboard cares about.

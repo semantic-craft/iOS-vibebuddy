@@ -97,7 +97,11 @@ public struct StateGlyph: View {
     }
 }
 
-/// Two-letter agent avatar (CC / CX / GK …) in an agent-specific tint.
+/// The agent's product tile: its monochrome mark in its brand hue on a light
+/// wash of the same hue, in a rounded square. Square says "product" next to
+/// the round pet and round status dots; the wash keeps a row of them quiet on
+/// the Companion ground, and black-and-white brands draw in ink instead of as
+/// solid black discs.
 public struct AgentAvatar: View {
     public let agent: AgentKind
     public var size: CGFloat
@@ -108,33 +112,13 @@ public struct AgentAvatar: View {
     }
 
     public var body: some View {
-        Text(initials)
-            .font(CompanionType.font(size * 0.34, .black))
-            .foregroundStyle(.white)
+        let tint = agent.brandColor
+        SVGPathShape(agent.brandMark)
+            .fill(tint)
+            .frame(width: size * 0.56, height: size * 0.56)
             .frame(width: size, height: size)
-            .background(tint, in: Circle())
+            .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: size * 0.3, style: .continuous))
             .accessibilityLabel(agent.displayName)
-    }
-
-    private var initials: String {
-        switch agent {
-        case .claudeCode: return "CC"
-        case .codex: return "CX"
-        case .grok: return "GK"
-        case .qwen: return "QW"
-        case .kimi: return "KM"
-        case .antigravity: return "AG"
-        case .opencode: return "OC"
-        case .copilot: return "CP"
-        }
-    }
-    private var tint: Color {
-        switch agent {
-        case .claudeCode: return Color(hex: 0x7A6FD6)
-        case .codex: return Color(hex: 0x3B8EA5)
-        case .grok: return Color(hex: 0x5C6B85)
-        default: return Color(hex: 0x8A93A8)
-        }
     }
 }
 
