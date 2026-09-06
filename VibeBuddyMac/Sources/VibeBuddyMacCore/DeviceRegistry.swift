@@ -104,22 +104,35 @@ struct DeviceRegistry {
     /// Upsert a device, merging in only the preference fields this payload
     /// carries — a phone that reconnects before its APNs callback fires keeps
     /// the switches it uploaded last time.
+    ///
+    /// The phone's `deviceID` names it; a new token reported under the same
+    /// id replaces its old record. Keying on the token alone left the old one
+    /// standing, and Apple keeps delivering to a superseded token for a while,
+    /// so a category the user had since switched off was still pushed through
+    /// the stale record. A payload without an id (an older phone build, a raw
+    /// token POST) is keyed on its token, and a record without an id is adopted
+    /// by the first identified payload that carries the same token.
     mutating func upsert(_ payload: DeviceRegistrationPayload, now: Date) {
         guard let token = payload.token, !token.isEmpty, !blocked.contains(token) else { return }
-        let existing = entries.first { $0.device.token == token }
+        let id = payload.deviceID.flatMap { $0.isEmpty ? nil : $0 }
+        let existing = id.flatMap { id in entries.first { $0.device.deviceID == id } }
+            ?? entries.first { $0.device.token == token }
         var merged = existing?.device ?? DeviceRegistrationPayload(token: token)
         merged.token = token
+        if let id { merged.deviceID = id }
         if let v = payload.name { merged.name = v }
         if let v = payload.model { merged.model = v }
         if let v = payload.systemVersion { merged.systemVersion = v }
         if let v = payload.playSound { merged.playSound = v }
         if let v = payload.quietMode { merged.quietMode = v }
         if let v = payload.categories { merged.categories = v }
-        entries.removeAll { $0.device.token == token }
+        entries.removeAll { $0.device.token == token || (id != nil && $0.device.deviceID == id) }
         // Re-registering does not re-prove the token: a phone that reconnects
-        // keeps whatever standing it had with Apple.
+        // keeps whatever standing it had with Apple. A *new* token starts from
+        // nothing, whoever the phone is — Apple has not accepted it yet.
+        let standing = existing?.device.token == token ? existing?.lastAcceptedAt : nil
         entries.append(DeviceRegistryEntry(device: merged, registeredAt: now,
-                                           lastAcceptedAt: existing?.lastAcceptedAt))
+                                           lastAcceptedAt: standing))
         entries = Self.pruned(entries, capacity: capacity)
         persistBestEffort()
     }
