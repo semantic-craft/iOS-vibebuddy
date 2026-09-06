@@ -41,7 +41,7 @@ struct DeviceRegistryTests {
         let url = tempURL()
         let tokens = DeviceTokens(url: url)
         var categories = NotificationCategoryPrefs.default
-        categories.set(.agentDone, enabled: false)
+        categories.set(NotificationSound.agentDone, enabled: false)
         await tokens.register(DeviceRegistrationPayload(
             token: "abc", name: "Hermes", playSound: false, categories: categories))
 
@@ -52,7 +52,7 @@ struct DeviceRegistryTests {
         let device = try #require(await tokens.devices().first)
         #expect(device.name == "Hermes Pro")
         #expect(device.playSound == false)
-        #expect(device.categories?.isEnabled(.agentDone) == false)
+        #expect(device.categories?.isEnabled(NotificationSound.agentDone) == false)
         #expect(await tokens.devices().count == 1)
     }
 

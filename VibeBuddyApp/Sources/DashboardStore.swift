@@ -175,7 +175,7 @@ final class DashboardStore: ObservableObject {
     /// Play the pairing-success cue. Called once when a fresh pairing is saved
     /// (a QR scan or manual connect), not on automatic reconnects.
     func confirmPairing() {
-        guard SoundPrefs.categories.isEnabled(.pairSuccess) else { return }
+        guard SoundPrefs.categories.isEnabled(NotificationSound.pairSuccess) else { return }
         notifier.confirmPairing()
     }
 

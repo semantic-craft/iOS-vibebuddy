@@ -60,24 +60,24 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    ForEach(NotificationCategoryPrefs.displayOrder, id: \.rawValue) { sound in
-                        Toggle(sound.categoryTitle, isOn: Binding(
-                            get: { categories.isEnabled(sound) },
-                            set: { categories.set(sound, enabled: $0) }))
+                    ForEach(NotificationCategoryPrefs.displayOrder, id: \.rawValue) { category in
+                        Toggle(category.categoryTitle, isOn: Binding(
+                            get: { categories.isEnabled(category) },
+                            set: { categories.set(category, enabled: $0) }))
                     }
                 } header: {
                     Text("Notify me about")
                 } footer: {
-                    Text("Off means no banner on your iPhone or Apple Watch for that kind of event, even with sound on. What you keep still goes quiet in Focus mode, except permission prompts.")
+                    Text("Disabled categories never notify your iPhone or Apple Watch. Quiet mode and quiet hours silence session alerts except silent approvals and questions. Enabled quota alerts are unaffected.")
                 }
 
                 Section {
                     Toggle("Sound", isOn: $playSound)
-                    Toggle("Focus mode (only permission cues)", isOn: $quiet).disabled(!playSound)
+                    Toggle("Quiet mode (quota unaffected)", isOn: $quiet).disabled(!playSound)
                 } header: {
                     Text("Sound")
                 } footer: {
-                    Text("Each status change gets a short built-in cue — needs you, permission, done, stuck. Only status boundaries sound; nothing interrupts mid-task. In Focus mode only permission prompts make a sound.")
+                    Text("Status changes can play a short cue. Quiet mode keeps approvals and questions silent and suppresses other session alerts. Enabled quota alerts still follow the Sound setting.")
                 }
 
                 Section {
@@ -89,7 +89,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Night")
                 } footer: {
-                    Text("During this window the app auto-enters Focus mode — only permission prompts make a sound.")
+                    Text("During this window Quiet mode applies to session alerts. Enabled quota alerts are unaffected.")
                 }
 
                 Section {

@@ -18,6 +18,9 @@ final class AccountUsageCoordinator: ObservableObject {
 
     private let store: SessionStore
     private let notifier: UserNotificationsNotifier
+    /// Set after `MenuBarModel` has its delivery recorder. Local post, push and
+    /// the delivery log all go through this so quota honours the category switch.
+    var onUsageAlert: ((AccountUsageProvider, AccountUsageWindow, Int) -> Void)?
     private let liveFeed: AccountUsageLiveFeed?
     private var liveTask: Task<Void, Never>?
     /// How long a live sample keeps the spawning collector idle. Claude's
@@ -202,12 +205,16 @@ final class AccountUsageCoordinator: ObservableObject {
         let windows = alertMonitor.newlyCrossed(
             in: state,
             thresholdPercent: threshold,
-            notificationsSuppressed: NotificationQuietMode.isEffective()
+            notificationsSuppressed: false // Quota uses its category switch, independently of Quiet.
         )
         Self.saveAlertedWindows(alertMonitor.alertedWindowKeys)
         guard let provider = state.snapshot?.provider else { return }
         for window in windows {
-            notifier.notifyUsage(provider: provider, window: window, threshold: threshold)
+            if let onUsageAlert {
+                onUsageAlert(provider, window, threshold)
+            } else {
+                Task { await notifier.notifyUsage(provider: provider, window: window, threshold: threshold) }
+            }
         }
     }
 

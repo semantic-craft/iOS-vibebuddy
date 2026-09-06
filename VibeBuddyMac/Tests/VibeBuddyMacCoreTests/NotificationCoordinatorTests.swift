@@ -50,7 +50,7 @@ struct NotificationCoordinatorTests {
         let spy = SpyNotifier()
         let c = NotificationCoordinator(notifier: spy)
         var prefs = NotificationCategoryPrefs.default
-        prefs.set(.agentDone, enabled: false)
+        prefs.set(NotificationSound.agentDone, enabled: false)
         let t0 = Date(timeIntervalSince1970: 0)
         await c.observe([session("done", .working, since: t0),
                          session("ask", .working, since: t0),
@@ -70,7 +70,7 @@ struct NotificationCoordinatorTests {
         let quietSpy = SpyNotifier()
         let q = NotificationCoordinator(notifier: quietSpy)
         var allOn = NotificationCategoryPrefs.default
-        allOn.set(.agentDone, enabled: true)
+        allOn.set(NotificationSound.agentDone, enabled: true)
         await q.observe([session("ask", .working, since: t0), session("ok", .working, since: t0),
                          session("fin", .working, since: t0)],
                         now: t0, appActive: false, quietMode: true, categories: allOn)
@@ -88,7 +88,7 @@ struct NotificationCoordinatorTests {
         let delivery = SpyDelivery()
         let c = NotificationCoordinator(notifier: spy, delivery: delivery)
         var prefs = NotificationCategoryPrefs.default
-        prefs.set(.agentDone, enabled: false)
+        prefs.set(NotificationSound.agentDone, enabled: false)
         let t0 = Date(timeIntervalSince1970: 0)
         _ = await c.observe([session("done", .working, since: t0)], now: t0,
                             appActive: false, quietMode: false, categories: prefs)
@@ -105,7 +105,7 @@ struct NotificationCoordinatorTests {
         let spy = SpyNotifier()
         let c = NotificationCoordinator(notifier: spy)
         var prefs = NotificationCategoryPrefs.default
-        prefs.set(.agentDone, enabled: false)
+        prefs.set(NotificationSound.agentDone, enabled: false)
         let t0 = Date(timeIntervalSince1970: 0)
         await c.observe([session("done", .working, since: t0)], now: t0,
                         appActive: false, quietMode: false, categories: prefs)
@@ -127,7 +127,7 @@ struct NotificationCoordinatorTests {
         #expect(spy.played.map { "\($0.id):\($0.sound.rawValue)" } == ["s:agent_done"])
 
         var off = NotificationCategoryPrefs.default
-        off.set(.agentDone, enabled: false)
+        off.set(NotificationSound.agentDone, enabled: false)
         #expect(await c.remind(done, quietMode: false, categories: off) == false)
         #expect(await c.remind(done, quietMode: true) == false)
         #expect(spy.played.count == 1)

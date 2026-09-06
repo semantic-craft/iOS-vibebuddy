@@ -191,6 +191,13 @@ final class MenuBarModel: ObservableObject {
         // The views read usage through this model's facades, so the coordinator's
         // changes have to reach the same `objectWillChange` they observe. Set up
         // after every stored property is initialized: the capture needs `self`.
+        usage.onUsageAlert = { [weak self] provider, window, threshold in
+            guard let self else { return }
+            let copy = UserNotificationsNotifier.usageCopy(
+                provider: provider, window: window, threshold: threshold)
+            Task { await self.deliverQuotaNotice(title: copy.title, body: copy.body, id: copy.id,
+                                                 sessionID: nil) }
+        }
         usageObserver = usage.objectWillChange.sink { [weak self] in
             self?.objectWillChange.send()
         }
@@ -327,7 +334,7 @@ final class MenuBarModel: ObservableObject {
                     appActive: NSApp.isActive,                 // user looking at VibeBuddy?
                     quietMode: Self.effectiveQuiet(),          // Focus mode (manual or nightly) → every session muted
                     focusedSessionIDs: focused,                // …or looking at the session's own terminal
-                    categories: NotificationCategoryPrefs.load()) // this Mac's own switches
+                    categories: NotificationCategoryPrefs.loadMac()) // this Mac's own switches
                 await self.refreshNotificationDeliveryHealth()
                 // Off the loop: a push may hold for the phone's receipt, and the
                 // glance must not wait with it.
@@ -504,7 +511,7 @@ final class MenuBarModel: ObservableObject {
     @MainActor
     private func deliverCompletionReminder(_ session: AgentSession) async -> Bool {
         let local = await notificationCoordinator.remind(
-            session, quietMode: Self.effectiveQuiet(), categories: NotificationCategoryPrefs.load())
+            session, quietMode: Self.effectiveQuiet(), categories: NotificationCategoryPrefs.loadMac())
         let devices = await deviceTokens.devices()
         let level = DeliveryMatrix.level(for: .agentDone, attention: session.effectiveAttention)
         // `recordSkips: false`: an undelivered reminder is re-proposed on every
@@ -522,20 +529,55 @@ final class MenuBarModel: ObservableObject {
         let budget = UserDefaults.standard.double(forKey: "sessionBudgetUSD")
         let alerts = budgetMonitor.newlyOverBudget(sessions, budgetUSD: budget)
         guard !alerts.isEmpty else { return }
-        let devices = pusher == nil ? [] : await deviceTokens.devices()
         for alert in alerts {
             let cost = String(format: "$%.2f", alert.estimatedUSD)
-            notifier.notifyBudget(project: alert.session.project, cost: cost)
-            for device in devices {
-                guard let deviceToken = device.token, device.quietMode != true else { continue }  // not an approval → quiet suppresses
-                let sound = device.playSound != false ? NotificationSound.longWaitNudge.fileName : ""
-                guard let result = await pusher?.send(
-                    title: "\(alert.session.project) over budget",
-                    body: "≈ \(cost) spent this session (estimate)",
-                    to: deviceToken, sound: sound) else { continue }
-                await deviceTokens.applySendResult(result, token: deviceToken)
-            }
+            await deliverQuotaNotice(
+                title: "\(alert.session.project) over budget",
+                body: "≈ \(cost) spent this session (estimate)",
+                id: "budget-\(alert.session.project)",
+                sessionID: alert.session.id)
         }
+    }
+
+    /// Local banner (this Mac's quota switch) and APNs (each phone's uploaded
+    /// switch). Quota is not a session cue: the attention matrix is not applied.
+    private func deliverQuotaNotice(title: String, body: String, id: String,
+                                    sessionID: String?) async {
+        let attempt = await notifier.notifyQuota(title: title, body: body, id: id)
+        let localSkip = QuotaNoticeFanout.localSkip(categories: NotificationCategoryPrefs.loadMac())
+        if let reason = localSkip {
+            await deliveryRecorder.record(NotificationDeliveryRecord(
+                channel: .local, outcome: .skipped, sessionID: sessionID,
+                sound: NotificationCategory.quota.rawValue,
+                failureReason: reason.rawValue, timestamp: Date()))
+        } else if attempt.shouldRecord {
+            await deliveryRecorder.record(NotificationDeliveryRecord(
+                channel: .local, outcome: attempt.outcome, sessionID: sessionID,
+                sound: NotificationCategory.quota.rawValue,
+                failureReason: attempt.failureReason, timestamp: Date()))
+        }
+
+        let devices = pusher == nil ? [] : await deviceTokens.devices()
+        let plan = QuotaNoticeFanout.plan(devices: devices, apnsConfigured: pusher != nil)
+        guard let pusher, !plan.recipients.isEmpty else {
+            if let reason = plan.skip {
+                await deliveryRecorder.record(NotificationDeliveryRecord(
+                    channel: .apns, outcome: .skipped, sessionID: sessionID,
+                    sound: NotificationCategory.quota.rawValue,
+                    failureReason: reason.rawValue, timestamp: Date()))
+            }
+            await refreshNotificationDeliveryHealth()
+            return
+        }
+        for device in plan.recipients {
+            guard let deviceToken = device.token else { continue }
+            let sound = device.playSound != false ? "default" : ""
+            let result = await pusher.send(
+                title: title, body: body, to: deviceToken, sound: sound,
+                sessionID: sessionID, soundCategory: NotificationCategory.quota.rawValue)
+            await deviceTokens.applySendResult(result, token: deviceToken)
+        }
+        await refreshNotificationDeliveryHealth()
     }
 
     /// Resolve a pending approval from the Mac (Dashboard buttons / shortcuts).
