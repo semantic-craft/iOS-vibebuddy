@@ -80,6 +80,32 @@ def run(mode, home):
                           capture_output=True, text=True)
 
 
+def check_codex_hooks_feature(fails):
+    """Both scanners use these configs; real CLI output must not rewrite TOML."""
+    installer = os.path.join(HOOKS, "install-codex-hooks.py")
+    with open(os.path.join(HOOKS, "fixtures/codex-hooks-feature.json")) as handle:
+        fixtures = json.load(handle)
+    for fixture in fixtures:
+        with tempfile.TemporaryDirectory() as home:
+            directory = os.path.join(home, ".codex")
+            os.makedirs(directory)
+            config = os.path.join(directory, "config.toml")
+            original = fixture["config"].encode()
+            with open(config, "wb") as handle:
+                handle.write(original)
+            for mode in ["--dry-run", "--install", "--approval", "--uninstall"]:
+                result = subprocess.run([sys.executable, installer, mode],
+                                        env={**os.environ, "HOME": home},
+                                        capture_output=True, text=True)
+                warned = "codex features enable hooks" in result.stdout
+                expected = fixture["disabled"] and mode != "--uninstall"
+                if result.returncode != 0 or warned != expected:
+                    fails.append(f"Codex feature {fixture['name']} {mode}: wrong warning/exit")
+                with open(config, "rb") as handle:
+                    if handle.read() != original:
+                        fails.append("Codex feature diagnostic changed config.toml")
+
+
 def check_grok_home(fails):
     """install-grok-hooks.py writes under $GROK_HOME, not just ~/.grok."""
     installer = os.path.join(HOOKS, "install-grok-hooks.py")
@@ -493,6 +519,7 @@ def main():
         if os.path.exists(os.path.join(home, ".config/opencode/plugins/vibebuddy.js")):
             fails.append("uninstall left opencode plugin")
 
+    check_codex_hooks_feature(fails)
     check_grok_home(fails)
     check_claude_legacy_gate_migration(fails)
     check_claude_old_cli_keeps_legacy_gate(fails)
