@@ -5,12 +5,12 @@
 # vibebuddy
 
 **Your AI coding agents — on your phone.**
-Glance at every session, get pinged the moment one needs you, approve the exact command from your lock screen — or just **talk to your agents out loud**.
+Glance at every session, get pinged the moment one needs you, approve from a lock-screen notification after unlocking — or just **talk to your agents out loud**.
 
 [**⬇️ Download for macOS**](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest) · [Features](#-features) · [How it works](#-how-it-works) · [Build from source](#️-build--run) · [简体中文](./README.zh-CN.md)
 
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Platform](https://img.shields.io/badge/platform-iOS%2026%20%2B%20macOS%2014-blue)
+![Platform](https://img.shields.io/badge/platform-iOS%2017%20%2B%20macOS%2014-blue)
 ![Swift](https://img.shields.io/badge/Swift-6.0-orange)
 [![Latest release](https://img.shields.io/github/v/release/semantic-craft/iOS-vibebuddy)](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest)
 
@@ -66,19 +66,21 @@ No more walking back to the desk to find a session has been blocked on a permiss
 ## ✨ Features
 
 ### 🎙️ Talk to your agents — voice companion
-The part nobody else has. Tap the cat and start a **real-time voice conversation** with your running agents. Ask "what's the payments session waiting on?", and **approve, deny, or answer a prompt by voice** — it acts through structured function calling, not screen-scraping. Runs on **your own AI key** (OpenAI, Google Gemini, or Alibaba DashScope / Qwen), stays **completely off until you add a key**, recognizes speech **on-device**, speaks fluent 中文 (Aoede voice), and is hard-wired to **refuse to leak the agent's system prompt**.
+The part nobody else has. Tap the cat and start a **real-time voice conversation** with your running agents. Ask "what's the payments session waiting on?", and **approve, deny, or answer a prompt by voice** — it acts through structured function calling, not screen-scraping. Runs on **your own AI key** (OpenAI, Google Gemini, or Alibaba DashScope / Qwen), stays **completely off until you add a key**, streams speech to your chosen provider, speaks fluent 中文 (Aoede voice), and is hard-wired to **refuse to leak the agent's system prompt**.
 
 ### 📊 The three-bucket dashboard
 Every session grouped into **Needs response / Working / Done**, each row showing project · branch · model · live token & context-window usage · the tool the agent is currently running · and a peek at its most recent output. Priority is honest: `needs response` always outranks `working`.
 
 ### ✅ Remote approvals
-When an agent asks to run a command or edit a file, the **full command or diff** lands on your phone. **Approve / Deny**, or **Always allow this** / **Allow all this session** — straight from the dashboard or the lock screen.
+When an agent asks to run a command or edit a file, review the **full command or diff** in the phone dashboard. **Approve / Deny** from the dashboard or a lock-screen notification (Approve requires unlocking); answerable question notifications offer text input. **Always allow this** / **Allow all this session** remain in the dashboard, not notification buttons. A read-only wait tells you to respond in the Mac's native prompt. Actions require pairing and a reachable Mac.
 
 ### 🔔 Notifications, Live Activity & Dynamic Island
-A banner the instant a session needs you. ActivityKit puts live counts on the **Lock Screen and Dynamic Island**, updated while the app is foregrounded or connected. Closed-app APNs delivery is not part of the public v1.0 and remains deferred pending paid-account signing, an APNs key, and real-device end-to-end acceptance.
+Approval and question banners request **Time Sensitive** delivery when their final delivery level includes sound; Quiet makes them ordinary silent banners. Other categories remain ordinary. Your category switches and system notification / Focus settings still apply. ActivityKit puts live counts on the **Lock Screen and Dynamic Island**, updated while the app is foregrounded or connected.
 
-### 🤖 Works across your whole agent fleet
-Source-agnostic from day one. **Claude Code and Codex** are tested end-to-end; adapters ship for **Qwen, Kimi, Grok, OpenCode, and Gemini (Antigravity)**. One universal hook installer wires them all up.
+The current source supports APNs notifications with the iPhone app closed when the Mac sender is running, APNs signing is configured for the iPhone build, the phone has registered, and notifications are allowed. This is not yet a public-download setup promise: the distribution approach awaits [DEC-APNS](docs/adr/0013-apns-key-delivery.md), and lock-screen / Focus / Watch delivery still needs device acceptance. Responding requires a reachable paired Mac; away from that network, return to it before acting (an existing Tailscale connection is an advanced option).
+
+### 🤖 Four first-class agents, plus community adapters
+**Claude Code, Codex, Grok, and Cursor** are the first-class tier: three-state tracking and remote approval are the required baseline; quota and jump support are best effort. This tier is a support commitment, not a claim that all four have completed device acceptance. **Qwen, Kimi, OpenCode, and Antigravity** adapters are community-tier, unverified, and fail-open. See the [hook setup guide](docs/multi-cli-hook-setup.md) for agent-specific setup.
 
 ### 📷 QR pairing, zero typing
 The Mac shows a QR encoding `host:port` + a bearer token. The phone scans it once — no manual IP entry. (The same QR can carry a Tailscale `100.x` address later, with no code change.)
@@ -128,6 +130,8 @@ The hard part — *detecting* session state — is solved by **hooks** that each
 ---
 
 ## 🛠️ Build & run
+
+Deployment targets: **iOS 17 / macOS 14**. The planned build SDK is **Xcode 27**; this does not raise the deployment targets or imply that Xcode 27 validation is complete.
 
 | Path | What |
 |------|------|

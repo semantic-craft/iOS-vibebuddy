@@ -5,12 +5,12 @@
 # vibebuddy
 
 **你的 AI 编程助手，装进手机里。**
-一眼看清每个会话状态，谁需要你立刻就推送提醒，在锁屏上看到完整命令并批准——甚至可以**直接用语音和你的 agent 对话**。
+一眼看清每个会话状态，谁需要你立刻就推送提醒，从锁屏通知解锁后批准——甚至可以**直接用语音和你的 agent 对话**。
 
 [**⬇️ 下载 macOS 版**](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest) · [功能](#-功能) · [工作原理](#-工作原理) · [从源码构建](#️-构建与运行) · [English](./README.md)
 
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Platform](https://img.shields.io/badge/platform-iOS%2026%20%2B%20macOS%2014-blue)
+![Platform](https://img.shields.io/badge/platform-iOS%2017%20%2B%20macOS%2014-blue)
 ![Swift](https://img.shields.io/badge/Swift-6.0-orange)
 [![Latest release](https://img.shields.io/github/v/release/semantic-craft/iOS-vibebuddy)](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest)
 
@@ -66,19 +66,21 @@
 ## ✨ 功能
 
 ### 🎙️ 和你的 agent 对话——语音伴侣
-别家没有的杀手锏。点一下小猫，就能和正在运行的 agent 进行**实时语音对话**。问一句"payments 那个会话在等什么？"，然后**用语音批准、拒绝或回答提问**——它通过结构化 function calling 真正执行操作，而不是截屏识别。使用**你自己的 AI key**（OpenAI、Google Gemini，或阿里云百炼 / 通义千问），**不加 key 就完全关闭**，语音**在设备端本地识别**，说一口流利中文（Aoede 音色），并且被硬性限制**拒绝泄露 agent 的系统提示词**。
+别家没有的杀手锏。点一下小猫，就能和正在运行的 agent 进行**实时语音对话**。问一句"payments 那个会话在等什么？"，然后**用语音批准、拒绝或回答提问**——它通过结构化 function calling 真正执行操作，而不是截屏识别。使用**你自己的 AI key**（OpenAI、Google Gemini，或阿里云百炼 / 通义千问），**不加 key 就完全关闭**，语音发往你选择的服务商处理，说一口流利中文（Aoede 音色），并且被硬性限制**拒绝泄露 agent 的系统提示词**。
 
 ### 📊 三栏仪表盘
 每个会话按 **需要回应 / 进行中 / 已完成** 分组，每行显示 项目 · 分支 · 模型 · 实时 token 与上下文窗口占用 · 当前正在执行的工具 · 最近输出的预览。优先级很诚实：`需要回应` 永远盖过 `进行中`。
 
 ### ✅ 远程批准
-当 agent 请求执行命令或修改文件时，**完整命令或 diff** 直接推到你手机上。**批准 / 拒绝**，或者 **总是允许这一条** / **本次会话全部允许**——在仪表盘或锁屏上一键搞定。
+当 agent 请求执行命令或修改文件时，可在手机仪表盘查看**完整命令或 diff**。可在仪表盘或锁屏通知中**批准 / 拒绝**（批准需要解锁），可远程作答的问题通知提供文本输入。**总是允许这一条** / **本次会话全部允许**仅在仪表盘提供，不是通知按钮。只读等待会提示到 Mac 原生对话框处理。操作要求已配对且 Mac 可达。
 
 ### 🔔 通知、实时活动与灵动岛
-会话需要你时立即弹出横幅。ActivityKit 将实时计数显示在**锁屏和灵动岛**上，并在 App 位于前台或保持连接时更新。App 关闭后的 APNs 推送尚未列入公开 v1.0，仍待付费开发者账号签名、APNs key 和真机端到端验收。
+审批和问题横幅在最终投递级别带声音时请求 **Time Sensitive（时效性通知）**；Quiet 会将它们降为普通静音横幅，其余类别使用普通级别。类别开关及系统通知／专注模式设置仍然生效。ActivityKit 将实时计数显示在**锁屏和灵动岛**上，并在 App 位于前台或保持连接时更新。
 
-### 🤖 适配你的整个 agent 矩阵
-从第一天起就与来源无关。**Claude Code 与 Codex** 已端到端测试；**Qwen、Kimi、Grok、OpenCode、Gemini（Antigravity）** 适配器随附。一个通用 hook 安装器全部搞定。
+当前源码支持关闭 iPhone App 后通过 APNs 接收通知，条件是 Mac 发送端正在运行、APNs 签名与 iPhone 构建匹配、手机已注册且允许通知。这尚不是公开下载后开箱即用的承诺：分发方案仍待 [DEC-APNS](docs/adr/0013-apns-key-delivery.md)，锁屏／专注模式／Watch 送达仍需真机验收。回应要求已配对的 Mac 可达；离开该网络时应回到同一网络后处理（已有 Tailscale 连接可作为进阶方案）。
+
+### 🤖 四家一等支持，以及社区适配器
+**Claude Code、Codex、Grok、Cursor** 为一等支持：三态追踪与远程审批是必需能力，配额和跳转尽力支持。这个分级是支持承诺，不代表四家都已完成真机验收。**Qwen、Kimi、OpenCode、Antigravity** 为社区级适配器，未验证、失败即放行。各家的接线方法见 [hook 配置指南](docs/multi-cli-hook-setup.md)。
 
 ### 📷 扫码配对，零输入
 Mac 显示一个编码了 `host:port` + bearer token 的二维码。手机扫一次即可——无需手动输 IP。（同一个二维码以后可以承载 Tailscale `100.x` 地址，无需改代码。）
@@ -128,6 +130,8 @@ Claude Code / Codex / Qwen / … ──hooks──▶ vibebuddy（macOS 菜单�
 ---
 
 ## 🛠️ 构建与运行
+
+部署目标：**iOS 17 / macOS 14**。计划使用 **Xcode 27 SDK** 构建；这不提高部署门槛，也不代表 Xcode 27 验证已完成。
 
 | 路径 | 内容 |
 |------|------|

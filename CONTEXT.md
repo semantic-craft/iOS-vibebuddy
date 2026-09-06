@@ -166,16 +166,17 @@ code, and tests — don't drift to synonyms.
 - **LifecycleJournal** — the bounded (7 days / 250 entries, 0600) local log of
   normalized state changes used for daemon-restart recovery and diagnostics; no
   prompts, reasoning, or tool output.
-- **NotificationCategory / NotificationCategoryPrefs** — one category per
-  `NotificationSound`, switched on or off per device (iPhone Settings, Mac
-  Settings). Applied *after* `SoundPolicy` and before anything is posted, so a
-  disabled category never reaches the phone and therefore never the Watch that
-  mirrors it. The switch says *whether at all*; `SessionAttention` (below) says
-  *how loud*. Defaults: approval, question, stuck, done on; long-wait
-  nudge and pairing off. The iPhone uploads its copy in
-  `DeviceRegistrationPayload` so the Mac's APNs push honours the phone's
-  switches. The Mac's `HookParser` reads Claude's `notification_type` to set
-  `waitKind` directly; the message keyword match is only the fallback.
+- **NotificationCategory / NotificationCategoryPrefs** — seven device switches:
+  approval (`needsApproval`), question (`needsAnswer`), failure (`agentStuck`),
+  completion (`agentDone`), long-wait nudge (`longWaitNudge`), pairing
+  (`pairSuccess`), and `quota` (usage / budget). The first six map to
+  `NotificationSound`; quota has no sound-file counterpart. Approval, question,
+  failure and completion default on; nudge and pairing default off. Quota
+  defaults on for Mac, off for iPhone. Each device owns its switches; APNs
+  respects the recipient phone's copy. Categories say *whether at all*;
+  attention says *how loud*. Quota is independent of session attention and
+  app Quiet mode / Quiet hours, and remains subject to its category switch and
+  system notification settings.
 - **SessionAttention** — how much of your attention a session has earned:
   `followed` / `normal` / `muted`. The daemon owns it: automatic `followed` for
   ten minutes after you drove the session (prompt, jump, decision, answer),
@@ -188,8 +189,8 @@ code, and tests — don't drift to synonyms.
   notification, its APNs push and the phone's own local notification so the
   three surfaces agree. Approvals and questions interrupt at every level (a
   muted session shows them silently); a completion banners for followed and
-  normal, is dropped for muted; the nudge is list-only unless followed. Quiet /
-  Focus mode reads every session as `muted`; a session whose own terminal is
+  normal, is dropped for muted; the nudge is list-only unless followed.
+  The app's Quiet mode / Quiet hours read every session as `muted`; a session whose own terminal is
   frontmost is capped to `list`. `list` and `drop` never push.
 - **Completion reminder** — `CompletionReminderSchedule` re-issues the
   `agentDone` cue for a `done`, unread session whose effective attention is
@@ -197,12 +198,30 @@ code, and tests — don't drift to synonyms.
   `statusSince`), on the Mac and over APNs; any acknowledgement stops it. Same
   notification id and collapse id as the original cue, so one banner is
   replaced, not stacked. The Watch carries no attention state.
+- **Missed** — one wait in `needsResponse` that reaches five minutes without
+  acknowledgement on any surface, counted once for that wait even if the session
+  is muted. Its time is the five-minute deadline. Mac Settings shows the current
+  week's total and per-agent counts; a week begins Monday at 06:00 local time.
+  A later response does not erase an already missed wait.
+- **Time Sensitive cue** — an approval or question delivered at `bannerSound`.
+  The interruption level is computed for each recipient after its Quiet setting;
+  a silent banner is ordinary, as are all other categories. This is a request
+  within the user's system notification / Focus settings, not a guarantee of
+  delivery or a Critical Alert. Only remotely answerable waits carry banner
+  actions: Approve (requires unlock), Deny, or text answer; a read-only wait
+  remains for the Mac's native prompt.
+- **PushFanout / PushRecipient** — the selected audience for a session cue,
+  with each phone's final delivery level, or a shared `CueSkipReason` when no
+  phone qualifies. This is the final audience vocabulary; there is no separate
+  `CueAudience` type. Quota uses `QuotaNoticeFanout` because only its category
+  switch governs app filtering. A selected recipient is not proof of delivery.
 - **NotificationDelivery / NotificationDeliveryLog** — one record per local or
   APNs send with outcome `attempted` / `scheduled` / `accepted` / `failed` /
   `skipped`. Never `delivered`: an API result is not proof the device showed it.
   `skipped` is a cue that was earned and then not said on that channel, carrying a
   `CueSkipReason` in `failureReason` — `category`, `attention`, `quiet`,
-  `focusedTerminal`, `apnsNotConfigured`, `noRegisteredDevice`, `mixed` (several
+  `focusedTerminal`, `apnsNotConfigured`, `noRegisteredDevice`,
+  `phonePosted` / `pushCovered` (the other channel covers this cue), `mixed` (several
   devices, excluded for different reasons). One outcome and
   one vocabulary for both channels, so an earned cue is never simply absent from
   the log; on the push side it is decided by `PushFanout.plan`, the same pure rule
