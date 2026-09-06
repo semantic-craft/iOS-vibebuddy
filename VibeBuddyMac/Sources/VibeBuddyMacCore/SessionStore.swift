@@ -526,12 +526,27 @@ public actor SessionStore {
         broadcast()
     }
 
+    /// Peer vocabulary shipped in App Store iOS/Watch before Cursor (#111).
+    private static let peerProviderQuotaVocabulary: Set<AccountUsageProvider> = [
+        .codex, .claude, .grok
+    ]
+
+    private static func wireCompatibleProviderQuota(_ quota: [ProviderQuota]) -> [ProviderQuota] {
+        quota.filter { peerProviderQuotaVocabulary.contains($0.provider) }
+    }
+
     /// The one place a runtime snapshot is assembled: sessions and diagnostics
     /// from the reducer, allowance from beside it.
     private func currentSnapshot(now: Date) -> Snapshot {
         var snapshot = reducer.snapshot(now: now, observationDiagnostics: diagnostics(now: now))
         snapshot.sourceID = sourceID
-        snapshot.providerQuota = providerQuota.isEmpty ? nil : providerQuota
+        // Wire gate (#111): omit providers outside the App Store peer vocabulary
+        // (codex/claude/grok) until iOS/Watch with tolerant providerQuota decode
+        // are live. Local Mac UI still collects Cursor via AccountUsageCoordinator;
+        // only the emitted Snapshot is filtered. Remove this gate after that
+        // client ships, then unrestricted Mac emit is safe.
+        let wireQuota = Self.wireCompatibleProviderQuota(providerQuota)
+        snapshot.providerQuota = wireQuota.isEmpty ? nil : wireQuota
         let directories = recentDirectories()
         snapshot.recentDirectories = directories.isEmpty ? nil : directories
         snapshot.sessions = snapshot.sessions.map { session in

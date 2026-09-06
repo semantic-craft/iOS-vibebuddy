@@ -174,3 +174,45 @@ public extension ProviderQuota {
         }
     }
 }
+
+
+// MARK: - Wire forward-compat (#111)
+
+/// Consumes one arbitrary JSON value so a failed element decode can still
+/// advance an unkeyed container.
+enum WireJSONSkip: Decodable {
+    case value
+
+    init(from decoder: Decoder) throws {
+        let single = try decoder.singleValueContainer()
+        if single.decodeNil() { self = .value; return }
+        if (try? single.decode(Bool.self)) != nil { self = .value; return }
+        if (try? single.decode(Int64.self)) != nil { self = .value; return }
+        if (try? single.decode(UInt64.self)) != nil { self = .value; return }
+        if (try? single.decode(Double.self)) != nil { self = .value; return }
+        if (try? single.decode(String.self)) != nil { self = .value; return }
+        if (try? single.decode([WireJSONSkip].self)) != nil { self = .value; return }
+        if (try? single.decode([String: WireJSONSkip].self)) != nil { self = .value; return }
+        self = .value
+    }
+}
+
+public extension ProviderQuota {
+    /// Decode `providerQuota` rows for the wire: an unknown `provider` string
+    /// drops that row instead of failing the enclosing Snapshot / ServerEvent.
+    ///
+    /// Release order (#111): ship this tolerant client decode before (or with)
+    /// any Mac that emits providers outside the peer vocabulary long-term.
+    static func decodeWireArray(from container: inout UnkeyedDecodingContainer) throws -> [ProviderQuota] {
+        var rows: [ProviderQuota] = []
+        while !container.isAtEnd {
+            do {
+                rows.append(try container.decode(ProviderQuota.self))
+            } catch {
+                // Failed decode does not advance; consume the element and continue.
+                _ = try container.decode(WireJSONSkip.self)
+            }
+        }
+        return rows
+    }
+}
