@@ -826,6 +826,13 @@ struct HotkeyRecorderView: View {
             }
         }
         .onDisappear { stop() }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in
+            guard let window = notification.object as? NSWindow,
+                  window.identifier == NSUserInterfaceItemIdentifier("com.vibebuddy.settings") else { return }
+            // AppWindows retains the hosting controller after close, so view
+            // disappearance alone cannot own the local keyboard monitor cleanup.
+            stop()
+        }
     }
 
     private func start() {
