@@ -90,7 +90,9 @@ public enum HookParser {
             childKind: child.kind,
             childName: child.name,
             childType: child.type,
-            childAction: child.action
+            childAction: child.action,
+            completionText: raw.hookEventName == "Stop" ? raw.lastAssistantMessage : nil,
+            completionSucceeded: raw.hookEventName == "Stop"
         )
     }
 

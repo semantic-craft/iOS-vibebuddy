@@ -12,7 +12,7 @@ private let voiceLog = Logger(subsystem: "com.vibebuddy.mac", category: "voice")
 /// state. Mirrors the iOS flow without `AVAudioSession`.
 @MainActor
 final class VoiceChat: ObservableObject {
-    enum Phase: Equatable { case idle, listening, thinking, speaking }
+    enum Phase: Equatable { case idle, connecting, listening, thinking, speaking }
 
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var lastUserText = ""
@@ -32,6 +32,8 @@ final class VoiceChat: ObservableObject {
 
     private let contextProvider: () -> [AgentSession]
     private let actionHandler: (VoiceAction) -> String
+    private let onStart: () -> Void
+    private var startID = UUID()
 
     // Realtime speech-to-speech — the active path. Provider chosen in Settings.
     private var realtime: (any RealtimeVoiceProvider)?
@@ -40,9 +42,10 @@ final class VoiceChat: ObservableObject {
     private var coordinator: VoiceCallCoordinator?
 
     init(contextProvider: @escaping () -> [AgentSession],
-         actionHandler: @escaping (VoiceAction) -> String) {
+         actionHandler: @escaping (VoiceAction) -> String, onStart: @escaping () -> Void = {}) {
         self.contextProvider = contextProvider
         self.actionHandler = actionHandler
+        self.onStart = onStart
     }
 
     func toggle() {
@@ -67,12 +70,14 @@ final class VoiceChat: ObservableObject {
     private func startRealtime() {
         errorText = nil
         guard isAvailable else { errorText = "Add your Qwen (DashScope) key in Settings first."; return }
+        let id = UUID(); startID = id; phase = .connecting
+        onStart()
         // An accessory (menu-bar) app must be active for the mic TCC prompt to show.
         NSApp.activate(ignoringOtherApps: true)
         Self.requestMic { [weak self] micOK in
             Task { @MainActor in
-                guard let self else { return }
-                guard micOK else { self.errorText = "Microphone permission needed (System Settings › Privacy › Microphone)."; return }
+                guard let self, self.startID == id else { return }
+                guard micOK else { self.phase = .idle; self.errorText = "Microphone permission needed (System Settings › Privacy › Microphone)."; return }
                 self.beginRealtimeSession()
             }
         }
@@ -111,7 +116,7 @@ final class VoiceChat: ObservableObject {
         self.coordinator = coordinator
         activeProvider = provider
         lastUserText = ""; lastReply = ""
-        coordinator.handle(.connected)
+        coordinator.beginConnecting()
         syncFromCoordinator(coordinator)
 
         eventTask = Task { [weak self] in
@@ -174,6 +179,7 @@ final class VoiceChat: ObservableObject {
     }
 
     private func stopRealtime() {
+        startID = UUID()
         if let coordinator {
             self.coordinator = nil
             coordinator.stop()
@@ -203,6 +209,7 @@ final class VoiceChat: ObservableObject {
     private static func phase(from coordinatorPhase: VoiceCallPhase) -> Phase {
         switch coordinatorPhase {
         case .idle: .idle
+        case .connecting: .connecting
         case .listening: .listening
         case .thinking: .thinking
         case .speaking: .speaking

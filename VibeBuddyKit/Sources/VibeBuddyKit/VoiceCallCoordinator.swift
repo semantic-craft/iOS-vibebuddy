@@ -4,6 +4,7 @@ import Foundation
 /// this coordinator owns provider events that should behave the same on iOS and Mac.
 public enum VoiceCallPhase: Equatable, Sendable {
     case idle
+    case connecting
     case listening
     case thinking
     case speaking
@@ -24,15 +25,18 @@ public final class VoiceCallCoordinator {
     public private(set) var errorText: String?
 
     private let audio: any VoiceCallAudio
-    private let actionHandler: (VoiceAction) -> String
+    private let actionHandler: (VoiceAction) async -> String
     private let sendToolResult: (String, String, String) -> Void
     private let closeSession: () -> Void
     private var gate = HalfDuplexGate()
     private var assistantBuffer = ""
+    private var toolTasks: [String: Task<Void, Never>] = [:]
+    private var handledToolIDs: Set<String> = []
+    private var stopped = false
 
     public init(
         audio: any VoiceCallAudio,
-        actionHandler: @escaping (VoiceAction) -> String,
+        actionHandler: @escaping (VoiceAction) async -> String,
         sendToolResult: @escaping (String, String, String) -> Void = { _, _, _ in },
         closeSession: @escaping () -> Void = {}
     ) {
@@ -40,6 +44,10 @@ public final class VoiceCallCoordinator {
         self.actionHandler = actionHandler
         self.sendToolResult = sendToolResult
         self.closeSession = closeSession
+    }
+
+    public func beginConnecting() {
+        phase = .connecting
     }
 
     public func handle(_ event: RealtimeVoiceEvent) {
@@ -67,18 +75,30 @@ public final class VoiceCallCoordinator {
             updateMicAfterGateChange()
         case .toolCall(let name, let arguments, let callID):
             let action = VoiceTools.action(name: name, arguments: arguments)
-            let result = action == .none ? "Sorry, I couldn't do that." : actionHandler(action)
-            if action != .none { lastReply = result }
-            sendToolResult(callID, name, result)
+            guard !stopped, handledToolIDs.insert(callID).inserted else { return }
+            phase = .thinking
+            toolTasks[callID] = Task { [weak self] in
+                guard let self else { return }
+                let result = action == .none ? "Sorry, I couldn't do that." : await actionHandler(action)
+                guard !Task.isCancelled, !stopped else { return }
+                if action != .none { lastReply = result }
+                sendToolResult(callID, name, result)
+                toolTasks[callID] = nil
+            }
         case .failed(let message):
             errorText = message
             stop()
-        default:
+        case .closed:
+            stop()
+        case .speechStarted:
             break
         }
     }
 
     public func stop() {
+        stopped = true
+        toolTasks.values.forEach { $0.cancel() }
+        toolTasks.removeAll()
         audio.stop()
         audio.micMuted = false
         gate = HalfDuplexGate()

@@ -46,10 +46,10 @@ private struct WatchQuotaDetail: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(quota.provider.displayName).font(.headline)
-            window(quota.window(.weekly), title: String(localized: "Weekly remaining"))
+            window(quota.window(.weekly), title: quota.weeklyWindowDurationMinutes == nil ? String(localized: "Weekly remaining") : WatchQuotaVoice.windowName(quota.window(.weekly)))
             window(quota.window(.short), title: quota.shortWindowDurationMinutes == nil ? String(localized: "Short window") : WatchQuotaVoice.windowName(quota.window(.short)))
             ForEach(Array((quota.otherWindows ?? []).enumerated()), id: \.offset) { _, reading in
-                window(reading, title: WatchQuotaVoice.windowName(reading))
+                window(cachedReading(reading), title: WatchQuotaVoice.windowName(reading))
             }
             Text(WatchFormat.updated(quota.age(now: now)))
                 .font(.caption2).foregroundStyle(.secondary)
@@ -65,6 +65,12 @@ private struct WatchQuotaDetail: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
+    }
+
+    private func cachedReading(_ reading: QuotaWindow) -> QuotaWindow {
+        var result = reading
+        result.isCached = reading.isCached == true || quota.isCached == true
+        return result
     }
 
     private func window(_ reading: QuotaWindow, title: String) -> some View {

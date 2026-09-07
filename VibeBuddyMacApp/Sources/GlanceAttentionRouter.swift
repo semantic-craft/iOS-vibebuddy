@@ -21,6 +21,7 @@ final class GlanceAttentionRouter: AttentionNotifier, @unchecked Sendable {
         // The user's "notify" switch governs cards the same way it governs
         // banners: off means no ping of either kind (the banner path skips too).
         guard Self.notificationsEnabled else { return await banners.notify(alert) }
+        guard await banners.validateCompletion?(alert) != false else { return .skipped }
         let shown = await MainActor.run { presentOnGlance(alert) }
         guard shown else { return await banners.notify(alert) }
         if Self.soundEnabled { CuePlayer.play(alert.sound) }

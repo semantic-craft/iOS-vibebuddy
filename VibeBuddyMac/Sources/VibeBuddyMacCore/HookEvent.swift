@@ -74,6 +74,11 @@ public struct HookEvent: Sendable, Equatable {
     /// True only for the Desktop probe's synthetic stop. Distinct from an
     /// agent that happened to finish with the word "Abandoned".
     public let probeRetirement: Bool
+    /// Full final result carried only by an explicitly successful source ending.
+    public let completionText: String?
+    /// True for explicit success, false for explicit failure/interruption,
+    /// nil for progress-only endings with no result evidence.
+    public let completionSucceeded: Bool?
 
     public init(
         kind: Kind,
@@ -96,7 +101,9 @@ public struct HookEvent: Sendable, Equatable {
         turnID: String? = nil,
         enrichment: TranscriptInfo? = nil,
         desktopThreadID: String? = nil,
-        probeRetirement: Bool = false
+        probeRetirement: Bool = false,
+        completionText: String? = nil,
+        completionSucceeded: Bool? = nil
     ) {
         self.kind = kind
         self.sessionID = sessionID
@@ -119,5 +126,7 @@ public struct HookEvent: Sendable, Equatable {
         self.enrichment = enrichment
         self.desktopThreadID = desktopThreadID
         self.probeRetirement = probeRetirement
+        self.completionText = completionText
+        self.completionSucceeded = completionSucceeded
     }
 }

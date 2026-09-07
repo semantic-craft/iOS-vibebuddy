@@ -12,11 +12,14 @@ public enum VibeBuddyDeepLink {
     public static let sessionHost = "session"
 
     /// Build the deep link that opens `id`.
-    public static func sessionURL(id: String) -> URL {
+    public static func sessionURL(id: String, completionNotificationID: String? = nil) -> URL {
         var components = URLComponents()
         components.scheme = scheme
         components.host = sessionHost
         components.queryItems = [URLQueryItem(name: "id", value: id)]
+        if let completionNotificationID {
+            components.queryItems?.append(URLQueryItem(name: "completionNotification", value: completionNotificationID))
+        }
         // Always well-formed for a non-empty scheme/host; the fallback only guards
         // a theoretically-impossible nil so callers get a non-optional URL.
         return components.url ?? URL(string: "\(scheme)://\(sessionHost)")!
@@ -31,4 +34,10 @@ public enum VibeBuddyDeepLink {
         else { return nil }
         return id
     }
+    public static func completionNotificationID(from url: URL) -> String? {
+        guard sessionId(from: url) != nil else { return nil }
+        return URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+            .first(where: { $0.name == "completionNotification" })?.value
+    }
+
 }

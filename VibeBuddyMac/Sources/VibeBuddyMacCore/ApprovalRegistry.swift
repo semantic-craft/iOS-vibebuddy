@@ -1,49 +1,57 @@
 import Foundation
 
-/// Holds a blocking `/approval` request until the phone decides (`/decision`) or
-/// the timeout fires. Each id is resumed exactly once — whichever of decision or
-/// timeout arrives first wins; the other is a no-op.
+/// Holds a blocking approval until a decision or timeout wins. Prepare before
+/// publishing its card so a phone can claim it even before `wait` is entered.
 public actor ApprovalRegistry {
     public enum Outcome: String, Sendable { case allow, deny, pass }
 
-    private var waiters: [String: CheckedContinuation<Outcome, Never>] = [:]
-    /// Decisions that arrived before their request started waiting. The pending
-    /// card is broadcast an actor hop *before* `/approval` registers its waiter,
-    /// so a decision can legitimately land in that window; without this it would
-    /// be dropped and the hook would fail open on the timeout instead.
-    private var earlyDecisions: [String: Outcome] = [:]
+    private struct Pending {
+        var continuation: CheckedContinuation<Outcome, Never>?
+        var outcome: Outcome?
+        var claimed = false
+    }
+    private var pending: [String: Pending] = [:]
 
     public init() {}
 
+    public func prepare(id: String) {
+        if pending[id] == nil { pending[id] = Pending() }
+    }
+
+    /// Wins against timeout before any permission or interaction side effects.
+    public func claim(id: String) -> Bool {
+        guard var entry = pending[id], entry.outcome == nil, !entry.claimed else { return false }
+        entry.claimed = true
+        pending[id] = entry
+        return true
+    }
+
     public func wait(id: String, timeout: Duration) async -> Outcome {
-        if let early = earlyDecisions.removeValue(forKey: id) { return early }
-        return await withCheckedContinuation { (cont: CheckedContinuation<Outcome, Never>) in
-            waiters[id] = cont
+        prepare(id: id)
+        if let outcome = pending[id]?.outcome {
+            pending[id] = nil
+            return outcome
+        }
+        return await withCheckedContinuation { continuation in
+            pending[id]?.continuation = continuation
             Task { [weak self] in
                 try? await Task.sleep(for: timeout)
-                await self?.resume(id: id, with: .pass)
+                await self?.resolve(id: id, with: .pass)
             }
         }
     }
 
-    public func resolve(id: String, with outcome: Outcome) {
-        resume(id: id, with: outcome)
-    }
-
-    private func resume(id: String, with outcome: Outcome) {
-        guard let cont = waiters.removeValue(forKey: id) else {
-            // A timeout for an id nobody is waiting on is spent; a real decision
-            // is held briefly for the request that is about to wait on it.
-            guard outcome != .pass else { return }
-            earlyDecisions[id] = outcome
-            Task { [weak self] in
-                try? await Task.sleep(for: .seconds(60))
-                await self?.forgetEarlyDecision(id)
-            }
-            return
+    @discardableResult
+    public func resolve(id: String, with outcome: Outcome) -> Bool {
+        guard var entry = pending[id], entry.outcome == nil,
+              !(outcome == .pass && entry.claimed) else { return false }
+        if let continuation = entry.continuation {
+            pending[id] = nil
+            continuation.resume(returning: outcome)
+        } else {
+            entry.outcome = outcome
+            pending[id] = entry
         }
-        cont.resume(returning: outcome)
+        return true
     }
-
-    private func forgetEarlyDecision(_ id: String) { earlyDecisions[id] = nil }
 }

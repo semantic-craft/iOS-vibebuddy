@@ -32,7 +32,7 @@ public struct WatchStoredState: Codable, Equatable, Sendable {
               value.state.observedAt == value.complication.observedAt,
               value.state.sourceID == value.complication.sourceID,
               value.state.pairingEpoch == value.complication.pairingEpoch,
-              value.state.followedTasks == value.complication.tasks else { return nil }
+              value.state.followedTasks.map(\.complicationTask) == value.complication.tasks else { return nil }
         return value
     }
 }

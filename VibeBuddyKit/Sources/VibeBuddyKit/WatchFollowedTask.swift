@@ -6,6 +6,8 @@ public struct WatchFollowedTask: Codable, Equatable, Sendable, Identifiable {
     public var completionID: String?
     public var title: String
     public var summary: String?
+    /// Bounded Mac-authored result for the detail screen, excluded from WidgetKit.
+    public var detailSummary: String? = nil
     public var presentation: TaskPresentationState
     public var waitKind: WaitKind?
     public var pendingID: String?
@@ -18,7 +20,8 @@ public struct WatchFollowedTask: Codable, Equatable, Sendable, Identifiable {
         title = String(session.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines).prefix(160))
         // A request can contain a full command, path or question. The compact
         // surface sends its category only; details stay in existing alert UI.
-        let text = session.status == .needsResponse ? nil : session.summary
+        let text = session.status == .needsResponse ? nil : session.displaySummary
+        detailSummary = session.completionSummary
         summary = text.flatMap { raw in
             let line = raw.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
             // Conservative: do not place path/command-shaped summaries on a face.
@@ -35,6 +38,12 @@ public struct WatchFollowedTask: Codable, Equatable, Sendable, Identifiable {
             ? (session.waitKind ?? (session.pendingApproval != nil ? .permission : .question)) : nil
         pendingID = session.pendingApproval?.id ?? session.pendingQuestion?.id
         statusSince = session.statusSince
+    }
+
+    public var complicationTask: Self {
+        var compact = self
+        compact.detailSummary = nil
+        return compact
     }
 
     public var isCandidate: Bool { presentation != .idle && presentation != .unassigned }
@@ -81,7 +90,7 @@ public struct WatchComplicationSnapshot: Codable, Equatable, Sendable {
     public init(state: WatchDashboardState, previous: Self? = nil) {
         sourceID = state.sourceID
         pairingEpoch = state.pairingEpoch
-        tasks = state.followedTasks
+        tasks = state.followedTasks.map(\.complicationTask)
         observedAt = state.observedAt
         relay = state.relay
         let retained = previous?.sourceID == sourceID && previous?.pairingEpoch == pairingEpoch

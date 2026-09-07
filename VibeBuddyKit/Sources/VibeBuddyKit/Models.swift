@@ -426,6 +426,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     /// selected, or jumped to. The Mac reducer is authoritative for this value.
     public var hasUnreadCompletion: Bool
     /// Authoritative completion identity, populated by the Mac lifecycle.
+    public var completionNotice: CompletionNotice? = nil
     public var completionID: String?
     /// Cumulative tokens spent across this session's turns (input+output),
     /// accumulated by the reducer. Drives the estimated cost + budget alert.
@@ -677,6 +678,7 @@ public struct DeviceRegistrationPayload: Codable, Sendable, Equatable {
     public var quietMode: Bool?
     /// Which cue categories the phone wants at all. Optional so older payloads
     /// decode unchanged; the Mac treats a missing value as the default set.
+    public var supportsCompletionNotices: Bool? = nil
     public var categories: NotificationCategoryPrefs?
 
     public init(token: String? = nil, deviceID: String? = nil, name: String? = nil,

@@ -14,7 +14,7 @@ private let voiceLog = Logger(subsystem: "com.vibebuddy.app", category: "voice")
 /// and this thin controller are iOS-specific.
 @MainActor
 final class VoiceChat: ObservableObject {
-    enum Phase: Equatable { case idle, listening, thinking, speaking }
+    enum Phase: Equatable { case idle, connecting, listening, thinking, speaking }
 
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var lastUserText = ""
@@ -33,7 +33,7 @@ final class VoiceChat: ObservableObject {
     var isEnabled: Bool { VoiceSettings.companionEnabled }
 
     private let contextProvider: () -> [AgentSession]
-    private let actionHandler: (VoiceAction) -> String
+    private let actionHandler: (VoiceAction) async -> String
 
     // Realtime speech-to-speech — the only path. Provider chosen in Settings.
     private var realtime: (any RealtimeVoiceProvider)?
@@ -42,7 +42,7 @@ final class VoiceChat: ObservableObject {
     private var coordinator: VoiceCallCoordinator?
 
     init(contextProvider: @escaping () -> [AgentSession],
-         actionHandler: @escaping (VoiceAction) -> String) {
+         actionHandler: @escaping (VoiceAction) async -> String) {
         self.contextProvider = contextProvider
         self.actionHandler = actionHandler
     }
@@ -102,7 +102,7 @@ final class VoiceChat: ObservableObject {
         }
         let language = VoiceSettings.conversationLanguage
         let instructions = VoicePrompt.systemPrompt(sessions: contextProvider(), language: language, actionStyle: .tools)
-            + "\n\nThis is a live voice call. Stay silent until the user actually speaks — never start talking on your own or fill silence, and never reply to your own voice. Answer in one short, natural sentence unless asked for more, and don't repeat yourself. Speak in a calm, gentle, even tone at a steady volume; never suddenly raise your pitch, shout, or get loud."
+            + "\n\nThis is a live voice call. Stay silent until the user actually speaks — Never claim an action succeeded before its tool result arrives. Report the tool result faithfully; Mac receipt is not agent completion. never start talking on your own or fill silence, and never reply to your own voice. Answer in one short, natural sentence unless asked for more, and don't repeat yourself. Speak in a calm, gentle, even tone at a steady volume; never suddenly raise your pitch, shout, or get loud."
         let model = VoiceSettings.model(provider)
         let voice = VoiceSettings.voice(provider, language)
         voiceLog.info("realtime start provider=\(provider.rawValue, privacy: .public) model=\(model, privacy: .public) voice=\(voice, privacy: .public)")
@@ -127,7 +127,7 @@ final class VoiceChat: ObservableObject {
         self.coordinator = coordinator
         activeProvider = provider
         lastUserText = ""; lastReply = ""
-        coordinator.handle(.connected)
+        coordinator.beginConnecting()
         syncFromCoordinator(coordinator)
 
         eventTask = Task { [weak self] in
@@ -219,6 +219,7 @@ final class VoiceChat: ObservableObject {
     private static func phase(from coordinatorPhase: VoiceCallPhase) -> Phase {
         switch coordinatorPhase {
         case .idle: .idle
+        case .connecting: .connecting
         case .listening: .listening
         case .thinking: .thinking
         case .speaking: .speaking

@@ -9,6 +9,7 @@ import VibeBuddyKit
 public actor QuestionRegistry {
     private struct Waiter {
         let token: UUID
+        let questionID: String?
         let continuation: CheckedContinuation<QuestionAnswers?, Never>
     }
 
@@ -21,13 +22,13 @@ public actor QuestionRegistry {
     /// choose between resolving a wait and typing into a terminal.
     public func isWaiting(sessionID: String) -> Bool { waiters[sessionID] != nil }
 
-    public func wait(sessionID: String, timeout: Duration) async -> QuestionAnswers? {
+    public func wait(sessionID: String, questionID: String? = nil, timeout: Duration) async -> QuestionAnswers? {
         if let answers = early.removeValue(forKey: sessionID) { return answers }
         let token = UUID()
         return await withCheckedContinuation { (cont: CheckedContinuation<QuestionAnswers?, Never>) in
             // A newer question on the same session supersedes the old wait.
             waiters[sessionID]?.continuation.resume(returning: nil)
-            waiters[sessionID] = Waiter(token: token, continuation: cont)
+            waiters[sessionID] = Waiter(token: token, questionID: questionID, continuation: cont)
             Task { [weak self] in
                 try? await Task.sleep(for: timeout)
                 await self?.expire(sessionID: sessionID, token: token)
@@ -50,6 +51,14 @@ public actor QuestionRegistry {
             await self?.forgetEarly(sessionID: sessionID)
         }
         return false
+    }
+
+    /// Exact phone answers cannot spill into a later wait or a terminal.
+    public func resolveExact(sessionID: String, questionID: String, answers: QuestionAnswers) -> Bool {
+        guard let waiter = waiters[sessionID], waiter.questionID == questionID else { return false }
+        waiters.removeValue(forKey: sessionID)
+        waiter.continuation.resume(returning: answers)
+        return true
     }
 
     /// The agent resolved or dropped the question elsewhere: stop waiting.
@@ -92,10 +101,25 @@ public struct AnswerDispatch: Sendable {
     /// `answers` are keyed by question id; `text` is a plain reply (voice, an
     /// older phone build). Either fills the other in.
     @discardableResult
-    public func deliver(sessionID: String, text: String?, answers: QuestionAnswers?) async -> Bool {
+    public func deliver(sessionID: String, text: String?, answers: QuestionAnswers?, expectedQuestionID: String? = nil, expectedStatusSince: Double? = nil) async -> Bool {
         let session = await store.snapshot(now: Date()).sessions.first { $0.id == sessionID }
         let pending = session?.pendingQuestion
         let structured = Self.normalize(answers: answers, text: text, for: pending)
+        if expectedQuestionID == "" {
+            guard let session, session.agent == .codex, session.status != .needsResponse,
+                  session.pendingQuestion == nil, session.pendingApproval == nil,
+                  let expectedStatusSince,
+                  abs(session.statusSince.timeIntervalSince1970 - expectedStatusSince) < 0.001,
+                  let text, !text.isEmpty else { return false }
+            return await steer(sessionID, text, session.status != .done)
+        }
+        if let expectedQuestionID, !expectedQuestionID.isEmpty {
+            guard let pending, pending.id == expectedQuestionID, pending.isAnswerable,
+                  pending.expiresAt.map({ $0 > Date() }) != false else { return false }
+            return await questions.resolveExact(sessionID: sessionID, questionID: expectedQuestionID, answers: structured)
+        }
+        guard pending?.isAnswerable != false, session?.pendingApproval == nil else { return false }
+
         if !structured.isEmpty, await questions.isWaiting(sessionID: sessionID) {
             await questions.resolve(sessionID: sessionID, answers: structured)
             return true

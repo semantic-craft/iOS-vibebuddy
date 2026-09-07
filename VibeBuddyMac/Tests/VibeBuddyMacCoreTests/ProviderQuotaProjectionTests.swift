@@ -40,6 +40,22 @@ struct ProviderQuotaProjectionTests {
         #expect(monitor.newlyCrossed(in: state, thresholdPercent: 90).isEmpty)
     }
 
+    @Test("Independent pools retain labels and balances even at the same duration")
+    func independentPools() throws {
+        let primary = AccountUsageWindow(kind: .primary, usedPercent: 20,
+            windowDurationMinutes: 10080, resetsAt: nil, label: "Plan allowance")
+        let secondary = AccountUsageWindow(kind: .secondary, usedPercent: 75,
+            windowDurationMinutes: 10080, resetsAt: nil, label: "On-demand")
+        let result = quota(.available(snapshot(primary: primary, secondary: secondary), nextRefreshAt: nil))
+        #expect(result.window(.weekly).label == "Plan allowance")
+        #expect(result.weeklyRemainingPercent == 80)
+        #expect(result.otherWindows?.count == 1)
+        #expect(result.otherWindows?.first?.label == "On-demand")
+        #expect(result.otherWindows?.first?.remainingPercent == 25)
+        let roundTrip = try JSONDecoder().decode(ProviderQuota.self, from: JSONEncoder().encode(result))
+        #expect(roundTrip == result)
+    }
+
     // MARK: normalization
 
     @Test("Consumed becomes remaining exactly once")

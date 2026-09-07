@@ -45,6 +45,8 @@ public struct ProviderQuota: Codable, Equatable, Sendable, Identifiable {
     public static let staleAfter: TimeInterval = 15 * 60
 
     public var provider: AccountUsageProvider
+    public var weeklyLabel: String?
+    public var shortWindowLabel: String?
     public var weeklyRemainingPercent: Int?
     public var weeklyResetsAt: Date?
     public var weeklyWindowDurationMinutes: Int?
@@ -131,13 +133,15 @@ public enum QuotaWindowStatus: String, Sendable {
 
 /// A single source reading. The timestamp never changes during relay or rendering.
 public struct QuotaWindow: Codable, Equatable, Sendable {
+    public var label: String?
     public var remainingPercent: Int?
     public var durationMinutes: Int?
     public var resetsAt: Date?
     public var observedAt: Date?
     public var isCached: Bool?
 
-    public init(remainingPercent: Int?, durationMinutes: Int?, resetsAt: Date?, observedAt: Date?, isCached: Bool? = nil) {
+    public init(remainingPercent: Int?, durationMinutes: Int?, resetsAt: Date?, observedAt: Date?, isCached: Bool? = nil, label: String? = nil) {
+        self.label = label
         self.remainingPercent = remainingPercent.flatMap { (0...100).contains($0) ? $0 : nil }
         self.durationMinutes = durationMinutes.flatMap { $0 > 0 ? $0 : nil }
         self.resetsAt = resetsAt
@@ -166,11 +170,11 @@ public extension ProviderQuota {
         case .weekly:
             return QuotaWindow(remainingPercent: weeklyRemainingPercent,
                                durationMinutes: weeklyWindowDurationMinutes,
-                               resetsAt: weeklyResetsAt, observedAt: observedAt, isCached: isCached)
+                               resetsAt: weeklyResetsAt, observedAt: observedAt, isCached: isCached, label: weeklyLabel)
         case .short:
             return QuotaWindow(remainingPercent: shortWindowRemainingPercent,
                                durationMinutes: shortWindowDurationMinutes,
-                               resetsAt: shortWindowResetsAt, observedAt: observedAt, isCached: isCached)
+                               resetsAt: shortWindowResetsAt, observedAt: observedAt, isCached: isCached, label: shortWindowLabel)
         }
     }
 

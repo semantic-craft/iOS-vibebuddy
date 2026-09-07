@@ -6,6 +6,18 @@ import Testing
 @MainActor
 struct VoiceCallCoordinatorTests {
 
+    @Test("connecting remains distinct from listening until provider confirmation")
+    func awaitsConfirmation() {
+        let audio = FakeVoiceCallAudio()
+        let coordinator = VoiceCallCoordinator(audio: audio, actionHandler: { _ in "" })
+        coordinator.beginConnecting()
+        #expect(coordinator.phase == .connecting)
+        coordinator.handle(.connected)
+        #expect(coordinator.phase == .listening)
+        coordinator.handle(.closed)
+        #expect(coordinator.phase == .idle)
+    }
+
     @Test("model audio mutes the mic and enters speaking")
     func modelAudioMutesMic() {
         let audio = FakeVoiceCallAudio()
@@ -52,7 +64,7 @@ struct VoiceCallCoordinatorTests {
     }
 
     @Test("tool calls run the decoded voice action and return the result")
-    func toolCallRunsActionAndReturnsResult() {
+    func toolCallRunsActionAndReturnsResult() async {
         let audio = FakeVoiceCallAudio()
         var handled: [VoiceAction] = []
         var sentResults: [(callID: String, name: String, result: String)] = []
@@ -73,12 +85,50 @@ struct VoiceCallCoordinatorTests {
             callID: "call-1"
         ))
 
+        for _ in 0..<100 where sentResults.isEmpty { await Task.yield() }
         #expect(handled == [.approve(project: "payments-api")])
         #expect(sentResults.count == 1)
         #expect(sentResults.first?.callID == "call-1")
         #expect(sentResults.first?.name == "approve_session")
         #expect(sentResults.first?.result == "Approved payments-api.")
         #expect(coordinator.lastReply == "Approved payments-api.")
+    }
+
+    @Test("tool result waits for the asynchronous receipt and duplicate call IDs do not resend")
+    func receiptWaits() async {
+        let audio = FakeVoiceCallAudio()
+        var receipt: CheckedContinuation<String, Never>?
+        var sent: [String] = []
+        var calls = 0
+        let coordinator = VoiceCallCoordinator(audio: audio, actionHandler: { _ in
+            calls += 1
+            return await withCheckedContinuation { receipt = $0 }
+        }, sendToolResult: { _, _, result in sent.append(result) })
+        let event = RealtimeVoiceEvent.toolCall(name: "approve_session", arguments: #"{"project":"fixture"}"#, callID: "one")
+        coordinator.handle(event)
+        for _ in 0..<100 where receipt == nil { await Task.yield() }
+        coordinator.handle(event)
+        #expect(calls == 1)
+        #expect(sent.isEmpty)
+        receipt?.resume(returning: "The result could not be confirmed.")
+        for _ in 0..<100 where sent.isEmpty { await Task.yield() }
+        #expect(sent == ["The result could not be confirmed."])
+    }
+
+    @Test("closing the call suppresses a late action receipt")
+    func closeSuppressesLateReceipt() async {
+        var receipt: CheckedContinuation<String, Never>?
+        var sent: [String] = []
+        let coordinator = VoiceCallCoordinator(audio: FakeVoiceCallAudio(), actionHandler: { _ in
+            await withCheckedContinuation { receipt = $0 }
+        }, sendToolResult: { _, _, result in sent.append(result) })
+        coordinator.handle(.toolCall(name: "approve_session", arguments: #"{"project":"fixture"}"#, callID: "late"))
+        for _ in 0..<100 where receipt == nil { await Task.yield() }
+        coordinator.stop()
+        receipt?.resume(returning: "Mac received the request.")
+        for _ in 0..<100 { await Task.yield() }
+        #expect(sent.isEmpty)
+        #expect(coordinator.phase == .idle)
     }
 
     @Test("a close phrase ends the voice call")
@@ -158,12 +208,14 @@ struct VoiceCallCoordinatorTests {
             coordinator.handle(event)
         }
 
+        for _ in 0..<100 where sentResults.isEmpty { await Task.yield() }
         let start = await provider.startRequest
         #expect(start?.instructions == "test instructions")
         #expect(start?.voice == "test-voice")
         #expect(start?.toolCount == VoiceTools.all.count)
         #expect(coordinator.lastUserText == "Approve payments API")
         #expect(coordinator.lastReply == "Approved payments-api.")
+        for _ in 0..<100 where sentResults.isEmpty { await Task.yield() }
         #expect(handled == [.approve(project: "payments-api")])
         #expect(sentResults.count == 1)
         #expect(sentResults.first?.callID == "call-1")

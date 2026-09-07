@@ -156,16 +156,17 @@ struct CodexSteerTests {
         #expect(h.connection.calls.suffix(2) == ["thread/resume", "turn/start"])
     }
 
-    @Test("a steer the daemon refuses falls back to a new turn")
-    func steerFallsBack() async throws {
+    @Test("a failed steer is not replayed as a new turn")
+    func steerFailureDoesNotReplay() async throws {
         let h = Harness()
         defer { h.stop() }
         #expect(await h.connected())
         await h.activate("thr-x")
         h.connection.set("turn/steer", [:])       // the fake answers; remove to make it fail
         h.connection.fail("turn/steer")
-        #expect(await h.monitor.steer(threadID: "thr-x", text: "hi", isActive: true))
-        #expect(h.connection.calls.suffix(2) == ["turn/steer", "turn/start"])
+        #expect(await h.monitor.steer(threadID: "thr-x", text: "hi", isActive: true) == false)
+        #expect(h.connection.calls.last == "turn/steer")
+        #expect(!h.connection.calls.contains("turn/start"))
     }
 
     @Test("the answer dispatch sends Codex text to the daemon and never types into a pane")
