@@ -95,6 +95,7 @@ struct AccountUsageSummaryView: View {
 
     private func windowTitle(_ window: AccountUsageWindow) -> String {
         if provider == .grok, window.kind == .secondary { return "Extra usage" }
+        if let label = window.label { return label }
         guard let minutes = window.windowDurationMinutes else {
             return window.kind == .primary ? "Primary window" : "Secondary window"
         }
@@ -138,7 +139,7 @@ struct AccountUsageSettings: View {
             } header: {
                 Text("Providers")
             } footer: {
-                Text("Codex reads its official local app-server. Claude runs the official read-only /usage command without session persistence or hooks. Grok asks its own agent process for the billing summary and falls back to the CLI billing proxy with the local login token when needed. Cursor uses a session Cookie you paste from cursor.com (Keychain only). No account IDs or raw responses are logged. Turning a source off leaves session monitoring and notifications running.")
+                Text("Codex reads its official local app-server. Claude runs the official read-only /usage command without session persistence or hooks. Grok asks its own agent process for the billing summary and falls back to the CLI billing proxy with the local login token when needed. Cursor reads its selected local app login or browser/manual Cookie. Local app credentials are never copied to storage. No account IDs or raw responses are logged. Turning a source off leaves session monitoring and notifications running.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -154,7 +155,9 @@ struct AccountUsageSettings: View {
                     CursorCookieSourceSettings.setMode(mode)
                 }
 
-                if cursorCookieMode == .manual {
+                if cursorCookieMode == .cursorApp {
+                    Text("Uses the account signed in to Cursor on this Mac. If the session expires, sign in again in Cursor and refresh.").font(.caption)
+                } else if cursorCookieMode == .manual {
                     SecureField("Cookie header from cursor.com", text: $cursorCookie)
                         .textFieldStyle(.roundedBorder)
                         .focused($cursorCookieFocused)
@@ -175,14 +178,20 @@ struct AccountUsageSettings: View {
                 } else {
                     Button("Import Cookie from browser now") {
                         cursorImportMessage = nil
+                        Task {
                         do {
-                            let header = try CursorBrowserCookieImporter()
-                                .importSessionCookieHeader(allowKeychainPrompt: true)
-                            _ = CursorSessionCookieStore.saveImportedIfChanged(header)
+                            let header = try await Task.detached(priority: .utility) {
+                                try CursorBrowserCookieImporter().importSessionCookieHeader(allowKeychainPrompt: true)
+                            }.value
+                            if let status = CursorSessionCookieStore.saveImportedIfChanged(header), status != 0 {
+                                cursorImportMessage = "Could not save the imported session (Keychain error \(status))."
+                                return
+                            }
                             cursorImportMessage = "Imported a Cursor session cookie from the browser."
                         } catch {
                             cursorImportMessage = "No usable Cursor session found in the browser. Paste a Cookie header, or sign in at cursor.com and try again."
                         }
+                    }
                     }
                     .accessibilityIdentifier("import-cursorCookie")
                     if let cursorImportMessage {

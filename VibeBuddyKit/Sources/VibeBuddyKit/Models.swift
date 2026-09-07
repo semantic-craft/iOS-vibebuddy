@@ -606,6 +606,40 @@ public struct Snapshot: Codable, Sendable, Equatable {
         self.recentDirectories = recentDirectories
         self.dispatchAgents = dispatchAgents
     }
+
+    enum CodingKeys: String, CodingKey {
+        case sourceID, sessions, serverTime, observationDiagnostics
+        case providerQuota, recentDirectories, dispatchAgents
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sourceID = try c.decodeIfPresent(String.self, forKey: .sourceID)
+        sessions = try c.decode([AgentSession].self, forKey: .sessions)
+        serverTime = try c.decode(Date.self, forKey: .serverTime)
+        observationDiagnostics = try c.decodeIfPresent(
+            [AgentObservationDiagnostic].self, forKey: .observationDiagnostics)
+        if c.contains(.providerQuota), try c.decodeNil(forKey: .providerQuota) == false {
+            var unkeyed = try c.nestedUnkeyedContainer(forKey: .providerQuota)
+            let rows = try ProviderQuota.decodeWireArray(from: &unkeyed)
+            providerQuota = rows
+        } else {
+            providerQuota = nil
+        }
+        recentDirectories = try c.decodeIfPresent([String].self, forKey: .recentDirectories)
+        dispatchAgents = try c.decodeIfPresent([AgentKind].self, forKey: .dispatchAgents)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(sourceID, forKey: .sourceID)
+        try c.encode(sessions, forKey: .sessions)
+        try c.encode(serverTime, forKey: .serverTime)
+        try c.encodeIfPresent(observationDiagnostics, forKey: .observationDiagnostics)
+        try c.encodeIfPresent(providerQuota, forKey: .providerQuota)
+        try c.encodeIfPresent(recentDirectories, forKey: .recentDirectories)
+        try c.encodeIfPresent(dispatchAgents, forKey: .dispatchAgents)
+    }
 }
 
 /// What the Mac encodes into the pairing QR; the phone scans and stores it.

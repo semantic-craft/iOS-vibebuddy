@@ -534,6 +534,128 @@ struct GrokUsageProviderTests {
     }
 
 
+    @Test("incompatibleFormat ACP still attempts billing proxy without reading the log")
+    func proxyFallbackAfterIncompatibleFormat() async throws {
+        let directory = try Self.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        // A fresh log reading that must NOT be used for incompatibleFormat.
+        let logURL = directory.appendingPathComponent("unified.jsonl")
+        try (Self.logLine(
+            timestamp: ISO8601DateFormatter().string(from: Date()),
+            percent: "72.0"
+        ) + Data("\n".utf8)).write(to: logURL)
+
+        let auth = directory.appendingPathComponent("auth.json")
+        try Data("""
+        {
+          "https://auth.x.ai::openid": {
+            "key": "token-456",
+            "expires_at": "2099-01-01T00:00:00Z"
+          }
+        }
+        """.utf8).write(to: auth)
+
+        // Incomplete period is still malformed. A complete period-only response
+        // now takes the same-account web recovery path instead.
+        let agent = try Self.writeFakeAgent(
+            in: directory,
+            transcript: directory.appendingPathComponent("stdin.txt"),
+            reply: #"{"jsonrpc":"2.0","id":2,"result":{"config":{"currentPeriod":{"end":"2026-09-06T11:36:49Z"},"onDemandCap":{"val":100}}}}"#
+        )
+
+        let endpoint = URL(string: "https://grok.test/v1/billing?format=credits")!
+        let proxyHits = ProxyHitCounter()
+        let transport = ScriptedProxyTransport(handler: { request in
+            proxyHits.increment()
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer token-456")
+            let body = Data("""
+            {"config":{"creditUsagePercent":55.0,"currentPeriod":{"start":"2026-08-06T00:00:00Z","end":"2026-08-13T00:00:00Z"},"onDemandCap":{"val":0},"onDemandUsed":{"val":0}},"subscriptionTier":"SuperGrok"}
+            """.utf8)
+            let response = HTTPURLResponse(
+                url: endpoint, statusCode: 200, httpVersion: nil, headerFields: nil
+            )!
+            return (body, response)
+        })
+
+        let snapshot = try await GrokUsageProvider(
+            executableURL: agent,
+            arguments: [],
+            timeout: 5,
+            logURL: logURL,
+            authFileURL: auth,
+            proxyEndpoint: endpoint,
+            proxyTransport: transport
+        ).fetch()
+
+        #expect(snapshot.provider == .grok)
+        #expect(snapshot.primary?.usedPercent == 55)
+        #expect(snapshot.planType == "SuperGrok")
+        #expect(proxyHits.count == 1)
+        // Log gate stays closed for this error; proxy gate opens.
+        #expect(!GrokUsageProvider.allowsLogFallback(after: AccountUsageError.incompatibleFormat))
+        #expect(GrokUsageProvider.allowsProxyFallback(after: AccountUsageError.incompatibleFormat))
+    }
+
+    @Test("notLoggedIn skips both log and proxy fallbacks")
+    func notLoggedInSkipsProxy() async throws {
+        let directory = try Self.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let logURL = directory.appendingPathComponent("unified.jsonl")
+        try (Self.logLine(
+            timestamp: ISO8601DateFormatter().string(from: Date()),
+            percent: "72.0"
+        ) + Data("\n".utf8)).write(to: logURL)
+        let auth = directory.appendingPathComponent("auth.json")
+        try Data("""
+        {"https://auth.x.ai::openid":{"key":"token-789","expires_at":"2099-01-01T00:00:00Z"}}
+        """.utf8).write(to: auth)
+        let agent = try Self.writeFakeAgent(
+            in: directory,
+            transcript: directory.appendingPathComponent("stdin.txt"),
+            reply: #"{"jsonrpc":"2.0","id":2,"error":{"code":-32000,"message":"Authentication required","data":"Run `grok login` to authenticate."}}"#
+        )
+        let endpoint = URL(string: "https://grok.test/v1/billing?format=credits")!
+        let proxyHits = ProxyHitCounter()
+        let transport = ScriptedProxyTransport(handler: { _ in
+            proxyHits.increment()
+            throw URLError(.badServerResponse)
+        })
+
+        await #expect(throws: AccountUsageError.notLoggedIn) {
+            try await GrokUsageProvider(
+                executableURL: agent,
+                arguments: [],
+                timeout: 5,
+                logURL: logURL,
+                authFileURL: auth,
+                proxyEndpoint: endpoint,
+                proxyTransport: transport
+            ).fetch()
+        }
+        #expect(proxyHits.count == 0)
+        #expect(!GrokUsageProvider.allowsProxyFallback(after: AccountUsageError.notLoggedIn))
+        #expect(!GrokUsageProvider.allowsProxyFallback(after: AccountUsageError.rateLimited))
+        #expect(!GrokUsageProvider.allowsProxyFallback(after: CancellationError()))
+        #expect(GrokUsageProvider.allowsProxyFallback(after: AccountUsageError.providerUnavailable))
+        #expect(GrokUsageProvider.allowsProxyFallback(after: AccountUsageError.timedOut))
+        #expect(GrokUsageProvider.allowsProxyFallback(after: AccountUsageError.offline))
+        #expect(GrokUsageProvider.allowsProxyFallback(after: AccountUsageError.unknown))
+    }
+
+    private final class ProxyHitCounter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = 0
+        var count: Int {
+            lock.lock(); defer { lock.unlock() }
+            return value
+        }
+        func increment() {
+            lock.lock(); defer { lock.unlock() }
+            value += 1
+        }
+    }
+
     private struct ScriptedProxyTransport: GrokCreditsProxyTransport {
         let handler: @Sendable (URLRequest) async throws -> (Data, URLResponse)
         func proxyData(for request: URLRequest) async throws -> (Data, URLResponse) {

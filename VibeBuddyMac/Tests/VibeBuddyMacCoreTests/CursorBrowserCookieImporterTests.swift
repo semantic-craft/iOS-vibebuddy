@@ -163,7 +163,7 @@ struct CursorBrowserCookieImporterTests {
         await #expect(throws: AccountUsageError.notLoggedIn) {
             try await CursorUsageProvider(
                 cookie: "",
-                cookieMode: .browserAuto,
+                cookieMode: { .browserAuto },
                 cookieImporter: FailingImporter(),
                 transport: MissingTransport()
             ).fetch()
@@ -172,9 +172,10 @@ struct CursorBrowserCookieImporterTests {
 
     @Test("browserAuto import timeout surfaces timedOut")
     func importTimeout() async {
+        let started = ContinuousClock.now
         let provider = CursorUsageProvider(
             cookie: "",
-            cookieMode: .browserAuto,
+            cookieMode: { .browserAuto },
             cookieImporter: SlowImporter(delayNanoseconds: 500_000_000),
             transport: MissingTransport(),
             importTimeout: 0.05
@@ -182,6 +183,7 @@ struct CursorBrowserCookieImporterTests {
         await #expect(throws: AccountUsageError.timedOut) {
             try await provider.fetch()
         }
+        #expect(started.duration(to: .now) < .milliseconds(300))
     }
 
     private struct ScriptedImporter: CursorBrowserCookieImporting {

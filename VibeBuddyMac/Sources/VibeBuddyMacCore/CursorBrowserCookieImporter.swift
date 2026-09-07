@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 import SweetCookieKit
 
 #if canImport(FoundationNetworking)
@@ -7,6 +8,7 @@ import FoundationNetworking
 
 /// Where Cursor session cookies come from on the Mac (#105).
 public enum CursorCookieSourceMode: String, CaseIterable, Sendable, Identifiable {
+    case cursorApp
     case manual
     case browserAuto
 
@@ -14,6 +16,7 @@ public enum CursorCookieSourceMode: String, CaseIterable, Sendable, Identifiable
 
     public var displayName: String {
         switch self {
+        case .cursorApp: return "Cursor app login"
         case .manual: return "Paste Cookie"
         case .browserAuto: return "Import from browser"
         }
@@ -156,6 +159,8 @@ public enum CursorCookieResolver {
         let manual = (manualCookie ?? loadManual())?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         switch mode {
+        case .cursorApp:
+            return try CursorLocalSession.cookieHeader()
         case .manual:
             guard let manual, !manual.isEmpty else { throw AccountUsageError.notLoggedIn }
             return manual
@@ -172,5 +177,74 @@ public enum CursorCookieResolver {
                 throw (error as? AccountUsageError) ?? AccountUsageError.notLoggedIn
             }
         }
+    }
+}
+
+
+/// Uses only the selected Cursor app session; never refreshes or persists its token.
+/// Source format: CodexBar CursorAppAuth (MIT), independently implemented here.
+public enum CursorLocalSession {
+    public static func cookieHeader(
+        path: String = NSHomeDirectory() + "/Library/Application Support/Cursor/User/globalStorage/state.vscdb",
+        now: Date = Date()
+    ) throws -> String {
+        guard FileManager.default.fileExists(atPath: path) else { throw AccountUsageError.notLoggedIn }
+        let token: String
+        do { token = try readToken(path: path, immutable: false) }
+        catch let error as DatabaseError {
+            guard error.code == SQLITE_CANTOPEN,
+                  !FileManager.default.fileExists(atPath: path + "-wal"),
+                  !FileManager.default.fileExists(atPath: path + "-shm") else {
+                throw AccountUsageError.providerUnavailable
+            }
+            token = try readToken(path: path, immutable: true)
+        }
+        return try cookieHeader(token: token, now: now)
+    }
+
+    static func cookieHeader(token: String, now: Date) throws -> String {
+        let parts = token.split(separator: ".", omittingEmptySubsequences: false)
+        let allowedToken = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")
+        guard parts.count == 3, token.unicodeScalars.allSatisfy(allowedToken.contains) else {
+            throw AccountUsageError.notLoggedIn
+        }
+        var payload = String(parts[1]).replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        payload += String(repeating: "=", count: (4 - payload.count % 4) % 4)
+        guard let data = Data(base64Encoded: payload),
+              let claims = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let expiration = claims["exp"] as? Double, expiration.isFinite,
+              expiration > now.timeIntervalSince1970 + 60,
+              let subject = claims["sub"] as? String,
+              let user = subject.split(separator: "|").last,
+              !user.isEmpty,
+              user.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-")).contains($0) })
+        else { throw AccountUsageError.notLoggedIn }
+        return "WorkosCursorSessionToken=\(user)%3A%3A\(token)"
+    }
+
+    private struct DatabaseError: Error { let code: Int32 }
+    private static func readToken(path: String, immutable: Bool) throws -> String {
+        var db: OpaquePointer?
+        let name = immutable ? URL(fileURLWithPath: path).absoluteString + "?immutable=1" : path
+        let result = sqlite3_open_v2(name, &db, SQLITE_OPEN_READONLY | (immutable ? SQLITE_OPEN_URI : 0), nil)
+        defer { sqlite3_close(db) }
+        guard result == SQLITE_OK else { throw DatabaseError(code: result) }
+        sqlite3_busy_timeout(db, 250)
+        var statement: OpaquePointer?
+        let prepared = sqlite3_prepare_v2(db, "SELECT value FROM ItemTable WHERE key = 'cursorAuth/accessToken' LIMIT 1", -1, &statement, nil)
+        defer { sqlite3_finalize(statement) }
+        guard prepared == SQLITE_OK else { throw DatabaseError(code: prepared) }
+        let step = sqlite3_step(statement)
+        guard step == SQLITE_ROW else {
+            if step == SQLITE_DONE { throw AccountUsageError.notLoggedIn }
+            throw DatabaseError(code: step)
+        }
+        guard let bytes = sqlite3_column_blob(statement, 0) else { throw AccountUsageError.notLoggedIn }
+        let data = Data(bytes: bytes, count: Int(sqlite3_column_bytes(statement, 0)))
+        let utf16 = !data.isEmpty && data.count.isMultiple(of: 2) && stride(from: 1, to: data.count, by: 2).allSatisfy { data[$0] == 0 }
+        guard let token = String(data: data, encoding: utf16 ? .utf16LittleEndian : .utf8), !token.isEmpty else {
+            throw AccountUsageError.notLoggedIn
+        }
+        return token
     }
 }
