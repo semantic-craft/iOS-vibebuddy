@@ -12,9 +12,13 @@
 - Prior combined checks: Kit 316 Swift Testing plus 27 XCTest; Mac 763 tests; iPhone 48 tests plus a focused 12-test rerun. Independent review passed. The main integration produces exactly the same tree as the tested implementation, so no duplicate full test run was needed.
 - Mac app and DMG notarization completed successfully. Mobile 1.3 (15), differing from installed 14 only in build metadata, archived and exported for App Store Connect.
 
-## Pending before publication
+## Final essential E2E
 
-Visual confirmation of both Cursor pools on iPhone and Watch is still pending. The Watch screenshot tunnel later interrupted; its app-group copy service also rejected valid container paths. Neither tool failure is reported as an app failure. The maintainer was asked to confirm the two quota views.
+The actual Watch received-application-context cache was decoded locally and contained the exact Cursor Models 62% and Other Models 2% pools, with the same observation/reset times as the Mac. This verifies the full Mac → physical iPhone → physical Watch path, not a simulator fixture.
+
+The real Watch quota screen exposed empty weekly/short placeholder rows ahead of the actual Cursor pools. Those absent windows are now omitted. Independent review and the final signed mobile build passed. iPhone and Watch build 15 were installed; a physical Watch screenshot at 18:09 displayed both named 31-day pools, 62% and 2%, together on the first screen. This closes the final necessary release check without requiring an additional manual user confirmation.
+
+Phone quota rendering was covered by the focused native checks; the separate phone quota sheet was not captured during this minimal E2E. The phone completion-detail and read-confirmation sheet was captured on the physical device.
 
 This minimal E2E does not claim a new background-APNs matrix, every failure/deadline path, perceived wrist haptics, or a new microphone audio round-trip. Existing unit and protocol coverage remains in place; those broader checks were not requested for this release.
 

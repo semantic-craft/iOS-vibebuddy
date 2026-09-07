@@ -46,10 +46,13 @@ private struct WatchQuotaDetail: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(quota.provider.displayName).font(.headline)
-            window(quota.window(.weekly), title: quota.weeklyWindowDurationMinutes == nil ? String(localized: "Weekly remaining") : WatchQuotaVoice.windowName(quota.window(.weekly)))
-            window(quota.window(.short), title: quota.shortWindowDurationMinutes == nil ? String(localized: "Short window") : WatchQuotaVoice.windowName(quota.window(.short)))
-            ForEach(Array((quota.otherWindows ?? []).enumerated()), id: \.offset) { _, reading in
-                window(cachedReading(reading), title: WatchQuotaVoice.windowName(reading))
+            let standard = QuotaWindowKind.allCases.map { quota.window($0) }.filter {
+                $0.remainingPercent != nil || $0.durationMinutes != nil || $0.resetsAt != nil || $0.label != nil
+            }
+            let readings = standard + (quota.otherWindows ?? []).map(cachedReading)
+            if readings.isEmpty { Text("Window unavailable").font(.caption2) }
+            ForEach(Array(readings.enumerated()), id: \.offset) { _, reading in
+                window(reading, title: WatchQuotaVoice.windowName(reading))
             }
             Text(WatchFormat.updated(quota.age(now: now)))
                 .font(.caption2).foregroundStyle(.secondary)
