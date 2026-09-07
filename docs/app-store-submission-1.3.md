@@ -1,6 +1,8 @@
 # VibeBuddy 1.3 — App Store 提交文案包
 
-最新状态（2026-09-07 14:21）：iPhone、watchOS 及两个小组件已统一为 **1.3（12）**，包含实时活动冷启动接管与去重修复。已在一组真实配对 iPhone / Watch 安装并验证任务同步、Watch 表盘组件及灵动岛恢复后更新，详见 [构建 12 验收](qa/ios-1.3-build12.md)。Apple 已接收新构建并显示 **Waiting for Review**；Submission ID：`6da289ac-2278-4925-9e93-6f23bdad3005`。审核通过后自动发布，尚未获批或公开。审核备注已补充 iOS、watchOS、组件及 Mac 的公开源码仓库链接。Mac **1.3.3（10）** 已[公开发布](https://github.com/semantic-craft/iOS-vibebuddy/releases/tag/v1.3.3)。以下旧状态和内部检查项为历史文案来源，最新验收范围以上述构建 12 记录为准。
+最新状态（2026-09-07 18:22）：iPhone、watchOS 及两个小组件已统一为 **1.3（15）**，已替换构建 12 并重新提交。Apple 显示 **Waiting for Review**；Submission ID：`a2ba9729-ce00-456a-9c81-059b1d8e4adb`，Build ID：`a9efed21-a27f-4e0a-987b-d6ce2aff67b4`。审核通过后自动发布，尚未获批或公开。中英文更新说明及审核备注已更新。Mac **1.3.5（12）** 已[公开发布](https://github.com/semantic-craft/iOS-vibebuddy/releases/tag/v1.3.5)、完成公证并替换本机应用；Sparkle 更新源已生效。五张跨端协同工单通过 [PR #124](https://github.com/semantic-craft/iOS-vibebuddy/pull/124) 合并。按用户要求完成必要实机 E2E，包含手机完成摘要及已读回传、真实三端额度传输和 Watch 双额度池显示，详见[验收记录](qa/cross-device-1.3.5.md)。以下内容保留为历史来源。
+
+历史状态（2026-09-07 14:21）：iPhone、watchOS 及两个小组件已统一为 **1.3（12）**，包含实时活动冷启动接管与去重修复。已在一组真实配对 iPhone / Watch 安装并验证任务同步、Watch 表盘组件及灵动岛恢复后更新，详见 [构建 12 验收](qa/ios-1.3-build12.md)。Apple 已接收新构建并显示 **Waiting for Review**；Submission ID：`6da289ac-2278-4925-9e93-6f23bdad3005`。审核通过后自动发布，尚未获批或公开。审核备注已补充 iOS、watchOS、组件及 Mac 的公开源码仓库链接。Mac **1.3.3（10）** 已[公开发布](https://github.com/semantic-craft/iOS-vibebuddy/releases/tag/v1.3.3)。以下旧状态和内部检查项为历史文案来源，最新验收范围以上述构建 12 记录为准。
 
 截图素材已另备：[三端截图与上传清单](app-store-screenshots/1.3/README.md)。含中英文环境原生实拍；中文未翻译标签及未收录的实际表盘组件见素材清单。
 
