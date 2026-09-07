@@ -71,6 +71,8 @@ public struct VibeBuddyServer: Sendable {
     /// default pushes to paired phones over APNs (the headless daemon); the
     /// menu-bar app supplies its own that also posts a local banner.
     public let onCompletionReminder: (@Sendable (AgentSession) async -> Bool)?
+    /// Dedup for `/answer` request ids across the life of this process.
+    public let actionRequests: ActionRequestLog
 
     public init(store: SessionStore, token: String, host: String = "0.0.0.0",
                 port: Int = 9876, pusher: APNsPusher? = nil,
@@ -100,7 +102,8 @@ public struct VibeBuddyServer: Sendable {
                 },
                 onDispatch: (@Sendable (DispatchRequest) async -> DispatchOutcome)? = nil,
                 claudeLauncher: ClaudeBackgroundLauncher = ClaudeBackgroundLauncher(),
-                onCompletionReminder: (@Sendable (AgentSession) async -> Bool)? = nil) {
+                onCompletionReminder: (@Sendable (AgentSession) async -> Bool)? = nil,
+                actionRequests: ActionRequestLog = ActionRequestLog()) {
         self.store = store
         self.token = token
         self.host = host
@@ -131,6 +134,7 @@ public struct VibeBuddyServer: Sendable {
         self.claudeLauncher = claudeLauncher
         self.onDevicePaired = onDevicePaired
         self.onCompletionReminder = onCompletionReminder
+        self.actionRequests = actionRequests
     }
 
     /// Run the HTTP service and its Codex rollout source under one lifetime.
@@ -839,17 +843,19 @@ public struct VibeBuddyServer: Sendable {
             }
         }
 
-        // `{"sessionId", "answer"?: text, "answers"?: {questionId: [labels]}}`.
-        // Structured answers reach a waiting agent through its own contract;
-        // plain text (voice, older phone builds) maps onto the first question,
-        // or is typed into the terminal when nothing is waiting. 202 says the
-        // answer had nowhere to go.
+        // `{"sessionId", "intent"?, "requestId"?, "questionId"?, "answer"?, "answers"?}`.
+        // Intent is Answer / steer / continue (Q29). A missing intent is inferred
+        // from the live session; an expired Answer still does not become steer.
         let monitor = self.codexAppServerMonitor
         let dispatch = AnswerDispatch(store: store, questions: questionRegistry, inject: self.onAnswer,
-                                      steer: { sessionID, text, active in
-                                          await monitor?.steer(threadID: sessionID, text: text, isActive: active) ?? false
-                                      })
-        authed.post("answer") { request, _ -> HTTPResponse.Status in
+                                      steer: { sessionID, text in
+                                          await monitor?.steer(threadID: sessionID, text: text) ?? false
+                                      },
+                                      startTurn: { sessionID, text in
+                                          await monitor?.startTurn(threadID: sessionID, text: text) ?? false
+                                      },
+                                      requests: self.actionRequests)
+        authed.post("answer") { request, _ -> Response in
             let buffer = try await request.body.collect(upTo: 64 * 1024)
             guard let o = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
                   let sid = o["sessionId"] as? String
@@ -860,11 +866,11 @@ public struct VibeBuddyServer: Sendable {
                 guard let current = snapshot.sessions.first(where: { $0.id == sid }),
                       current.pendingApproval == nil,
                       current.pendingQuestion?.isAnswerable != false,
-                      (current.pendingQuestion?.id ?? "") == expectedQuestionID else { return .conflict }
+                      (current.pendingQuestion?.id ?? "") == expectedQuestionID else { return Response(status: .conflict) }
                 if expectedQuestionID.isEmpty {
                     guard current.agent == .codex, current.status != .needsResponse,
                           let since = o["expectedStatusSince"] as? Double,
-                          abs(current.statusSince.timeIntervalSince1970 - since) < 0.001 else { return .conflict }
+                          abs(current.statusSince.timeIntervalSince1970 - since) < 0.001 else { return Response(status: .conflict) }
                 }
             }
             let text = (o["answer"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -876,13 +882,18 @@ public struct VibeBuddyServer: Sendable {
                 }
             }
             guard !(text ?? "").isEmpty || !answers.isEmpty else { throw HTTPError(.badRequest) }
-            let delivered = await dispatch.deliver(sessionID: sid, text: text, answers: answers.isEmpty ? nil : answers, expectedQuestionID: expectedQuestionID, expectedStatusSince: o["expectedStatusSince"] as? Double)
-            // Answering counts as driving the session (automatic attention).
-            if delivered { await store.recordInteraction(sessionID: sid) }
-            // A failed Codex RPC may have reached the agent. Do not tell the
-            // phone this was an expired wait that is safe to send again.
-            if !delivered, expectedQuestionID == "" { return .serviceUnavailable }
-            return delivered ? .ok : .accepted
+            let intent = (o["intent"] as? String).flatMap(SessionActionIntent.init(rawValue:))
+            let action = SessionActionRequest(
+                sessionID: sid,
+                intent: intent,
+                requestID: (o["requestId"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? UUID().uuidString,
+                questionID: (o["questionId"] as? String) ?? expectedQuestionID,
+                expectedStatusSince: o["expectedStatusSince"] as? Double,
+                text: text,
+                answers: answers.isEmpty ? nil : answers)
+            let delivered = await dispatch.deliver(action)
+            if case .accepted = delivered { await store.recordInteraction(sessionID: sid) }
+            return Self.actionResponse(delivered, requestID: action.requestID, explicitIntent: intent != nil)
         }
 
         return router
@@ -940,6 +951,29 @@ public struct VibeBuddyServer: Sendable {
         return Response(status: .ok,
                         headers: [.contentType: "application/json"],
                         body: .init(byteBuffer: ByteBuffer(string: json)))
+    }
+
+    /// `/answer` body: accepted is 200; an explicit-intent failure is 409 so
+    /// the phone can show it; an old client with nowhere to go stays 202.
+    static func actionResponse(_ result: SessionActionDelivery, requestID: String,
+                               explicitIntent: Bool) -> Response {
+        var body: [String: String] = ["requestId": requestID]
+        let status: HTTPResponse.Status
+        switch result {
+        case .accepted:
+            body["status"] = "accepted"
+            status = .ok
+        case .unknown:
+            body["status"] = "unknown"
+            status = .serviceUnavailable
+        case .failed(let why):
+            body["status"] = "failed"
+            body["error"] = why
+            status = explicitIntent ? .conflict : .accepted
+        }
+        let data = (try? JSONEncoder().encode(body)) ?? Data()
+        return Response(status: status, headers: [.contentType: "application/json"],
+                        body: .init(byteBuffer: ByteBuffer(bytes: data)))
     }
 
 }

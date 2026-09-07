@@ -76,6 +76,9 @@ struct DashboardView: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             StreamComposer(target: replyTarget,
+                           macName: connection.pairing?.macName,
+                           reachable: dashboard.state == .connected,
+                           receipt: dashboard.actionReceipt,
                            clearTarget: { replyTo = nil },
                            send: send(_:target:))
                 .background(CompanionPalette.bg)
@@ -289,8 +292,11 @@ enum ReplyMeaning: Equatable {
 
     init(target: AgentSession?) {
         guard let target else { self = .newTask; return }
-        if let q = target.pendingQuestion, q.isAnswerable { self = .answer; return }
-        self = target.status == .done ? .continuation : .instruction
+        switch SessionActionSupport.resolve(for: target).intent {
+        case .answer: self = .answer
+        case .steer: self = .instruction
+        case .continue: self = .continuation
+        }
     }
 
     var verb: LocalizedStringKey {
@@ -299,6 +305,15 @@ enum ReplyMeaning: Equatable {
         case .instruction: "Send instruction"
         case .continuation: "Continue"
         case .newTask: "New task"
+        }
+    }
+
+    var verbLabel: String {
+        switch self {
+        case .answer: String(localized: "Answer")
+        case .instruction: String(localized: "Send instruction")
+        case .continuation: String(localized: "Continue")
+        case .newTask: String(localized: "New task")
         }
     }
 
@@ -311,14 +326,8 @@ enum ReplyMeaning: Equatable {
         }
     }
 
-    /// Instructions and continuations travel through the Codex app-server; a
-    /// Claude Code session has no such channel from the phone yet.
     func unsupportedReason(for target: AgentSession?) -> String? {
-        if let target, target.pendingQuestion?.isAnswerable == false || target.pendingApproval != nil {
-            return "Answer this wait in the agent's own prompt on Mac."
-        }
-        guard let target, self == .instruction || self == .continuation, target.agent != .codex else { return nil }
-        return String(localized: "\(target.agent.displayName) sessions can't take instructions from the phone yet — use the terminal.")
+        target.flatMap { SessionActionSupport.resolve(for: $0).unsupportedReason }
     }
 }
 
@@ -479,6 +488,9 @@ private struct MessageRow: View {
 /// a reply target the banner names both; without one the text is a new task.
 private struct StreamComposer: View {
     let target: AgentSession?
+    let macName: String?
+    let reachable: Bool
+    let receipt: SessionActionOutcome?
     let clearTarget: () -> Void
     let send: (String, AgentSession?) async -> Bool
     @State private var sending = false
@@ -489,7 +501,8 @@ private struct StreamComposer: View {
     private var meaning: ReplyMeaning { ReplyMeaning(target: target) }
     private var unsupported: String? { meaning.unsupportedReason(for: target) }
     private var canSend: Bool {
-        !sending && unsupported == nil && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        reachable && !sending && unsupported == nil
+            && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
@@ -497,8 +510,10 @@ private struct StreamComposer: View {
             if let target {
                 HStack(spacing: 8) {
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("Replying to \(target.displayTitle) · \(target.presentationState.label)")
+                        Text(SessionActionSupport.targetCaption(macName: macName, session: target))
                             .font(CompanionType.font(10, .heavy)).foregroundStyle(CompanionPalette.ink2)
+                        Text("\(meaning.verbLabel) · \(target.displayTitle) · \(target.presentationState.label)")
+                            .font(CompanionType.font(11, .bold)).foregroundStyle(CompanionPalette.ink2)
                         Text(unsupported ?? target.displaySummary ?? ToolActivity.label(for: target))
                             .font(CompanionType.font(12, .bold))
                             .foregroundStyle(unsupported == nil ? CompanionPalette.ink : CompanionPalette.status(.error))
@@ -540,6 +555,17 @@ private struct StreamComposer: View {
             }
             .background(CompanionPalette.bg3, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
             .shadow(color: .black.opacity(0.06), radius: 6, y: 2)
+            if sending {
+                Text("Sending…")
+                    .font(CompanionType.font(11, .bold)).foregroundStyle(CompanionPalette.ink2)
+            } else if !reachable {
+                Text("Couldn't reach your Mac — not sent")
+                    .font(CompanionType.font(11, .bold)).foregroundStyle(CompanionPalette.status(.error))
+            } else if let receipt {
+                Text(DashboardStore.actionMessage(receipt))
+                    .font(CompanionType.font(11, .bold))
+                    .foregroundStyle(receiptColor(receipt))
+            }
         }
         .padding(.horizontal, 12).padding(.top, 6).padding(.bottom, 8)
         .onChange(of: draft) { old, new in
@@ -550,6 +576,13 @@ private struct StreamComposer: View {
             // wait in the same task does not retarget an existing draft.
             draftTarget = target
             if id != nil { focused = true }
+        }
+    }
+
+    private func receiptColor(_ receipt: SessionActionOutcome) -> Color {
+        switch receipt {
+        case .accepted: CompanionPalette.ink2
+        case .unknown, .notSent, .failed: CompanionPalette.status(.error)
         }
     }
 

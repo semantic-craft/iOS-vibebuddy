@@ -440,6 +440,32 @@ final class DashboardStore: ObservableObject {
         return await sendAnswer(sessionId, text: answer, answers: nil, expected: expected)
     }
 
+    @discardableResult
+    func submitAction(sessionId: String, text: String? = nil, answers: QuestionAnswers? = nil) async -> SessionActionOutcome {
+        if !isDemo, state != .connected {
+            return .notSent("Couldn't reach your Mac — not sent")
+        }
+        let result = await sendAnswer(sessionId, text: text, answers: answers, expected: nil)
+        let outcome: SessionActionOutcome
+        switch result {
+        case .received: outcome = .accepted
+        case .unconfirmed, .sending: outcome = .unknown
+        case .notPaired: outcome = .notSent(result.message)
+        case .expired, .failed: outcome = .failed(result.message)
+        }
+        actionReceipt = outcome
+        showToast(Self.actionMessage(outcome))
+        return outcome
+    }
+
+    static func actionMessage(_ outcome: SessionActionOutcome) -> String {
+        switch outcome {
+        case .accepted: return PhoneActionResult.received.message
+        case .unknown: return PhoneActionResult.unconfirmed.message
+        case .notSent(let message), .failed(let message): return message
+        }
+    }
+
     private func sendAnswer(_ sessionId: String, text: String?, answers: QuestionAnswers?, expected: AgentSession?) async -> PhoneActionResult {
         guard let session = allSessions.first(where: { $0.id == sessionId }),
               expected.map({ actionIdentity($0) == actionIdentity(session) }) != false,
@@ -552,6 +578,7 @@ final class DashboardStore: ObservableObject {
     /// A brief, self-clearing status line for one-shot actions (e.g. jump result).
     @Published var toast: String?
     private var toastTask: Task<Void, Never>?
+    @Published private(set) var actionReceipt: SessionActionOutcome?
 
     /// Start a new task on the Mac. Returns the Mac's answer as a toast-ready
     /// line; nil when it could not be reached.
