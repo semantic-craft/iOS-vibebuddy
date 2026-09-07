@@ -227,6 +227,7 @@ public struct CursorUsageProvider: AccountUsageProviding {
     public static let defaultEndpoint = URL(string: "https://cursor.com/api/usage-summary")!
 
     private let cookie: String?
+    private let cliAccessToken: @Sendable () async throws -> String
     private let cookieMode: @Sendable () -> CursorCookieSourceMode
     private let cookieImporter: CursorBrowserCookieImporting
     private let persistImportedCookie: @Sendable (String) -> Void
@@ -238,6 +239,7 @@ public struct CursorUsageProvider: AccountUsageProviding {
     public init(
         cookie: String? = nil,
         cookieMode: @escaping @Sendable () -> CursorCookieSourceMode = { CursorCookieSourceSettings.mode() },
+        cliAccessToken: @escaping @Sendable () async throws -> String = { try await CursorCLISession.loadAccessToken() },
         cookieImporter: CursorBrowserCookieImporting = CursorBrowserCookieImporter(),
         persistImportedCookie: @escaping @Sendable (String) -> Void = { _ = CursorSessionCookieStore.saveImportedIfChanged($0) },
         endpoint: URL = defaultEndpoint,
@@ -245,6 +247,7 @@ public struct CursorUsageProvider: AccountUsageProviding {
         timeout: TimeInterval = 15,
         importTimeout: TimeInterval = 10
     ) {
+        self.cliAccessToken = cliAccessToken
         self.cookie = cookie
         self.cookieMode = cookieMode
         self.cookieImporter = cookieImporter
@@ -299,6 +302,8 @@ public struct CursorUsageProvider: AccountUsageProviding {
     /// utility queue behind a continuation, with an import timeout.
     private func resolveCookieHeader() async throws -> String {
         switch cookieMode() {
+        case .cursorCLI:
+            return try CursorLocalSession.cookieHeader(token: await cliAccessToken(), now: Date())
         case .cursorApp:
             return try CursorLocalSession.cookieHeader()
         case .manual:

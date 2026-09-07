@@ -139,14 +139,14 @@ struct AccountUsageSettings: View {
             } header: {
                 Text("Providers")
             } footer: {
-                Text("Codex reads its official local app-server. Claude runs the official read-only /usage command without session persistence or hooks. Grok asks its own agent process for the billing summary and falls back to the CLI billing proxy with the local login token when needed. Cursor reads its selected local app login or browser/manual Cookie. Local app credentials are never copied to storage. No account IDs or raw responses are logged. Turning a source off leaves session monitoring and notifications running.")
+                Text("Codex reads its official local app-server. Claude runs the official read-only /usage command without session persistence or hooks. Grok asks its own agent process for the billing summary and falls back to the CLI billing proxy with the local login token when needed. Cursor reads its selected CLI login, local app login, or browser/manual Cookie. Local login credentials are never copied to storage. No account IDs or raw responses are logged. Turning a source off leaves session monitoring and notifications running.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             Section {
-                Picker("Cookie source", selection: $cursorCookieMode) {
+                Picker("Login source", selection: $cursorCookieMode) {
                     ForEach(CursorCookieSourceMode.allCases) { mode in
                         Text(mode.displayName).tag(mode)
                     }
@@ -155,7 +155,9 @@ struct AccountUsageSettings: View {
                     CursorCookieSourceSettings.setMode(mode)
                 }
 
-                if cursorCookieMode == .cursorApp {
+                if cursorCookieMode == .cursorCLI {
+                    Text("Uses only Cursor CLI login; the desktop app is not required. Run cursor-agent login if signed out or expired. If Keychain access is unavailable, unlock the login Keychain or select another login source.").font(.caption)
+                } else if cursorCookieMode == .cursorApp {
                     Text("Uses the account signed in to Cursor on this Mac. If the session expires, sign in again in Cursor and refresh.").font(.caption)
                 } else if cursorCookieMode == .manual {
                     SecureField("Cookie header from cursor.com", text: $cursorCookie)
