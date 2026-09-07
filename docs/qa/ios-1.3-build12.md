@@ -40,12 +40,17 @@ The Mac menu entry preference is Mac-only; phone and Watch retain their task sta
   quota complications (Codex 55%, Claude 50%); these were physical-device captures.
 - Terminated iPhone build 12 process at 14:12. One aggregate activity remained;
   tapping it cold-launched the app, reconnected to the paired Mac and received
-  six working tasks. Final post-recovery Island count observation is pending.
+  six working tasks. At 14:16 the single Island count changed from five to four as real tasks
+  changed after recovery. Watch also updated to three working tasks and fresh quota.
 - The second iPhone was not modified. Wrist haptic perception and background APNs
   delivery were not exercised by this regression acceptance.
 
 ## Release state
 
-At the live App Store Connect check, 1.3 (11) was Waiting for Review. Build 12 upload succeeded at 14:09 and Apple processing completed. It is prepared
-to replace the pending build after acceptance; upload is not review approval or
-public availability.
+Build 12 uploaded at 14:09, completed Apple processing, and replaced build 11.
+At 14:21 App Store Connect confirmed submission and **Waiting for Review**.
+Submission ID: `6da289ac-2278-4925-9e93-6f23bdad3005`.
+Build ID: `576acbd6-876a-49ee-89bd-620e885b8451`.
+Release remains automatic after approval; the new version is not yet public.
+Review notes include the public source repository (iOS, watchOS, widgets and Mac),
+the built-in Demo, the tested recovery fix and the public APNs delivery limits.
