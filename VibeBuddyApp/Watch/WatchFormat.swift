@@ -123,6 +123,11 @@ extension QuotaFreshness {
 
 enum WatchQuotaVoice {
     static func windowName(_ window: QuotaWindow) -> String {
+        let period = periodName(window)
+        return window.label.map { "\($0) · \(period)" } ?? period
+    }
+
+    private static func periodName(_ window: QuotaWindow) -> String {
         guard let minutes = window.durationMinutes else { return String(localized: "Window duration unknown") }
         if minutes == 10080 { return String(localized: "Weekly remaining") }
         if minutes % 1440 == 0 { return String(localized: "\(minutes / 1440)-day window") }

@@ -6,11 +6,13 @@ import VibeBuddyKit
 /// and the newest beside the composer. A message that needs you carries its
 /// keys; replying to a message fixes whom the text goes to and what it means.
 struct DashboardView: View {
+    @State private var detailCompletionNotificationID: String?
     @EnvironmentObject private var connection: ConnectionStore
     @EnvironmentObject private var dashboard: DashboardStore
     @EnvironmentObject private var voice: VoiceChat
     @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
     @State private var showSettings = false
+    @State private var showQuota = false
     @State private var showNewTask = false
     @State private var newTaskDraft = ""
     @State private var highlightId: String?
@@ -35,7 +37,7 @@ struct DashboardView: View {
                 MessageRow(session: session,
                            isSelected: highlightId == session.id,
                            isReplyTarget: replyTo == session.id,
-                           onOpen: { detailId = session.id },
+                           onOpen: { detailCompletionNotificationID = nil; detailId = session.id },
                            onReply: { replyTo = session.id })
                     .id(session.id)
                     .swipeActions(edge: .leading, allowsFullSwipe: true) { attentionSwipeButtons(session) }
@@ -50,6 +52,7 @@ struct DashboardView: View {
         .background(CompanionPalette.bg)
         .scrollDismissesKeyboard(.interactively)
         .onChange(of: dashboard.focusedSessionId) { _, _ in focus(proxy) }
+        .onChange(of: dashboard.state) { _, _ in focus(proxy) }
         .onChange(of: dashboard.groups) { _, _ in
             if dashboard.focusedSessionId != nil { focus(proxy) }
             if let id = replyTo, !dashboard.allSessions.contains(where: { $0.id == id }) { replyTo = nil }
@@ -74,7 +77,7 @@ struct DashboardView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             StreamComposer(target: replyTarget,
                            clearTarget: { replyTo = nil },
-                           send: send(_:))
+                           send: send(_:target:))
                 .background(CompanionPalette.bg)
         }
         .animation(.smooth, value: dashboard.groups)
@@ -90,7 +93,7 @@ struct DashboardView: View {
         .toolbar {
             // The title is the paired Mac: a status dot, its name, and a menu
             // holding everything about the link (address, reconnect, forget).
-            // "New task" lives in the composer; nothing else earns the bar.
+            // "New task" lives in the composer; account quota has its own read-only entry.
             ToolbarItem(placement: .principal) {
                 MacTitleMenu(title: macTitle, pairing: connection.pairing, demo: connection.demo,
                              state: dashboard.state,
@@ -103,12 +106,18 @@ struct DashboardView: View {
                              },
                              disconnect: { connection.clear(); dashboard.forgetPairing() })
             }
+            ToolbarItem(placement: .topBarLeading) {
+                Button { showQuota = true } label: { Label("Account quota", systemImage: "gauge.with.dots.needle.50percent") }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showSettings = true } label: { Image(systemName: "gearshape") }
                     .accessibilityLabel("Settings")
             }
         }
         .tint(CompanionPalette.accent)
+        .sheet(isPresented: $showQuota) {
+            AccountQuotaView().environmentObject(dashboard).environmentObject(connection)
+        }
         .sheet(isPresented: $showNewTask) { NewTaskSheet(dashboard: dashboard, initialPrompt: newTaskDraft) }
         .sheet(isPresented: $showSettings) {
             // A sheet doesn't inherit the presenter's environment objects, so
@@ -121,10 +130,26 @@ struct DashboardView: View {
         .sheet(item: Binding(get: { detailSession.map { DetailTarget(id: $0.id) } },
                              set: { detailId = $0?.id })) { target in
             if let session = dashboard.allSessions.first(where: { $0.id == target.id }) {
-                SessionDetailSheet(session: session, onReply: { replyTo = session.id; detailId = nil })
+                let displayedCompletion = dashboard.completionRequest(for: session)
+                SessionDetailSheet(session: session, completionNotificationID: detailCompletionNotificationID, onReply: { replyTo = session.id; detailId = nil })
                     .environmentObject(dashboard)
-                    .onAppear { dashboard.acknowledge(session.id) }
+                    .safeAreaInset(edge: .bottom) {
+                        if let status = dashboard.completionReadStatus(for: session) {
+                            Text(status).font(.footnote).padding().frame(maxWidth: .infinity)
+                                .background(.regularMaterial)
+                        }
+                    }
+                    .task(id: displayedCompletion) {
+                        if let id = detailCompletionNotificationID,
+                           !dashboard.matchesCompletionNotification(id, sessionID: session.id) { return }
+                        dashboard.acknowledge(session.id, displayedCompletion: displayedCompletion)
+                    }
             }
+        }
+        .alert("This completion is no longer current", isPresented: $dashboard.completionLinkUnavailable) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("The task or paired Mac has changed. Open the current task to view its latest result. Nothing was marked read.")
         }
         .overlay(alignment: .bottom) {
             if let toast = dashboard.toast {
@@ -150,23 +175,38 @@ struct DashboardView: View {
     private struct DetailTarget: Identifiable { let id: String }
 
     /// What the composer's text does, decided by the message it replies to.
-    private func send(_ text: String) {
-        guard let target = replyTarget else {
+    private func send(_ text: String, target: AgentSession?) async -> Bool {
+        guard let target else {
             newTaskDraft = text
             showNewTask = true
-            return
+            return true
         }
-        dashboard.answer(target.id, answer: text)
-        replyTo = nil
+        let result = await dashboard.answer(target.id, answer: text, expected: target)
+        return result == .received
     }
 
     /// Scroll to and briefly highlight the session a deep link asked to open.
     /// No-ops (leaving the request pending) until that session is in the list, so
     /// a cold-start link still lands once the first snapshot arrives.
     private func focus(_ proxy: ScrollViewProxy) {
-        guard let id = dashboard.focusedSessionId,
-              dashboard.allSessions.contains(where: { $0.id == id }) else { return }
-        dashboard.acknowledge(id)
+        guard let id = dashboard.focusedSessionId else { return }
+        if let notificationID = dashboard.focusedCompletionNotificationID {
+            guard dashboard.state == .connected else { return }
+            let unbound = dashboard.allSessions.first { $0.id == id }?
+                .isUnboundCompletionNotification(notificationID) == true
+            guard unbound || dashboard.matchesCompletionNotification(notificationID, sessionID: id) else {
+                dashboard.clearFocus()
+                dashboard.completionLinkUnavailable = true
+                return
+            }
+            detailCompletionNotificationID = notificationID
+            detailId = id
+            dashboard.clearFocus()
+            return
+        }
+        guard dashboard.allSessions.contains(where: { $0.id == id }) else { return }
+        detailCompletionNotificationID = nil
+        detailId = id
         dashboard.clearFocus()
         withAnimation(.smooth) { proxy.scrollTo(id, anchor: .center) }
         highlightId = id
@@ -274,6 +314,9 @@ enum ReplyMeaning: Equatable {
     /// Instructions and continuations travel through the Codex app-server; a
     /// Claude Code session has no such channel from the phone yet.
     func unsupportedReason(for target: AgentSession?) -> String? {
+        if let target, target.pendingQuestion?.isAnswerable == false || target.pendingApproval != nil {
+            return "Answer this wait in the agent's own prompt on Mac."
+        }
         guard let target, self == .instruction || self == .continuation, target.agent != .codex else { return nil }
         return String(localized: "\(target.agent.displayName) sessions can't take instructions from the phone yet — use the terminal.")
     }
@@ -292,8 +335,8 @@ private struct MessageRow: View {
 
     private var state: TaskPresentationState { session.presentationState }
     private var canReply: Bool {
-        if let q = session.pendingQuestion, q.isAnswerable { return true }
-        return session.agent == .codex
+        if let q = session.pendingQuestion { return q.isAnswerable }
+        return session.agent == .codex && session.status != .needsResponse
     }
 
     var body: some View {
@@ -359,7 +402,7 @@ private struct MessageRow: View {
     private var body_: some View {
         (Text(ToolActivity.label(for: session)).foregroundStyle(CompanionPalette.status(state)).fontWeight(.heavy)
          + Text(" — ").foregroundStyle(CompanionPalette.ink3)
-         + Text(session.summary ?? "").foregroundStyle(CompanionPalette.ink))
+         + Text(session.displaySummary ?? "").foregroundStyle(CompanionPalette.ink))
             .font(CompanionType.font(13, .semibold))
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -382,6 +425,10 @@ private struct MessageRow: View {
                     Button("Deny") { dashboard.decide(approval.id, .deny) }
                         .buttonStyle(PillButtonStyle(kind: .ghost))
                 }
+                .disabled(dashboard.phoneActionDisabled(for: session))
+                if let result = dashboard.phoneActionState(for: session) {
+                    Text(result.message).font(.caption)
+                }
                 if let rule = approval.suggestedRule {
                     Text("Always allow adds \(rule) to Claude's own rules.")
                         .font(CompanionType.font(10, .semibold)).foregroundStyle(CompanionPalette.ink3)
@@ -400,7 +447,9 @@ private struct MessageRow: View {
 
     @ViewBuilder private func questionBlock(_ question: PendingQuestion) -> some View {
         if question.isAnswerable {
-            QuestionCardView(question: question) { answers in dashboard.answer(session.id, answers: answers) }
+            QuestionCardView(question: question, actionState: dashboard.phoneActionState(for: session)) { answers in
+                await dashboard.answer(session.id, answers: answers, expected: session)
+            }
         } else {
             VStack(alignment: .leading, spacing: 4) {
                 Text(question.prompt).font(CompanionType.font(14, .heavy)).foregroundStyle(CompanionPalette.ink)
@@ -431,14 +480,16 @@ private struct MessageRow: View {
 private struct StreamComposer: View {
     let target: AgentSession?
     let clearTarget: () -> Void
-    let send: (String) -> Void
+    let send: (String, AgentSession?) async -> Bool
+    @State private var sending = false
+    @State private var draftTarget: AgentSession?
     @State private var draft = ""
     @FocusState private var focused: Bool
 
     private var meaning: ReplyMeaning { ReplyMeaning(target: target) }
     private var unsupported: String? { meaning.unsupportedReason(for: target) }
     private var canSend: Bool {
-        unsupported == nil && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !sending && unsupported == nil && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
@@ -448,7 +499,7 @@ private struct StreamComposer: View {
                     VStack(alignment: .leading, spacing: 1) {
                         Text("Replying to \(target.displayTitle) · \(target.presentationState.label)")
                             .font(CompanionType.font(10, .heavy)).foregroundStyle(CompanionPalette.ink2)
-                        Text(unsupported ?? target.summary ?? ToolActivity.label(for: target))
+                        Text(unsupported ?? target.displaySummary ?? ToolActivity.label(for: target))
                             .font(CompanionType.font(12, .bold))
                             .foregroundStyle(unsupported == nil ? CompanionPalette.ink : CompanionPalette.status(.error))
                             .lineLimit(2)
@@ -479,7 +530,7 @@ private struct StreamComposer: View {
                     .onSubmit(submit)
                 Button(action: submit) {
                     HStack(spacing: 5) {
-                        Text(meaning.verb)
+                        Text(sending ? "Sending…" : meaning.verb)
                         Image(systemName: "arrow.up").font(.system(size: 12, weight: .black))
                     }
                 }
@@ -491,15 +542,33 @@ private struct StreamComposer: View {
             .shadow(color: .black.opacity(0.06), radius: 6, y: 2)
         }
         .padding(.horizontal, 12).padding(.top, 6).padding(.bottom, 8)
-        .onChange(of: target?.id) { _, id in if id != nil { focused = true } }
+        .onChange(of: draft) { old, new in
+            if old.isEmpty, !new.isEmpty { draftTarget = target }
+        }
+        .onChange(of: target?.id) { _, id in
+            // An explicit Reply/cancel changes the intended destination; a new
+            // wait in the same task does not retarget an existing draft.
+            draftTarget = target
+            if id != nil { focused = true }
+        }
     }
 
     private func submit() {
         guard canSend else { return }
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        send(text)
-        draft = ""
-        focused = false
+        let originalDraft = draft
+        let originalTarget = draftTarget
+        sending = true
+        Task {
+            if await send(text, originalTarget), draft == originalDraft,
+               draftTarget?.id == originalTarget?.id,
+               draftTarget?.pendingQuestion?.id == originalTarget?.pendingQuestion?.id,
+               draftTarget?.statusSince == originalTarget?.statusSince {
+                draft = ""; focused = false; draftTarget = nil
+                clearTarget()
+            }
+            sending = false
+        }
     }
 }
 
@@ -507,6 +576,7 @@ private struct StreamComposer: View {
 /// context, health, how much it may interrupt you, and the ways to reach it.
 private struct SessionDetailSheet: View {
     let session: AgentSession
+    var completionNotificationID: String? = nil
     let onReply: () -> Void
     @EnvironmentObject private var dashboard: DashboardStore
     @Environment(\.dismiss) private var dismiss
@@ -539,7 +609,21 @@ private struct SessionDetailSheet: View {
                     .foregroundStyle(CompanionPalette.status(state))
                     .padding(.horizontal, 12).padding(.vertical, 4)
                     .background(CompanionPalette.status(state).opacity(0.14), in: Capsule())
-                    if let summary = session.summary, !summary.isEmpty {
+                    if session.completionNotice?.state == .pending {
+                        Text("Preparing completion summary…").font(.caption).foregroundStyle(.secondary)
+                    }
+                    if let id = completionNotificationID,
+                       !dashboard.matchesCompletionNotification(id, sessionID: session.id) {
+                        if session.isUnboundCompletionNotification(id) {
+                            Text("This notification does not identify a completion round. Review the current result before marking it read.")
+                                .font(.caption).foregroundStyle(.secondary)
+                            Button("Mark current result read") { dashboard.acknowledgeDisplayedCompletion(session) }
+                        } else {
+                            Text("This task has moved on. You are viewing its current state, not the result from that notification.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    if let summary = session.displaySummary, !summary.isEmpty {
                         Text(summary).font(CompanionType.font(14, .semibold)).foregroundStyle(CompanionPalette.ink)
                             .fixedSize(horizontal: false, vertical: true)
                     }

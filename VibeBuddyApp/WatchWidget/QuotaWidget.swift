@@ -3,6 +3,18 @@ import SwiftUI
 import WidgetKit
 import VibeBuddyKit
 
+private extension ProviderQuota {
+    var complicationWindows: [QuotaWindow] {
+        let exact = QuotaWindowKind.allCases.map { window($0) }
+        if exact.contains(where: { $0.remainingPercent != nil }) { return exact }
+        return (otherWindows ?? []).isEmpty ? exact : (otherWindows ?? []).map { window in
+            var reading = window
+            reading.isCached = reading.isCached == true || isCached == true
+            return reading
+        }
+    }
+}
+
 enum QuotaPlatform: String, AppEnum {
     case codex, claude, grok, cursor, both, all
     static let typeDisplayRepresentation: TypeDisplayRepresentation = "Platform"
@@ -64,7 +76,7 @@ struct QuotaProvider: AppIntentTimelineProvider {
         let quotas = readQuotas()
         let windows = quotas.filter { configuration.platform.selection.providers.contains($0.provider) }
             .flatMap { quota in
-                configuration.style == .dualWindow ? QuotaWindowKind.allCases.map { quota.window($0) } : [quota.displayWindow(preferring: configuration.period.kind)]
+                configuration.style == .dualWindow ? quota.complicationWindows : [quota.displayWindow(preferring: configuration.period.kind)]
             }
         let boundaries = windows.flatMap { window in
             [window.observedAt?.addingTimeInterval(ProviderQuota.staleAfter), window.resetsAt].compactMap { $0 }
@@ -120,14 +132,16 @@ struct QuotaWidgetView: View {
     private func window(_ provider: AccountUsageProvider, kind: QuotaWindowKind? = nil) -> QuotaWindow {
         let preferred = kind ?? entry.configuration.period.kind
         // Single-period styles fall back to otherWindows when weekly/short are
-        // missing (Cursor/Grok billing periods). Dual-window keeps exact kinds.
+        // missing (Cursor/Grok billing periods). Dual-window shows both pools.
         let quota = entry.quotas.first { $0.provider == provider }
         if kind == nil {
             return quota?.displayWindow(preferring: preferred)
                 ?? QuotaWindow(remainingPercent: nil, durationMinutes: nil, resetsAt: nil, observedAt: nil)
         }
-        return quota?.window(preferred)
-            ?? QuotaWindow(remainingPercent: nil, durationMinutes: nil, resetsAt: nil, observedAt: nil)
+        let windows = quota?.complicationWindows ?? []
+        let index = preferred == .weekly ? 0 : 1
+        return windows.indices.contains(index) ? windows[index]
+            : QuotaWindow(remainingPercent: nil, durationMinutes: nil, resetsAt: nil, observedAt: nil)
     }
     private func label(_ provider: AccountUsageProvider) -> String {
         switch provider {
@@ -146,8 +160,12 @@ struct QuotaWidgetView: View {
         }
     }
     private func periodLabel(_ reading: QuotaWindow, kind: QuotaWindowKind? = nil) -> String {
+        let period = durationLabel(reading)
+        return reading.label.map { "\($0) · \(period)" } ?? period
+    }
+    private func durationLabel(_ reading: QuotaWindow) -> String {
         if reading.durationMinutes == 10080 { return String(localized: "Wk") }
-        guard let minutes = reading.durationMinutes else { return String(localized: "Short") }
+        guard let minutes = reading.durationMinutes else { return "—" }
         if minutes >= 1440 { return "\(minutes / 1440)d" }
         return minutes % 60 == 0 ? "\(minutes / 60)h" : "\(minutes)m"
     }

@@ -22,6 +22,8 @@ struct VoiceStrip: View {
                         Text(voice.lastReply).font(.caption.weight(.medium)).lineLimit(2)
                     } else if voice.phase == .listening {
                         Text("Listening… tap the pet to end").font(.caption).foregroundStyle(.secondary)
+                    } else if voice.phase == .connecting {
+                        Text("Connecting… tap the pet to cancel").font(.caption).foregroundStyle(.secondary)
                     } else if voice.phase == .thinking {
                         Text("Thinking…").font(.caption).foregroundStyle(.secondary)
                     }
@@ -45,7 +47,7 @@ struct VoiceStrip: View {
         if voice.errorText != nil { return "exclamationmark.circle" }
         switch voice.phase {
         case .listening: return "mic.fill"
-        case .thinking:  return "ellipsis"
+        case .connecting, .thinking:  return "ellipsis"
         case .speaking:  return "waveform"
         case .idle:      return "mic"
         }

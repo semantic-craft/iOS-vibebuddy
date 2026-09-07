@@ -46,9 +46,12 @@ private struct WatchQuotaDetail: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(quota.provider.displayName).font(.headline)
-            window(quota.window(.weekly), title: String(localized: "Weekly remaining"))
-            window(quota.window(.short), title: quota.shortWindowDurationMinutes == nil ? String(localized: "Short window") : WatchQuotaVoice.windowName(quota.window(.short)))
-            ForEach(Array((quota.otherWindows ?? []).enumerated()), id: \.offset) { _, reading in
+            let standard = QuotaWindowKind.allCases.map { quota.window($0) }.filter {
+                $0.remainingPercent != nil || $0.durationMinutes != nil || $0.resetsAt != nil || $0.label != nil
+            }
+            let readings = standard + (quota.otherWindows ?? []).map(cachedReading)
+            if readings.isEmpty { Text("Window unavailable").font(.caption2) }
+            ForEach(Array(readings.enumerated()), id: \.offset) { _, reading in
                 window(reading, title: WatchQuotaVoice.windowName(reading))
             }
             Text(WatchFormat.updated(quota.age(now: now)))
@@ -65,6 +68,12 @@ private struct WatchQuotaDetail: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
+    }
+
+    private func cachedReading(_ reading: QuotaWindow) -> QuotaWindow {
+        var result = reading
+        result.isCached = reading.isCached == true || quota.isCached == true
+        return result
     }
 
     private func window(_ reading: QuotaWindow, title: String) -> some View {

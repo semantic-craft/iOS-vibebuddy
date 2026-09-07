@@ -112,10 +112,19 @@ public enum CursorUsageSummaryDecoder {
                 kind: .secondary,
                 usedPercent: percent,
                 windowDurationMinutes: duration,
-                resetsAt: end
+                resetsAt: end, label: "On-demand"
             )
         }
 
+        let primaryLabel: String
+        if summary.individualUsage?.plan?.totalPercentUsed?.isFinite == true
+            || (summary.individualUsage?.plan?.limit ?? 0) > 0 {
+            primaryLabel = "Plan allowance"
+        } else if (summary.individualUsage?.overall?.limit ?? 0) > 0 {
+            primaryLabel = "Overall limit"
+        } else {
+            primaryLabel = "Legacy requests"
+        }
         let plan = summary.membershipType.flatMap { $0.isEmpty ? nil : $0 }
         return AccountUsageSnapshot(
             provider: .cursor,
@@ -124,7 +133,7 @@ public enum CursorUsageSummaryDecoder {
                 kind: .primary,
                 usedPercent: primaryUsed,
                 windowDurationMinutes: duration,
-                resetsAt: end
+                resetsAt: end, label: primaryLabel
             ),
             secondary: secondary,
             lifetimeTokens: nil,

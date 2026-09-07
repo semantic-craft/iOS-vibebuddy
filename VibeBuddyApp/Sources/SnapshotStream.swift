@@ -14,7 +14,8 @@ struct WebSocketSnapshotClient: SnapshotStreaming {
     func stream(_ pairing: PairingPayload) -> AsyncStream<Snapshot> {
         AsyncStream { continuation in
             let task = Task {
-                guard let url = URL(string: "ws://\(pairing.host):\(pairing.port)/ws") else {
+                let providers = AccountUsageProvider.allCases.map(\.rawValue).joined(separator: ",")
+                guard let url = URL(string: "ws://\(pairing.host):\(pairing.port)/ws?quotaProviders=\(providers)") else {
                     continuation.finish(); return
                 }
                 var request = URLRequest(url: url)

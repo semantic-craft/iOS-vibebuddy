@@ -29,11 +29,17 @@ public struct VoiceTool: Sendable {
         return ["type": ty("object"), "properties": properties, "required": required]
     }
 
-    /// OpenAI Realtime (GA) / Qwen-Audio Realtime flat function-tool object for
+    /// OpenAI Realtime (GA) flat function-tool object for
     /// `session.tools` — `{type:"function", name, description, parameters}`.
     public func functionSchema() -> [String: Any] {
         ["type": "function", "name": name, "description": description,
          "parameters": parametersSchema(uppercaseTypes: false)]
+    }
+
+    /// Qwen Audio uses a nested function definition, unlike OpenAI Realtime.
+    public func qwenFunctionSchema() -> [String: Any] {
+        ["type": "function", "function": ["name": name, "description": description,
+                                         "parameters": parametersSchema(uppercaseTypes: false)]]
     }
 
     /// Gemini Live `functionDeclarations[]` entry — same fields, but **not**

@@ -149,8 +149,8 @@ struct SessionStoreTests {
         #expect(after.observationDiagnostics?.lastObserved(agent: .codex, source: .rollout) == observedAt)
     }
 
-    @Test("wire gate omits cursor from Snapshot while peer vocab remains")
-    func omitsCursorFromWireSnapshot() async {
+    @Test("Every supported provider reaches the runtime snapshot")
+    func includesCursorInWireSnapshot() async {
         let store = SessionStore(sourceID: "test")
         await store.setProviderQuota([
             ProviderQuota(provider: .codex, weeklyRemainingPercent: 70),
@@ -159,8 +159,8 @@ struct SessionStoreTests {
             ProviderQuota(provider: .cursor, weeklyRemainingPercent: 60),
         ])
         let snap = await store.snapshot(now: Date(timeIntervalSince1970: 1_700_000_000))
-        #expect(snap.providerQuota?.map(\.provider) == [.codex, .claude, .grok])
-        #expect(snap.providerQuota?.contains { $0.provider == .cursor } != true)
+        #expect(snap.providerQuota?.map(\.provider) == AccountUsageProvider.allCases)
+        #expect(snap.providerQuota?.contains { $0.provider == .cursor } == true)
     }
 }
 

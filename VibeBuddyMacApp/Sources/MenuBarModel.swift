@@ -719,20 +719,21 @@ final class MenuBarModel: ObservableObject {
     /// so "always allow" / "allow this session" behave identically to the phone.
     func decide(_ approvalId: String, _ choice: ApprovalDecision) {
         Task {
-            let ctx = await approvalContext.take(id: approvalId)
+            guard let ctx = await approvalContext.take(id: approvalId),
+                  await approvalRegistry.claim(id: approvalId) else { return }
             switch choice {
             case .alwaysAllow:
-                if let rule = ctx?.rule { await allowStore.add(rule) }
+                if let rule = ctx.rule { await allowStore.add(rule) }
                 await approvalRegistry.resolve(id: approvalId, with: .allow)
             case .allowSession:
-                if let ctx { await sessionAllow.add(ctx.sessionID) }
+                await sessionAllow.add(ctx.sessionID)
                 await approvalRegistry.resolve(id: approvalId, with: .allow)
             case .allow:
                 await approvalRegistry.resolve(id: approvalId, with: .allow)
             case .deny:
                 await approvalRegistry.resolve(id: approvalId, with: .deny)
             }
-            if let ctx { await store.recordInteraction(sessionID: ctx.sessionID) }
+            await store.recordInteraction(sessionID: ctx.sessionID)
         }
     }
 

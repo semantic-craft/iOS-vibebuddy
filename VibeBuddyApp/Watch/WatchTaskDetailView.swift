@@ -20,7 +20,7 @@ struct WatchTaskDetailView: View {
                             Text("Task status changed. This newer result has not been marked read.")
                                 .font(.caption2).foregroundStyle(.secondary)
                         }
-                        if let summary = task.summary { Text(summary).font(.caption) }
+                        if let summary = task.detailSummary ?? task.summary { Text(summary).font(.caption) }
                         if completionPending {
                             Text("Viewed — syncing with Mac").font(.caption2).foregroundStyle(.secondary)
                         }

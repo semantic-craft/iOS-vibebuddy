@@ -161,3 +161,11 @@
 "Download or update the Mac app" = "下载或更新 Mac 版伴侣";
 "Check that the Mac app is running, both devices are on the same local network, and Local Network access is enabled in Settings." = "请检查 Mac 伴侣是否运行、两台设备是否连接同一局域网，以及系统设置中的“本地网络”权限是否已开启。";
 "Need the Mac companion?" = "尚未安装 Mac 版伴侣？";
+
+"Preparing completion summary…" = "正在生成完成摘要…";
+"This completion is no longer current" = "这条完成结果已发生变化";
+"The task or paired Mac has changed. Open the current task to view its latest result. Nothing was marked read." = "任务或配对的 Mac 已变化。请打开当前任务查看最新结果。本次没有标记任何结果为已读。";
+"This task has moved on. You are viewing its current state, not the result from that notification." = "任务已进入后续轮次。这里显示的是当前状态，并非该通知对应的完成结果。";
+
+"This notification does not identify a completion round. Review the current result before marking it read." = "这条通知未携带完成轮次。请先查看当前结果，再标记为已读。";
+"Mark current result read" = "将当前结果标为已读";

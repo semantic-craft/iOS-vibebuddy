@@ -6,7 +6,9 @@ import VibeBuddyKit
 /// collect first and send together.
 struct QuestionCardView: View {
     let question: PendingQuestion
-    let answer: (QuestionAnswers) -> Void
+    let actionState: PhoneActionResult?
+    let answer: (QuestionAnswers) async -> PhoneActionResult
+    @State private var sending = false
 
     @State private var picked: [String: Set<String>] = [:]
     @State private var typed: [String: String] = [:]
@@ -45,7 +47,7 @@ struct QuestionCardView: View {
                     ForEach(item.options) { option in
                         Button { choose(option, in: item) } label: {
                             HStack(spacing: 8) {
-                                if !sendsOnTap {
+                                if !sendsOnTap || isPicked(option, in: item) {
                                     Image(systemName: isPicked(option, in: item) ? "checkmark.circle.fill" : "circle")
                                         .foregroundStyle(isPicked(option, in: item) ? CompanionPalette.accent : CompanionPalette.ink3)
                                 }
@@ -76,6 +78,7 @@ struct QuestionCardView: View {
                     }
                 }
             }
+            if let actionState { Text(actionState.message).font(.caption) }
             if showsSendButton {
                 Button {
                     send()
@@ -86,6 +89,7 @@ struct QuestionCardView: View {
                 .disabled(!complete)
             }
         }
+        .disabled(sending || actionState == .sending || actionState == .received || actionState == .unconfirmed)
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(CompanionPalette.bg2, in: RoundedRectangle(cornerRadius: CompanionType.cardRadius, style: .continuous))
@@ -98,7 +102,8 @@ struct QuestionCardView: View {
 
     private func choose(_ option: QuestionOption, in item: QuestionItem) {
         if sendsOnTap {
-            answer([item.id: [option.value]])
+            picked[item.id] = [option.value]
+            submit([item.id: [option.value]])
             return
         }
         var set = picked[item.id] ?? []
@@ -129,8 +134,17 @@ struct QuestionCardView: View {
         var answers: QuestionAnswers = [:]
         for item in items { if let v = values(for: item) { answers[item.id] = v } }
         guard !answers.isEmpty else { return }
-        answer(answers)
-        picked = [:]
-        typed = [:]
+        submit(answers)
     }
+    private func submit(_ answers: QuestionAnswers) {
+        guard !sending else { return }
+        sending = true
+        let id = question.id
+        Task {
+            let result = await answer(answers)
+            if result == .received, question.id == id { picked = [:]; typed = [:] }
+            sending = false
+        }
+    }
+
 }

@@ -45,8 +45,10 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
     private var task: URLSessionWebSocketTask?
     private var continuation: AsyncStream<RealtimeVoiceEvent>.Continuation?
     private var tools: [VoiceTool] = []
-    private var configured = false
-    private var connectionDeadline: Task<Void, Never>?
+    private var ready = false
+    private var connectionTimeout: Task<Void, Never>?
+    private var instructions = ""
+    private var voice = ""
 
     /// - Parameters:
     ///   - workspaceID: Bailian workspace ID. When given, connects through the
@@ -55,7 +57,7 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
     ///   - useIntl: Singapore (international) region instead of Beijing.
     public init(apiKey: String, model: String = "qwen-audio-3.0-realtime-plus",
                 workspaceID: String? = nil, useIntl: Bool = false) {
-        self.apiKey = apiKey
+        self.apiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         self.model = model
         self.workspaceID = workspaceID
         self.useIntl = useIntl
@@ -89,6 +91,9 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
         let (stream, cont) = AsyncStream<RealtimeVoiceEvent>.makeStream()
         continuation = cont
         self.tools = tools
+        self.instructions = instructions
+        self.voice = voice
+        ready = false
 
         guard let endpoint else {
             cont.yield(.failed("Invalid Qwen model ID or workspace ID — check Settings"))
@@ -101,7 +106,12 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
         task = socket
         socket.resume()
 
-        configureSession(instructions: instructions, voice: voice)
+        connectionTimeout = Task {
+            try? await Task.sleep(for: .seconds(15))
+            guard !Task.isCancelled else { return }
+            self.continuation?.yield(.failed("Qwen connection timed out. Check your network, API key region and workspace in Settings."))
+            self.close()
+        }
         Task { await self.receiveLoop() }
         return stream
     }
@@ -109,12 +119,6 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
     private func configureSession(instructions: String, voice: String) {
         send(["event_id": "ev_\(UUID().uuidString)", "type": "session.update",
               "session": Self.sessionConfig(instructions: instructions, voice: voice, tools: tools)])
-        connectionDeadline = Task {
-            try? await Task.sleep(for: .seconds(10))
-            guard !Task.isCancelled, !configured else { return }
-            continuation?.yield(.failed("Qwen connection timed out. Check the model, region and network."))
-            close()
-        }
     }
 
     /// Audio format is fixed by the model (PCM 16 kHz in / 24 kHz out) and input
@@ -129,14 +133,14 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
             "turn_detection": ["type": "smart_turn"],
         ]
         if !tools.isEmpty {
-            session["tools"] = tools.map { $0.functionSchema() }
+            session["tools"] = tools.map { $0.qwenFunctionSchema() }
             session["tool_choice"] = "auto"
         }
         return session
     }
 
     public func appendAudio(_ pcm16k: Data) {
-        guard configured else { return }
+        guard ready else { return }
         send(["type": "input_audio_buffer.append", "audio": pcm16k.base64EncodedString()])
     }
 
@@ -149,7 +153,9 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
     }
 
     public func close() {
-        configured = false; connectionDeadline?.cancel(); connectionDeadline = nil
+        ready = false
+        connectionTimeout?.cancel()
+        connectionTimeout = nil
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
         continuation?.yield(.closed)
@@ -180,20 +186,38 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
                 @unknown default: break
                 }
             } catch {
-                continuation?.yield(.failed("recv: \(error.localizedDescription)"))
-                continuation?.finish()
+                let status = (task.response as? HTTPURLResponse)?.statusCode
+                continuation?.yield(.failed(Self.connectionFailure(status: status, detail: error.localizedDescription)))
+                close()
                 return
             }
         }
     }
 
-    private func handle(_ text: String) {
+    static func connectionFailure(status: Int?, detail: String) -> String {
+        switch status {
+        case 101: return "Qwen connection interrupted: \(detail). Check your network and reconnect."
+        case 401: return "Qwen HTTP 401: API key rejected. Check that this is a DashScope API key for the selected region."
+        case 403: return "Qwen HTTP 403: access denied. Check model access and the API key's workspace permissions."
+        case 404: return "Qwen HTTP 404: endpoint or model not found. Check the workspace ID, region and realtime model."
+        case 429: return "Qwen HTTP 429: quota or rate limit reached. Check your provider account."
+        case let code?: return "Qwen HTTP \(code): \(detail). Check the API key, workspace, region and network."
+        case nil: return "Qwen connection failed: \(detail). Check the API key, workspace, region and network."
+        }
+    }
+
+    func handle(_ text: String) {
         guard let data = text.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = obj["type"] as? String else { return }
         switch type {
+        case "session.created":
+            configureSession(instructions: instructions, voice: voice)
         case "session.updated":
-            configured = true; connectionDeadline?.cancel(); connectionDeadline = nil
+            guard !ready else { return }
+            ready = true
+            connectionTimeout?.cancel()
+            connectionTimeout = nil
             continuation?.yield(.connected)
         case "response.audio.delta":
             if let b64 = obj["delta"] as? String, let audio = Data(base64Encoded: b64) {
@@ -218,7 +242,9 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
             continuation?.yield(.responseDone)
         case "error":
             let message = (obj["error"] as? [String: Any])?["message"] as? String ?? "realtime error"
-            continuation?.yield(.failed(message))
+            let code = (obj["error"] as? [String: Any])?["code"] as? String ?? "error"
+            continuation?.yield(.failed("Qwen (\(code)): \(message). Check the model, voice, API key region and workspace in Settings."))
+            close()
         default:
             break
         }

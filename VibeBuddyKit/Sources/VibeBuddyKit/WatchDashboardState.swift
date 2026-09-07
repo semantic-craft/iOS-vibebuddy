@@ -297,10 +297,11 @@ public enum WatchDashboardProjection {
         now: Date,
         isDemo: Bool = false
     ) -> WatchDashboardState {
-        let groups = SessionGroups(snapshot.sessions)
+        let sessions = snapshot.sessions.map { $0.validatingCompletionNotice(sourceID: snapshot.sourceID) }
+        let groups = SessionGroups(sessions)
         return WatchDashboardState(
             sourceID: snapshot.sourceID,
-            followedTasks: snapshot.sessions.filter { $0.effectiveAttention == .followed }.map(WatchFollowedTask.init),
+            followedTasks: sessions.filter { $0.effectiveAttention == .followed }.map(WatchFollowedTask.init),
             counts: WatchSessionCounts(groups),
             presentation: TaskPresentationSummary(sessions: snapshot.sessions),
             alerts: groups.needsResponse.map(alert(for:)),

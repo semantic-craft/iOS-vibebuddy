@@ -129,8 +129,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         let userInfo = response.notification.request.content.userInfo
         if response.actionIdentifier == UNNotificationDefaultActionIdentifier {
             guard let id = userInfo[NotificationUserInfoKey.sessionId] as? String, !id.isEmpty else { return }
+            let completionID = NotificationIdentity.sound(of: request.identifier) == .agentDone
+                ? request.identifier : nil
             await MainActor.run {
-                _ = UIApplication.shared.open(VibeBuddyDeepLink.sessionURL(id: id))
+                _ = UIApplication.shared.open(VibeBuddyDeepLink.sessionURL(id: id,
+                    completionNotificationID: completionID))
             }
             return
         }

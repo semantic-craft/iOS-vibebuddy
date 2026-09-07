@@ -27,6 +27,63 @@ final class DashboardStore: ObservableObject {
     /// Set when a Live Activity / deep link asks to open a specific session; the
     /// dashboard scrolls to and highlights it, then clears it via `clearFocus()`.
     @Published var focusedSessionId: String?
+    private(set) var focusedCompletionNotificationID: String?
+    @Published var completionLinkUnavailable = false
+
+    let completionReads: PhoneCompletionReads
+
+    @Published private(set) var phoneActions: [String: PhoneActionResult] = [:]
+    private var sendingPhoneSessions: Set<String> = []
+    private var phoneActionIdentity: [String: String] = [:]
+
+    private func actionIdentity(_ session: AgentSession) -> String {
+        "\(sourceID ?? "unpaired")|\(session.id)|\(session.pendingApproval?.id ?? session.pendingQuestion?.id ?? String(session.statusSince.timeIntervalSince1970))"
+    }
+
+    func phoneActionState(for session: AgentSession) -> PhoneActionResult? {
+        phoneActionIdentity[session.id] == actionIdentity(session) ? phoneActions[session.id] : nil
+    }
+
+    func phoneActionDisabled(for session: AgentSession) -> Bool {
+        guard let result = phoneActionState(for: session) else { return false }
+        return result == .sending || result == .unconfirmed
+            || (result == .received && (session.pendingApproval != nil || session.pendingQuestion != nil))
+    }
+
+    /// Every attempt reads authenticated authority before sending. Ambiguous POSTs
+    /// are never replayed: an unchanged snapshot cannot prove non-execution.
+    private func sendPhoneAction(_ session: AgentSession,
+                                 send: (PairingPayload, AgentSession) async -> PhoneActionResult) async -> PhoneActionResult {
+        if sendingPhoneSessions.contains(session.id) { return .sending }
+        if phoneActionDisabled(for: session) { return phoneActionState(for: session) ?? .unconfirmed }
+        guard let pairing else { showToast(PhoneActionResult.notPaired.message); return .notPaired }
+        sendingPhoneSessions.insert(session.id)
+        defer { sendingPhoneSessions.remove(session.id) }
+        let identity = actionIdentity(session)
+        let epoch = pairingEpoch
+        phoneActionIdentity[session.id] = identity
+        phoneActions[session.id] = .sending
+        let result: PhoneActionResult
+        if let snapshot = await decisionClient.actionSnapshot(pairing) {
+            if epoch != pairingEpoch || snapshot.sourceID != sourceID {
+                result = .expired
+            } else if let current = snapshot.sessions.first(where: { $0.id == session.id }),
+                      actionIdentity(current) == identity,
+                      current.pendingApproval?.isAnswerable != false,
+                      current.pendingQuestion?.isAnswerable != false,
+                      current.pendingQuestion?.expiresAt.map({ $0 > snapshot.serverTime }) != false {
+                result = await send(pairing, current)
+            } else { result = .expired }
+        } else { result = .failed }
+        if epoch == pairingEpoch {
+            phoneActions[session.id] = result
+            showToast(result.message)
+        }
+        // A fresh authority read observes change, but does not turn uncertainty
+        // into success and never automatically resends the operation.
+        if result == .unconfirmed { _ = await decisionClient.actionSnapshot(pairing) }
+        return result
+    }
 
     private let streamer: SnapshotStreaming
     private let notifier: AttentionNotifier
@@ -42,8 +99,9 @@ final class DashboardStore: ObservableObject {
     /// Account allowance as the Mac last reported it. The phone forwards it
     /// untouched — normalization already happened where the provider's own
     /// convention was still known.
-    private var lastProviderQuota: [ProviderQuota] = []
+    @Published private(set) var lastProviderQuota: [ProviderQuota] = []
     private var runTask: Task<Void, Never>?
+    private var connectionGeneration = UUID()
     /// Decides which sound (if any) each snapshot earns. Reset per connection so
     /// the opening backlog of an already-waiting session stays silent.
     private var policy = SoundPolicy()
@@ -70,14 +128,17 @@ final class DashboardStore: ObservableObject {
          notifier: AttentionNotifier = LocalNotifier(),
          decisionClient: DecisionClient = HTTPDecisionClient(),
          watchRelay: WatchRelay? = WatchRelay(transport: WatchConnectivityTransport()),
+         completionReads: PhoneCompletionReads = PhoneCompletionReads(),
          reportDevice: @escaping @MainActor (PairingPayload) -> Void = {
              PushRegistration.shared.update(pairing: $0)
          }) {
+        self.completionReads = completionReads
         self.streamer = streamer
         self.notifier = notifier
         self.decisionClient = decisionClient
         self.watchRelay = watchRelay
         self.reportDevice = reportDevice
+        completionReads.onChange = { [weak self] in self?.objectWillChange.send() }
         if ProcessInfo.processInfo.environment["VIBEBUDDY_SKIP_NOTIFICATIONS"] != "1" {
             notifier.requestAuthorization()
         }
@@ -121,7 +182,7 @@ final class DashboardStore: ObservableObject {
             return result(.refused)
         case .send(let approvalId, let decision):
             if isDemo {
-                decide(approvalId, decision)
+                guard decideDemo(approvalId) == .received else { return result(.refused) }
                 watchApprovals.commit(request.attemptId)
                 return result(.accepted)
             }
@@ -155,6 +216,7 @@ final class DashboardStore: ObservableObject {
         guard self.pairing == pairing, link.sourceID == sourceID,
               link.pairingEpoch == self.pairingEpoch,
               pairingEpoch == ConnectionStore.pairingEpoch else { return result(.sourceMismatch) }
+        completionReads.received(outcome, request: request)
         return result(outcome)
     }
 
@@ -171,17 +233,28 @@ final class DashboardStore: ObservableObject {
     }
 
     func start(_ pairing: PairingPayload) {
-        stop()
+        connectionGeneration = UUID()
+        completionReads.pause()
+        CompletionNoticePhoneContext.sessions = []
+        // Reconnecting is not an explicit stop: ActivityKit keeps the current
+        // activity across process death, so the first snapshot must reclaim it.
+        let changedSource = isDemo || (self.pairing != nil && self.pairing != pairing)
+        runTask?.cancel()
         isDemo = false
+        lastProviderQuota = []
+        if self.pairing != pairing { phoneActions = [:]; phoneActionIdentity = [:] }
         self.pairing = pairing
         ConnectionStore.observePairing(pairing)
         pairingEpoch = ConnectionStore.pairingEpoch
+        completionReads.select(epoch: pairingEpoch)
         sourceID = nil
         groups = SessionGroups([])
         state = .connecting
         relayToWatch([])
         policy = SoundPolicy()                        // fresh connection → suppress the backlog
+        let generation = connectionGeneration
         runTask = Task { [weak self] in
+            if changedSource { await self?.liveActivity.end() }
             while !Task.isCancelled {
                 guard let self else { return }
                 // Every attempt, not just the first: the Mac may have restarted
@@ -190,7 +263,7 @@ final class DashboardStore: ObservableObject {
                 self.reportDevice(pairing)
                 for await snapshot in self.streamer.stream(pairing) {
                     if Task.isCancelled { return }
-                    await self.apply(snapshot)
+                    await self.apply(snapshot, generation: generation)
                 }
                 if Task.isCancelled { return }
                 self.state = .failed(String(localized: "Disconnected — reconnecting…"))
@@ -200,15 +273,19 @@ final class DashboardStore: ObservableObject {
         }
     }
 
-    func stop() {
+    @discardableResult
+    func stop() -> Task<Void, Never> {
+        connectionGeneration = UUID()
+        completionReads.pause()
         CompletionNoticePhoneContext.sessions = []
         runTask?.cancel()
         runTask = nil
-        Task { await liveActivity.end() }
+        return Task { await liveActivity.end() }
     }
 
     func forgetPairing() {
         stop()
+        completionReads.clear()
         pairing = nil
         sourceID = nil
         pairingEpoch = ConnectionStore.pairingEpoch
@@ -275,19 +352,20 @@ final class DashboardStore: ObservableObject {
     }
 
     /// Execute a voice action on the matching session; returns a spoken confirmation.
-    func performVoiceAction(_ action: VoiceAction) -> String {
+    func performVoiceAction(_ action: VoiceAction) async -> String {
+        guard isDemo || pairing != nil else { return PhoneActionResult.notPaired.message }
         switch action {
-        case .approve(let project):
-            guard let s = match(project), let ap = s.pendingApproval else { return "No session to approve." }
-            decide(ap.id, approve: true); return "Approved \(s.project)."
-        case .deny(let project):
-            guard let s = match(project), let ap = s.pendingApproval else { return "No session to deny." }
-            decide(ap.id, approve: false); return "Denied \(s.project)."
+        case .approve(let project), .deny(let project):
+            guard let s = match(project), let ap = s.pendingApproval, ap.isAnswerable else {
+                return "No matching remotely answerable approval. Check the current task on Mac."
+            }
+            let decision: ApprovalDecision
+            if case .approve = action { decision = .allow } else { decision = .deny }
+            return await decideConfirmed(ap.id, decision).message
         case .answer(let project, let text):
-            guard let s = match(project) else { return "No matching session." }
-            answer(s.id, answer: text); return "Replied to \(s.project)."
-        case .none:
-            return ""
+            guard let s = match(project) else { return "No unique matching session." }
+            return await answer(s.id, answer: text).message
+        case .none: return ""
         }
     }
 
@@ -302,6 +380,7 @@ final class DashboardStore: ObservableObject {
     func startDemo() {
         stop()
         isDemo = true
+        lastProviderQuota = []
         pairing = nil
         state = .connected
         let demo = Self.demoSessions()
@@ -323,52 +402,66 @@ final class DashboardStore: ObservableObject {
 
     func decide(_ approvalId: String, _ decision: ApprovalDecision) {
         if isDemo {
-            // Resolve locally so a reviewer sees the approval card dismiss (any choice).
-            let resolved = (groups.needsResponse + groups.working + groups.done).map { s -> AgentSession in
-                guard s.pendingApproval?.id == approvalId else { return s }
-                var s = s; s.pendingApproval = nil; s.waitKind = nil; s.status = .working
-                return s
-            }
-            install(resolved)
+            _ = decideDemo(approvalId)
             return
         }
-        guard let pairing else { return }
-        Task { await decisionClient.decide(pairing, approvalId: approvalId, decision: decision) }
+        Task { _ = await decideConfirmed(approvalId, decision) }
     }
 
-
-    /// Back-compat for the voice companion's approve/deny intents.
-    func decide(_ approvalId: String, approve: Bool) { decide(approvalId, approve ? .allow : .deny) }
-
-    /// Answers from the question card, keyed by question id.
-    func answer(_ sessionId: String, answers: QuestionAnswers) {
-        guard !answers.isEmpty else { return }
-        if isDemo {
-            let flat = answers.values.flatMap { $0 }.joined(separator: ", ")
-            answer(sessionId, answer: flat)
-            return
+    func decideConfirmed(_ approvalId: String, _ decision: ApprovalDecision) async -> PhoneActionResult {
+        if isDemo { return decideDemo(approvalId) }
+        guard let session = allSessions.first(where: { $0.pendingApproval?.id == approvalId }),
+              session.pendingApproval?.isAnswerable == true else { return .expired }
+        return await sendPhoneAction(session) { pairing, _ in
+            await self.decisionClient.phoneDecision(pairing, approvalId: approvalId, decision: decision)
         }
-        guard let pairing else { return }
-        Task { await decisionClient.answer(pairing, sessionId: sessionId, answers: answers) }
     }
 
-    func answer(_ sessionId: String, answer: String) {
-        guard !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        if isDemo {
-            let resolved = (groups.needsResponse + groups.working + groups.done).map { s -> AgentSession in
-                guard s.id == sessionId else { return s }
-                var s = s
-                s.pendingQuestion = nil
-                s.waitKind = nil
-                s.status = .working
-                s.summary = "Answered from phone: \(answer)"
-                return s
-            }
-            install(resolved)
-            return
+    private func decideDemo(_ approvalId: String) -> PhoneActionResult {
+        guard let session = allSessions.first(where: { $0.pendingApproval?.id == approvalId }),
+              session.pendingApproval?.isAnswerable == true else { return .expired }
+        install(allSessions.map { original in
+            guard original.id == session.id else { return original }
+            var s = original; s.pendingApproval = nil; s.waitKind = nil; s.status = .working
+            return s
+        })
+        return .received
+    }
+
+    @discardableResult
+    func answer(_ sessionId: String, answers: QuestionAnswers, expected: AgentSession? = nil) async -> PhoneActionResult {
+        guard !answers.isEmpty else { return .failed }
+        return await sendAnswer(sessionId, text: nil, answers: answers, expected: expected)
+    }
+
+    @discardableResult
+    func answer(_ sessionId: String, answer: String, expected: AgentSession? = nil) async -> PhoneActionResult {
+        guard !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .failed }
+        return await sendAnswer(sessionId, text: answer, answers: nil, expected: expected)
+    }
+
+    private func sendAnswer(_ sessionId: String, text: String?, answers: QuestionAnswers?, expected: AgentSession?) async -> PhoneActionResult {
+        guard let session = allSessions.first(where: { $0.id == sessionId }),
+              expected.map({ actionIdentity($0) == actionIdentity(session) }) != false,
+              session.pendingApproval == nil,
+              session.pendingQuestion?.isAnswerable != false,
+              session.pendingQuestion != nil || (session.agent == .codex && session.status != .needsResponse),
+              answers == nil || session.pendingQuestion != nil else {
+            showToast(PhoneActionResult.expired.message)
+            return .expired
         }
-        guard let pairing else { return }
-        Task { await decisionClient.answer(pairing, sessionId: sessionId, answer: answer) }
+        if isDemo {
+            install(allSessions.map { original in
+                guard original.id == sessionId else { return original }
+                var s = original; s.pendingQuestion = nil; s.waitKind = nil; s.status = .working
+                s.summary = "Answered from phone: \(text ?? answers?.values.flatMap { $0 }.joined(separator: ", ") ?? "")"
+                return s
+            })
+            return .received
+        }
+        return await sendPhoneAction(session) { pairing, current in
+            await self.decisionClient.phoneAnswer(pairing, session: current, text: text, answers: answers)
+        }
     }
 
     private static func demoSessions() -> [AgentSession] {
@@ -479,7 +572,6 @@ final class DashboardStore: ObservableObject {
 
     func jump(_ sessionId: String) {
         guard let pairing else { showToast(String(localized: "Couldn't reach your Mac")); return }
-        acknowledge(sessionId)
         let desktopThread = allSessions.first { $0.id == sessionId }?.jumpsToDesktopThread ?? false
         Task {
             let outcome = await decisionClient.jump(pairing, sessionId: sessionId)
@@ -489,7 +581,7 @@ final class DashboardStore: ObservableObject {
 
     /// A user explicitly opened/selected this task. The Mac remains the source
     /// of truth; demo mode mirrors the same transition locally.
-    func acknowledge(_ sessionId: String) {
+    func acknowledge(_ sessionId: String, displayedCompletion: CompletionReadRequest? = nil) {
         if isDemo {
             let sessions = allSessions.map { session -> AgentSession in
                 guard session.id == sessionId else { return session }
@@ -507,10 +599,32 @@ final class DashboardStore: ObservableObject {
             Task { _ = await decisionClient.acknowledgeWait(pairing, request: read) }
             return
         }
-        guard session.hasUnreadCompletion, let completionID = session.completionID else { return }
-        let request = CompletionReadRequest(sourceID: sourceID, sessionID: sessionId, completionID: completionID)
-        Task { _ = await decisionClient.acknowledge(pairing, request: request) }
+        guard session.status == .done, session.hasUnreadCompletion, session.failed != true,
+              let request = displayedCompletion, request == completionRequest(for: session) else { return }
+        do {
+            try completionReads.viewed(request, epoch: pairingEpoch)
+            completionReads.resume(pairing: pairing, sourceID: sourceID, epoch: pairingEpoch, client: decisionClient)
+        } catch {
+            showToast(String(localized: "Couldn't save read status — reopen this result to retry"))
+        }
 
+    }
+
+    func completionRequest(for session: AgentSession) -> CompletionReadRequest? {
+        guard let sourceID, session.status == .done, session.failed != true,
+              let completionID = session.completionID else { return nil }
+        return CompletionReadRequest(sourceID: sourceID, sessionID: session.id, completionID: completionID)
+    }
+
+    func completionReadStatus(for session: AgentSession) -> String? {
+        guard let request = completionRequest(for: session) else { return nil }
+        if completionReads.confirmed.contains(request) || !session.hasUnreadCompletion {
+            return String(localized: "Read — confirmed by Mac")
+        }
+        if completionReads.entries.contains(where: { $0.request == request }) {
+            return String(localized: "Viewed — waiting to sync with Mac")
+        }
+        return nil
     }
 
     /// Set, or with `nil` return to automatic, how much a session may interrupt
@@ -565,7 +679,10 @@ final class DashboardStore: ObservableObject {
         }
     }
 
-    private func apply(_ snapshot: Snapshot) async {
+    private func apply(_ incoming: Snapshot, generation: UUID) async {
+        guard generation == connectionGeneration, !Task.isCancelled else { return }
+        var snapshot = incoming
+        snapshot.sessions = incoming.sessions.map { $0.validatingCompletionNotice(sourceID: incoming.sourceID) }
         CompletionNoticePhoneContext.sessions = snapshot.sessions
         // The shared policy owns all the sounding rules; we just supply context.
         // The category switches then drop whatever this phone does not want to
@@ -579,7 +696,9 @@ final class DashboardStore: ObservableObject {
         for alert in alerts {
             // A cue a push already delivered is not posted again (ADR-0012), and
             // then it earns no tap and no buddy reaction either.
-            guard await notifier.notify(alert), alert.delivery.interrupts else { continue }
+            let notified = await notifier.notify(alert)
+            guard generation == connectionGeneration, !Task.isCancelled else { return }
+            guard notified, alert.delivery.interrupts else { continue }
             Haptics.play(for: alert.sound)   // a tasteful tap to go with the cue
             rang = true
         }
@@ -588,13 +707,22 @@ final class DashboardStore: ObservableObject {
         // and on the wrist is describing something nobody is blocked on.
         notifications.record(alerts)
         notifier.withdraw(notifications.withdrawals(for: snapshot.sessions))
+        guard !Task.isCancelled else { return }
         observationDiagnostics = snapshot.observationDiagnostics ?? []
         recentDirectories = snapshot.recentDirectories ?? []
         dispatchAgents = snapshot.dispatchAgents ?? []
+        // A cancelled stream may resume after awaiting notification delivery.
+        // Never let its old Mac readings repopulate a newly selected source.
+        guard !Task.isCancelled else { return }
         lastProviderQuota = snapshot.providerQuota ?? []
         buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: snapshot.sessions)
         state = .connected
+        if sourceID != snapshot.sourceID { completionReads.pause() }
         sourceID = snapshot.sourceID
+        completionReads.reconcile(snapshot, epoch: pairingEpoch)
+        if let pairing, let sourceID {
+            completionReads.resume(pairing: pairing, sourceID: sourceID, epoch: pairingEpoch, client: decisionClient)
+        }
         install(snapshot.sessions, serverTime: snapshot.serverTime)
         await liveActivity.sync(sessions: snapshot.sessions)
     }
@@ -602,8 +730,23 @@ final class DashboardStore: ObservableObject {
     /// Handle a `vibebuddy://session?id=…` deep link from the Live Activity.
     func open(_ url: URL) {
         guard let id = VibeBuddyDeepLink.sessionId(from: url) else { return }
+        focusedCompletionNotificationID = VibeBuddyDeepLink.completionNotificationID(from: url)
         focusedSessionId = id
     }
 
-    func clearFocus() { focusedSessionId = nil }
+    func matchesCompletionNotification(_ notificationID: String, sessionID: String) -> Bool {
+        allSessions.first { $0.id == sessionID }?
+            .matchesCompletionNotification(notificationID, sourceID: sourceID) == true
+    }
+
+    func acknowledgeDisplayedCompletion(_ displayed: AgentSession) {
+        guard displayed.status == .done, let completionID = displayed.completionID,
+              allSessions.first(where: { $0.id == displayed.id })?.completionID == completionID else { return }
+        acknowledge(displayed.id, displayedCompletion: completionRequest(for: displayed))
+    }
+
+    func clearFocus() {
+        focusedSessionId = nil
+        focusedCompletionNotificationID = nil
+    }
 }

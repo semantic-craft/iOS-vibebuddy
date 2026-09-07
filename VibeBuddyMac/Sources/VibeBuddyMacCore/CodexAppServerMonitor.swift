@@ -378,6 +378,7 @@ public actor CodexAppServerMonitor {
         }
         await approvalContext.set(id: card.id, sessionID: threadID,
                                   rule: AllowRule.forApproval(tool: tool, input: input))
+        await approvalRegistry.prepare(id: card.id)
         await store.beginApproval(sessionID: threadID, shown, at: Date())
         let outcome = await approvalRegistry.wait(id: card.id, timeout: requestTimeout)
         guard openRequests.removeValue(forKey: key) != nil else { return }   // resolved elsewhere
@@ -425,7 +426,7 @@ public actor CodexAppServerMonitor {
             return
         }
         await store.beginQuestion(sessionID: threadID, question, at: Date())
-        let answers = await questionRegistry.wait(sessionID: threadID, timeout: timeout)
+        let answers = await questionRegistry.wait(sessionID: threadID, questionID: questionID, timeout: timeout)
         guard openRequests.removeValue(forKey: key) != nil else { return }
         await store.endQuestion(sessionID: threadID, at: Date())
         guard let answers else { return }
@@ -456,15 +457,14 @@ public actor CodexAppServerMonitor {
                 return false
             }
         }
-        if isActive {
-            if (try? await client.request("turn/steer", params: input)) != nil { return true }
-            // The turn ended between the snapshot and the call: start one.
-        }
+        let method = isActive ? "turn/steer" : "turn/start"
         do {
-            _ = try await client.request("turn/start", params: input)
+            // A failed RPC may already have reached the daemon. Never replay it
+            // as a new turn; the phone must report uncertainty and reconcile.
+            _ = try await client.request(method, params: input)
             return true
         } catch {
-            state.lastError = "turn/start \(threadID.suffix(8)): \(error)"
+            state.lastError = "\(method) \(threadID.suffix(8)): \(error)"
             return false
         }
     }

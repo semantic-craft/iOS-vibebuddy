@@ -99,9 +99,9 @@ struct LocalNotifier: AttentionNotifier {
                 Task { await PushRegistration.shared.report(coveredByPush: [cue]) }
                 return false
             }
+            guard await CompletionNoticePhoneContext.valid(alert) else { return false }
             if sound == .agentDone, let notice = alert.session.completionNotice,
                !(await CompletionNoticeAttempts.shared.claim(notice, recipient: "phone-local")) { return false }
-            guard await CompletionNoticePhoneContext.valid(alert) else { return false }
             do {
                 try await Self.post(title: title, body: body, sound: sound, delivery: delivery,
                                     id: cue.identifier, sessionID: sessionID,

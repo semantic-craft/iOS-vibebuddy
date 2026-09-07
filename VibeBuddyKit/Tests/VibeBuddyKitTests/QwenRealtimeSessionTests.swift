@@ -29,7 +29,7 @@ struct QwenRealtimeSessionTests {
         #expect(QwenRealtimeSession.endpoint(model: "qwen audio", workspaceID: nil, useIntl: false) == nil)
     }
 
-    @Test("session.update uses smart_turn, no audio-format keys, and the flat tool schema")
+    @Test("session.update uses smart_turn, no audio-format keys, and nested Qwen tool schema")
     func sessionConfig() {
         let s = QwenRealtimeSession.sessionConfig(instructions: "hi", voice: "longanqian", tools: VoiceTools.all)
         #expect((s["turn_detection"] as? [String: Any])?["type"] as? String == "smart_turn")
@@ -37,6 +37,11 @@ struct QwenRealtimeSessionTests {
         #expect(s["input_audio_format"] == nil)
         #expect(s["voice"] as? String == "longanqian")
         #expect((s["tools"] as? [[String: Any]])?.count == VoiceTools.all.count)
+        let tools = s["tools"] as? [[String: Any]]
+        let function = tools?.first?["function"] as? [String: Any]
+        #expect(function?["name"] as? String == VoiceTools.all.first?.name)
+        #expect(function?["parameters"] as? [String: Any] != nil)
+        #expect(tools?.first?["name"] == nil)
         #expect(s["tool_choice"] as? String == "auto")
         #expect(QwenRealtimeSession.sessionConfig(instructions: "hi", voice: "longanqian", tools: [])["tools"] == nil)
     }

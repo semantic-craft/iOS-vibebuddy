@@ -242,10 +242,15 @@ struct MissedRouteTests {
     @Test("/decision cancels the missed timer")
     func decisionCancels() async throws {
         let context = ApprovalContextStore()
+        let registry = ApprovalRegistry()
+        await registry.prepare(id: "ap")
         await context.set(id: "ap", sessionID: "s", rule: nil)
         try await expectCancel(uri: "/decision", body: #"{"approvalId":"ap","decision":"allow"}"#,
-                               server: { store in
-            VibeBuddyServer(store: store, token: "t0k", approvalContext: context,
+                               setup: { store in
+            await store.beginApproval(sessionID: "s",
+                PendingApproval(id: "ap", tool: "Bash", commandPreview: "pwd"), at: t0)
+        }, server: { store in
+            VibeBuddyServer(store: store, token: "t0k", approvalRegistry: registry, approvalContext: context,
                             onJump: { _ in .focused }, onAnswer: { _, _ in })
         })
     }
