@@ -201,6 +201,7 @@ final class DashboardStore: ObservableObject {
     }
 
     func stop() {
+        CompletionNoticePhoneContext.sessions = []
         runTask?.cancel()
         runTask = nil
         Task { await liveActivity.end() }
@@ -565,6 +566,7 @@ final class DashboardStore: ObservableObject {
     }
 
     private func apply(_ snapshot: Snapshot) async {
+        CompletionNoticePhoneContext.sessions = snapshot.sessions
         // The shared policy owns all the sounding rules; we just supply context.
         // The category switches then drop whatever this phone does not want to
         // hear about — and what the phone never posts, the Watch never mirrors.

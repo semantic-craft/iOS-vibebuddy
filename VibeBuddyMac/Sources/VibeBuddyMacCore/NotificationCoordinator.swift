@@ -20,6 +20,7 @@ public protocol AttentionNotifier {
 public final class NotificationCoordinator: @unchecked Sendable {
     private let notifier: AttentionNotifier
     private let policy: SoundPolicy
+    private let onScheduled: @Sendable (SoundAlert) -> Void
     private let delivery: (any NotificationDeliveryRecording)?
     /// What was posted for each waiting session, so it can be withdrawn the
     /// moment the session stops waiting. Completions are never tracked.
@@ -28,11 +29,13 @@ public final class NotificationCoordinator: @unchecked Sendable {
     public init(
         notifier: AttentionNotifier,
         policy: SoundPolicy = SoundPolicy(),
-        delivery: (any NotificationDeliveryRecording)? = nil
+        delivery: (any NotificationDeliveryRecording)? = nil,
+        onScheduled: @escaping @Sendable (SoundAlert) -> Void = { _ in }
     ) {
         self.notifier = notifier
         self.policy = policy
         self.delivery = delivery
+        self.onScheduled = onScheduled
     }
 
     /// Say "finished, still unread" again for a followed session. The same
@@ -48,7 +51,7 @@ public final class NotificationCoordinator: @unchecked Sendable {
         let attention: SessionAttention = quietMode ? .muted : session.effectiveAttention
         let level = DeliveryMatrix.level(for: sound, attention: attention)
         guard categories.isEnabled(sound), level != .drop else { return false }
-        let alert = SoundAlert(session: session, sound: sound, delivery: level)
+        let alert = SoundAlert(session: session, sound: sound, delivery: level, isReminder: true)
         let attempt = await notifier.notify(alert)
         if attempt.shouldRecord {
             await delivery?.record(NotificationDeliveryRecord(
@@ -91,7 +94,10 @@ public final class NotificationCoordinator: @unchecked Sendable {
         if !stale.isEmpty { await notifier.withdraw(stale) }
         ledger.record(alerts)
         for alert in alerts {
+            if alert.sound == .agentDone, let notice = alert.session.completionNotice,
+               !(await CompletionNoticeAttempts.shared.claim(notice, recipient: "mac-local")) { continue }
             let attempt = await notifier.notify(alert)
+            if attempt.outcome == .scheduled { onScheduled(alert) }
             guard attempt.shouldRecord else { continue }
             await delivery?.record(NotificationDeliveryRecord(
                 channel: .local,

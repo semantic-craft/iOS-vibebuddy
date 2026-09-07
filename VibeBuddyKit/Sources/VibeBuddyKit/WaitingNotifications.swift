@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 /// The one name a cue has, wherever it is posted from.
 ///
@@ -35,7 +36,11 @@ public enum NotificationIdentity {
 extension SoundAlert {
     /// What this cue is called on both channels.
     public var notificationID: String {
-        NotificationIdentity.id(sessionID: sessionID, sound: sound)
+        if sound == .agentDone, let notice = session.completionNotice {
+            let hash = SHA256.hash(data: Data(notice.id.utf8)).prefix(20).map { String(format: "%02x", $0) }.joined()
+            return NotificationIdentity.id(sessionID: hash, sound: sound)
+        }
+        return NotificationIdentity.id(sessionID: sessionID, sound: sound)
     }
 }
 

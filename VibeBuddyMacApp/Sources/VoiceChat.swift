@@ -24,7 +24,9 @@ final class VoiceChat: ObservableObject {
 
     var isListening: Bool { phase == .listening }
     var isSpeaking: Bool { phase == .speaking }
-    var isActive: Bool { phase != .idle }
+    @Published private(set) var isConnecting = false
+    private var startID = UUID()
+    var isActive: Bool { phase != .idle || isConnecting }
     /// Available once the selected provider has a key — no separate enable step.
     var isAvailable: Bool { VoiceSettings.provider.apiKey?.isEmpty == false }
     /// The opt-in consent gate (default OFF). A tap can't open the mic until set.
@@ -32,6 +34,7 @@ final class VoiceChat: ObservableObject {
 
     private let contextProvider: () -> [AgentSession]
     private let actionHandler: (VoiceAction) -> String
+    private let onStart: () -> Void
 
     // Realtime speech-to-speech — the active path. Provider chosen in Settings.
     private var realtime: (any RealtimeVoiceProvider)?
@@ -40,13 +43,15 @@ final class VoiceChat: ObservableObject {
     private var coordinator: VoiceCallCoordinator?
 
     init(contextProvider: @escaping () -> [AgentSession],
-         actionHandler: @escaping (VoiceAction) -> String) {
+         actionHandler: @escaping (VoiceAction) -> String, onStart: @escaping () -> Void = {}) {
         self.contextProvider = contextProvider
         self.actionHandler = actionHandler
+        self.onStart = onStart
     }
 
     func toggle() {
         voiceLog.info("toggle in phase=\(String(describing: self.phase), privacy: .public) available=\(self.isAvailable, privacy: .public) enabled=\(self.isEnabled, privacy: .public)")
+        if isConnecting { stopRealtime(); return }
         switch phase {
         case .idle:
             guard isEnabled else { showConsent = true; return }   // consent gate: ask before opening the mic
@@ -67,12 +72,14 @@ final class VoiceChat: ObservableObject {
     private func startRealtime() {
         errorText = nil
         guard isAvailable else { errorText = "Add your Qwen (DashScope) key in Settings first."; return }
+        let id = UUID(); startID = id; isConnecting = true
+        onStart()
         // An accessory (menu-bar) app must be active for the mic TCC prompt to show.
         NSApp.activate(ignoringOtherApps: true)
         Self.requestMic { [weak self] micOK in
             Task { @MainActor in
-                guard let self else { return }
-                guard micOK else { self.errorText = "Microphone permission needed (System Settings › Privacy › Microphone)."; return }
+                guard let self, self.startID == id else { return }
+                guard micOK else { self.isConnecting = false; self.errorText = "Microphone permission needed (System Settings › Privacy › Microphone)."; return }
                 self.beginRealtimeSession()
             }
         }
@@ -82,7 +89,7 @@ final class VoiceChat: ObservableObject {
         let provider = VoiceSettings.provider
         guard let key = provider.apiKey, !key.isEmpty else {
             errorText = "Add your \(provider.display) API key in Settings first."
-            phase = .idle; return
+            phase = .idle; isConnecting = false; return
         }
         let language = VoiceSettings.conversationLanguage
         let instructions = VoicePrompt.systemPrompt(sessions: contextProvider(), language: language, actionStyle: .tools)
@@ -111,7 +118,7 @@ final class VoiceChat: ObservableObject {
         self.coordinator = coordinator
         activeProvider = provider
         lastUserText = ""; lastReply = ""
-        coordinator.handle(.connected)
+        isConnecting = true
         syncFromCoordinator(coordinator)
 
         eventTask = Task { [weak self] in
@@ -144,6 +151,7 @@ final class VoiceChat: ObservableObject {
         guard realtime != nil, let coordinator else { return }
         switch event {
         case .connected:
+            isConnecting = false
             voiceLog.info("realtime connected")
         case .userTranscript(let text, _):
             if VoiceCloseIntent.shouldClose(text) {     // "再见 / 关闭 / bye" → hang up hands-free
@@ -164,9 +172,10 @@ final class VoiceChat: ObservableObject {
         case .responseDone:
             break
         case .failed(let message):
+            isConnecting = false
             voiceLog.error("realtime failed: \(message, privacy: .public)")
         case .closed:
-            break
+            isConnecting = false
         }
         coordinator.handle(event)
         syncFromCoordinator(coordinator)
@@ -174,6 +183,7 @@ final class VoiceChat: ObservableObject {
     }
 
     private func stopRealtime() {
+        startID = UUID(); isConnecting = false
         if let coordinator {
             self.coordinator = nil
             coordinator.stop()

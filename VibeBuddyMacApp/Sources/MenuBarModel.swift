@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import Combine
 import UserNotifications
+import os
 import VibeBuddyKit
 import VibeBuddyMacCore
 
@@ -95,6 +96,8 @@ final class MenuBarModel: ObservableObject {
     private let activityTokens = ActivityTokens()
     private var lastActivityKey: String?
     private let notifier = UserNotificationsNotifier()
+    private let completionSummaryService = CompletionSummaryService()
+    let qwenReadAloud = QwenReadAloud()
     /// Session cues go to the glance first (a card under the notch) and only
     /// fall back to a system banner while the glance is hidden. Lazy so the
     /// router can point back at this model.
@@ -102,7 +105,20 @@ final class MenuBarModel: ObservableObject {
         notifier: GlanceAttentionRouter(banners: notifier) { [weak self] alert in
             self?.presentGlanceCard(alert) ?? false
         },
-        delivery: deliveryRecorder)
+        delivery: deliveryRecorder,
+        onScheduled: { [weak self] alert in
+            Task { @MainActor in
+                guard let self, UserDefaults.standard.bool(forKey: QwenReadAloud.enabledKey),
+                      !self.voiceChat.isActive, alert.sound == .agentDone,
+                      let notice = alert.session.completionNotice, notice.state == .summary,
+                      let text = notice.text, await self.isCurrentCompletion(alert) else { return }
+                guard UserDefaults.standard.bool(forKey: QwenReadAloud.enabledKey), !self.voiceChat.isActive else { return }
+                self.qwenReadAloud.speak(text) { [weak self] in
+                    guard let self, UserDefaults.standard.bool(forKey: QwenReadAloud.enabledKey), !self.voiceChat.isActive else { return false }
+                    return await self.isCurrentCompletion(alert)
+                }
+            }
+        })
     private let deliveryRecorder: NotificationDeliveryRecorder
     // Phone push: the same SoundPolicy engine, run from the Mac's perspective of
     // a backgrounded phone, so the phone hears the full pack (not just needs-you).
@@ -122,7 +138,8 @@ final class MenuBarModel: ObservableObject {
             guard let self else { return [] }
             return BuddyScope.included(from: self.sessions, selectedIDs: self.buddySessionIDs)
         },
-        actionHandler: { [weak self] action in self?.performVoiceAction(action) ?? "" })
+        actionHandler: { [weak self] action in self?.performVoiceAction(action) ?? "" },
+        onStart: { [weak self] in self?.qwenReadAloud.stop() })
     private var pollTask: Task<Void, Never>?
     private var glance: GlanceWindow?
     private static let pairedPhoneInfoKey = "pairedPhoneInfo"
@@ -208,6 +225,11 @@ final class MenuBarModel: ObservableObject {
             self?.objectWillChange.send()
         }
         Self.shared = self
+        qwenReadAloud.canSpeak = { [weak self] in self?.voiceChat.isActive == false }
+        notifier.validateCompletion = { [weak self] alert in
+            guard let self else { return false }
+            return await self.isCurrentCompletion(alert)
+        }
         notifier.onBannerAction = { [weak self] action, sessionId, approvalId, text in
             Task { @MainActor in
                 self?.handleBannerAction(action, sessionId: sessionId, approvalId: approvalId, text: text)
@@ -325,8 +347,12 @@ final class MenuBarModel: ObservableObject {
 
     private func startPolling() {
         pollTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let noticeURL = LifecycleJournalLocation.defaultURL().deletingLastPathComponent().appendingPathComponent("completion-notices.json")
+            await self.store.configureCompletionNotices(url: noticeURL,
+                enabled: { CompletionSummaryConfiguration.load().enabled },
+                generate: { [weak self] session in await self?.generateCompletionNotice(session) })
             while !Task.isCancelled {
-                guard let self else { return }
                 await self.store.applyBackgroundSessions(ClaudeBackgroundSessions.load())
                 let snapshot = await self.store.snapshot(now: Date())
                 self.snapshotSourceID = snapshot.sourceID
@@ -362,6 +388,52 @@ final class MenuBarModel: ObservableObject {
                 try? await Task.sleep(for: .seconds(2))
             }
         }
+    }
+
+    private func isCurrentCompletion(_ alert: SoundAlert, deviceToken: String? = nil) async -> Bool {
+        guard !alert.isReminder, alert.sound == .agentDone, let notice = alert.session.completionNotice else { return true }
+        let snapshot = await store.snapshot(now: Date())
+        guard let current = snapshot.sessions.first(where: { $0.id == alert.sessionID }),
+              current.completionNotice?.id == notice.id, current.status == .done,
+              current.hasUnreadCompletion, !current.isStuck, current.effectiveAttention == .followed,
+              CompletionSummaryConfiguration.load().enabled, !Self.effectiveQuiet() else { return false }
+        let focused = ForegroundTerminal.focusedSessionIDs(among: [current],
+            frontmostBundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
+        guard !focused.contains(current.id) else { return false }
+        if let deviceToken {
+            let devices = await deviceTokens.devices()
+            return PushFanout.plan(alert, devices: devices, apnsConfigured: pusher != nil,
+                focusedSessionIDs: focused).recipients.contains { $0.device.token == deviceToken }
+        }
+        return NotificationCategoryPrefs.loadMac().isEnabled(NotificationSound.agentDone)
+    }
+
+    private func generateCompletionNotice(_ session: AgentSession) async -> String? {
+        let log = Logger(subsystem: "com.vibebuddy.mac", category: "completionSummary")
+        let config = CompletionSummaryConfiguration.load()
+        guard config.configurationFailure == nil, let completionID = session.completionID,
+              !Self.effectiveQuiet() else { log.notice("Skipped: configuration or quiet mode"); return nil }
+        let focused = ForegroundTerminal.focusedSessionIDs(among: [session],
+            frontmostBundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
+        guard !focused.contains(session.id) else { log.notice("Skipped: source is focused"); return nil }
+        let alert = SoundAlert(session: session, sound: .agentDone,
+                               delivery: DeliveryMatrix.level(for: .agentDone, attention: session.effectiveAttention))
+        let devices = await deviceTokens.devices()
+        let fanout = PushFanout.plan(alert, devices: devices, apnsConfigured: pusher != nil, focusedSessionIDs: focused)
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        let local = (UserDefaults.standard.object(forKey: "notifyOnNeedsResponse") as? Bool ?? true)
+            && NotificationCategoryPrefs.loadMac().isEnabled(NotificationSound.agentDone)
+            && (settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional)
+            && !NSApp.isActive
+        guard local || fanout.recipients.contains(where: { $0.device.supportsCompletionNotices == true }) else { log.notice("Skipped: no eligible receiver"); return nil }
+        guard case .ready(let result) = await store.completionResult(sessionID: session.id, completionID: completionID) else { log.notice("Skipped: final result unavailable"); return nil }
+        let input = CompletionSummaryInput(sourceID: result.sourceID, sessionID: result.sessionID,
+            completionID: result.completionID, turnID: result.turnID, title: result.title,
+            finalText: result.finalText, completedAt: result.completedAt, observedAt: result.observedAt)
+        let summary = await completionSummaryService.generate(input, configuration: config)
+        guard !Task.isCancelled, config == CompletionSummaryConfiguration.load(), !Self.effectiveQuiet() else { return nil }
+        log.notice("Generation outcome: \(summary.failure?.rawValue ?? "success", privacy: .public)")
+        return summary.text
     }
 
     private func refreshNotificationDeliveryHealth() async {
@@ -487,7 +559,6 @@ final class MenuBarModel: ObservableObject {
             if recordSkips { await recordPushSkip(alert, reason: fanout.skip) }
             return false
         }
-        let copy = PushCopy.copy(for: alert.sound, session: alert.session)
         // A phone with a live stream may be posting this cue itself right now:
         // hold each push briefly for its receipt (ADR-0012), all devices side
         // by side. A reminder says the same cue again on purpose, so it never
@@ -499,6 +570,20 @@ final class MenuBarModel: ObservableObject {
         await withTaskGroup(of: Void.self) { group in
             for recipient in fanout.recipients {
                 guard let deviceToken = recipient.device.token else { continue }
+                if standDownForPhone, alert.sound == .agentDone, let notice = alert.session.completionNotice,
+                   !(await CompletionNoticeAttempts.shared.claim(notice, recipient: "apns/" + deviceToken)) { continue }
+                var recipientSession = alert.session
+                if alert.sound == .agentDone, alert.session.completionNotice != nil,
+                   recipient.device.supportsCompletionNotices != true {
+                    // An installed phone must opt into the pending/decision wire contract.
+                    // Its existing completion path still receives ordinary wording and identity.
+                    let live = await store.snapshot(now: Date()).sessions.first { $0.id == alert.sessionID }
+                    recipientSession.summary = live?.summary
+                    recipientSession.completionNotice = nil
+                }
+                let recipientAlert = SoundAlert(session: recipientSession, sound: alert.sound,
+                    delivery: recipient.level, isReminder: alert.isReminder)
+                let copy = PushCopy.copy(for: alert.sound, session: recipientSession)
                 let sound = recipient.level.makesSound && recipient.device.playSound != false
                     ? alert.sound.fileName : ""
                 sent = true
@@ -509,7 +594,12 @@ final class MenuBarModel: ObservableObject {
                                                    category: alert.actionCategory?.rawValue,
                                                    timeSensitive: alert.isTimeSensitive && recipient.level == .bannerSound,
                                                    approvalId: alert.actionCategory == .approval ? alert.session.pendingApproval?.id : nil,
-                                                   waitSince: waitSince, holdForPhone: hold)
+                                                   waitSince: waitSince, holdForPhone: hold,
+                                                   notificationID: recipientAlert.notificationID,
+                                                   validate: { [weak self] in
+                                                       guard let self else { return false }
+                                                       return await self.isCurrentCompletion(alert, deviceToken: deviceToken)
+                                                   })
                     await registry.applySendResult(result, token: deviceToken)
                 }
             }
@@ -538,7 +628,7 @@ final class MenuBarModel: ObservableObject {
         // `recordSkips: false`: an undelivered reminder is re-proposed on every
         // pass of the server's 30s loop until something takes it, so recording
         // each one would bury the log. The completion's own cue already said why.
-        let pushed = await push(SoundAlert(session: session, sound: .agentDone, delivery: level),
+        let pushed = await push(SoundAlert(session: session, sound: .agentDone, delivery: level, isReminder: true),
                                 to: devices, recordSkips: false, standDownForPhone: false)
         if local || pushed { await refreshNotificationDeliveryHealth() }
         return local || pushed

@@ -161,12 +161,15 @@ public actor APNsPusher {
                      timeSensitive: Bool = false,
                      approvalId: String? = nil,
                      waitSince: Date? = nil,
-                     holdForPhone: Bool = false) async -> APNsSendResult {
+                     holdForPhone: Bool = false,
+                     notificationID: String? = nil,
+                     validate: @escaping @Sendable () async -> Bool = { true }) async -> APNsSendResult {
 
         let cueCategory = soundCategory ?? sound.replacingOccurrences(of: ".caf", with: "")
         // The same identifier the phone gives its own local notification for
         // this cue: the push's collapse id, and the name a phone's receipt uses.
         let identifier: String? = {
+            if let notificationID { return notificationID }
             guard let sessionID, let sound = NotificationSound(rawValue: cueCategory) else { return nil }
             return NotificationIdentity.id(sessionID: sessionID, sound: sound)
         }()
@@ -202,6 +205,10 @@ public actor APNsPusher {
                                                   category: category, timeSensitive: timeSensitive,
                                                   approvalId: approvalId).utf8)
         do {
+            guard await validate() else {
+                return await finish(.init(outcome: .skipped, failureReason: "completionInvalidated"),
+                                    status: nil, now: Date(), sessionID: sessionID, sound: cueCategory)
+            }
             let (data, response) = try await http.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode
             return await finish(

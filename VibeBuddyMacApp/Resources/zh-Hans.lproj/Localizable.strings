@@ -206,3 +206,55 @@
 "Quiet mode keeps approvals and questions silent and suppresses other session alerts. Enabled quota alerts still follow the Sound setting." = "安静模式无声显示审批和提问，并抑制其他会话提醒。已开启的额度提醒仍遵循声音设置。";
 
 "Paste" = "粘贴";
+
+/* MARK: AI completion summaries */
+"AI completion summaries" = "AI 完成摘要";
+"Send followed tasks’ final results to the selected provider. Summaries may appear in notification previews. This does not enable the microphone." = "将关注任务的最终结果发送给所选服务。摘要可能显示在通知预览中，不会开启麦克风。";
+"Text model ID" = "文本模型 ID";
+"Enter a text model available to your account" = "输入当前账号可使用的文本模型";
+"Saved separately for each provider. Use a text model, not the realtime model above." = "每家服务分别保存。请填写文本模型，不要使用上方的实时语音模型。";
+"Configuration entered — model access is confirmed only by a successful test." = "配置已填写；测试成功后才能确认模型访问权限。";
+"Test with sample" = "测试样例";
+"Testing sends one synthetic result using this Mac’s saved API key and may incur a text-generation charge. It does not send your task history or post a notification." = "测试会使用此 Mac 保存的 API Key 发送一条合成结果，可能产生文本生成费用。不会发送任务历史或发布通知。";
+"Sample generated" = "样例已生成";
+"Check that the summary still says device verification is pending." = "请检查摘要是否保留“真机尚未验证”的限制。";
+"Elapsed: %@ s" = "耗时：%@ 秒";
+"Tokens — input: %@, output: %@, total: %@" = "Token — 输入：%@，输出：%@，总计：%@";
+"Automatic completion notifications are not connected in this build. You can save these settings and test a sample." = "此版本尚未接入自动完成通知。现在可以保存配置并测试样例。";
+"Enter a text model ID to test summaries." = "请输入文本模型 ID 以测试摘要。";
+"Add this provider’s API key above." = "请在上方添加此服务的 API Key。";
+"The text model ID contains unsupported characters." = "文本模型 ID 含有不支持的字符。";
+"Check the Qwen workspace ID above." = "请检查上方的 Qwen 工作空间 ID。";
+"The provider rejected access. Check the key, model and region." = "服务拒绝访问，请检查密钥、模型和区域。";
+"The provider rate-limited this request. No automatic retry was made." = "服务限制了本次请求，未自动重试。";
+"Could not reach the provider. Check your connection." = "无法连接服务，请检查网络。";
+"The 12-second deadline elapsed. No automatic retry was made." = "已超过 12 秒截止时间，未自动重试。";
+"Test cancelled." = "测试已取消。";
+"The response was empty, incomplete or unsuitable for a short spoken summary." = "返回内容为空、不完整或不适合作为简短播报摘要。";
+"The provider rejected the request. Check the text model and provider configuration." = "服务拒绝请求，请检查文本模型和服务配置。";
+"The provider returned an unsupported response." = "服务返回了不支持的响应。";
+"AI completion summaries are off." = "AI 完成摘要已关闭。";
+"The sample input could not be summarized." = "无法为样例输入生成摘要。";
+"This completion was already handled." = "此完成结果已处理。";
+
+"Followed task completions use one summary when enabled. If generation fails, the ordinary completion notification is used." = "开启后，关注任务的完成通知使用一次 AI 摘要；生成失败时使用普通完成通知。";
+
+/* Mac Qwen read aloud */
+"Generating Qwen speech…" = "正在合成 Qwen 语音…";
+"Save your DashScope API key first." = "请先保存百炼 API Key";
+"Your Mac could not play the audio." = "Mac 无法播放音频";
+"Playing Qwen speech" = "正在播放 Qwen 语音";
+"Read-aloud stopped" = "朗读已停止";
+"Playback complete" = "播放完成";
+"Speech generation failed. Check your DashScope model, voice and connection." = "语音合成失败，请检查百炼模型、音色和网络";
+"Mac Qwen Read Aloud" = "Mac Qwen 朗读";
+"Automatically read AI completion summaries for followed tasks" = "自动朗读关注任务的 AI 完成摘要";
+"Generate speech with DashScope and play it through your Mac’s current audio output. No microphone is needed. Each reading incurs speech-generation charges." = "使用百炼生成语音，由 Mac 当前音频输出播放；无需打开麦克风。每次朗读会产生语音合成费用。";
+"Speech synthesis model" = "语音合成模型";
+"Longan Fengyue · Warm and natural" = "龙安风悦 · 自然亲切";
+"Longan Lingxi · Sweet and cheerful" = "龙安灵希 · 可爱甜美";
+"Longan Yuanfei · Female character voice" = "龙安元妃 · 角色女声";
+"Preview Qwen voice" = "试听 Qwen 音色";
+"Stop" = "停止";
+"Hello, I’m your work companion. The task is complete, and device verification is still pending." = "你好，我是你的工作伙伴。任务已完成，设备验证仍待进行。";
+"Read-aloud voice" = "朗读音色";
