@@ -12,9 +12,6 @@
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <sparkle:releaseNotesLink>https://semantic-craft.github.io/iOS-vibebuddy/vibebuddy-mac-v1.3.5.md</sparkle:releaseNotesLink>
             <enclosure url="https://github.com/semantic-craft/iOS-vibebuddy/releases/download/v1.3.5/vibebuddy-mac-v1.3.5.dmg" length="11360091" type="application/octet-stream" sparkle:edSignature="Ddl3aYPA7ow5j++ODeWjxWqOIWiyz1lHe6Ts+YRDf7mOtx4sIyUAUnNDqYTNfJJARB6X8dUK0H2Hl4Z+U7ecAg=="/>
-            <sparkle:deltas>
-                <enclosure url="https://github.com/semantic-craft/iOS-vibebuddy/releases/download/v1.3.5/VibeBuddyMacApp12-11.delta" sparkle:deltaFrom="11" length="1233934" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="jIlgk0yX728JAGGaDIdLl/5CBUMYuR7D6uaf6U6AL6MZFNoRyjFoiH0SzxoBXBcHRxlJucWbEt80mctkhyxNAA=="/>
-            </sparkle:deltas>
         </item>
         <item>
             <title>1.3.4</title>
