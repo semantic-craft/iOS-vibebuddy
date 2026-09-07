@@ -20,6 +20,16 @@ extension URLSession: GrokCreditsProxyTransport {
 /// CodexBar documents (MIT). Reimplemented against the public HTTP shape; we do
 /// not vendor CodexBar's UI stack.
 public enum GrokCreditsProxyClient {
+    /// Bound the whole transfer, not just idle time between response bytes.
+    public static let session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 6
+        configuration.timeoutIntervalForResource = 6
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieStorage = nil
+        return URLSession(configuration: configuration)
+    }()
+
     public static let defaultEndpoint = URL(
         string: "https://cli-chat-proxy.grok.com/v1/billing?format=credits"
     )!
@@ -33,6 +43,8 @@ public enum GrokCreditsProxyClient {
     ) async throws -> Data {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "GET"
+        request.httpShouldHandleCookies = false
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         request.timeoutInterval = timeout
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("xai-grok-cli", forHTTPHeaderField: "x-xai-token-auth")

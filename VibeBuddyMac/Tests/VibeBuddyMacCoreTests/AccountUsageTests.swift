@@ -268,6 +268,20 @@ struct AccountUsageTests {
         #expect(quota.shortWindowRemainingPercent == nil)
     }
 
+    @Test("expired Grok cache never becomes the current weekly quota after restart")
+    func expiredGrokCache() async {
+        var old = sampleSnapshot(percent: 53)
+        old.provider = .grok
+        old.primary?.resetsAt = now.addingTimeInterval(-60)
+        let collector = AccountUsageCollector(provider: ScriptedUsageProvider([.failure(.offline)]),
+            cache: MemoryUsageCache(old), enabled: true)
+        let boot = await collector.bootstrap(now: now)
+        #expect(boot.snapshot?.primary == nil)
+        let failed = await collector.refresh(now: now)
+        #expect(failed.snapshot?.primary == nil)
+        #expect(failed.snapshot?.fetchedAt == old.fetchedAt)
+    }
+
     @Test("successful refresh is cached as the last known good value")
     func successfulRefreshCaches() async {
         let snapshot = sampleSnapshot(percent: 55)

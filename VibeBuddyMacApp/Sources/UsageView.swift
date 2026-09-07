@@ -10,10 +10,21 @@ struct AccountUsageSummaryView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: compact ? 7 : 10) {
-            if let snapshot = state.snapshot {
+            if let snapshot = state.snapshot?.excludingExpiredGrokWindows(at: Date()) {
+                if provider == .grok, snapshot.primary == nil {
+                    if state.unavailableReason != .unknown {
+                        Text("Usage is temporarily unavailable").foregroundStyle(.secondary)
+                    }
+                    if let end = snapshot.periodEnd {
+                        Text("Period ends \(end.formatted(date: .abbreviated, time: .shortened))")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
                 if snapshot.windows.isEmpty {
-                    Label("No quota windows supplied", systemImage: "gauge.with.dots.needle.0percent")
-                        .foregroundStyle(.secondary)
+                    if provider != .grok {
+                        Label("No quota windows supplied", systemImage: "gauge.with.dots.needle.0percent")
+                            .foregroundStyle(.secondary)
+                    }
                 } else {
                     ForEach(snapshot.windows) { window in
                         windowRow(window)
@@ -83,6 +94,7 @@ struct AccountUsageSummaryView: View {
     }
 
     private func windowTitle(_ window: AccountUsageWindow) -> String {
+        if provider == .grok, window.kind == .secondary { return "Extra usage" }
         if let label = window.label { return label }
         guard let minutes = window.windowDurationMinutes else {
             return window.kind == .primary ? "Primary window" : "Secondary window"
