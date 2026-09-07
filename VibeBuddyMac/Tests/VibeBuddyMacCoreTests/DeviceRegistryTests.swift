@@ -32,16 +32,17 @@ struct DeviceRegistryTests {
         let url = tempURL()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let tokens = DeviceTokens(url: url)
-        await tokens.register(DeviceRegistrationPayload(
-            token: "abc", supportsCompletionNotices: true))
+        var payload = DeviceRegistrationPayload(token: "abc")
+        payload.supportsCompletionNotices = true
+        await tokens.register(payload)
         #expect(await tokens.devices().first?.supportsCompletionNotices == true)
 
         await tokens.register(DeviceRegistrationPayload(token: "abc", name: "Renamed phone"))
         let restarted = DeviceTokens(url: url)
         #expect(await restarted.devices().first?.supportsCompletionNotices == true)
 
-        await restarted.register(DeviceRegistrationPayload(
-            token: "abc", supportsCompletionNotices: false))
+        payload.supportsCompletionNotices = false
+        await restarted.register(payload)
         #expect(await DeviceTokens(url: url).devices().first?.supportsCompletionNotices == false)
     }
 
