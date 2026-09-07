@@ -7,6 +7,66 @@ import VibeBuddyKit
 public actor SessionStore {
     private static let diagnosticStaleAfter: TimeInterval = 10 * 60
     private var reducer = SessionReducer()
+    private var noticeLedger: CompletionNoticeLedger?
+    private var noticeEnabled: (@Sendable () -> Bool)?
+    private var noticeHandler: (@Sendable (AgentSession) async -> String?)?
+    private var noticeTasks: [String: Task<Void, Never>] = [:]
+
+    public func configureCompletionNotices(url: URL, enabled: @escaping @Sendable () -> Bool,
+        generate: @escaping @Sendable (AgentSession) async -> String?) {
+        noticeLedger = CompletionNoticeLedger(url: url)
+        noticeEnabled = enabled
+        noticeHandler = generate
+    }
+
+    private func completionNotice(for session: AgentSession, now: Date) -> CompletionNotice? {
+        guard let sourceID, let completionID = session.completionID, noticeLedger != nil else { return nil }
+        let id = sourceID + "/" + session.id + "/" + completionID
+        let eligible = session.status == .done && session.hasUnreadCompletion && !session.isStuck
+            && session.effectiveAttention == .followed && noticeEnabled?() == true
+        if var existing = noticeLedger?.notices[id] {
+            if existing.state == .pending && (!eligible || now >= existing.deadline) {
+                existing.state = eligible ? .plain : .cancelled
+                _ = noticeLedger?.save(existing)
+                noticeTasks.removeValue(forKey: id)?.cancel()
+            }
+            return existing
+        }
+        guard eligible, [.claudeCode, .codex].contains(session.agent),
+              now < session.statusSince.addingTimeInterval(12), let handler = noticeHandler else { return nil }
+        let notice = CompletionNotice(id: id, deadline: session.statusSince.addingTimeInterval(12))
+        guard noticeLedger?.save(notice) == true else { return nil }
+        noticeTasks[id] = Task {
+            let text = await handler(session)
+            self.finishCompletionNotice(id: id, sessionID: session.id, completionID: completionID, text: text)
+        }
+        Task {
+            try? await Task.sleep(for: .seconds(max(0, notice.deadline.timeIntervalSinceNow)))
+            self.finishCompletionNotice(id: id, sessionID: session.id, completionID: completionID, text: nil)
+        }
+        return notice
+    }
+
+    private func finishCompletionNotice(id: String, sessionID: String, completionID: String, text: String?) {
+        guard var notice = noticeLedger?.notices[id], notice.state == .pending else { return }
+        let session = reducer.sessions[sessionID]
+        let followed = (attention[sessionID] ?? AutoAttention.level(lastInteractionAt: lastInteractionAt[sessionID], now: Date())) == .followed
+        let valid = session?.status == .done && session?.completionID == completionID
+            && session?.hasUnreadCompletion == true && session?.isStuck == false && followed && noticeEnabled?() == true
+        if !valid { notice.state = .cancelled }
+        else if Date() < notice.deadline, let text, !text.isEmpty, text.count <= 180 {
+            notice.state = .summary; notice.text = text
+        } else { notice.state = .plain }
+        if noticeLedger?.save(notice) != true {
+            notice.state = .plain; notice.text = nil
+            noticeLedger?.notices[id] = notice
+        }
+        noticeTasks.removeValue(forKey: id)?.cancel()
+        broadcast()
+    }
+
+    private var completionResults = CompletionResults()
+    private var completionReads: Set<String> = []
     public let sourceID: String?
     /// Account allowance, kept beside the reducer rather than inside it.
     private var providerQuota: [ProviderQuota] = []
@@ -115,6 +175,8 @@ public actor SessionStore {
         reducer.reconcile(now: now, lastActivity: lastActivity, staleAfter: staleAfter)
         let removed = Set(before.keys).subtracting(reducer.sessions.keys)
         for id in removed {
+            completionResults.runs[id] = nil
+            completionResults.candidates[id] = nil
             transcriptPaths[id] = nil
             grokDirectories[id] = nil
             lastInteractionAt[id] = nil
@@ -247,6 +309,18 @@ public actor SessionStore {
         announcesWait: Bool = true
     ) {
         if appServerOutranks(event, from: observationSource) {
+            // Corroboration cannot drive progress, but evidence of a newer run
+            // must prevent returning an older result while authority catches up.
+            if event.kind == .userPromptSubmit,
+               let candidate = completionResults.candidates[event.sessionID],
+               event.timestamp >= candidate.completedAt {
+                completionResults.candidates[event.sessionID] = nil
+                completionResults.runs[event.sessionID] = nil
+            }
+            if event.kind == .stop, completionResults.candidates[event.sessionID] != nil {
+                completionResults.observe(event, session: reducer.sessions[event.sessionID],
+                                          sourceID: sourceID, now: Date())
+            }
             if let enrichment = event.enrichment {
                 reducer.enrich(sessionID: event.sessionID, with: enrichment)
             }
@@ -263,6 +337,7 @@ public actor SessionStore {
         if let path = event.transcriptPath { transcriptPaths[event.sessionID] = path }
         rememberDirectory(event.cwd, at: event.timestamp)
         reducer.apply(event, observationSource: observationSource, recordsEvidence: recordsEvidence)
+        completionResults.observe(event, session: reducer.sessions[event.sessionID], sourceID: sourceID, now: Date())
         // A prompt is the user driving the session in person.
         if event.kind == .userPromptSubmit { lastInteractionAt[event.sessionID] = event.timestamp }
         if let enrichment = event.enrichment {
@@ -312,6 +387,56 @@ public actor SessionStore {
            session.status == .needsResponse, let handler = needsResponseHandler {
             Task { await handler(session) }
         }
+    }
+
+    /// Wait at most until two seconds after the original ending. Results are
+    /// memory-only and must be revalidated again by the eventual notification owner.
+    public func completionResult(sessionID: String, completionID: String) async -> CompletionResultAvailability {
+        var waited = false
+        while true {
+            guard !Task.isCancelled,
+                  let session = reducer.sessions[sessionID], session.status == .done,
+                  !session.isStuck, session.probeRetired != true, session.hasUnreadCompletion,
+                  session.completionID == completionID else { return .cancelled }
+            guard let sourceID, !sourceID.isEmpty,
+                  let candidate = completionResults.candidates[sessionID],
+                  candidate.completionID == completionID else { return .resultUnavailable }
+            if let outcome = candidate.outcome { return outcome }
+            let now = Date()
+            guard now <= candidate.completedAt.addingTimeInterval(2) else { return waited ? .resultUnavailable : .expired }
+            if let path = candidate.transcriptPath, !completionReads.contains(completionID) {
+                completionReads.insert(completionID)
+                // A slow file cannot hold the actor or extend the caller's
+                // deadline. Late reads are discarded at the actor boundary.
+                Task.detached {
+                    let text = ClaudeCompletionReader.read(path: path, sessionID: sessionID,
+                        startedAt: candidate.startedAt, completedAt: candidate.completedAt,
+                        expectedText: candidate.expectedText)
+                    await self.acceptCompletionRead(text, sessionID: sessionID, completionID: completionID)
+                }
+            }
+            let remaining = candidate.completedAt.addingTimeInterval(2).timeIntervalSinceNow
+            guard remaining > 0 else { return .resultUnavailable }
+            do {
+                try await Task.sleep(for: .seconds(min(0.05, remaining)))
+                waited = true
+            }
+            catch { return .cancelled }
+        }
+    }
+
+    private func acceptCompletionRead(_ text: String?, sessionID: String, completionID: String) {
+        completionReads.remove(completionID)
+        guard let text, let sourceID,
+              let session = reducer.sessions[sessionID], session.status == .done,
+              !session.isStuck, session.hasUnreadCompletion, session.completionID == completionID,
+              var candidate = completionResults.candidates[sessionID],
+              candidate.completionID == completionID, candidate.outcome == nil,
+              Date() <= candidate.completedAt.addingTimeInterval(2) else { return }
+        candidate.outcome = CompletionResults.freeze(text, candidate: candidate, sourceID: sourceID,
+                                                    sessionID: sessionID, now: Date())
+        candidate.expectedText = nil
+        completionResults.candidates[sessionID] = candidate
     }
 
     /// Layer a Grok session directory's facts onto the session, and fold the
@@ -554,7 +679,16 @@ public actor SessionStore {
             session.attentionOverride = attention[session.id]
             session.attention = attention[session.id]
                 ?? AutoAttention.level(lastInteractionAt: lastInteractionAt[session.id], now: now)
+            session.completionNotice = completionNotice(for: session, now: now)
             return session
+        }
+        let active = Set(snapshot.sessions.compactMap { $0.completionNotice?.id })
+        for id in noticeTasks.keys where !active.contains(id) {
+            noticeTasks.removeValue(forKey: id)?.cancel()
+            if var notice = noticeLedger?.notices[id], notice.state == .pending {
+                notice.state = .cancelled
+                _ = noticeLedger?.save(notice)
+            }
         }
         return snapshot
     }
