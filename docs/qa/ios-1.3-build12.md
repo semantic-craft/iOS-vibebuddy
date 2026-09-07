@@ -29,16 +29,23 @@ The Mac menu entry preference is Mac-only; phone and Watch retain their task sta
   production APNs entitlement passed the archive script checks.
 - Independent Standards/Spec review reported zero findings. `git diff --check` passed.
 
-## Remaining acceptance
+## Real-device build 12 acceptance
 
-Watch developer transport disconnected during installation. The last readable Watch
-installation was 1.3 (9); build 12 installation and real Watch task/complication
-synchronization are not yet verified. Xcode asks for the unlocked Watch near the Mac.
-the acceptance iPhone final-build installation and continued Live Activity state updates remain to
-be checked. The second iPhone is outside this acceptance run and was not modified.
+- Installed archived build 12 on the acceptance iPhone and its Apple Watch without
+  uninstalling or clearing data; device tools and Xcode confirmed Watch 1.3 (12).
+- Watch app screenshot at 14:08 showed five working tasks and real Codex/Claude
+  quota. The connected iPhone dashboard at 14:11 showed the same five working,
+  six completed and one idle projection.
+- Watch face screenshot at 14:13 showed a real followed-task complication and
+  quota complications (Codex 55%, Claude 50%); these were physical-device captures.
+- Terminated iPhone build 12 process at 14:12. One aggregate activity remained;
+  tapping it cold-launched the app, reconnected to the paired Mac and received
+  six working tasks. Final post-recovery Island count observation is pending.
+- The second iPhone was not modified. Wrist haptic perception and background APNs
+  delivery were not exercised by this regression acceptance.
 
 ## Release state
 
-At the live App Store Connect check, 1.3 (11) was Waiting for Review. Build 12 is
-prepared to replace it after acceptance; an upload or successful build must not be
-reported as review approval or public availability.
+At the live App Store Connect check, 1.3 (11) was Waiting for Review. Build 12 upload succeeded at 14:09 and Apple processing completed. It is prepared
+to replace the pending build after acceptance; upload is not review approval or
+public availability.
