@@ -76,6 +76,9 @@ struct DashboardView: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             StreamComposer(target: replyTarget,
+                           macName: connection.pairing?.macName,
+                           reachable: dashboard.state == .connected,
+                           receipt: replyTarget.flatMap { dashboard.phoneActionState(for: $0) },
                            clearTarget: { replyTo = nil },
                            send: send(_:target:))
                 .background(CompanionPalette.bg)
@@ -289,8 +292,11 @@ enum ReplyMeaning: Equatable {
 
     init(target: AgentSession?) {
         guard let target else { self = .newTask; return }
-        if let q = target.pendingQuestion, q.isAnswerable { self = .answer; return }
-        self = target.status == .done ? .continuation : .instruction
+        switch SessionActionSupport.resolve(for: target).intent {
+        case .answer: self = .answer
+        case .steer: self = .instruction
+        case .continue: self = .continuation
+        }
     }
 
     var verb: LocalizedStringKey {
@@ -299,6 +305,15 @@ enum ReplyMeaning: Equatable {
         case .instruction: "Send instruction"
         case .continuation: "Continue"
         case .newTask: "New task"
+        }
+    }
+
+    var verbLabel: String {
+        switch self {
+        case .answer: String(localized: "Answer")
+        case .instruction: String(localized: "Send instruction")
+        case .continuation: String(localized: "Continue")
+        case .newTask: String(localized: "New task")
         }
     }
 
@@ -311,14 +326,8 @@ enum ReplyMeaning: Equatable {
         }
     }
 
-    /// Instructions and continuations travel through the Codex app-server; a
-    /// Claude Code session has no such channel from the phone yet.
     func unsupportedReason(for target: AgentSession?) -> String? {
-        if let target, target.pendingQuestion?.isAnswerable == false || target.pendingApproval != nil {
-            return "Answer this wait in the agent's own prompt on Mac."
-        }
-        guard let target, self == .instruction || self == .continuation, target.agent != .codex else { return nil }
-        return String(localized: "\(target.agent.displayName) sessions can't take instructions from the phone yet — use the terminal.")
+        target.flatMap { SessionActionSupport.resolve(for: $0).unsupportedReason }
     }
 }
 
@@ -479,6 +488,9 @@ private struct MessageRow: View {
 /// a reply target the banner names both; without one the text is a new task.
 private struct StreamComposer: View {
     let target: AgentSession?
+    let macName: String?
+    let reachable: Bool
+    let receipt: PhoneActionResult?
     let clearTarget: () -> Void
     let send: (String, AgentSession?) async -> Bool
     @State private var sending = false
@@ -489,7 +501,8 @@ private struct StreamComposer: View {
     private var meaning: ReplyMeaning { ReplyMeaning(target: target) }
     private var unsupported: String? { meaning.unsupportedReason(for: target) }
     private var canSend: Bool {
-        !sending && unsupported == nil && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        reachable && !sending && unsupported == nil
+            && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
@@ -497,8 +510,10 @@ private struct StreamComposer: View {
             if let target {
                 HStack(spacing: 8) {
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("Replying to \(target.displayTitle) · \(target.presentationState.label)")
+                        Text(SessionActionSupport.targetCaption(macName: macName, session: target))
                             .font(CompanionType.font(10, .heavy)).foregroundStyle(CompanionPalette.ink2)
+                        Text("\(meaning.verbLabel) · \(target.displayTitle) · \(target.presentationState.label)")
+                            .font(CompanionType.font(11, .bold)).foregroundStyle(CompanionPalette.ink2)
                         Text(unsupported ?? target.displaySummary ?? ToolActivity.label(for: target))
                             .font(CompanionType.font(12, .bold))
                             .foregroundStyle(unsupported == nil ? CompanionPalette.ink : CompanionPalette.status(.error))
@@ -540,6 +555,17 @@ private struct StreamComposer: View {
             }
             .background(CompanionPalette.bg3, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
             .shadow(color: .black.opacity(0.06), radius: 6, y: 2)
+            if sending {
+                Text("Sending…")
+                    .font(CompanionType.font(11, .bold)).foregroundStyle(CompanionPalette.ink2)
+            } else if let receipt {
+                Text(receipt.message)
+                    .font(CompanionType.font(11, .bold))
+                    .foregroundStyle(receiptColor(receipt))
+            } else if !reachable {
+                Text("Couldn't reach your Mac — not sent")
+                    .font(CompanionType.font(11, .bold)).foregroundStyle(CompanionPalette.status(.error))
+            }
         }
         .padding(.horizontal, 12).padding(.top, 6).padding(.bottom, 8)
         .onChange(of: draft) { old, new in
@@ -550,6 +576,13 @@ private struct StreamComposer: View {
             // wait in the same task does not retarget an existing draft.
             draftTarget = target
             if id != nil { focused = true }
+        }
+    }
+
+    private func receiptColor(_ receipt: PhoneActionResult) -> Color {
+        switch receipt {
+        case .received, .sending: CompanionPalette.ink2
+        case .unconfirmed, .notPaired, .expired, .failed: CompanionPalette.status(.error)
         }
     }
 
@@ -627,6 +660,7 @@ private struct SessionDetailSheet: View {
                         Text(summary).font(CompanionType.font(14, .semibold)).foregroundStyle(CompanionPalette.ink)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    RecentOutputCard(output: dashboard.recentOutputs[session.id])
                     metaCard
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Notifications").font(CompanionType.font(10, .heavy)).textCase(.uppercase).kerning(0.6)
@@ -666,6 +700,7 @@ private struct SessionDetailSheet: View {
         }
         .presentationDetents([.medium, .large])
         .tint(CompanionPalette.accent)
+        .task { await dashboard.loadRecentOutput(session.id) }
     }
 
     private var metaCard: some View {
@@ -711,7 +746,90 @@ private struct SessionDetailSheet: View {
     }
 }
 
-/// A thin per-session context-window usage bar: used / window, coloured by fill.
+/// Expandable bounded recent dialogue. The expanded text is the same slice
+/// the collapsed preview came from — there is no fuller history behind it.
+private struct RecentOutputCard: View {
+    let output: RecentOutput?
+    @State private var expanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                expanded.toggle()
+            } label: {
+                HStack {
+                    Text("Recent output").font(CompanionType.font(10, .heavy)).textCase(.uppercase).kerning(0.6)
+                        .foregroundStyle(CompanionPalette.ink3)
+                    Spacer()
+                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(CompanionPalette.ink3)
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(expanded ? "Hide recent output" : "Show recent output")
+
+            if let output {
+                meta(output)
+                if expanded {
+                    entries(output)
+                } else if let last = output.entries.last {
+                    preview(last)
+                }
+                if !output.statusLine.isEmpty {
+                    Text(output.statusLine)
+                        .font(CompanionType.font(11, .semibold))
+                        .foregroundStyle(CompanionPalette.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else {
+                Text("Loading recent output…")
+                    .font(CompanionType.font(11, .semibold))
+                    .foregroundStyle(CompanionPalette.ink3)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .companionCard()
+    }
+
+    private func meta(_ output: RecentOutput) -> some View {
+        HStack(spacing: 6) {
+            Text(output.sourceLabel)
+            if let updatedAt = output.updatedAt {
+                Text("·")
+                Text(updatedAt, style: .relative).monospacedDigit()
+            }
+        }
+        .font(CompanionType.font(10, .semibold))
+        .foregroundStyle(CompanionPalette.ink3)
+    }
+
+    @ViewBuilder
+    private func entries(_ output: RecentOutput) -> some View {
+        ForEach(Array(output.entries.enumerated()), id: \.offset) { _, entry in
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.role == "assistant" ? "Assistant" : "You")
+                    .font(CompanionType.font(10, .heavy))
+                    .foregroundStyle(entry.role == "assistant" ? CompanionPalette.accent : CompanionPalette.ink3)
+                Text(entry.text)
+                    .font(CompanionType.font(13, .semibold))
+                    .foregroundStyle(CompanionPalette.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
+        }
+    }
+
+    private func preview(_ entry: RecentOutputEntry) -> some View {
+        Text(entry.text)
+            .font(CompanionType.font(13, .semibold))
+            .foregroundStyle(CompanionPalette.ink)
+            .lineLimit(3)
+    }
+}
+
+
 private struct ContextBar: View {
     let used: Int
     let window: Int

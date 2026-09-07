@@ -7,7 +7,8 @@ import Foundation
 /// time, the user's override) and the daemon applies the verdict to every
 /// blocking path — a hook gate, a question relay, an app-server request.
 /// Present means "let the agent's own prompt take the answer, show the phone a
-/// read-only card"; away means "hold for the phone".
+/// read-only card, and cap ordinary cues to the list"; away means "hold for the
+/// phone" and restores a still-open wait's interrupting reminder.
 public struct PresencePolicy: Sendable, Equatable {
     public struct Input: Sendable, Equatable {
         /// The session's own surface (its terminal app, or Codex Desktop for a
@@ -40,4 +41,5 @@ public struct PresencePolicy: Sendable, Equatable {
         if input.idleSeconds >= idleThreshold { return .away }
         return input.sessionSurfaceFocused ? .present : .away
     }
+
 }

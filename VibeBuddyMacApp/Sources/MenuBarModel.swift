@@ -368,21 +368,23 @@ final class MenuBarModel: ObservableObject {
                 self.missedThisWeek = await self.store.missedCounts()
                 self.buddySessionIDs = BuddyScope.pruned(self.buddySessionIDs, toLive: snapshot.sessions)
                 self.tickGlanceCards()
-                // Precise suppression: a finishing session stays silent when *its
-                // own* terminal is frontmost, not just when VibeBuddy is.
-                let frontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-                let focused = ForegroundTerminal.focusedSessionIDs(
-                    among: snapshot.sessions, frontmostBundleID: frontmost)
+                // PresencePolicy, not just "terminal frontmost": idle, lock, or
+                // "always ask the phone" empty the set so a stale verdict cannot
+                // keep suppressing. The 2s poll re-evaluates without a new event.
+                let present = Set(snapshot.sessions.compactMap { session in
+                    PresencePolicy.decide(self.presenceInput(for: session.id)) == .present
+                        ? session.id : nil
+                })
                 let alerts = await self.notificationCoordinator.observe(
                     snapshot.sessions,
                     appActive: NSApp.isActive,                 // user looking at VibeBuddy?
                     quietMode: Self.effectiveQuiet(),          // Focus mode (manual or nightly) → every session muted
-                    focusedSessionIDs: focused,                // …or looking at the session's own terminal
+                    focusedSessionIDs: present,                // present sessions cap to the list
                     categories: NotificationCategoryPrefs.loadMac()) // this Mac's own switches
                 await self.refreshNotificationDeliveryHealth()
                 // Off the loop: a push may hold for the phone's receipt, and the
                 // glance must not wait with it.
-                Task { await self.pushToPhones(alerts, focused: focused) }
+                Task { await self.pushToPhones(alerts, focused: present) }
                 await self.pushActivityUpdates(snapshot.sessions)
                 await self.checkBudget(snapshot.sessions)
                 try? await Task.sleep(for: .seconds(2))
@@ -740,18 +742,34 @@ final class MenuBarModel: ObservableObject {
     /// Back-compat for voice + existing callers.
     func decide(_ approvalId: String, approve: Bool) { decide(approvalId, approve ? .allow : .deny) }
 
-    /// Answer a session's question from the Mac card, the same way `/answer`
-    /// does for the phone: to the waiting agent through its own contract,
-    /// else typed into a tmux pane. Reports whether it had anywhere to go.
+    /// Answer or advance a session from the Mac card, the same contract as
+    /// `/answer`: waiting questions go to the agent; Codex steer / continue
+    /// are explicit and never rewrite each other.
     func answer(_ sessionID: String, answers: QuestionAnswers, text: String? = nil) {
-        let dispatch = AnswerDispatch(store: store, questions: questionRegistry,
-                                      inject: { ref, answer in TerminalInjector.inject(answer, into: ref) })
-        Task { [weak self, store] in
-            let delivered = await dispatch.deliver(sessionID: sessionID, text: text,
-                                                   answers: answers.isEmpty ? nil : answers)
-            if delivered { await store.recordInteraction(sessionID: sessionID) }
+        let monitor = codexAppServerMonitor
+        let session = sessions.first { $0.id == sessionID }
+        let support = session.map(SessionActionSupport.resolve(for:))
+        let dispatch = AnswerDispatch(
+            store: store, questions: questionRegistry,
+            inject: { ref, answer in TerminalInjector.inject(answer, into: ref) },
+            steer: { id, text in await monitor.steer(threadID: id, text: text) },
+            startTurn: { id, text in await monitor.startTurn(threadID: id, text: text) })
+        Task { [weak self] in
+            let result = await dispatch.deliver(SessionActionRequest(
+                sessionID: sessionID,
+                intent: support?.intent,
+                questionID: session?.pendingQuestion?.id,
+                text: text,
+                answers: answers.isEmpty ? nil : answers))
+            if case .accepted = result { await self?.store.recordInteraction(sessionID: sessionID) }
             await MainActor.run {
-                self?.answerFeedback[sessionID] = delivered ? nil : "Nothing was waiting for an answer, and there is no tmux pane to type into."
+                if case .unknown = result {
+                    self?.answerFeedback[sessionID] = "Result unknown — check the task before sending again"
+                } else if case .failed(let why) = result {
+                    self?.answerFeedback[sessionID] = why
+                } else {
+                    self?.answerFeedback[sessionID] = nil
+                }
             }
         }
     }
@@ -862,7 +880,11 @@ final class MenuBarModel: ObservableObject {
     /// The session's recent output, for the detail pane's "Recent output" sheet.
     /// Reads off the store actor; empty when no transcript is known.
     func transcript(for sessionID: String) async -> [TranscriptEntry] {
-        await store.recentTranscript(sessionID: sessionID)
+        await recentOutput(for: sessionID).entries.map { TranscriptEntry(role: $0.role, text: $0.text) }
+    }
+
+    func recentOutput(for sessionID: String) async -> RecentOutput {
+        await store.recentOutput(sessionID: sessionID)
     }
 
     /// Execute a voice action against the matching session; returns a spoken confirmation.

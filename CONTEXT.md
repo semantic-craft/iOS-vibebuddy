@@ -81,9 +81,18 @@ code, and tests — don't drift to synonyms.
   the agent's own prompt takes the answer and the phone gets a **read-only
   card** (`answerable: false`); away → the daemon holds the prompt for the
   phone. Applies to the hook gate, the question relay and app-server requests.
-- **Steer** — free text for a Codex thread sent through the app-server daemon:
-  `turn/steer` while a turn runs, `turn/start` when idle (a cold thread is
-  resumed first). Codex threads never take typed input through a terminal.
+- **Steer** — free text for a running Codex turn (`turn/steer`, with
+  `expectedTurnId` when known). Failure is reported; it must not fall back to
+  `turn/start`. A finished session uses **continue** (`turn/start`) instead.
+  Codex threads never take typed input through a terminal.
+- **Session action / SessionActionIntent** — what free text on an existing
+  session means: **answer** (bind to the current question), **steer**
+  (supplement the running turn), **continue** (open the next turn). Distinct
+  from Approval and from New task. The daemon re-checks the live question /
+  turn before executing; an expired Answer does not become a steer. The
+  client shows not-sent / sending / accepted / failed / unknown; accepted is
+  not working or finished. Duplicate taps reuse a `requestId`; a lost receipt
+  stays unknown and is not resent. No connection (Q16) is not-sent.
 - **Attach** — the jump for a Claude *background session* (`claude --bg`,
   agent view, Desktop Dispatch): it has no window, so `ClaudeBackgroundSessions`
   reads the supervisor's `~/.claude/jobs/<id>/state.json` (read-only) and
@@ -137,6 +146,12 @@ code, and tests — don't drift to synonyms.
 
 ## Observability (2026-09)
 
+- **RecentOutput** — a bounded, authenticated, read-only dialogue slice for one
+  Session (Q31). Carries source (`transcript` / `rollout` / `appserver`),
+  `updatedAt`, a truncation flag, and an unavailability reason when there is no
+  dialogue to show. Thinking, full tool results, images, and terminal dumps are
+  dropped; fetching it never acknowledges a completion or moves Session state.
+  The phone can expand the same slice; it is not a full history.
 - **ObservationSource / ObservationHealth** — which signal currently backs a
   session (`appserver`, `hook`, `rollout`, `transcript`, `recovery`) plus its last-seen time
   and a health verdict (healthy / degraded / unsupported / eventsMissing). Never
@@ -264,3 +279,5 @@ code, and tests — don't drift to synonyms.
 - Phones advertise `supportsCompletionNotices` when registering. Existing
   installed clients retain their ordinary completion copy and identity until
   they implement the pending/decision protocol.
+
+Mac presence suppresses ordinary cues only while the verdict is current; leaving restores one still-open wait reminder without making the card remotely answerable.

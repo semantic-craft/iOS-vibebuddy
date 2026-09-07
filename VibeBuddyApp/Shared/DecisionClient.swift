@@ -10,15 +10,11 @@ protocol DecisionClient: Sendable {
     /// phone result so uncertain delivery cannot be reported as success.
     @discardableResult
     func decide(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> Bool
-    func answer(_ pairing: PairingPayload, sessionId: String, answer: String) async
     /// Same POST as `decide`, but distinguishes 404/409 (wait already gone).
     func decideResult(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> WaitActionResult
     /// Same POST as `answer`, but distinguishes 404/409 (wait already gone).
     @discardableResult
     func answerResult(_ pairing: PairingPayload, sessionId: String, answer: String) async -> WaitActionResult
-    /// Structured answers keyed by question id (option labels, or a typed
-    /// reply), for the agents that take them through their own contract.
-    func answer(_ pairing: PairingPayload, sessionId: String, answers: QuestionAnswers) async
     /// Returns what the Mac reported, or `nil` if it couldn't be reached.
     func jump(_ pairing: PairingPayload, sessionId: String) async -> JumpOutcome?
     func acknowledgeWait(_ pairing: PairingPayload, request: WaitReadRequest) async -> Bool
@@ -28,6 +24,8 @@ protocol DecisionClient: Sendable {
     /// Set how much a session may interrupt you, or `nil` to return it to the
     /// daemon's automatic level. The Mac owns the value.
     func setAttention(_ pairing: PairingPayload, sessionId: String, level: SessionAttention?) async
+    /// Bounded recent dialogue. Nil when the Mac could not be reached.
+    func recentOutput(_ pairing: PairingPayload, sessionId: String) async -> RecentOutput?
 }
 
 extension DecisionClient {
@@ -36,22 +34,12 @@ extension DecisionClient {
     func phoneAnswer(_ pairing: PairingPayload, session: AgentSession, text: String?, answers: QuestionAnswers?) async -> PhoneActionResult { .failed }
     func acknowledgeWait(_ pairing: PairingPayload, request: WaitReadRequest) async -> Bool { false }
     func dispatch(_ pairing: PairingPayload, request: DispatchRequest) async -> DispatchOutcome? { nil }
+    func recentOutput(_ pairing: PairingPayload, sessionId: String) async -> RecentOutput? { nil }
     func decideResult(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> WaitActionResult {
         await decide(pairing, approvalId: approvalId, decision: decision) ? .accepted : .failed
     }
     func answerResult(_ pairing: PairingPayload, sessionId: String, answer text: String) async -> WaitActionResult {
         return .failed
-    }
-}
-
-extension DecisionClient {
-    /// Doubles that only speak plain text get the answers flattened.
-    func answer(_ pairing: PairingPayload, sessionId: String, answers: QuestionAnswers) async {
-        let flat = answers.keys.sorted().compactMap { key -> String? in
-            let values = answers[key] ?? []
-            return values.isEmpty ? nil : values.joined(separator: ", ")
-        }.joined(separator: "\n")
-        await answer(pairing, sessionId: sessionId, answer: flat)
     }
 }
 
@@ -73,6 +61,8 @@ struct HTTPDecisionClient: DecisionClient {
     func phoneAnswer(_ pairing: PairingPayload, session: AgentSession, text: String?, answers: QuestionAnswers?) async -> PhoneActionResult {
         var body: [String: Any] = ["sessionId": session.id,
                                    "expectedQuestionId": session.pendingQuestion?.id ?? "",
+                                   "intent": SessionActionSupport.resolve(for: session).intent.rawValue,
+                                   "requestId": UUID().uuidString,
                                    "expectedStatusSince": session.statusSince.timeIntervalSince1970]
         if let text { body["answer"] = text }
         if let answers { body["answers"] = answers }
@@ -153,10 +143,6 @@ struct HTTPDecisionClient: DecisionClient {
         return WaitActionResult(statusCode: (response as? HTTPURLResponse)?.statusCode)
     }
 
-    func answer(_ pairing: PairingPayload, sessionId: String, answer: String) async {
-        _ = await answerResult(pairing, sessionId: sessionId, answer: answer)
-    }
-
     func answerResult(_ pairing: PairingPayload, sessionId: String, answer: String) async -> WaitActionResult {
         guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/answer") else { return .failed }
         var req = URLRequest(url: url)
@@ -167,16 +153,6 @@ struct HTTPDecisionClient: DecisionClient {
         guard let (_, response) = try? await URLSession.shared.data(for: req) else { return .failed }
         let status = (response as? HTTPURLResponse)?.statusCode
         return status == 202 ? .alreadyResolved : WaitActionResult(statusCode: status)
-    }
-
-    func answer(_ pairing: PairingPayload, sessionId: String, answers: QuestionAnswers) async {
-        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/answer") else { return }
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: ["sessionId": sessionId, "answers": answers])
-        _ = try? await URLSession.shared.data(for: req)
     }
 
     func dispatch(_ pairing: PairingPayload, request: DispatchRequest) async -> DispatchOutcome? {
@@ -198,6 +174,18 @@ struct HTTPDecisionClient: DecisionClient {
         case 503: return .unavailable(fields["error"] ?? "Unavailable")
         default: return nil
         }
+    }
+
+    func recentOutput(_ pairing: PairingPayload, sessionId: String) async -> RecentOutput? {
+        var comps = URLComponents(string: "http://\(pairing.host):\(pairing.port)/recent-output")
+        comps?.queryItems = [URLQueryItem(name: "sessionId", value: sessionId)]
+        guard let url = comps?.url else { return nil }
+        var req = URLRequest(url: url)
+        req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              let http = resp as? HTTPURLResponse, http.statusCode == 200
+        else { return nil }
+        return try? JSONDecoder().decode(RecentOutput.self, from: data)
     }
 
     func jump(_ pairing: PairingPayload, sessionId: String) async -> JumpOutcome? {

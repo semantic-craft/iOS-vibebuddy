@@ -84,6 +84,9 @@ final class DashboardStore: ObservableObject {
         if result == .unconfirmed { _ = await decisionClient.actionSnapshot(pairing) }
         return result
     }
+    /// Last fetched recent-output slice per session. Opening the pane reads;
+    /// it never acknowledges a completion.
+    @Published private(set) var recentOutputs: [String: RecentOutput] = [:]
 
     private let streamer: SnapshotStreaming
     private let notifier: AttentionNotifier
@@ -247,6 +250,7 @@ final class DashboardStore: ObservableObject {
         ConnectionStore.observePairing(pairing)
         pairingEpoch = ConnectionStore.pairingEpoch
         completionReads.select(epoch: pairingEpoch)
+        recentOutputs = [:]
         sourceID = nil
         groups = SessionGroups([])
         state = .connecting
@@ -287,6 +291,7 @@ final class DashboardStore: ObservableObject {
         stop()
         completionReads.clear()
         pairing = nil
+        recentOutputs = [:]
         sourceID = nil
         pairingEpoch = ConnectionStore.pairingEpoch
         state = .connecting
@@ -627,6 +632,35 @@ final class DashboardStore: ObservableObject {
         return nil
     }
 
+    /// Fetch the bounded recent-output slice. Does not acknowledge completions.
+    func loadRecentOutput(_ sessionId: String) async {
+        if isDemo {
+            recentOutputs[sessionId] = Self.demoRecentOutput(sessionId, from: allSessions)
+            return
+        }
+        guard let pairing else { return }
+        let epoch = pairingEpoch
+        let source = sourceID
+        let generation = connectionGeneration
+        if let output = await decisionClient.recentOutput(pairing, sessionId: sessionId),
+           self.pairing == pairing, epoch == pairingEpoch, source == sourceID,
+           generation == connectionGeneration, output.sessionId == sessionId {
+            recentOutputs[sessionId] = output
+        }
+    }
+
+    private static func demoRecentOutput(_ sessionId: String, from sessions: [AgentSession]) -> RecentOutput {
+        guard let session = sessions.first(where: { $0.id == sessionId }) else {
+            return .unavailable(sessionId: sessionId, reason: .unknownSession)
+        }
+        if let summary = session.summary, !summary.isEmpty {
+            return RecentOutput(
+                sessionId: sessionId, source: .transcript, updatedAt: session.updatedAt,
+                entries: [RecentOutputEntry(role: "assistant", text: summary)])
+        }
+        return RecentOutput(sessionId: sessionId, source: .transcript, updatedAt: session.updatedAt)
+    }
+
     /// Set, or with `nil` return to automatic, how much a session may interrupt
     /// you. The list flips at once; the Mac stays authoritative and the next
     /// snapshot either confirms it or puts it back. Demo Mode mirrors it locally.
@@ -718,6 +752,7 @@ final class DashboardStore: ObservableObject {
         buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: snapshot.sessions)
         state = .connected
         if sourceID != snapshot.sourceID { completionReads.pause() }
+        if sourceID != snapshot.sourceID { recentOutputs = [:] }
         sourceID = snapshot.sourceID
         completionReads.reconcile(snapshot, epoch: pairingEpoch)
         if let pairing, let sourceID {

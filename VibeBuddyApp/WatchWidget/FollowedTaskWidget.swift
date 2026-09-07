@@ -5,6 +5,15 @@ import VibeBuddyKit
 struct FollowedTaskEntry: TimelineEntry {
     let date: Date
     let snapshot: WatchComplicationSnapshot?
+
+    var relevance: TimelineEntryRelevance? {
+        guard let snapshot, snapshot.relay == .live,
+              date.timeIntervalSince(snapshot.observedAt) >= 0,
+              date.timeIntervalSince(snapshot.observedAt) < WatchDashboardState.staleAfter,
+              snapshot.selectedTask?.presentation == .requiresInput else { return nil }
+        return TimelineEntryRelevance(score: 100,
+            duration: snapshot.observedAt.addingTimeInterval(WatchDashboardState.staleAfter).timeIntervalSince(date))
+    }
 }
 
 struct FollowedTaskProvider: TimelineProvider {

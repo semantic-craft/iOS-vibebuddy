@@ -11,6 +11,15 @@ private actor DecisionRecorder: DecisionClient {
     }
     private(set) var completionRequests: [CompletionReadRequest] = []
     private(set) var attentions: [(sessionId: String, level: SessionAttention?)] = []
+    private(set) var recentOutputIDs: [String] = []
+    private var nextOutput: RecentOutput?
+    private var heldOutput: CheckedContinuation<RecentOutput?, Never>?
+    private var hold = false
+    func holdNextOutput() { hold = true }
+    func outputIsHeld() -> Bool { heldOutput != nil }
+    func releaseOutput() { heldOutput?.resume(returning: nextOutput); heldOutput = nil }
+
+    func setNext(_ output: RecentOutput) { nextOutput = output }
 
     func acknowledge(_ pairing: PairingPayload, request: CompletionReadRequest) async -> CompletionReadOutcome {
         acknowledgedSessionIDs.append(request.sessionID)
@@ -22,10 +31,18 @@ private actor DecisionRecorder: DecisionClient {
         attentions.append((sessionId, level))
     }
 
+    func recentOutput(_ pairing: PairingPayload, sessionId: String) async -> RecentOutput? {
+        recentOutputIDs.append(sessionId)
+        if hold { return await withCheckedContinuation { heldOutput = $0 } }
+        return nextOutput ?? RecentOutput(sessionId: sessionId, source: .transcript)
+    }
+
     func decide(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> Bool { true }
     func answer(_ pairing: PairingPayload, sessionId: String, answer: String) async {}
     func jump(_ pairing: PairingPayload, sessionId: String) async -> JumpOutcome? { nil }
 }
+
+
 
 @MainActor
 final class DashboardStoreTests: XCTestCase {
@@ -144,6 +161,9 @@ final class DashboardStoreTests: XCTestCase {
     /// The Mac's device registry can be emptied by a Mac restart while this app
     /// is only backgrounded. Reporting once per launch left the Mac unable to
     /// push until the phone next cold-launched; every reconnect must repair it.
+    /// The Mac's device registry can be emptied by a Mac restart while this app
+    /// is only backgrounded. Reporting once per launch left the Mac unable to
+    /// push until the phone next cold-launched; every reconnect must repair it.
     func testEveryReconnectReReportsTheDeviceToTheMac() async throws {
         var reports: [PairingPayload] = []
         let store = DashboardStore(
@@ -161,6 +181,47 @@ final class DashboardStoreTests: XCTestCase {
 
         XCTAssertGreaterThanOrEqual(reports.count, 2)
         XCTAssertEqual(reports.first?.host, "127.0.0.1")
+    }
+
+    func testDelayedOutputCannotCrossPairing() async throws {
+        let decisions = DecisionRecorder()
+        await decisions.setNext(RecentOutput(sessionId: "s", entries: [.init(role: "assistant", text: "old Mac")]))
+        await decisions.holdNextOutput()
+        let store = DashboardStore(streamer: EmptyStreamer(), notifier: SilentNotifier(), decisionClient: decisions, watchRelay: nil)
+        store.start(PairingPayload(host: "127.0.0.1", port: 9, token: "old"))
+        let read = Task { await store.loadRecentOutput("s") }
+        while !(await decisions.outputIsHeld()) { await Task.yield() }
+        store.start(PairingPayload(host: "127.0.0.2", port: 9, token: "new"))
+        await decisions.releaseOutput()
+        await read.value
+        XCTAssertNil(store.recentOutputs["s"])
+        await store.stop().value
+    }
+
+    func testLoadingRecentOutputDoesNotAcknowledgeCompletion() async throws {
+        let decisions = DecisionRecorder()
+        await decisions.setNext(RecentOutput(
+            sessionId: "s", source: .transcript,
+            entries: [RecentOutputEntry(role: "assistant", text: "done")]))
+        let t = Date(timeIntervalSince1970: 0)
+        let done = AgentSession(id: "s", agent: .claudeCode, project: "p",
+                                status: .done, hasUnreadCompletion: true,
+                                statusSince: t, updatedAt: t)
+        let store = DashboardStore(
+            streamer: ScriptedStreamer(snapshots: [Snapshot(sessions: [done], serverTime: t)]),
+            notifier: SilentNotifier(), decisionClient: decisions, watchRelay: nil)
+        store.start(PairingPayload(host: "127.0.0.1", port: 9, token: "test"))
+        for _ in 0..<50 {
+            if !store.allSessions.isEmpty { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        await store.loadRecentOutput("s")
+        XCTAssertEqual(store.recentOutputs["s"]?.entries.map(\.text), ["done"])
+        XCTAssertEqual(store.allSessions.first?.hasUnreadCompletion, true)
+        let acknowledged = await decisions.acknowledgedSessionIDs
+        XCTAssertEqual(acknowledged, [])
+        store.stop()
     }
 }
 

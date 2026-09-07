@@ -129,4 +129,18 @@ public struct HookEvent: Sendable, Equatable {
         self.completionText = completionText
         self.completionSucceeded = completionSucceeded
     }
+
+    /// Stamp the rollout file this event was tailed from, so a later read-only
+    /// recent-output fetch can find the same source without guessing.
+    public func withTranscriptPath(_ path: String) -> HookEvent {
+        HookEvent(
+            kind: kind, sessionID: sessionID, agent: agent, cwd: cwd,
+            toolName: toolName, message: message, waitKind: waitKind,
+            transcriptPath: path, model: model, observationSource: observationSource,
+            toolError: toolError, timestamp: timestamp, childID: childID,
+            childKind: childKind, childName: childName, childType: childType,
+            childAction: childAction, turnID: turnID, enrichment: enrichment,
+            desktopThreadID: desktopThreadID, probeRetirement: probeRetirement,
+            completionText: completionText, completionSucceeded: completionSucceeded)
+    }
 }
