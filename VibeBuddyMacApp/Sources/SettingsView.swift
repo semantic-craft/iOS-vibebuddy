@@ -321,6 +321,7 @@ private extension LifecycleJournalEntry {
 private struct GeneralSettings: View {
     @ObservedObject var model: MenuBarModel
     @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
+    @AppStorage("showMenuBarTaskStatus") private var showMenuBarTaskStatus = false
     @State private var showHideIconNote = false
 
     var body: some View {
@@ -331,6 +332,14 @@ private struct GeneralSettings: View {
             Toggle("Show icon in menu bar", isOn: Binding(
                 get: { showMenuBarIcon },
                 set: { on in showMenuBarIcon = on; if !on { showHideIconNote = true } }))
+            Text("A fixed shortcut to the Dashboard and Settings. Live status and alerts appear in the Glance.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Toggle("Show task status in menu bar", isOn: $showMenuBarTaskStatus)
+                .disabled(!showMenuBarIcon)
+            Text("Add a status dot and the primary task count beside the cat icon.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             if showHideIconNote {
                 Text("Hidden. You can still open the Dashboard with \(model.openDashboardHotkey.displayString) — it has a Settings button.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -614,6 +623,8 @@ private struct VoiceSettingsTab: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
+            QwenReadAloudSettings(reader: model.qwenReadAloud)
+
             // Only the selected provider's credentials show — key + editable
             // Model ID + Voice ID — and they swap as the picker changes. `.id`
             // recreates the section so its fields reload for the new provider.
@@ -636,8 +647,10 @@ private struct ProviderSection: View {
     @State private var apiKey = ""
     @State private var model = ""
     @State private var voice = ""
+    @State private var credentialRevision = 0
 
     var body: some View {
+        Group {
         Section {
             // API key
             field(caption: "API Key — paste your own (kept in the Keychain)",
@@ -679,12 +692,19 @@ private struct ProviderSection: View {
         } header: {
             Text(provider.display)
         }
+        CompletionSummarySettingsSection(provider: provider,
+            hasKey: !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            credentialRevision: credentialRevision)
+        }
         .onAppear {
             apiKey = provider.apiKey ?? ""
-            model = UserDefaults.standard.string(forKey: VoiceSettings.modelKey(provider)) ?? ""
+            model = VoiceSettings.model(provider)
             voice = UserDefaults.standard.string(forKey: VoiceSettings.voiceKey(provider)) ?? ""
         }
-        .onChange(of: apiKey) { _, v in KeychainStore.set(v, for: provider.keychainAccount) }
+        .onChange(of: apiKey) { _, v in
+            credentialRevision += 1
+            KeychainStore.set(v, for: provider.keychainAccount)
+        }
         .onChange(of: model) { _, v in UserDefaults.standard.set(v, forKey: VoiceSettings.modelKey(provider)) }
         .onChange(of: voice) { _, v in UserDefaults.standard.set(v, forKey: VoiceSettings.voiceKey(provider)) }
     }

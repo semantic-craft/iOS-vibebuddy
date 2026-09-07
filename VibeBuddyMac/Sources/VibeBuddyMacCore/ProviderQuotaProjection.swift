@@ -26,23 +26,23 @@ public extension ProviderQuota {
             self = .unavailable(provider, reason: AccountUsageUnavailableReason.collectionDisabled.displayText(provider: provider))
             return
         }
-        guard let snapshot = state.snapshot else {
+        guard let snapshot = state.snapshot?.excludingExpiredGrokWindows(at: Date()) else {
             self = .unavailable(provider,
                 reason: (state.unavailableReason ?? .notYetLoaded).displayText(provider: provider))
             return
         }
-        let weekly = snapshot.windows.first { $0.windowDurationMinutes == 10080 }
-        let short = snapshot.windows.filter {
+        let weekly = snapshot.quotaWindows.first { $0.windowDurationMinutes == 10080 }
+        let short = snapshot.quotaWindows.filter {
             guard let minutes = $0.windowDurationMinutes else { return false }
             return minutes > 0 && minutes < 1440
         }.max { ($0.windowDurationMinutes ?? 0) < ($1.windowDurationMinutes ?? 0) }
-        let others = snapshot.windows.filter {
-            guard let minutes = $0.windowDurationMinutes else { return true }
-            return minutes != 10080 && !(minutes > 0 && minutes < 1440)
+        let others = snapshot.quotaWindows.filter {
+            // Preserve independent pools even when they share a duration.
+            $0.kind != weekly?.kind && $0.kind != short?.kind
         }.map {
             QuotaWindow(remainingPercent: Self.remaining(fromUsedPercent: $0.usedPercent),
                         durationMinutes: $0.windowDurationMinutes, resetsAt: $0.resetsAt,
-                        observedAt: snapshot.fetchedAt, isCached: state.isStale)
+                        observedAt: snapshot.fetchedAt, isCached: state.isStale, label: $0.label)
         }
         let weeklyRemaining = Self.remaining(fromUsedPercent: weekly?.usedPercent)
         let shortRemaining = Self.remaining(fromUsedPercent: short?.usedPercent)
@@ -55,7 +55,9 @@ public extension ProviderQuota {
                   otherWindows: others.isEmpty ? nil : others,
                   observedAt: usable ? snapshot.fetchedAt : nil,
                   unavailableReason: state.unavailableReason?.displayText(provider: provider)
-                    ?? (usable ? nil : AccountUsageUnavailableReason.incompatibleFormat.displayText(provider: provider)),
+                    ?? (usable ? nil : (provider == .grok ? AccountUsageUnavailableReason.unknown : .incompatibleFormat).displayText(provider: provider)),
                   isCached: state.isStale)
+        weeklyLabel = weekly?.label
+        shortWindowLabel = short?.label
     }
 }

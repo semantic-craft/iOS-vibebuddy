@@ -3,13 +3,13 @@ import VibeBuddyKit
 
 /// Weekly allowance in full: remaining first, then the context that makes a
 /// percentage useful — when it resets, how the short window looks, how old the
-/// reading is. Codex and Claude are always shown apart, and each carries its own
-/// freshness, so a healthy source never covers for a broken one.
+/// reading is. Each provider is shown apart with its own freshness, so a healthy
+/// source never covers for a broken one.
 struct WatchQuotaView: View {
     let state: WatchDashboardState
     let connection: WatchConnection
     let now: Date
-    var selection: WatchQuotaSelection = .both
+    var selection: WatchQuotaSelection = .all
 
     var body: some View {
         NavigationStack {
@@ -19,7 +19,7 @@ struct WatchQuotaView: View {
                     if state.quotas.isEmpty {
                         Text("No quota sources")
                             .font(.headline)
-                        Text("Sign in to Codex or Claude Code on your Mac to see weekly allowance here.")
+                        Text("Sign in to Codex, Claude, Cursor, or Grok on your Mac to see allowance here.")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
@@ -46,9 +46,12 @@ private struct WatchQuotaDetail: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(quota.provider.displayName).font(.headline)
-            window(quota.window(.weekly), title: String(localized: "Weekly remaining"))
-            window(quota.window(.short), title: quota.shortWindowDurationMinutes == nil ? String(localized: "Short window") : WatchQuotaVoice.windowName(quota.window(.short)))
-            ForEach(Array((quota.otherWindows ?? []).enumerated()), id: \.offset) { _, reading in
+            let standard = QuotaWindowKind.allCases.map { quota.window($0) }.filter {
+                $0.remainingPercent != nil || $0.durationMinutes != nil || $0.resetsAt != nil || $0.label != nil
+            }
+            let readings = standard + (quota.otherWindows ?? []).map(cachedReading)
+            if readings.isEmpty { Text("Window unavailable").font(.caption2) }
+            ForEach(Array(readings.enumerated()), id: \.offset) { _, reading in
                 window(reading, title: WatchQuotaVoice.windowName(reading))
             }
             Text(WatchFormat.updated(quota.age(now: now)))
@@ -65,6 +68,12 @@ private struct WatchQuotaDetail: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
+    }
+
+    private func cachedReading(_ reading: QuotaWindow) -> QuotaWindow {
+        var result = reading
+        result.isCached = reading.isCached == true || quota.isCached == true
+        return result
     }
 
     private func window(_ reading: QuotaWindow, title: String) -> some View {

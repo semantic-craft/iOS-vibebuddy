@@ -150,6 +150,14 @@ private struct ProviderSection: View {
     @State private var apiKey = ""
     @State private var model = ""
     @State private var voice = ""
+    @State private var advanced = false
+    @State private var testing = false
+    @State private var testResult: String?
+    @State private var testTask: Task<Void, Never>?
+    @State private var testSession: QwenRealtimeSession?
+
+    private let models = ["qwen-audio-3.0-realtime-plus", "qwen-audio-3.0-realtime-flash"]
+    private let voices = ["longanqian", "longanlingxin", "longanlingxi", "longanxiaoxin", "longanlufeng"]
 
     var body: some View {
         Section {
@@ -159,6 +167,74 @@ private struct ProviderSection: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
             }
+            if provider == .qwen {
+                Picker("Realtime voice model", selection: Binding(get: { model.isEmpty ? provider.defaultModel : model }, set: { model = $0 })) {
+                    ForEach(models, id: \.self) { id in
+                        Text(id.hasSuffix("plus") ? "Qwen Audio 3.0 Plus — recommended" : "Qwen Audio 3.0 Flash").tag(id)
+                    }
+                    if !model.isEmpty && !models.contains(model) {
+                        Text("Custom: \(model)").tag(model)
+                    }
+                }
+                .accessibilityIdentifier("qwenModelPicker")
+                Text("Both models support live speech-to-speech. Actual response time depends on your network and region.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Picker("Voice", selection: Binding(get: { voice.isEmpty ? "longanqian" : voice }, set: { voice = $0 })) {
+                    ForEach(voices, id: \.self) { id in
+                        Text(id == "longanqian" ? "Recommended — longanqian" : id).tag(id)
+                    }
+                    if !voice.isEmpty && !voices.contains(voice) {
+                        Text("Custom: \(voice)").tag(voice)
+                    }
+                }
+                .accessibilityIdentifier("qwenVoicePicker")
+                DisclosureGroup("Advanced settings", isExpanded: $advanced) {
+                    customFields
+                field(caption: "Workspace ID — optional; uses the workspace endpoint when set",
+                      link: "Find your workspace ID", icon: "arrow.up.right.square", url: VoiceProvider.qwenWorkspaceIDURL, pasteInto: $workspaceID, id: "qwenWorkspaceID") {
+                    TextField("e.g. llm-xxxxxxxx", text: $workspaceID)
+                        .font(.body.monospaced())
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                }
+                Toggle("Use Singapore (international) region", isOn: $intl)
+                }
+                Button("Restore recommended model and voice") {
+                    model = ""
+                    voice = ""
+                    testResult = nil
+                }
+                Button(testing ? "Testing connection…" : "Test connection") { testConnection() }
+                    .disabled(apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || testing)
+                    .accessibilityIdentifier("qwenTestConnection")
+                Text("Tests the selected voice configuration without recording audio or sending task context.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if let testResult { Text(testResult).font(.caption).textSelection(.enabled) }
+            } else {
+                customFields
+            }
+        } header: {
+            Text(provider.display)
+        }
+        .disabled(testing)
+        .onDisappear {
+            testTask?.cancel()
+            let session = testSession
+            Task { await session?.close() }
+        }
+        .onAppear {
+            apiKey = provider.apiKey ?? ""
+            model = UserDefaults.standard.string(forKey: VoiceSettings.modelKey(provider)) ?? ""
+            voice = UserDefaults.standard.string(forKey: VoiceSettings.voiceKey(provider)) ?? ""
+        }
+        .onChange(of: apiKey) { _, v in testResult = nil; KeychainStore.set(v.trimmingCharacters(in: .whitespacesAndNewlines), for: provider.keychainAccount) }
+        .onChange(of: model) { _, v in testResult = nil; UserDefaults.standard.set(v, forKey: VoiceSettings.modelKey(provider)) }
+        .onChange(of: intl) { _, _ in testResult = nil }
+        .onChange(of: workspaceID) { _, _ in testResult = nil }
+        .onChange(of: voice) { _, v in testResult = nil; UserDefaults.standard.set(v, forKey: VoiceSettings.voiceKey(provider)) }
+    }
+
+    @ViewBuilder private var customFields: some View {
             field(caption: "Model ID — editable, type any model",
                   link: "Browse available models", icon: "arrow.up.right.square", url: provider.modelsURL, pasteInto: $model, id: "voiceModelID") {
                 TextField(provider.defaultModel, text: $model)
@@ -173,27 +249,36 @@ private struct ProviderSection: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
             }
-            if provider == .qwen {
-                field(caption: "Workspace ID — optional; uses the workspace endpoint when set",
-                      link: "Find your workspace ID", icon: "arrow.up.right.square", url: VoiceProvider.qwenWorkspaceIDURL, pasteInto: $workspaceID, id: "qwenWorkspaceID") {
-                    TextField("e.g. llm-xxxxxxxx", text: $workspaceID)
-                        .font(.body.monospaced())
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
+    }
+
+    private func testConnection() {
+        testing = true
+        testResult = nil
+        let session = QwenRealtimeSession(
+            apiKey: apiKey.trimmingCharacters(in: .whitespacesAndNewlines),
+            model: model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? provider.defaultModel : model.trimmingCharacters(in: .whitespacesAndNewlines),
+            workspaceID: workspaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : workspaceID.trimmingCharacters(in: .whitespacesAndNewlines),
+            useIntl: intl)
+        testSession = session
+        let selectedVoice = voice.trimmingCharacters(in: .whitespacesAndNewlines)
+        testTask = Task { @MainActor in
+            let start = Date()
+            let stream = await session.start(instructions: "Stay silent.", voice: selectedVoice.isEmpty ? "longanqian" : selectedVoice, tools: VoiceTools.all)
+            for await event in stream {
+                if Task.isCancelled { break }
+                switch event {
+                case .connected:
+                    testResult = String(format: "Configuration accepted (%.1f s). This measures connection setup, not spoken reply latency.", Date().timeIntervalSince(start))
+                case .failed(let message): testResult = message
+                default: continue
                 }
-                Toggle("Use Singapore (international) region", isOn: $intl)
+                break
             }
-        } header: {
-            Text(provider.display)
+            await session.close()
+            testing = false
+            testSession = nil
+            testTask = nil
         }
-        .onAppear {
-            apiKey = provider.apiKey ?? ""
-            model = UserDefaults.standard.string(forKey: VoiceSettings.modelKey(provider)) ?? ""
-            voice = UserDefaults.standard.string(forKey: VoiceSettings.voiceKey(provider)) ?? ""
-        }
-        .onChange(of: apiKey) { _, v in KeychainStore.set(v, for: provider.keychainAccount) }
-        .onChange(of: model) { _, v in UserDefaults.standard.set(v, forKey: VoiceSettings.modelKey(provider)) }
-        .onChange(of: voice) { _, v in UserDefaults.standard.set(v, forKey: VoiceSettings.voiceKey(provider)) }
     }
 
     /// One labelled, clearly-editable field with a click-through link to the

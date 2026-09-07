@@ -76,7 +76,7 @@ extension BuddyCatMotion.Voice {
         switch phase {
         case .idle:      self = .none
         case .listening: self = .listening
-        case .thinking:  self = .thinking
+        case .connecting, .thinking:  self = .thinking
         case .speaking:  self = .speaking
         }
     }

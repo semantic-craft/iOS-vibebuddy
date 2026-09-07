@@ -5,6 +5,7 @@ import Foundation
 public struct SoundAlert: Equatable, Sendable {
     public let session: AgentSession
     public let sound: NotificationSound
+    public let isReminder: Bool
     /// How this cue reaches you, already reduced through `DeliveryMatrix`,
     /// Quiet mode and the focused-terminal cap. Never `.drop`: a dropped cue is
     /// not emitted at all.
@@ -12,7 +13,8 @@ public struct SoundAlert: Equatable, Sendable {
     public var sessionID: String { session.id }
 
     public init(session: AgentSession, sound: NotificationSound,
-                delivery: DeliveryLevel = .bannerSound) {
+                delivery: DeliveryLevel = .bannerSound, isReminder: Bool = false) {
+        self.isReminder = isReminder
         self.session = session
         self.sound = sound
         self.delivery = delivery
@@ -97,6 +99,7 @@ public struct SoundPolicyInput: Sendable {
 /// all three behave identically.
 public final class SoundPolicy {
     private let config: SoundPolicyConfig
+    private var pendingCompletions: [String: String] = [:]
     private var seenFirstSnapshot = false
     private var previous: [String: AgentSession] = [:]
     private var lastWaitingSoundAt: [String: Date] = [:]
@@ -116,15 +119,34 @@ public final class SoundPolicy {
         // Never ring the backlog already waiting when we first connect.
         guard seenFirstSnapshot else { return [] }
 
+        let live = Set(input.sessions.map(\.id))
+        pendingCompletions = pendingCompletions.filter { live.contains($0.key) }
         var alerts: [SoundAlert] = []
         for session in input.sessions {
-            guard let sound = boundarySound(prev: previous[session.id], now: session, input: input)
-            else { continue }
+            var sound = boundarySound(prev: previous[session.id], now: session, input: input)
+            if let identity = pendingCompletions[session.id] {
+                if session.status == .done, session.hasUnreadCompletion,
+                   session.effectiveAttention == .followed, session.completionNotice?.id == identity {
+                    sound = .agentDone
+                } else { pendingCompletions[session.id] = nil }
+            }
+            if sound == .agentDone, let notice = session.completionNotice {
+                if notice.state == .pending {
+                    pendingCompletions[session.id] = notice.id; continue
+                }
+                pendingCompletions[session.id] = nil
+                if notice.state == .cancelled || input.appActive { continue }
+            }
+            guard let sound else { continue }
             let attention: SessionAttention = input.quietMode ? .muted : session.effectiveAttention
             var level = DeliveryMatrix.level(for: sound, attention: attention)
             if input.focusedSessionIDs.contains(session.id) { level = min(level, .list) }
             guard level != .drop else { continue }
-            alerts.append(SoundAlert(session: session, sound: sound, delivery: level))
+            var rendered = session
+            if sound == .agentDone, let notice = session.completionNotice, notice.state == .summary {
+                rendered.summary = notice.text
+            }
+            alerts.append(SoundAlert(session: rendered, sound: sound, delivery: level))
         }
         return alerts
     }

@@ -42,6 +42,11 @@ code, and tests — don't drift to synonyms.
   shown under the housing with its actions (Approve / Deny / Jump), timed by
   `GlanceCardQueue`. While the glance is on screen the card *replaces* the
   macOS banner for session cues; hidden glance → banner as before.
+- **Menu-bar entry** — a fixed cat icon that opens the menu for Dashboard and
+  Settings. "Show task status in menu bar" optionally adds a state dot and the
+  primary state count; it is off by default. The Glance owns ambient status and
+  actionable alerts. Both surfaces are enabled by
+  default and can be hidden independently.
 - **Pairing** — linking a phone to a Mac over the LAN by scanning a QR that
   encodes `host:port` + a **bearer token**.
 
@@ -241,3 +246,21 @@ code, and tests — don't drift to synonyms.
 - **AccountUsage** — provider quota (Codex app-server RPC, Claude `/usage` CLI):
   window, remaining, reset, freshness, `stale` / unavailable reason. Collected by
   isolated, individually switchable adapters that can never move session state.
+
+## Completion summaries and Mac reading
+
+- **Completion notice** — the Mac's durable wording decision for one
+  source/session/completion: pending, plain, summary, or cancelled. Only the
+  final assistant result bound to that completion may be summarized. Pending
+  does not change session state or delay permission/question cues. The Mac
+  commits the decision by completion + 12 seconds; an updated phone waits for
+  that decision rather than independently choosing competing wording.
+- **Qwen read aloud (Mac)** — a separate opt-in which synthesizes the initial
+  AI completion summary with Qwen-Audio TTS and plays it on the Mac's current
+  output. Model and voice are prefilled and have a sample preview. It does not
+  open a microphone, replay completion reminders, or speak over a voice call.
+  Generation/notification acceptance, player completion and human hearing are
+  separate evidence. iPhone headphone announcements remain controlled by Siri.
+- Phones advertise `supportsCompletionNotices` when registering. Existing
+  installed clients retain their ordinary completion copy and identity until
+  they implement the pending/decision protocol.

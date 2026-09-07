@@ -8,6 +8,7 @@ public enum AccountUsageProvider: String, Codable, CaseIterable, Sendable, Ident
     case codex
     case claude
     case grok
+    case cursor
 
     public var id: String { rawValue }
 
@@ -16,6 +17,7 @@ public enum AccountUsageProvider: String, Codable, CaseIterable, Sendable, Ident
         case .codex: return "Codex"
         case .claude: return "Claude"
         case .grok: return "Grok"
+        case .cursor: return "Cursor"
         }
     }
 }
@@ -43,6 +45,8 @@ public struct ProviderQuota: Codable, Equatable, Sendable, Identifiable {
     public static let staleAfter: TimeInterval = 15 * 60
 
     public var provider: AccountUsageProvider
+    public var weeklyLabel: String?
+    public var shortWindowLabel: String?
     public var weeklyRemainingPercent: Int?
     public var weeklyResetsAt: Date?
     public var weeklyWindowDurationMinutes: Int?
@@ -129,13 +133,15 @@ public enum QuotaWindowStatus: String, Sendable {
 
 /// A single source reading. The timestamp never changes during relay or rendering.
 public struct QuotaWindow: Codable, Equatable, Sendable {
+    public var label: String?
     public var remainingPercent: Int?
     public var durationMinutes: Int?
     public var resetsAt: Date?
     public var observedAt: Date?
     public var isCached: Bool?
 
-    public init(remainingPercent: Int?, durationMinutes: Int?, resetsAt: Date?, observedAt: Date?, isCached: Bool? = nil) {
+    public init(remainingPercent: Int?, durationMinutes: Int?, resetsAt: Date?, observedAt: Date?, isCached: Bool? = nil, label: String? = nil) {
+        self.label = label
         self.remainingPercent = remainingPercent.flatMap { (0...100).contains($0) ? $0 : nil }
         self.durationMinutes = durationMinutes.flatMap { $0 > 0 ? $0 : nil }
         self.resetsAt = resetsAt
@@ -164,11 +170,74 @@ public extension ProviderQuota {
         case .weekly:
             return QuotaWindow(remainingPercent: weeklyRemainingPercent,
                                durationMinutes: weeklyWindowDurationMinutes,
-                               resetsAt: weeklyResetsAt, observedAt: observedAt, isCached: isCached)
+                               resetsAt: weeklyResetsAt, observedAt: observedAt, isCached: isCached, label: weeklyLabel)
         case .short:
             return QuotaWindow(remainingPercent: shortWindowRemainingPercent,
                                durationMinutes: shortWindowDurationMinutes,
-                               resetsAt: shortWindowResetsAt, observedAt: observedAt, isCached: isCached)
+                               resetsAt: shortWindowResetsAt, observedAt: observedAt, isCached: isCached, label: shortWindowLabel)
         }
+    }
+
+    /// Compact surfaces (Watch home strips, weekly/short widgets) prefer the
+    /// requested window. When weekly and short are both missing — Cursor/Grok
+    /// billing periods land in `otherWindows` — fall back to the first other
+    /// window that has a remaining percent so freshness and the strip agree.
+    ///
+    /// Choice for #113: fall back to `otherWindows` rather than promoting a
+    /// billing-cycle window as a first-class `QuotaWindowKind`. Weekly/short
+    /// stay exact; monthly periods remain labeled by duration via otherWindows.
+    func displayWindow(preferring kind: QuotaWindowKind = .weekly) -> QuotaWindow {
+        let preferred = window(kind)
+        if preferred.remainingPercent != nil { return preferred }
+        let alternate: QuotaWindowKind = kind == .weekly ? .short : .weekly
+        let secondary = window(alternate)
+        if secondary.remainingPercent != nil { return secondary }
+        if var other = (otherWindows ?? []).first(where: { $0.remainingPercent != nil }) {
+            other.isCached = other.isCached == true || isCached == true
+            return other
+        }
+        return preferred
+    }
+}
+
+
+// MARK: - Wire forward-compat (#111)
+
+/// Consumes one arbitrary JSON value so a failed element decode can still
+/// advance an unkeyed container.
+enum WireJSONSkip: Decodable {
+    case value
+
+    init(from decoder: Decoder) throws {
+        let single = try decoder.singleValueContainer()
+        if single.decodeNil() { self = .value; return }
+        if (try? single.decode(Bool.self)) != nil { self = .value; return }
+        if (try? single.decode(Int64.self)) != nil { self = .value; return }
+        if (try? single.decode(UInt64.self)) != nil { self = .value; return }
+        if (try? single.decode(Double.self)) != nil { self = .value; return }
+        if (try? single.decode(String.self)) != nil { self = .value; return }
+        if (try? single.decode([WireJSONSkip].self)) != nil { self = .value; return }
+        if (try? single.decode([String: WireJSONSkip].self)) != nil { self = .value; return }
+        self = .value
+    }
+}
+
+public extension ProviderQuota {
+    /// Decode `providerQuota` rows for the wire: an unknown `provider` string
+    /// drops that row instead of failing the enclosing Snapshot / ServerEvent.
+    ///
+    /// Release order (#111): ship this tolerant client decode before (or with)
+    /// any Mac that emits providers outside the peer vocabulary long-term.
+    static func decodeWireArray(from container: inout UnkeyedDecodingContainer) throws -> [ProviderQuota] {
+        var rows: [ProviderQuota] = []
+        while !container.isAtEnd {
+            do {
+                rows.append(try container.decode(ProviderQuota.self))
+            } catch {
+                // Failed decode does not advance; consume the element and continue.
+                _ = try container.decode(WireJSONSkip.self)
+            }
+        }
+        return rows
     }
 }

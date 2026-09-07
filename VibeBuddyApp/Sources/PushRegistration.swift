@@ -69,7 +69,7 @@ final class PushRegistration {
         request.httpMethod = "POST"
         request.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONEncoder().encode(DeviceRegistrationPayload(
+        var registration = DeviceRegistrationPayload(
             token: token,
             // A retained Keychain identity lets a rotated token replace this
             // phone's existing record on the Mac.
@@ -79,8 +79,9 @@ final class PushRegistration {
             systemVersion: "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)",
             playSound: SoundPrefs.playSound,
             quietMode: SoundPrefs.effectiveQuiet(),
-            categories: SoundPrefs.categories
-        ))
+            categories: SoundPrefs.categories)
+        registration.supportsCompletionNotices = true
+        request.httpBody = try? JSONEncoder().encode(registration)
         Task { _ = try? await URLSession.shared.data(for: request) }
     }
 }
@@ -128,8 +129,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         let userInfo = response.notification.request.content.userInfo
         if response.actionIdentifier == UNNotificationDefaultActionIdentifier {
             guard let id = userInfo[NotificationUserInfoKey.sessionId] as? String, !id.isEmpty else { return }
+            let completionID = NotificationIdentity.sound(of: request.identifier) == .agentDone
+                ? request.identifier : nil
             await MainActor.run {
-                _ = UIApplication.shared.open(VibeBuddyDeepLink.sessionURL(id: id))
+                _ = UIApplication.shared.open(VibeBuddyDeepLink.sessionURL(id: id,
+                    completionNotificationID: completionID))
             }
             return
         }

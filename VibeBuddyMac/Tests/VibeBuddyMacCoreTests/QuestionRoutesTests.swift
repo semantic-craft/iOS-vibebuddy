@@ -48,6 +48,39 @@ struct QuestionRoutesTests {
         (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] ?? [:]
     }
 
+    @Test("an expired identity is rejected instead of becoming terminal input")
+    func expiredPhoneAnswerDoesNotInject() async throws {
+        let store = SessionStore()
+        let recorder = InjectionRecorder()
+        try await server(store: store, recorder: recorder).buildApplication().test(.router) { client in
+            try await client.execute(uri: "/answer", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"sessionId":"gone","expectedQuestionId":"old","answer":"fixture only"}"#)) { res in
+                #expect(res.status == .conflict)
+            }
+            try await client.execute(uri: "/decision", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"approvalId":"gone","decision":"allow"}"#)) { res in
+                #expect(res.status == .conflict)
+            }
+            #expect(recorder.all.isEmpty)
+        }
+    }
+
+    @Test("an exact answer cannot resolve a newer question in the same session")
+    func exactQuestionIdentity() async {
+        let registry = QuestionRegistry()
+        let waiter = Task { await registry.wait(sessionID: "fixture", questionID: "new", timeout: .seconds(5)) }
+        for _ in 0..<1000 {
+            if await registry.isWaiting(sessionID: "fixture") { break }
+            await Task.yield()
+        }
+        #expect(await registry.resolveExact(sessionID: "fixture", questionID: "old", answers: ["q": ["no"]]) == false)
+        #expect(await registry.resolveExact(sessionID: "fixture", questionID: "new", answers: ["q": ["yes"]]))
+        #expect(await waiter.value == ["q": ["yes"]])
+        #expect(await registry.resolveExact(sessionID: "fixture", questionID: "new", answers: ["q": ["yes"]]) == false)
+    }
+
     @Test("the hook holds with a structured card; single, multi and typed answers come back keyed by question text")
     func answersFlowBack() async throws {
         let store = SessionStore()
@@ -66,7 +99,7 @@ struct QuestionRoutesTests {
             #expect(question.items[1].multiSelect)
             #expect(question.prompt == "How should I format the output?")
 
-            let answers = #"{"sessionId":"qs","answers":{"q1":["Summary"],"q2":["Introduction","Conclusion","and a glossary"]}}"#
+            let answers = #"{"sessionId":"qs","expectedQuestionId":"\#(question.id)","answers":{"q1":["Summary"],"q2":["Introduction","Conclusion","and a glossary"]}}"#
             try await client.execute(uri: "/answer", method: .post,
                 headers: [.authorization: "Bearer t0k"], body: ByteBuffer(string: answers)) { res in
                 #expect(res.status == .ok)

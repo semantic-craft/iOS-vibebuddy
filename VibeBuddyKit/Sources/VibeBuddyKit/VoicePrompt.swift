@@ -33,7 +33,7 @@ public enum VoicePrompt {
             case .working:       status = s.isStuck ? "stuck" : "working"
             case .done:          status = s.isStuck ? "failed" : "done"
             }
-            let summary = s.summary.map { " — \($0)" } ?? ""
+            let summary = s.displaySummary.map { " — \($0)" } ?? ""
             lines.append("- \(s.project) [\(s.agent.shortName)]: \(status)\(summary)")
         }
         lines.append("")

@@ -7,6 +7,65 @@ import Testing
 struct GrokUsageProviderTests {
     private let now = Date(timeIntervalSince1970: 1_788_314_400)
 
+    @Test("a valid period-only bill preserves the plan without inventing usage")
+    func periodOnlyBill() throws {
+        let body = Data(#"{"result":{"subscription_tier":"SuperGrok Heavy","config":{"currentPeriod":{"start":"2026-09-06T11:36:49Z","end":"2026-09-13T11:36:49Z"},"onDemandCap":{"val":0},"onDemandUsed":{"val":0}}}}"#.utf8)
+        let snapshot = try GrokUsageResponseDecoder.decode(billingResponse: body, fetchedAt: now)
+        #expect(snapshot.primary == nil)
+        #expect(snapshot.planType == "SuperGrok Heavy")
+        #expect(AccountUsageState.available(snapshot, nextRefreshAt: nil).unavailableReason == .unknown)
+    }
+
+    @Test("period-only billing recovers usage or preserves unknown without swallowing cancellation",
+          arguments: ["success", "offline", "cancelled", "task-cancelled"])
+    func recoverPeriodOnlyBill(outcome: String) async throws {
+        let directory = try Self.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let reply = #"{"jsonrpc":"2.0","id":2,"result":{"subscription_tier":"SuperGrok Heavy","config":{"currentPeriod":{"start":"2026-09-06T11:36:49Z","end":"2026-09-13T11:36:49Z"}}}}"#
+        let executable = try Self.writeFakeAgent(in: directory, transcript: directory.appendingPathComponent("requests"), reply: reply)
+        let auth = directory.appendingPathComponent("auth.json")
+        try Data(#"{"https://auth.x.ai::openid":{"key":"test-token","expires_at":"2099-01-01T00:00:00Z"}}"#.utf8).write(to: auth)
+        let transport = ScriptedProxyTransport { request in
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer test-token")
+            #expect(request.value(forHTTPHeaderField: "Cookie") == nil)
+            if outcome == "offline" { throw URLError(.notConnectedToInternet) }
+            if outcome == "cancelled" { throw URLError(.cancelled) }
+            if outcome == "task-cancelled" { throw CancellationError() }
+            // Declared GrokCreditsConfig fields: percent 42.5, active weekly period.
+            let hex = "0a190d00002a4242120802120608d1a0f5d4061a0608d1959ad506"
+            let bytes = stride(from: 0, to: hex.count, by: 2).map { offset -> UInt8 in
+                let start = hex.index(hex.startIndex, offsetBy: offset)
+                return UInt8(hex[start..<hex.index(start, offsetBy: 2)], radix: 16)!
+            }
+            return (Data(bytes), HTTPURLResponse(url: request.url!, statusCode: 200,
+                httpVersion: nil, headerFields: ["grpc-status": "0"])!)
+        }
+        let provider = GrokUsageProvider(executableURL: executable,
+            logURL: directory.appendingPathComponent("absent"), authFileURL: auth,
+            proxyTransport: transport, now: { Date(timeIntervalSince1970: 1_788_750_000) })
+        if outcome == "task-cancelled" {
+            await #expect(throws: CancellationError.self) { try await provider.fetch() }
+            return
+        }
+        if outcome == "cancelled" {
+            await #expect(throws: URLError(.cancelled)) { try await provider.fetch() }
+            return
+        }
+        let snapshot = try await provider.fetch()
+        #expect(snapshot.primary?.usedPercent == (outcome == "success" ? 43 : nil))
+        #expect(snapshot.planType == "SuperGrok Heavy")
+        #expect(Self.matches(snapshot.periodEnd, "2026-09-13T11:36:49Z"))
+    }
+
+    @Test("a log fallback keeps its sampled time and remains cached")
+    func logRemainsCached() throws {
+        let snapshot = try GrokUsageResponseDecoder.decode(unifiedLogLine: Self.logLine())
+        let state = AccountUsageState.available(snapshot, nextRefreshAt: nil)
+        #expect(state.isStale)
+        #expect(state.unavailableReason == .cachedData)
+        #expect(abs(snapshot.fetchedAt.timeIntervalSince1970 - 1_788_395_550.702) < 0.001)
+    }
+
     // MARK: - Decoding
 
     @Test("credits config maps the weekly window, reset time, and tier")
@@ -241,7 +300,7 @@ struct GrokUsageProviderTests {
                 "vibebuddy-test", pidFile.path,
             ],
             timeout: 0.2,
-            logURL: directory.appendingPathComponent("absent.jsonl")
+            logURL: directory.appendingPathComponent("absent.jsonl"), proxyEnabled: false
         )
 
         let started = ContinuousClock.now
@@ -313,7 +372,298 @@ struct GrokUsageProviderTests {
         #expect(snapshot.primary != nil)
     }
 
-    // MARK: - Fixtures
+    
+    @Test("CLI proxy credits JSON maps onto the same Grok snapshot shape")
+    func proxyCreditsDecode() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let body = Data("""
+        {
+          "config": {
+            "creditUsagePercent": 12.5,
+            "currentPeriod": {
+              "type": "USAGE_PERIOD_TYPE_WEEKLY",
+              "start": "2026-08-06T00:00:00Z",
+              "end": "2026-08-13T00:00:00Z"
+            },
+            "billingPeriodEnd": "2026-08-13T00:00:00Z",
+            "onDemandCap": { "val": 1000 },
+            "onDemandUsed": { "val": 250 }
+          },
+          "subscriptionTier": "SuperGrok Heavy"
+        }
+        """.utf8)
+        let snapshot = try GrokUsageResponseDecoder.decode(proxyCreditsResponse: body, fetchedAt: now)
+        #expect(snapshot.provider == .grok)
+        #expect(snapshot.planType == "SuperGrok Heavy")
+        #expect(snapshot.primary?.usedPercent == 13) // 12.5 rounded
+        #expect(snapshot.secondary?.usedPercent == 25)
+        #expect(snapshot.fetchedAt == now)
+        #expect(snapshot.primary?.usedPercent != 0 || snapshot.primary != nil)
+    }
+
+    @Test("extra usage never becomes the included Grok allowance")
+    func proxyOnDemandOnlyPrimary() throws {
+        let now = Date(timeIntervalSince1970: 1_700_000_100)
+        let body = Data("""
+        {
+          "config": {
+            "onDemandCap": { "val": 1000.0 },
+            "onDemandUsed": { "val": 250.0 },
+            "billingPeriodStart": "2026-08-06T00:00:00Z",
+            "billingPeriodEnd": "2026-08-13T00:00:00Z"
+          }
+        }
+        """.utf8)
+        let snapshot = try GrokUsageResponseDecoder.decode(proxyCreditsResponse: body, fetchedAt: now)
+        #expect(snapshot.primary == nil)
+        #expect(snapshot.secondary?.usedPercent == 25)
+        #expect(snapshot.fetchedAt == now)
+    }
+
+    @Test("period-only proxy answers stay unavailable rather than inventing 0%")
+    func proxyPeriodOnlyRejected() {
+        let body = Data("""
+        {
+          "config": {
+            "currentPeriod": { "end": "2026-08-13T00:00:00Z" },
+            "billingPeriodEnd": "2026-08-14T00:00:00Z"
+          },
+          "subscriptionTier": "SuperGrok Heavy"
+        }
+        """.utf8)
+        #expect(throws: AccountUsageError.incompatibleFormat) {
+            try GrokUsageResponseDecoder.decode(proxyCreditsResponse: body, fetchedAt: Date())
+        }
+    }
+
+    @Test("auth.json reader prefers the OIDC scope key and respects expiry")
+    func authTokenReader() throws {
+        let directory = try Self.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let auth = directory.appendingPathComponent("auth.json")
+        let future = "2099-01-01T00:00:00Z"
+        let past = "2000-01-01T00:00:00Z"
+        try Data("""
+        {
+          "https://auth.x.ai::openid": {
+            "key": "oidc-token",
+            "expires_at": "\(future)"
+          },
+          "https://accounts.x.ai/sign-in": {
+            "key": "legacy-token",
+            "expires_at": "\(future)"
+          }
+        }
+        """.utf8).write(to: auth)
+        #expect(GrokCLIAuthToken.loadAccessToken(from: auth) == "oidc-token")
+
+        try Data("""
+        {
+          "https://auth.x.ai::openid": {
+            "key": "expired",
+            "expires_at": "\(past)"
+          }
+        }
+        """.utf8).write(to: auth)
+        #expect(GrokCLIAuthToken.loadAccessToken(from: auth) == nil)
+    }
+
+    @Test("unreachable ACP falls through log miss into the billing proxy")
+    func proxyFallbackAfterPrimaryMiss() async throws {
+        let directory = try Self.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let auth = directory.appendingPathComponent("auth.json")
+        try Data("""
+        {
+          "https://auth.x.ai::openid": {
+            "key": "token-123",
+            "expires_at": "2099-01-01T00:00:00Z"
+          }
+        }
+        """.utf8).write(to: auth)
+        let endpoint = URL(string: "https://grok.test/v1/billing?format=credits")!
+        let transport = ScriptedProxyTransport(handler: { request in
+            #expect(request.url == endpoint)
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer token-123")
+            #expect(request.value(forHTTPHeaderField: "x-xai-token-auth") == "xai-grok-cli")
+            let body = Data("""
+            {"config":{"creditUsagePercent":44.0,"currentPeriod":{"start":"2026-08-06T00:00:00Z","end":"2026-08-13T00:00:00Z"},"onDemandCap":{"val":0},"onDemandUsed":{"val":0}},"subscriptionTier":"SuperGrok"}
+            """.utf8)
+            let response = HTTPURLResponse(
+                url: endpoint, statusCode: 200, httpVersion: nil, headerFields: nil
+            )!
+            return (body, response)
+        })
+        let snapshot = try await GrokUsageProvider(
+            executableURL: URL(fileURLWithPath: "/bin/false"),
+            arguments: [],
+            timeout: 1,
+            logURL: directory.appendingPathComponent("absent.jsonl"),
+            authFileURL: auth,
+            proxyEndpoint: endpoint,
+            proxyTransport: transport
+        ).fetch()
+        #expect(snapshot.provider == .grok)
+        #expect(snapshot.primary?.usedPercent == 44)
+        #expect(snapshot.planType == "SuperGrok")
+    }
+
+    @Test("proxy failure leaves the original primary error in place")
+    func proxyFailureDoesNotMaskPrimary() async {
+        let directory = try! Self.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let auth = directory.appendingPathComponent("auth.json")
+        try! Data("""
+        {"https://auth.x.ai::openid":{"key":"token-123","expires_at":"2099-01-01T00:00:00Z"}}
+        """.utf8).write(to: auth)
+        let endpoint = URL(string: "https://grok.test/v1/billing?format=credits")!
+        let transport = ScriptedProxyTransport(handler: { _ in
+            throw URLError(.notConnectedToInternet)
+        })
+        await #expect(throws: AccountUsageError.providerUnavailable) {
+            try await GrokUsageProvider(
+                executableURL: URL(fileURLWithPath: "/bin/false"),
+                arguments: [],
+                timeout: 1,
+                logURL: directory.appendingPathComponent("absent.jsonl"),
+                authFileURL: auth,
+                proxyEndpoint: endpoint,
+                proxyTransport: transport
+            ).fetch()
+        }
+    }
+
+
+    @Test("incompatibleFormat ACP still attempts billing proxy without reading the log")
+    func proxyFallbackAfterIncompatibleFormat() async throws {
+        let directory = try Self.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        // A fresh log reading that must NOT be used for incompatibleFormat.
+        let logURL = directory.appendingPathComponent("unified.jsonl")
+        try (Self.logLine(
+            timestamp: ISO8601DateFormatter().string(from: Date()),
+            percent: "72.0"
+        ) + Data("\n".utf8)).write(to: logURL)
+
+        let auth = directory.appendingPathComponent("auth.json")
+        try Data("""
+        {
+          "https://auth.x.ai::openid": {
+            "key": "token-456",
+            "expires_at": "2099-01-01T00:00:00Z"
+          }
+        }
+        """.utf8).write(to: auth)
+
+        // Incomplete period is still malformed. A complete period-only response
+        // now takes the same-account web recovery path instead.
+        let agent = try Self.writeFakeAgent(
+            in: directory,
+            transcript: directory.appendingPathComponent("stdin.txt"),
+            reply: #"{"jsonrpc":"2.0","id":2,"result":{"config":{"currentPeriod":{"end":"2026-09-06T11:36:49Z"},"onDemandCap":{"val":100}}}}"#
+        )
+
+        let endpoint = URL(string: "https://grok.test/v1/billing?format=credits")!
+        let proxyHits = ProxyHitCounter()
+        let transport = ScriptedProxyTransport(handler: { request in
+            proxyHits.increment()
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer token-456")
+            let body = Data("""
+            {"config":{"creditUsagePercent":55.0,"currentPeriod":{"start":"2026-08-06T00:00:00Z","end":"2026-08-13T00:00:00Z"},"onDemandCap":{"val":0},"onDemandUsed":{"val":0}},"subscriptionTier":"SuperGrok"}
+            """.utf8)
+            let response = HTTPURLResponse(
+                url: endpoint, statusCode: 200, httpVersion: nil, headerFields: nil
+            )!
+            return (body, response)
+        })
+
+        let snapshot = try await GrokUsageProvider(
+            executableURL: agent,
+            arguments: [],
+            timeout: 5,
+            logURL: logURL,
+            authFileURL: auth,
+            proxyEndpoint: endpoint,
+            proxyTransport: transport
+        ).fetch()
+
+        #expect(snapshot.provider == .grok)
+        #expect(snapshot.primary?.usedPercent == 55)
+        #expect(snapshot.planType == "SuperGrok")
+        #expect(proxyHits.count == 1)
+        // Log gate stays closed for this error; proxy gate opens.
+        #expect(!GrokUsageProvider.allowsLogFallback(after: AccountUsageError.incompatibleFormat))
+        #expect(GrokUsageProvider.allowsProxyFallback(after: AccountUsageError.incompatibleFormat))
+    }
+
+    @Test("notLoggedIn skips both log and proxy fallbacks")
+    func notLoggedInSkipsProxy() async throws {
+        let directory = try Self.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let logURL = directory.appendingPathComponent("unified.jsonl")
+        try (Self.logLine(
+            timestamp: ISO8601DateFormatter().string(from: Date()),
+            percent: "72.0"
+        ) + Data("\n".utf8)).write(to: logURL)
+        let auth = directory.appendingPathComponent("auth.json")
+        try Data("""
+        {"https://auth.x.ai::openid":{"key":"token-789","expires_at":"2099-01-01T00:00:00Z"}}
+        """.utf8).write(to: auth)
+        let agent = try Self.writeFakeAgent(
+            in: directory,
+            transcript: directory.appendingPathComponent("stdin.txt"),
+            reply: #"{"jsonrpc":"2.0","id":2,"error":{"code":-32000,"message":"Authentication required","data":"Run `grok login` to authenticate."}}"#
+        )
+        let endpoint = URL(string: "https://grok.test/v1/billing?format=credits")!
+        let proxyHits = ProxyHitCounter()
+        let transport = ScriptedProxyTransport(handler: { _ in
+            proxyHits.increment()
+            throw URLError(.badServerResponse)
+        })
+
+        await #expect(throws: AccountUsageError.notLoggedIn) {
+            try await GrokUsageProvider(
+                executableURL: agent,
+                arguments: [],
+                timeout: 5,
+                logURL: logURL,
+                authFileURL: auth,
+                proxyEndpoint: endpoint,
+                proxyTransport: transport
+            ).fetch()
+        }
+        #expect(proxyHits.count == 0)
+        #expect(!GrokUsageProvider.allowsProxyFallback(after: AccountUsageError.notLoggedIn))
+        #expect(!GrokUsageProvider.allowsProxyFallback(after: AccountUsageError.rateLimited))
+        #expect(!GrokUsageProvider.allowsProxyFallback(after: CancellationError()))
+        #expect(GrokUsageProvider.allowsProxyFallback(after: AccountUsageError.providerUnavailable))
+        #expect(GrokUsageProvider.allowsProxyFallback(after: AccountUsageError.timedOut))
+        #expect(GrokUsageProvider.allowsProxyFallback(after: AccountUsageError.offline))
+        #expect(GrokUsageProvider.allowsProxyFallback(after: AccountUsageError.unknown))
+    }
+
+    private final class ProxyHitCounter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = 0
+        var count: Int {
+            lock.lock(); defer { lock.unlock() }
+            return value
+        }
+        func increment() {
+            lock.lock(); defer { lock.unlock() }
+            value += 1
+        }
+    }
+
+    private struct ScriptedProxyTransport: GrokCreditsProxyTransport {
+        let handler: @Sendable (URLRequest) async throws -> (Data, URLResponse)
+        func proxyData(for request: URLRequest) async throws -> (Data, URLResponse) {
+            try await handler(request)
+        }
+    }
+
+// MARK: - Fixtures
 
     private static func billingResponse(
         creditUsagePercent: String = "36.0",

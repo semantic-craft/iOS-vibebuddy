@@ -23,6 +23,10 @@ public struct CodexAppServerReducer: Sendable, Equatable {
 
     public private(set) var threads: [String: ThreadFacts] = [:]
     private var tokenUpdateCount = 0
+    private struct FinalItem: Sendable, Equatable { let turnID: String; let text: String }
+    private var finalItems: [String: FinalItem] = [:]
+    private struct Ending: Sendable, Equatable { let turnID: String; let at: Date }
+    private var endings: [String: Ending] = [:]
 
     public init() {}
 
@@ -66,12 +70,17 @@ public struct CodexAppServerReducer: Sendable, Equatable {
         case "turn/started":
             guard let id = params["threadId"] as? String else { return [] }
             let turn = params["turn"] as? [String: Any]
+            finalItems[id] = nil
+            endings[id] = nil
             return [event(.userPromptSubmit, threadID: id, receivedAt: receivedAt,
                           turnID: turn?["id"] as? String)]
         case "turn/completed":
             guard let id = params["threadId"] as? String else { return [] }
             let turn = params["turn"] as? [String: Any] ?? [:]
             let status = turn["status"] as? String ?? "completed"
+            if turn["status"] as? String == "completed", let turnID = turn["id"] as? String {
+                if endings[id]?.turnID != turnID { endings[id] = Ending(turnID: turnID, at: receivedAt) }
+            } else { endings[id] = nil }
             let message: String?
             switch status {
             case "failed":
@@ -80,11 +89,28 @@ public struct CodexAppServerReducer: Sendable, Equatable {
             case "interrupted":
                 message = "Turn interrupted"
             default:
-                message = Self.lastAgentMessage(in: turn["items"] as? [[String: Any]] ?? [])
+                message = Self.fullLastAgentMessage(in: turn["items"] as? [[String: Any]] ?? [])
+                    ?? (finalItems[id]?.turnID == turn["id"] as? String ? finalItems[id]?.text : nil)
             }
-            return [event(.stop, threadID: id, receivedAt: receivedAt, message: message,
-                          turnID: turn["id"] as? String)]
+            return [event(.stop, threadID: id, receivedAt: receivedAt, message: message?.trimmingCharacters(in: .whitespacesAndNewlines),
+                          turnID: turn["id"] as? String,
+                          completionText: status == "completed" && turn["status"] != nil
+                            ? message : nil, completionSucceeded: turn["status"] as? String == "completed")]
         case "item/started", "item/completed":
+            if method == "item/completed", let id = params["threadId"] as? String,
+               let turnID = params["turnId"] as? String,
+               let item = params["item"] as? [String: Any],
+               let text = Self.fullLastAgentMessage(in: [item]) {
+                // Keep at most one character beyond the rejection limit. Such
+                // a value is only rejected, never emitted as a truncated result.
+                finalItems[id] = FinalItem(turnID: turnID, text: String(text.prefix(12_001)))
+                if let ending = endings[id], ending.turnID == turnID {
+                    return [event(.stop, threadID: id, receivedAt: ending.at,
+                                  turnID: turnID, completionText: String(text.prefix(12_001)),
+                                  completionSucceeded: true)]
+                }
+                return []
+            }
             guard let id = params["threadId"] as? String,
                   let item = params["item"] as? [String: Any],
                   let tool = Self.toolName(for: item) else { return [] }
@@ -113,19 +139,23 @@ public struct CodexAppServerReducer: Sendable, Equatable {
         case "thread/deleted", "thread/archived":
             // Gone from the daemon's list: the row goes with it.
             guard let id = params["threadId"] as? String, threads.removeValue(forKey: id) != nil else { return [] }
+            finalItems[id] = nil
+            endings[id] = nil
             return [event(.sessionEnd, threadID: id, receivedAt: receivedAt)]
         case "thread/closed":
             // Unloaded from memory (no subscribers, idle) — the session is not
             // over, only quiet. Later notifications re-seed it.
-            if let id = params["threadId"] as? String { threads[id]?.loaded = false }
+            if let id = params["threadId"] as? String { threads[id]?.loaded = false; finalItems[id] = nil; endings[id] = nil }
             return []
         case "error":
             guard let id = params["threadId"] as? String,
                   params["willRetry"] as? Bool != true else { return [] }
             let detail = (params["error"] as? [String: Any])?["message"] as? String
+            endings[id] = nil
+            finalItems[id] = nil
             return [event(.stop, threadID: id, receivedAt: receivedAt,
                           message: "Error" + (detail.map { ": \($0)" } ?? ""),
-                          turnID: params["turnId"] as? String)]
+                          turnID: params["turnId"] as? String, completionSucceeded: false)]
         default:
             return []
         }
@@ -160,7 +190,7 @@ public struct CodexAppServerReducer: Sendable, Equatable {
             return [event(.sessionStart, threadID: threadID, receivedAt: receivedAt, enrichment: enrichment)]
         case "systemError":
             return [event(.stop, threadID: threadID, receivedAt: receivedAt,
-                          message: "Codex failed with a system error", enrichment: enrichment)]
+                          message: "Codex failed with a system error", enrichment: enrichment, completionSucceeded: false)]
         default:
             return []
         }
@@ -169,7 +199,7 @@ public struct CodexAppServerReducer: Sendable, Equatable {
     private func event(_ kind: HookEvent.Kind, threadID: String, receivedAt: Date,
                        toolName: String? = nil, message: String? = nil,
                        toolError: Bool = false, turnID: String? = nil,
-                       enrichment: TranscriptInfo? = nil) -> HookEvent {
+                       enrichment: TranscriptInfo? = nil, completionText: String? = nil, completionSucceeded: Bool? = nil) -> HookEvent {
         let facts = threads[threadID]
         return HookEvent(
             kind: kind,
@@ -184,7 +214,8 @@ public struct CodexAppServerReducer: Sendable, Equatable {
             timestamp: receivedAt,
             turnID: turnID,
             enrichment: enrichment,
-            desktopThreadID: facts?.isDesktop == true ? threadID : nil)
+            desktopThreadID: facts?.isDesktop == true ? threadID : nil,
+            completionText: completionText, completionSucceeded: completionSucceeded)
     }
 
     static func toolName(for item: [String: Any]) -> String? {
@@ -204,10 +235,14 @@ public struct CodexAppServerReducer: Sendable, Equatable {
     }
 
     static func lastAgentMessage(in items: [[String: Any]]) -> String? {
-        items.last(where: { $0["type"] as? String == "agentMessage" })
+        fullLastAgentMessage(in: items)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func fullLastAgentMessage(in items: [[String: Any]]) -> String? {
+        items.last(where: { $0["type"] as? String == "agentMessage"
+            && ($0["phase"] == nil || $0["phase"] as? String == "final_answer") })
             .flatMap { $0["text"] as? String }
-            .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .flatMap { $0.isEmpty ? nil : $0 }
+            .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
     }
 
     /// `source` is a bare string (`cli`, `vscode`) or an object keyed by the

@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import VibeBuddyKit
 import VibeBuddyMacCore
 
@@ -9,10 +10,21 @@ struct AccountUsageSummaryView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: compact ? 7 : 10) {
-            if let snapshot = state.snapshot {
+            if let snapshot = state.snapshot?.excludingExpiredGrokWindows(at: Date()) {
+                if provider == .grok, snapshot.primary == nil {
+                    if state.unavailableReason != .unknown {
+                        Text("Usage is temporarily unavailable").foregroundStyle(.secondary)
+                    }
+                    if let end = snapshot.periodEnd {
+                        Text("Period ends \(end.formatted(date: .abbreviated, time: .shortened))")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
                 if snapshot.windows.isEmpty {
-                    Label("No quota windows supplied", systemImage: "gauge.with.dots.needle.0percent")
-                        .foregroundStyle(.secondary)
+                    if provider != .grok {
+                        Label("No quota windows supplied", systemImage: "gauge.with.dots.needle.0percent")
+                            .foregroundStyle(.secondary)
+                    }
                 } else {
                     ForEach(snapshot.windows) { window in
                         windowRow(window)
@@ -82,6 +94,8 @@ struct AccountUsageSummaryView: View {
     }
 
     private func windowTitle(_ window: AccountUsageWindow) -> String {
+        if provider == .grok, window.kind == .secondary { return "Extra usage" }
+        if let label = window.label { return label }
         guard let minutes = window.windowDurationMinutes else {
             return window.kind == .primary ? "Primary window" : "Secondary window"
         }
@@ -108,6 +122,10 @@ struct AccountUsageSummaryView: View {
 struct AccountUsageSettings: View {
     @ObservedObject var model: MenuBarModel
     @AppStorage("accountUsageAlertThreshold") private var alertThreshold = 90
+    @State private var cursorCookie: String = CursorSessionCookieStore.loadManual() ?? ""
+    @State private var cursorCookieMode: CursorCookieSourceMode = CursorCookieSourceSettings.mode()
+    @State private var cursorImportMessage: String?
+    @FocusState private var cursorCookieFocused: Bool
 
     var body: some View {
         Form {
@@ -121,10 +139,84 @@ struct AccountUsageSettings: View {
             } header: {
                 Text("Providers")
             } footer: {
-                Text("Codex reads its official local app-server. Claude runs the official read-only /usage command without session persistence or hooks. Grok asks its own agent process for the billing summary and never reads the stored token. No credentials, account IDs, or raw responses are stored or logged. Turning a source off leaves session monitoring and notifications running.")
+                Text("Codex reads its official local app-server. Claude runs the official read-only /usage command without session persistence or hooks. Grok asks its own agent process for the billing summary and falls back to the CLI billing proxy with the local login token when needed. Cursor reads its selected CLI login, local app login, or browser/manual Cookie. Local login credentials are never copied to storage. No account IDs or raw responses are logged. Turning a source off leaves session monitoring and notifications running.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Section {
+                Picker("Login source", selection: $cursorCookieMode) {
+                    ForEach(CursorCookieSourceMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .onChange(of: cursorCookieMode) { _, mode in
+                    CursorCookieSourceSettings.setMode(mode)
+                }
+
+                if cursorCookieMode == .cursorCLI {
+                    Text("Uses only Cursor CLI login; the desktop app is not required. Run cursor-agent login if signed out or expired. If Keychain access is unavailable, unlock the login Keychain or select another login source.").font(.caption)
+                } else if cursorCookieMode == .cursorApp {
+                    Text("Uses the account signed in to Cursor on this Mac. If the session expires, sign in again in Cursor and refresh.").font(.caption)
+                } else if cursorCookieMode == .manual {
+                    SecureField("Cookie header from cursor.com", text: $cursorCookie)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($cursorCookieFocused)
+                        .onSubmit { CursorSessionCookieStore.saveManual(cursorCookie) }
+                        .onChange(of: cursorCookieFocused) { _, focused in
+                            if !focused {
+                                CursorSessionCookieStore.saveManual(cursorCookie)
+                            }
+                        }
+                    Button("Paste Cookie") {
+                        guard let pasted = NSPasteboard.general.string(forType: .string) else { return }
+                        let trimmed = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !trimmed.isEmpty else { return }
+                        cursorCookie = trimmed
+                        CursorSessionCookieStore.saveManual(trimmed)
+                    }
+                    .accessibilityIdentifier("paste-cursorCookie")
+                } else {
+                    Button("Import Cookie from browser now") {
+                        cursorImportMessage = nil
+                        Task {
+                        do {
+                            let header = try await Task.detached(priority: .utility) {
+                                try CursorBrowserCookieImporter().importSessionCookieHeader(allowKeychainPrompt: true)
+                            }.value
+                            if let status = CursorSessionCookieStore.saveImportedIfChanged(header), status != 0 {
+                                cursorImportMessage = "Could not save the imported session (Keychain error \(status))."
+                                return
+                            }
+                            cursorImportMessage = "Imported a Cursor session cookie from the browser."
+                        } catch {
+                            cursorImportMessage = "No usable Cursor session found in the browser. Paste a Cookie header, or sign in at cursor.com and try again."
+                        }
+                    }
+                    }
+                    .accessibilityIdentifier("import-cursorCookie")
+                    if let cursorImportMessage {
+                        Text(cursorImportMessage)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    SecureField("Manual fallback Cookie", text: $cursorCookie)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($cursorCookieFocused)
+                        .onSubmit { CursorSessionCookieStore.saveManual(cursorCookie) }
+                        .onChange(of: cursorCookieFocused) { _, focused in
+                            if !focused {
+                                CursorSessionCookieStore.saveManual(cursorCookie)
+                            }
+                        }
+                }
+            } header: {
+                Text("Cursor session")
+            } footer: {
+                Text("Paste mode stores the Cookie in a Keychain slot separate from browser import. Browser import reads Safari/Chrome/Firefox cookies for cursor.com (may prompt for Keychain or Full Disk Access); refresh writes the imported slot only when the value changes and falls back to the manual Cookie.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Quota alert") {

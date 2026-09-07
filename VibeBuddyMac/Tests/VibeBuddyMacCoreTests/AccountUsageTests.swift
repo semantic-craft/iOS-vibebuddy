@@ -268,6 +268,20 @@ struct AccountUsageTests {
         #expect(quota.shortWindowRemainingPercent == nil)
     }
 
+    @Test("expired Grok cache never becomes the current weekly quota after restart")
+    func expiredGrokCache() async {
+        var old = sampleSnapshot(percent: 53)
+        old.provider = .grok
+        old.primary?.resetsAt = now.addingTimeInterval(-60)
+        let collector = AccountUsageCollector(provider: ScriptedUsageProvider([.failure(.offline)]),
+            cache: MemoryUsageCache(old), enabled: true)
+        let boot = await collector.bootstrap(now: now)
+        #expect(boot.snapshot?.primary == nil)
+        let failed = await collector.refresh(now: now)
+        #expect(failed.snapshot?.primary == nil)
+        #expect(failed.snapshot?.fetchedAt == old.fetchedAt)
+    }
+
     @Test("successful refresh is cached as the last known good value")
     func successfulRefreshCaches() async {
         let snapshot = sampleSnapshot(percent: 55)
@@ -626,6 +640,50 @@ struct AccountUsageTests {
             AccountUsageUnavailableReason.notLoggedIn.displayText(provider: .grok)
                 == "Grok is not signed in"
         )
+    }
+
+    @Test("Cursor is a first-class usage provider with its own cache and labels")
+    func cursorProviderRegistration() {
+        #expect(AccountUsageProvider.allCases.contains(.cursor))
+        #expect(AccountUsageProvider.cursor.displayName == "Cursor")
+        #expect(AccountUsageProvider.cursor.rawValue == "cursor")
+
+        let home = URL(fileURLWithPath: "/Users/example")
+        let cacheURL = AccountUsageFileCache.defaultFileURL(provider: .cursor, home: home)
+        #expect(cacheURL.lastPathComponent == "cursor-usage.json")
+        #expect(cacheURL != AccountUsageFileCache.defaultFileURL(provider: .codex, home: home))
+
+        #expect(
+            AccountUsageUnavailableReason.notLoggedIn.displayText(provider: .cursor)
+                == "Cursor is not signed in"
+        )
+        #expect(
+            AccountUsageUnavailableReason.collectionDisabled.displayText(provider: .cursor)
+                == "Collection is turned off"
+        )
+        #expect(
+            AccountUsageUnavailableReason.notYetLoaded.displayText(provider: .cursor)
+                == "Waiting for the first refresh"
+        )
+    }
+
+    @Test("Cursor collector without a cookie stays unavailable, never 0%")
+    func cursorProviderRequiresCookie() async throws {
+        let provider = CursorUsageProvider(cookie: nil, cookieMode: { .manual }, transport: MissingCookieTransport())
+        do {
+            _ = try await provider.fetch()
+            Issue.record("CursorUsageProvider must not succeed without a cookie")
+        } catch let error as AccountUsageError {
+            #expect(error == .notLoggedIn)
+            #expect(error.unavailableReason.displayText(provider: .cursor) == "Cursor is not signed in")
+        }
+    }
+
+    private struct MissingCookieTransport: CursorUsageTransport {
+        func cursorData(for request: URLRequest) async throws -> (Data, URLResponse) {
+            Issue.record("network must not be touched without a cookie")
+            throw URLError(.badURL)
+        }
     }
 
     @Test("a Grok crossing alerts independently of the other providers")

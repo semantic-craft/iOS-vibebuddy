@@ -1,0 +1,64 @@
+import Foundation
+
+/// Qwen-Audio 3.0 TTS, one bounded request. Only the supplied text leaves the app.
+public enum QwenSpeechSynthesis {
+    public static let defaultModel = "qwen-audio-3.0-tts-flash"
+    public static let defaultVoice = "longanfengyue"
+    public enum Failure: String, Error { case configuration, rejected, transport, emptyAudio, excessiveAudio }
+
+    public static func synthesize(_ text: String, apiKey: String, model: String = defaultModel,
+        voice: String = defaultVoice, workspaceID: String?, useIntl: Bool) async throws -> Data {
+        guard !text.isEmpty, text.count <= 180, !apiKey.isEmpty,
+              let realtimeURL = QwenRealtimeSession.endpoint(model: model, workspaceID: workspaceID, useIntl: useIntl),
+              var components = URLComponents(url: realtimeURL, resolvingAgainstBaseURL: false) else { throw Failure.configuration }
+        components.path = "/api-ws/v1/inference"; components.query = nil
+        guard let url = components.url else { throw Failure.configuration }
+        var request = URLRequest(url: url)
+        request.setValue("Bearer " + apiKey, forHTTPHeaderField: "Authorization")
+        let session = URLSession(configuration: .ephemeral)
+        let socket = session.webSocketTask(with: request)
+        socket.resume()
+        let timeout = Task { try? await Task.sleep(for: .seconds(15)); if !Task.isCancelled { socket.cancel(with: .goingAway, reason: nil) } }
+        defer { timeout.cancel(); socket.cancel(with: .normalClosure, reason: nil); session.invalidateAndCancel() }
+        return try await withTaskCancellationHandler {
+            let id = UUID().uuidString
+            func send(_ action: String, _ payload: [String: Any]) async throws {
+                let object: [String: Any] = ["header": ["action": action, "task_id": id, "streaming": "duplex"], "payload": payload]
+                let bytes = try JSONSerialization.data(withJSONObject: object)
+                try await socket.send(.string(String(decoding: bytes, as: UTF8.self)))
+            }
+            do {
+                try await send("run-task", ["task_group": "audio", "task": "tts", "function": "SpeechSynthesizer",
+                    "model": model, "parameters": ["text_type": "PlainText", "voice": voice, "format": "mp3",
+                        "sample_rate": 22050, "volume": 50, "rate": 1, "pitch": 1, "enable_ssml": false], "input": [:]])
+                var output = Data()
+                var sentText = false
+                while !Task.isCancelled {
+                    switch try await socket.receive() {
+                    case .data(let bytes):
+                        output.append(bytes)
+                        if output.count > 2_000_000 { throw Failure.excessiveAudio }
+                    case .string(let message):
+                        guard let object = try JSONSerialization.jsonObject(with: Data(message.utf8)) as? [String: Any],
+                              let header = object["header"] as? [String: Any], header["task_id"] as? String == id else { continue }
+                        switch header["event"] as? String {
+                        case "task-started" where !sentText:
+                            sentText = true
+                            try await send("continue-task", ["input": ["text": text]])
+                            try await send("finish-task", ["input": [:]])
+                        case "task-finished":
+                            guard !output.isEmpty else { throw Failure.emptyAudio }
+                            return output
+                        case "task-failed": throw Failure.rejected
+                        default: break
+                        }
+                    @unknown default: break
+                    }
+                }
+                throw CancellationError()
+            } catch let failure as Failure { throw failure }
+              catch is CancellationError { throw CancellationError() }
+              catch { throw Failure.transport }
+        } onCancel: { socket.cancel(with: .goingAway, reason: nil) }
+    }
+}

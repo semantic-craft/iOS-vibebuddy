@@ -1,0 +1,178 @@
+import Foundation
+import Testing
+@testable import VibeBuddyMacCore
+
+@Suite("Cursor usage adapter")
+struct CursorUsageProviderTests {
+    @Test("CLI login fetches both pools without desktop or browser authentication")
+    func cliOnlyFetch() async throws {
+        let payload = Data(#"{"sub":"auth0|user_cli","exp":4102444800}"#.utf8).base64EncodedString().replacingOccurrences(of: "=", with: "")
+        let token = "e30.\(payload).test"
+        let transport = ScriptedCursorTransport { request in
+            #expect(request.value(forHTTPHeaderField: "Cookie") == "WorkosCursorSessionToken=user_cli%3A%3A\(token)")
+            let body = Data(#"{"individualUsage":{"plan":{"autoPercentUsed":38,"apiPercentUsed":98}}}"#.utf8)
+            return (body, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        let snapshot = try await CursorUsageProvider(
+            cookie: "WorkosCursorSessionToken=other-account",
+            cookieMode: { .cursorCLI },
+            cliAccessToken: { token },
+            transport: transport
+        ).fetch()
+        #expect(snapshot.primary?.usedPercent == 38)
+        #expect(snapshot.secondary?.usedPercent == 98)
+    }
+
+    @Test("Unavailable CLI credentials never use a saved cookie from another account",
+          arguments: [AccountUsageError.notLoggedIn, .unknown])
+    func cliCredentialFailure(_ error: AccountUsageError) async throws {
+        let transport = ScriptedCursorTransport { _ in
+            Issue.record("Must not send a request after CLI credential failure")
+            throw AccountUsageError.unknown
+        }
+        let provider = CursorUsageProvider(cookie: "WorkosCursorSessionToken=other-account",
+            cookieMode: { .cursorCLI }, cliAccessToken: { throw error }, transport: transport)
+        await #expect(throws: error) { try await provider.fetch() }
+    }
+
+    @Test("Expired CLI login never reaches the usage endpoint")
+    func expiredCLI() async throws {
+        let payload = Data(#"{"sub":"auth0|user_cli","exp":1000}"#.utf8).base64EncodedString().replacingOccurrences(of: "=", with: "")
+        let transport = ScriptedCursorTransport { _ in
+            Issue.record("Must not send an expired CLI token")
+            throw AccountUsageError.unknown
+        }
+        let provider = CursorUsageProvider(cookieMode: { .cursorCLI },
+            cliAccessToken: { "e30.\(payload).test" }, transport: transport)
+        await #expect(throws: AccountUsageError.notLoggedIn) { try await provider.fetch() }
+    }
+
+    @Test("plan-only usage-summary maps to primary used % and reset")
+    func planOnlyFixture() throws {
+        let data = try Self.fixture("usage-summary-plan-only")
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let snapshot = try CursorUsageSummaryDecoder.decode(data, fetchedAt: now)
+        #expect(snapshot.provider == .cursor)
+        #expect(snapshot.planType == "pro")
+        #expect(snapshot.primary?.usedPercent == 40)
+        #expect(snapshot.secondary == nil)
+        #expect(snapshot.fetchedAt == now)
+        #expect(snapshot.primary?.windowDurationMinutes == 31 * 24 * 60) // Aug has 31 days
+    }
+
+    @Test("plan + on-demand maps secondary only when on-demand has a limit")
+    func planAndOnDemandFixture() throws {
+        let data = try Self.fixture("usage-summary-plan-ondemand")
+        let snapshot = try CursorUsageSummaryDecoder.decode(data, fetchedAt: Date())
+        #expect(snapshot.primary?.usedPercent == 75)
+        #expect(snapshot.secondary?.usedPercent == 25)
+    }
+
+    @Test("auth-shaped payload without plan figures is incompatible, not 0%")
+    func authFailureShape() throws {
+        let data = try Self.fixture("usage-summary-auth-failure")
+        #expect(throws: AccountUsageError.incompatibleFormat) {
+            try CursorUsageSummaryDecoder.decode(data, fetchedAt: Date())
+        }
+    }
+
+    @Test("HTTP 401 becomes notLoggedIn")
+    func httpUnauthorized() async throws {
+        let endpoint = URL(string: "https://cursor.test/api/usage-summary")!
+        let transport = ScriptedCursorTransport { request in
+            #expect(request.value(forHTTPHeaderField: "Cookie") == "WorkosCursorSessionToken=redacted")
+            let response = HTTPURLResponse(
+                url: endpoint, statusCode: 401, httpVersion: nil, headerFields: nil
+            )!
+            return (Data(), response)
+        }
+        let provider = CursorUsageProvider(
+            cookie: "WorkosCursorSessionToken=redacted",
+            endpoint: endpoint,
+            transport: transport
+        )
+        await #expect(throws: AccountUsageError.notLoggedIn) {
+            try await provider.fetch()
+        }
+    }
+
+    @Test("successful cookie fetch decodes the usage-summary body")
+    func successfulFetch() async throws {
+        let endpoint = URL(string: "https://cursor.test/api/usage-summary")!
+        let body = try Self.fixture("usage-summary-plan-only")
+        let transport = ScriptedCursorTransport { _ in
+            let response = HTTPURLResponse(
+                url: endpoint, statusCode: 200, httpVersion: nil, headerFields: nil
+            )!
+            return (body, response)
+        }
+        let snapshot = try await CursorUsageProvider(
+            cookie: "WorkosCursorSessionToken=redacted",
+            endpoint: endpoint,
+            transport: transport
+        ).fetch()
+        #expect(snapshot.provider == .cursor)
+        #expect(snapshot.primary?.usedPercent == 40)
+    }
+
+    @Test("cookie source mode is re-read on each fetch, not frozen at init")
+    func cookieModeRereadEachFetch() async throws {
+        let endpoint = URL(string: "https://cursor.test/api/usage-summary")!
+        let body = try Self.fixture("usage-summary-plan-only")
+        final class FetchProbe: @unchecked Sendable {
+            var mode: CursorCookieSourceMode = .manual
+            var cookiesSeen: [String] = []
+            let lock = NSLock()
+            func noteCookie(_ value: String) {
+                lock.lock(); cookiesSeen.append(value); lock.unlock()
+            }
+            func snapshotCookies() -> [String] {
+                lock.lock(); defer { lock.unlock() }; return cookiesSeen
+            }
+        }
+        let probe = FetchProbe()
+        let transport = ScriptedCursorTransport { request in
+            probe.noteCookie(request.value(forHTTPHeaderField: "Cookie") ?? "")
+            let response = HTTPURLResponse(
+                url: endpoint, statusCode: 200, httpVersion: nil, headerFields: nil
+            )!
+            return (body, response)
+        }
+        let provider = CursorUsageProvider(
+            cookie: "WorkosCursorSessionToken=manual",
+            cookieMode: { probe.mode },
+            cookieImporter: ScriptedModeImporter(header: "WorkosCursorSessionToken=imported"),
+            persistImportedCookie: { _ in },
+            endpoint: endpoint,
+            transport: transport
+        )
+        _ = try await provider.fetch()
+        probe.mode = .browserAuto
+        _ = try await provider.fetch()
+        #expect(probe.snapshotCookies() == [
+            "WorkosCursorSessionToken=manual",
+            "WorkosCursorSessionToken=imported",
+        ])
+    }
+
+    private struct ScriptedModeImporter: CursorBrowserCookieImporting {
+        let header: String
+        func importSessionCookieHeader(allowKeychainPrompt: Bool) throws -> String { header }
+    }
+
+    private struct ScriptedCursorTransport: CursorUsageTransport {
+        let handler: @Sendable (URLRequest) async throws -> (Data, URLResponse)
+        func cursorData(for request: URLRequest) async throws -> (Data, URLResponse) {
+            try await handler(request)
+        }
+    }
+
+    private static func fixture(_ name: String) throws -> Data {
+        let url = try #require(Bundle.module.url(
+            forResource: name,
+            withExtension: "json",
+            subdirectory: "Fixtures/cursor"
+        ))
+        return try Data(contentsOf: url)
+    }
+}

@@ -77,18 +77,20 @@ public struct CodexRolloutParser: Sendable {
                 return usageEvents(info, sessionID: sessionID, timestamp: timestamp)
             case "task_started":
                 startTurn(payload["turn_id"] as? String)
-                return [event(.userPromptSubmit, sessionID: sessionID, timestamp: timestamp)]
+                return [event(.userPromptSubmit, sessionID: sessionID, timestamp: timestamp,
+                              turnID: payload["turn_id"] as? String)]
             case "task_complete":
                 finishTurn(payload["turn_id"] as? String)
                 guard !turnActive else { return [] }
                 return [event(.stop, sessionID: sessionID,
                               message: payload["last_agent_message"] as? String,
-                              timestamp: timestamp)]
+                              timestamp: timestamp, turnID: payload["turn_id"] as? String,
+                              completionText: payload["last_agent_message"] as? String, completionSucceeded: true)]
             case "turn_aborted":
                 finishTurn(payload["turn_id"] as? String)
                 guard !turnActive else { return [] }
                 return [event(.stop, sessionID: sessionID,
-                              message: "Turn aborted", timestamp: timestamp)]
+                              message: "Turn aborted", timestamp: timestamp, completionSucceeded: false)]
             case "exec_approval_request":
                 return waiting(event(.notification, sessionID: sessionID, toolName: "Shell",
                                      message: "Permission required for Shell", timestamp: timestamp))
@@ -205,7 +207,8 @@ public struct CodexRolloutParser: Sendable {
         childName: String? = nil,
         childType: String? = nil,
         childAction: HookEvent.ChildLifecycleAction? = nil,
-        enrichment: TranscriptInfo? = nil
+        enrichment: TranscriptInfo? = nil,
+        turnID: String? = nil, completionText: String? = nil, completionSucceeded: Bool? = nil
     ) -> HookEvent {
         // Every event that reaches here comes from a rollout the parser has
         // already classified as Codex Desktop, so the session id is also the
@@ -216,8 +219,8 @@ public struct CodexRolloutParser: Sendable {
                   toolError: toolError, timestamp: timestamp,
                   childID: childID, childKind: childKind, childName: childName,
                   childType: childType, childAction: childAction,
-                  enrichment: enrichment,
-                  desktopThreadID: sessionID)
+                  turnID: turnID, enrichment: enrichment,
+                  desktopThreadID: sessionID, completionText: completionText, completionSucceeded: completionSucceeded)
     }
 
     private struct PendingCollab {

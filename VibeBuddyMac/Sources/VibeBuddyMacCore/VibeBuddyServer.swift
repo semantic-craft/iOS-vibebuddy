@@ -171,6 +171,17 @@ public struct VibeBuddyServer: Sendable {
         await appServerTask?.value
     }
 
+    /// Each connection declares the quota vocabulary it can decode. Unchanged
+    /// paired clients keep their shipped vocabulary; the Mac store stays complete.
+    private static func snapshotForPeer(_ snapshot: Snapshot, request: Request) -> Snapshot {
+        let providers = request.uri.queryParameters["quotaProviders"].map { value in
+            Set(value.split(separator: ",").compactMap { AccountUsageProvider(rawValue: String($0)) })
+        } ?? Set([.codex, .claude, .grok])
+        var result = snapshot
+        result.providerQuota = snapshot.providerQuota?.filter { providers.contains($0.provider) }
+        return result
+    }
+
     public func buildApplication() -> some ApplicationProtocol {
         let store = self.store
         let token = self.token
@@ -181,12 +192,12 @@ public struct VibeBuddyServer: Sendable {
         let wsAuth = BearerAuth(token: token, allowsQueryToken: false)
         wsRouter.ws("/ws") { request, _ in
             wsAuth.authorizes(request) ? .upgrade() : .dontUpgrade
-        } onUpgrade: { inbound, outbound, _ in
+        } onUpgrade: { inbound, outbound, context in
             // Push the current snapshot, then every change, until the client closes.
             let subscription = await store.subscribe()
             let writer = Task {
                 for await snapshot in subscription.stream {
-                    let event = ServerEvent.snapshot(snapshot)
+                    let event = ServerEvent.snapshot(Self.snapshotForPeer(snapshot, request: context.request))
                     guard let data = try? JSONEncoder().encode(event) else { continue }
                     do {
                         try await outbound.write(.text(String(decoding: data, as: UTF8.self)))
@@ -429,7 +440,7 @@ public struct VibeBuddyServer: Sendable {
             await store.applyBackgroundSessions(backgroundSessions())
             var snapshot = await store.snapshot(now: Date())
             snapshot.dispatchAgents = await dispatchAgents()
-            let data = try JSONEncoder().encode(snapshot)
+            let data = try JSONEncoder().encode(Self.snapshotForPeer(snapshot, request: request))
             return Response(
                 status: .ok,
                 headers: [.contentType: "application/json"],
@@ -544,7 +555,7 @@ public struct VibeBuddyServer: Sendable {
                     return Response(status: .ok)
                 }
                 await store.beginQuestion(sessionID: sessionID, question, at: Date())
-                guard let answers = await questionRegistry.wait(sessionID: sessionID, timeout: timeout) else {
+                guard let answers = await questionRegistry.wait(sessionID: sessionID, questionID: question.id, timeout: timeout) else {
                     return Response(status: .ok)
                 }
                 await store.endQuestion(sessionID: sessionID, at: Date())
@@ -627,6 +638,7 @@ public struct VibeBuddyServer: Sendable {
                 await approvalContext.set(id: id, sessionID: sessionID,
                                           rule: AllowRule.forApproval(tool: tool, input: input),
                                           nativeSuggestions: PermissionSuggestion.encode(suggestions))
+                await registry.prepare(id: id)
                 await store.beginApproval(sessionID: sessionID,
                     PendingApproval(id: id, tool: tool,
                                     commandPreview: d.commandPreview.isEmpty ? tool : d.commandPreview,
@@ -656,7 +668,12 @@ public struct VibeBuddyServer: Sendable {
             else { throw HTTPError(.badRequest) }
             // "allow"/"deny" resolve this one prompt; "alwaysAllow" also persists a rule;
             // "allowSession" also allows the rest of this session (ADR 0010). Unknown → deny.
-            let ctx = await approvalContext.take(id: id)
+            let snapshot = await store.snapshot(now: Date())
+            guard let pending = snapshot.sessions.compactMap(\.pendingApproval).first(where: { $0.id == id }),
+                  pending.isAnswerable,
+                  let claimedContext = await approvalContext.take(id: id),
+                  await registry.claim(id: id) else { return .conflict }
+            let ctx = Optional(claimedContext)
             switch decision {
             case "alwaysAllow":
                 if let ctx {
@@ -837,6 +854,19 @@ public struct VibeBuddyServer: Sendable {
             guard let o = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
                   let sid = o["sessionId"] as? String
             else { throw HTTPError(.badRequest) }
+            let expectedQuestionID = o["expectedQuestionId"] as? String
+            if let expectedQuestionID {
+                let snapshot = await store.snapshot(now: Date())
+                guard let current = snapshot.sessions.first(where: { $0.id == sid }),
+                      current.pendingApproval == nil,
+                      current.pendingQuestion?.isAnswerable != false,
+                      (current.pendingQuestion?.id ?? "") == expectedQuestionID else { return .conflict }
+                if expectedQuestionID.isEmpty {
+                    guard current.agent == .codex, current.status != .needsResponse,
+                          let since = o["expectedStatusSince"] as? Double,
+                          abs(current.statusSince.timeIntervalSince1970 - since) < 0.001 else { return .conflict }
+                }
+            }
             let text = (o["answer"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
             var answers: QuestionAnswers = [:]
             if let raw = o["answers"] as? [String: Any] {
@@ -846,9 +876,12 @@ public struct VibeBuddyServer: Sendable {
                 }
             }
             guard !(text ?? "").isEmpty || !answers.isEmpty else { throw HTTPError(.badRequest) }
-            let delivered = await dispatch.deliver(sessionID: sid, text: text, answers: answers.isEmpty ? nil : answers)
+            let delivered = await dispatch.deliver(sessionID: sid, text: text, answers: answers.isEmpty ? nil : answers, expectedQuestionID: expectedQuestionID, expectedStatusSince: o["expectedStatusSince"] as? Double)
             // Answering counts as driving the session (automatic attention).
             if delivered { await store.recordInteraction(sessionID: sid) }
+            // A failed Codex RPC may have reached the agent. Do not tell the
+            // phone this was an expired wait that is safe to send again.
+            if !delivered, expectedQuestionID == "" { return .serviceUnavailable }
             return delivered ? .ok : .accepted
         }
 

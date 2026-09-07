@@ -3,11 +3,24 @@ import SwiftUI
 import WidgetKit
 import VibeBuddyKit
 
+private extension ProviderQuota {
+    var complicationWindows: [QuotaWindow] {
+        let exact = QuotaWindowKind.allCases.map { window($0) }
+        if exact.contains(where: { $0.remainingPercent != nil }) { return exact }
+        return (otherWindows ?? []).isEmpty ? exact : (otherWindows ?? []).map { window in
+            var reading = window
+            reading.isCached = reading.isCached == true || isCached == true
+            return reading
+        }
+    }
+}
+
 enum QuotaPlatform: String, AppEnum {
-    case codex, claude, both
+    case codex, claude, grok, cursor, both, all
     static let typeDisplayRepresentation: TypeDisplayRepresentation = "Platform"
     static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
-        .codex: "Codex", .claude: "Claude", .both: "Codex + Claude"
+        .codex: "Codex", .claude: "Claude", .grok: "Grok", .cursor: "Cursor",
+        .both: "Codex + Claude", .all: "All providers"
     ]
     var selection: WatchQuotaSelection { WatchQuotaSelection(rawValue: rawValue)! }
 }
@@ -63,7 +76,7 @@ struct QuotaProvider: AppIntentTimelineProvider {
         let quotas = readQuotas()
         let windows = quotas.filter { configuration.platform.selection.providers.contains($0.provider) }
             .flatMap { quota in
-                configuration.style == .dualWindow ? QuotaWindowKind.allCases.map { quota.window($0) } : [quota.window(configuration.period.kind)]
+                configuration.style == .dualWindow ? quota.complicationWindows : [quota.displayWindow(preferring: configuration.period.kind)]
             }
         let boundaries = windows.flatMap { window in
             [window.observedAt?.addingTimeInterval(ProviderQuota.staleAfter), window.resetsAt].compactMap { $0 }
@@ -117,14 +130,43 @@ struct QuotaWidgetView: View {
     private var now: Date { max(entry.date, Date()) }
     private var providers: [AccountUsageProvider] { entry.configuration.platform.selection.providers }
     private func window(_ provider: AccountUsageProvider, kind: QuotaWindowKind? = nil) -> QuotaWindow {
-        entry.quotas.first { $0.provider == provider }?.window(kind ?? entry.configuration.period.kind)
-            ?? QuotaWindow(remainingPercent: nil, durationMinutes: nil, resetsAt: nil, observedAt: nil)
+        let preferred = kind ?? entry.configuration.period.kind
+        // Single-period styles fall back to otherWindows when weekly/short are
+        // missing (Cursor/Grok billing periods). Dual-window shows both pools.
+        let quota = entry.quotas.first { $0.provider == provider }
+        if kind == nil {
+            return quota?.displayWindow(preferring: preferred)
+                ?? QuotaWindow(remainingPercent: nil, durationMinutes: nil, resetsAt: nil, observedAt: nil)
+        }
+        let windows = quota?.complicationWindows ?? []
+        let index = preferred == .weekly ? 0 : 1
+        return windows.indices.contains(index) ? windows[index]
+            : QuotaWindow(remainingPercent: nil, durationMinutes: nil, resetsAt: nil, observedAt: nil)
     }
-    private func label(_ provider: AccountUsageProvider) -> String { provider == .codex ? "C" : "CL" }
-    private func color(_ provider: AccountUsageProvider) -> Color { provider == .codex ? .cyan : .orange }
+    private func label(_ provider: AccountUsageProvider) -> String {
+        switch provider {
+        case .codex: return "C"
+        case .claude: return "CL"
+        case .grok: return "G"
+        case .cursor: return "Cu"
+        }
+    }
+    private func color(_ provider: AccountUsageProvider) -> Color {
+        switch provider {
+        case .codex: return .cyan
+        case .claude: return .orange
+        case .grok: return .indigo
+        case .cursor: return .purple
+        }
+    }
     private func periodLabel(_ reading: QuotaWindow, kind: QuotaWindowKind? = nil) -> String {
-        if (kind ?? entry.configuration.period.kind) == .weekly { return String(localized: "Wk") }
-        guard let minutes = reading.durationMinutes else { return String(localized: "Short") }
+        let period = durationLabel(reading)
+        return reading.label.map { "\($0) · \(period)" } ?? period
+    }
+    private func durationLabel(_ reading: QuotaWindow) -> String {
+        if reading.durationMinutes == 10080 { return String(localized: "Wk") }
+        guard let minutes = reading.durationMinutes else { return "—" }
+        if minutes >= 1440 { return "\(minutes / 1440)d" }
         return minutes % 60 == 0 ? "\(minutes / 60)h" : "\(minutes)m"
     }
     private var differentPeriods: Bool {
@@ -202,7 +244,7 @@ struct QuotaWidgetView: View {
                     Text(label(provider)).fontWeight(.bold)
                     VStack(spacing: 0) {
                         ForEach(QuotaWindowKind.allCases, id: \.self) { kind in
-                            let reading = window(provider, kind: kind)
+                            let reading = window(provider, kind: entry.configuration.style == .dualWindow ? kind : nil)
                             Text("\(periodLabel(reading, kind: kind)) \(value(reading))")
                         }
                     }
@@ -246,7 +288,7 @@ struct QuotaWidgetView: View {
         providers.map { provider in
             let kinds = entry.configuration.style == .dualWindow ? QuotaWindowKind.allCases : [entry.configuration.period.kind]
             return kinds.map { kind in
-            let reading = window(provider, kind: kind)
+            let reading = window(provider, kind: entry.configuration.style == .dualWindow ? kind : nil)
             let status: String
             switch reading.status(now: now) {
             case .live: status = String(localized: "Remaining")
@@ -267,7 +309,7 @@ struct QuotaWidget: Widget {
             QuotaWidgetView(entry: $0)
         }
         .configurationDisplayName("Quota")
-        .description("Codex and Claude remaining allowance.")
+        .description("Codex, Claude, Cursor, and Grok remaining allowance.")
         .supportedFamilies([.accessoryCircular])
     }
 }

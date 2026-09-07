@@ -25,6 +25,37 @@ struct ProviderQuotaProjectionTests {
         ProviderQuota(state, provider: .codex)
     }
 
+    @Test("unknown Grok included allowance cannot become extra-usage quota or an alert")
+    func grokExtraUsageIsSeparate() {
+        var bill = snapshot(primary: nil, secondary: window(.secondary, used: 95, minutes: 10080))
+        bill.provider = .grok
+        let state = AccountUsageState.available(bill, nextRefreshAt: nil)
+        let result = ProviderQuota(state, provider: .grok)
+        #expect(result.weeklyRemainingPercent == nil)
+        #expect(result.otherWindows == nil)
+        var monitor = AccountUsageAlertMonitor()
+        var baseline = bill
+        baseline.secondary?.usedPercent = 10
+        _ = monitor.newlyCrossed(in: .available(baseline, nextRefreshAt: nil), thresholdPercent: 90)
+        #expect(monitor.newlyCrossed(in: state, thresholdPercent: 90).isEmpty)
+    }
+
+    @Test("Independent pools retain labels and balances even at the same duration")
+    func independentPools() throws {
+        let primary = AccountUsageWindow(kind: .primary, usedPercent: 20,
+            windowDurationMinutes: 10080, resetsAt: nil, label: "Plan allowance")
+        let secondary = AccountUsageWindow(kind: .secondary, usedPercent: 75,
+            windowDurationMinutes: 10080, resetsAt: nil, label: "On-demand")
+        let result = quota(.available(snapshot(primary: primary, secondary: secondary), nextRefreshAt: nil))
+        #expect(result.window(.weekly).label == "Plan allowance")
+        #expect(result.weeklyRemainingPercent == 80)
+        #expect(result.otherWindows?.count == 1)
+        #expect(result.otherWindows?.first?.label == "On-demand")
+        #expect(result.otherWindows?.first?.remainingPercent == 25)
+        let roundTrip = try JSONDecoder().decode(ProviderQuota.self, from: JSONEncoder().encode(result))
+        #expect(roundTrip == result)
+    }
+
     // MARK: normalization
 
     @Test("Consumed becomes remaining exactly once")
@@ -237,6 +268,35 @@ struct ProviderQuotaProjectionTests {
         }
     }
 
+    // MARK: Cursor / Grok billing periods (#113 H3)
+
+    @Test("A Cursor monthly billing window stays in otherWindows and is usable for display")
+    func cursorMonthlyBillingProjectsToOtherWindows() throws {
+        // Mid-cycle relative to usage-summary-plan-only (Aug→Sep 2026 billing window).
+        let observed = ISO8601DateFormatter().date(from: "2026-08-15T12:00:00Z")!
+        let url = try #require(Bundle.module.url(
+            forResource: "usage-summary-plan-only",
+            withExtension: "json",
+            subdirectory: "Fixtures/cursor"
+        ))
+        let data = try Data(contentsOf: url)
+        let snapshot = try CursorUsageSummaryDecoder.decode(data, fetchedAt: observed)
+        let result = ProviderQuota(.available(snapshot, nextRefreshAt: nil), provider: .cursor)
+        #expect(result.provider == .cursor)
+        #expect(result.weeklyRemainingPercent == nil)
+        #expect(result.shortWindowRemainingPercent == nil)
+        #expect(result.otherWindows?.first?.remainingPercent == 60)
+        #expect(result.otherWindows?.first?.durationMinutes == 31 * 24 * 60)
+        #expect(result.observedAt == observed)
+        #expect(result.freshness(now: observed) == .live)
+        #expect(result.unavailableReason == nil)
+        // Watch/home surfaces must not show "Window unavailable" while live.
+        let display = result.displayWindow(preferring: .weekly)
+        #expect(display.remainingPercent == 60)
+        #expect(display.currentRemainingPercent(now: observed) == 60)
+        #expect(display.status(now: observed) == .live)
+    }
+
     // MARK: both providers at once
 
     private func codexState(usedWeekly: Int) -> AccountUsageState {
@@ -264,6 +324,9 @@ struct ProviderQuotaProjectionTests {
         #expect(quotas.map(\.provider) == AccountUsageProvider.allCases)
         #expect(quotas.first { $0.provider == .codex }?.weeklyRemainingPercent == 68)
         #expect(quotas.first { $0.provider == .claude }?.weeklyRemainingPercent == 42)
+        #expect(quotas.first { $0.provider == .cursor }?.weeklyRemainingPercent == nil)
+        #expect(quotas.first { $0.provider == .cursor }?.unavailableReason
+                == "Collection is turned off")
     }
 
     @Test("A failing or disabled provider never changes what the other one reports")

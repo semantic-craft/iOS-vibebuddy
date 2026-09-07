@@ -79,6 +79,37 @@ struct ApprovalRoutesTests {
         Issue.record("no approval ever became pending for session \(session)")
     }
 
+    @Test("a timed-out approval with a stale visible card cannot persist permission", arguments: ["alwaysAllow", "allowSession"])
+    func expiredVisibleApprovalRejectsDecision(decision: String) async throws {
+        let store = SessionStore()
+        await store.ingest(Data(bash("pwd").utf8), receivedAt: Date())
+        await store.beginApproval(sessionID: "s",
+            PendingApproval(id: "expired", tool: "Bash", commandPreview: "pwd"), at: Date())
+        let pending = await store.snapshot(now: Date()).sessions.first { $0.id == "s" }?.pendingApproval
+        #expect(pending?.id == "expired")
+        #expect(pending?.isAnswerable == true)
+        let registry = ApprovalRegistry()
+        #expect(await registry.wait(id: "expired", timeout: .milliseconds(1)) == .pass)
+        let context = ApprovalContextStore()
+        await context.set(id: "expired", sessionID: "s", rule: "Bash(pwd)")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("expired-approval-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let allowStore = VibeBuddyAllowStore(url: url)
+        let sessionAllow = SessionAllowList()
+        let srv = VibeBuddyServer(store: store, token: "t0k", approvalRegistry: registry,
+                                 allowStore: allowStore, sessionAllow: sessionAllow, approvalContext: context)
+        try await srv.buildApplication().test(.router) { client in
+            try await client.execute(uri: "/decision", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"approvalId":"expired","decision":"\#(decision)"}"#)) { res in
+                #expect(res.status == .conflict)
+            }
+        }
+        #expect(await allowStore.all().isEmpty)
+        #expect(await sessionAllow.contains("s") == false)
+        #expect(await registry.claim(id: "expired") == false)
+    }
+
     @Test("allow-listed command returns an allow decision immediately")
     func allowImmediate() async throws {
         let body = #"{"hook_event_name":"PreToolUse","session_id":"s","cwd":"/x/p","tool_name":"Bash","tool_input":{"command":"ls -la"}}"#

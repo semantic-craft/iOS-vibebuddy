@@ -10,6 +10,8 @@ import VibeBuddyKit
 final class LiveActivityManager {
     private var activity: Activity<VibeBuddyActivityAttributes>?
     private var tokenObserver: Task<Void, Never>?
+    private var pendingSessions: [AgentSession]?
+    private var reconciliation: Task<Void, Never>?
     /// Reports the activity's APNs push token (hex) whenever it's produced or rotates,
     /// so the Mac can push content-state updates while the app is backgrounded
     /// (dynamic-island/02). Local updates via `update(_:)` still happen regardless.
@@ -18,8 +20,42 @@ final class LiveActivityManager {
     /// Reflect the latest counts. Starts the activity on first non-empty state,
     /// updates it thereafter, and ends it when everything is gone.
     func sync(sessions: [AgentSession]) async {
+        // ActivityKit operations suspend. Serialize them so a reconnect/stop
+        // cannot create an activity while an earlier reconciliation ends it.
+        pendingSessions = sessions
+        if let reconciliation {
+            await reconciliation.value
+            return
+        }
+        let task = Task { @MainActor in
+            while let sessions = self.pendingSessions {
+                self.pendingSessions = nil
+                await self.reconcile(sessions: sessions)
+            }
+            self.reconciliation = nil
+        }
+        reconciliation = task
+        await task.value
+    }
+
+    private func reconcile(sessions: [AgentSession]) async {
         let summary = TaskPresentationSummary(sessions: sessions)
-        guard !summary.isEmpty else { await end(); return }
+        let existing = Activity<VibeBuddyActivityAttributes>.activities
+        let reusable = existing.filter { $0.activityState == .active || $0.activityState == .stale }
+        let retained = summary.isEmpty ? nil : (
+            reusable.first { $0.id == activity?.id } ?? reusable.sorted { $0.id < $1.id }.first)
+        if activity?.id != retained?.id {
+            tokenObserver?.cancel()
+            tokenObserver = nil
+            activity = retained
+            if let retained { observePushToken(retained) }
+        }
+        // Activities survive process death. Reclaim one and dismiss old copies,
+        // including when the first snapshot after relaunch is empty.
+        for old in existing where old.id != retained?.id {
+            await old.end(nil, dismissalPolicy: .immediate)
+        }
+        guard !summary.isEmpty else { return }
         let leading = sessions.leadingPresentationSession
 
         // The island can answer the first pending approval (island-approve/01) —
@@ -63,18 +99,20 @@ final class LiveActivityManager {
 
     private func observePushToken(_ activity: Activity<VibeBuddyActivityAttributes>) {
         tokenObserver?.cancel()
+        if let tokenData = activity.pushToken {
+            onPushToken?(tokenData.map { String(format: "%02x", $0) }.joined())
+        }
         tokenObserver = Task { [weak self] in
             for await tokenData in activity.pushTokenUpdates {
+                guard !Task.isCancelled, let self,
+                      self.activity?.id == activity.id else { return }
                 let hex = tokenData.map { String(format: "%02x", $0) }.joined()
-                self?.onPushToken?(hex)
+                self.onPushToken?(hex)
             }
         }
     }
 
     func end() async {
-        tokenObserver?.cancel(); tokenObserver = nil
-        guard let activity else { return }
-        await activity.end(nil, dismissalPolicy: .immediate)
-        self.activity = nil
+        await sync(sessions: [])
     }
 }

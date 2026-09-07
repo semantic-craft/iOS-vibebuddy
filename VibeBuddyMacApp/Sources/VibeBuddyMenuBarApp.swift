@@ -192,32 +192,33 @@ enum MenuBarGlyph {
     }()
 }
 
-/// Presentation only; hiding the label cannot disconnect app commands.
+/// A stable launcher; task status is opt-in to avoid repeating the Glance.
+/// Hiding the label cannot disconnect app commands.
 struct MenuBarLabel: View {
     @ObservedObject var model: MenuBarModel
+    @AppStorage("showMenuBarTaskStatus") private var showTaskStatus = false
 
     var body: some View {
         let state = model.presentationSummary.primaryState
         let count = model.presentationSummary.count(for: state)
         HStack(spacing: 3) {
-            // A stable cat-head mark (matches the pet + app icon), monochrome so
-            // the system tints it for light/dark. State shows as a badge + count,
-            // not a shape change, so the silhouette stays recognizable.
             CatHeadIcon()
                 .frame(width: 17, height: 17)
                 .overlay(alignment: .topTrailing) {
-                    if state != .unassigned {
+                    if showTaskStatus && state != .unassigned {
                         TaskStatusIndicator(state, size: 6)
                             .offset(x: 1.5, y: -0.5)
                     }
                 }
-            if state == .error || state == .requiresInput {
+            if showTaskStatus && count > 0 {
                 Text("\(count)")
                     .font(.system(size: 12, weight: .semibold).monospacedDigit())
-                    .accessibilityLabel("\(count) \(state.label)")
             }
         }
-
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(showTaskStatus && count > 0
+            ? "VibeBuddy, \(count) \(state.label)" : "VibeBuddy")
+        .help("Open VibeBuddy menu")
     }
 }
 
@@ -233,6 +234,7 @@ struct MenuContent: View {
     @ObservedObject var model: MenuBarModel
     @State private var listContentHeight: CGFloat = 0
     @State private var greet = 0
+    @State private var hoveredSessionID: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -398,7 +400,26 @@ struct MenuContent: View {
                 .padding(.horizontal, 10).padding(.vertical, 4)
                 .background(MacTheme.bg2, in: Capsule())
                 ForEach(group.sessions) { s in
-                    if group.warm { fullRow(s) } else { compactRow(s) }
+                    Button { model.jump(s) } label: {
+                        VStack(alignment: .leading, spacing: 3) {
+                            if group.warm { fullRow(s) } else { compactRow(s) }
+                            if let outcome = model.jumpFeedback[s.id] {
+                                Text(outcome.macMessage(for: s))
+                                    .font(MacTheme.font(10, .semibold))
+                                    .foregroundStyle(MacTheme.ink2)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .padding(.horizontal, 4)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .background(hoveredSessionID == s.id ? MacTheme.line : .clear,
+                                in: RoundedRectangle(cornerRadius: 10))
+                    .onHover { hoveredSessionID = $0 ? s.id : nil }
+                    .help("Jump to this session")
+                    .accessibilityHint("Jump to this session")
                 }
             }
         }

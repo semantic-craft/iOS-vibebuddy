@@ -1,39 +1,101 @@
 import Foundation
 import Security
 
-/// Minimal Keychain wrapper for the one secret we hold: the user's own DashScope
-/// API key. Never written to UserDefaults or committed; read at runtime only.
+/// Minimal Keychain wrapper for secrets we hold (API keys, session cookies).
+/// Never written to UserDefaults or committed; read at runtime only.
 /// Shared by iOS and Mac.
 public enum KeychainStore {
     private static let service = "com.vibebuddy.secrets"
 
-    public static func set(_ value: String?, for key: String) {
-        let query: [String: Any] = [
+    /// Injectable Security operations so unit tests never touch the user's Keychain.
+    public struct Operations: Sendable {
+        public var update: @Sendable ([String: Any], [String: Any]) -> OSStatus
+        public var add: @Sendable ([String: Any]) -> OSStatus
+        public var delete: @Sendable ([String: Any]) -> OSStatus
+        public var copyMatching: @Sendable ([String: Any]) -> (OSStatus, Data?)
+
+        public init(
+            update: @escaping @Sendable ([String: Any], [String: Any]) -> OSStatus,
+            add: @escaping @Sendable ([String: Any]) -> OSStatus,
+            delete: @escaping @Sendable ([String: Any]) -> OSStatus,
+            copyMatching: @escaping @Sendable ([String: Any]) -> (OSStatus, Data?)
+        ) {
+            self.update = update
+            self.add = add
+            self.delete = delete
+            self.copyMatching = copyMatching
+        }
+
+        public static let live = Operations(
+            update: { query, attributes in
+                SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+            },
+            add: { item in
+                SecItemAdd(item as CFDictionary, nil)
+            },
+            delete: { query in
+                SecItemDelete(query as CFDictionary)
+            },
+            copyMatching: { query in
+                var request = query
+                request[kSecReturnData as String] = true
+                request[kSecMatchLimit as String] = kSecMatchLimitOne
+                var item: CFTypeRef?
+                let status = SecItemCopyMatching(request as CFDictionary, &item)
+                return (status, item as? Data)
+            }
+        )
+    }
+
+    private static func baseQuery(for key: String) -> [String: Any] {
+        [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
         ]
-        SecItemDelete(query as CFDictionary)
-        guard let value, !value.isEmpty, let data = value.data(using: .utf8) else { return }
+    }
+
+    /// Update-or-add (or delete when clearing). Never delete-then-add for writes:
+    /// a failed add must not leave the account empty. Surfaces the OSStatus.
+    @discardableResult
+    public static func set(
+        _ value: String?,
+        for key: String,
+        operations: Operations = .live
+    ) -> OSStatus {
+        let query = baseQuery(for: key)
+        guard let value, !value.isEmpty, let data = value.data(using: .utf8) else {
+            let status = operations.delete(query)
+            return status == errSecItemNotFound ? errSecSuccess : status
+        }
+
+        let attributes: [String: Any] = [kSecValueData as String: data]
+        let updateStatus = operations.update(query, attributes)
+        if updateStatus == errSecSuccess {
+            return errSecSuccess
+        }
+        // Preserve whatever is already stored when update fails for a reason
+        // other than "missing".
+        if updateStatus != errSecItemNotFound {
+            return updateStatus
+        }
+
         var add = query
         add[kSecValueData as String] = data
         add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        SecItemAdd(add as CFDictionary, nil)
+        return operations.add(add)
     }
 
-    public static func get(_ key: String) -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: key,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var item: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
-              let data = item as? Data, let s = String(data: data, encoding: .utf8)
+    public static func get(
+        _ key: String,
+        operations: Operations = .live
+    ) -> String? {
+        let (status, data) = operations.copyMatching(baseQuery(for: key))
+        guard status == errSecSuccess,
+              let data,
+              let value = String(data: data, encoding: .utf8)
         else { return nil }
-        return s
+        return value
     }
 }
 

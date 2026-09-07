@@ -123,6 +123,11 @@ extension QuotaFreshness {
 
 enum WatchQuotaVoice {
     static func windowName(_ window: QuotaWindow) -> String {
+        let period = periodName(window)
+        return window.label.map { "\($0) · \(period)" } ?? period
+    }
+
+    private static func periodName(_ window: QuotaWindow) -> String {
         guard let minutes = window.durationMinutes else { return String(localized: "Window duration unknown") }
         if minutes == 10080 { return String(localized: "Weekly remaining") }
         if minutes % 1440 == 0 { return String(localized: "\(minutes / 1440)-day window") }
@@ -131,9 +136,10 @@ enum WatchQuotaVoice {
     }
 
     static func summary(_ quota: ProviderQuota, freshness: QuotaFreshness, now: Date) -> String {
-        QuotaWindowKind.allCases.map { kind in
-            let reading = quota.window(kind)
-            let name = kind == .weekly ? String(localized: "Weekly remaining") : windowName(reading)
+        let exact = QuotaWindowKind.allCases.map { quota.window($0) }
+        let readings = exact.contains { $0.remainingPercent != nil } ? exact : [quota.displayWindow()]
+        return readings.map { reading in
+            let name = windowName(reading)
             switch reading.status(now: now) {
             case .awaitingReset: return name + ": " + String(localized: "Reset reached · awaiting update")
             case .unavailable: return name + ": " + String(localized: "Unavailable")

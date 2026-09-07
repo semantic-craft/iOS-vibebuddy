@@ -150,13 +150,15 @@ struct WatchQuotaStrips: View {
 
     private func strip(_ quota: ProviderQuota) -> some View {
         let freshness = quota.freshness(now: now)
+        // Prefer weekly; fall back to short / otherWindows (Cursor/Grok monthly).
+        let reading = quota.displayWindow(preferring: .weekly)
         return HStack(spacing: 6) {
             Text(quota.provider.displayName)
                 .font(.caption2)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(width: 44, alignment: .leading)
-            if let remaining = quota.window(.weekly).currentRemainingPercent(now: now) {
+            if let remaining = reading.currentRemainingPercent(now: now) {
                 ProgressView(value: Double(remaining), total: 100)
                     .tint(freshness == .stale ? Color.secondary
                           : (remaining <= 10 ? CompanionPalette.status(.requiresInput) : CompanionPalette.accent))
@@ -165,7 +167,7 @@ struct WatchQuotaStrips: View {
                     .monospacedDigit()
                     .frame(width: 32, alignment: .trailing)
             } else {
-                Text(quota.window(.weekly).status(now: now) == .awaitingReset ? "Reset reached · awaiting update" : "Window unavailable")
+                Text(reading.status(now: now) == .awaitingReset ? "Reset reached · awaiting update" : "Window unavailable")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
