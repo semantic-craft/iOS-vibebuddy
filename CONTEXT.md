@@ -42,6 +42,11 @@ code, and tests — don't drift to synonyms.
   shown under the housing with its actions (Approve / Deny / Jump), timed by
   `GlanceCardQueue`. While the glance is on screen the card *replaces* the
   macOS banner for session cues; hidden glance → banner as before.
+- **Menu-bar entry** — a fixed cat icon that opens the menu for Dashboard and
+  Settings. "Show task status in menu bar" optionally adds a state dot and the
+  primary state count; it is off by default. The Glance owns ambient status and
+  actionable alerts. Both surfaces are enabled by
+  default and can be hidden independently.
 - **Pairing** — linking a phone to a Mac over the LAN by scanning a QR that
   encodes `host:port` + a **bearer token**.
 
