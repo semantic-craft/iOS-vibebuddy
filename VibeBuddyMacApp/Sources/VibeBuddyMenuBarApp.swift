@@ -233,6 +233,7 @@ struct MenuContent: View {
     @ObservedObject var model: MenuBarModel
     @State private var listContentHeight: CGFloat = 0
     @State private var greet = 0
+    @State private var hoveredSessionID: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -398,7 +399,26 @@ struct MenuContent: View {
                 .padding(.horizontal, 10).padding(.vertical, 4)
                 .background(MacTheme.bg2, in: Capsule())
                 ForEach(group.sessions) { s in
-                    if group.warm { fullRow(s) } else { compactRow(s) }
+                    Button { model.jump(s) } label: {
+                        VStack(alignment: .leading, spacing: 3) {
+                            if group.warm { fullRow(s) } else { compactRow(s) }
+                            if let outcome = model.jumpFeedback[s.id] {
+                                Text(outcome.macMessage(for: s))
+                                    .font(MacTheme.font(10, .semibold))
+                                    .foregroundStyle(MacTheme.ink2)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .padding(.horizontal, 4)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .background(hoveredSessionID == s.id ? MacTheme.line : .clear,
+                                in: RoundedRectangle(cornerRadius: 10))
+                    .onHover { hoveredSessionID = $0 ? s.id : nil }
+                    .help("Jump to this session")
+                    .accessibilityHint("Jump to this session")
                 }
             }
         }
