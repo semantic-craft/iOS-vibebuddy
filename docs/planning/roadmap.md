@@ -4,6 +4,8 @@
 
 > **当前进度与下一步只在本机 `.scratch/planning/`（不入库）。** 下面的 Status 段是 2026-06 的历史记录，保留作当时的完成面。
 
+下一阶段 macOS 商店版的稳定接续入口见 [macOS App Store 工作接续](../agents/mac-app-store.md)；实时 tickets 与状态仍按本地计划约定管理。
+
 ## Status (2026-06-03)
 
 - ✅ **Phase A** — VibeBuddyKit shared model (committed `a997a07`)
