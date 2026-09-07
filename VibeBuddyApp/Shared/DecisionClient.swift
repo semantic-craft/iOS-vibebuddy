@@ -10,18 +10,11 @@ protocol DecisionClient: Sendable {
     /// phone result so uncertain delivery cannot be reported as success.
     @discardableResult
     func decide(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> Bool
-    func answer(_ pairing: PairingPayload, sessionId: String, answer: String) async
     /// Same POST as `decide`, but distinguishes 404/409 (wait already gone).
     func decideResult(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> WaitActionResult
     /// Same POST as `answer`, but distinguishes 404/409 (wait already gone).
     @discardableResult
     func answerResult(_ pairing: PairingPayload, sessionId: String, answer: String) async -> WaitActionResult
-    /// Structured answers keyed by question id (option labels, or a typed
-    /// reply), for the agents that take them through their own contract.
-    func answer(_ pairing: PairingPayload, sessionId: String, answers: QuestionAnswers) async
-    /// One existing-session action with intent and a request id. The outcome
-    /// is what the phone may show: accepted is not working or finished.
-    func submitSessionAction(_ pairing: PairingPayload, request: SessionActionRequest) async -> SessionActionOutcome
     /// Returns what the Mac reported, or `nil` if it couldn't be reached.
     func jump(_ pairing: PairingPayload, sessionId: String) async -> JumpOutcome?
     func acknowledgeWait(_ pairing: PairingPayload, request: WaitReadRequest) async -> Bool
@@ -41,24 +34,12 @@ extension DecisionClient {
     func phoneAnswer(_ pairing: PairingPayload, session: AgentSession, text: String?, answers: QuestionAnswers?) async -> PhoneActionResult { .failed }
     func acknowledgeWait(_ pairing: PairingPayload, request: WaitReadRequest) async -> Bool { false }
     func dispatch(_ pairing: PairingPayload, request: DispatchRequest) async -> DispatchOutcome? { nil }
-    func submitSessionAction(_ pairing: PairingPayload, request: SessionActionRequest) async -> SessionActionOutcome { .failed("Unsupported action") }
     func recentOutput(_ pairing: PairingPayload, sessionId: String) async -> RecentOutput? { nil }
     func decideResult(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> WaitActionResult {
         await decide(pairing, approvalId: approvalId, decision: decision) ? .accepted : .failed
     }
     func answerResult(_ pairing: PairingPayload, sessionId: String, answer text: String) async -> WaitActionResult {
         return .failed
-    }
-}
-
-extension DecisionClient {
-    /// Doubles that only speak plain text get the answers flattened.
-    func answer(_ pairing: PairingPayload, sessionId: String, answers: QuestionAnswers) async {
-        let flat = answers.keys.sorted().compactMap { key -> String? in
-            let values = answers[key] ?? []
-            return values.isEmpty ? nil : values.joined(separator: ", ")
-        }.joined(separator: "\n")
-        await answer(pairing, sessionId: sessionId, answer: flat)
     }
 }
 
@@ -162,10 +143,6 @@ struct HTTPDecisionClient: DecisionClient {
         return WaitActionResult(statusCode: (response as? HTTPURLResponse)?.statusCode)
     }
 
-    func answer(_ pairing: PairingPayload, sessionId: String, answer: String) async {
-        _ = await answerResult(pairing, sessionId: sessionId, answer: answer)
-    }
-
     func answerResult(_ pairing: PairingPayload, sessionId: String, answer: String) async -> WaitActionResult {
         guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/answer") else { return .failed }
         var req = URLRequest(url: url)
@@ -176,35 +153,6 @@ struct HTTPDecisionClient: DecisionClient {
         guard let (_, response) = try? await URLSession.shared.data(for: req) else { return .failed }
         let status = (response as? HTTPURLResponse)?.statusCode
         return status == 202 ? .alreadyResolved : WaitActionResult(statusCode: status)
-    }
-
-    func answer(_ pairing: PairingPayload, sessionId: String, answers: QuestionAnswers) async {
-        _ = await submitSessionAction(pairing, request: SessionActionRequest(sessionID: sessionId, answers: answers))
-    }
-
-    func submitSessionAction(_ pairing: PairingPayload, request: SessionActionRequest) async -> SessionActionOutcome {
-        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/answer") else {
-            return .notSent(String(localized: "Couldn't reach your Mac — not sent"))
-        }
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        var body: [String: Any] = ["sessionId": request.sessionID, "requestId": request.requestID]
-        if let intent = request.intent { body["intent"] = intent.rawValue }
-        if let questionID = request.questionID { body["questionId"] = questionID }
-        if let expected = request.expectedStatusSince { body["expectedStatusSince"] = expected }
-        if let text = request.text { body["answer"] = text }
-        if let answers = request.answers { body["answers"] = answers }
-        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        do {
-            let (data, resp) = try await URLSession.shared.data(for: req)
-            guard let http = resp as? HTTPURLResponse else { return .unknown }
-            let fields = (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
-            return SessionActionOutcome.fromHTTP(statusCode: http.statusCode, body: fields)
-        } catch {
-            return .unknown
-        }
     }
 
     func dispatch(_ pairing: PairingPayload, request: DispatchRequest) async -> DispatchOutcome? {

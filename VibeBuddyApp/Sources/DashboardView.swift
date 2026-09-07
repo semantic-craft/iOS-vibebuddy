@@ -78,7 +78,7 @@ struct DashboardView: View {
             StreamComposer(target: replyTarget,
                            macName: connection.pairing?.macName,
                            reachable: dashboard.state == .connected,
-                           receipt: dashboard.actionReceipt,
+                           receipt: replyTarget.flatMap { dashboard.phoneActionState(for: $0) },
                            clearTarget: { replyTo = nil },
                            send: send(_:target:))
                 .background(CompanionPalette.bg)
@@ -490,7 +490,7 @@ private struct StreamComposer: View {
     let target: AgentSession?
     let macName: String?
     let reachable: Bool
-    let receipt: SessionActionOutcome?
+    let receipt: PhoneActionResult?
     let clearTarget: () -> Void
     let send: (String, AgentSession?) async -> Bool
     @State private var sending = false
@@ -558,13 +558,13 @@ private struct StreamComposer: View {
             if sending {
                 Text("Sending…")
                     .font(CompanionType.font(11, .bold)).foregroundStyle(CompanionPalette.ink2)
+            } else if let receipt {
+                Text(receipt.message)
+                    .font(CompanionType.font(11, .bold))
+                    .foregroundStyle(receiptColor(receipt))
             } else if !reachable {
                 Text("Couldn't reach your Mac — not sent")
                     .font(CompanionType.font(11, .bold)).foregroundStyle(CompanionPalette.status(.error))
-            } else if let receipt {
-                Text(DashboardStore.actionMessage(receipt))
-                    .font(CompanionType.font(11, .bold))
-                    .foregroundStyle(receiptColor(receipt))
             }
         }
         .padding(.horizontal, 12).padding(.top, 6).padding(.bottom, 8)
@@ -579,10 +579,10 @@ private struct StreamComposer: View {
         }
     }
 
-    private func receiptColor(_ receipt: SessionActionOutcome) -> Color {
+    private func receiptColor(_ receipt: PhoneActionResult) -> Color {
         switch receipt {
-        case .accepted: CompanionPalette.ink2
-        case .unknown, .notSent, .failed: CompanionPalette.status(.error)
+        case .received, .sending: CompanionPalette.ink2
+        case .unconfirmed, .notPaired, .expired, .failed: CompanionPalette.status(.error)
         }
     }
 

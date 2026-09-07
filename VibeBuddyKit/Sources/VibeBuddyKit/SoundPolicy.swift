@@ -70,7 +70,7 @@ public struct SoundPolicyInput: Sendable {
     public var quietMode: Bool
     /// Sessions PresencePolicy currently treats as present (Mac: focused surface,
     /// unlocked, recent input, override off). Their cues cap to the list. Leaving
-    /// the set restores a still-open wait. iOS fills this from read-only cards.
+    /// the set restores a still-open wait. iOS leaves this empty: read-only rights are not live presence.
     public var focusedSessionIDs: Set<String>
 
     public init(sessions: [AgentSession], now: Date, appActive: Bool, quietMode: Bool,

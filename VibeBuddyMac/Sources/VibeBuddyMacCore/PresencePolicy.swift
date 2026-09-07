@@ -42,16 +42,4 @@ public struct PresencePolicy: Sendable, Equatable {
         return input.sessionSurfaceFocused ? .present : .away
     }
 
-    /// Sessions whose interrupting cues should stay on the Mac (DeliveryMatrix
-    /// list cap). Lock, idle, missing observation, or "always ask the phone"
-    /// empty the set — the arrival-time verdict is never reused.
-    public static func suppressingSessionIDs(focused: Set<String>,
-                                             screenLocked: Bool,
-                                             idleSeconds: TimeInterval,
-                                             alwaysAskPhone: Bool) -> Set<String> {
-        guard decide(Input(sessionSurfaceFocused: true, screenLocked: screenLocked,
-                           idleSeconds: idleSeconds, alwaysAskPhone: alwaysAskPhone)) == .present
-        else { return [] }
-        return focused
-    }
 }

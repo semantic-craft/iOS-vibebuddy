@@ -105,7 +105,7 @@ public actor ActionRequestLog {
 }
 
 /// Daemon-side result of one session action. The phone maps this onto
-/// `SessionActionOutcome` (adding not-sent / unknown around the transport).
+/// its local receipt state (adding not-sent / unknown around the transport).
 public enum SessionActionDelivery: Equatable, Sendable {
     case accepted
     case unknown

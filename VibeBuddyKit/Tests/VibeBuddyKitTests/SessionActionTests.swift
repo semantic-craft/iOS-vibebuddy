@@ -66,13 +66,4 @@ struct SessionActionTests {
                 .hasPrefix("Mac ·"))
     }
 
-    @Test("HTTP 200 accepted is not a transport miss; 202 and 409 are failures")
-    func httpMapping() {
-        #expect(SessionActionOutcome.fromHTTP(statusCode: 200, body: ["status": "accepted"]) == .accepted)
-        #expect(SessionActionOutcome.fromHTTP(statusCode: 202, body: ["status": "failed", "error": "gone"])
-                == .failed("gone"))
-        #expect(SessionActionOutcome.fromHTTP(statusCode: 409, body: ["status": "failed", "error": "expired"])
-                == .failed("expired"))
-        #expect(SessionActionOutcome.fromHTTP(statusCode: 503, body: ["error": "down"]) == .failed("down"))
-    }
 }

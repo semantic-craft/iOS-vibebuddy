@@ -12,15 +12,6 @@ public enum SessionActionIntent: String, Codable, Sendable {
     case `continue`
 }
 
-/// What the client may honestly say after a send. Accepted means the daemon
-/// took the request — not that the session is working or finished.
-public enum SessionActionOutcome: Equatable, Sendable {
-    case notSent(String)
-    case accepted
-    case failed(String)
-    case unknown
-}
-
 /// Phone/Mac shared rule: which intent a session's composer should send,
 /// and whether that agent can actually do it right now.
 public struct SessionActionSupport: Equatable, Sendable {
@@ -86,23 +77,5 @@ public struct SessionActionRequest: Equatable, Sendable {
         self.expectedStatusSince = expectedStatusSince
         self.text = text
         self.answers = answers
-    }
-}
-
-public extension SessionActionOutcome {
-    /// Map a daemon `/answer` HTTP result. No response at all is the caller's
-    /// job (`notSent` before the request, `unknown` after a transport error).
-    static func fromHTTP(statusCode: Int, body: [String: String]) -> SessionActionOutcome {
-        switch body["status"] {
-        case "accepted": return .accepted
-        case "failed": return .failed(body["error"] ?? String(localized: "The Mac refused"))
-        case "unknown": return .unknown
-        default:
-            if statusCode == 202 {
-                return .failed(body["error"] ?? String(localized: "Not delivered"))
-            }
-            if (200..<300).contains(statusCode) { return .accepted }
-            return .failed(body["error"] ?? String(localized: "The Mac refused"))
-        }
     }
 }
