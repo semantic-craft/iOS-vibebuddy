@@ -28,6 +28,23 @@ struct DeviceRegistryTests {
         #expect(await restarted.summary().count == 1)
     }
 
+    @Test func completionNoticeCapabilitySurvivesRegistrationAndRestart() async throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let tokens = DeviceTokens(url: url)
+        await tokens.register(DeviceRegistrationPayload(
+            token: "abc", supportsCompletionNotices: true))
+        #expect(await tokens.devices().first?.supportsCompletionNotices == true)
+
+        await tokens.register(DeviceRegistrationPayload(token: "abc", name: "Renamed phone"))
+        let restarted = DeviceTokens(url: url)
+        #expect(await restarted.devices().first?.supportsCompletionNotices == true)
+
+        await restarted.register(DeviceRegistrationPayload(
+            token: "abc", supportsCompletionNotices: false))
+        #expect(await DeviceTokens(url: url).devices().first?.supportsCompletionNotices == false)
+    }
+
     @Test func fileIsOwnerOnly() async throws {
         let url = tempURL()
         let tokens = DeviceTokens(url: url)
