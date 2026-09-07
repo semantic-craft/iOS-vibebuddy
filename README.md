@@ -111,7 +111,7 @@ The first-class roadmap covers **Claude Code, Codex, Grok, and Cursor**: three-s
 The Mac shows a QR encoding `host:port` + a bearer token. The phone scans it once — no manual IP entry. (The same QR can carry a Tailscale `100.x` address later, with no code change.)
 
 ### 🖥️ Native Mac menu-bar app
-A `MenuBarExtra` glance with live counts, a macOS notch glance, **jump-to-terminal** (open the right session with one click), launch-at-login, and a LAN bearer token persisted in the owner-only (`0600`) file `~/Library/Application Support/vibebuddy/token`. ⏎ / ⌘F dashboard shortcuts included. v1.1 uses a signed Sparkle update feed; original v1.0 users need a one-time manual installation.
+A fixed menu-bar launcher with optional task status (off by default), a macOS notch glance for live counts and alerts, **jump-to-terminal** (open the right session with one click), launch-at-login, and a LAN bearer token persisted in the owner-only (`0600`) file `~/Library/Application Support/vibebuddy/token`. ⏎ / ⌘F dashboard shortcuts included. v1.1 uses a signed Sparkle update feed; original v1.0 users need a one-time manual installation.
 
 ### 🔒 Local-first & private by design
 vibebuddy talks **directly** between your Mac and your phone over your own network. Session data **never** touches a vibebuddy server — there is no vibebuddy cloud, no account, no analytics, no tracking. Daemon routes are bearer-token gated. When APNs is configured, notification payloads (including titles and bodies) pass through Apple's push service. (The optional voice companion sends microphone audio and selected session context only to the provider *you* chose, with *your* key, when you turn it on.)
