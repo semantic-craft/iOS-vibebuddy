@@ -46,7 +46,7 @@ final class DashboardStoreTests: XCTestCase {
 
         let afterStart = await decisions.acknowledgedSessionIDs
         XCTAssertEqual(afterStart, [])
-        store.stop()
+        await store.stop().value
     }
 
     func testWatchAcknowledgementCarriesExactRoundAndRejectsAnotherSource() async throws {
@@ -76,7 +76,7 @@ final class DashboardStoreTests: XCTestCase {
         }
         let sent = await decisions.completionRequests
         XCTAssertEqual(sent, [CompletionReadRequest(sourceID: "mac-a", sessionID: "task", completionID: "round-1")])
-        store.stop()
+        await store.stop().value
     }
 
     func testPhoneAndWatchReadTheExactWaitWithoutAnsweringIt() async throws {
@@ -89,7 +89,6 @@ final class DashboardStoreTests: XCTestCase {
             streamer: ScriptedStreamer(snapshots: [Snapshot(sessions: [waiting], serverTime: now, sourceID: "mac-a")]),
             notifier: SilentNotifier(), decisionClient: decisions, watchRelay: nil, reportDevice: { _ in })
         store.start(PairingPayload(host: "127.0.0.1", port: 9, token: "test"))
-        defer { store.stop() }
         for _ in 0..<50 where store.allSessions.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
         store.acknowledge("task")
         for _ in 0..<50 {
@@ -107,6 +106,7 @@ final class DashboardStoreTests: XCTestCase {
         let completions = await decisions.completionRequests
         XCTAssertTrue(completions.isEmpty)
         XCTAssertEqual(store.allSessions.first?.status, .needsResponse)
+        await store.stop().value
     }
 
     func testFollowFlipsTheRowAtOnceAndTellsTheMac() async throws {
@@ -134,7 +134,7 @@ final class DashboardStoreTests: XCTestCase {
         let sent = await decisions.attentions
         XCTAssertEqual(sent.map(\.sessionId), ["s"])
         XCTAssertEqual(sent.map(\.level), [.followed])
-        store.stop()
+        await store.stop().value
     }
 
     /// The Mac's device registry can be emptied by a Mac restart while this app
@@ -153,7 +153,7 @@ final class DashboardStoreTests: XCTestCase {
             if reports.count >= 2 { break }
             try await Task.sleep(for: .milliseconds(10))
         }
-        store.stop()
+        await store.stop().value
 
         XCTAssertGreaterThanOrEqual(reports.count, 2)
         XCTAssertEqual(reports.first?.host, "127.0.0.1")

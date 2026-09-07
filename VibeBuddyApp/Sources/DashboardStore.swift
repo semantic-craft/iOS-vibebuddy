@@ -171,7 +171,10 @@ final class DashboardStore: ObservableObject {
     }
 
     func start(_ pairing: PairingPayload) {
-        stop()
+        // Reconnecting is not an explicit stop: ActivityKit keeps the current
+        // activity across process death, so the first snapshot must reclaim it.
+        let changedSource = isDemo || (self.pairing != nil && self.pairing != pairing)
+        runTask?.cancel()
         isDemo = false
         self.pairing = pairing
         ConnectionStore.observePairing(pairing)
@@ -182,6 +185,7 @@ final class DashboardStore: ObservableObject {
         relayToWatch([])
         policy = SoundPolicy()                        // fresh connection → suppress the backlog
         runTask = Task { [weak self] in
+            if changedSource { await self?.liveActivity.end() }
             while !Task.isCancelled {
                 guard let self else { return }
                 // Every attempt, not just the first: the Mac may have restarted
@@ -200,10 +204,11 @@ final class DashboardStore: ObservableObject {
         }
     }
 
-    func stop() {
+    @discardableResult
+    func stop() -> Task<Void, Never> {
         runTask?.cancel()
         runTask = nil
-        Task { await liveActivity.end() }
+        return Task { await liveActivity.end() }
     }
 
     func forgetPairing() {
