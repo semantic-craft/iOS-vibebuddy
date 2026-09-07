@@ -3,6 +3,21 @@
     <channel>
         <title>VibeBuddyMacApp</title>
         <item>
+            <title>1.3.6</title>
+            <pubDate>Mon, 07 Sep 2026 19:19:34 +0800</pubDate>
+            <link>https://github.com/semantic-craft/iOS-vibebuddy</link>
+            <sparkle:version>13</sparkle:version>
+            <sparkle:shortVersionString>1.3.6</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <sparkle:releaseNotesLink>https://semantic-craft.github.io/iOS-vibebuddy/vibebuddy-mac-v1.3.6.md</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/semantic-craft/iOS-vibebuddy/releases/download/v1.3.6/vibebuddy-mac-v1.3.6.dmg" length="11424175" type="application/octet-stream" sparkle:edSignature="WnchjNmYRxxWz9tO0tCJk4gzc5pvBbGDgXJqzowa0MptjD2Lnhk08jrGaDoXCTQRMmTnoaR/NpVutlSb72wDDQ=="/>
+            <sparkle:deltas>
+                <enclosure url="https://github.com/semantic-craft/iOS-vibebuddy/releases/download/v1.3.6/VibeBuddyMacApp13-12.delta" sparkle:deltaFrom="12" length="1352434" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="6eDRP20LlnrLoyVmxjLbVyTd74Cm3N1zudI1qkLs4spPRhBqHsPz5h20m6gV2mC4orvv4lenQDhQLGfKv6xMDA=="/>
+                <enclosure url="https://github.com/semantic-craft/iOS-vibebuddy/releases/download/v1.3.6/VibeBuddyMacApp13-11.delta" sparkle:deltaFrom="11" length="1516246" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977808" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="vZ43ZSK2/W2PBsvyYmGiwuheYlAmrRrDRAtzCV9gyLYwtNgv5KjxVgUSOUhiKoqsLreIVKhz2boP0DiBI+V8Cg=="/>
+            </sparkle:deltas>
+        </item>
+        <item>
             <title>1.3.5</title>
             <pubDate>Mon, 07 Sep 2026 17:50:31 +0800</pubDate>
             <link>https://github.com/semantic-craft/iOS-vibebuddy</link>
