@@ -5,6 +5,22 @@ import VibeBuddyKit
 
 @Suite("RecentOutputReader — per-agent formats")
 struct RecentOutputReaderTests {
+    @Test("analysis messages are excluded while visible final output remains")
+    func excludesAnalysisMessages() {
+        let input = #"{"type":"response_item","payload":{"type":"message","role":"assistant","channel":"analysis","content":[{"type":"output_text","text":"private reasoning"}]}}"# + "\n" + #"{"type":"response_item","payload":{"type":"message","role":"assistant","channel":"final","content":[{"type":"output_text","text":"Done"}]}}"#
+        #expect(RecentOutputReader.codexRollout(tail: Data(input.utf8)).entries.map(\.text) == ["Done"])
+    }
+
+    @Test("transcript path enrichment preserves completion identity and content")
+    func preservesCompletion() {
+        let event = HookEvent(kind: .stop, sessionID: "session", agent: .codex, timestamp: Date(),
+                              turnID: "turn", completionText: "Done", completionSucceeded: true)
+        let stamped = event.withTranscriptPath("/tmp/rollout.jsonl")
+        #expect(stamped.completionText == event.completionText)
+        #expect(stamped.completionSucceeded == event.completionSucceeded)
+        #expect(stamped.turnID == event.turnID)
+    }
+
 
     @Test("Claude transcript keeps user and assistant prose, drops thinking and tool results")
     func claudeFiltersNoise() {

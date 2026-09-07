@@ -13,6 +13,11 @@ private actor DecisionRecorder: DecisionClient {
     private(set) var attentions: [(sessionId: String, level: SessionAttention?)] = []
     private(set) var recentOutputIDs: [String] = []
     private var nextOutput: RecentOutput?
+    private var heldOutput: CheckedContinuation<RecentOutput?, Never>?
+    private var hold = false
+    func holdNextOutput() { hold = true }
+    func outputIsHeld() -> Bool { heldOutput != nil }
+    func releaseOutput() { heldOutput?.resume(returning: nextOutput); heldOutput = nil }
 
     func setNext(_ output: RecentOutput) { nextOutput = output }
 
@@ -28,6 +33,7 @@ private actor DecisionRecorder: DecisionClient {
 
     func recentOutput(_ pairing: PairingPayload, sessionId: String) async -> RecentOutput? {
         recentOutputIDs.append(sessionId)
+        if hold { return await withCheckedContinuation { heldOutput = $0 } }
         return nextOutput ?? RecentOutput(sessionId: sessionId, source: .transcript)
     }
 
@@ -39,7 +45,7 @@ private actor DecisionRecorder: DecisionClient {
 private actor ActionRecorder: DecisionClient {
     private(set) var submits: [SessionActionRequest] = []
 
-    func acknowledge(_ pairing: PairingPayload, sessionId: String) async {}
+    func acknowledge(_ pairing: PairingPayload, request: CompletionReadRequest) async -> CompletionReadOutcome { .accepted }
     func setAttention(_ pairing: PairingPayload, sessionId: String, level: SessionAttention?) async {}
     func decide(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> Bool { true }
     func answer(_ pairing: PairingPayload, sessionId: String, answer: String) async {}
@@ -212,6 +218,21 @@ final class DashboardStoreTests: XCTestCase {
 
         XCTAssertGreaterThanOrEqual(reports.count, 2)
         XCTAssertEqual(reports.first?.host, "127.0.0.1")
+    }
+
+    func testDelayedOutputCannotCrossPairing() async throws {
+        let decisions = DecisionRecorder()
+        await decisions.setNext(RecentOutput(sessionId: "s", entries: [.init(role: "assistant", text: "old Mac")]))
+        await decisions.holdNextOutput()
+        let store = DashboardStore(streamer: EmptyStreamer(), notifier: SilentNotifier(), decisionClient: decisions, watchRelay: nil)
+        store.start(PairingPayload(host: "127.0.0.1", port: 9, token: "old"))
+        let read = Task { await store.loadRecentOutput("s") }
+        while !(await decisions.outputIsHeld()) { await Task.yield() }
+        store.start(PairingPayload(host: "127.0.0.2", port: 9, token: "new"))
+        await decisions.releaseOutput()
+        await read.value
+        XCTAssertNil(store.recentOutputs["s"])
+        await store.stop().value
     }
 
     func testLoadingRecentOutputDoesNotAcknowledgeCompletion() async throws {

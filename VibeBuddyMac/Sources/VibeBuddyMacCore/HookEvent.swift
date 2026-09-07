@@ -140,6 +140,7 @@ public struct HookEvent: Sendable, Equatable {
             toolError: toolError, timestamp: timestamp, childID: childID,
             childKind: childKind, childName: childName, childType: childType,
             childAction: childAction, turnID: turnID, enrichment: enrichment,
-            desktopThreadID: desktopThreadID, probeRetirement: probeRetirement)
+            desktopThreadID: desktopThreadID, probeRetirement: probeRetirement,
+            completionText: completionText, completionSucceeded: completionSucceeded)
     }
 }

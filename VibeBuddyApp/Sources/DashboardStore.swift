@@ -250,6 +250,7 @@ final class DashboardStore: ObservableObject {
         ConnectionStore.observePairing(pairing)
         pairingEpoch = ConnectionStore.pairingEpoch
         completionReads.select(epoch: pairingEpoch)
+        recentOutputs = [:]
         sourceID = nil
         groups = SessionGroups([])
         state = .connecting
@@ -290,6 +291,7 @@ final class DashboardStore: ObservableObject {
         stop()
         completionReads.clear()
         pairing = nil
+        recentOutputs = [:]
         sourceID = nil
         pairingEpoch = ConnectionStore.pairingEpoch
         state = .connecting
@@ -664,7 +666,12 @@ final class DashboardStore: ObservableObject {
             return
         }
         guard let pairing else { return }
-        if let output = await decisionClient.recentOutput(pairing, sessionId: sessionId) {
+        let epoch = pairingEpoch
+        let source = sourceID
+        let generation = connectionGeneration
+        if let output = await decisionClient.recentOutput(pairing, sessionId: sessionId),
+           self.pairing == pairing, epoch == pairingEpoch, source == sourceID,
+           generation == connectionGeneration, output.sessionId == sessionId {
             recentOutputs[sessionId] = output
         }
     }
@@ -772,6 +779,7 @@ final class DashboardStore: ObservableObject {
         buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: snapshot.sessions)
         state = .connected
         if sourceID != snapshot.sourceID { completionReads.pause() }
+        if sourceID != snapshot.sourceID { recentOutputs = [:] }
         sourceID = snapshot.sourceID
         completionReads.reconcile(snapshot, epoch: pairingEpoch)
         if let pairing, let sourceID {

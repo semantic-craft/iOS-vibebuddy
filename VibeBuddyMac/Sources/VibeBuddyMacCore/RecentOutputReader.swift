@@ -80,6 +80,7 @@ public enum RecentOutputReader {
     }
 
     private static func codexResponseItem(_ payload: [String: Any]) -> TranscriptEntry? {
+        if let channel = payload["channel"] as? String, !["final", "commentary"].contains(channel) { return nil }
         let itemType = payload["type"] as? String
         switch itemType {
         case "message":
