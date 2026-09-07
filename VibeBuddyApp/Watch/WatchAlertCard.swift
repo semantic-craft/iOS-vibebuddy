@@ -43,6 +43,22 @@ struct WatchAlertCard: View {
             ? String(localized: "Needs approval") : String(localized: "Asked a question")
     }
 
+    private var connectionMessage: String? {
+        guard let state = store.state else { return String(localized: "Waiting for an updated request from your iPhone.") }
+        switch state.connection(now: now, phoneReachable: store.canReachPhone) {
+        case .macDisconnected:
+            return String(localized: "Your iPhone can't reach your Mac, so this can't be sent.")
+        case .phoneDisconnected:
+            return String(localized: "Your iPhone hasn't sent an update. Open VibeBuddy on your iPhone.")
+        case .watchUnreachable:
+            return String(localized: "Can't reach your iPhone. Reconnect to verify this request.")
+        case .noData:
+            return String(localized: "Waiting for an updated request from your iPhone.")
+        case .live:
+            return store.canReachPhone ? nil : String(localized: "Can't reach your iPhone. Reconnect to verify this request.")
+        }
+    }
+
     private var content: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
@@ -100,12 +116,15 @@ struct WatchAlertCard: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
 
-            if alert.isDecidable {
+            if let connectionMessage {
+                Text(connectionMessage).font(.caption2).foregroundStyle(.secondary)
+                if alert.handling == .macGrokBot || alert.handling == .macNativePrompt {
+                    Text((alert.handling ?? .unavailable).message).font(.caption2).foregroundStyle(.secondary)
+                }
+            } else if alert.isDecidable {
                 WatchApprovalActions(store: store, alert: alert)
             } else {
-                Text(alert.waitKind == .permission
-                     ? "Approve or deny on your iPhone."
-                     : "Answer on your iPhone.")
+                Text((alert.handling ?? .unavailable).message)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }

@@ -11,47 +11,53 @@ final class QwenReadAloud: ObservableObject {
     @Published private(set) var status = ""
     var canSpeak: @MainActor () -> Bool = { true }
     private var player: AVAudioPlayer?
-    private var task: Task<Void, Never>?
+    private lazy var queue: CompletionSpeechQueue = {
+        let queue = CompletionSpeechQueue()
+        queue.onBusyChanged = { [weak self] in self?.busy = $0 }
+        return queue
+    }()
     private var generation = UUID()
 
     func stop() {
-        generation = UUID(); task?.cancel(); task = nil
-        player?.stop(); player = nil; busy = false
+        generation = UUID()
+        queue.cancel()
+        player?.stop(); player = nil
+        status = "Read-aloud stopped"
     }
 
-    func speak(_ text: String, validate: @escaping @MainActor () async -> Bool = { true }) {
-        guard !busy, canSpeak() else { return }
-        let id = UUID(); generation = id
-        busy = true; status = "Generating Qwen speech…"
-        task = Task { [weak self] in
+    func speak(_ text: String, id: String = UUID().uuidString,
+               validate: @escaping @MainActor () async -> Bool = { true }) {
+        guard canSpeak() else { return }
+        queue.enqueue(id: id) { [weak self] in
             guard let self else { return }
-            defer { if self.generation == id { self.busy = false; self.task = nil } }
+            let current = self.generation
             do {
-                guard await validate(), !Task.isCancelled, self.generation == id, self.canSpeak() else { return }
+                guard await validate(), !Task.isCancelled, self.generation == current, self.canSpeak() else { return }
                 guard let key = VoiceProvider.qwen.apiKey, !key.isEmpty else {
                     self.status = "Save your DashScope API key first."; return
                 }
+                self.status = "Generating Qwen speech…"
                 let defaults = UserDefaults.standard
                 let data = try await QwenSpeechSynthesis.synthesize(text, apiKey: key,
                     model: defaults.string(forKey: Self.modelKey) ?? QwenSpeechSynthesis.defaultModel,
                     voice: defaults.string(forKey: Self.voiceKey) ?? QwenSpeechSynthesis.defaultVoice,
                     workspaceID: VoiceSettings.qwenWorkspaceID, useIntl: VoiceSettings.useIntl)
-                guard await validate(), !Task.isCancelled, self.generation == id, self.canSpeak() else { return }
+                guard await validate(), !Task.isCancelled, self.generation == current, self.canSpeak() else { return }
                 let player = try AVAudioPlayer(data: data)
                 self.player = player
-                guard player.play() else { self.status = "Your Mac could not play the audio."; return }
+                guard player.play() else { self.status = "Your Mac could not play the audio."; self.player = nil; return }
                 self.status = "Playing Qwen speech"
                 while player.isPlaying && !Task.isCancelled {
                     try await Task.sleep(for: .milliseconds(100))
-                    guard await validate(), !Task.isCancelled, self.generation == id, self.canSpeak() else {
+                    guard await validate(), !Task.isCancelled, self.generation == current, self.canSpeak() else {
                         player.stop()
-                        if self.generation == id { self.player = nil; self.status = "Read-aloud stopped" }
+                        if self.generation == current { self.player = nil; self.status = "Read-aloud stopped" }
                         return
                     }
                 }
-                if self.generation == id { self.status = "Playback complete"; self.player = nil }
+                if self.generation == current { self.status = "Playback complete"; self.player = nil }
             } catch is CancellationError { }
-              catch { if self.generation == id { self.status = "Speech generation failed. Check your DashScope model, voice and connection." } }
+              catch { if self.generation == current { self.status = "Speech generation failed. Check your DashScope model, voice and connection." } }
         }
     }
 }

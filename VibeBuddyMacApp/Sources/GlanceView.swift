@@ -265,7 +265,7 @@ struct GlanceView: View {
                     .textCase(.uppercase).kerning(0.6)
                     .foregroundStyle(.white.opacity(0.55))
                 ApprovalBody(approval: a, onDark: true)
-                if a.isAnswerable {
+                if ApprovalEligibility.approval(for: p) != nil {
                     HStack(spacing: 10 * s) {
                         Button("Approve") { model.decide(a.id, .allow) }
                             .buttonStyle(PillButtonStyle(kind: .filled(MacTheme.status(.completeUnread)), size: .large))
@@ -281,18 +281,20 @@ struct GlanceView: View {
                         linkButton("This session") { model.decide(a.id, .allowSession) }
                             .help("Stop asking for the rest of this run")
                         Text("·").foregroundStyle(.white.opacity(0.4))
-                        linkButton(p.jumpsToDesktopThread ? "Open thread" : "Jump ⏎") { model.jump(p) }
-                            .help(p.jumpsToDesktopThread ? "Open this thread in ChatGPT" : "Jump to terminal")
+                        linkButton(p.agent == .grokBot ? "Open Grok Bot" : p.jumpsToDesktopThread ? "Open thread" : "Jump ⏎") { model.jump(p) }
+                            .help(p.agent == .grokBot ? "Open Grok Bot and select the task" : p.jumpsToDesktopThread ? "Open this thread in ChatGPT" : "Jump to terminal")
                     }
                     .font(.system(size: 11 * s, weight: .heavy, design: .rounded))
                 } else {
-                    // Presence: the agent's own prompt is taking this one.
+                    // Explain the capability without inferring Presence.
                     HStack(spacing: 8 * s) {
-                        Label("Answer in the prompt", systemImage: "keyboard")
+                        Label(WaitHandling.resolve(for: p).message, systemImage: "keyboard")
                             .font(.system(size: 11 * s, weight: .semibold, design: .rounded)).foregroundStyle(.white.opacity(0.8))
                         Spacer(minLength: 0)
-                        Button(p.jumpsToDesktopThread ? "Open thread" : "Jump") { model.jump(p) }
+                        if p.canJump {
+                        Button(p.agent == .grokBot ? "Open Grok Bot" : p.jumpsToDesktopThread ? "Open thread" : "Jump") { model.jump(p) }
                             .buttonStyle(GlanceButtonStyle(scale: s))
+                        }
                     }
                 }
                 if let outcome = model.jumpFeedback[p.id] {
@@ -388,24 +390,31 @@ private struct GlanceEventCard: View {
                 .lineLimit(1)
                 Spacer(minLength: 0)
             }
+            if live.status == .needsResponse && live.pendingApproval == nil && WaitHandling.resolve(for: live) != .remoteAvailable {
+                Text(WaitHandling.resolve(for: live).message)
+                    .font(.system(size: 11 * s)).foregroundStyle(.white.opacity(0.8))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if card.isActionable || card.alert.sound == .agentStuck {
                 HStack(spacing: 8 * s) {
                     if let a = live.pendingApproval, card.alert.sound == .needsApproval {
-                        if a.isAnswerable {
+                        if ApprovalEligibility.approval(for: live) != nil {
                             Button("Approve") { model.decide(a.id, .allow); model.dismissGlanceCard() }
                                 .buttonStyle(GlanceButtonStyle(tint: MacTheme.status(.completeUnread), scale: s))
                             Button("Deny") { model.decide(a.id, .deny); model.dismissGlanceCard() }
                                 .buttonStyle(GlanceButtonStyle(tint: MacTheme.status(.error), scale: s))
                         } else {
-                            Label("Answer in the prompt", systemImage: "keyboard")
+                            Label(WaitHandling.resolve(for: live).message, systemImage: "keyboard")
                                 .font(.system(size: 11 * s)).foregroundStyle(.white.opacity(0.8))
                         }
                     }
+                    if live.canJump {
                     Button { model.jump(live); model.dismissGlanceCard() } label: {
-                        Label("Jump", systemImage: live.jumpsToDesktopThread ? "bubble.left" : "terminal")
+                        Label(live.agent == .grokBot ? "Open Grok Bot" : "Jump", systemImage: live.agent == .grokBot || live.jumpsToDesktopThread ? "bubble.left" : "terminal")
                     }
                     .buttonStyle(GlanceButtonStyle(scale: s))
-                    .help(live.jumpsToDesktopThread ? "Open this thread in ChatGPT" : "Jump to terminal")
+                    .help(live.agent == .grokBot ? "Open Grok Bot and select the task" : live.jumpsToDesktopThread ? "Open this thread in ChatGPT" : "Jump to terminal")
+                    }
                 }
             }
         }

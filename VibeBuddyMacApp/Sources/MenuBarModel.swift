@@ -36,6 +36,7 @@ final class MenuBarModel: ObservableObject {
     /// the rollout tailer + hooks keep covering Codex whenever it is off or
     /// the daemon is not running.
     @Published var codexAppServerEnabled: Bool = true
+    @Published var grokBotEnabled = false
     /// Settings override for the presence policy: hold every prompt for the
     /// phone even while the person is at the Mac. Off by default.
     @Published var alwaysAskPhone: Bool = false
@@ -88,10 +89,12 @@ final class MenuBarModel: ObservableObject {
     private let approvalContext = ApprovalContextStore()
     private let questionRegistry = QuestionRegistry()
     private let codexAppServerMonitor: CodexAppServerMonitor
+    private let grokBotMonitor: GrokBotMonitor
     /// Live account usage from Claude's status line and the Codex daemon,
     /// consumed by the usage coordinator ahead of its spawning collectors.
     private let usageFeed = AccountUsageLiveFeed()
     static let codexAppServerEnabledKey = "codexAppServerEnabled"
+    static let grokBotEnabledKey = "grokBotObserverEnabled"
     // Live Activity push tokens + the last content we pushed, so we only push on change.
     private let activityTokens = ActivityTokens()
     private var lastActivityKey: String?
@@ -109,13 +112,20 @@ final class MenuBarModel: ObservableObject {
         onScheduled: { [weak self] alert in
             Task { @MainActor in
                 guard let self, UserDefaults.standard.bool(forKey: QwenReadAloud.enabledKey),
-                      !self.voiceChat.isActive, alert.sound == .agentDone,
+                      !self.voiceChat.isActive, !alert.isReminder, alert.sound == .agentDone,
                       let notice = alert.session.completionNotice, notice.state == .summary,
                       let text = notice.text, await self.isCurrentCompletion(alert) else { return }
                 guard UserDefaults.standard.bool(forKey: QwenReadAloud.enabledKey), !self.voiceChat.isActive else { return }
-                self.qwenReadAloud.speak(text) { [weak self] in
-                    guard let self, UserDefaults.standard.bool(forKey: QwenReadAloud.enabledKey), !self.voiceChat.isActive else { return false }
-                    return await self.isCurrentCompletion(alert)
+                guard (alert.session.agent != .grokBot || self.grokBotEnabled),
+                      !ForegroundTerminal.sourceAppSuppressesSpeech(for: alert.session,
+                        frontmostBundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier) else { return }
+                self.qwenReadAloud.speak(text, id: notice.id) { [weak self] in
+                    guard let self, await self.isCurrentCompletion(alert) else { return false }
+                    // Recheck live speech preferences and foreground after the store actor hop.
+                    guard UserDefaults.standard.bool(forKey: QwenReadAloud.enabledKey), !self.voiceChat.isActive,
+                          alert.session.agent != .grokBot || self.grokBotEnabled else { return false }
+                    return !ForegroundTerminal.sourceAppSuppressesSpeech(for: alert.session,
+                        frontmostBundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
                 }
             }
         })
@@ -149,6 +159,17 @@ final class MenuBarModel: ObservableObject {
     /// daemon's presence check). Weak: the model owns the app's lifetime, not
     /// the other way round.
     private(set) static weak var shared: MenuBarModel?
+    struct MenuSnapshot {
+        var sessions: [AgentSession] = []
+        var sourceID: String?
+        var roundIDs: [String: String] = [:]
+    }
+    @Published private(set) var menuSnapshot = MenuSnapshot()
+    private let menuRoundReader = MenuRoundIdentityReader()
+    private var menuRefreshTask: Task<Void, Never>?
+    private let menuRolloutMonitor = CodexRolloutMonitor()
+    private static let menuSourcePathsKey = "menuSourcePaths"
+
     private var snapshotSourceID: String?
 
     init(runtimeEnabled: Bool = true) {
@@ -177,6 +198,9 @@ final class MenuBarModel: ObservableObject {
         showGlance = UserDefaults.standard.bool(forKey: "showGlance", default: true)
         let appServerOn = UserDefaults.standard.bool(forKey: Self.codexAppServerEnabledKey, default: true)
         codexAppServerEnabled = appServerOn
+        let grokBotOn = UserDefaults.standard.bool(forKey: Self.grokBotEnabledKey)
+        grokBotEnabled = grokBotOn
+        grokBotMonitor = GrokBotMonitor(enabled: grokBotOn)
         alwaysAskPhone = UserDefaults.standard.bool(forKey: Self.alwaysAskPhoneKey)
         // Presence is read on the main actor from the live snapshot; the
         // daemon and the monitor ask through this closure right before they
@@ -242,6 +266,7 @@ final class MenuBarModel: ObservableObject {
         let isDemo = ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1"
         if isDemo {
             sessions = MacDemoData.sessions()
+            menuSnapshot = MenuSnapshot(sessions: sessions)
             observationDiagnostics = MacDemoData.observationDiagnostics()
         } else if runtimeEnabled {
             notifier.requestAuthorization()
@@ -304,8 +329,9 @@ final class MenuBarModel: ObservableObject {
                                      pusher: nil, phoneReceipts: phoneReceipts,
                                      deviceTokens: deviceTokens,
                                      activityTokens: activityTokens,
-                                     codexRolloutMonitor: CodexRolloutMonitor(),
+                                     codexRolloutMonitor: menuRolloutMonitor,
                                      codexAppServerMonitor: codexAppServerMonitor,
+                                     grokBotMonitor: grokBotMonitor,
                                      usageFeed: usageFeed,
                                      approvalRegistry: approvalRegistry,
                                      allowStore: allowStore,
@@ -387,9 +413,49 @@ final class MenuBarModel: ObservableObject {
                 Task { await self.pushToPhones(alerts, focused: present) }
                 await self.pushActivityUpdates(snapshot.sessions)
                 await self.checkBudget(snapshot.sessions)
+                if self.menuRefreshTask == nil {
+                    self.menuRefreshTask = Task { [weak self] in
+                        guard let self else { return }
+                        defer { self.menuRefreshTask = nil }
+                        await self.refreshMenuSnapshot(snapshot)
+                    }
+                }
                 try? await Task.sleep(for: .seconds(2))
             }
         }
+    }
+
+    /// Resolve menu evidence separately from notification and lifecycle projection.
+    private func refreshMenuSnapshot(_ snapshot: Snapshot) async {
+        let defaults = UserDefaults.standard
+        var saved = defaults.dictionary(forKey: Self.menuSourcePathsKey) as? [String: String] ?? [:]
+        let known = await store.menuTranscriptPaths()
+        var paths: [String: String] = [:]
+        for session in snapshot.sessions where session.completionID == nil && session.presentationState == .idle {
+            let key = "\(snapshot.sourceID ?? "unknown"):\(session.agent.rawValue):\(session.id)"
+            let rollout = session.agent == .codex ? await menuRolloutMonitor.rolloutPath(for: session.id) : nil
+            if let path = rollout ?? known[session.id] ?? saved[key] {
+                paths[session.id] = path
+                saved[key] = path
+            }
+        }
+        let missing = Set(snapshot.sessions.filter {
+            $0.agent == .codex && $0.completionID == nil && $0.presentationState == .idle && paths[$0.id] == nil
+        }.map(\.id))
+        if !missing.isEmpty {
+            let discovered = await menuRoundReader.codexPaths(sessionIDs: missing,
+                root: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/sessions"))
+            for (id, path) in discovered {
+                paths[id] = path
+                saved["\(snapshot.sourceID ?? "unknown"):\(AgentKind.codex.rawValue):\(id)"] = path
+            }
+        }
+        if saved != (defaults.dictionary(forKey: Self.menuSourcePathsKey) as? [String: String] ?? [:]) {
+            defaults.set(saved, forKey: Self.menuSourcePathsKey)
+        }
+        let rounds = await menuRoundReader.identities(sessions: snapshot.sessions, paths: paths)
+        guard snapshotSourceID == snapshot.sourceID, sessions == snapshot.sessions else { return }
+        menuSnapshot = MenuSnapshot(sessions: snapshot.sessions, sourceID: snapshot.sourceID, roundIDs: rounds)
     }
 
     private func isCurrentCompletion(_ alert: SoundAlert, deviceToken: String? = nil) async -> Bool {
@@ -454,6 +520,12 @@ final class MenuBarModel: ObservableObject {
         deviceRegistry = await deviceTokens.summary()
     }
 
+    func setGrokBotEnabled(_ on: Bool) {
+        grokBotEnabled = on
+        UserDefaults.standard.set(on, forKey: Self.grokBotEnabledKey)
+        Task { [grokBotMonitor] in await grokBotMonitor.setEnabled(on) }
+    }
+
     func setAlwaysAskPhone(_ on: Bool) {
         alwaysAskPhone = on
         UserDefaults.standard.set(on, forKey: Self.alwaysAskPhoneKey)
@@ -516,17 +588,15 @@ final class MenuBarModel: ObservableObject {
         let topSession = leading?.id
         // The first pending approval, not necessarily the leading session (an
         // error outranks it) — the island's keys answer this one.
-        let asking = sessions.first { $0.pendingApproval != nil }
-        let approval = asking?.pendingApproval
-        let approvalTitle = approval.map { "\(asking?.project ?? "") wants to \(CompanionCopy.requestVerb($0))" }
-        let key = "\(summary)|\(topProject ?? "")|\(topSession ?? "")|\(approval?.id ?? "")"
+        let target = ActivityApprovalTarget.select(from: sessions)
+        let key = "\(summary)|\(topProject ?? "")|\(topSession ?? "")|\(target?.approvalID ?? "")|\(target?.title ?? "")|\(target?.detail ?? "")"
         guard key != lastActivityKey else { return }
         lastActivityKey = key
         for t in tokens {
             await pusher.sendActivityUpdate(summary: summary,
                 topProject: topProject, topSessionId: topSession,
-                approvalId: approval?.id, approvalTitle: approvalTitle,
-                approvalDetail: approval?.commandPreview, to: t)
+                approvalId: target?.approvalID, approvalTitle: target?.title,
+                approvalDetail: target?.detail, to: t)
         }
     }
 
@@ -784,6 +854,14 @@ final class MenuBarModel: ObservableObject {
     /// ChatGPT.app opens. Never refuses. A session with neither is a real answer
     /// ("no terminal recorded"), not a dead control — that silence was the bug.
     func jump(_ session: AgentSession) {
+        if session.agent == .grokBot {
+            Task { [weak self] in
+                let outcome = await GrokBotJumper.jump()
+                self?.showJumpFeedback(outcome, for: session.id)
+                await self?.store.recordInteraction(sessionID: session.id)
+            }
+            return
+        }
         acknowledge(session.id)
         Task { [store] in await store.recordInteraction(sessionID: session.id) }
         if let ref = session.terminalRef {

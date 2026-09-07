@@ -23,6 +23,7 @@ public struct SoundAlert: Equatable, Sendable {
     /// Presence may leave a read-only wait for the Mac's native dialog.
     /// Such a notification still opens its session, but offers no remote action.
     public var actionCategory: NotificationCategoryID? {
+        guard session.agent != .grokBot else { return nil }
         switch sound {
         case .needsApproval:
             return session.pendingApproval?.isAnswerable == true ? .approval : nil

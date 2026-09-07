@@ -9,6 +9,7 @@ public enum AccountUsageProvider: String, Codable, CaseIterable, Sendable, Ident
     case claude
     case grok
     case cursor
+    case grokBot
 
     public var id: String { rawValue }
 
@@ -16,8 +17,9 @@ public enum AccountUsageProvider: String, Codable, CaseIterable, Sendable, Ident
         switch self {
         case .codex: return "Codex"
         case .claude: return "Claude"
-        case .grok: return "Grok"
+        case .grok: return "Grok Build"
         case .cursor: return "Cursor"
+        case .grokBot: return "Grok Bot"
         }
     }
 }
@@ -45,6 +47,8 @@ public struct ProviderQuota: Codable, Equatable, Sendable, Identifiable {
     public static let staleAfter: TimeInterval = 15 * 60
 
     public var provider: AccountUsageProvider
+    /// Masked account attribution supplied by the Mac; never an authentication identity.
+    public var accountLabel: String?
     public var weeklyLabel: String?
     public var shortWindowLabel: String?
     public var weeklyRemainingPercent: Int?
@@ -65,6 +69,7 @@ public struct ProviderQuota: Codable, Equatable, Sendable, Identifiable {
 
     public init(
         provider: AccountUsageProvider,
+        accountLabel: String? = nil,
         weeklyRemainingPercent: Int? = nil,
         weeklyResetsAt: Date? = nil,
         weeklyWindowDurationMinutes: Int? = nil,
@@ -77,6 +82,7 @@ public struct ProviderQuota: Codable, Equatable, Sendable, Identifiable {
         isCached: Bool? = nil
     ) {
         self.provider = provider
+        self.accountLabel = accountLabel
         self.weeklyRemainingPercent = Self.validated(weeklyRemainingPercent)
         self.weeklyResetsAt = weeklyResetsAt
         self.weeklyWindowDurationMinutes = weeklyWindowDurationMinutes

@@ -46,6 +46,10 @@ public struct AccountUsageSnapshot: Codable, Equatable, Sendable {
     public var periodEnd: Date?
     /// Set when the sample itself came from a provider's local cache/log.
     public var isCached: Bool?
+    public var accountIdentity: String?
+    public var accountLabel: String?
+    public var usageDetail: String?
+    public var hasAvailableUsage: Bool?
 
     /// Extra Grok spend is not the shared subscription allowance.
     public var quotaWindows: [AccountUsageWindow] {
@@ -80,9 +84,12 @@ public struct AccountUsageSnapshot: Codable, Equatable, Sendable {
 
     /// Grok's last period is not a reading of its new allowance.
     public func excludingExpiredGrokWindows(at now: Date) -> Self {
-        guard provider == .grok else { return self }
+        guard provider == .grok || provider == .grokBot else { return self }
         var result = self
-        if let end = primary?.resetsAt, end <= now { result.primary = nil }
+        if let end = primary?.resetsAt, end <= now {
+            result.primary = nil
+            if provider == .grokBot { result.hasAvailableUsage = nil }
+        }
         if let end = secondary?.resetsAt, end <= now { result.secondary = nil }
         return result
     }
@@ -106,7 +113,7 @@ public enum AccountUsageUnavailableReason: String, Codable, Equatable, Sendable 
         case .collectionDisabled: return "Collection is turned off"
         case .cachedData: return "Showing cached data while refreshing"
         case .notYetLoaded: return "Waiting for the first refresh"
-        case .providerUnavailable: return "\(provider.displayName) CLI is unavailable"
+        case .providerUnavailable: return provider == .grokBot ? "Grok Bot usage service is unavailable" : "\(provider.displayName) CLI is unavailable"
         case .notLoggedIn: return "\(provider.displayName) is not signed in"
         case .offline: return "Offline"
         case .rateLimited: return "Usage service is rate limited"
@@ -219,6 +226,11 @@ public struct AccountUsageState: Equatable, Sendable {
 
 public protocol AccountUsageProviding: Sendable {
     func fetch() async throws -> AccountUsageSnapshot
+    func acceptsCachedSnapshot(_ snapshot: AccountUsageSnapshot) -> Bool
+}
+
+public extension AccountUsageProviding {
+    func acceptsCachedSnapshot(_ snapshot: AccountUsageSnapshot) -> Bool { true }
 }
 
 /// A cache write can prepare data asynchronously, but its final mutation must
@@ -421,7 +433,7 @@ public actor AccountUsageCollector {
         didBootstrap = true
         let cached = await cache.load()
         guard isEnabled, generation == currentGeneration else { return state }
-        if let snapshot = cached {
+        if let snapshot = cached, provider.acceptsCachedSnapshot(snapshot) {
             state = .stale(snapshot.excludingExpiredGrokWindows(at: now), reason: .cachedData, lastAttemptAt: nil, nextRefreshAt: now)
         } else {
             state = .unavailable(.notYetLoaded, lastAttemptAt: nil, nextRefreshAt: now)
@@ -457,7 +469,7 @@ public actor AccountUsageCollector {
             let exponent = min(failureCount - 1, 20)
             let delay = min(baseBackoff * pow(2, Double(exponent)), maxBackoff)
             let retryAt = now.addingTimeInterval(delay)
-            if let lastKnownGood = state.snapshot {
+            if let lastKnownGood = state.snapshot, provider.acceptsCachedSnapshot(lastKnownGood) {
                 state = .stale(lastKnownGood.excludingExpiredGrokWindows(at: now), reason: reason, lastAttemptAt: now, nextRefreshAt: retryAt)
             } else {
                 state = .unavailable(reason, lastAttemptAt: now, nextRefreshAt: retryAt)

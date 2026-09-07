@@ -7,6 +7,39 @@ import VibeBuddyKit
 /// alongside the manager. Run only on an isolated simulator/test installation.
 @MainActor
 final class LiveActivityRecoveryTests: XCTestCase {
+    func testReadOnlyTargetIsSkippedAndCapabilityRevocationClearsAction() async throws {
+        let manager = LiveActivityManager()
+        await manager.end()
+        let now = Date()
+        let readOnly = AgentSession(id: "readonly", agent: .claudeCode, project: "Read only",
+            status: .needsResponse, waitKind: .permission,
+            pendingApproval: PendingApproval(id: "ro", tool: "Bash", commandPreview: "pwd", answerable: false),
+            statusSince: now, updatedAt: now)
+        var valid = AgentSession(id: "valid", agent: .claudeCode, project: "Actionable",
+            status: .needsResponse, waitKind: .permission,
+            pendingApproval: PendingApproval(id: "valid-request", tool: "Bash", commandPreview: "ls", command: "ls"),
+            statusSince: now, updatedAt: now)
+        await manager.sync(sessions: [readOnly, valid])
+        let activity = try XCTUnwrap(Activity<VibeBuddyActivityAttributes>.activities.first)
+        let expected = ActivityApprovalTarget.select(from: [readOnly, valid])
+        XCTAssertEqual(activity.content.state.approvalId, expected?.approvalID)
+        XCTAssertEqual(activity.content.state.approvalTitle, expected?.title)
+        XCTAssertEqual(activity.content.state.approvalDetail, expected?.detail)
+        await IslandActivity.markSent(approvalId: "valid-request", outcome: "allow")
+        valid.pendingApproval = PendingApproval(id: "valid-request", tool: "Bash", commandPreview: "ls", answerable: false)
+        await manager.sync(sessions: [readOnly, valid])
+        let deadline = Date().addingTimeInterval(5)
+        while activity.content.state.approvalId != nil, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertNil(activity.content.state.approvalId)
+        XCTAssertNil(activity.content.state.approvalTitle)
+        XCTAssertNil(activity.content.state.approvalDetail)
+        XCTAssertNil(activity.content.state.decisionSent)
+        XCTAssertFalse(activity.content.state.summary.isEmpty)
+        await manager.end()
+    }
+
     func testDashboardStartKeepsSurvivingActivity() async throws {
         let now = Date()
         let sessions = [AgentSession(id: "dashboard-recovery", agent: .codex,

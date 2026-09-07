@@ -65,8 +65,14 @@ struct FollowedTaskView: View {
                 .font(.caption2)
                 .foregroundStyle(Color(taskStatus: task.presentation.colorToken))
                 .widgetAccentable()
-                Text(task.title.isEmpty ? String(localized: "Unnamed task") : task.title)
-                    .font(.headline).lineLimit(1)
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text(task.title.isEmpty ? String(localized: "Unnamed task") : task.title)
+                        .font(.headline).lineLimit(1)
+                    Spacer(minLength: 0)
+                    Text(task.sourceName)
+                        .font(.caption2).lineLimit(1).minimumScaleFactor(0.75)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
                 if stale, let snapshot = entry.snapshot {
                     HStack(spacing: 3) {
                         Image(systemName: "clock.badge.exclamationmark")

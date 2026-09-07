@@ -105,9 +105,10 @@ public struct WatchAlert: Codable, Equatable, Sendable, Identifiable {
     public var options: [String]
     /// The approval this alert may resolve from the wrist, when the relayed
     /// detail is complete enough to decide on (`WatchApprovalEligibility`).
-    /// `nil` — always, for a question — means display-only: read it here,
-    /// decide on the iPhone.
+    /// `nil` — always, for a question — means display-only. `handling` names
+    /// the verified destination; absence never promises another device can act.
     public var approvalId: String?
+    public var handling: WaitHandling?
     public var waitingSince: Date
 
     public var id: String { sessionId }
@@ -122,6 +123,7 @@ public struct WatchAlert: Codable, Equatable, Sendable, Identifiable {
         request: String? = nil,
         options: [String] = [],
         approvalId: String? = nil,
+        handling: WaitHandling? = nil,
         waitingSince: Date
     ) {
         self.sessionId = sessionId
@@ -133,11 +135,15 @@ public struct WatchAlert: Codable, Equatable, Sendable, Identifiable {
         self.request = request
         self.options = options
         self.approvalId = approvalId
+        self.handling = handling
         self.waitingSince = waitingSince
     }
 
     /// Whether the wrist may offer Approve / Deny for this alert.
-    public var isDecidable: Bool { approvalId != nil }
+    public var isDecidable: Bool {
+        handling == .watchApproval && waitKind == .permission && agent != .grokBot
+            && approvalId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
 
     public func waitedFor(now: Date) -> TimeInterval {
         max(0, now.timeIntervalSince(waitingSince))
@@ -329,6 +335,8 @@ public enum WatchDashboardProjection {
             // never decidable here, and neither is an approval whose real detail
             // stayed on the iPhone.
             approvalId: WatchApprovalEligibility.approvalId(for: session),
+            handling: WatchApprovalEligibility.approvalId(for: session) != nil
+                ? .watchApproval : WaitHandling.resolve(for: session),
             waitingSince: session.statusSince
         )
     }

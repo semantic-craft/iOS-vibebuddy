@@ -628,7 +628,7 @@ struct AccountUsageTests {
     @Test("Grok is a first-class usage provider with its own cache and labels")
     func grokProviderRegistration() {
         #expect(AccountUsageProvider.allCases.contains(.grok))
-        #expect(AccountUsageProvider.grok.displayName == "Grok")
+        #expect(AccountUsageProvider.grok.displayName == "Grok Build")
         #expect(AccountUsageProvider.grok.rawValue == "grok")
 
         let home = URL(fileURLWithPath: "/Users/example")
@@ -638,7 +638,7 @@ struct AccountUsageTests {
 
         #expect(
             AccountUsageUnavailableReason.notLoggedIn.displayText(provider: .grok)
-                == "Grok is not signed in"
+                == "Grok Build is not signed in"
         )
     }
 

@@ -52,7 +52,9 @@ public struct CodexAppServerReducer: Sendable, Equatable {
         if (status?["type"] as? String) == "idle" { facts.activeTurnID = nil }
         threads[id] = facts
         guard facts.loaded, let status else { return [] }
-        return statusEvents(threadID: id, status: status, receivedAt: receivedAt, includeBranch: true)
+        let events = statusEvents(threadID: id, status: status, receivedAt: receivedAt, includeBranch: true)
+        guard let path = thread["path"] as? String, !path.isEmpty else { return events }
+        return events.map { $0.withTranscriptPath(path) }
     }
 
     /// One server message. Notifications become events; a server-initiated

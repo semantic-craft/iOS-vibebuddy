@@ -37,7 +37,7 @@ final class DashboardStore: ObservableObject {
     private var phoneActionIdentity: [String: String] = [:]
 
     private func actionIdentity(_ session: AgentSession) -> String {
-        "\(sourceID ?? "unpaired")|\(session.id)|\(session.pendingApproval?.id ?? session.pendingQuestion?.id ?? String(session.statusSince.timeIntervalSince1970))"
+        "\(sourceID ?? "unpaired")|\(session.id)|\(session.pendingApproval?.id ?? session.pendingQuestion?.id ?? String(session.statusSince.timeIntervalSince1970))|\(session.status)|\(ApprovalEligibility.unavailableReason(for: session)?.rawValue ?? "available")"
     }
 
     func phoneActionState(for session: AgentSession) -> PhoneActionResult? {
@@ -45,6 +45,7 @@ final class DashboardStore: ObservableObject {
     }
 
     func phoneActionDisabled(for session: AgentSession) -> Bool {
+        guard isDemo || state == .connected else { return true }
         guard let result = phoneActionState(for: session) else { return false }
         return result == .sending || result == .unconfirmed
             || (result == .received && (session.pendingApproval != nil || session.pendingQuestion != nil))
@@ -54,6 +55,7 @@ final class DashboardStore: ObservableObject {
     /// are never replayed: an unchanged snapshot cannot prove non-execution.
     private func sendPhoneAction(_ session: AgentSession,
                                  send: (PairingPayload, AgentSession) async -> PhoneActionResult) async -> PhoneActionResult {
+        guard isDemo || state == .connected else { return .failed }
         if sendingPhoneSessions.contains(session.id) { return .sending }
         if phoneActionDisabled(for: session) { return phoneActionState(for: session) ?? .unconfirmed }
         guard let pairing else { showToast(PhoneActionResult.notPaired.message); return .notPaired }
@@ -61,11 +63,12 @@ final class DashboardStore: ObservableObject {
         defer { sendingPhoneSessions.remove(session.id) }
         let identity = actionIdentity(session)
         let epoch = pairingEpoch
+        let generation = connectionGeneration
         phoneActionIdentity[session.id] = identity
         phoneActions[session.id] = .sending
         let result: PhoneActionResult
         if let snapshot = await decisionClient.actionSnapshot(pairing) {
-            if epoch != pairingEpoch || snapshot.sourceID != sourceID {
+            if epoch != pairingEpoch || generation != connectionGeneration || snapshot.sourceID != sourceID || state != .connected {
                 result = .expired
             } else if let current = snapshot.sessions.first(where: { $0.id == session.id }),
                       actionIdentity(current) == identity,
@@ -177,6 +180,7 @@ final class DashboardStore: ObservableObject {
         func result(_ outcome: WatchApprovalOutcome) -> WatchApprovalResult {
             WatchApprovalResult(attemptId: request.attemptId, outcome: outcome)
         }
+        guard isDemo || state == .connected else { return result(.failed) }
         switch watchApprovals.admit(request, sessions: allSessions) {
         case .duplicate:
             // The same tap, twice. It already landed; do not send it again.
@@ -190,6 +194,12 @@ final class DashboardStore: ObservableObject {
                 return result(.accepted)
             }
             guard let pairing else { return result(.failed) }
+            let epoch = pairingEpoch
+            let generation = connectionGeneration
+            guard let snapshot = await decisionClient.actionSnapshot(pairing) else { return result(.failed) }
+            guard epoch == pairingEpoch, generation == connectionGeneration, state == .connected, snapshot.sourceID == sourceID,
+                  case .send = watchApprovals.admit(request, sessions: snapshot.sessions)
+            else { return result(.refused) }
             guard await decisionClient.decide(pairing, approvalId: approvalId, decision: decision)
             else { return result(.failed) }
             watchApprovals.commit(request.attemptId)
@@ -272,6 +282,7 @@ final class DashboardStore: ObservableObject {
                 if Task.isCancelled { return }
                 self.state = .failed(String(localized: "Disconnected — reconnecting…"))
                 self.relayToWatch(self.allSessions)
+                await self.liveActivity.sync(sessions: self.allSessions, allowsActions: false)
                 try? await Task.sleep(for: .seconds(2))
             }
         }
@@ -284,6 +295,8 @@ final class DashboardStore: ObservableObject {
         CompletionNoticePhoneContext.sessions = []
         runTask?.cancel()
         runTask = nil
+        state = .failed(String(localized: "Disconnected"))
+        relayToWatch(allSessions)
         return Task { await liveActivity.end() }
     }
 
@@ -416,15 +429,16 @@ final class DashboardStore: ObservableObject {
     func decideConfirmed(_ approvalId: String, _ decision: ApprovalDecision) async -> PhoneActionResult {
         if isDemo { return decideDemo(approvalId) }
         guard let session = allSessions.first(where: { $0.pendingApproval?.id == approvalId }),
-              session.pendingApproval?.isAnswerable == true else { return .expired }
-        return await sendPhoneAction(session) { pairing, _ in
-            await self.decisionClient.phoneDecision(pairing, approvalId: approvalId, decision: decision)
+              ApprovalEligibility.approval(for: session) != nil else { return .expired }
+        return await sendPhoneAction(session) { pairing, current in
+            guard ApprovalEligibility.approval(for: current)?.id == approvalId else { return .expired }
+            return await self.decisionClient.phoneDecision(pairing, approvalId: approvalId, decision: decision)
         }
     }
 
     private func decideDemo(_ approvalId: String) -> PhoneActionResult {
         guard let session = allSessions.first(where: { $0.pendingApproval?.id == approvalId }),
-              session.pendingApproval?.isAnswerable == true else { return .expired }
+              ApprovalEligibility.approval(for: session) != nil else { return .expired }
         install(allSessions.map { original in
             guard original.id == session.id else { return original }
             var s = original; s.pendingApproval = nil; s.waitKind = nil; s.status = .working
@@ -577,10 +591,12 @@ final class DashboardStore: ObservableObject {
 
     func jump(_ sessionId: String) {
         guard let pairing else { showToast(String(localized: "Couldn't reach your Mac")); return }
-        let desktopThread = allSessions.first { $0.id == sessionId }?.jumpsToDesktopThread ?? false
+        let session = allSessions.first { $0.id == sessionId }
+        let desktopThread = session?.jumpsToDesktopThread ?? false
+        let grokBot = session?.agent == .grokBot
         Task {
             let outcome = await decisionClient.jump(pairing, sessionId: sessionId)
-            showToast(Self.jumpMessage(outcome, desktopThread: desktopThread))
+            showToast(Self.jumpMessage(outcome, desktopThread: desktopThread, grokBot: grokBot))
         }
     }
 
@@ -680,7 +696,14 @@ final class DashboardStore: ObservableObject {
     /// say so; `nil` means the Mac wasn't reachable. `activatedApp` is the case
     /// worth naming: the right app is now in front, but the session's own window
     /// wasn't reachable, so the user still has to find the tab themselves.
-    static func jumpMessage(_ outcome: JumpOutcome?, desktopThread: Bool = false) -> String {
+    static func jumpMessage(_ outcome: JumpOutcome?, desktopThread: Bool = false, grokBot: Bool = false) -> String {
+        if grokBot {
+            switch outcome {
+            case .activatedApp: return String(localized: "Opened Grok Bot on your Mac — select the task in the app")
+            case nil: return String(localized: "Couldn't reach your Mac")
+            default: return String(localized: "Couldn't open Grok Bot on your Mac")
+            }
+        }
         // A Codex Desktop session has no terminal at either end: the Mac opened
         // its thread in ChatGPT, so saying "terminal" here would name a thing
         // the user never had.

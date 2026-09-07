@@ -465,3 +465,75 @@ struct WatchDashboardStateTests {
         #expect(WatchDemoScenario.permission.state(now: now) == WatchDemoScenario.permission.state(now: now))
     }
 }
+
+@Suite("Verified wait destinations")
+struct WaitDestinationTests {
+    private let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+    private func session(agent: AgentKind = .codex, approval: PendingApproval? = nil,
+                         question: PendingQuestion? = nil) -> AgentSession {
+        AgentSession(id: "task", agent: agent, project: "Project", status: .needsResponse,
+                     waitKind: approval == nil ? .question : .permission,
+                     pendingApproval: approval, pendingQuestion: question,
+                     statusSince: now, updatedAt: now)
+    }
+
+    private func projection(_ session: AgentSession, relay: WatchRelayState = .live) throws -> WatchDashboardState {
+        let state = WatchDashboardProjection.make(snapshot: Snapshot(sessions: [session], serverTime: now),
+                                                  quotas: [], relay: relay, now: now)
+        return try JSONDecoder().decode(WatchDashboardState.self, from: JSONEncoder().encode(state))
+    }
+
+    @Test("Only remotely answerable requests point to the phone after transport")
+    func verifiedTargets() throws {
+        let short = PendingApproval(id: "approval", tool: "Bash", commandPreview: "ls", command: "ls")
+        let diff = PendingApproval(id: "approval", tool: "Edit", commandPreview: "change", filePath: "a.swift", oldText: "a", newText: "b")
+        let readOnly = PendingApproval(id: "approval", tool: "Bash", commandPreview: "ls", command: "ls", answerable: false)
+        let cases: [(AgentSession, WaitHandling, Bool)] = [
+            (session(approval: short), .watchApproval, true),
+            (session(approval: diff), .remoteAvailable, false),
+            (session(approval: readOnly), .macNativePrompt, false),
+            (session(agent: .grokBot, approval: short), .macGrokBot, false),
+            (session(agent: .grokBot), .macGrokBot, false),
+            (session(question: PendingQuestion(id: "q", prompt: "Choose")), .remoteAvailable, false),
+            (session(question: PendingQuestion(id: "q", prompt: "Choose", answerable: false)), .macNativePrompt, false),
+            (session(question: PendingQuestion(id: " ", prompt: "Choose")), .unavailable, false),
+            (session(), .macNativePrompt, false)
+        ]
+        for (input, destination, actionable) in cases {
+            let alert = try #require(projection(input).topAlert)
+            #expect(alert.handling == destination)
+            #expect(alert.isDecidable == actionable)
+        }
+    }
+
+    @Test("Connection is independent and capability changes replace the destination")
+    func updates() throws {
+        let q = PendingQuestion(id: "q", prompt: "Choose")
+        let current = try projection(session(question: q))
+        let offline = try projection(session(question: q), relay: .disconnected)
+        #expect(offline.topAlert?.handling == .remoteAvailable)
+        #expect(offline.connection(now: now, phoneReachable: true) == .macDisconnected)
+        #expect(current.connection(now: now, phoneReachable: true) == .live)
+        let changed = try projection(session(agent: .grokBot, question: q))
+        #expect(!current.isEquivalent(to: changed))
+        #expect(changed.topAlert?.handling == .macGrokBot)
+        #expect(changed.topAlert?.approvalId == nil)
+    }
+
+    @Test("A cached approval without capability semantics cannot offer or send a decision")
+    func missingSemantics() throws {
+        let input = session(approval: PendingApproval(id: "approval", tool: "Bash", commandPreview: "ls", command: "ls"))
+        let state = try projection(input)
+        var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as? [String: Any])
+        var alerts = try #require(json["alerts"] as? [[String: Any]])
+        alerts[0].removeValue(forKey: "handling")
+        json["alerts"] = alerts
+        let restored = try JSONDecoder().decode(WatchDashboardState.self, from: JSONSerialization.data(withJSONObject: json))
+        let alert = try #require(restored.topAlert)
+        #expect(alert.handling == nil)
+        #expect(!alert.isDecidable)
+        var action = WatchApprovalActionState()
+        #expect(action.begin(alert: alert, choice: .allow, attemptId: "tap") == nil)
+    }
+}

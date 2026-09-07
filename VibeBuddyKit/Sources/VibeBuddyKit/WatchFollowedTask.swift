@@ -2,6 +2,8 @@ import Foundation
 
 /// Only the display-safe facts needed to recognize a followed session.
 public struct WatchFollowedTask: Codable, Equatable, Sendable, Identifiable {
+    /// Absent in older relays/caches; never infer an agent from display text.
+    public var agent: AgentKind?
     public var sessionID: String
     public var completionID: String?
     public var title: String
@@ -15,6 +17,7 @@ public struct WatchFollowedTask: Codable, Equatable, Sendable, Identifiable {
     public var id: String { sessionID }
 
     public init(_ session: AgentSession) {
+        agent = session.agent
         sessionID = session.id
         completionID = session.completionID
         title = String(session.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines).prefix(160))
@@ -39,6 +42,8 @@ public struct WatchFollowedTask: Codable, Equatable, Sendable, Identifiable {
         pendingID = session.pendingApproval?.id ?? session.pendingQuestion?.id
         statusSince = session.statusSince
     }
+
+    public var sourceName: String { agent?.displayName ?? String(localized: "Unknown source") }
 
     public var complicationTask: Self {
         var compact = self

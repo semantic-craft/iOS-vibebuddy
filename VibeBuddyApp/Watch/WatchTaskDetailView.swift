@@ -14,6 +14,16 @@ struct WatchTaskDetailView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(task.title.isEmpty ? String(localized: "Unnamed task") : task.title)
                             .font(.headline)
+                        HStack(spacing: 5) {
+                            if let agent = task.agent {
+                                AgentAvatar(agent: agent, size: 16)
+                                    .accessibilityHidden(true)
+                            }
+                            Text(task.sourceName)
+                        }
+                        .font(.caption)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(task.sourceName)
                         Label(status(task), systemImage: task.presentation.symbolName)
                             .font(.caption)
                         if task.completionID != link.completionID {

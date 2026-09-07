@@ -80,6 +80,10 @@ public struct SessionReducer: Sendable {
             sessions[event.sessionID]?.hasUnreadCompletion = false
             sessions[event.sessionID]?.completionID = nil
             sessions[event.sessionID]?.activeTool = nil      // no tool running while waiting
+            if event.agent == .grokBot {
+                sessions[event.sessionID]?.pendingQuestion = PendingQuestion(
+                    id: event.sessionID + ":question", prompt: event.message ?? "Respond in Grok Bot", answerable: false)
+            }
         case .stop:
             // A settle report for a turn the session has already moved past is
             // stale news, not idleness: ignore it rather than showing a false
@@ -114,7 +118,7 @@ public struct SessionReducer: Sendable {
             let cleanCompletion = sessions[event.sessionID]?.isStuck == false
             if cleanCompletion {
                 if !wasDone || previousCompletion == nil {
-                    sessions[event.sessionID]?.completionID = UUID().uuidString
+                    sessions[event.sessionID]?.completionID = event.sourceCompletionID ?? UUID().uuidString
                     sessions[event.sessionID]?.hasUnreadCompletion = true
                 }
                 // Repeated idle/stop evidence for this ending cannot resurrect
@@ -137,6 +141,7 @@ public struct SessionReducer: Sendable {
             applyChildLifecycle(event)
         }
         if event.kind != .sessionEnd {
+            if let name = event.sessionName { sessions[event.sessionID]?.name = name }
             // A Desktop thread id is a durable fact about the session, not about
             // this event: carry it onto the session so `/jump` can resolve a
             // target for a source that never runs a hook and so never has a
@@ -188,6 +193,17 @@ public struct SessionReducer: Sendable {
         if s.summary == nil, let needs = job.needs { s.summary = needs; changed = true }
         if changed { sessions[job.sessionID] = s }
         return changed
+    }
+
+    /// A connection outage changes evidence health, never progress or last-seen time.
+    mutating func markSourceHealth(agent: AgentKind, source: ObservationSource, health: ObservationHealth) {
+        for (id, var session) in sessions where session.agent == agent {
+            guard var observations = session.observations,
+                  let index = observations.firstIndex(where: { $0.source == source }) else { continue }
+            observations[index].health = health
+            session.observations = observations
+            sessions[id] = session
+        }
     }
 
     /// Update one stable source entry without touching session progress.

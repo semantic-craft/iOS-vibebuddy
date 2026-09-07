@@ -10,6 +10,7 @@ public extension AgentKind {
         case "kimi", "kimi-code", "kimicode":           return .kimi
         case "antigravity", "gemini":                   return .antigravity
         case "grok", "grok-build", "grokbuild":         return .grok
+        case "grokbot", "grok-bot":                    return .grokBot
         case "opencode":                                return .opencode
         case "copilot", "githubcopilot", "github-copilot": return .copilot
         case "cursor", "cursor-agent", "cursoragent":    return .cursor
@@ -26,7 +27,8 @@ public extension AgentKind {
         case .qwen:        return "Qwen Code"
         case .kimi:        return "Kimi Code"
         case .antigravity: return "Antigravity"
-        case .grok:        return "Grok"
+        case .grok:        return "Grok Build"
+        case .grokBot:     return "Grok Bot"
         case .opencode:    return "OpenCode"
         case .copilot:     return "GitHub Copilot"
         case .cursor:      return "Cursor"
@@ -42,6 +44,7 @@ public extension AgentKind {
         case .kimi:        return "Kimi"
         case .antigravity: return "Antigravity"
         case .grok:        return "Grok"
+        case .grokBot:     return "Grok Bot"
         case .opencode:    return "OpenCode"
         case .copilot:     return "Copilot"
         case .cursor:      return "Cursor"
@@ -57,6 +60,7 @@ public extension AgentKind {
         case .kimi:        return "k.circle"
         case .antigravity: return "arrow.up.forward.circle"
         case .grok:        return "bolt.circle"
+        case .grokBot:     return "bubble.left.and.bubble.right"
         case .opencode:    return "curlybraces"
         case .copilot:     return "person.2.circle"
         case .cursor:      return "cursorarrow"

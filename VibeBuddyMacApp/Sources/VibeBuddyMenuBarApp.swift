@@ -235,6 +235,7 @@ struct MenuContent: View {
     @State private var listContentHeight: CGFloat = 0
     @State private var greet = 0
     @State private var hoveredSessionID: String?
+    @AppStorage("menuSessionPreferences") private var menuPreferencesData = Data()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -293,7 +294,9 @@ struct MenuContent: View {
 
             Divider().overlay(MacTheme.line)
 
-            if model.sessions.isEmpty {
+            sessionControls
+
+            if model.menuSnapshot.sessions.isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("No sessions reporting").font(MacTheme.font(12, .heavy)).foregroundStyle(MacTheme.ink)
                     Text("Start a turn or repair hooks in Settings.")
@@ -386,44 +389,215 @@ struct MenuContent: View {
         .frame(height: min(max(listContentHeight, 1), Self.listMaxHeight))
     }
 
-    /// The same three buckets as the dashboard. Needs-you rows keep the full
-    /// summary-first row; the other groups use the compact one-liner.
-    private var sessionRows: some View {
-        let groups = StateGroups(model.sessions)
-        return VStack(alignment: .leading, spacing: 8) {
-            ForEach(groups.buckets) { group in
-                HStack(spacing: 6) {
-                    Text(group.title).font(MacTheme.font(11, .black)).foregroundStyle(MacTheme.ink)
-                    Text("\(group.sessions.count)").font(MacTheme.font(11, .heavy)).foregroundStyle(MacTheme.ink2)
-                    Spacer()
-                }
-                .padding(.horizontal, 10).padding(.vertical, 4)
-                .background(MacTheme.bg2, in: Capsule())
-                ForEach(group.sessions) { s in
-                    Button { model.jump(s) } label: {
-                        VStack(alignment: .leading, spacing: 3) {
-                            if group.warm { fullRow(s) } else { compactRow(s) }
-                            if let outcome = model.jumpFeedback[s.id] {
-                                Text(outcome.macMessage(for: s))
-                                    .font(MacTheme.font(10, .semibold))
-                                    .foregroundStyle(MacTheme.ink2)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                    .padding(.horizontal, 4)
-                            }
+    private var preferences: MenuSessionPreferences {
+        (try? JSONDecoder().decode(MenuSessionPreferences.self, from: menuPreferencesData))
+            ?? MenuSessionPreferences()
+    }
+
+    private func updatePreferences(_ change: (inout MenuSessionPreferences) -> Void) {
+        var value = preferences
+        change(&value)
+        if let data = try? JSONEncoder().encode(value) { menuPreferencesData = data }
+    }
+
+    private static let groupKeys: Set<String> = ["needsYou", "working", "done"]
+    private static let filterStates: [TaskPresentationState] = [
+        .error, .requiresInput, .thinking, .completeUnread, .idle
+    ]
+
+    private func filterLabel(_ state: TaskPresentationState) -> String {
+        switch state {
+        case .error: return "Error"
+        case .requiresInput: return "Needs input"
+        case .thinking: return "Working"
+        case .completeUnread: return "Done (unread)"
+        case .idle: return "Idle"
+        case .unassigned: return "Unassigned"
+        }
+    }
+
+    private func restoreFilters() {
+        updatePreferences {
+            $0.selectedStates = MenuSessionPreferences().selectedStates
+            $0.selectedAgents = Set(AgentKind.allCases)
+        }
+    }
+
+    private var sessionControls: some View {
+        let allCollapsed = preferences.collapsedGroups.isSuperset(of: Self.groupKeys)
+        return VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Menu {
+                    Section("State") {
+                        ForEach(Self.filterStates, id: \.self) { state in
+                            Toggle(filterLabel(state), isOn: Binding(
+                                get: { preferences.selectedStates.contains(state) },
+                                set: { selected in
+                                    updatePreferences {
+                                        if selected { $0.selectedStates.insert(state) }
+                                        else { $0.selectedStates.remove(state) }
+                                    }
+                                }
+                            ))
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
-                    .background(hoveredSessionID == s.id ? MacTheme.line : .clear,
-                                in: RoundedRectangle(cornerRadius: 10))
-                    .onHover { hoveredSessionID = $0 ? s.id : nil }
-                    .help("Jump to this session")
-                    .accessibilityHint("Jump to this session")
+                    Section("Agent") {
+                        ForEach(AgentKind.allCases, id: \.self) { agent in
+                            Toggle(agent.displayName, isOn: Binding(
+                                get: { preferences.selectedAgents.contains(agent) },
+                                set: { selected in
+                                    updatePreferences {
+                                        if selected { $0.selectedAgents.insert(agent) }
+                                        else { $0.selectedAgents.remove(agent) }
+                                    }
+                                }
+                            ))
+                        }
+                    }
+                    Divider()
+                    Button("Show all states and agents", action: restoreFilters)
+                } label: {
+                    Label(preferences.isFiltering ? "Filter · Active" : "Filter",
+                          systemImage: "line.3.horizontal.decrease.circle")
                 }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .accessibilityLabel(preferences.isFiltering ? "Filter sessions, active" : "Filter sessions")
+                Spacer()
+                Button(allCollapsed ? "Expand all" : "Collapse all") {
+                    updatePreferences { $0.collapsedGroups = allCollapsed ? [] : Self.groupKeys }
+                }
+                .buttonStyle(.borderless)
+            }
+            .font(MacTheme.font(11, .bold))
+            .foregroundStyle(MacTheme.ink2)
+            if preferences.isFiltering {
+                Text("List filtered · Summary includes all sessions")
+                    .font(MacTheme.font(9, .semibold))
+                    .foregroundStyle(MacTheme.ink2)
+            }
+        }
+    }
+
+    /// Only this menu projects filters and hidden rounds. Other surfaces retain
+    /// the complete snapshot and the shared Companion group names.
+    private var sessionRows: some View {
+        let filtered = preferences.filtered(model.menuSnapshot.sessions)
+        let visible = preferences.visible(model.menuSnapshot.sessions, sourceID: model.menuSnapshot.sourceID, roundIDs: model.menuSnapshot.roundIDs)
+        let groups = StateGroups(visible)
+        return VStack(alignment: .leading, spacing: 8) {
+            if visible.isEmpty {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(filtered.isEmpty ? "No matching sessions" : "Current sessions cleared from menu")
+                        .font(MacTheme.font(12, .heavy))
+                        .foregroundStyle(MacTheme.ink)
+                    if filtered.isEmpty {
+                        Button("Show all states and agents", action: restoreFilters)
+                            .buttonStyle(.borderless)
+                    } else {
+                        Text("Sessions remain in Dashboard. New turns appear here.")
+                            .foregroundStyle(MacTheme.ink2)
+                    }
+                }
+                .font(MacTheme.font(11, .semibold))
+                .padding(.vertical, 8)
+            } else {
+                sessionCard(key: "needsYou", title: "Needs you", sessions: groups.needsYou, warm: true)
+                sessionCard(key: "working", title: "Working", sessions: groups.working, warm: false)
+                sessionCard(key: "done", title: "Done & Idle", sessions: groups.done, warm: false)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func sessionCard(key: String, title: String, sessions: [AgentSession], warm: Bool) -> some View {
+        let renderedRoundIDs = model.menuSnapshot.roundIDs
+        if !sessions.isEmpty {
+            let collapsed = preferences.collapsedGroups.contains(key)
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 0) {
+                    Button {
+                        updatePreferences {
+                            if collapsed { $0.collapsedGroups.remove(key) }
+                            else { $0.collapsedGroups.insert(key) }
+                        }
+                    } label: {
+                        HStack(spacing: 7) {
+                            Image(systemName: collapsed ? "chevron.right" : "chevron.down")
+                                .font(.system(size: 9, weight: .bold))
+                                .frame(width: 10)
+                            Text(title).font(MacTheme.font(12, .black))
+                            Text("\(sessions.count)")
+                                .font(MacTheme.font(11, .heavy))
+                                .foregroundStyle(MacTheme.ink2)
+                            Spacer(minLength: 0)
+                        }
+                        .foregroundStyle(MacTheme.ink)
+                        .padding(.leading, 10)
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(title), \(sessions.count) sessions")
+                    .accessibilityValue(collapsed ? "Collapsed" : "Expanded")
+                    .accessibilityHint(collapsed ? "Expand group" : "Collapse group")
+                    if key == "done" {
+                        Button("Clear") {
+                            // Read the latest snapshot at the action boundary.
+                            updatePreferences {
+                                $0.clear(sessions, currentSessions: model.sessions, sourceID: model.menuSnapshot.sourceID,
+                                         roundIDs: renderedRoundIDs, currentRoundIDs: model.menuSnapshot.roundIDs)
+                            }
+                        }
+                        .buttonStyle(.borderless)
+                        .font(MacTheme.font(11, .bold))
+                        .foregroundStyle(MacTheme.accent)
+                        .padding(.horizontal, 10)
+                        .help("Only hides from this menu. Unread results and reminders are kept.")
+                        .disabled(model.menuSnapshot.sourceID == nil)
+                        .accessibilityLabel("Clear Done and Idle from menu")
+                        .accessibilityHint("Unread results and reminders are kept")
+                    }
+                }
+                .background(MacTheme.bg2)
+                if !collapsed {
+                    VStack(spacing: 8) {
+                        ForEach(sessions) { session in
+                            sessionButton(session, warm: warm)
+                        }
+                    }
+                    .padding(8)
+                }
+            }
+            .background(MacTheme.bg)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(MacTheme.line, lineWidth: 1))
+            .padding(1)
+        }
+    }
+
+    private func sessionButton(_ session: AgentSession, warm: Bool) -> some View {
+        Button { model.jump(session) } label: {
+            VStack(alignment: .leading, spacing: 3) {
+                if warm { fullRow(session) } else { compactRow(session) }
+                if let outcome = model.jumpFeedback[session.id] {
+                    Text(outcome.macMessage(for: session))
+                        .font(MacTheme.font(10, .semibold))
+                        .foregroundStyle(MacTheme.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 4)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(hoveredSessionID == session.id ? MacTheme.line : .clear,
+                    in: RoundedRectangle(cornerRadius: 10))
+        .onHover { hoveredSessionID = $0 ? session.id : nil }
+        .help("Jump to this session")
+        .accessibilityHint("Jump to this session")
     }
 
     private func fullRow(_ session: AgentSession) -> some View {

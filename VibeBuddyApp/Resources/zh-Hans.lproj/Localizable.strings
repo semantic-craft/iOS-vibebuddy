@@ -169,3 +169,12 @@
 
 "This notification does not identify a completion round. Review the current result before marking it read." = "这条通知未携带完成轮次。请先查看当前结果，再标记为已读。";
 "Mark current result read" = "将当前结果标为已读";
+
+/* Verified wait handling */
+"Review and respond on your iPhone." = "请在 iPhone 上查看并处理。";
+"Approve or deny on your Watch." = "请在 Watch 上批准或拒绝。";
+"Respond in the agent's own prompt on your Mac. Remote response is unavailable." = "请在 Mac 上的代理原生提示中处理。此请求无法远程作答。";
+"Respond in Grok Bot on your Mac. Remote response is unavailable." = "请在 Mac 的 Grok Bot 中处理。此请求无法远程作答。";
+"This request can't be verified. Wait for an updated connection and request." = "暂时无法验证此请求。请等待连接和请求更新。";
+"Can't reach your iPhone. Reconnect to verify this request." = "无法连接 iPhone。请恢复连接以验证此请求。";
+"Connection to your Mac is unavailable. Reconnect to verify this request." = "Mac 连接不可用。请恢复连接以验证此请求。";

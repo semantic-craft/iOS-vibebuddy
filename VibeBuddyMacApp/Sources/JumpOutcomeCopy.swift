@@ -14,6 +14,12 @@ extension JumpOutcome {
     func macMessage(for session: AgentSession) -> String {
         // A Codex Desktop session's jump lands in a ChatGPT thread, not a
         // terminal, so every outcome has to be worded for where it went.
+        if session.agent == .grokBot {
+            switch self {
+            case .activatedApp: return "Opened Grok Bot — select the task in the app"
+            default: return "Couldn't open Grok Bot"
+            }
+        }
         if session.jumpsToDesktopThread {
             switch self {
             case .focused: return "Opened thread in ChatGPT"

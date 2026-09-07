@@ -6,8 +6,8 @@ import Testing
 struct WatchFollowedTaskTests {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
     private func session(_ id: String, _ status: SessionStatus, since: TimeInterval = 0,
-                         unread: Bool = false, followed: Bool = true) -> AgentSession {
-        AgentSession(id: id, agent: .claudeCode, project: id, status: status,
+                         unread: Bool = false, followed: Bool = true, agent: AgentKind = .claudeCode) -> AgentSession {
+        AgentSession(id: id, agent: agent, project: id, status: status,
             hasUnreadCompletion: unread, attention: followed ? .followed : .normal,
             statusSince: now.addingTimeInterval(since), updatedAt: now)
     }
@@ -62,4 +62,46 @@ struct WatchFollowedTaskTests {
         #expect(projection([]).followedTasks.isEmpty)
         #expect(!projection([session("a", .done)]).followedTasks.isEmpty)
     }
+    @Test("Same-title agents survive phone transport and atomic app/widget recovery")
+    func sourceRoundTrip() throws {
+        let agents: [AgentKind] = [.grokBot, .grok, .claudeCode, .codex]
+        let sessions = agents.map { agent in
+            var value = session(agent.rawValue, .done, unread: true, agent: agent)
+            value.name = "Same task"
+            value.completionID = "round-1"
+            value.summary = "Finished"
+            return value
+        }
+        var projected = projection(sessions)
+        projected.pairingEpoch = "pair-1"
+        projected.relayRevision = 1
+        let relayed = try JSONDecoder().decode(WatchDashboardState.self,
+            from: JSONEncoder().encode(projected))
+        let data = try JSONEncoder().encode(WatchStoredState(state: relayed, queue: WatchCompletionQueue()))
+        let restored = try #require(WatchStoredState.decode(data))
+        #expect(restored.state.followedTasks.map(\.agent) == agents.map(Optional.some))
+        #expect(restored.complication.tasks.map(\.sourceName) == ["Grok Bot", "Grok Build", "Claude Code", "Codex"])
+        #expect(restored.state.followedTasks.allSatisfy { $0.title == "Same task" && $0.completionID == "round-1" })
+        #expect(restored.state.followedTasks == projected.followedTasks)
+        // Old paired clients omitted this field in both copies of the atomic cache.
+        var json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        for (container, key) in [("state", "followedTasks"), ("complication", "tasks")] {
+            var object = try #require(json[container] as? [String: Any])
+            var tasks = try #require(object[key] as? [[String: Any]])
+            for index in tasks.indices { tasks[index].removeValue(forKey: "agent") }
+            object[key] = tasks
+            json[container] = object
+        }
+        let old = try #require(WatchStoredState.decode(JSONSerialization.data(withJSONObject: json)))
+        #expect(old.state.followedTasks.allSatisfy { $0.agent == nil && $0.sourceName == "Unknown source" })
+        #expect(old.complication.tasks.map(\.sourceName) == old.state.followedTasks.map(\.sourceName))
+        #expect(old.state.followedTasks.map(\.completionID) == projected.followedTasks.map(\.completionID))
+    }
+
+    @Test("A source correction alone republishes an otherwise identical followed task")
+    func sourceChangesRelay() {
+        let original = projection([session("same", .working, agent: .grok)])
+        #expect(!original.isEquivalent(to: projection([session("same", .working, agent: .grokBot)])))
+    }
+
 }

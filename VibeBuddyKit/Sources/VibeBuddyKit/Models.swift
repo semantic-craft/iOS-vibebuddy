@@ -10,6 +10,7 @@ public enum AgentKind: String, Codable, Sendable, CaseIterable {
     case kimi
     case antigravity
     case grok
+    case grokBot
     case opencode
     case copilot
     case cursor
@@ -552,7 +553,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     /// Desktop thread to open. The one thing every jump control is gated on, so
     /// a Desktop session's button is live for the same reason a terminal
     /// session's is — there is a real target behind it.
-    public var canJump: Bool { terminalRef != nil || desktopThreadID != nil }
+    public var canJump: Bool { agent == .grokBot || terminalRef != nil || desktopThreadID != nil }
 
     /// A jump to this session lands in ChatGPT.app's thread view, not a
     /// terminal. Drives the wording and the symbol of every jump control.

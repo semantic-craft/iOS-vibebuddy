@@ -28,8 +28,17 @@ struct AccountQuotaView: View {
                             let quota = dashboard.lastProviderQuota.first { $0.provider == provider }
                             Section(provider.displayName) {
                                 if let quota {
+                                    if let account = quota.accountLabel {
+                                        Text(account).font(.caption).foregroundStyle(.secondary)
+                                    }
                                     let windows = Self.windows(quota)
-                                    if windows.isEmpty { Text("Quota unavailable") }
+                                    if windows.isEmpty {
+                                        Text("Quota unavailable")
+                                        if let observed = quota.observedAt {
+                                            Text("Updated: \(observed.formatted(date: .abbreviated, time: .shortened))")
+                                                .font(.caption).foregroundStyle(.secondary)
+                                        }
+                                    }
                                     ForEach(Array(windows.enumerated()), id: \.offset) { _, window in
                                         reading(window, now: context.date)
                                     }

@@ -32,7 +32,7 @@ final class AccountUsageCoordinator: ObservableObject {
         case .claude: 15 * 60
         case .codex: 20 * 60
         case .grok: 15 * 60
-        case .cursor: 15 * 60
+        case .cursor, .grokBot: 15 * 60
         }
     }
     private let collectors: [AccountUsageProvider: AccountUsageCollector]
@@ -49,13 +49,16 @@ final class AccountUsageCoordinator: ObservableObject {
         let claudeEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey(for: .claude), default: true)
         let grokEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey(for: .grok), default: true)
         let cursorEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey(for: .cursor), default: true)
+        let grokBotEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey(for: .grokBot), default: false)
         collectionEnabled = [
             .codex: codexEnabled,
             .claude: claudeEnabled,
             .grok: grokEnabled,
             .cursor: cursorEnabled,
+            .grokBot: grokBotEnabled,
         ]
         states = [
+            .grokBot: grokBotEnabled ? .unavailable(.notYetLoaded, lastAttemptAt: nil, nextRefreshAt: nil) : .disabled,
             .codex: codexEnabled
                 ? .unavailable(.notYetLoaded, lastAttemptAt: nil, nextRefreshAt: nil)
                 : .disabled,
@@ -70,6 +73,7 @@ final class AccountUsageCoordinator: ObservableObject {
                 : .disabled,
         ]
         collectors = [
+            .grokBot: AccountUsageCollector(provider: GrokBotUsageProvider(), cache: AccountUsageFileCache(provider: .grokBot), enabled: grokBotEnabled),
             .codex: AccountUsageCollector(
                 provider: CodexAppServerUsageProvider(),
                 cache: AccountUsageFileCache(provider: .codex),

@@ -113,3 +113,32 @@ struct ProviderQuotaWireCompatTests {
         #expect(back == event)
     }
 }
+
+@Suite("Grok Bot paired quota")
+struct GrokBotPairedQuotaTests {
+    @Test("Snapshot and Watch relay preserve Grok Bot separately from Grok Build")
+    func quotaAcrossDevices() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let reset = now.addingTimeInterval(3600)
+        let rows = [
+            ProviderQuota(provider: .grok, weeklyRemainingPercent: 60, observedAt: now),
+            ProviderQuota(provider: .grokBot, accountLabel: "Account masked",
+                weeklyRemainingPercent: 89, weeklyResetsAt: reset,
+                weeklyWindowDurationMinutes: 10_080, observedAt: now)
+        ]
+        let source = Snapshot(sessions: [], serverTime: now, sourceID: "mac-test", providerQuota: rows)
+        let phone = try JSONDecoder().decode(Snapshot.self, from: JSONEncoder().encode(source))
+        #expect(phone.providerQuota == rows)
+        let watch = WatchDashboardProjection.make(snapshot: phone,
+            quotas: phone.providerQuota ?? [], relay: .live, now: now)
+        let received = try JSONDecoder().decode(WatchDashboardState.self, from: JSONEncoder().encode(watch))
+        let bot = try #require(received.quota(.grokBot))
+        #expect(bot.accountLabel == "Account masked")
+        #expect(bot.weeklyRemainingPercent == 89)
+        #expect(bot.weeklyResetsAt == reset)
+        #expect(bot.observedAt == now)
+        #expect(received.quota(.grok)?.weeklyRemainingPercent == 60)
+        #expect(bot.window(.weekly).status(now: reset) == .awaitingReset)
+        #expect(bot.window(.weekly).currentRemainingPercent(now: reset) == nil)
+    }
+}

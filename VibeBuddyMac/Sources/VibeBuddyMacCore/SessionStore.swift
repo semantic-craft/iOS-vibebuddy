@@ -32,7 +32,7 @@ public actor SessionStore {
             }
             return existing
         }
-        guard eligible, [.claudeCode, .codex].contains(session.agent),
+        guard eligible, [.claudeCode, .codex, .grokBot].contains(session.agent),
               now < session.statusSince.addingTimeInterval(12), let handler = noticeHandler else { return nil }
         let notice = CompletionNotice(id: id, deadline: session.statusSince.addingTimeInterval(12))
         guard noticeLedger?.save(notice) == true else { return nil }
@@ -284,6 +284,7 @@ public actor SessionStore {
     public func recordSourceSignal(agent: AgentKind, source: ObservationSource,
                                    health: ObservationHealth, at date: Date) {
         recordSignal(agent: agent, source: source, at: date, health: health, coverage: nil)
+        if source == .gateway { reducer.markSourceHealth(agent: agent, source: source, health: health) }
         broadcast()
     }
 
@@ -308,6 +309,8 @@ public actor SessionStore {
         recordsEvidence: Bool = true,
         announcesWait: Bool = true
     ) {
+        // A corroborating source may supply the menu's read-only round evidence.
+        if let path = event.transcriptPath { transcriptPaths[event.sessionID] = path }
         if appServerOutranks(event, from: observationSource) {
             // Corroboration cannot drive progress, but evidence of a newer run
             // must prevent returning an older result while authority catches up.
@@ -334,12 +337,11 @@ public actor SessionStore {
             return
         }
         let wasWaiting = reducer.sessions[event.sessionID]?.status == .needsResponse
-        if let path = event.transcriptPath { transcriptPaths[event.sessionID] = path }
         rememberDirectory(event.cwd, at: event.timestamp)
         reducer.apply(event, observationSource: observationSource, recordsEvidence: recordsEvidence)
         completionResults.observe(event, session: reducer.sessions[event.sessionID], sourceID: sourceID, now: Date())
         // A prompt is the user driving the session in person.
-        if event.kind == .userPromptSubmit { lastInteractionAt[event.sessionID] = event.timestamp }
+        if event.kind == .userPromptSubmit, event.agent != .grokBot || event.turnID != nil { lastInteractionAt[event.sessionID] = event.timestamp }
         if let enrichment = event.enrichment {
             reducer.enrich(sessionID: event.sessionID, with: enrichment)
         }
@@ -635,6 +637,9 @@ public actor SessionStore {
         evaluateMissed(now: now)
         missedLedger.acknowledge(sessionID: sessionID, now: now)
     }
+
+    /// Source locations only; reading these never changes lifecycle or unread state.
+    public func menuTranscriptPaths() -> [String: String] { transcriptPaths }
 
     public func snapshot(now: Date) -> Snapshot {
         currentSnapshot(now: now)
