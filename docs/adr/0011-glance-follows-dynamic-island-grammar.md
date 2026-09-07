@@ -56,3 +56,15 @@ chose **A (invisible island) + D (event cards)**.
   (delivery is still recorded as a local delivery).
 - `GlanceMode` and the measure-and-reframe window code are gone. QA on a
   notchless Mac uses `VIBEBUDDY_FAKE_NOTCH=185x32`.
+
+## Amendment (2026-09-07): fixed menu-bar entry
+
+The menu-bar icon is a stable cat mark opening the Dashboard/Settings menu,
+with no state or count by default. General Settings offers an independent
+"Show task status in menu bar" switch (default off) that adds the primary
+state's dot and count. The Glance owns ambient status, counts and
+actionable alerts so the two persistent surfaces do not repeat that summary.
+Both remain enabled by default, with independent visibility switches. Hiding
+the Glance keeps the existing macOS notification path; it does not add status
+back to the menu-bar icon automatically. The task-status preference is independent
+of Glance visibility. Details inside the opened menu remain available.
