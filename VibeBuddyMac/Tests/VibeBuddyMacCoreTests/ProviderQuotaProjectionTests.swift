@@ -237,6 +237,35 @@ struct ProviderQuotaProjectionTests {
         }
     }
 
+    // MARK: Cursor / Grok billing periods (#113 H3)
+
+    @Test("A Cursor monthly billing window stays in otherWindows and is usable for display")
+    func cursorMonthlyBillingProjectsToOtherWindows() throws {
+        // Mid-cycle relative to usage-summary-plan-only (Aug→Sep 2026 billing window).
+        let observed = ISO8601DateFormatter().date(from: "2026-08-15T12:00:00Z")!
+        let url = try #require(Bundle.module.url(
+            forResource: "usage-summary-plan-only",
+            withExtension: "json",
+            subdirectory: "Fixtures/cursor"
+        ))
+        let data = try Data(contentsOf: url)
+        let snapshot = try CursorUsageSummaryDecoder.decode(data, fetchedAt: observed)
+        let result = ProviderQuota(.available(snapshot, nextRefreshAt: nil), provider: .cursor)
+        #expect(result.provider == .cursor)
+        #expect(result.weeklyRemainingPercent == nil)
+        #expect(result.shortWindowRemainingPercent == nil)
+        #expect(result.otherWindows?.first?.remainingPercent == 60)
+        #expect(result.otherWindows?.first?.durationMinutes == 31 * 24 * 60)
+        #expect(result.observedAt == observed)
+        #expect(result.freshness(now: observed) == .live)
+        #expect(result.unavailableReason == nil)
+        // Watch/home surfaces must not show "Window unavailable" while live.
+        let display = result.displayWindow(preferring: .weekly)
+        #expect(display.remainingPercent == 60)
+        #expect(display.currentRemainingPercent(now: observed) == 60)
+        #expect(display.status(now: observed) == .live)
+    }
+
     // MARK: both providers at once
 
     private func codexState(usedWeekly: Int) -> AccountUsageState {

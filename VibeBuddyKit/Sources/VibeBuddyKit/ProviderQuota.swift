@@ -173,6 +173,27 @@ public extension ProviderQuota {
                                resetsAt: shortWindowResetsAt, observedAt: observedAt, isCached: isCached)
         }
     }
+
+    /// Compact surfaces (Watch home strips, weekly/short widgets) prefer the
+    /// requested window. When weekly and short are both missing — Cursor/Grok
+    /// billing periods land in `otherWindows` — fall back to the first other
+    /// window that has a remaining percent so freshness and the strip agree.
+    ///
+    /// Choice for #113: fall back to `otherWindows` rather than promoting a
+    /// billing-cycle window as a first-class `QuotaWindowKind`. Weekly/short
+    /// stay exact; monthly periods remain labeled by duration via otherWindows.
+    func displayWindow(preferring kind: QuotaWindowKind = .weekly) -> QuotaWindow {
+        let preferred = window(kind)
+        if preferred.remainingPercent != nil { return preferred }
+        let alternate: QuotaWindowKind = kind == .weekly ? .short : .weekly
+        let secondary = window(alternate)
+        if secondary.remainingPercent != nil { return secondary }
+        if var other = (otherWindows ?? []).first(where: { $0.remainingPercent != nil }) {
+            other.isCached = other.isCached == true || isCached == true
+            return other
+        }
+        return preferred
+    }
 }
 
 

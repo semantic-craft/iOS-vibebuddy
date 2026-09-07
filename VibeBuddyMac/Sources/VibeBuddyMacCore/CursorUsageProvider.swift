@@ -173,20 +173,25 @@ struct CursorLegacyModelUsageDTO: Decodable {
 
 /// Reads Cursor plan allowance via session Cookie + `usage-summary`.
 /// Cookie may come from a pasted header (#104) or optional browser import (#105).
+///
+/// Cookie source mode is resolved on every `fetch()` (via `cookieMode`), so a
+/// Settings Picker change takes effect on the next refresh without restarting.
 public struct CursorUsageProvider: AccountUsageProviding {
     public static let defaultEndpoint = URL(string: "https://cursor.com/api/usage-summary")!
 
     private let cookie: String?
-    private let cookieMode: CursorCookieSourceMode
+    private let cookieMode: @Sendable () -> CursorCookieSourceMode
     private let cookieImporter: CursorBrowserCookieImporting
+    private let persistImportedCookie: @Sendable (String) -> Void
     private let endpoint: URL
     private let transport: CursorUsageTransport
     private let timeout: TimeInterval
 
     public init(
         cookie: String? = nil,
-        cookieMode: CursorCookieSourceMode = CursorCookieSourceSettings.mode(),
+        cookieMode: @escaping @Sendable () -> CursorCookieSourceMode = { CursorCookieSourceSettings.mode() },
         cookieImporter: CursorBrowserCookieImporting = CursorBrowserCookieImporter(),
+        persistImportedCookie: @escaping @Sendable (String) -> Void = { CursorSessionCookieStore.save($0) },
         endpoint: URL = defaultEndpoint,
         transport: CursorUsageTransport = URLSession.shared,
         timeout: TimeInterval = 15
@@ -194,6 +199,7 @@ public struct CursorUsageProvider: AccountUsageProviding {
         self.cookie = cookie
         self.cookieMode = cookieMode
         self.cookieImporter = cookieImporter
+        self.persistImportedCookie = persistImportedCookie
         self.endpoint = endpoint
         self.transport = transport
         self.timeout = timeout
@@ -201,10 +207,11 @@ public struct CursorUsageProvider: AccountUsageProviding {
 
     public func fetch() async throws -> AccountUsageSnapshot {
         let cookie = try CursorCookieResolver.resolve(
-            mode: cookieMode,
+            mode: cookieMode(),
             manualCookie: cookie,
             importer: cookieImporter,
-            allowKeychainPrompt: false
+            allowKeychainPrompt: false,
+            persistImportedCookie: persistImportedCookie
         )
         var request = URLRequest(url: endpoint)
         request.httpMethod = "GET"

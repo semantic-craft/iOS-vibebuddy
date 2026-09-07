@@ -53,7 +53,7 @@ struct CursorBrowserCookieImporterTests {
     func providerSurvivesImportFailure() async {
         let provider = CursorUsageProvider(
             cookie: nil,
-            cookieMode: .browserAuto,
+            cookieMode: { .browserAuto },
             cookieImporter: FailingImporter(),
             transport: MissingTransport()
         )

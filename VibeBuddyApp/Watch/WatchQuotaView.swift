@@ -3,13 +3,13 @@ import VibeBuddyKit
 
 /// Weekly allowance in full: remaining first, then the context that makes a
 /// percentage useful — when it resets, how the short window looks, how old the
-/// reading is. Codex and Claude are always shown apart, and each carries its own
-/// freshness, so a healthy source never covers for a broken one.
+/// reading is. Each provider is shown apart with its own freshness, so a healthy
+/// source never covers for a broken one.
 struct WatchQuotaView: View {
     let state: WatchDashboardState
     let connection: WatchConnection
     let now: Date
-    var selection: WatchQuotaSelection = .both
+    var selection: WatchQuotaSelection = .all
 
     var body: some View {
         NavigationStack {
@@ -19,7 +19,7 @@ struct WatchQuotaView: View {
                     if state.quotas.isEmpty {
                         Text("No quota sources")
                             .font(.headline)
-                        Text("Sign in to Codex or Claude Code on your Mac to see weekly allowance here.")
+                        Text("Sign in to Codex, Claude, Cursor, or Grok on your Mac to see allowance here.")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
