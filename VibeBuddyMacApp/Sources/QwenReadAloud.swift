@@ -22,14 +22,14 @@ final class QwenReadAloud: ObservableObject {
     func speak(_ text: String, validate: @escaping @MainActor () async -> Bool = { true }) {
         guard !busy, canSpeak() else { return }
         let id = UUID(); generation = id
-        busy = true; status = "正在合成 Qwen 语音…"
+        busy = true; status = "Generating Qwen speech…"
         task = Task { [weak self] in
             guard let self else { return }
             defer { if self.generation == id { self.busy = false; self.task = nil } }
             do {
                 guard await validate(), !Task.isCancelled, self.generation == id, self.canSpeak() else { return }
                 guard let key = VoiceProvider.qwen.apiKey, !key.isEmpty else {
-                    self.status = "请先保存百炼 API Key"; return
+                    self.status = "Save your DashScope API key first."; return
                 }
                 let defaults = UserDefaults.standard
                 let data = try await QwenSpeechSynthesis.synthesize(text, apiKey: key,
@@ -39,19 +39,19 @@ final class QwenReadAloud: ObservableObject {
                 guard await validate(), !Task.isCancelled, self.generation == id, self.canSpeak() else { return }
                 let player = try AVAudioPlayer(data: data)
                 self.player = player
-                guard player.play() else { self.status = "Mac 无法播放音频"; return }
-                self.status = "正在播放 Qwen 语音"
+                guard player.play() else { self.status = "Your Mac could not play the audio."; return }
+                self.status = "Playing Qwen speech"
                 while player.isPlaying && !Task.isCancelled {
                     try await Task.sleep(for: .milliseconds(100))
                     guard await validate(), !Task.isCancelled, self.generation == id, self.canSpeak() else {
                         player.stop()
-                        if self.generation == id { self.player = nil; self.status = "朗读已停止" }
+                        if self.generation == id { self.player = nil; self.status = "Read-aloud stopped" }
                         return
                     }
                 }
-                if self.generation == id { self.status = "播放完成"; self.player = nil }
+                if self.generation == id { self.status = "Playback complete"; self.player = nil }
             } catch is CancellationError { }
-              catch { if self.generation == id { self.status = "语音合成失败，请检查百炼模型、音色和网络" } }
+              catch { if self.generation == id { self.status = "Speech generation failed. Check your DashScope model, voice and connection." } }
         }
     }
 }
@@ -62,22 +62,22 @@ struct QwenReadAloudSettings: View {
     @AppStorage(QwenReadAloud.modelKey) private var model = QwenSpeechSynthesis.defaultModel
     @AppStorage(QwenReadAloud.voiceKey) private var voice = QwenSpeechSynthesis.defaultVoice
     var body: some View {
-        Section("Mac Qwen 朗读") {
-            Toggle("自动朗读关注任务的 AI 完成摘要", isOn: $enabled)
-            Text("使用百炼生成语音，由 Mac 当前音频输出播放；无需打开麦克风。每次朗读会产生语音合成费用。")
+        Section("Mac Qwen Read Aloud") {
+            Toggle("Automatically read AI completion summaries for followed tasks", isOn: $enabled)
+            Text("Generate speech with DashScope and play it through your Mac’s current audio output. No microphone is needed. Each reading incurs speech-generation charges.")
                 .font(.caption).foregroundStyle(.secondary)
-            TextField("语音合成模型", text: $model)
-            Picker("音色", selection: $voice) {
-                Text("龙安风悦 · 自然亲切").tag("longanfengyue")
-                Text("龙安灵希 · 可爱甜美").tag("longanlingxi")
-                Text("龙安元妃 · 角色女声").tag("longanyuanfei")
+            TextField("Speech synthesis model", text: $model)
+            Picker("Read-aloud voice", selection: $voice) {
+                Text("Longan Fengyue · Warm and natural").tag("longanfengyue")
+                Text("Longan Lingxi · Sweet and cheerful").tag("longanlingxi")
+                Text("Longan Yuanfei · Female character voice").tag("longanyuanfei")
             }
             HStack {
-                Button("试听 Qwen 音色") { reader.speak("你好，我是你的工作伙伴。任务已完成，设备验证仍待进行。") }
+                Button("Preview Qwen voice") { reader.speak(NSLocalizedString("Hello, I’m your work companion. The task is complete, and device verification is still pending.", comment: "Qwen voice preview spoken in the app language")) }
                     .disabled(reader.busy)
-                Button("停止") { reader.stop() }.disabled(!reader.busy)
+                Button("Stop") { reader.stop() }.disabled(!reader.busy)
             }
-            if !reader.status.isEmpty { Text(reader.status).font(.caption) }
+            if !reader.status.isEmpty { Text(LocalizedStringKey(reader.status)).font(.caption) }
         }
         .onChange(of: enabled) { _, value in if !value { reader.stop() } }
         .onChange(of: model) { _, _ in reader.stop() }

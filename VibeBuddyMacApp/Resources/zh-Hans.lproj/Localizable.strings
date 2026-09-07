@@ -238,3 +238,23 @@
 "This completion was already handled." = "此完成结果已处理。";
 
 "Followed task completions use one summary when enabled. If generation fails, the ordinary completion notification is used." = "开启后，关注任务的完成通知使用一次 AI 摘要；生成失败时使用普通完成通知。";
+
+/* Mac Qwen read aloud */
+"Generating Qwen speech…" = "正在合成 Qwen 语音…";
+"Save your DashScope API key first." = "请先保存百炼 API Key";
+"Your Mac could not play the audio." = "Mac 无法播放音频";
+"Playing Qwen speech" = "正在播放 Qwen 语音";
+"Read-aloud stopped" = "朗读已停止";
+"Playback complete" = "播放完成";
+"Speech generation failed. Check your DashScope model, voice and connection." = "语音合成失败，请检查百炼模型、音色和网络";
+"Mac Qwen Read Aloud" = "Mac Qwen 朗读";
+"Automatically read AI completion summaries for followed tasks" = "自动朗读关注任务的 AI 完成摘要";
+"Generate speech with DashScope and play it through your Mac’s current audio output. No microphone is needed. Each reading incurs speech-generation charges." = "使用百炼生成语音，由 Mac 当前音频输出播放；无需打开麦克风。每次朗读会产生语音合成费用。";
+"Speech synthesis model" = "语音合成模型";
+"Longan Fengyue · Warm and natural" = "龙安风悦 · 自然亲切";
+"Longan Lingxi · Sweet and cheerful" = "龙安灵希 · 可爱甜美";
+"Longan Yuanfei · Female character voice" = "龙安元妃 · 角色女声";
+"Preview Qwen voice" = "试听 Qwen 音色";
+"Stop" = "停止";
+"Hello, I’m your work companion. The task is complete, and device verification is still pending." = "你好，我是你的工作伙伴。任务已完成，设备验证仍待进行。";
+"Read-aloud voice" = "朗读音色";
