@@ -10,7 +10,7 @@ import VibeBuddyKit
 final class LiveActivityManager {
     private var activity: Activity<VibeBuddyActivityAttributes>?
     private var tokenObserver: Task<Void, Never>?
-    private var pendingSessions: [AgentSession]?
+    private var pendingSessions: (sessions: [AgentSession], allowsActions: Bool)?
     private var reconciliation: Task<Void, Never>?
     /// Reports the activity's APNs push token (hex) whenever it's produced or rotates,
     /// so the Mac can push content-state updates while the app is backgrounded
@@ -19,10 +19,10 @@ final class LiveActivityManager {
 
     /// Reflect the latest counts. Starts the activity on first non-empty state,
     /// updates it thereafter, and ends it when everything is gone.
-    func sync(sessions: [AgentSession]) async {
+    func sync(sessions: [AgentSession], allowsActions: Bool = true) async {
         // ActivityKit operations suspend. Serialize them so a reconnect/stop
         // cannot create an activity while an earlier reconciliation ends it.
-        pendingSessions = sessions
+        pendingSessions = (sessions, allowsActions)
         if let reconciliation {
             await reconciliation.value
             return
@@ -30,7 +30,7 @@ final class LiveActivityManager {
         let task = Task { @MainActor in
             while let sessions = self.pendingSessions {
                 self.pendingSessions = nil
-                await self.reconcile(sessions: sessions)
+                await self.reconcile(sessions: sessions.sessions, allowsActions: sessions.allowsActions)
             }
             self.reconciliation = nil
         }
@@ -38,7 +38,7 @@ final class LiveActivityManager {
         await task.value
     }
 
-    private func reconcile(sessions: [AgentSession]) async {
+    private func reconcile(sessions: [AgentSession], allowsActions: Bool) async {
         let summary = TaskPresentationSummary(sessions: sessions)
         let existing = Activity<VibeBuddyActivityAttributes>.activities
         let reusable = existing.filter { $0.activityState == .active || $0.activityState == .stale }
@@ -60,19 +60,18 @@ final class LiveActivityManager {
 
         // The island can answer the first pending approval (island-approve/01) —
         // not necessarily the leading session, since an error outranks it.
-        let asking = sessions.first { $0.pendingApproval != nil }
-        let approval = asking?.pendingApproval
+        let target = allowsActions ? ActivityApprovalTarget.select(from: sessions) : nil
         let previous = activity?.content.state
         let state = VibeBuddyActivityAttributes.ContentState(
             summary: summary,
             topProject: leading?.project,
             topSessionId: leading?.id,
-            approvalId: approval?.id,
-            approvalTitle: approval.map { "\(asking?.project ?? "") wants to \(CompanionCopy.requestVerb($0))" },
-            approvalDetail: approval?.commandPreview,
+            approvalId: target?.approvalID,
+            approvalTitle: target?.title,
+            approvalDetail: target?.detail,
             // A decision already sent from the island stays shown while the Mac
             // still reports the same request; a new request starts clean.
-            decisionSent: previous?.approvalId == approval?.id ? previous?.decisionSent : nil)
+            decisionSent: target != nil && previous?.approvalId == target?.approvalID ? previous?.decisionSent : nil)
         let content = ActivityContent(state: state, staleDate: nil)
 
         if let activity {

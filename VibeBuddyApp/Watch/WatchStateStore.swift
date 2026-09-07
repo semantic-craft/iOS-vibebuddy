@@ -163,7 +163,9 @@ final class WatchStateStore: NSObject, ObservableObject {
     /// flight does nothing — `WatchApprovalActionState` refuses to start a new
     /// attempt — so the decision cannot be submitted twice.
     func submit(_ alert: WatchAlert, _ choice: WatchApprovalChoice) {
-        guard canReachPhone,
+        guard canReachPhone, let state,
+              state.connection(now: Date(), phoneReachable: canReachPhone) == .live,
+              state.alerts.contains(where: { $0.sessionId == alert.sessionId && $0.approvalId == alert.approvalId }),
               let request = approval.begin(alert: alert, choice: choice,
                                            attemptId: UUID().uuidString)
         else { return }

@@ -198,6 +198,14 @@ private struct SetupSettings: View {
                     .font(.caption)
             }
 
+            Section {
+                Toggle("Observe Grok Bot tasks", isOn: Binding(
+                    get: { model.grokBotEnabled },
+                    set: { model.setGrokBotEnabled($0) }))
+            } header: { Text("Grok Bot") } footer: {
+                Text("Read task status from the signed-in Grok Bot app. Completion alerts support ordinary conversations submitted after connecting. Question continuations, automated tasks, and turns spanning a disconnect are not yet supported; check their final status in Grok Bot. Replies and approvals stay in Grok Bot. Summaries and Mac reading use your existing optional settings. This source is off by default.")
+            }
+
             if !setup.lastOutput.isEmpty {
                 ScrollView {
                     Text(setup.lastOutput)

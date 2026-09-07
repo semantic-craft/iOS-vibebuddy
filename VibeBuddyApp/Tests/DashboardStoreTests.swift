@@ -221,7 +221,7 @@ final class DashboardStoreTests: XCTestCase {
         XCTAssertEqual(store.allSessions.first?.hasUnreadCompletion, true)
         let acknowledged = await decisions.acknowledgedSessionIDs
         XCTAssertEqual(acknowledged, [])
-        store.stop()
+        await store.stop().value
     }
 }
 
@@ -275,7 +275,10 @@ extension DashboardStoreTests {
         let store = DashboardStore(streamer: SwitchingReadStreamer(), notifier: notifier,
                                    decisionClient: NullDecisionClient(), watchRelay: nil,
                                    completionReads: reads, reportDevice: { _ in })
-        defer { notifier.release(); store.stop() }
+        addTeardownBlock { @MainActor in
+            notifier.release()
+            await store.stop().value
+        }
         store.start(PairingPayload(host: "old", port: 9, token: "test"))
         for _ in 0..<100 where !notifier.isPaused { try await Task.sleep(for: .milliseconds(10)) }
         XCTAssertTrue(notifier.isPaused)
@@ -296,7 +299,16 @@ private actor PhoneActionRecorder: DecisionClient {
     var outcome: PhoneActionResult
     private(set) var sent = 0
     init(snapshot: Snapshot, outcome: PhoneActionResult) { self.snapshot = snapshot; self.outcome = outcome }
-    func actionSnapshot(_ pairing: PairingPayload) async -> Snapshot? { snapshot }
+    var holdSnapshot = false
+    var heldSnapshot: CheckedContinuation<Snapshot?, Never>?
+    func pauseSnapshot() { holdSnapshot = true }
+    func snapshotIsHeld() -> Bool { heldSnapshot != nil }
+    func releaseSnapshot() { heldSnapshot?.resume(returning: snapshot); heldSnapshot = nil }
+    func replaceSnapshot(_ next: Snapshot) { snapshot = next }
+    func actionSnapshot(_ pairing: PairingPayload) async -> Snapshot? {
+        if holdSnapshot { return await withCheckedContinuation { heldSnapshot = $0 } }
+        return snapshot
+    }
     func phoneDecision(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> PhoneActionResult {
         sent += 1
         try? await Task.sleep(for: .milliseconds(30))
@@ -306,7 +318,7 @@ private actor PhoneActionRecorder: DecisionClient {
         sent += 1
         return outcome
     }
-    func decide(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> Bool { false }
+    func decide(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> Bool { sent += 1; return outcome == .received }
     func answer(_ pairing: PairingPayload, sessionId: String, answer: String) async {}
     func jump(_ pairing: PairingPayload, sessionId: String) async -> JumpOutcome? { nil }
     func acknowledge(_ pairing: PairingPayload, request: CompletionReadRequest) async -> CompletionReadOutcome { .failed }
@@ -337,7 +349,7 @@ extension DashboardStoreTests {
         XCTAssertEqual(retry, .unconfirmed)
         let sent = await client.sent
         XCTAssertEqual(sent, 1)
-        store.stop()
+        await store.stop().value
     }
 
     func testSeparateCodexInstructionsRemainSendableAndStaleDraftIsRefused() async throws {
@@ -360,7 +372,7 @@ extension DashboardStoreTests {
         XCTAssertEqual(refused, .expired)
         let sent = await client.sent
         XCTAssertEqual(sent, 2)
-        store.stop()
+        await store.stop().value
     }
 
     func testHTTPReceiptDoesNotTreatUnavailableOrUnknownAsSuccess() {
@@ -370,5 +382,79 @@ extension DashboardStoreTests {
         XCTAssertEqual(PhoneActionResult(statusCode: 401), .failed)
         XCTAssertEqual(PhoneActionResult(statusCode: nil), .unconfirmed)
         XCTAssertEqual(PhoneActionResult(statusCode: 500), .unconfirmed)
+    }
+}
+
+
+extension DashboardStoreTests {
+    func testWatchRechecksCapabilityAndNeverSendsExpiredTap() async throws {
+        let now = Date()
+        var session = AgentSession(id: "approval-01", agent: .claudeCode, project: "Fixture",
+            status: .needsResponse, waitKind: .permission,
+            pendingApproval: PendingApproval(id: "wait-01", tool: "Bash", commandPreview: "pwd", command: "pwd"),
+            statusSince: now, updatedAt: now)
+        let snapshot = Snapshot(sessions: [session], serverTime: now, sourceID: "fixture-mac")
+        let client = PhoneActionRecorder(snapshot: snapshot, outcome: .received)
+        let store = DashboardStore(streamer: ScriptedStreamer(snapshots: [snapshot]), notifier: SilentNotifier(),
+                                   decisionClient: client, watchRelay: nil, reportDevice: { _ in })
+        store.start(PairingPayload(host: "127.0.0.1", port: 9, token: "fixture"))
+        addTeardownBlock { @MainActor in await store.stop().value }
+        for _ in 0..<100 where store.allSessions.isEmpty { try await Task.sleep(for: .milliseconds(5)) }
+        let request = WatchApprovalRequest(attemptId: "first", sessionId: session.id, approvalId: "wait-01", choice: .allow)
+        let accepted = await store.decideFromWatch(request)
+        XCTAssertEqual(accepted.outcome, .accepted)
+        XCTAssertEqual(store.allSessions.first?.status, .needsResponse, "Acceptance does not finish the task")
+        let duplicate = await store.decideFromWatch(request)
+        XCTAssertEqual(duplicate.outcome, .accepted)
+        session.pendingApproval = PendingApproval(id: "wait-01", tool: "Bash", commandPreview: "pwd", command: "pwd", answerable: false)
+        await client.replaceSnapshot(Snapshot(sessions: [session], serverTime: now, sourceID: "fixture-mac"))
+        let refused = await store.decideFromWatch(WatchApprovalRequest(attemptId: "late", sessionId: session.id, approvalId: "wait-01", choice: .deny))
+        XCTAssertEqual(refused.outcome, .refused)
+        let count = await client.sent
+        XCTAssertEqual(count, 1)
+        await store.stop().value
+        let offline = await store.decideFromWatch(request)
+        XCTAssertEqual(offline.outcome, .failed)
+        let finalCount = await client.sent
+        XCTAssertEqual(finalCount, 1)
+    }
+}
+
+
+private struct ApprovalStream: SnapshotStreaming {
+    let snapshots: AsyncStream<Snapshot>
+    func stream(_ pairing: PairingPayload) -> AsyncStream<Snapshot> { snapshots }
+}
+
+extension DashboardStoreTests {
+    func testDisconnectWhileFetchingAuthorityDoesNotSendPhoneDecision() async throws {
+        let now = Date()
+        let session = AgentSession(id: "disconnect-01", agent: .claudeCode, project: "Fixture",
+            status: .needsResponse, waitKind: .permission,
+            pendingApproval: PendingApproval(id: "disconnect-wait", tool: "Bash", commandPreview: "pwd", command: "pwd"),
+            statusSince: now, updatedAt: now)
+        let snapshot = Snapshot(sessions: [session], serverTime: now, sourceID: "fixture-mac")
+        let stream = AsyncStream<Snapshot>.makeStream()
+        let client = PhoneActionRecorder(snapshot: snapshot, outcome: .received)
+        await client.pauseSnapshot()
+        let store = DashboardStore(streamer: ApprovalStream(snapshots: stream.stream), notifier: SilentNotifier(),
+                                   decisionClient: client, watchRelay: nil, reportDevice: { _ in })
+        store.start(PairingPayload(host: "127.0.0.1", port: 9, token: "fixture"))
+        addTeardownBlock { @MainActor in await store.stop().value }
+        stream.continuation.yield(snapshot)
+        for _ in 0..<100 where store.allSessions.isEmpty { try await Task.sleep(for: .milliseconds(5)) }
+        let attempt = Task { await store.decideConfirmed("disconnect-wait", .allow) }
+        for _ in 0..<100 {
+            if await client.snapshotIsHeld() { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        stream.continuation.finish()
+        for _ in 0..<100 where store.state == .connected { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertNotEqual(store.state, .connected)
+        await client.releaseSnapshot()
+        let result = await attempt.value
+        XCTAssertEqual(result, .expired)
+        let count = await client.sent
+        XCTAssertEqual(count, 0)
     }
 }

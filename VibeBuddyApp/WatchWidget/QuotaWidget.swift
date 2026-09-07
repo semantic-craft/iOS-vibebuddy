@@ -16,10 +16,11 @@ private extension ProviderQuota {
 }
 
 enum QuotaPlatform: String, AppEnum {
-    case codex, claude, grok, cursor, both, all
+    case codex, claude, grok, cursor, grokBot, both, all
     static let typeDisplayRepresentation: TypeDisplayRepresentation = "Platform"
     static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
-        .codex: "Codex", .claude: "Claude", .grok: "Grok", .cursor: "Cursor",
+        .codex: "Codex", .claude: "Claude", .grok: "Grok Build", .cursor: "Cursor",
+        .grokBot: "Grok Bot",
         .both: "Codex + Claude", .all: "All providers"
     ]
     var selection: WatchQuotaSelection { WatchQuotaSelection(rawValue: rawValue)! }
@@ -149,6 +150,7 @@ struct QuotaWidgetView: View {
         case .claude: return "CL"
         case .grok: return "G"
         case .cursor: return "Cu"
+        case .grokBot: return "GB"
         }
     }
     private func color(_ provider: AccountUsageProvider) -> Color {
@@ -157,6 +159,7 @@ struct QuotaWidgetView: View {
         case .claude: return .orange
         case .grok: return .indigo
         case .cursor: return .purple
+        case .grokBot: return .cyan
         }
     }
     private func periodLabel(_ reading: QuotaWindow, kind: QuotaWindowKind? = nil) -> String {

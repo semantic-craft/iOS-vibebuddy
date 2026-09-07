@@ -7,6 +7,7 @@ public enum ObservationSource: String, Codable, Sendable, CaseIterable, Comparab
     /// local control socket. Authoritative for Codex when fresh; rollout and
     /// hook evidence for the same thread then only corroborates.
     case appserver
+    case gateway
     case hook
     /// Claude Code's status line JSON, forwarded by vibebuddy's wrapper script
     /// on every event: context, cost, session name, effort, PR, worktree and
@@ -25,6 +26,7 @@ public enum ObservationSource: String, Codable, Sendable, CaseIterable, Comparab
     public var displayName: String {
         switch self {
         case .appserver: "App server"
+        case .gateway: "Grok Bot gateway"
         case .hook: "Hook"
         case .statusline: "Status line"
         case .rollout: "Rollout"
@@ -71,6 +73,7 @@ public enum ObservationHealth: String, Codable, Sendable, CaseIterable {
             return "Codex ignores asynchronous command hooks in this version."
         case .sourceUnreadable:
             switch source {
+            case .gateway: return "The Grok Bot gateway cannot be reached. Open Grok Bot and check its connection."
             case .appserver: return "The Codex app-server control socket cannot be reached."
             case .statusline: return "The status line forwarder is not installed in Claude's settings."
             case .rollout: return "The rollout stream cannot be read."

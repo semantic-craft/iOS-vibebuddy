@@ -19,7 +19,7 @@ struct WatchQuotaView: View {
                     if state.quotas.isEmpty {
                         Text("No quota sources")
                             .font(.headline)
-                        Text("Sign in to Codex, Claude, Cursor, or Grok on your Mac to see allowance here.")
+                        Text("Enable quota collection for your signed-in account on your Mac to see allowance here.")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
@@ -46,6 +46,9 @@ private struct WatchQuotaDetail: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(quota.provider.displayName).font(.headline)
+            if let account = quota.accountLabel {
+                Text(account).font(.caption2).foregroundStyle(.secondary)
+            }
             let standard = QuotaWindowKind.allCases.map { quota.window($0) }.filter {
                 $0.remainingPercent != nil || $0.durationMinutes != nil || $0.resetsAt != nil || $0.label != nil
             }

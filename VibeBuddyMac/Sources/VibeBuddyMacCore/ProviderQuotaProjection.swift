@@ -47,14 +47,15 @@ public extension ProviderQuota {
         let weeklyRemaining = Self.remaining(fromUsedPercent: weekly?.usedPercent)
         let shortRemaining = Self.remaining(fromUsedPercent: short?.usedPercent)
         let usable = weeklyRemaining != nil || shortRemaining != nil || others.contains { $0.remainingPercent != nil }
-        self.init(provider: provider,
+        self.init(provider: provider, accountLabel: snapshot.accountLabel,
                   weeklyRemainingPercent: weeklyRemaining, weeklyResetsAt: weekly?.resetsAt,
                   weeklyWindowDurationMinutes: weekly?.windowDurationMinutes,
                   shortWindowRemainingPercent: shortRemaining, shortWindowResetsAt: short?.resetsAt,
                   shortWindowDurationMinutes: short?.windowDurationMinutes,
                   otherWindows: others.isEmpty ? nil : others,
-                  observedAt: usable ? snapshot.fetchedAt : nil,
+                  observedAt: usable || provider == .grokBot ? snapshot.fetchedAt : nil,
                   unavailableReason: state.unavailableReason?.displayText(provider: provider)
+                    ?? (usable ? nil : snapshot.usageDetail)
                     ?? (usable ? nil : (provider == .grok ? AccountUsageUnavailableReason.unknown : .incompatibleFormat).displayText(provider: provider)),
                   isCached: state.isStale)
         weeklyLabel = weekly?.label

@@ -35,6 +35,11 @@ struct CodexAppServerReducerTests {
         #expect(event.observationSource == .appserver)
         #expect(event.desktopThreadID == "thr-1")
         #expect(event.enrichment?.branch == "main")
+        var idle = thread(id: "old", status: "idle")
+        idle["path"] = "/tmp/rollout-old.jsonl"
+        let recovered = reducer.seed(thread: idle, receivedAt: now)
+        #expect(recovered.map(\.kind) == [.sessionStart])
+        #expect(recovered.first?.transcriptPath == "/tmp/rollout-old.jsonl")
     }
 
     @Test("active flags map to a permission or question wait")

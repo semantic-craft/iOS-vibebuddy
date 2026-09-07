@@ -74,6 +74,29 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertEqual(transport.sent.count, 2)
     }
 
+    func testWaitDestinationChangesTravelThroughTheExistingRelay() throws {
+        let transport = FakeWatchTransport()
+        let relay = WatchRelay(transport: transport)
+        func projected(_ agent: AgentKind, answerable: Bool, connection: WatchRelayState = .live) -> WatchDashboardState {
+            let session = AgentSession(id: "same-task", agent: agent, project: "Project",
+                status: .needsResponse, waitKind: .question,
+                pendingQuestion: PendingQuestion(id: "same-request", prompt: "Choose", answerable: answerable),
+                statusSince: now, updatedAt: now)
+            return WatchDashboardProjection.make(snapshot: Snapshot(sessions: [session], serverTime: now),
+                                                  quotas: [], relay: connection, now: now)
+        }
+        XCTAssertTrue(relay.publish(projected(.codex, answerable: true)))
+        XCTAssertTrue(relay.publish(projected(.codex, answerable: false)))
+        XCTAssertTrue(relay.publish(projected(.grokBot, answerable: false)))
+        XCTAssertTrue(relay.publish(projected(.grokBot, answerable: false, connection: .disconnected)))
+        XCTAssertTrue(relay.publish(projected(.codex, answerable: true)))
+        XCTAssertEqual(transport.states.map { $0.topAlert?.handling },
+                       [.remoteAvailable, .macNativePrompt, .macGrokBot, .macGrokBot, .remoteAvailable])
+        XCTAssertTrue(transport.states.allSatisfy { $0.topAlert?.isDecidable == false })
+        XCTAssertEqual(transport.states[3].connection(now: now, phoneReachable: true), .macDisconnected)
+        XCTAssertEqual(transport.states.last?.connection(now: now, phoneReachable: true), .live)
+    }
+
     func testMeaningfulChangeProducesANewContext() {
         let transport = FakeWatchTransport()
         let relay = WatchRelay(transport: transport)
@@ -155,7 +178,7 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertEqual(inbox.state?.counts.working, 2)
     }
 
-    func testDemoModeRelaysSampleStateWithQuota() {
+    func testDemoModeRelaysSampleStateWithQuota() async {
         let transport = FakeWatchTransport()
         let store = DashboardStore(streamer: EmptyStreamer(), notifier: SilentNotifier(),
                                    decisionClient: NullDecisionClient(),
@@ -170,25 +193,28 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertEqual(relayed?.counts.done, 3)
         XCTAssertEqual(relayed?.stuck, 1)
         XCTAssertEqual(relayed?.quotas.count, 2)
-        store.stop()
+        await store.stop().value
     }
 
-    func testResolvingADemoApprovalRelaysTheNewState() throws {
+    func testResolvingADemoApprovalRelaysTheNewState() async throws {
         let transport = FakeWatchTransport()
         let store = DashboardStore(streamer: EmptyStreamer(), notifier: SilentNotifier(),
                                    decisionClient: NullDecisionClient(),
                                    watchRelay: WatchRelay(transport: transport))
         store.startDemo()
         let approvalId = try XCTUnwrap(store.allSessions.compactMap(\.pendingApproval).first).id
+        let targetID = try XCTUnwrap(store.allSessions.first { $0.pendingApproval?.id == approvalId }).id
+        let publishedBeforeDecision = transport.states.count
 
         store.decide(approvalId, .allow)
 
-        XCTAssertEqual(transport.states.count, 2)
+        XCTAssertEqual(transport.states.count, publishedBeforeDecision + 1)
+        XCTAssertFalse(transport.states.last?.alerts.contains { $0.sessionId == targetID } ?? true)
         XCTAssertEqual(transport.states.last?.counts.needsResponse, 2)
-        store.stop()
+        await store.stop().value
     }
 
-    func testRelayedPayloadCarriesNoPairingSecretsOrSessionCollection() {
+    func testRelayedPayloadCarriesNoPairingSecretsOrSessionCollection() async {
         let transport = FakeWatchTransport()
         let store = DashboardStore(streamer: EmptyStreamer(), notifier: SilentNotifier(),
                                    decisionClient: NullDecisionClient(),
@@ -200,7 +226,7 @@ final class WatchRelayTests: XCTestCase {
         for secret in ["10.0.0.7", "9876", "s3cr3t-bearer", "iTerm", "todos.sort", "\"sessions\""] {
             XCTAssertFalse(json.contains(secret), "relay payload leaked \(secret)")
         }
-        store.stop()
+        await store.stop().value
     }
 
     // MARK: - Decisions coming back from the wrist
@@ -218,6 +244,7 @@ final class WatchRelayTests: XCTestCase {
         let store = DashboardStore(streamer: EmptyStreamer(), notifier: SilentNotifier(),
                                    decisionClient: decisions,
                                    watchRelay: WatchRelay(transport: transport))
+        addTeardownBlock { @MainActor in await store.stop().value }
         store.startDemo()
         return store
     }
@@ -234,7 +261,7 @@ final class WatchRelayTests: XCTestCase {
 
         XCTAssertEqual(result, WatchApprovalResult(attemptId: "t-1", outcome: .accepted))
         XCTAssertFalse(store.allSessions.contains { $0.pendingApproval?.id == approvalId })
-        store.stop()
+        await store.stop().value
     }
 
     func testARepeatedTapIsNotResubmitted() async throws {
@@ -252,7 +279,7 @@ final class WatchRelayTests: XCTestCase {
         // Still accepted — the tap did land — but nothing moved a second time.
         XCTAssertEqual(repeated.outcome, .accepted)
         XCTAssertEqual(transport.sent.count, relayCount, "a duplicate tap re-projected nothing")
-        store.stop()
+        await store.stop().value
     }
 
     func testATapForAnApprovalThatMovedOnIsRefused() async throws {
@@ -269,7 +296,7 @@ final class WatchRelayTests: XCTestCase {
             attemptId: "t-2", sessionId: "demo-work",
             approvalId: try XCTUnwrap(alert.approvalId), choice: .allow))
         XCTAssertEqual(wrongSession.outcome, .refused)
-        store.stop()
+        await store.stop().value
     }
 
     func testTheRichEditApprovalCannotBeResolvedFromTheWrist() async throws {
@@ -286,15 +313,15 @@ final class WatchRelayTests: XCTestCase {
 
         XCTAssertEqual(result.outcome, .refused)
         XCTAssertTrue(store.allSessions.contains { $0.pendingApproval?.id == hidden })
-        store.stop()
+        await store.stop().value
     }
 
-    func testAnUnreachableMacReportsFailedAndTheTapCanBeMadeAgain() async throws {
+    func testAnUnreachableMacReportsFailedWithoutSendingDecision() async throws {
         let transport = FakeWatchTransport()
         let decisions = UnreachableDecisionClient()
         let sampleStore = demoStore(FakeWatchTransport())
         let samples = sampleStore.allSessions
-        sampleStore.stop()
+        await sampleStore.stop().value
         let store = DashboardStore(
             streamer: ScriptedStreamer(snapshots: [Snapshot(sessions: samples, serverTime: Date())]),
             notifier: SilentNotifier(), decisionClient: decisions,
@@ -317,7 +344,7 @@ final class WatchRelayTests: XCTestCase {
         let second = await transport.tap(request)
         XCTAssertEqual(second.outcome, .failed)
         let attempts = await decisions.attempts
-        XCTAssertEqual(attempts, 2)
-        store.stop()
+        XCTAssertEqual(attempts, 0, "No decision is sent without a fresh authenticated snapshot")
+        await store.stop().value
     }
 }

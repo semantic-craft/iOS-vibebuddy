@@ -12,6 +12,13 @@ import VibeBuddyKit
 /// — it silences a finishing session's cue when its terminal is on screen, and
 /// at worst over-silences sibling tabs in the same app, never the reverse.
 public enum ForegroundTerminal {
+    /// Grok Bot exposes app-level presence, not the selected bot. This is only
+    /// a speech suppression signal: never treat all bots as viewed or read.
+    public static func sourceAppSuppressesSpeech(for session: AgentSession,
+                                                 frontmostBundleID: String?) -> Bool {
+        session.agent == .grokBot && frontmostBundleID == GrokBotJumper.bundleID
+    }
+
     /// Bundle identifiers a given `TERM_PROGRAM` is known to run under. The one
     /// table for the mapping — `TerminalJumper` reads it too, to decide which app
     /// a jump should bring forward.

@@ -261,6 +261,24 @@ code, and tests — don't drift to synonyms.
 - **AccountUsage** — provider quota (Codex app-server RPC, Claude `/usage` CLI):
   window, remaining, reset, freshness, `stale` / unavailable reason. Collected by
   isolated, individually switchable adapters that can never move session state.
+- **Grok Bot** — the cloud bot product opened by `com.anysphere.sand`, distinct
+  from Grok Build CLI (`grok`). Its account quota has the independent `grokBot`
+  provider identity. The optional Mac observer uses the official client's
+  active-account gateway credentials for read-only observations; it does not
+  start tasks or answer questions. A Session belongs to account + bot, and a
+  completion additionally belongs to the initiating turn. Message IDs alone
+  are insufficient because different bots can reuse them.
+- **Grok Bot gateway** — `ObservationSource.gateway`. Connection health is
+  separate from task state: reconnecting or losing access does not prove that
+  a task finished. User-visible final replies must match the initiating user
+  request and its terminal settlement before entering completion summaries.
+  Without a verified exact-bot jump, Jump opens the official app. Foreground
+  Grok Bot can suppress speech but does not acknowledge every bot's completion.
+  A current unanswered native `widget` is needsResponse even when the roster
+  reports idle and an old successful settlement. Answering the widget may start
+  a new request without a new associated settlement; this continuation's completion
+  is currently unverifiable and keeps degraded observation health. It must not
+  inherit the earlier turn's success or enter summaries by temporal proximity.
 
 ## Completion summaries and Mac reading
 

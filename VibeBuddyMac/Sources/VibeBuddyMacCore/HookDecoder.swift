@@ -31,6 +31,7 @@ public enum HookDecoder {
         receivedAt: Date
     ) -> Result {
         switch agent {
+        case .grokBot: return .undecodable
         case .codex:
             return result(HookParser.parse(data, agent: .codex, receivedAt: receivedAt))
         case .grok:

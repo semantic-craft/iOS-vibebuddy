@@ -27,6 +27,7 @@ public struct VibeBuddyServer: Sendable {
     /// The Codex app-server daemon connection (ADR-0011). Optional so the
     /// tests and hosts that only exercise routes need not open a socket.
     public let codexAppServerMonitor: CodexAppServerMonitor?
+    public let grokBotMonitor: GrokBotMonitor?
     /// Live account usage published by `/statusline` (Claude) and the Codex
     /// monitor; the Mac app's usage coordinator consumes it.
     public let usageFeed: AccountUsageLiveFeed?
@@ -82,6 +83,7 @@ public struct VibeBuddyServer: Sendable {
                 activityTokens: ActivityTokens = ActivityTokens(),
                 codexRolloutMonitor: CodexRolloutMonitor? = nil,
                 codexAppServerMonitor: CodexAppServerMonitor? = nil,
+                grokBotMonitor: GrokBotMonitor? = nil,
                 usageFeed: AccountUsageLiveFeed? = nil,
                 approvalRegistry: ApprovalRegistry = ApprovalRegistry(),
                 rules: @escaping @Sendable (AgentKind) -> PermissionRules = { PermissionRules.load(for: $0) },
@@ -115,6 +117,7 @@ public struct VibeBuddyServer: Sendable {
         self.activityTokens = activityTokens
         self.codexRolloutMonitor = codexRolloutMonitor
         self.codexAppServerMonitor = codexAppServerMonitor
+        self.grokBotMonitor = grokBotMonitor
         self.usageFeed = usageFeed
         self.approvalRegistry = approvalRegistry
         self.rules = rules
@@ -156,19 +159,25 @@ public struct VibeBuddyServer: Sendable {
         let appServerTask = codexAppServerMonitor.map { monitor in
             Task { await monitor.run(store: store) }
         }
+        let grokTask = grokBotMonitor.map { monitor in Task { await monitor.run(store: store) } }
         defer {
+            grokTask?.cancel()
             monitorTask?.cancel()
             appServerTask?.cancel()
         }
         do {
             try await buildApplication().runService()
         } catch {
+            grokTask?.cancel()
+            await grokTask?.value
             monitorTask?.cancel()
             appServerTask?.cancel()
             await monitorTask?.value
             await appServerTask?.value
             throw error
         }
+        grokTask?.cancel()
+        await grokTask?.value
         monitorTask?.cancel()
         appServerTask?.cancel()
         await monitorTask?.value
@@ -797,7 +806,10 @@ public struct VibeBuddyServer: Sendable {
             // The jumper answers after it has run, so `focused` means the exact
             // pane/tab really came forward — not merely that a command existed.
             let outcome: JumpOutcome
-            if let ref = await store.terminalRef(for: sid) {
+            let session = await store.snapshot(now: Date()).sessions.first { $0.id == sid }
+            if session?.agent == .grokBot {
+                outcome = await GrokBotJumper.jump()
+            } else if let ref = await store.terminalRef(for: sid) {
                 outcome = await onJump(ref)
             } else if let thread = await store.desktopThreadID(for: sid) {
                 // Codex Desktop runs no hook, so this session will never have a

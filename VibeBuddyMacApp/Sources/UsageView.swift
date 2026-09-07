@@ -11,6 +11,19 @@ struct AccountUsageSummaryView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: compact ? 7 : 10) {
             if let snapshot = state.snapshot?.excludingExpiredGrokWindows(at: Date()) {
+                if let account = snapshot.accountLabel {
+                    Text(account).font(.caption).foregroundStyle(.secondary)
+                }
+                if let detail = snapshot.usageDetail {
+                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                }
+                if let available = snapshot.hasAvailableUsage {
+                    Text(available ? "Usage available" : "No usage available").font(.caption)
+                        .foregroundStyle(available ? Color.secondary : Color.orange)
+                }
+                if provider == .grokBot, snapshot.primary == nil, snapshot.usageDetail == nil {
+                    Text("Weekly percentage unavailable").foregroundStyle(.secondary)
+                }
                 if provider == .grok, snapshot.primary == nil {
                     if state.unavailableReason != .unknown {
                         Text("Usage is temporarily unavailable").foregroundStyle(.secondary)
@@ -21,7 +34,7 @@ struct AccountUsageSummaryView: View {
                     }
                 }
                 if snapshot.windows.isEmpty {
-                    if provider != .grok {
+                    if provider != .grok && provider != .grokBot {
                         Label("No quota windows supplied", systemImage: "gauge.with.dots.needle.0percent")
                             .foregroundStyle(.secondary)
                     }
@@ -76,7 +89,7 @@ struct AccountUsageSummaryView: View {
             HStack {
                 Text(windowTitle(window)).font(.caption.weight(.semibold))
                 Spacer(minLength: 4)
-                Text("\(window.usedPercent)% used")
+                Text(provider == .grokBot ? "\(window.usedPercent)% used · \(100 - window.usedPercent)% left" : "\(window.usedPercent)% used")
                     .font(.caption.monospacedDigit())
             }
             ProgressView(value: Double(window.usedPercent), total: 100)
@@ -125,6 +138,8 @@ struct AccountUsageSettings: View {
     @State private var cursorCookie: String = CursorSessionCookieStore.loadManual() ?? ""
     @State private var cursorCookieMode: CursorCookieSourceMode = CursorCookieSourceSettings.mode()
     @State private var cursorImportMessage: String?
+    @State private var grokBotAuthorization: String?
+    @State private var isAuthorizingGrokBot = false
     @FocusState private var cursorCookieFocused: Bool
 
     var body: some View {
@@ -143,6 +158,25 @@ struct AccountUsageSettings: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Section("Grok Bot") {
+                Button("Authorize Grok Bot account access…") {
+                    isAuthorizingGrokBot = true
+                    Task {
+                        defer { isAuthorizingGrokBot = false }
+                        do {
+                            _ = try await GrokBotLocalAccount.load(allowPrompt: true)
+                            _ = try await GrokBotLocalAccount.load()
+                            grokBotAuthorization = "Access authorized. Enable collection and refresh Grok Bot usage."
+                        } catch {
+                            grokBotAuthorization = "Background access unavailable. Sign in to Grok Bot and authorize Keychain access for future reads."
+                        }
+                    }
+                }
+                .disabled(isAuthorizingGrokBot)
+                Text(grokBotAuthorization ?? "Reads the active official Grok Bot account. Background refresh never opens a Keychain prompt. Expired login must be renewed in Grok Bot.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             Section {

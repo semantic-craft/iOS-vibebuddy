@@ -26,7 +26,10 @@ struct IslandDecisionIntent: LiveActivityIntent {
 
     func perform() async throws -> some IntentResult {
         let accepted: Bool
-        if let pairing = IslandPairing.load() {
+        if let pairing = IslandPairing.load(),
+           let snapshot = await HTTPDecisionClient().actionSnapshot(pairing),
+           snapshot.sessions.contains(where: { ApprovalEligibility.approval(for: $0)?.id == approvalId }),
+           IslandPairing.load() == pairing {
             accepted = await HTTPDecisionClient().decide(pairing, approvalId: approvalId,
                                                          decision: allow ? .allow : .deny)
         } else {

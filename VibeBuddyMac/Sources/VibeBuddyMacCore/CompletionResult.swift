@@ -74,7 +74,7 @@ struct CompletionResults {
         if let candidate = candidates[id], candidate.completionID == completionID {
             // A labelled duplicate may supply missing final evidence within the
             // original deadline; it cannot replace a frozen result or ending.
-            if candidate.outcome == nil, event.agent == .codex, event.completionSucceeded == true,
+            if candidate.outcome == nil, [AgentKind.codex, .grokBot].contains(event.agent), event.completionSucceeded == true,
                let turn = event.turnID, turn == candidate.turnID,
                let text = event.completionText, let sourceID {
                 candidates[id]?.outcome = Self.freeze(text, candidate: candidate,
@@ -82,7 +82,7 @@ struct CompletionResults {
             }
             return
         }
-        var candidate = Candidate(completionID: completionID, turnID: event.agent == .codex ? run.turnID : event.turnID,
+        var candidate = Candidate(completionID: completionID, turnID: [AgentKind.codex, .grokBot].contains(event.agent) ? run.turnID : event.turnID,
                                   title: session.displayTitle, completedAt: event.timestamp,
                                   startedAt: run.startedAt,
                                   transcriptPath: event.agent == .claudeCode ? event.transcriptPath : nil,
@@ -91,7 +91,7 @@ struct CompletionResults {
             candidate.outcome = .resultTooLong
             candidate.expectedText = nil
         }
-        if event.agent == .codex, event.completionSucceeded == true, let turn = event.turnID, !turn.isEmpty,
+        if [AgentKind.codex, .grokBot].contains(event.agent), event.completionSucceeded == true, let turn = event.turnID, !turn.isEmpty,
            let text = event.completionText, let sourceID {
             candidate.outcome = Self.freeze(text, candidate: candidate, sourceID: sourceID, sessionID: id, now: now)
         }

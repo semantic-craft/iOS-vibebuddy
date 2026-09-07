@@ -344,7 +344,8 @@ private struct MessageRow: View {
 
     private var state: TaskPresentationState { session.presentationState }
     private var canReply: Bool {
-        if let q = session.pendingQuestion { return q.isAnswerable }
+        guard session.agent != .grokBot else { return false }
+        if session.pendingQuestion != nil { return SessionActionSupport.resolve(for: session).isAvailable }
         return session.agent == .codex && session.status != .needsResponse
     }
 
@@ -369,6 +370,12 @@ private struct MessageRow: View {
                 if let child = ToolActivity.childSummary(for: session) {
                     Text(child).font(CompanionType.font(11, .semibold)).foregroundStyle(CompanionPalette.ink2)
                         .monospacedDigit().lineLimit(1)
+                }
+                if session.status == .needsResponse && session.pendingApproval == nil && session.pendingQuestion == nil {
+                    Text(WaitHandling.resolve(for: session).message).font(.caption)
+                }
+                if session.status == .needsResponse && dashboard.state != .connected {
+                    Text("Connection to your Mac is unavailable. Reconnect to verify this request.").font(.caption)
                 }
                 actions
             }
@@ -422,8 +429,8 @@ private struct MessageRow: View {
                 .font(CompanionType.font(10, .heavy)).textCase(.uppercase).kerning(0.5)
                 .foregroundStyle(CompanionPalette.status(.requiresInput))
             ApprovalBody(approval: approval)
-            if !approval.isAnswerable {
-                Label("You're at the Mac — answer this in the agent's own prompt.", systemImage: "keyboard")
+            if ApprovalEligibility.approval(for: session) == nil {
+                Label(WaitHandling.resolve(for: session).message, systemImage: "keyboard")
                     .font(CompanionType.font(11, .semibold)).foregroundStyle(CompanionPalette.ink2)
             } else {
                 HStack(spacing: 8) {
@@ -455,14 +462,15 @@ private struct MessageRow: View {
     }
 
     @ViewBuilder private func questionBlock(_ question: PendingQuestion) -> some View {
-        if question.isAnswerable {
+        if WaitHandling.resolve(for: session) == .remoteAvailable {
             QuestionCardView(question: question, actionState: dashboard.phoneActionState(for: session)) { answers in
                 await dashboard.answer(session.id, answers: answers, expected: session)
             }
+            .disabled(dashboard.phoneActionDisabled(for: session))
         } else {
             VStack(alignment: .leading, spacing: 4) {
                 Text(question.prompt).font(CompanionType.font(14, .heavy)).foregroundStyle(CompanionPalette.ink)
-                Label("You're at the Mac — answer this in the agent's own prompt.", systemImage: "keyboard")
+                Label(WaitHandling.resolve(for: session).message, systemImage: "keyboard")
                     .font(CompanionType.font(11, .semibold)).foregroundStyle(CompanionPalette.ink2)
             }
         }
@@ -476,7 +484,7 @@ private struct MessageRow: View {
                         .buttonStyle(PillButtonStyle(kind: isReplyTarget ? .filled(CompanionPalette.accent) : .soft, size: .small))
                 }
                 if session.canJump {
-                    Button(session.jumpsToDesktopThread ? "Open thread" : "Jump") { dashboard.jump(session.id) }
+                    Button(session.agent == .grokBot ? "Open Grok Bot" : session.jumpsToDesktopThread ? "Open thread" : "Jump") { dashboard.jump(session.id) }
                         .buttonStyle(PillButtonStyle(kind: .soft, size: .small))
                 }
             }
@@ -676,13 +684,15 @@ private struct SessionDetailSheet: View {
                     }
                     HStack(spacing: 8) {
                         if session.canJump {
-                            Button(session.jumpsToDesktopThread ? "Open thread in ChatGPT" : "Jump to terminal") {
+                            Button(session.agent == .grokBot ? "Open Grok Bot" : session.jumpsToDesktopThread ? "Open thread in ChatGPT" : "Jump to terminal") {
                                 dashboard.jump(session.id)
                             }
                             .buttonStyle(PillButtonStyle(kind: .filled(CompanionPalette.accent)))
                         }
-                        Button { onReply() } label: { Label("Reply", systemImage: "arrowshape.turn.up.left") }
-                            .buttonStyle(PillButtonStyle(kind: .soft))
+                        if session.agent != .grokBot {
+                            Button { onReply() } label: { Label("Reply", systemImage: "arrowshape.turn.up.left") }
+                                .buttonStyle(PillButtonStyle(kind: .soft))
+                        }
                         if companionEnabled {
                             Button { dashboard.toggleBuddy(session.id) } label: {
                                 Label(included ? "In buddy's context" : "Add to buddy", systemImage: included ? "waveform.circle.fill" : "waveform.circle")

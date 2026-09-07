@@ -37,8 +37,14 @@ struct WatchAlertsView: View {
                 .frame(width: 2)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
-                    Image(systemName: alert.agent.symbolName)
-                        .font(.system(size: 9))
+                    if alert.agent == .grokBot {
+                        SVGPathShape(alert.agent.brandMark)
+                            .fill(alert.agent.brandColor)
+                            .frame(width: 10, height: 10)
+                    } else {
+                        Image(systemName: alert.agent.symbolName)
+                            .font(.system(size: 9))
+                    }
                     Text("\(alert.agent.shortName) · \(alert.project)")
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)

@@ -83,6 +83,42 @@ final class WatchApprovalTests: XCTestCase {
         XCTAssertNil(WatchApprovalEligibility.approvalId(for: permission(status: .working)))
     }
 
+    func testReadOnlyRevokesProjectedActionAndRefusesOldTap() {
+        let original = permission()
+        var readOnly = original
+        readOnly.pendingApproval = PendingApproval(id: "ap-1", tool: "Bash", commandPreview: "swift test",
+                                                   command: "swift test", answerable: false)
+        var action = WatchApprovalActionState()
+        let tap = action.begin(alert: state([original]).topAlert!, choice: .allow, attemptId: "tap")!
+        let projected = state([readOnly])
+        XCTAssertNil(projected.topAlert?.approvalId)
+        XCTAssertEqual(ApprovalEligibility.unavailableReason(for: readOnly), .readOnly)
+        XCTAssertEqual(WatchApprovalGate().admit(tap, sessions: [readOnly]), .refused)
+        action.reconcile(with: projected)
+        XCTAssertNil(action.action)
+    }
+
+    func testActivitySkipsReadOnlyAndKeepsTargetWordingTogether() {
+        var readOnly = permission(id: "first", approvalId: "first-approval", project: "Read only")
+        readOnly.pendingApproval = PendingApproval(id: "first-approval", tool: "Bash", commandPreview: "readonly", answerable: false)
+        let valid = permission(id: "second", approvalId: "second-approval", project: "Actionable")
+        let target = ActivityApprovalTarget.select(from: [readOnly, valid])
+        XCTAssertEqual(target?.approvalID, "second-approval")
+        XCTAssertTrue(target?.title.hasPrefix("Actionable wants to") == true)
+        XCTAssertEqual(target?.detail, valid.pendingApproval?.commandPreview)
+        XCTAssertNil(ActivityApprovalTarget.select(from: [readOnly]))
+        let bot = AgentSession(id: valid.id, agent: .grokBot, project: valid.project,
+                               status: .needsResponse, waitKind: .permission, pendingApproval: valid.pendingApproval,
+                               statusSince: now, updatedAt: now)
+        XCTAssertNil(ActivityApprovalTarget.select(from: [bot]))
+        XCTAssertNil(state([bot]).topAlert?.approvalId)
+        let diff = permission(tool: "Edit", command: nil, filePath: "file", oldText: "a", newText: "b")
+        XCTAssertNotNil(ActivityApprovalTarget.select(from: [diff]))
+        XCTAssertNil(state([diff]).topAlert?.approvalId)
+        XCTAssertNil(ActivityApprovalTarget.select(from: [permission(status: .working)]))
+        XCTAssertNil(ActivityApprovalTarget.select(from: [permission(approvalId: " ")]))
+    }
+
     // MARK: the wire may only say allow or deny
 
     func testTheWatchCannotEncodeAnAlwaysAllow() {

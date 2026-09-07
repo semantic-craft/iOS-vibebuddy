@@ -26,14 +26,15 @@ public struct SessionActionSupport: Equatable, Sendable {
     public var isAvailable: Bool { unsupportedReason == nil }
 
     public static func resolve(for session: AgentSession) -> SessionActionSupport {
-        if session.pendingApproval != nil || (session.status == .needsResponse && session.pendingQuestion == nil) {
-            return SessionActionSupport(intent: .answer, unsupportedReason: "Answer this wait in the agent’s own prompt on Mac.")
+        if session.agent == .grokBot {
+            let intent: SessionActionIntent = session.status == .needsResponse ? .answer : session.status == .done ? .continue : .steer
+            return SessionActionSupport(intent: intent, unsupportedReason: String(localized: "Respond in Grok Bot on your Mac. Remote instructions are unavailable."))
         }
-        if let question = session.pendingQuestion {
-            let reason = question.isAnswerable
-                ? nil
-                : String(localized: "You're at the Mac — answer this in the agent's own prompt.")
-            return SessionActionSupport(intent: .answer, unsupportedReason: reason)
+        if session.status == .needsResponse {
+            let handling = WaitHandling.resolve(for: session)
+            let canAnswer = handling == .remoteAvailable && session.waitKind == .question
+            return SessionActionSupport(intent: .answer, unsupportedReason: canAnswer ? nil :
+                (handling == .remoteAvailable ? WaitHandling.macNativePrompt.message : handling.message))
         }
         let intent: SessionActionIntent = session.status == .done ? .continue : .steer
         guard session.agent == .codex else {
@@ -77,5 +78,43 @@ public struct SessionActionRequest: Equatable, Sendable {
         self.expectedStatusSince = expectedStatusSince
         self.text = text
         self.answers = answers
+    }
+}
+
+/// Snapshot capability only. Connection availability is evaluated by each device.
+/// Bounded semantics travel in the existing Watch projection; no source text is needed.
+public enum WaitHandling: String, Codable, Equatable, Sendable {
+    case remoteAvailable
+    case watchApproval
+    case macNativePrompt
+    case macGrokBot
+    case unavailable
+
+    public static func resolve(for session: AgentSession) -> WaitHandling {
+        guard session.status == .needsResponse else { return .unavailable }
+        if session.agent == .grokBot { return .macGrokBot }
+        if session.waitKind == .permission {
+            switch ApprovalEligibility.unavailableReason(for: session) {
+            case nil: return .remoteAvailable
+            case .readOnly, .unsupportedSource: return .macNativePrompt
+            default: return .unavailable
+            }
+        }
+        guard session.waitKind == .question,
+              !session.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return .unavailable }
+        guard let question = session.pendingQuestion else { return .macNativePrompt }
+        guard !question.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .unavailable }
+        return question.isAnswerable ? .remoteAvailable : .macNativePrompt
+    }
+
+    public var message: String {
+        switch self {
+        case .remoteAvailable: return String(localized: "Review and respond on your iPhone.")
+        case .watchApproval: return String(localized: "Approve or deny on your Watch.")
+        case .macNativePrompt: return String(localized: "Respond in the agent's own prompt on your Mac. Remote response is unavailable.")
+        case .macGrokBot: return String(localized: "Respond in Grok Bot on your Mac. Remote response is unavailable.")
+        case .unavailable: return String(localized: "This request can't be verified. Wait for an updated connection and request.")
+        }
     }
 }

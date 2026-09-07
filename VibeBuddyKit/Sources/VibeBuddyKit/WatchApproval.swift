@@ -99,7 +99,7 @@ public struct WatchApprovalResult: Codable, Equatable, Sendable {
 /// target — the exact command or the exact path — short enough to be read in
 /// full. Anything carrying an Edit/Write pre- or post-image is display-only: the
 /// diff is what the decision is about and it never reaches the Watch, so the
-/// only honest thing to offer is "review it on your iPhone".
+/// phone is offered only when the shared capability confirms it can respond.
 public enum WatchApprovalEligibility {
     /// The longest command or path a wrist can be asked to read before deciding.
     /// Past this the text truncates or shrinks past legibility, and an approval
@@ -107,13 +107,10 @@ public enum WatchApprovalEligibility {
     public static let maxDetailLength = 160
 
     /// The approval this session can resolve from the Watch, or `nil` when it
-    /// must be reviewed on the iPhone.
+    /// cannot be decided here. WaitHandling determines the destination.
     public static func approvalId(for session: AgentSession) -> String? {
-        guard session.status == .needsResponse,
-              session.waitKind == .permission,
+        guard let approval = ApprovalEligibility.approval(for: session),
               !session.project.isEmpty,
-              let approval = session.pendingApproval,
-              !approval.id.isEmpty,
               !approval.tool.isEmpty,
               // A truncated preview is a label, not the thing being approved.
               let detail = approval.command ?? approval.filePath,
@@ -221,7 +218,7 @@ public struct WatchApprovalActionState: Equatable, Sendable {
         choice: WatchApprovalChoice,
         attemptId: String
     ) -> WatchApprovalRequest? {
-        guard let approvalId = alert.approvalId, !isBusy else { return nil }
+        guard alert.isDecidable, let approvalId = alert.approvalId, !isBusy else { return nil }
         action = WatchApprovalAction(attemptId: attemptId, approvalId: approvalId,
                                      choice: choice, phase: .sending)
         return WatchApprovalRequest(attemptId: attemptId, sessionId: alert.sessionId,
@@ -250,7 +247,7 @@ public struct WatchApprovalActionState: Equatable, Sendable {
     /// resolution, and the Mac is the only thing that can confirm one.
     public mutating func reconcile(with state: WatchDashboardState) {
         guard let current = action else { return }
-        let stillPending = state.alerts.contains { $0.approvalId == current.approvalId }
+        let stillPending = state.alerts.contains { $0.isDecidable && $0.approvalId == current.approvalId }
         if !stillPending { action = nil }
     }
 

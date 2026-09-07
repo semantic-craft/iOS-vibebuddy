@@ -373,25 +373,28 @@ private struct DetailCard: View {
             .padding(.horizontal, 12).padding(.vertical, 4)
             .background(MacTheme.status(session.presentationState).opacity(0.14), in: Capsule())
 
+            if session.status == .needsResponse && session.pendingApproval == nil && session.pendingQuestion == nil {
+                Text(WaitHandling.resolve(for: session).message).font(.caption)
+            }
             if let approval = session.pendingApproval {
                 RequestCard(session: session, approval: approval, model: model)
             } else {
                 if let question = session.pendingQuestion {
-                    if question.isAnswerable {
+                    if WaitHandling.resolve(for: session) == .remoteAvailable {
                         QuestionCardView(question: question) { answers in
                             model.answer(session.id, answers: answers)
                         }
                     } else {
                         Text(question.prompt).font(MacTheme.font(14, .heavy)).foregroundStyle(MacTheme.ink)
                             .fixedSize(horizontal: false, vertical: true)
-                        Label("You're at the Mac — answer this in the agent's own prompt.", systemImage: "keyboard")
+                        Label(WaitHandling.resolve(for: session).message, systemImage: "keyboard")
                             .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink2)
                     }
                 } else if let s = session.summary, !s.isEmpty {
                     Text(s).font(MacTheme.font(14, .semibold)).foregroundStyle(MacTheme.ink2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                if session.agent == .codex {
+                if session.agent == .codex && session.status != .needsResponse && SessionActionSupport.resolve(for: session).isAvailable {
                     // Free text for a Codex thread: joins the running turn or
                     // opens a new one, through the app-server daemon.
                     InstructionComposer(placeholder: session.status == .done
@@ -404,7 +407,7 @@ private struct DetailCard: View {
                         .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink2)
                 }
                 HStack(spacing: 8) {
-                    Button(session.jumpsToDesktopThread ? "Open thread in ChatGPT" : "Jump to terminal") { model.jump(session) }
+                    Button(session.agent == .grokBot ? "Open Grok Bot" : session.jumpsToDesktopThread ? "Open thread in ChatGPT" : "Jump to terminal") { model.jump(session) }
                         .buttonStyle(PillButtonStyle(kind: .filled(MacTheme.accent)))
                     Button { showTranscript = true } label: { Label("Recent output", systemImage: "text.alignleft") }
                         .buttonStyle(PillButtonStyle(kind: .soft))
@@ -468,12 +471,14 @@ private struct RequestCard: View {
                 }
             }
             ApprovalBody(approval: approval)
-            if !approval.isAnswerable {
-                // Presence: the agent's own prompt is taking this one.
-                Label("You're at the Mac — answer this in the agent's own prompt.", systemImage: "keyboard")
+            if ApprovalEligibility.approval(for: session) == nil {
+                // Capability does not establish whether the person is present.
+                Label(WaitHandling.resolve(for: session).message, systemImage: "keyboard")
                     .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink2)
-                Button(session.jumpsToDesktopThread ? "Open thread" : "Jump ⏎") { model.jump(session) }
+                if session.canJump {
+                Button(session.agent == .grokBot ? "Open Grok Bot" : session.jumpsToDesktopThread ? "Open thread" : "Jump ⏎") { model.jump(session) }
                     .buttonStyle(PillButtonStyle(kind: .filled(MacTheme.accent)))
+                }
             } else {
             HStack(spacing: 8) {
                 SplitApproveButton(
@@ -484,7 +489,7 @@ private struct RequestCard: View {
                 Button("Deny") { model.decide(approval.id, .deny) }
                     .buttonStyle(PillButtonStyle(kind: .ghost))
                     .keyboardShortcut("d", modifiers: [])
-                Button(session.jumpsToDesktopThread ? "Open thread" : "Jump ⏎") { model.jump(session) }
+                Button(session.agent == .grokBot ? "Open Grok Bot" : session.jumpsToDesktopThread ? "Open thread" : "Jump ⏎") { model.jump(session) }
                     .buttonStyle(PillButtonStyle(kind: .ghost))
             }
             if let rule = approval.suggestedRule {

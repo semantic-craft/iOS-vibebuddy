@@ -33,6 +33,7 @@ public struct HookEvent: Sendable, Equatable {
     public let kind: Kind
     public let sessionID: String
     public let agent: AgentKind
+    public let sessionName: String?
     public let cwd: String?
     public let toolName: String?
     public let message: String?
@@ -79,12 +80,14 @@ public struct HookEvent: Sendable, Equatable {
     /// True for explicit success, false for explicit failure/interruption,
     /// nil for progress-only endings with no result evidence.
     public let completionSucceeded: Bool?
+    public let sourceCompletionID: String?
 
     public init(
         kind: Kind,
         sessionID: String,
         agent: AgentKind = .claudeCode,
         cwd: String? = nil,
+        sessionName: String? = nil,
         toolName: String? = nil,
         message: String? = nil,
         waitKind: WaitKind? = nil,
@@ -103,12 +106,14 @@ public struct HookEvent: Sendable, Equatable {
         desktopThreadID: String? = nil,
         probeRetirement: Bool = false,
         completionText: String? = nil,
-        completionSucceeded: Bool? = nil
+        completionSucceeded: Bool? = nil,
+        sourceCompletionID: String? = nil
     ) {
         self.kind = kind
         self.sessionID = sessionID
         self.agent = agent
         self.cwd = cwd
+        self.sessionName = sessionName
         self.toolName = toolName
         self.message = message
         self.waitKind = waitKind
@@ -128,19 +133,20 @@ public struct HookEvent: Sendable, Equatable {
         self.probeRetirement = probeRetirement
         self.completionText = completionText
         self.completionSucceeded = completionSucceeded
+        self.sourceCompletionID = sourceCompletionID
     }
 
     /// Stamp the rollout file this event was tailed from, so a later read-only
     /// recent-output fetch can find the same source without guessing.
     public func withTranscriptPath(_ path: String) -> HookEvent {
         HookEvent(
-            kind: kind, sessionID: sessionID, agent: agent, cwd: cwd,
+            kind: kind, sessionID: sessionID, agent: agent, cwd: cwd, sessionName: sessionName,
             toolName: toolName, message: message, waitKind: waitKind,
             transcriptPath: path, model: model, observationSource: observationSource,
             toolError: toolError, timestamp: timestamp, childID: childID,
             childKind: childKind, childName: childName, childType: childType,
             childAction: childAction, turnID: turnID, enrichment: enrichment,
             desktopThreadID: desktopThreadID, probeRetirement: probeRetirement,
-            completionText: completionText, completionSucceeded: completionSucceeded)
+            completionText: completionText, completionSucceeded: completionSucceeded, sourceCompletionID: sourceCompletionID)
     }
 }
