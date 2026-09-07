@@ -22,6 +22,8 @@ public struct CompletionSummaryConfiguration: Sendable, Equatable {
         self.qwenWorkspaceID = workspace?.isEmpty == false ? workspace : nil
     }
 
+    public static func recommendedModel(_ provider: VoiceProvider) -> String { provider == .qwen ? "qwen3.8-flash" : "" }
+
     public static let enabledKey = "completionSummaryEnabled"
     public static func modelKey(_ provider: VoiceProvider) -> String { "completionSummaryModel.\(provider.rawValue)" }
 
@@ -29,7 +31,7 @@ public struct CompletionSummaryConfiguration: Sendable, Equatable {
     public static func load(defaults: UserDefaults = .standard) -> Self {
         let provider = VoiceProvider(rawValue: defaults.string(forKey: VoiceSettings.providerKey) ?? "") ?? .qwen
         return Self(enabled: defaults.bool(forKey: enabledKey), provider: provider,
-                    modelID: defaults.string(forKey: modelKey(provider)) ?? "",
+                    modelID: defaults.string(forKey: modelKey(provider)).flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 } ?? recommendedModel(provider),
                     language: VoiceLanguage(rawValue: defaults.string(forKey: VoiceSettings.conversationLanguageKey) ?? "") ?? .english,
                     qwenUseIntl: defaults.bool(forKey: VoiceSettings.regionIntlKey),
                     qwenWorkspaceID: defaults.string(forKey: VoiceSettings.qwenWorkspaceIDKey))

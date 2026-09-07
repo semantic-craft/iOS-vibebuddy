@@ -20,7 +20,7 @@ struct CompletionSummarySettingsSection: View {
         self.provider = provider
         self.hasKey = hasKey
         self.credentialRevision = credentialRevision
-        _modelID = AppStorage(wrappedValue: "", CompletionSummaryConfiguration.modelKey(provider))
+        _modelID = AppStorage(wrappedValue: CompletionSummaryConfiguration.recommendedModel(provider), CompletionSummaryConfiguration.modelKey(provider))
     }
 
     private var configuration: CompletionSummaryConfiguration {
@@ -93,13 +93,14 @@ struct CompletionSummarySettingsSection: View {
         } header: {
             Text("AI completion summaries")
         } footer: {
-            Text("Automatic completion notifications are not connected in this build. You can save these settings and test a sample.")
+            Text("Followed task completions use one summary when enabled. If generation fails, the ordinary completion notification is used.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .onChange(of: configuration) { _, _ in invalidateTest() }
         .onChange(of: hasKey) { _, _ in invalidateTest() }
         .onChange(of: credentialRevision) { _, _ in invalidateTest() }
         .onChange(of: enabled) { _, _ in invalidateTest() }
+        .onAppear { if modelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { modelID = CompletionSummaryConfiguration.recommendedModel(provider) } }
         .onDisappear { invalidateTest() }
     }
 

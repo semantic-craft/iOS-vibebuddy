@@ -236,3 +236,5 @@
 "AI completion summaries are off." = "AI 完成摘要已关闭。";
 "The sample input could not be summarized." = "无法为样例输入生成摘要。";
 "This completion was already handled." = "此完成结果已处理。";
+
+"Followed task completions use one summary when enabled. If generation fails, the ordinary completion notification is used." = "开启后，关注任务的完成通知使用一次 AI 摘要；生成失败时使用普通完成通知。";

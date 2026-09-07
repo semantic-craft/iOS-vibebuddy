@@ -95,10 +95,13 @@ struct LocalNotifier: AttentionNotifier {
         // whether the report round trip finished, and the dashboard behind
         // `apply` should not wait on the network for it.
         let posted = Self.chain.enqueue { () -> Bool in
-            if sound.isWaitingCue, await PushCoverage.shared.covers(cue.identifier, since: cue.since) {
+            if (sound.isWaitingCue || (sound == .agentDone && alert.session.completionNotice != nil)), await PushCoverage.shared.covers(cue.identifier, since: cue.since) {
                 Task { await PushRegistration.shared.report(coveredByPush: [cue]) }
                 return false
             }
+            if sound == .agentDone, let notice = alert.session.completionNotice,
+               !(await CompletionNoticeAttempts.shared.claim(notice, recipient: "phone-local")) { return false }
+            guard await CompletionNoticePhoneContext.valid(alert) else { return false }
             do {
                 try await Self.post(title: title, body: body, sound: sound, delivery: delivery,
                                     id: cue.identifier, sessionID: sessionID,
@@ -189,5 +192,18 @@ struct LocalNotifier: AttentionNotifier {
             return (String(localized: "Connected"),
                     String(localized: "VibeBuddy is watching your sessions."))
         }
+    }
+}
+
+/// Latest received source state, checked after the serialized notification queue.
+@MainActor
+enum CompletionNoticePhoneContext {
+    static var sessions: [AgentSession] = []
+    static func valid(_ alert: SoundAlert) -> Bool {
+        guard alert.sound == .agentDone, let notice = alert.session.completionNotice else { return true }
+        guard let current = sessions.first(where: { $0.id == alert.sessionID }) else { return false }
+        return current.completionNotice?.id == notice.id && current.status == .done
+            && current.hasUnreadCompletion && !current.isStuck && current.effectiveAttention == .followed
+            && !SoundPrefs.effectiveQuiet() && SoundPrefs.categories.isEnabled(NotificationSound.agentDone)
     }
 }

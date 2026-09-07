@@ -45,6 +45,8 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
     private var task: URLSessionWebSocketTask?
     private var continuation: AsyncStream<RealtimeVoiceEvent>.Continuation?
     private var tools: [VoiceTool] = []
+    private var configured = false
+    private var connectionDeadline: Task<Void, Never>?
 
     /// - Parameters:
     ///   - workspaceID: Bailian workspace ID. When given, connects through the
@@ -107,7 +109,12 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
     private func configureSession(instructions: String, voice: String) {
         send(["event_id": "ev_\(UUID().uuidString)", "type": "session.update",
               "session": Self.sessionConfig(instructions: instructions, voice: voice, tools: tools)])
-        continuation?.yield(.connected)
+        connectionDeadline = Task {
+            try? await Task.sleep(for: .seconds(10))
+            guard !Task.isCancelled, !configured else { return }
+            continuation?.yield(.failed("Qwen connection timed out. Check the model, region and network."))
+            close()
+        }
     }
 
     /// Audio format is fixed by the model (PCM 16 kHz in / 24 kHz out) and input
@@ -129,6 +136,7 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
     }
 
     public func appendAudio(_ pcm16k: Data) {
+        guard configured else { return }
         send(["type": "input_audio_buffer.append", "audio": pcm16k.base64EncodedString()])
     }
 
@@ -141,6 +149,7 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
     }
 
     public func close() {
+        configured = false; connectionDeadline?.cancel(); connectionDeadline = nil
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
         continuation?.yield(.closed)
@@ -183,6 +192,9 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = obj["type"] as? String else { return }
         switch type {
+        case "session.updated":
+            configured = true; connectionDeadline?.cancel(); connectionDeadline = nil
+            continuation?.yield(.connected)
         case "response.audio.delta":
             if let b64 = obj["delta"] as? String, let audio = Data(base64Encoded: b64) {
                 continuation?.yield(.audioDelta(audio))

@@ -10,6 +10,7 @@ import VibeBuddyMacCore
 @MainActor
 final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotificationCenterDelegate {
     private let center = UNUserNotificationCenter.current()
+    var validateCompletion: (@MainActor (SoundAlert) async -> Bool)?
     /// Approve / Deny / Reply from a banner. The Mac model hops to the main
     /// actor.
     var onBannerAction: ((NotificationActionID, String, String?, String?) -> Void)?
@@ -65,6 +66,7 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
             return .failed(reason: classified.failureReason ?? "permissionDenied")
         }
         do {
+            guard await validateCompletion?(alert) != false else { return .skipped }
             // The same identifier the phone uses, so the ledger can name it.
             try await post(title: title, body: body, sound: alert.sound, delivery: alert.delivery,
                            id: alert.notificationID, sessionID: alert.sessionID,

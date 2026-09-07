@@ -614,6 +614,8 @@ private struct VoiceSettingsTab: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
+            QwenReadAloudSettings(reader: model.qwenReadAloud)
+
             // Only the selected provider's credentials show — key + editable
             // Model ID + Voice ID — and they swap as the picker changes. `.id`
             // recreates the section so its fields reload for the new provider.
@@ -687,7 +689,7 @@ private struct ProviderSection: View {
         }
         .onAppear {
             apiKey = provider.apiKey ?? ""
-            model = UserDefaults.standard.string(forKey: VoiceSettings.modelKey(provider)) ?? ""
+            model = VoiceSettings.model(provider)
             voice = UserDefaults.standard.string(forKey: VoiceSettings.voiceKey(provider)) ?? ""
         }
         .onChange(of: apiKey) { _, v in
