@@ -27,6 +27,22 @@ struct PresencePolicyTests {
         #expect(PresencePolicy.decide(input(alwaysAsk: true)) == .away)
         #expect(PresencePolicy.decide(input(idle: PresencePolicy.idleThreshold - 1)) == .present)
     }
+
+    @Test("only a live present verdict suppresses interrupting cues; stale or forced-away restores them")
+    func suppressingSessionIDsFollowsTheVerdict() {
+        let focused: Set<String> = ["a", "b"]
+        #expect(PresencePolicy.suppressingSessionIDs(focused: focused, screenLocked: false,
+                                                     idleSeconds: 5, alwaysAskPhone: false) == focused)
+        #expect(PresencePolicy.suppressingSessionIDs(focused: focused, screenLocked: true,
+                                                     idleSeconds: 5, alwaysAskPhone: false).isEmpty)
+        #expect(PresencePolicy.suppressingSessionIDs(focused: focused, screenLocked: false,
+                                                     idleSeconds: PresencePolicy.idleThreshold,
+                                                     alwaysAskPhone: false).isEmpty)
+        #expect(PresencePolicy.suppressingSessionIDs(focused: focused, screenLocked: false,
+                                                     idleSeconds: 5, alwaysAskPhone: true).isEmpty)
+        #expect(PresencePolicy.suppressingSessionIDs(focused: [], screenLocked: false,
+                                                     idleSeconds: 5, alwaysAskPhone: false).isEmpty)
+    }
 }
 
 /// The daemon lets the agent's own prompt take the answer while the person is

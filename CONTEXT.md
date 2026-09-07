@@ -279,3 +279,5 @@ code, and tests — don't drift to synonyms.
 - Phones advertise `supportsCompletionNotices` when registering. Existing
   installed clients retain their ordinary completion copy and identity until
   they implement the pending/decision protocol.
+
+Mac presence suppresses ordinary cues only while the verdict is current; leaving restores one still-open wait reminder without making the card remotely answerable.
