@@ -4,6 +4,49 @@ import Testing
 
 @Suite("Cursor usage adapter")
 struct CursorUsageProviderTests {
+    @Test("CLI login fetches both pools without desktop or browser authentication")
+    func cliOnlyFetch() async throws {
+        let payload = Data(#"{"sub":"auth0|user_cli","exp":4102444800}"#.utf8).base64EncodedString().replacingOccurrences(of: "=", with: "")
+        let token = "e30.\(payload).test"
+        let transport = ScriptedCursorTransport { request in
+            #expect(request.value(forHTTPHeaderField: "Cookie") == "WorkosCursorSessionToken=user_cli%3A%3A\(token)")
+            let body = Data(#"{"individualUsage":{"plan":{"autoPercentUsed":38,"apiPercentUsed":98}}}"#.utf8)
+            return (body, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        let snapshot = try await CursorUsageProvider(
+            cookie: "WorkosCursorSessionToken=other-account",
+            cookieMode: { .cursorCLI },
+            cliAccessToken: { token },
+            transport: transport
+        ).fetch()
+        #expect(snapshot.primary?.usedPercent == 38)
+        #expect(snapshot.secondary?.usedPercent == 98)
+    }
+
+    @Test("Unavailable CLI credentials never use a saved cookie from another account",
+          arguments: [AccountUsageError.notLoggedIn, .unknown])
+    func cliCredentialFailure(_ error: AccountUsageError) async throws {
+        let transport = ScriptedCursorTransport { _ in
+            Issue.record("Must not send a request after CLI credential failure")
+            throw AccountUsageError.unknown
+        }
+        let provider = CursorUsageProvider(cookie: "WorkosCursorSessionToken=other-account",
+            cookieMode: { .cursorCLI }, cliAccessToken: { throw error }, transport: transport)
+        await #expect(throws: error) { try await provider.fetch() }
+    }
+
+    @Test("Expired CLI login never reaches the usage endpoint")
+    func expiredCLI() async throws {
+        let payload = Data(#"{"sub":"auth0|user_cli","exp":1000}"#.utf8).base64EncodedString().replacingOccurrences(of: "=", with: "")
+        let transport = ScriptedCursorTransport { _ in
+            Issue.record("Must not send an expired CLI token")
+            throw AccountUsageError.unknown
+        }
+        let provider = CursorUsageProvider(cookieMode: { .cursorCLI },
+            cliAccessToken: { "e30.\(payload).test" }, transport: transport)
+        await #expect(throws: AccountUsageError.notLoggedIn) { try await provider.fetch() }
+    }
+
     @Test("plan-only usage-summary maps to primary used % and reset")
     func planOnlyFixture() throws {
         let data = try Self.fixture("usage-summary-plan-only")

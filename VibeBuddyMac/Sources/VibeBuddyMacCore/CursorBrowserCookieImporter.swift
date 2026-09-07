@@ -9,6 +9,7 @@ import FoundationNetworking
 /// Where Cursor session cookies come from on the Mac (#105).
 public enum CursorCookieSourceMode: String, CaseIterable, Sendable, Identifiable {
     case cursorApp
+    case cursorCLI
     case manual
     case browserAuto
 
@@ -17,6 +18,7 @@ public enum CursorCookieSourceMode: String, CaseIterable, Sendable, Identifiable
     public var displayName: String {
         switch self {
         case .cursorApp: return "Cursor app login"
+        case .cursorCLI: return "Cursor CLI login"
         case .manual: return "Paste Cookie"
         case .browserAuto: return "Import from browser"
         }
@@ -156,12 +158,13 @@ public enum CursorCookieResolver {
             _ = CursorSessionCookieStore.saveImportedIfChanged($0)
         }
     ) throws -> String {
-        let manual = (manualCookie ?? loadManual())?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
         switch mode {
+        case .cursorCLI:
+            return try CursorLocalSession.cookieHeader(token: CursorCLISession.readAccessToken(supervisor: POSIXCommandSupervisor()), now: Date())
         case .cursorApp:
             return try CursorLocalSession.cookieHeader()
         case .manual:
+            let manual = (manualCookie ?? loadManual())?.trimmingCharacters(in: .whitespacesAndNewlines)
             guard let manual, !manual.isEmpty else { throw AccountUsageError.notLoggedIn }
             return manual
         case .browserAuto:
@@ -173,6 +176,7 @@ public enum CursorCookieResolver {
                 return imported
             } catch {
                 // Independent manual slot — never the imported account (#114 M1).
+                let manual = (manualCookie ?? loadManual())?.trimmingCharacters(in: .whitespacesAndNewlines)
                 if let manual, !manual.isEmpty { return manual }
                 throw (error as? AccountUsageError) ?? AccountUsageError.notLoggedIn
             }
@@ -245,6 +249,49 @@ public enum CursorLocalSession {
         guard let token = String(data: data, encoding: utf16 ? .utf16LittleEndian : .utf8), !token.isEmpty else {
             throw AccountUsageError.notLoggedIn
         }
+        return token
+    }
+}
+
+/// Reads the CLI Keychain item through Apple's helper, as ai-usage-dashboard does.
+/// A supervised process bounds legacy Keychain prompts that can block SecItemCopyMatching.
+public enum CursorCLISession {
+    public static func loadAccessToken() async throws -> String {
+        let supervisor = try POSIXCommandSupervisor()
+        return try await withTaskCancellationHandler {
+            let token: String = try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .utility).async {
+                    continuation.resume(with: Result { try readAccessToken(supervisor: supervisor) })
+                }
+            }
+            try Task.checkCancellation()
+            return token
+        } onCancel: {
+            supervisor.cancel()
+        }
+    }
+
+    static func readAccessToken(supervisor: POSIXCommandSupervisor) throws -> String {
+        let result: POSIXCommandResult
+        do {
+            result = try supervisor.run(executableURL: URL(fileURLWithPath: "/usr/bin/security"),
+                arguments: ["find-generic-password", "-a", "cursor-user", "-s", "cursor-access-token", "-w"],
+                environment: ["PATH": "/usr/bin:/bin"], timeout: 8, outputLimit: 64 * 1024)
+        } catch POSIXCommandError.timedOut {
+            throw AccountUsageError.timedOut
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw AccountUsageError.unknown
+        }
+        // security returns 44 for errSecItemNotFound. Never include its output in errors.
+        if result.waitStatus == (44 << 8) { throw AccountUsageError.notLoggedIn }
+        guard result.exitedSuccessfully else { throw AccountUsageError.unknown }
+        guard let value = String(data: result.standardOutput, encoding: .utf8) else {
+            throw AccountUsageError.notLoggedIn
+        }
+        let token = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else { throw AccountUsageError.notLoggedIn }
         return token
     }
 }
