@@ -25,6 +25,21 @@ struct ProviderQuotaProjectionTests {
         ProviderQuota(state, provider: .codex)
     }
 
+    @Test("unknown Grok included allowance cannot become extra-usage quota or an alert")
+    func grokExtraUsageIsSeparate() {
+        var bill = snapshot(primary: nil, secondary: window(.secondary, used: 95, minutes: 10080))
+        bill.provider = .grok
+        let state = AccountUsageState.available(bill, nextRefreshAt: nil)
+        let result = ProviderQuota(state, provider: .grok)
+        #expect(result.weeklyRemainingPercent == nil)
+        #expect(result.otherWindows == nil)
+        var monitor = AccountUsageAlertMonitor()
+        var baseline = bill
+        baseline.secondary?.usedPercent = 10
+        _ = monitor.newlyCrossed(in: .available(baseline, nextRefreshAt: nil), thresholdPercent: 90)
+        #expect(monitor.newlyCrossed(in: state, thresholdPercent: 90).isEmpty)
+    }
+
     // MARK: normalization
 
     @Test("Consumed becomes remaining exactly once")

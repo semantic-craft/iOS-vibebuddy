@@ -47,11 +47,13 @@ public enum GrokUsageResponseDecoder {
               let timestamp = parseTimestamp(record.ts) else {
             throw AccountUsageError.incompatibleFormat
         }
-        return try snapshot(
+        var reading = try snapshot(
             config: context.config,
             tier: context.subscriptionTier,
             fetchedAt: timestamp
         )
+        reading.isCached = true
+        return reading
     }
 
     /// Returns the newest credits record in the tail of a unified log, or nil
@@ -75,8 +77,8 @@ public enum GrokUsageResponseDecoder {
     }
 
     /// Decodes `GET …/v1/billing?format=credits` (CodexBar CLI-proxy shape).
-    /// Primary comes from `creditUsagePercent` when present; otherwise from a
-    /// positive on-demand cap/used pair. Period-only answers are not usable.
+    /// Included usage and extra usage remain separate. A complete billing
+    /// period without included usage is a valid unknown reading.
     public static func decode(proxyCreditsResponse: Data, fetchedAt: Date) throws -> AccountUsageSnapshot {
         let envelope: ProxyCreditsEnvelopeDTO
         do {
@@ -84,35 +86,9 @@ public enum GrokUsageResponseDecoder {
         } catch {
             throw AccountUsageError.incompatibleFormat
         }
-        let config = envelope.config
-        let tier = config?.subscriptionTier ?? envelope.subscriptionTier
-        if config?.creditPercent != nil {
-            return try snapshot(config: config, tier: tier, fetchedAt: fetchedAt)
-        }
-        // On-demand-only proxy answers still fill the single Grok primary window.
-        guard let config,
-              let cap = config.onDemandCap?.val, cap > 0 else {
-            throw AccountUsageError.incompatibleFormat
-        }
-        let used = config.onDemandUsedValue ?? 0
-        let percent = min(100, max(0, used / cap * 100))
-        guard percent.isFinite else { throw AccountUsageError.incompatibleFormat }
-        let start = parseTimestamp(config.periodStart)
-        let resetsAt = parseTimestamp(config.periodEnd)
-        return AccountUsageSnapshot(
-            provider: .grok,
-            planType: tier.flatMap { $0.isEmpty ? nil : $0 },
-            primary: AccountUsageWindow(
-                kind: .primary,
-                usedPercent: Int(percent.rounded()),
-                windowDurationMinutes: duration(from: start, to: resetsAt),
-                resetsAt: resetsAt
-            ),
-            secondary: nil,
-            lifetimeTokens: nil,
-            latestDailyTokens: nil,
-            fetchedAt: fetchedAt
-        )
+        return try snapshot(config: envelope.config,
+                            tier: envelope.config?.subscriptionTier ?? envelope.subscriptionTier,
+                            fetchedAt: fetchedAt)
     }
 
     private static func snapshot(
@@ -125,16 +101,19 @@ public enum GrokUsageResponseDecoder {
         let resetsAt = parseTimestamp(config.periodEnd)
         let durationMinutes = duration(from: start, to: resetsAt)
 
-        guard let creditPercent = config.creditPercent else {
-            throw AccountUsageError.incompatibleFormat
-        }
-        guard creditPercent.isFinite, (0...100).contains(creditPercent) else {
-            throw AccountUsageError.incompatibleFormat
+        let creditPercent = config.creditPercent
+        if let creditPercent {
+            guard creditPercent.isFinite, (0...100).contains(creditPercent) else {
+                throw AccountUsageError.incompatibleFormat
+            }
+        } else {
+            guard let start, let resetsAt, start < resetsAt else {
+                throw AccountUsageError.incompatibleFormat
+            }
         }
 
         var onDemand: AccountUsageWindow?
-        if let cap = config.onDemandCap?.val, cap > 0 {
-            let used = config.onDemandUsedValue ?? 0
+        if let cap = config.onDemandCap?.val, cap > 0, let used = config.onDemandUsedValue {
             let percent = min(100, max(0, used / cap * 100))
             guard percent.isFinite else { throw AccountUsageError.incompatibleFormat }
             onDemand = AccountUsageWindow(
@@ -148,16 +127,18 @@ public enum GrokUsageResponseDecoder {
         return AccountUsageSnapshot(
             provider: .grok,
             planType: tier.flatMap { $0.isEmpty ? nil : $0 },
-            primary: AccountUsageWindow(
+            primary: creditPercent.map { AccountUsageWindow(
                 kind: .primary,
-                usedPercent: Int(creditPercent.rounded()),
+                usedPercent: Int($0.rounded()),
                 windowDurationMinutes: durationMinutes,
                 resetsAt: resetsAt
-            ),
+            ) },
             secondary: onDemand,
             lifetimeTokens: nil,
             latestDailyTokens: nil,
-            fetchedAt: fetchedAt
+            fetchedAt: fetchedAt,
+            periodStart: start,
+            periodEnd: resetsAt
         )
     }
 
@@ -314,6 +295,7 @@ public final class GrokUsageProvider: AccountUsageProviding, Sendable {
     private let proxyEndpoint: URL
     private let proxyTransport: GrokCreditsProxyTransport
     private let proxyEnabled: Bool
+    private let now: @Sendable () -> Date
 
     public init(
         executableURL: URL? = nil,
@@ -322,8 +304,9 @@ public final class GrokUsageProvider: AccountUsageProviding, Sendable {
         logURL: URL? = nil,
         authFileURL: URL? = nil,
         proxyEndpoint: URL = GrokCreditsProxyClient.defaultEndpoint,
-        proxyTransport: GrokCreditsProxyTransport = URLSession.shared,
-        proxyEnabled: Bool = true
+        proxyTransport: GrokCreditsProxyTransport = GrokCreditsProxyClient.session,
+        proxyEnabled: Bool = true,
+        now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.executableURL = executableURL ?? Self.resolveGrokExecutable()
         self.arguments = arguments
@@ -333,10 +316,12 @@ public final class GrokUsageProvider: AccountUsageProviding, Sendable {
         self.proxyEndpoint = proxyEndpoint
         self.proxyTransport = proxyTransport
         self.proxyEnabled = proxyEnabled
+        self.now = now
     }
 
     public func fetch() async throws -> AccountUsageSnapshot {
         try Task.checkCancellation()
+        let token = proxyEnabled ? GrokCLIAuthToken.loadAccessToken(from: authFileURL) : nil
         let client = GrokACPClient()
         let executableURL = executableURL
         let arguments = arguments
@@ -359,10 +344,11 @@ public final class GrokUsageProvider: AccountUsageProviding, Sendable {
                     }
                 }
                 try Task.checkCancellation()
-                return try GrokUsageResponseDecoder.decode(
-                    billingResponse: response,
-                    fetchedAt: Date()
-                )
+                let snapshot = try GrokUsageResponseDecoder.decode(billingResponse: response, fetchedAt: now())
+                // ACP owns authentication. Never merge if it refreshed/switched the
+                // captured credential during this request.
+                guard proxyEnabled, token == GrokCLIAuthToken.loadAccessToken(from: authFileURL) else { return snapshot }
+                return try await recoverUnknown(snapshot, token: token)
             } catch {
                 try Task.checkCancellation()
                 guard Self.allowsLogFallback(after: error) else { throw error }
@@ -372,12 +358,13 @@ public final class GrokUsageProvider: AccountUsageProviding, Sendable {
                 ) {
                     return snapshot
                 }
-                if proxyEnabled, let snapshot = await Self.fetchProxyFallback(
-                    authFileURL: authFileURL,
+                if proxyEnabled, let snapshot = try await Self.fetchProxyFallback(
+                    token: token,
                     endpoint: proxyEndpoint,
-                    transport: proxyTransport
+                    transport: proxyTransport,
+                    now: now()
                 ) {
-                    return snapshot
+                    return try await recoverUnknown(snapshot, token: token)
                 }
                 throw error
             }
@@ -386,15 +373,35 @@ public final class GrokUsageProvider: AccountUsageProviding, Sendable {
         }
     }
 
+    private func recoverUnknown(_ snapshot: AccountUsageSnapshot, token: String?) async throws -> AccountUsageSnapshot {
+        guard snapshot.primary == nil, let token else { return snapshot }
+        do {
+            let reading = try await GrokWebCredits.fetch(token: token, transport: proxyTransport, now: now())
+            guard let start = snapshot.periodStart, let end = snapshot.periodEnd,
+                  abs(start.timeIntervalSince(reading.start)) < 1,
+                  abs(end.timeIntervalSince(reading.end)) < 1 else { return snapshot }
+            var recovered = snapshot
+            recovered.primary = AccountUsageWindow(kind: .primary,
+                usedPercent: Int(reading.percent.rounded()),
+                windowDurationMinutes: Int((end.timeIntervalSince(start) / 60).rounded()), resetsAt: end)
+            return recovered
+        } catch {
+            try Task.checkCancellation()
+            if error is CancellationError { throw error }
+            if let urlError = error as? URLError, urlError.code == .cancelled { throw error }
+            return snapshot
+        }
+    }
+
     /// Best-effort proxy: never upgrades a hard auth/format failure from ACP, and
     /// never invents a reading when the bearer is missing.
     static func fetchProxyFallback(
-        authFileURL: URL,
+        token: String?,
         endpoint: URL,
         transport: GrokCreditsProxyTransport,
         now: Date = Date()
-    ) async -> AccountUsageSnapshot? {
-        guard let token = GrokCLIAuthToken.loadAccessToken(from: authFileURL, now: now) else {
+    ) async throws -> AccountUsageSnapshot? {
+        guard let token else {
             return nil
         }
         do {
@@ -403,8 +410,11 @@ public final class GrokUsageProvider: AccountUsageProviding, Sendable {
                 endpoint: endpoint,
                 transport: transport
             )
+            try Task.checkCancellation()
             return try GrokUsageResponseDecoder.decode(proxyCreditsResponse: data, fetchedAt: now)
         } catch {
+            try Task.checkCancellation()
+            if error is CancellationError || (error as? URLError)?.code == .cancelled { throw error }
             return nil
         }
     }
@@ -415,6 +425,7 @@ public final class GrokUsageProvider: AccountUsageProviding, Sendable {
     static func allowsLogFallback(after error: any Error) -> Bool {
         switch error {
         case is CancellationError: return false
+        case let url as URLError where url.code == .cancelled: return false
         case let usage as AccountUsageError:
             switch usage {
             case .providerUnavailable, .timedOut, .offline, .unknown: return true

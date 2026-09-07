@@ -7,6 +7,65 @@ import Testing
 struct GrokUsageProviderTests {
     private let now = Date(timeIntervalSince1970: 1_788_314_400)
 
+    @Test("a valid period-only bill preserves the plan without inventing usage")
+    func periodOnlyBill() throws {
+        let body = Data(#"{"result":{"subscription_tier":"SuperGrok Heavy","config":{"currentPeriod":{"start":"2026-09-06T11:36:49Z","end":"2026-09-13T11:36:49Z"},"onDemandCap":{"val":0},"onDemandUsed":{"val":0}}}}"#.utf8)
+        let snapshot = try GrokUsageResponseDecoder.decode(billingResponse: body, fetchedAt: now)
+        #expect(snapshot.primary == nil)
+        #expect(snapshot.planType == "SuperGrok Heavy")
+        #expect(AccountUsageState.available(snapshot, nextRefreshAt: nil).unavailableReason == .unknown)
+    }
+
+    @Test("period-only billing recovers usage or preserves unknown without swallowing cancellation",
+          arguments: ["success", "offline", "cancelled", "task-cancelled"])
+    func recoverPeriodOnlyBill(outcome: String) async throws {
+        let directory = try Self.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let reply = #"{"jsonrpc":"2.0","id":2,"result":{"subscription_tier":"SuperGrok Heavy","config":{"currentPeriod":{"start":"2026-09-06T11:36:49Z","end":"2026-09-13T11:36:49Z"}}}}"#
+        let executable = try Self.writeFakeAgent(in: directory, transcript: directory.appendingPathComponent("requests"), reply: reply)
+        let auth = directory.appendingPathComponent("auth.json")
+        try Data(#"{"https://auth.x.ai::openid":{"key":"test-token","expires_at":"2099-01-01T00:00:00Z"}}"#.utf8).write(to: auth)
+        let transport = ScriptedProxyTransport { request in
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer test-token")
+            #expect(request.value(forHTTPHeaderField: "Cookie") == nil)
+            if outcome == "offline" { throw URLError(.notConnectedToInternet) }
+            if outcome == "cancelled" { throw URLError(.cancelled) }
+            if outcome == "task-cancelled" { throw CancellationError() }
+            // Declared GrokCreditsConfig fields: percent 42.5, active weekly period.
+            let hex = "0a190d00002a4242120802120608d1a0f5d4061a0608d1959ad506"
+            let bytes = stride(from: 0, to: hex.count, by: 2).map { offset -> UInt8 in
+                let start = hex.index(hex.startIndex, offsetBy: offset)
+                return UInt8(hex[start..<hex.index(start, offsetBy: 2)], radix: 16)!
+            }
+            return (Data(bytes), HTTPURLResponse(url: request.url!, statusCode: 200,
+                httpVersion: nil, headerFields: ["grpc-status": "0"])!)
+        }
+        let provider = GrokUsageProvider(executableURL: executable,
+            logURL: directory.appendingPathComponent("absent"), authFileURL: auth,
+            proxyTransport: transport, now: { Date(timeIntervalSince1970: 1_788_750_000) })
+        if outcome == "task-cancelled" {
+            await #expect(throws: CancellationError.self) { try await provider.fetch() }
+            return
+        }
+        if outcome == "cancelled" {
+            await #expect(throws: URLError(.cancelled)) { try await provider.fetch() }
+            return
+        }
+        let snapshot = try await provider.fetch()
+        #expect(snapshot.primary?.usedPercent == (outcome == "success" ? 43 : nil))
+        #expect(snapshot.planType == "SuperGrok Heavy")
+        #expect(Self.matches(snapshot.periodEnd, "2026-09-13T11:36:49Z"))
+    }
+
+    @Test("a log fallback keeps its sampled time and remains cached")
+    func logRemainsCached() throws {
+        let snapshot = try GrokUsageResponseDecoder.decode(unifiedLogLine: Self.logLine())
+        let state = AccountUsageState.available(snapshot, nextRefreshAt: nil)
+        #expect(state.isStale)
+        #expect(state.unavailableReason == .cachedData)
+        #expect(abs(snapshot.fetchedAt.timeIntervalSince1970 - 1_788_395_550.702) < 0.001)
+    }
+
     // MARK: - Decoding
 
     @Test("credits config maps the weekly window, reset time, and tier")
@@ -241,7 +300,7 @@ struct GrokUsageProviderTests {
                 "vibebuddy-test", pidFile.path,
             ],
             timeout: 0.2,
-            logURL: directory.appendingPathComponent("absent.jsonl")
+            logURL: directory.appendingPathComponent("absent.jsonl"), proxyEnabled: false
         )
 
         let started = ContinuousClock.now
@@ -342,7 +401,7 @@ struct GrokUsageProviderTests {
         #expect(snapshot.primary?.usedPercent != 0 || snapshot.primary != nil)
     }
 
-    @Test("proxy on-demand-only answers still fill the single Grok primary window")
+    @Test("extra usage never becomes the included Grok allowance")
     func proxyOnDemandOnlyPrimary() throws {
         let now = Date(timeIntervalSince1970: 1_700_000_100)
         let body = Data("""
@@ -350,13 +409,14 @@ struct GrokUsageProviderTests {
           "config": {
             "onDemandCap": { "val": 1000.0 },
             "onDemandUsed": { "val": 250.0 },
+            "billingPeriodStart": "2026-08-06T00:00:00Z",
             "billingPeriodEnd": "2026-08-13T00:00:00Z"
           }
         }
         """.utf8)
         let snapshot = try GrokUsageResponseDecoder.decode(proxyCreditsResponse: body, fetchedAt: now)
-        #expect(snapshot.primary?.usedPercent == 25)
-        #expect(snapshot.secondary == nil)
+        #expect(snapshot.primary == nil)
+        #expect(snapshot.secondary?.usedPercent == 25)
         #expect(snapshot.fetchedAt == now)
     }
 

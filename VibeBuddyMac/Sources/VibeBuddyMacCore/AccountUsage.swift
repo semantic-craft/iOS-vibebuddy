@@ -38,6 +38,16 @@ public struct AccountUsageSnapshot: Codable, Equatable, Sendable {
     public var lifetimeTokens: Int?
     public var latestDailyTokens: Int?
     public var fetchedAt: Date
+    /// Billing metadata remains available when the provider withholds usage.
+    public var periodStart: Date?
+    public var periodEnd: Date?
+    /// Set when the sample itself came from a provider's local cache/log.
+    public var isCached: Bool?
+
+    /// Extra Grok spend is not the shared subscription allowance.
+    public var quotaWindows: [AccountUsageWindow] {
+        provider == .grok ? [primary].compactMap { $0 } : windows
+    }
 
     public var windows: [AccountUsageWindow] {
         [primary, secondary].compactMap { $0 }
@@ -50,7 +60,9 @@ public struct AccountUsageSnapshot: Codable, Equatable, Sendable {
         secondary: AccountUsageWindow?,
         lifetimeTokens: Int?,
         latestDailyTokens: Int?,
-        fetchedAt: Date
+        fetchedAt: Date,
+        periodStart: Date? = nil,
+        periodEnd: Date? = nil
     ) {
         self.provider = provider
         self.planType = planType
@@ -58,7 +70,18 @@ public struct AccountUsageSnapshot: Codable, Equatable, Sendable {
         self.secondary = secondary
         self.lifetimeTokens = lifetimeTokens
         self.latestDailyTokens = latestDailyTokens
+        self.periodStart = periodStart
+        self.periodEnd = periodEnd
         self.fetchedAt = fetchedAt
+    }
+
+    /// Grok's last period is not a reading of its new allowance.
+    public func excludingExpiredGrokWindows(at now: Date) -> Self {
+        guard provider == .grok else { return self }
+        var result = self
+        if let end = primary?.resetsAt, end <= now { result.primary = nil }
+        if let end = secondary?.resetsAt, end <= now { result.secondary = nil }
+        return result
     }
 
 }
@@ -151,8 +174,9 @@ public struct AccountUsageState: Equatable, Sendable {
         AccountUsageState(
             collectionEnabled: true,
             snapshot: snapshot,
-            isStale: false,
-            unavailableReason: nil,
+            isStale: snapshot.isCached == true,
+            unavailableReason: snapshot.provider == .grok && snapshot.primary == nil
+                ? .unknown : (snapshot.isCached == true ? .cachedData : nil),
             lastAttemptAt: snapshot.fetchedAt,
             nextRefreshAt: nextRefreshAt
         )
@@ -395,7 +419,7 @@ public actor AccountUsageCollector {
         let cached = await cache.load()
         guard isEnabled, generation == currentGeneration else { return state }
         if let snapshot = cached {
-            state = .stale(snapshot, reason: .cachedData, lastAttemptAt: nil, nextRefreshAt: now)
+            state = .stale(snapshot.excludingExpiredGrokWindows(at: now), reason: .cachedData, lastAttemptAt: nil, nextRefreshAt: now)
         } else {
             state = .unavailable(.notYetLoaded, lastAttemptAt: nil, nextRefreshAt: now)
         }
@@ -413,7 +437,7 @@ public actor AccountUsageCollector {
         let cachePermit = cacheCommitGate.permit(generation: currentGeneration)
 
         do {
-            let snapshot = try await provider.fetch()
+            let snapshot = try await provider.fetch().excludingExpiredGrokWindows(at: now)
             guard isEnabled, generation == currentGeneration else { return state }
             failureCount = 0
             state = .available(snapshot, nextRefreshAt: now.addingTimeInterval(refreshInterval))
@@ -431,7 +455,7 @@ public actor AccountUsageCollector {
             let delay = min(baseBackoff * pow(2, Double(exponent)), maxBackoff)
             let retryAt = now.addingTimeInterval(delay)
             if let lastKnownGood = state.snapshot {
-                state = .stale(lastKnownGood, reason: reason, lastAttemptAt: now, nextRefreshAt: retryAt)
+                state = .stale(lastKnownGood.excludingExpiredGrokWindows(at: now), reason: reason, lastAttemptAt: now, nextRefreshAt: retryAt)
             } else {
                 state = .unavailable(reason, lastAttemptAt: now, nextRefreshAt: retryAt)
             }
@@ -495,7 +519,7 @@ public struct AccountUsageAlertMonitor: Sendable {
         guard thresholdPercent > 0 else { return [] }
         guard state.collectionEnabled, !state.isStale, let snapshot = state.snapshot else { return [] }
 
-        let currentKeys = Dictionary(uniqueKeysWithValues: snapshot.windows.map {
+        let currentKeys = Dictionary(uniqueKeysWithValues: snapshot.quotaWindows.map {
             ($0.kind, Self.key(provider: snapshot.provider, window: $0))
         })
         for (kind, currentKey) in currentKeys {
@@ -510,7 +534,7 @@ public struct AccountUsageAlertMonitor: Sendable {
 
         if !didObserveFreshSnapshot {
             didObserveFreshSnapshot = true
-            for window in snapshot.windows {
+            for window in snapshot.quotaWindows {
                 let key = Self.key(provider: snapshot.provider, window: window)
                 observedWindowKeys.insert(key)
                 if window.usedPercent >= thresholdPercent {
@@ -521,7 +545,7 @@ public struct AccountUsageAlertMonitor: Sendable {
         }
 
         var alerts: [AccountUsageWindow] = []
-        for window in snapshot.windows {
+        for window in snapshot.quotaWindows {
             let key = Self.key(provider: snapshot.provider, window: window)
             guard observedWindowKeys.contains(key) else {
                 observedWindowKeys.insert(key)
