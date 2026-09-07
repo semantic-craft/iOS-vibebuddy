@@ -321,6 +321,7 @@ private extension LifecycleJournalEntry {
 private struct GeneralSettings: View {
     @ObservedObject var model: MenuBarModel
     @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
+    @AppStorage("showMenuBarTaskStatus") private var showMenuBarTaskStatus = false
     @State private var showHideIconNote = false
 
     var body: some View {
@@ -331,6 +332,14 @@ private struct GeneralSettings: View {
             Toggle("Show icon in menu bar", isOn: Binding(
                 get: { showMenuBarIcon },
                 set: { on in showMenuBarIcon = on; if !on { showHideIconNote = true } }))
+            Text("A fixed shortcut to the Dashboard and Settings. Live status and alerts appear in the Glance.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Toggle("Show task status in menu bar", isOn: $showMenuBarTaskStatus)
+                .disabled(!showMenuBarIcon)
+            Text("Add a status dot and the primary task count beside the cat icon.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             if showHideIconNote {
                 Text("Hidden. You can still open the Dashboard with \(model.openDashboardHotkey.displayString) — it has a Settings button.")
                     .font(.caption).foregroundStyle(.secondary)
