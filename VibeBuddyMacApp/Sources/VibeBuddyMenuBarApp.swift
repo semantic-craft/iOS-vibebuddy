@@ -269,6 +269,55 @@ private struct MenuPanelLayout: Layout {
     }
 }
 
+/// `MenuBarExtra(.window)` hangs its panel from the status item's left edge.
+/// Re-anchor it on the item's centre, clamped to the screen it is shown on.
+private struct MenuPanelAnchor: NSViewRepresentable {
+    func makeNSView(context: Context) -> AnchorView { AnchorView() }
+    func updateNSView(_ view: AnchorView, context: Context) { view.realign() }
+
+    final class AnchorView: NSView {
+        override init(frame frameRect: NSRect) {
+            super.init(frame: frameRect)
+            for name: NSNotification.Name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification] {
+                NotificationCenter.default.addObserver(self, selector: #selector(realign),
+                                                       name: name, object: nil)
+            }
+        }
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); realign() }
+
+        /// Runs again after our own move posts `didMove`, and settles because a
+        /// re-anchored panel no longer matches any status item's left edge.
+        @objc func realign() {
+            guard let window, let item = anchoringStatusItem(for: window),
+                  let screen = hostScreen(for: window) else { return }
+            let visible = screen.visibleFrame
+            let width = window.frame.width
+            let rightmost = max(visible.minX + 8, visible.maxX - width - 8)
+            let x = min(max(item.midX - width / 2, visible.minX + 8), rightmost)
+            guard abs(x - window.frame.minX) > 0.5 else { return }
+            window.setFrameOrigin(CGPoint(x: x, y: window.frame.minY))
+        }
+
+        /// The status item the system anchored this panel to: the one whose left
+        /// edge the panel starts at. Identifying it this way keeps a multi-display
+        /// Mac honest, and makes the whole adjustment self-disabling if AppKit ever
+        /// stops left-aligning the panel.
+        /// The panel's own `screen` flips to the display above the moment its top
+        /// edge meets the menu bar, so clamp against the display its body sits on.
+        private func hostScreen(for panel: NSWindow) -> NSScreen? {
+            let body = CGPoint(x: panel.frame.midX, y: panel.frame.minY)
+            return NSScreen.screens.first { $0.frame.contains(body) } ?? panel.screen
+        }
+
+        private func anchoringStatusItem(for panel: NSWindow) -> CGRect? {
+            NSApp.windows.first {
+                $0.className == "NSStatusBarWindow" && abs($0.frame.minX - panel.frame.minX) < 1
+            }?.frame
+        }
+    }
+}
+
 /// Reads the screen hosting this menu, rather than assuming the main display.
 private struct MenuScreenReader: NSViewRepresentable {
     var onChange: (CGSize) -> Void
@@ -332,6 +381,7 @@ struct MenuContent: View {
         .frame(width: min(380, screenSize.width - 24))
         .background(MacTheme.bg)
         .background(MenuScreenReader { screenSize = $0 })
+        .background(MenuPanelAnchor())
     }
 
     private var navigationRow: some View {
