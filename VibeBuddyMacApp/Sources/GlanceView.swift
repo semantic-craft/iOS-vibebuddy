@@ -419,6 +419,11 @@ private struct GlanceEventCard: View {
                 .lineLimit(1)
                 Spacer(minLength: 0)
             }
+            if let approval = live.pendingApproval, !approval.canPersistDecision,
+               card.alert.sound == .needsApproval {
+                ApprovalBody(approval: approval, onDark: true)
+                    .frame(maxHeight: 140)
+            }
             if live.status == .needsResponse && live.pendingApproval == nil && WaitHandling.resolve(for: live) != .remoteAvailable {
                 Text(WaitHandling.resolve(for: live).message)
                     .font(.system(size: 11 * s)).foregroundStyle(.white.opacity(0.8))
