@@ -7,6 +7,11 @@ import VibeBuddyMacCore
 @main
 struct VibeBuddyDaemon {
     static func main() async throws {
+        let arguments = CommandLine.arguments.dropFirst()
+        guard arguments.allSatisfy({ $0 == "--pair" }) else {
+            FileHandle.standardError.write(Data("Usage: vibebuddyd [--pair]\n".utf8))
+            exit(EXIT_FAILURE)
+        }
         let env = ProcessInfo.processInfo.environment
         let port = env["VIBEBUDDY_PORT"].flatMap(Int.init) ?? 9876
         let token: String
@@ -29,6 +34,11 @@ struct VibeBuddyDaemon {
         let registryURL = env["VIBEBUDDY_DEVICE_REGISTRY_PATH"].map {
             URL(fileURLWithPath: $0)
         } ?? DeviceRegistryLocation.defaultURL()
+        let deviceTokens = DeviceTokens(url: registryURL)
+        if arguments.contains("--pair") {
+            await deviceTokens.acceptNewRegistrations()
+            FileHandle.standardError.write(Data("Pairing enabled for 120 seconds. Enter this Mac's address and token on the phone.\n".utf8))
+        }
         let apnsConfig = APNsConfig.load()
         let deliveryRecorder = NotificationDeliveryRecorder(
             url: deliveryURL, apnsConfigured: apnsConfig != nil)
@@ -56,7 +66,7 @@ struct VibeBuddyDaemon {
             ),
             token: token, port: port, pusher: pusher, phoneReceipts: phoneReceipts,
             deliveryRecorder: deliveryRecorder,
-            deviceTokens: DeviceTokens(url: registryURL),
+            deviceTokens: deviceTokens,
             codexRolloutMonitor: CodexRolloutMonitor(),
             codexAppServerMonitor: CodexAppServerMonitor(
                 approvalRegistry: approvalRegistry, allowStore: allowStore,

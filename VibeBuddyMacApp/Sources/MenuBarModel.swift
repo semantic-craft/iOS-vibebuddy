@@ -12,6 +12,7 @@ struct PairedPhone: Codable, Equatable {
     var systemVersion: String?
     var lastSeen: Date
     var pushRegistered: Bool
+    var confirmed: Bool
 
     var subtitle: String {
         [model, systemVersion].compactMap { value in
@@ -155,8 +156,10 @@ final class MenuBarModel: ObservableObject {
         onStart: { [weak self] in self?.qwenReadAloud.stop() })
     private var pollTask: Task<Void, Never>?
     private var glance: GlanceWindow?
-    private static let pairedPhoneInfoKey = "pairedPhoneInfo"
-    private static let legacyPairedPhoneKey = "pairedPhone"
+    @Published private(set) var pairingInProgress = false
+    @Published private(set) var changingPairing = false
+    private var pairingTimeout: Task<Void, Never>?
+    private var pairingRevision = 0
 
     /// The live model, for callers that only hold a `@Sendable` closure (the
     /// daemon's presence check). Weak: the model owns the app's lifetime, not
@@ -258,7 +261,6 @@ final class MenuBarModel: ObservableObject {
         openDashboardHotkey = Hotkey.loadOpenDashboard()
         toggleGlanceHotkey = Hotkey.loadToggleGlance()
         usage = AccountUsageCoordinator(store: store, notifier: notifier, liveFeed: usageFeed)
-        pairedPhone = Self.loadPairedPhone()
         let apnsConfig = APNsConfig.load()
         let deliveryURL = (E2ERunConfiguration.current == nil ? ProcessInfo.processInfo.environment["VIBEBUDDY_DELIVERY_LOG_PATH"] : nil).map {
             URL(fileURLWithPath: $0)
@@ -394,8 +396,8 @@ final class MenuBarModel: ObservableObject {
                                          guard E2ERunConfiguration.current == nil else { return .noTerminal }
                                          return await CodexDesktopJumper.jump(threadID: id)
                                      },
-                                     onDevicePaired: { [weak self] device in
-                                         Task { @MainActor in self?.recordPairedDevice(device) }
+                                     onDevicePaired: { [weak self] _ in
+                                         Task { @MainActor in await self?.refreshPairedPhone(notify: true) }
                                      },
                                      backgroundSessions: {
                                          E2ERunConfiguration.current == nil ? ClaudeBackgroundSessions.load() : []
@@ -422,9 +424,6 @@ final class MenuBarModel: ObservableObject {
     }
 
     private func preparePairing() {
-        // Putting the QR on screen is the explicit intent to pair: lift any
-        // block a "forget phone" left on previously registered tokens.
-        Task { [deviceTokens] in await deviceTokens.acceptNewRegistrations() }
         let host = E2ERunConfiguration.current?.host ?? LANAddress.primaryIPv4() ?? "127.0.0.1"
         let payload = Pairing.payload(host: host, port: port, token: token, macName: macDisplayName)
         pairing = payload
@@ -582,6 +581,7 @@ final class MenuBarModel: ObservableObject {
         notificationDeliveryHealth = await deliveryRecorder.health()
         recentNotificationDeliveries = await deliveryRecorder.recent(limit: 8)
         deviceRegistry = await deviceTokens.summary()
+        await refreshPairedPhone()
     }
 
     func setGrokBotEnabled(_ on: Bool) {
@@ -1090,43 +1090,63 @@ final class MenuBarModel: ObservableObject {
         launchAtLogin = LaunchAtLogin.isEnabled
     }
 
-    func setPairedPhone(_ name: String) {
-        recordPairedDevice(DeviceRegistrationPayload(name: name))
+    /// User action only. Preparing a QR at launch never authorizes registration.
+    func beginPairing() {
+        guard !changingPairing else { return }
+        changingPairing = true
+        pairingRevision += 1
+        pairingTimeout?.cancel()
+        Task {
+            await deviceTokens.acceptNewRegistrations()
+            pairingInProgress = true
+            changingPairing = false
+            pairingTimeout = Task { [weak self] in
+                do { try await Task.sleep(for: .seconds(120)) } catch { return }
+                self?.endPairing()
+            }
+        }
     }
 
-    func recordPairedDevice(_ device: DeviceRegistrationPayload) {
-        let current = pairedPhone
-        let next = PairedPhone(
-            name: Self.nonEmpty(device.name) ?? current?.name ?? "iPhone",
-            model: Self.nonEmpty(device.model) ?? current?.model,
-            systemVersion: Self.nonEmpty(device.systemVersion) ?? current?.systemVersion,
-            lastSeen: Date(),
-            pushRegistered: current?.pushRegistered == true || device.hasPushToken
-        )
-        guard next != pairedPhone else { return }
-        // A different (or first) phone pairing is the pair_success moment; the
-        // same phone merely reconnecting (only `lastSeen`/push changed) is not.
-        let isNewPhone = current == nil || current?.name != next.name
-        pairedPhone = next
-        if let data = try? JSONEncoder().encode(next) {
-            UserDefaults.standard.set(data, forKey: Self.pairedPhoneInfoKey)
+    func endPairing() {
+        guard !changingPairing else { return }
+        changingPairing = true
+        pairingRevision += 1
+        pairingTimeout?.cancel()
+        pairingInProgress = false
+        Task {
+            await deviceTokens.endPairing()
+            changingPairing = false
         }
-        UserDefaults.standard.removeObject(forKey: Self.legacyPairedPhoneKey)
-        if isNewPhone { notifier.confirmPairing(deviceName: next.name) }
+    }
+
+    private func refreshPairedPhone(notify: Bool = false) async {
+        guard !changingPairing else { return }
+        let revision = pairingRevision
+        let entries = await deviceTokens.pairedPhones()
+        guard revision == pairingRevision, !changingPairing else { return }
+        let latest = entries.max { $0.registeredAt < $1.registeredAt }
+        let next = latest.map { entry in
+            PairedPhone(name: Self.nonEmpty(entry.device.name) ?? "iPhone",
+                        model: entry.device.model, systemVersion: entry.device.systemVersion,
+                        lastSeen: entry.registeredAt, pushRegistered: entry.device.hasPushToken,
+                        confirmed: entry.pairedAt != nil)
+        }
+        let newlyConfirmed = pairedPhone?.confirmed != true && next?.confirmed == true
+        pairedPhone = next
+        if notify && pairingInProgress && newlyConfirmed, let next { notifier.confirmPairing(deviceName: next.name) }
     }
 
     func forgetPairedPhone() {
+        guard !changingPairing else { return }
+        changingPairing = true
+        pairingRevision += 1
+        pairingTimeout?.cancel()
+        pairingInProgress = false
         pairedPhone = nil
-        UserDefaults.standard.removeObject(forKey: Self.pairedPhoneInfoKey)
-        UserDefaults.standard.removeObject(forKey: Self.legacyPairedPhoneKey)
-        // The registry now outlives the process, so forgetting the phone has to
-        // drop its APNs token too — and block it: the phone still holds the
-        // bearer token and re-reports on its next reconnect, so a plain removal
-        // would last only until the next network blip. Showing the pairing QR
-        // again lifts the block (see preparePairing).
         Task {
             await deviceTokens.forgetAll()
             deviceRegistry = await deviceTokens.summary()
+            changingPairing = false
         }
     }
 
@@ -1203,19 +1223,6 @@ final class MenuBarModel: ObservableObject {
         toggleGlanceHotkey = hotkey
         hotkey.saveAsToggleGlance()
         GlobalHotkey.setGlanceHotkey(hotkey)
-    }
-
-    private static func loadPairedPhone() -> PairedPhone? {
-        let defaults = UserDefaults.standard
-        if let data = defaults.data(forKey: pairedPhoneInfoKey),
-           let phone = try? JSONDecoder().decode(PairedPhone.self, from: data) {
-            return phone
-        }
-        if let legacyName = defaults.string(forKey: legacyPairedPhoneKey), !legacyName.isEmpty {
-            return PairedPhone(name: legacyName, model: nil, systemVersion: nil,
-                               lastSeen: Date(), pushRegistered: false)
-        }
-        return nil
     }
 
     private static func localMacName() -> String {

@@ -356,7 +356,7 @@ struct MenuContent: View {
             HStack(spacing: 6) {
                 Image(systemName: model.pairedPhone == nil ? "iphone.slash" : "iphone.gen3")
                 if let phone = model.pairedPhone {
-                    Text("Paired: \(phone.name)").lineLimit(1)
+                    Text(phone.confirmed ? String(localized: "Paired: \(phone.name)") : String(localized: "Registered: \(phone.name)")).lineLimit(1)
                     Spacer(minLength: 0)
                     Text("Last seen \(phone.lastSeen.formatted(date: .abbreviated, time: .shortened))")
                         .lineLimit(1)
@@ -373,7 +373,7 @@ struct MenuContent: View {
         .font(MacTheme.font(11))
         .foregroundStyle(MacTheme.ink2)
         .accessibilityLabel("Phone details and pairing")
-        .accessibilityValue(model.pairedPhone.map { String(localized: "Paired: \($0.name)") }
+        .accessibilityValue(model.pairedPhone.map { $0.confirmed ? String(localized: "Paired: \($0.name)") : String(localized: "Registered: \($0.name)") }
                              ?? String(localized: "No phone paired"))
         .popover(isPresented: $showsPhoneDetails, arrowEdge: .trailing) {
             phoneDetails
@@ -390,7 +390,7 @@ struct MenuContent: View {
                         .keyboardShortcut(.cancelAction)
                 }
                 if let phone = model.pairedPhone {
-                    Text("Paired: \(phone.name)")
+                    Text(phone.confirmed ? String(localized: "Paired: \(phone.name)") : String(localized: "Registered: \(phone.name)"))
                     if !phone.subtitle.isEmpty { Text(phone.subtitle) }
                     Text("Last seen \(phone.lastSeen.formatted(date: .abbreviated, time: .shortened))")
                     Text(phone.pushRegistered ? "Push registered" as LocalizedStringKey : "Push not registered")
@@ -403,15 +403,16 @@ struct MenuContent: View {
                     .foregroundStyle(MacTheme.ink2)
                 Divider()
                 Text(model.pairingAddress).font(MacTheme.mono(11)).textSelection(.enabled)
-                Text("Pair a phone").font(MacTheme.font(12, .semibold))
-                if let qr = model.qrImage {
+                Button(model.pairingInProgress ? "Cancel pairing" : "Pair a phone") {
+                    if model.pairingInProgress { model.endPairing() } else { model.beginPairing() }
+                }
+                .disabled(model.changingPairing)
+                if model.pairingInProgress, let qr = model.qrImage {
                     Image(nsImage: qr).interpolation(.none).resizable()
                         .scaledToFit().frame(width: 176, height: 176)
                         .padding(12).background(.white)
                         .accessibilityLabel("Pairing QR code")
-                    Text("Scan this in the vibebuddy iOS app")
-                } else {
-                    Text("Pairing code unavailable")
+                    Text("Scan this in the vibebuddy iOS app within 2 minutes.")
                 }
             }
             .fixedSize(horizontal: false, vertical: true)

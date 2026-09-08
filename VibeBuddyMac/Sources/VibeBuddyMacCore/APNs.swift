@@ -62,6 +62,7 @@ public struct APNsConfig: Sendable {
 /// empties the registry and silently stops every push to a closed phone.
 public actor DeviceTokens {
     private var registry: DeviceRegistry
+    private var pairingAllowedUntil: Date?
 
     /// `url` nil = in-memory only (tests, demo instance). The real entry points
     /// pass `DeviceRegistryLocation.defaultURL()`.
@@ -77,6 +78,20 @@ public actor DeviceTokens {
     public func register(_ payload: DeviceRegistrationPayload, now: Date = Date()) {
         registry.upsert(payload, now: now)
     }
+
+    /// The LAN registration boundary: a bearer token authenticates the caller,
+    /// but only a known phone or an explicit, time-limited pairing flow can register.
+    public func registerFromPhone(_ payload: DeviceRegistrationPayload, now: Date = Date()) -> Bool {
+        let known = registry.entries.contains { entry in
+            (payload.deviceID?.isEmpty == false && entry.device.deviceID == payload.deviceID)
+                || (payload.hasPushToken && entry.device.token == payload.token)
+        }
+        let pairingOpen = pairingAllowedUntil.map({ now < $0 }) == true
+        guard known || pairingOpen else { return false }
+        return registry.upsert(payload, now: now, confirmingPairing: pairingOpen)
+    }
+
+    public func pairedPhones() -> [DeviceRegistryEntry] { registry.entries }
 
     public func all() -> [String] { registry.entries.compactMap(\.device.token) }
     public func devices() -> [DeviceRegistrationPayload] { registry.devices }
@@ -97,10 +112,18 @@ public actor DeviceTokens {
     /// keeps its bearer token and re-reports on its next reconnect, so the
     /// forgotten tokens are also blocked until the user shows the pairing QR
     /// again (`acceptNewRegistrations`), which is the explicit intent to pair.
-    public func forgetAll() { registry.forgetAll() }
+    public func forgetAll() {
+        pairingAllowedUntil = nil
+        registry.forgetAll()
+    }
 
     /// Lift the block set by `forgetAll`: the pairing QR is on screen.
-    public func acceptNewRegistrations() { registry.acceptNewRegistrations() }
+    public func acceptNewRegistrations(now: Date = Date()) {
+        pairingAllowedUntil = now.addingTimeInterval(120)
+        registry.acceptNewRegistrations()
+    }
+
+    public func endPairing() { pairingAllowedUntil = nil }
 
     /// Drop every device without blocking re-registration (tests, demo reset).
     public func removeAll() { registry.removeAll() }

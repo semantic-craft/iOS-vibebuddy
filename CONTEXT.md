@@ -47,8 +47,12 @@ code, and tests — don't drift to synonyms.
   primary state count; it is off by default. The Glance owns ambient status and
   actionable alerts. Both surfaces are enabled by
   default and can be hidden independently.
-- **Pairing** — linking a phone to a Mac over the LAN by scanning a QR that
-  encodes `host:port` + a **bearer token**.
+- **Pairing** — the owner's explicit consent to link a phone to a Mac over the
+  LAN, using a QR carrying the address and bearer token. A new phone needs an
+  explicit, time-limited pairing window; saved phones reconnect without one.
+  Historical registration without recorded consent is labeled **registered**,
+  not **paired**. Forgetting removes saved phones and closes the window across
+  restarts. Saved pairing does not prove current connectivity or push delivery.
 
 ## Buddy / pet
 
@@ -261,8 +265,9 @@ code, and tests — don't drift to synonyms.
   the log; on the push side it is decided by `PushFanout.plan`, the same pure rule
   that picks the recipients. It is not a failure and never latches the health
   diagnostic.
-- **DeviceRegistry** — the Mac's owner-only, restart-surviving record of which
-  iPhones it can push to: one `DeviceRegistrationPayload` per APNs token plus
+- **DeviceRegistry** — the Mac's owner-only, restart-surviving record of
+  registered iPhones: one `DeviceRegistrationPayload` per stable identity (or APNs
+  token for phones without that identity) plus
   when the phone last reported itself, bounded at 16 by newest registration.
   Held by `DeviceTokens`, written through on every `POST /device`. A token
   leaves on **410 Unregistered**, and on **400 BadDeviceToken only if Apple has
@@ -272,6 +277,9 @@ code, and tests — don't drift to synonyms.
   been off for a month still has a valid token. The phone
   re-reports on every dashboard connection, not once per launch, so a Mac
   restart is repaired by the next reconnect rather than by a cold launch.
+  Identified phones can be saved before APNs registration; push counts include
+  only records with a token. Expiring a push token retains the phone identity,
+  so push availability never decides whether that phone is paired.
 - **AccountUsage** — provider quota (Codex app-server RPC, Claude `/usage` CLI):
   window, remaining, reset, freshness, `stale` / unavailable reason. Collected by
   isolated, individually switchable adapters that can never move session state.

@@ -24,12 +24,15 @@ public struct DeviceRegistryEntry: Codable, Sendable, Equatable {
     /// the field existed still decode (and read as never-accepted, which is the
     /// safe answer: they get one chance to prove themselves).
     public var lastAcceptedAt: Date?
+    /// Explicit Mac pairing consent; absent on historical registration-only records.
+    public var pairedAt: Date?
 
     public init(device: DeviceRegistrationPayload, registeredAt: Date,
-                lastAcceptedAt: Date? = nil) {
+                lastAcceptedAt: Date? = nil, pairedAt: Date? = nil) {
         self.device = device
         self.registeredAt = registeredAt
         self.lastAcceptedAt = lastAcceptedAt
+        self.pairedAt = pairedAt
     }
 }
 
@@ -90,16 +93,16 @@ struct DeviceRegistry {
             blocked = []
             return
         }
-        entries = Self.pruned(envelope.entries.filter { $0.device.hasPushToken },
+        entries = Self.pruned(envelope.entries.filter { $0.device.hasPushToken || $0.device.deviceID?.isEmpty == false },
                               capacity: self.capacity)
         blocked = Set(envelope.blocked ?? [])
     }
 
-    var devices: [DeviceRegistrationPayload] { entries.map(\.device) }
+    var devices: [DeviceRegistrationPayload] { entries.map(\.device).filter(\.hasPushToken) }
 
     var summary: DeviceRegistrySummary {
-        DeviceRegistrySummary(count: entries.count,
-                              lastRegisteredAt: entries.map(\.registeredAt).max())
+        DeviceRegistrySummary(count: devices.count,
+                              lastRegisteredAt: entries.filter { $0.device.hasPushToken }.map(\.registeredAt).max())
     }
 
     /// Upsert a device, merging in only the preference fields this payload
@@ -113,13 +116,16 @@ struct DeviceRegistry {
     /// the stale record. A payload without an id (an older phone build, a raw
     /// token POST) is keyed on its token, and a record without an id is adopted
     /// by the first identified payload that carries the same token.
-    mutating func upsert(_ payload: DeviceRegistrationPayload, now: Date) {
-        guard let token = payload.token, !token.isEmpty, !blocked.contains(token) else { return }
+    @discardableResult
+    mutating func upsert(_ payload: DeviceRegistrationPayload, now: Date, confirmingPairing: Bool = false) -> Bool {
+        let token = payload.token.flatMap { $0.isEmpty ? nil : $0 }
         let id = payload.deviceID.flatMap { $0.isEmpty ? nil : $0 }
+        guard token != nil || id != nil else { return false }
+        guard token.map({ !blocked.contains($0) }) ?? true else { return false }
         let existing = id.flatMap { id in entries.first { $0.device.deviceID == id } }
-            ?? entries.first { $0.device.token == token }
+            ?? entries.first { token != nil && $0.device.token == token }
         var merged = existing?.device ?? DeviceRegistrationPayload(token: token)
-        merged.token = token
+        if let token { merged.token = token }
         if let id { merged.deviceID = id }
         if let v = payload.name { merged.name = v }
         if let v = payload.model { merged.model = v }
@@ -128,15 +134,17 @@ struct DeviceRegistry {
         if let v = payload.quietMode { merged.quietMode = v }
         if let v = payload.categories { merged.categories = v }
         if let v = payload.supportsCompletionNotices { merged.supportsCompletionNotices = v }
-        entries.removeAll { $0.device.token == token || (id != nil && $0.device.deviceID == id) }
+        entries.removeAll { (token != nil && $0.device.token == token) || (id != nil && $0.device.deviceID == id) }
         // Re-registering does not re-prove the token: a phone that reconnects
         // keeps whatever standing it had with Apple. A *new* token starts from
         // nothing, whoever the phone is — Apple has not accepted it yet.
-        let standing = existing?.device.token == token ? existing?.lastAcceptedAt : nil
+        let standing = existing?.device.token == merged.token ? existing?.lastAcceptedAt : nil
         entries.append(DeviceRegistryEntry(device: merged, registeredAt: now,
-                                           lastAcceptedAt: standing))
+                                           lastAcceptedAt: standing,
+                                           pairedAt: existing?.pairedAt ?? (confirmingPairing ? now : nil)))
         entries = Self.pruned(entries, capacity: capacity)
         persistBestEffort()
+        return true
     }
 
     /// Apply one send result: drop a dead or never-valid token, and remember the
@@ -151,7 +159,13 @@ struct DeviceRegistry {
             persistBestEffort()
             return false
         case .unregistered, .neverValid:
-            entries.remove(at: index)
+            if entries[index].device.deviceID?.isEmpty == false {
+                // Push expiry is not a user unpairing. Keep the phone identity.
+                entries[index].device.token = nil
+                entries[index].lastAcceptedAt = nil
+            } else {
+                entries.remove(at: index)
+            }
             persistBestEffort()
             return true
         case .keep:

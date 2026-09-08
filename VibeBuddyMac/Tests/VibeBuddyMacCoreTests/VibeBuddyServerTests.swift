@@ -28,6 +28,7 @@ struct VibeBuddyServerTests {
         let box = Box()
         let server = VibeBuddyServer(store: SessionStore(), token: "t0k",
                                      onDevicePaired: { box.reports.append($0) })
+        await server.deviceTokens.acceptNewRegistrations()
         let body = #"{"token":"apns","name":"Hermes","model":"iPhone","systemVersion":"iOS 26.0"}"#
 
         try await server.buildApplication().test(.router) { client in
@@ -41,6 +42,57 @@ struct VibeBuddyServerTests {
         #expect(box.reports == [DeviceRegistrationPayload(token: "apns", name: "Hermes",
                                                           model: "iPhone", systemVersion: "iOS 26.0")])
         #expect(await server.deviceTokens.all() == ["apns"])
+    }
+
+    @Test("Rejected phone registration never reports a pairing, including after forget and restart")
+    func pairingConsent() async throws {
+        final class Box: @unchecked Sendable { var reports = 0 }
+        let box = Box()
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("pairing-\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let tokens = DeviceTokens(url: url)
+        let server = VibeBuddyServer(store: SessionStore(), token: "test", deviceTokens: tokens,
+                                     onDevicePaired: { _ in box.reports += 1 })
+        let body = #"{"deviceID":"phone-a","name":"Phone A"}"#
+        try await server.buildApplication().test(.router) { client in
+            try await client.execute(uri: "/device", method: .post,
+                headers: [.authorization: "Bearer test"], body: ByteBuffer(string: body)) {
+                #expect($0.status == .forbidden)
+            }
+            #expect(box.reports == 0)
+            await tokens.acceptNewRegistrations()
+            try await client.execute(uri: "/device", method: .post,
+                headers: [.authorization: "Bearer test"], body: ByteBuffer(string: body)) {
+                #expect($0.status == .ok)
+            }
+            #expect(box.reports == 1)
+            #expect(await tokens.pairedPhones().count == 1)
+            #expect(await tokens.summary().count == 0) // paired, but no APNs token
+            await tokens.forgetAll()
+            try await client.execute(uri: "/device", method: .post,
+                headers: [.authorization: "Bearer test"], body: ByteBuffer(string: body)) {
+                #expect($0.status == .forbidden)
+            }
+            #expect(box.reports == 1)
+            #expect(await tokens.pairedPhones().isEmpty)
+        }
+        let restarted = DeviceTokens(url: url)
+        let afterRestart = VibeBuddyServer(store: SessionStore(), token: "test", deviceTokens: restarted,
+                                          onDevicePaired: { _ in box.reports += 1 })
+        let rotated = #"{"deviceID":"phone-a","token":"rotated","name":"Phone A"}"#
+        try await afterRestart.buildApplication().test(.router) { client in
+            try await client.execute(uri: "/device", method: .post,
+                headers: [.authorization: "Bearer test"], body: ByteBuffer(string: rotated)) {
+                #expect($0.status == .forbidden)
+            }
+            #expect(box.reports == 1)
+            await restarted.acceptNewRegistrations()
+            try await client.execute(uri: "/device", method: .post,
+                headers: [.authorization: "Bearer test"], body: ByteBuffer(string: rotated)) {
+                #expect($0.status == .ok)
+            }
+            #expect(box.reports == 2)
+        }
     }
 
     @Test("snapshot without a token is 401")
