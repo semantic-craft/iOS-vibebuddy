@@ -362,8 +362,13 @@ def main():
             if not vibebuddy_hooks:
                 fails.append(f"vibebuddy codex {event} hook is missing")
             else:
-                if "async" in vibebuddy_hooks[0]:
-                    fails.append(f"Codex {event} must omit unsupported async")
+                # Status delivery runs off Codex's critical path. Codex honours
+                # `async` on command hooks everywhere but SessionEnd, which it
+                # forces back to synchronous and warns about.
+                wanted = event != "SessionEnd"
+                if vibebuddy_hooks[0].get("async", False) != wanted:
+                    state = "carry" if wanted else "omit"
+                    fails.append(f"Codex {event} must {state} async")
                 if vibebuddy_hooks[0].get("timeout", 999) > 3:
                     fails.append(f"Codex {event} timeout exceeds the 3s runtime limit")
         session_start_commands = [hook.get("command", "")

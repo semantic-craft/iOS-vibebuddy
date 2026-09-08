@@ -55,22 +55,39 @@ UserPromptSubmit, PreToolUse, PostToolUse, PermissionRequest, PreCompact,
 PostCompact, SubagentStart, SubagentStop, Stop, Interrupt, and SessionEnd.
 Existing hook groups are retained. It also appends the terminal-capture hook
 (`capture-terminal.sh`, see below) as its own group on `SessionStart` and
-`UserPromptSubmit`, synchronous like the rest, so Codex sessions get a
-jump-to-terminal ref.
+`UserPromptSubmit`, so Codex sessions get a jump-to-terminal ref.
 
-Released Codex builds currently skip command hooks carrying `async: true`, even
-though the rolling documentation describes asynchronous handlers. VibeBuddy
-therefore installs synchronous handlers with a three-second hook limit; the
-forwarder uses a one-second local HTTP cap so a missing daemon cannot materially
-delay the agent. `SessionEnd` is synchronous by design.
+Status delivery is installed as `async: true`, which Codex runs in the
+background without waiting for it. The one exception it enforces itself is
+`SessionEnd`, forced back to synchronous with a warning, so that one is
+installed synchronous. Handlers keep a three-second hook limit and the
+forwarder uses a one-second local HTTP cap, so a missing daemon cannot delay
+the agent either way. The blocking approval gate stays synchronous: Codex
+applies a hook's decision only when it waited for it.
 
 ```bash
 python3 hooks/install-codex-hooks.py --install
 ```
 
-Codex requires explicit trust after `hooks.json` changes. Start a fresh Codex
-session, run `/hooks`, review the VibeBuddy entries, and trust them. The installer
-does not read or forge Codex's trust state.
+### Trust: installing a hook is not the same as running it
+
+Codex runs a hook only while its recorded trust still covers the hook's current
+definition — event, matcher, command, timeout and `async`. Writing `hooks.json`
+leaves every changed entry `modified` (or a new one `untrusted`), and Codex then
+**skips it in silence**: no error, no warning, nothing in the logs. Start a
+fresh Codex session, run `/hooks`, review the VibeBuddy entries, and trust them.
+
+Install and `--verify` end by asking the running app-server daemon what it will
+actually run, so a half-trusted installation is visible instead of mysterious:
+
+```bash
+python3 hooks/install-codex-hooks.py --verify
+```
+
+`hooks/codex_hook_trust.py` is the same check on its own (`--json` for
+scripting). It is read-only: it never writes a `trusted_hash`, because trusting
+a hook is the user's security decision. The Mac app makes the same call over
+its existing daemon connection and shows the verdict in Settings.
 
 ### Remote approval (`--approval`, Codex CLI only)
 
