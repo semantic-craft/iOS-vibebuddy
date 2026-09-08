@@ -1,8 +1,8 @@
 import Foundation
 
 /// Where the menu panel's left edge belongs on screen. `MenuBarExtra(.window)`
-/// hangs its panel from the status item's *left* edge, which reads as the icon
-/// stuck on the panel's shoulder; this recentres it under the icon.
+/// aligns either panel edge with the status item; this recentres it under
+/// the icon, clamped to the hosting screen.
 ///
 /// Pure arithmetic on purpose: the interesting cases are an icon so far right
 /// that a centred panel would hang off the display, and a panel wider than the

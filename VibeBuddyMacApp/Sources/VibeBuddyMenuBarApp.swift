@@ -269,13 +269,16 @@ private struct MenuPanelLayout: Layout {
     }
 }
 
-/// `MenuBarExtra(.window)` hangs its panel from the status item's left edge.
+/// `MenuBarExtra(.window)` aligns either panel edge with the status item.
 /// Re-anchor it on the item's centre, clamped to the screen it is shown on.
 private struct MenuPanelAnchor: NSViewRepresentable {
     func makeNSView(context: Context) -> AnchorView { AnchorView() }
     func updateNSView(_ view: AnchorView, context: Context) { view.realign() }
 
     final class AnchorView: NSView {
+        private weak var statusItemWindow: NSWindow?
+        private var isRealigning = false
+
         override init(frame frameRect: NSRect) {
             super.init(frame: frameRect)
             for name: NSNotification.Name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification] {
@@ -284,24 +287,26 @@ private struct MenuPanelAnchor: NSViewRepresentable {
             }
         }
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); realign() }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            statusItemWindow = nil
+            realign()
+        }
 
-        /// Runs again after our own move posts `didMove`, and settles because a
-        /// re-anchored panel no longer matches any status item's left edge.
+        /// Keep the item identity after centring changes the panel's left edge.
+        /// Moving the panel posts another notification synchronously.
         @objc func realign() {
-            guard let window, let item = anchoringStatusItem(for: window),
-                  let screen = hostScreen(for: window) else { return }
-            let x = MenuPanelPlacement.x(itemMidX: item.midX,
+            guard !isRealigning, let window, let screen = hostScreen(for: window),
+                  let item = anchoringStatusItem(for: window, on: screen) else { return }
+            isRealigning = true
+            defer { isRealigning = false }
+            let x = MenuPanelPlacement.x(itemMidX: item.frame.midX,
                                          panelWidth: window.frame.width,
                                          visible: screen.visibleFrame)
             guard abs(x - window.frame.minX) > 0.5 else { return }
             window.setFrameOrigin(CGPoint(x: x, y: window.frame.minY))
         }
 
-        /// The status item the system anchored this panel to: the one whose left
-        /// edge the panel starts at. Identifying it this way keeps a multi-display
-        /// Mac honest, and makes the whole adjustment self-disabling if AppKit ever
-        /// stops left-aligning the panel.
         /// The panel's own `screen` flips to the display above the moment its top
         /// edge meets the menu bar, so clamp against the display its body sits on.
         private func hostScreen(for panel: NSWindow) -> NSScreen? {
@@ -309,10 +314,21 @@ private struct MenuPanelAnchor: NSViewRepresentable {
             return NSScreen.screens.first { $0.frame.contains(body) } ?? panel.screen
         }
 
-        private func anchoringStatusItem(for panel: NSWindow) -> CGRect? {
-            NSApp.windows.first {
-                $0.className == "NSStatusBarWindow" && abs($0.frame.minX - panel.frame.minX) < 1
-            }?.frame
+        private func anchoringStatusItem(for panel: NSWindow, on screen: NSScreen) -> NSWindow? {
+            // AppKit initially aligns either edge: the right edge when a panel
+            // would overflow on the right. Reuse the identified live window
+            // for later resizes and status-item movement, but
+            // rediscover it when this view attaches to another panel or display.
+            func isOnScreen(_ item: NSWindow) -> Bool {
+                screen.frame.contains(CGPoint(x: item.frame.midX, y: item.frame.midY))
+            }
+            if let statusItemWindow, isOnScreen(statusItemWindow) { return statusItemWindow }
+            statusItemWindow = NSApp.windows.first {
+                $0.className == "NSStatusBarWindow" && isOnScreen($0)
+                    && (abs($0.frame.minX - panel.frame.minX) < 1
+                        || abs($0.frame.maxX - panel.frame.maxX) < 1)
+            }
+            return statusItemWindow
         }
     }
 }
