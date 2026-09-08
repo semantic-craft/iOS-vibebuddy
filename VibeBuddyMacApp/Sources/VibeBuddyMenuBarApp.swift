@@ -231,6 +231,13 @@ private struct SessionListHeightKey: PreferenceKey {
 
 /// Gives the scroller an explicit proposal even while MenuBarExtra asks for
 /// an intrinsic size. Header and footer keep their natural height.
+///
+/// `sizeThatFits` deliberately ignores the proposed height and answers with the
+/// height the panel *wants*, capped by `maximumHeight`. The menu-bar window
+/// probes with a zero height and then re-asks with whatever height it currently
+/// has; sizing to the proposal makes every answer agree with the question, so
+/// the panel latches onto the first probe (a 1pt list) and can never grow back.
+/// Only `placeSubviews` shrinks to the height actually granted.
 private struct MenuPanelLayout: Layout {
     var maximumHeight: CGFloat
     var listHeight: CGFloat
@@ -238,12 +245,12 @@ private struct MenuPanelLayout: Layout {
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let width = proposal.width ?? 356
-        let heights = heights(width: width, height: proposal.height, subviews: subviews)
+        let heights = heights(width: width, budget: maximumHeight, subviews: subviews)
         return CGSize(width: width, height: heights.reduce(0, +) + spacing * 2)
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let heights = heights(width: bounds.width, height: bounds.height, subviews: subviews)
+        let heights = heights(width: bounds.width, budget: bounds.height, subviews: subviews)
         var y = bounds.minY
         for (view, height) in zip(subviews, heights) {
             view.place(at: CGPoint(x: bounds.minX, y: y), anchor: .topLeading,
@@ -252,13 +259,62 @@ private struct MenuPanelLayout: Layout {
         }
     }
 
-    private func heights(width: CGFloat, height: CGFloat?, subviews: Subviews) -> [CGFloat] {
+    private func heights(width: CGFloat, budget rawBudget: CGFloat, subviews: Subviews) -> [CGFloat] {
         let natural = ProposedViewSize(width: width, height: nil)
         let header = subviews[0].sizeThatFits(natural).height
         let footer = subviews[2].sizeThatFits(natural).height
-        let budget = min(maximumHeight, height ?? maximumHeight)
+        let budget = min(maximumHeight, rawBudget)
         let available = max(1, budget - header - footer - spacing * 2)
         return [header, min(max(listHeight, 1), available), footer]
+    }
+}
+
+/// `MenuBarExtra(.window)` hangs its panel from the status item's left edge.
+/// Re-anchor it on the item's centre, clamped to the screen it is shown on.
+private struct MenuPanelAnchor: NSViewRepresentable {
+    func makeNSView(context: Context) -> AnchorView { AnchorView() }
+    func updateNSView(_ view: AnchorView, context: Context) { view.realign() }
+
+    final class AnchorView: NSView {
+        override init(frame frameRect: NSRect) {
+            super.init(frame: frameRect)
+            for name: NSNotification.Name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification] {
+                NotificationCenter.default.addObserver(self, selector: #selector(realign),
+                                                       name: name, object: nil)
+            }
+        }
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); realign() }
+
+        /// Runs again after our own move posts `didMove`, and settles because a
+        /// re-anchored panel no longer matches any status item's left edge.
+        @objc func realign() {
+            guard let window, let item = anchoringStatusItem(for: window),
+                  let screen = hostScreen(for: window) else { return }
+            let visible = screen.visibleFrame
+            let width = window.frame.width
+            let rightmost = max(visible.minX + 8, visible.maxX - width - 8)
+            let x = min(max(item.midX - width / 2, visible.minX + 8), rightmost)
+            guard abs(x - window.frame.minX) > 0.5 else { return }
+            window.setFrameOrigin(CGPoint(x: x, y: window.frame.minY))
+        }
+
+        /// The status item the system anchored this panel to: the one whose left
+        /// edge the panel starts at. Identifying it this way keeps a multi-display
+        /// Mac honest, and makes the whole adjustment self-disabling if AppKit ever
+        /// stops left-aligning the panel.
+        /// The panel's own `screen` flips to the display above the moment its top
+        /// edge meets the menu bar, so clamp against the display its body sits on.
+        private func hostScreen(for panel: NSWindow) -> NSScreen? {
+            let body = CGPoint(x: panel.frame.midX, y: panel.frame.minY)
+            return NSScreen.screens.first { $0.frame.contains(body) } ?? panel.screen
+        }
+
+        private func anchoringStatusItem(for panel: NSWindow) -> CGRect? {
+            NSApp.windows.first {
+                $0.className == "NSStatusBarWindow" && abs($0.frame.minX - panel.frame.minX) < 1
+            }?.frame
+        }
     }
 }
 
@@ -374,6 +430,7 @@ struct MenuContent: View {
         .frame(width: min(380, screenSize.width - 24))
         .background(MacTheme.bg)
         .background(MenuScreenReader { screenSize = $0 })
+        .background(MenuPanelAnchor())
     }
 
     private var phoneDetails: some View {
