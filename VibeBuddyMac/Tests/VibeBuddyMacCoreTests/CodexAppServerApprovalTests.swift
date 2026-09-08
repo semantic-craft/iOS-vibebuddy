@@ -9,7 +9,8 @@ import VibeBuddyKit
 struct CodexAppServerApprovalTests {
     private struct Harness {
         let connection: FakeConnection
-        let store = SessionStore()
+        let store: SessionStore
+        let journal: URL
         let registry = ApprovalRegistry()
         let questions = QuestionRegistry()
         let sessionAllow = SessionAllowList()
@@ -20,6 +21,8 @@ struct CodexAppServerApprovalTests {
         let run: Task<Void, Never>
 
         init(rules: [String] = []) async {
+            journal = FileManager.default.temporaryDirectory.appendingPathComponent("vb-journal-\(UUID().uuidString).json")
+            store = SessionStore(journalURL: journal)
             socket = FileManager.default.temporaryDirectory.appendingPathComponent("vb-sock-\(UUID().uuidString)")
             FileManager.default.createFile(atPath: socket.path, contents: Data())
             connection = FakeConnection(results: fakeDaemonResults())
@@ -37,7 +40,7 @@ struct CodexAppServerApprovalTests {
             run = Task { await monitor.run(store: store) }
         }
 
-        func stop() { run.cancel(); connection.close(); try? FileManager.default.removeItem(at: socket) }
+        func stop() { try? FileManager.default.removeItem(at: journal); run.cancel(); connection.close(); try? FileManager.default.removeItem(at: socket) }
 
         func session(_ id: String) async -> AgentSession? {
             await store.snapshot(now: Date()).sessions.first { $0.id == id }
@@ -196,5 +199,120 @@ struct CodexAppServerApprovalTests {
         #expect(answers?["db"]?["answers"] == ["Postgres"])
         #expect(answers?["name"]?["answers"] == ["acme"])
         #expect(await waitFor { await h.session("thr-6")?.pendingQuestion == nil })
+    }
+
+    /// A sandbox escalation: extra filesystem paths, or the network.
+    private func pushPermissions(_ h: Harness, thread: String, requestID: Int) {
+        h.connection.push(["id": requestID, "method": "item/permissions/requestApproval",
+                           "params": ["threadId": thread, "turnId": "t", "itemId": "perm-1",
+                                      "startedAtMs": 1, "cwd": "/x/p", "reason": "install dependencies",
+                                      "permissions": [
+                                        "fileSystem": ["entries": [
+                                            ["access": "write", "path": ["type": "path", "path": "/x/p/node_modules"]],
+                                            ["access": "read", "path": ["type": "glob_pattern", "pattern": "/etc/**"]],
+                                        ]],
+                                        "network": ["enabled": true],
+                                      ]]])
+    }
+
+    @Test("a sandbox escalation becomes a card that spells out what it grants, and an approval grants exactly that")
+    func permissionsApproval() async throws {
+        let h = await Harness()
+        defer { h.stop() }
+        await h.startThread("thr-7")
+        pushPermissions(h, thread: "thr-7", requestID: 21)
+
+        #expect(await waitFor { await h.session("thr-7")?.pendingApproval != nil })
+        let card = try #require(await h.session("thr-7")?.pendingApproval)
+        #expect(card.tool == "Permissions")
+        #expect(!card.canPersistDecision)
+        #expect(await h.store.recentLifecycle().contains { $0.event == "approvalRequested" && $0.source == .appserver })
+        #expect(card.commandPreview == "Allow 2 paths + network access")
+        #expect(card.filePath == "/x/p")
+        let detail = try #require(card.newText)
+        #expect(detail.contains("install dependencies"))
+        #expect(detail.contains("write: /x/p/node_modules"))
+        #expect(detail.contains("read: /etc/**"))
+        #expect(detail.contains("network: enabled"))
+        #expect(await h.session("thr-7")?.status == .needsResponse)
+
+        await h.registry.resolve(id: "card-1", with: .allow)
+        #expect(await waitFor { h.connection.lastResponse != nil })
+        let result = try #require(h.connection.lastResponse)
+        #expect(result.id == .number(21))
+        // Exactly what was asked for, for this turn only — never broadened.
+        #expect(result.result["scope"] as? String == "turn")
+        let granted = try #require(result.result["permissions"] as? [String: Any])
+        #expect((granted["network"] as? [String: Any])?["enabled"] as? Bool == true)
+        #expect(((granted["fileSystem"] as? [String: Any])?["entries"] as? [[String: Any]])?.count == 2)
+        #expect(await waitFor { await h.session("thr-7")?.pendingApproval == nil })
+    }
+
+    @Test("special filesystem roots remain visible before granting the original profile")
+    func specialPaths() {
+        let profile: [String: Any] = ["fileSystem": ["entries": [
+            ["access": "write", "path": ["type": "special", "value": ["kind": "root"]]],
+            ["access": "read", "path": ["type": "special", "value": ["kind": "project_roots", "subpath": "cache"]]]
+        ], "globScanMaxDepth": 3]]
+        let detail = CodexAppServerMonitor.permissionDetail(profile, reason: nil)
+        #expect(detail?.contains("write: root") == true)
+        #expect(detail?.contains("read: project_roots/cache") == true)
+        #expect(detail?.contains("glob scan max depth: 3") == true)
+    }
+
+    @Test("denying a sandbox escalation grants nothing; there is no decision word for it")
+    func permissionsDenial() async throws {
+        let h = await Harness()
+        defer { h.stop() }
+        await h.startThread("thr-8")
+        pushPermissions(h, thread: "thr-8", requestID: 22)
+        #expect(await waitFor { await h.session("thr-8")?.pendingApproval != nil })
+
+        await h.registry.resolve(id: "card-1", with: .deny)
+        #expect(await waitFor { h.connection.lastResponse != nil })
+        let result = try #require(h.connection.lastResponse)
+        #expect((result.result["permissions"] as? [String: Any])?.isEmpty == true)
+        #expect(result.result["decision"] == nil)
+    }
+
+    @Test("a standing session allow never silently widens the sandbox")
+    func sessionAllowDoesNotGrantPermissions() async throws {
+        let h = await Harness()
+        defer { h.stop() }
+        await h.sessionAllow.add("thr-9")
+        await h.startThread("thr-9")
+
+        // The same session allow answers an ordinary command approval at once.
+        h.pushCommandApproval(thread: "thr-9", requestID: 30, command: "npm test")
+        #expect(await waitFor { h.connection.decisions == ["acceptForSession"] })
+
+        // A permission escalation still has to be asked.
+        pushPermissions(h, thread: "thr-9", requestID: 31)
+        #expect(await waitFor { await h.session("thr-9")?.pendingApproval != nil })
+        #expect(h.connection.responses.count == 1)
+    }
+
+    @Test("an MCP elicitation shows as a wait vibebuddy cannot answer, and resolving elsewhere clears it")
+    func mcpElicitation() async throws {
+        let h = await Harness()
+        defer { h.stop() }
+        await h.startThread("thr-10")
+        h.connection.push(["id": "eli-1", "method": "mcpServer/elicitation/request",
+                           "params": ["threadId": "thr-10", "turnId": "t", "serverName": "linear",
+                                      "mode": "form", "message": "Which issue should this close?",
+                                      "requestedSchema": ["type": "object"]]])
+
+        #expect(await waitFor { await h.session("thr-10")?.pendingQuestion != nil })
+        let question = try #require(await h.session("thr-10")?.pendingQuestion)
+        #expect(question.prompt == "linear: Which issue should this close?")
+        #expect(question.isAnswerable == false)
+        #expect(await h.session("thr-10")?.waitKind == .question)
+        // vibebuddy has no way to fill an arbitrary form: it must not answer.
+        #expect(h.connection.responses.isEmpty)
+
+        h.connection.push(["method": "serverRequest/resolved",
+                           "params": ["threadId": "thr-10", "requestId": "eli-1"]])
+        #expect(await waitFor { await h.session("thr-10")?.pendingQuestion == nil })
+        #expect(h.connection.responses.isEmpty)
     }
 }

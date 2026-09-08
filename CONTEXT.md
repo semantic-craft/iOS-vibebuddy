@@ -27,9 +27,11 @@ code, and tests — don't drift to synonyms.
   PostToolUse, SessionStart…) that feeds session state into the daemon.
   Fail-open.
 - **Codex rollout stream** — the append-only
-  `~/.codex/sessions/**/rollout-*.jsonl` event stream. Codex Desktop does not
-  execute user CLI hooks, so its task/tool/completion progress enters through
-  this local tailer and converges with hook events in the same reducer.
+  `~/.codex/sessions/**/rollout-*.jsonl` event stream. Codex Desktop task/tool/completion progress enters through this local tailer
+  and can also arrive through user hooks. In the 0.153.4 Desktop acceptance,
+  lifecycle/tool hooks arrived but the tested escalation produced no approval
+  card or rollout waiting event. Hook presence alone does not establish
+  approval coverage.
 - **Daemon** — the Mac menu-bar app's embedded HTTP + WebSocket server
   (`:9876`) that ingests hooks, runs the reducer, and broadcasts snapshots.
 - **Glance** — the Mac status surface at the top of the menu-bar screen, drawn
@@ -181,11 +183,12 @@ code, and tests — don't drift to synonyms.
   missing `thread-writer-locks/<id>.lock`) may only *retire* an already-working
   Desktop session when that writer is gone. They must not create a session,
   move one into `working`, or change ObservationHealth.
-- **Codex app-server daemon** — the shared local `codex app-server` process
-  every Codex client attaches to, on `~/.codex/app-server-control/
+- **Codex app-server daemon** — the local `codex app-server` process on `~/.codex/app-server-control/
   app-server-control.sock`. vibebuddy reads it as ObservationSource
   `appserver`, the primary Codex source while fresh (ADR-0011); it never
-  starts the daemon or drives a turn from this source.
+  starts the daemon as part of observation. Explicit actions use its RPCs.
+  Desktop can own a separate stdio app-server even at the same version; a
+  connection to this socket does not establish access to Desktop-owned tasks.
 - **Thread status** — the daemon's own state for a thread: `notLoaded` (stored
   only, never surfaced), `idle` (done), `active` (working; with
   `waitingOnApproval` / `waitingOnUserInput` flags → `needsResponse`), or

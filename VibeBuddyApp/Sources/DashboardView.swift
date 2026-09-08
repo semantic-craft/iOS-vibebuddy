@@ -470,7 +470,8 @@ private struct MessageRow: View {
                     SplitApproveButton(
                         approve: { dashboard.decide(approval.id, .allow) },
                         always: { dashboard.decide(approval.id, .alwaysAllow) },
-                        session: { dashboard.decide(approval.id, .allowSession) })
+                        session: { dashboard.decide(approval.id, .allowSession) },
+            allowsPersistentDecision: approval.canPersistDecision)
                     Button("Deny") { dashboard.decide(approval.id, .deny) }
                         .buttonStyle(PillButtonStyle(kind: .ghost))
                 }

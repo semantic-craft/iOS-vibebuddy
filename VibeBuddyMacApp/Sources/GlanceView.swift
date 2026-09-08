@@ -302,12 +302,14 @@ struct GlanceView: View {
                             .keyboardShortcut("d", modifiers: [])
                     }
                     HStack(spacing: 6 * s) {
+                        if a.canPersistDecision {
                         linkButton("Always") { model.decide(a.id, .alwaysAllow) }
                             .help("Always allow this exact command in future")
                         Text("·").foregroundStyle(.white.opacity(0.4))
                         linkButton("This session") { model.decide(a.id, .allowSession) }
                             .help("Stop asking for the rest of this run")
                         Text("·").foregroundStyle(.white.opacity(0.4))
+                        }
                         linkButton(p.agent == .grokBot ? "Open Grok Bot" : p.jumpsToDesktopThread ? "Open thread" : "Jump ⏎") { model.jump(p) }
                             .help(p.agent == .grokBot ? "Open Grok Bot and select the task" : p.jumpsToDesktopThread ? "Open this thread in ChatGPT" : "Jump to terminal")
                     }

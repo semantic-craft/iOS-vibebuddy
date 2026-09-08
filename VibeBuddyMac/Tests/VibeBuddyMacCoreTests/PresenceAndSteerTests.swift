@@ -157,6 +157,7 @@ struct CodexSteerTests {
         defer { h.stop() }
         #expect(await h.connected())
         await h.activate("thr-live")
+        await h.startTurn("thr-live", turnID: "turn-live")
         #expect(await h.monitor.steer(threadID: "thr-live", text: "also run the tests"))
         #expect(h.connection.calls.last == "turn/steer")
         #expect(await h.monitor.startTurn(threadID: "thr-live", text: "start over"))
@@ -165,12 +166,24 @@ struct CodexSteerTests {
         #expect(h.connection.calls.suffix(2) == ["thread/resume", "turn/start"])
     }
 
+    @Test("steer without an observed turn never sends a malformed request")
+    func steerWithoutTurn() async throws {
+        let h = Harness()
+        defer { h.stop() }
+        #expect(await h.connected())
+        await h.activate("thr-unknown")
+        #expect(await h.monitor.steer(threadID: "thr-unknown", text: "hello") == false)
+        #expect(!h.connection.calls.contains("turn/steer"))
+        #expect(!h.connection.calls.contains("turn/start"))
+    }
+
     @Test("a steer the daemon refuses does not start a new turn")
     func steerFailureDoesNotStart() async throws {
         let h = Harness()
         defer { h.stop() }
         #expect(await h.connected())
         await h.activate("thr-x")
+        await h.startTurn("thr-x", turnID: "turn-x")
         h.connection.set("turn/steer", [:])
         h.connection.fail("turn/steer")
         #expect(await h.monitor.steer(threadID: "thr-x", text: "hi") == false)
