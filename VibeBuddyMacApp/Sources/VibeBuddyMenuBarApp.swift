@@ -231,6 +231,13 @@ private struct SessionListHeightKey: PreferenceKey {
 
 /// Gives the scroller an explicit proposal even while MenuBarExtra asks for
 /// an intrinsic size. Header and footer keep their natural height.
+///
+/// `sizeThatFits` deliberately ignores the proposed height and answers with the
+/// height the panel *wants*, capped by `maximumHeight`. The menu-bar window
+/// probes with a zero height and then re-asks with whatever height it currently
+/// has; sizing to the proposal makes every answer agree with the question, so
+/// the panel latches onto the first probe (a 1pt list) and can never grow back.
+/// Only `placeSubviews` shrinks to the height actually granted.
 private struct MenuPanelLayout: Layout {
     var maximumHeight: CGFloat
     var listHeight: CGFloat
@@ -238,12 +245,12 @@ private struct MenuPanelLayout: Layout {
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let width = proposal.width ?? 356
-        let heights = heights(width: width, height: proposal.height, subviews: subviews)
+        let heights = heights(width: width, budget: maximumHeight, subviews: subviews)
         return CGSize(width: width, height: heights.reduce(0, +) + spacing * 2)
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let heights = heights(width: bounds.width, height: bounds.height, subviews: subviews)
+        let heights = heights(width: bounds.width, budget: bounds.height, subviews: subviews)
         var y = bounds.minY
         for (view, height) in zip(subviews, heights) {
             view.place(at: CGPoint(x: bounds.minX, y: y), anchor: .topLeading,
@@ -252,11 +259,11 @@ private struct MenuPanelLayout: Layout {
         }
     }
 
-    private func heights(width: CGFloat, height: CGFloat?, subviews: Subviews) -> [CGFloat] {
+    private func heights(width: CGFloat, budget rawBudget: CGFloat, subviews: Subviews) -> [CGFloat] {
         let natural = ProposedViewSize(width: width, height: nil)
         let header = subviews[0].sizeThatFits(natural).height
         let footer = subviews[2].sizeThatFits(natural).height
-        let budget = min(maximumHeight, height ?? maximumHeight)
+        let budget = min(maximumHeight, rawBudget)
         let available = max(1, budget - header - footer - spacing * 2)
         return [header, min(max(listHeight, 1), available), footer]
     }
