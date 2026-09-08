@@ -678,9 +678,6 @@ public actor SessionStore {
         missedLedger.acknowledge(sessionID: sessionID, now: now)
     }
 
-    /// Source locations only; reading these never changes lifecycle or unread state.
-    public func menuTranscriptPaths() -> [String: String] { transcriptPaths }
-
     public func snapshot(now: Date) -> Snapshot {
         currentSnapshot(now: now)
     }

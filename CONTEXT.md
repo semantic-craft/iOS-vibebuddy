@@ -42,11 +42,14 @@ code, and tests — don't drift to synonyms.
   shown under the housing with its actions (Approve / Deny / Jump), timed by
   `GlanceCardQueue`. While the glance is on screen the card *replaces* the
   macOS banner for session cues; hidden glance → banner as before.
-- **Menu-bar entry** — a fixed cat icon that opens the menu for Dashboard and
-  Settings. "Show task status in menu bar" optionally adds a state dot and the
-  primary state count; it is off by default. The Glance owns ambient status and
-  actionable alerts. Both surfaces are enabled by
-  default and can be hidden independently.
+- **Menu-bar entry** — a fixed cat icon that opens a panel centred under it: a
+  command row you type into to narrow the list, one summary line for the whole
+  snapshot, the sessions that need a person pinned above a time-ordered feed of
+  the rest, and a footer row of controls (Dashboard, the Glance toggle,
+  Settings, phone state, updates and quit). "Show task status in menu bar"
+  optionally adds a state dot and the primary state count to the icon; it is off
+  by default. The Glance owns ambient status and actionable alerts. Both
+  surfaces are enabled by default and can be hidden independently.
 - **Pairing** — the owner's explicit consent to link a phone to a Mac over the
   LAN, using a QR carrying the address and bearer token. A new phone needs an
   explicit, time-limited pairing window; saved phones reconnect without one.
