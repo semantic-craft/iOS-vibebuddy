@@ -34,8 +34,8 @@ code, and tests — don't drift to synonyms.
   (`:9876`) that ingests hooks, runs the reducer, and broadcasts snapshots.
 - **Glance** — the Mac status surface at the top of the menu-bar screen, drawn
   with the Dynamic Island's grammar (ADR-0011). On a notch Mac it never draws
-  into the camera housing: **idle** (nothing), **compact** (a wing either side:
-  pet left, the one primary count right), **card** (a cue unfolded below the
+  into the camera housing: **idle** (nothing), **compact** (a strip below the camera, no wider than
+  the housing: pet left, the one primary count right), **card** (a cue unfolded below the
   housing), **expanded** (hover/click: counts + approval or session list).
   Without a notch the same content is a **pill** hanging under the menu bar.
 - **Glance card** — the glance's event layer: one `SoundPolicy` cue at a time
