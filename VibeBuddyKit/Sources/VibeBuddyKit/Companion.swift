@@ -78,10 +78,15 @@ public enum CompanionCopy {
     }
 
     /// `3 working · 1 done · 1 idle`, zeros omitted; empty when nothing else runs.
+    /// The working count is dropped when `moodLine` already carries it
+    /// (`All quiet — 3 working`), so the pair never says it twice. With
+    /// something waiting the mood line names the waiting count instead, and the
+    /// working count belongs here.
     public static func restLine(_ s: TaskPresentationSummary) -> String {
-        [s.thinking > 0 ? String(localized: "\(s.thinking) working") : nil,
-         s.completeUnread > 0 ? String(localized: "\(s.completeUnread) done") : nil,
-         s.idle > 0 ? String(localized: "\(s.idle) idle") : nil]
+        let moodCarriesWorking = needsYou(s) == 0 && s.thinking > 0
+        return [s.thinking > 0 && !moodCarriesWorking ? String(localized: "\(s.thinking) working") : nil,
+                s.completeUnread > 0 ? String(localized: "\(s.completeUnread) done") : nil,
+                s.idle > 0 ? String(localized: "\(s.idle) idle") : nil]
             .compactMap { $0 }.joined(separator: " · ")
     }
 

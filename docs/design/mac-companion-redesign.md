@@ -55,7 +55,10 @@ one soft card shadow only; selection is a 2 pt accent ring.
 
 - Mood line (dropdown top, Glance expanded head, buddy bubble):
   `N things need you` / `1 thing needs you` / `All quiet — N working` /
-  `All quiet`. Second line: `N working · N done · N idle` (zeros omitted).
+  `All quiet`. Second line: `N working · N done · N idle` (zeros omitted), and
+  the working term is dropped when the mood line already carries it
+  (`All quiet — 3 working` → `7 done · 7 idle`, never `3 working · 7 done`).
+  The two lines are always rendered together, so no count may appear in both.
 - Glance pill: cat + an orange badge with the needs-you count (error + requires
   input). Zero → the word `All quiet`. Voice active → the existing
   Listening / Speaking badge replaces it.

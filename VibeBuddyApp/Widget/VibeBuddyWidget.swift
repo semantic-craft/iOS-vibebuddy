@@ -92,10 +92,13 @@ private struct StatusWidgetView: View {
                         .foregroundStyle(CompanionPalette.ink)
                         .lineLimit(2)
                         .minimumScaleFactor(0.8)
-                    Text(CompanionCopy.restLine(snapshot.summary))
-                        .font(CompanionType.font(10, .bold))
-                        .foregroundStyle(CompanionPalette.ink2)
-                        .lineLimit(1)
+                    let rest = CompanionCopy.restLine(snapshot.summary)
+                    if !rest.isEmpty {
+                        Text(rest)
+                            .font(CompanionType.font(10, .bold))
+                            .foregroundStyle(CompanionPalette.ink2)
+                            .lineLimit(1)
+                    }
                 }
             }
             Spacer(minLength: 0)
@@ -111,10 +114,14 @@ private struct StatusWidgetView: View {
                 Text(CompanionCopy.moodLine(snapshot.summary))
                     .font(.headline)
                     .lineLimit(1)
-                Text(snapshot.topProject ?? CompanionCopy.restLine(snapshot.summary))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                // `??` only catches a missing project, not an empty rest line.
+                let caption = snapshot.topProject ?? CompanionCopy.restLine(snapshot.summary)
+                if !caption.isEmpty {
+                    Text(caption)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
         }
     }
