@@ -17,4 +17,6 @@ Physical tests passed for Qwen and Doubao conversation interruption, Watch quick
 
 Doubao sustained-call stability remains under investigation after a connection-too-slow event. Physical cold-launch/network recovery, Watch approval actions and audio-device switching have not completed acceptance. This release does not represent those scenarios as verified.
 
+After connecting to an already-running Codex turn, Stop may be offered but refused until the current turn is observed. If a Stop request times out, its eventual completion may produce an error cue even though the task stopped; the initial action remains explicitly unconfirmed. These recovery-edge cases are tracked for a subsequent update.
+
 The macOS DMG is the direct-distribution edition. iPhone/Watch App Store availability depends on Apple's separate processing and review; the Mac App Store edition is not included.
