@@ -68,3 +68,23 @@ Both remain enabled by default, with independent visibility switches. Hiding
 the Glance keeps the existing macOS notification path; it does not add status
 back to the menu-bar icon automatically. The task-status preference is independent
 of Glance visibility. Details inside the opened menu remain available.
+
+
+## Amendment (2026-09-09): compact width never exceeds the housing
+
+The owner rejected lateral growth, including the proposed 253–261 pt compact
+wings on a 185 pt housing. The compact Glance now reserves the camera height
+and displays the cat and primary state/count in a 28 pt strip immediately below
+it. Its width is exactly the screen-derived housing width, with no horizontal
+shape allowance or wings. Idle returns to the housing-sized anchor.
+
+This supersedes the compact-wing geometry and asymmetric offset in decision 2.
+The change limits width; the compact strip adds height below the camera so its
+content is visible. Card and expanded modes retain their existing wider bodies
+below the housing. The camera area remains empty in every mode.
+
+The compact count follows TaskPresentationSummary's primary state, caps visual
+counts at 99+, and exposes the exact count and state through accessibility and
+help text. Active voice uses a bounded symbol with the full state in accessibility
+and expanded content. A clipped voice outline cannot paint outside the shape.
+The stable transparent panel and the notchless pill remain the existing model.
