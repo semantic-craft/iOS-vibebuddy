@@ -303,7 +303,6 @@ struct MenuContent: View {
     @State private var showsPhoneDetails = false
     @State private var greet = 0
     @State private var hoveredSessionID: String?
-    @AppStorage("menuSessionPreferences") private var menuPreferencesData = Data()
     @AppStorage("menuExpandedProjects") private var expandedProjectsData = Data()
 
     var body: some View {
@@ -433,8 +432,6 @@ struct MenuContent: View {
             .keyboardShortcut(",", modifiers: .command)
             Spacer()
             Menu {
-                localCleanup
-                Divider()
                 Button("Check for Updates…") {
                     NSApp.activate(ignoringOtherApps: true)
                     Updater.shared.checkForUpdates()
@@ -450,24 +447,6 @@ struct MenuContent: View {
         .buttonStyle(.borderless)
         .font(MacTheme.font(12))
         .foregroundStyle(MacTheme.ink)
-    }
-
-    private var localCleanup: some View {
-        let request = MenuClearRequest(model.menuSnapshot.sessions, preferences: preferences,
-                                       sourceID: model.menuSnapshot.sourceID,
-                                       roundIDs: model.menuSnapshot.roundIDs)
-        return Section("Local cleanup") {
-            Button("Clear filtered Done and Idle from menu (\(request.count))") {
-                guard model.menuSnapshotIsCurrent else { return }
-                let current = model.menuSnapshot
-                updatePreferences {
-                    request.apply(to: &$0, currentSessions: current.sessions,
-                                  currentSourceID: current.sourceID, currentRoundIDs: current.roundIDs)
-                }
-            }
-            .disabled(!request.isAvailable || !model.menuSnapshotIsCurrent)
-            .help("Only hides completed and idle rounds in the current filters. Unread results and reminders are kept.")
-        }
     }
 
     /// A small code-drawn Buddy beside the full-snapshot summary.
@@ -505,17 +484,6 @@ struct MenuContent: View {
         }
     }
 
-    private var preferences: MenuSessionPreferences {
-        (try? JSONDecoder().decode(MenuSessionPreferences.self, from: menuPreferencesData))
-            ?? MenuSessionPreferences()
-    }
-
-    private func updatePreferences(_ change: (inout MenuSessionPreferences) -> Void) {
-        var value = preferences
-        change(&value)
-        if let data = try? JSONEncoder().encode(value) { menuPreferencesData = data }
-    }
-
     private var expandedProjects: Set<String> {
         (try? JSONDecoder().decode(Set<String>.self, from: expandedProjectsData)) ?? []
     }
@@ -524,92 +492,25 @@ struct MenuContent: View {
         if let data = try? JSONEncoder().encode(keys) { expandedProjectsData = data }
     }
 
+    /// The menu shows the whole live snapshot: no filters, no locally cleared rounds.
     private var projectList: MenuProjectList {
-        let live = model.menuListSnapshot
-        return MenuProjectList(live.sessions, preferences: preferences,
-                               sourceID: live.sourceID, roundIDs: live.roundIDs,
-                               expandedProjects: expandedProjects)
-    }
-    private static let filterStates: [TaskPresentationState] = [
-        .error, .requiresInput, .thinking, .completeUnread, .idle
-    ]
-
-    private func restoreFilters() {
-        updatePreferences {
-            $0.selectedStates = MenuSessionPreferences().selectedStates
-            $0.selectedAgents = Set(AgentKind.allCases)
-        }
+        MenuProjectList(model.sessions, expandedProjects: expandedProjects)
     }
 
     private var sessionControls: some View {
         let expandableKeys = Set(projectList.projects.filter { !$0.others.isEmpty }.map(\.expansionKey))
         let allCollapsed = expandedProjects.isDisjoint(with: expandableKeys)
-        let list = projectList
-        return VStack(alignment: .leading, spacing: 5) {
-            HStack {
-                Menu {
-                    Section("State") {
-                        ForEach(Self.filterStates, id: \.self) { state in
-                            Toggle(LocalizedStringKey(state.label), isOn: Binding(
-                                get: { preferences.selectedStates.contains(state) },
-                                set: { selected in
-                                    updatePreferences {
-                                        if selected { $0.selectedStates.insert(state) }
-                                        else { $0.selectedStates.remove(state) }
-                                    }
-                                }
-                            ))
-                        }
-                    }
-                    Section("Agent") {
-                        ForEach(AgentKind.allCases, id: \.self) { agent in
-                            Toggle(agent.displayName, isOn: Binding(
-                                get: { preferences.selectedAgents.contains(agent) },
-                                set: { selected in
-                                    updatePreferences {
-                                        if selected { $0.selectedAgents.insert(agent) }
-                                        else { $0.selectedAgents.remove(agent) }
-                                    }
-                                }
-                            ))
-                        }
-                    }
-                    Divider()
-                    Button("Show all states and agents", action: restoreFilters)
-                } label: {
-                    Label(preferences.isFiltering ? "Filter · Active" as LocalizedStringKey : "Filter",
-                          systemImage: "line.3.horizontal.decrease.circle")
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-                .accessibilityLabel(preferences.isFiltering ? "Filter sessions, active" : "Filter sessions")
-                Spacer()
-                Button(allCollapsed ? "Expand others" as LocalizedStringKey : "Collapse others") {
-                    setExpandedProjects(allCollapsed ? expandedProjects.union(expandableKeys)
-                                        : expandedProjects.subtracting(expandableKeys))
-                }
-                .disabled(expandableKeys.isEmpty)
-                .buttonStyle(.borderless)
+        return HStack {
+            Spacer()
+            Button(allCollapsed ? "Expand others" as LocalizedStringKey : "Collapse others") {
+                setExpandedProjects(allCollapsed ? expandedProjects.union(expandableKeys)
+                                    : expandedProjects.subtracting(expandableKeys))
             }
-            .font(MacTheme.font(11))
-            .foregroundStyle(MacTheme.ink2)
-            HStack {
-                Text("\(list.visibleCount) shown · \(list.summary.total) total")
-                Spacer(minLength: 0)
-                if preferences.isFiltering {
-                    Button("Reset filters", action: restoreFilters)
-                        .buttonStyle(.borderless)
-                }
-            }
-            .font(MacTheme.font(10))
-            .foregroundStyle(MacTheme.ink2)
-            if preferences.isFiltering || list.visibleCount != list.summary.total {
-                Text("Summary includes all tasks. Filters and cleared rounds only affect this list.")
-                    .font(MacTheme.font(10))
-                    .foregroundStyle(MacTheme.ink2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            .disabled(expandableKeys.isEmpty)
+            .buttonStyle(.borderless)
         }
+        .font(MacTheme.font(11))
+        .foregroundStyle(MacTheme.ink2)
     }
 
     /// Only this menu projects filters and hidden rounds. Other surfaces retain
@@ -624,16 +525,6 @@ struct MenuContent: View {
                         Text("No sessions reporting")
                             .font(MacTheme.font(12, .semibold))
                         Text("Start a turn or repair hooks in Settings.")
-                            .foregroundStyle(MacTheme.ink2)
-                    case .noMatches:
-                        Text("No matching sessions")
-                            .font(MacTheme.font(12, .semibold))
-                        Text("Reset the filters to show other tasks.")
-                            .foregroundStyle(MacTheme.ink2)
-                    case .cleared:
-                        Text("Current sessions cleared from menu")
-                            .font(MacTheme.font(12, .semibold))
-                        Text("Sessions remain in Dashboard. New turns appear here.")
                             .foregroundStyle(MacTheme.ink2)
                     }
                 }

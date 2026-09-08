@@ -1,7 +1,9 @@
 import Foundation
 import VibeBuddyKit
 
-/// Mac menu projection only: filtering and local clearing precede stable project grouping.
+/// Mac menu projection only: stable project grouping over the whole snapshot.
+/// The menu shows every session it is given — narrowing is the search field's
+/// job, not this type's.
 public struct MenuProjectList: Sendable {
     public struct Project: Identifiable, Sendable {
         // Optional identity keeps an unknown project distinct from a project named "Unknown project".
@@ -16,7 +18,7 @@ public struct MenuProjectList: Sendable {
     }
 
     public enum EmptyState: Equatable, Sendable {
-        case noSessions, noMatches, cleared
+        case noSessions
     }
 
     public let projects: [Project]
@@ -24,18 +26,13 @@ public struct MenuProjectList: Sendable {
     public let visibleCount: Int
     public let emptyState: EmptyState?
 
-    public init(_ sessions: [AgentSession], preferences: MenuSessionPreferences,
-                sourceID: String?, roundIDs: [String: String] = [:], expandedProjects: Set<String> = []) {
+    public init(_ sessions: [AgentSession], expandedProjects: Set<String> = []) {
         summary = TaskPresentationSummary(sessions: sessions)
-        let filtered = preferences.filtered(sessions)
-        let visible = preferences.visible(sessions, sourceID: sourceID, roundIDs: roundIDs)
-        visibleCount = visible.count
-        emptyState = sessions.isEmpty ? .noSessions
-            : filtered.isEmpty ? .noMatches
-            : visible.isEmpty ? .cleared : nil
+        visibleCount = sessions.count
+        emptyState = sessions.isEmpty ? .noSessions : nil
         var keys: [String?] = []
         var grouped: [String?: [AgentSession]] = [:]
-        for session in visible {
+        for session in sessions {
             let key: String? = session.project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? nil : session.project
             if grouped[key] == nil { keys.append(key) }
