@@ -81,9 +81,10 @@ public enum CompanionCopy {
     /// The working count is dropped when `moodLine` already carries it
     /// (`All quiet — 3 working`), so the pair never says it twice. With
     /// something waiting the mood line names the waiting count instead, and the
-    /// working count belongs here.
-    public static func restLine(_ s: TaskPresentationSummary) -> String {
-        let moodCarriesWorking = needsYou(s) == 0 && s.thinking > 0
+    /// working count belongs here. A voice phase can replace the mood line;
+    /// in that case the rest line keeps the working count.
+    public static func restLine(_ s: TaskPresentationSummary, moodLineIsVisible: Bool = true) -> String {
+        let moodCarriesWorking = moodLineIsVisible && needsYou(s) == 0 && s.thinking > 0
         return [s.thinking > 0 && !moodCarriesWorking ? String(localized: "\(s.thinking) working") : nil,
                 s.completeUnread > 0 ? String(localized: "\(s.completeUnread) done") : nil,
                 s.idle > 0 ? String(localized: "\(s.idle) idle") : nil]

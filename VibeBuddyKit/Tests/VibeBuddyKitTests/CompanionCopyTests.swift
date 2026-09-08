@@ -38,6 +38,16 @@ struct CompanionCopyTests {
         #expect(CompanionCopy.restLine(s) == "2 working")
     }
 
+    @Test("voice replaces the mood line: working remains in the rest line")
+    func voiceHeadlineKeepsWorking() {
+        #expect(CompanionCopy.restLine(summary(thinking: 3), moodLineIsVisible: false) == "3 working")
+        #expect(CompanionCopy.restLine(summary(idle: 2, thinking: 3, completeUnread: 1),
+                                       moodLineIsVisible: false) == "3 working · 1 done · 2 idle")
+        #expect(CompanionCopy.restLine(summary(thinking: 3, requiresInput: 1),
+                                       moodLineIsVisible: false) == "3 working")
+        #expect(CompanionCopy.restLine(summary(), moodLineIsVisible: false) == "")
+    }
+
     @Test("zeros are omitted from the rest line")
     func zerosOmitted() {
         #expect(CompanionCopy.restLine(summary(completeUnread: 5)) == "5 done")
