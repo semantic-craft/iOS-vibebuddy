@@ -339,7 +339,10 @@ def main():
         for event in ["PostToolUseFailure", "PostToolBatch", "PermissionDenied",
                       "SubagentStart", "SubagentStop", "PreCompact", "PostCompact",
                       "StopFailure", "Elicitation", "ElicitationResult",
-                      "TaskCreated", "TaskCompleted", "PostModelSwitch", "CwdChanged"]:
+                      "TaskCreated", "TaskCompleted", "PostModelSwitch", "CwdChanged",
+                      # The reducer has always understood TeammateIdle; without
+                      # this registration the event simply never arrived.
+                      "TeammateIdle"]:
             groups = json.loads(claude).get("hooks", {}).get(event, [])
             managed = [hook for group in groups for hook in group.get("hooks", [])
                        if "vibebuddy-forward.sh" in hook.get("command", "")]
@@ -347,6 +350,11 @@ def main():
                 fails.append(f"install missed the current Claude {event} hook")
             elif managed[0].get("async") is not True:
                 fails.append(f"Claude {event} hook is not async")
+        # Registering WorktreeCreate replaces Claude's own git worktree creation,
+        # so a status forwarder there breaks every worktree-isolated session.
+        for event in ["WorktreeCreate", "WorktreeRemove", "DirectoryAdded"]:
+            if json.loads(claude).get("hooks", {}).get(event):
+                fails.append(f"Claude {event} must not carry a vibebuddy hook")
         if codex.get("notify") != USER_CODEX_NOTIFY:
             fails.append("install changed the user's codex notify command")
         for event in ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",

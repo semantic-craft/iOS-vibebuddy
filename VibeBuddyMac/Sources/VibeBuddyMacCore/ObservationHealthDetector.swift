@@ -690,7 +690,7 @@ public enum ObservationHealthDetector {
     private static func eventFamily(_ event: String) -> ObservationEventCoverage? {
         switch event {
         case "SessionStart", "SessionEnd", "PostModelSwitch", "CwdChanged",
-             "SubagentStart", "SubagentStop": .lifecycle
+             "SubagentStart", "SubagentStop", "TeammateIdle": .lifecycle
         case "UserPromptSubmit", "Stop", "StopFailure", "StopCancelled", "Interrupt": .turn
         case "PreToolUse", "PostToolUse", "PostToolUseFailure", "PostToolBatch": .tool
         case "PermissionRequest", "PermissionDenied", "Notification", "Elicitation": .attention
