@@ -76,10 +76,13 @@ code, and tests — don't drift to synonyms.
   has its own key, model, voice, and input sample rate. Qwen additionally takes
   an optional Bailian **workspace ID** (workspace-specific `maas.aliyuncs.com`
   endpoint) and a Beijing/Singapore region switch.
-- **Purpose provider** — voice and completion summaries have independent choices.
-  Summary providers must support text generation; Doubao is realtime-only. A valid
-  previous shared summary choice is retained before changing the voice provider,
-  and an absent or invalid summary choice remains unconfigured.
+- **Purpose provider** — voice conversation, completion summaries and read aloud
+  have independent choices. Summary providers must support text generation; Doubao
+  is realtime-only. Read-aloud providers must have a `SpeechSynthesizer`, and
+  default to following the summary provider until pinned. A valid previous shared
+  summary choice is retained before changing the voice provider, and an absent or
+  invalid summary choice remains unconfigured — read aloud follows it into that
+  state rather than falling back to Qwen.
 - **RealtimeVoiceProvider / RealtimeVoiceEvent** — the provider-agnostic Kit
   protocol + event stream (connected, userTranscript, assistantTranscript,
   audioDelta, speechStarted, responseDone, failed, closed) that the audio + UI
@@ -316,12 +319,13 @@ code, and tests — don't drift to synonyms.
   does not change session state or delay permission/question cues. The Mac
   commits the decision by completion + 12 seconds; an updated phone waits for
   that decision rather than independently choosing competing wording.
-- **Qwen read aloud (Mac)** — a separate opt-in which synthesizes the initial
-  AI completion summary with Qwen-Audio TTS and plays it on the Mac's current
-  output. Model and voice are prefilled and have a sample preview. It does not
-  open a microphone, replay completion reminders, or speak over a voice call.
-  Generation/notification acceptance, player completion and human hearing are
-  separate evidence. iPhone headphone announcements remain controlled by Siri.
+- **Read aloud (Mac)** — a separate opt-in which synthesizes the initial AI
+  completion summary through the `SpeechSynthesizer` protocol and plays it on the
+  Mac's current output. Its provider follows the completion summary provider
+  unless pinned; model and voice are stored per provider, prefilled, and have a
+  sample preview. It does not open a microphone, replay completion reminders, or
+  speak over a voice call. Generation/notification acceptance, player completion
+  and human hearing are separate evidence. iPhone headphone announcements remain controlled by Siri.
 - Phones advertise `supportsCompletionNotices` when registering. Existing
   installed clients retain their ordinary completion copy and identity until
   they implement the pending/decision protocol.

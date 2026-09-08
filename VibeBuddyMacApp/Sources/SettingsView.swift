@@ -715,8 +715,8 @@ private struct VoiceSettingsTab: View {
                 }
             }
             if purpose == .summary {
-                QwenReadAloudConnection(reader: model.qwenReadAloud, voiceChat: model.voiceChat,
-                    tests: tests, credential: credentials[.qwen], summaryUsesQwen: summaryProvider == .qwen)
+                ReadAloudConnection(reader: model.readAloud, voiceChat: model.voiceChat,
+                    tests: tests, credentials: credentials, summaryProvider: summaryProvider)
             }
         }
         .onChange(of: provider) { _, _ in tests.invalidate(); model.voiceChat.reloadProviderIfActive() }
@@ -726,17 +726,29 @@ private struct VoiceSettingsTab: View {
     }
 }
 
-private struct QwenReadAloudConnection: View {
-    @ObservedObject var reader: QwenReadAloud
+/// Resolves which provider reads aloud — the pinned one, else the summary
+/// provider — and hands the section a single provider to work with.
+private struct ReadAloudConnection: View {
+    @ObservedObject var reader: ReadAloud
     @ObservedObject var voiceChat: VoiceChat
     @ObservedObject var tests: SettingsTestCoordinator
-    @ObservedObject var credential: SettingsCredential
-    let summaryUsesQwen: Bool
+    @ObservedObject var credentials: SettingsCredentials
+    let summaryProvider: VoiceProvider?
+    @AppStorage(VoiceSettings.readAloudProviderKey) private var choice = ""
+
+    private var status: VoiceSettings.ReadAloudStatus {
+        _ = choice // Re-resolve when the pin changes; `summaryProvider` refreshes the caller.
+        return VoiceSettings.readAloudStatus()
+    }
     var body: some View {
-        QwenReadAloudSettings(reader: reader, voiceChat: voiceChat, tests: tests,
-            qwenKey: Binding(get: { credential.value }, set: { credential.edit($0); tests.invalidate() }),
-            hasKey: credential.configured, keySaveFailed: credential.saveFailed, sharedProviderIsQwen: summaryUsesQwen)
-            .onAppear { credential.load() }
+        let resolved = status
+        ReadAloudSettings(reader: reader, voiceChat: voiceChat, tests: tests,
+            credential: credentials[resolved.provider ?? .qwen],
+            providerSelection: Binding(get: { choice }, set: { choice = $0; tests.invalidate(); reader.stop() }),
+            status: resolved,
+            // Its key already has fields above, so the section must not repeat them.
+            credentialsEditedElsewhere: resolved.provider != nil && resolved.provider == summaryProvider)
+            .id(resolved.provider?.rawValue ?? "")
     }
 }
 
@@ -746,7 +758,7 @@ private struct ProviderSection: View {
     @Binding var providerSelection: String
     @Binding var purpose: SettingsVoicePurpose
     @ObservedObject var menuModel: MenuBarModel
-    @ObservedObject var reader: QwenReadAloud
+    @ObservedObject var reader: ReadAloud
     @ObservedObject var tests: SettingsTestCoordinator
     @ObservedObject var credential: SettingsCredential
     @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
@@ -766,7 +778,7 @@ private struct ProviderSection: View {
         _providerSelection = providerSelection
         _purpose = purpose
         self.menuModel = menuModel
-        self.reader = menuModel.qwenReadAloud
+        self.reader = menuModel.readAloud
         self.tests = tests
         self.credential = credential
         _modelID = AppStorage(wrappedValue: "", VoiceSettings.modelKey(provider))

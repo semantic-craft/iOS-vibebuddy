@@ -11,6 +11,11 @@ actor PreviewWindowGate {
     }
     func release() { waiter?.resume(returning: Data()); waiter = nil }
 }
+/// A `SpeechSynthesizer` that parks in `synthesize` instead of reaching a network.
+struct WindowGateSynthesizer: SpeechSynthesizer {
+    let gate: PreviewWindowGate
+    func synthesize(_ text: String, apiKey: String) async throws -> Data { await gate.wait() }
+}
 struct ReaderFixture: View {
     @ObservedObject var tests: SettingsTestCoordinator
     var body: some View {
@@ -44,8 +49,8 @@ struct ReaderWindowQA {
             try? await Task.sleep(for: .milliseconds(300))
             guard let window = windows.settingsWindow, window.isKeyWindow else { print("STOP: fixture not foreground"); exit(2) }
             let gate = PreviewWindowGate()
-            let reader = QwenReadAloud(automaticKey: { nil }, synthesizePreview: { _, _, _ in await gate.wait() })
-            let config = QwenReadAloud.PreviewConfiguration(model: "synthetic", voice: "synthetic", workspaceID: nil, useIntl: false)
+            let reader = ReadAloud(automaticKey: { _ in nil }, makeSynthesizer: { _ in WindowGateSynthesizer(gate: gate) })
+            let config = SpeechSynthesisConfiguration(provider: .qwen, model: "synthetic", voice: "synthetic")
             tests.start(.readAloud, timeout: .seconds(10), operation: {
                 _ = await reader.preview("Synthetic sample", apiKey: "synthetic-not-a-key", configuration: config)
                 return .success(.init(message: "Must be discarded"))

@@ -15,6 +15,9 @@ struct VibeBuddyMenuBarApp: App {
     init() {
         let role = AppRuntime.role
         self.role = role
+        // Read-aloud used to be Qwen-only; move its saved model and voice onto the
+        // per-provider keys before any view reads them. Idempotent.
+        VoiceSettings.migrateLegacyReadAloudKeys()
         let model = MenuBarModel(runtimeEnabled: role == .primary)
         _model = StateObject(wrappedValue: model)
         delegate.model = model
