@@ -41,9 +41,8 @@ public actor GeminiRealtimeSession: RealtimeVoiceProvider {
             "systemInstruction": ["parts": [["text": instructions]]],
             "inputAudioTranscription": [:],
             "outputAudioTranscription": [:],
-            // We run half-duplex (mic muted while the model speaks). Make the
-            // server VAD less twitchy so any residual echo/noise doesn't get read
-            // as the user barging in and cancel the model mid-sentence.
+            // Capture stays active during playback; system voice processing removes
+            // echo. Retain conservative VAD sensitivity for residual noise.
             "realtimeInputConfig": [
                 "automaticActivityDetection": [
                     "startOfSpeechSensitivity": "START_SENSITIVITY_LOW",
@@ -72,6 +71,9 @@ public actor GeminiRealtimeSession: RealtimeVoiceProvider {
         if !callID.isEmpty { response["id"] = callID }   // correlate when the server gave an id
         send(["toolResponse": ["functionResponses": [response]]])
     }
+
+    // Gemini manages interrupted audio history on its server.
+    public func truncatePlayback(_ checkpoints: [VoicePlaybackCheckpoint]) {}
 
     public func close() {
         task?.cancel(with: .goingAway, reason: nil)
@@ -120,6 +122,11 @@ public actor GeminiRealtimeSession: RealtimeVoiceProvider {
             return
         }
 
+        if let cancellation = obj["toolCallCancellation"] as? [String: Any],
+           let ids = cancellation["ids"] as? [String] {
+            continuation?.yield(.toolCallsCancelled(ids))
+        }
+
         // Function calls arrive at the top level (not under serverContent). Args
         // come as a JSON object; serialize to a string so the event is uniform
         // with the OpenAI-style providers.
@@ -138,6 +145,17 @@ public actor GeminiRealtimeSession: RealtimeVoiceProvider {
 
         guard let server = obj["serverContent"] as? [String: Any] else { return }
 
+        if let inp = server["inputTranscription"] as? [String: Any], let t = inp["text"] as? String {
+            continuation?.yield(.userTranscript(text: t, final: false))
+        }
+
+        // An interrupted message may also carry final fragments of the old
+        // model turn. Discard them and flush playback before accepting new audio.
+        if server["interrupted"] as? Bool == true {
+            continuation?.yield(.speechStarted)
+            return
+        }
+
         // Streamed audio + any text parts of the model's turn.
         if let modelTurn = server["modelTurn"] as? [String: Any],
            let parts = modelTurn["parts"] as? [[String: Any]] {
@@ -153,12 +171,6 @@ public actor GeminiRealtimeSession: RealtimeVoiceProvider {
         }
         if let out = server["outputTranscription"] as? [String: Any], let t = out["text"] as? String {
             continuation?.yield(.assistantTranscript(text: t, final: false))
-        }
-        if let inp = server["inputTranscription"] as? [String: Any], let t = inp["text"] as? String {
-            continuation?.yield(.userTranscript(text: t, final: false))
-        }
-        if server["interrupted"] as? Bool == true {
-            continuation?.yield(.speechStarted)
         }
         if server["turnComplete"] as? Bool == true {
             continuation?.yield(.responseDone)

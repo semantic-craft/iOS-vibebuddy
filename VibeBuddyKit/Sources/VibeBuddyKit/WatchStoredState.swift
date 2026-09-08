@@ -16,6 +16,10 @@ public struct WatchStoredState: Codable, Equatable, Sendable {
             redacted.summary = nil
             redacted.options = []
             redacted.approvalId = nil
+            // The same rule for a question: without the text there is nothing
+            // to answer, and an id kept past its words is an actionable card
+            // nobody can read.
+            redacted.pendingId = nil
             return redacted
         }
         self.state = cached

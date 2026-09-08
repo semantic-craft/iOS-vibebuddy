@@ -143,7 +143,7 @@ struct AccountUsageSettings: View {
     @FocusState private var cursorCookieFocused: Bool
 
     var body: some View {
-        Form {
+        Group {
             Section {
                 ForEach(AccountUsageProvider.allCases, id: \.self) { provider in
                     Toggle("Collect \(provider.displayName) usage", isOn: Binding(
@@ -162,6 +162,7 @@ struct AccountUsageSettings: View {
 
             Section("Grok Bot") {
                 Button("Authorize Grok Bot account access…") {
+                    guard E2ERunConfiguration.current == nil else { return }
                     isAuthorizingGrokBot = true
                     Task {
                         defer { isAuthorizingGrokBot = false }
@@ -174,7 +175,7 @@ struct AccountUsageSettings: View {
                         }
                     }
                 }
-                .disabled(isAuthorizingGrokBot)
+                .disabled(isAuthorizingGrokBot || E2ERunConfiguration.current != nil)
                 Text(grokBotAuthorization ?? "Reads the active official Grok Bot account. Background refresh never opens a Keychain prompt. Expired login must be renewed in Grok Bot.")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -213,6 +214,7 @@ struct AccountUsageSettings: View {
                     .accessibilityIdentifier("paste-cursorCookie")
                 } else {
                     Button("Import Cookie from browser now") {
+                        guard E2ERunConfiguration.current == nil else { return }
                         cursorImportMessage = nil
                         Task {
                         do {
@@ -229,6 +231,7 @@ struct AccountUsageSettings: View {
                         }
                     }
                     }
+                    .disabled(E2ERunConfiguration.current != nil)
                     .accessibilityIdentifier("import-cursorCookie")
                     if let cursorImportMessage {
                         Text(cursorImportMessage)
@@ -278,6 +281,5 @@ struct AccountUsageSettings: View {
                 }
             }
         }
-        .formStyle(.grouped)
     }
 }

@@ -78,6 +78,19 @@ public actor SessionStore {
     /// Per-session transcript path, remembered so `sweep` can check whether a
     /// waiting session's transcript advanced (i.e. the prompt was answered).
     private var transcriptPaths: [String: String] = [:]
+    private enum ExplicitWait: Equatable {
+        case question(String)
+        case approval(String)
+
+        func matches(_ session: AgentSession) -> Bool {
+            switch self {
+            case .question(let id): return session.pendingQuestion?.id == id
+            case .approval(let id): return session.pendingApproval?.id == id
+            }
+        }
+    }
+    /// Only waits delivered through beginQuestion/beginApproval, never inferred prose.
+    private var explicitWaits: [String: ExplicitWait] = [:]
     /// Terminal refs remembered by session id, so a `/terminal` POST that races
     /// ahead of the session-creating `SessionStart` still lands once it exists.
     private var pendingTerminalRefs: [String: TerminalRef] = [:]
@@ -155,8 +168,14 @@ public actor SessionStore {
     /// advanced past `statusSince`) or abandoned (idle past `staleAfter`), even
     /// when their terminal hook was never received. Broadcasts if anything changed.
     public func sweep(now: Date) {
+        explicitWaits = explicitWaits.filter { id, wait in
+            reducer.sessions[id].map(wait.matches) == true
+        }
         var lastActivity: [String: Date] = [:]
         for (id, session) in reducer.sessions where session.status == .needsResponse {
+            // A buffered transcript write can be the question/approval itself.
+            // Explicit cards settle through their response lifecycle, not mtime.
+            guard explicitWaits[id] == nil else { continue }
             if let path = transcriptPaths[id], let mtime = Self.modificationDate(path) {
                 lastActivity[id] = mtime
             }
@@ -175,6 +194,7 @@ public actor SessionStore {
         reducer.reconcile(now: now, lastActivity: lastActivity, staleAfter: staleAfter)
         let removed = Set(before.keys).subtracting(reducer.sessions.keys)
         for id in removed {
+            explicitWaits[id] = nil
             completionResults.runs[id] = nil
             completionResults.candidates[id] = nil
             transcriptPaths[id] = nil
@@ -325,7 +345,7 @@ public actor SessionStore {
                                           sourceID: sourceID, now: Date())
             }
             if let enrichment = event.enrichment {
-                reducer.enrich(sessionID: event.sessionID, with: enrichment)
+                enrichSession(sessionID: event.sessionID, with: enrichment)
             }
             if recordsEvidence {
                 reducer.recordObservation(sessionID: event.sessionID, source: observationSource,
@@ -339,11 +359,15 @@ public actor SessionStore {
         let wasWaiting = reducer.sessions[event.sessionID]?.status == .needsResponse
         rememberDirectory(event.cwd, at: event.timestamp)
         reducer.apply(event, observationSource: observationSource, recordsEvidence: recordsEvidence)
+        if let wait = explicitWaits[event.sessionID],
+           reducer.sessions[event.sessionID].map(wait.matches) != true {
+            explicitWaits[event.sessionID] = nil
+        }
         completionResults.observe(event, session: reducer.sessions[event.sessionID], sourceID: sourceID, now: Date())
         // A prompt is the user driving the session in person.
         if event.kind == .userPromptSubmit, event.agent != .grokBot || event.turnID != nil { lastInteractionAt[event.sessionID] = event.timestamp }
         if let enrichment = event.enrichment {
-            reducer.enrich(sessionID: event.sessionID, with: enrichment)
+            enrichSession(sessionID: event.sessionID, with: enrichment)
         }
         if recordsEvidence {
             recordSignal(agent: event.agent, source: observationSource, at: event.timestamp,
@@ -368,7 +392,7 @@ public actor SessionStore {
                 recordSignal(agent: event.agent, source: .transcript, at: event.timestamp,
                              health: transcriptHealth, coverage: .turn)
                 if let info = TranscriptReader.read(path: path) {
-                    reducer.enrich(sessionID: event.sessionID, with: info)
+                    enrichSession(sessionID: event.sessionID, with: info)
                 }
             }
             // Apply a terminal ref that arrived before this session existed.
@@ -454,7 +478,7 @@ public actor SessionStore {
         recordSignal(agent: .grok, source: .transcript, at: event.timestamp,
                      health: health, coverage: .turn)
         guard let snapshot = GrokSessionReader.read(directory: directory) else { return }
-        reducer.enrich(sessionID: event.sessionID, with: snapshot.info)
+        enrichSession(sessionID: event.sessionID, with: snapshot.info)
 
         // The hook path is authoritative on a child's *state*: `SubagentStop`
         // fires before the child's teardown rewrites `meta.json`, so the
@@ -500,9 +524,20 @@ public actor SessionStore {
         return resolved
     }
 
+    private func enrichSession(sessionID: String, with info: TranscriptInfo) {
+        var metadata = info
+        if let wait = explicitWaits[sessionID],
+           reducer.sessions[sessionID].map(wait.matches) == true {
+            metadata.pendingQuestion = nil
+            metadata.pendingPermissionTool = nil
+        }
+        reducer.enrich(sessionID: sessionID, with: metadata)
+    }
+
     public func beginApproval(sessionID: String, _ approval: PendingApproval, at: Date) {
         reducer.setPendingApproval(sessionID: sessionID, approval, at: at)
         if let session = reducer.sessions[sessionID] {
+            explicitWaits[sessionID] = .approval(approval.id)
             appendJournal(sessionID: sessionID, agent: session.agent,
                           event: "approvalRequested", source: .hook, at: at)
         }
@@ -513,7 +548,9 @@ public actor SessionStore {
         }
     }
 
-    public func endApproval(sessionID: String, at: Date) {
+    public func endApproval(sessionID: String, approvalID: String, at: Date) {
+        guard reducer.sessions[sessionID]?.pendingApproval?.id == approvalID else { return }
+        if case .approval = explicitWaits[sessionID] { explicitWaits[sessionID] = nil }
         cancelMissedWait(sessionID: sessionID, now: at)
         reducer.clearPendingApproval(sessionID: sessionID, at: at)
         if let session = reducer.sessions[sessionID] {
@@ -526,6 +563,7 @@ public actor SessionStore {
     public func beginQuestion(sessionID: String, _ question: PendingQuestion, at: Date) {
         reducer.setPendingQuestion(sessionID: sessionID, question, at: at)
         if let session = reducer.sessions[sessionID] {
+            explicitWaits[sessionID] = .question(question.id)
             appendJournal(sessionID: sessionID, agent: session.agent,
                           event: "questionAsked", source: .hook, at: at)
         }
@@ -546,7 +584,9 @@ public actor SessionStore {
         return now.timeIntervalSince(evidence.lastObservedAt) < Self.appServerAuthorityWindow
     }
 
-    public func endQuestion(sessionID: String, at: Date) {
+    public func endQuestion(sessionID: String, questionID: String, at: Date) {
+        guard reducer.sessions[sessionID]?.pendingQuestion?.id == questionID else { return }
+        if case .question = explicitWaits[sessionID] { explicitWaits[sessionID] = nil }
         cancelMissedWait(sessionID: sessionID, now: at)
         reducer.clearPendingQuestion(sessionID: sessionID, at: at)
         if let session = reducer.sessions[sessionID] {

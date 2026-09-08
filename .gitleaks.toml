@@ -16,4 +16,8 @@ useDefault = true
 # https://sparkle-project.org) and must never reach this repo — docs/sparkle-setup.md.
 description = "Sparkle EdDSA public key (SUPublicEDKey)"
 regexTarget = "line"
-regexes = ['''SUPublicEDKey''']
+# A test asserts the public Keychain service name, not a credential value.
+regexes = [
+  '''SUPublicEDKey''',
+  '''#expect\(config\.keychainService == "com\.vibebuddy\.e2e\.probe-1\.secrets"\)''',
+]

@@ -36,7 +36,8 @@ public enum MissedLedgerLocation {
     public static func defaultURL(
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> URL {
-        home.appendingPathComponent("Library/Application Support/vibebuddy/missed-ledger.json")
+        if let run = E2ERunConfiguration.current { return run.file("missed-ledger.json") }
+        return home.appendingPathComponent("Library/Application Support/vibebuddy/missed-ledger.json")
     }
 }
 

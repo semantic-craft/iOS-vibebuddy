@@ -14,6 +14,11 @@ struct WatchAlertCard: View {
     let alert: WatchAlert
     let now: Date
     let alsoWaiting: Int
+    /// Whether this card is the one in front of the person right now. Only that
+    /// card may claim the Double Tap primary action — the home screen keeps
+    /// rendering its own top alert behind an open task sheet, and two live
+    /// claims would let a pinch approve a command the wearer cannot see.
+    var isFrontmost: Bool = true
 
     private var accent: Color { CompanionPalette.status(.requiresInput) }
 
@@ -43,20 +48,16 @@ struct WatchAlertCard: View {
             ? String(localized: "Needs approval") : String(localized: "Asked a question")
     }
 
-    private var connectionMessage: String? {
-        guard let state = store.state else { return String(localized: "Waiting for an updated request from your iPhone.") }
-        switch state.connection(now: now, phoneReachable: store.canReachPhone) {
-        case .macDisconnected:
-            return String(localized: "Your iPhone can't reach your Mac, so this can't be sent.")
-        case .phoneDisconnected:
-            return String(localized: "Your iPhone hasn't sent an update. Open VibeBuddy on your iPhone.")
-        case .watchUnreachable:
-            return String(localized: "Can't reach your iPhone. Reconnect to verify this request.")
-        case .noData:
-            return String(localized: "Waiting for an updated request from your iPhone.")
-        case .live:
-            return store.canReachPhone ? nil : String(localized: "Can't reach your iPhone. Reconnect to verify this request.")
-        }
+    private var connectionMessage: LocalizedStringResource? {
+        WatchLinkBlock.message(store, now: now)
+    }
+
+    /// Whether the quick answers are actually on screen. When they are, the
+    /// agent's own options are the buttons; when a broken link takes the
+    /// buttons away, the options go back to being the caption that explains the
+    /// question.
+    private var showsAnswerControl: Bool {
+        connectionMessage == nil && !alert.isDecidable && alert.isAnswerable
     }
 
     private var content: some View {
@@ -92,10 +93,11 @@ struct WatchAlertCard: View {
                     .background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
 
-            // What the agent offered as answers. Shown so the question makes
-            // sense, not offered as a choice: sending one means typing into
-            // someone's terminal, which this slice does not do.
-            if !alert.options.isEmpty {
+            // What the agent offered as answers, when they are not already the
+            // buttons below. On an answerable question the options *are* the
+            // quick replies, and listing them twice would read as two different
+            // things being offered.
+            if !alert.options.isEmpty, !showsAnswerControl {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(alert.options, id: \.self) { option in
                         HStack(alignment: .firstTextBaseline, spacing: 4) {
@@ -122,11 +124,32 @@ struct WatchAlertCard: View {
                     Text((alert.handling ?? .unavailable).message).font(.caption2).foregroundStyle(.secondary)
                 }
             } else if alert.isDecidable {
-                WatchApprovalActions(store: store, alert: alert)
-            } else {
+                WatchApprovalActions(store: store, alert: alert, isFrontmost: isFrontmost)
+            } else if !alert.isAnswerable {
+                // The read-only wait keeps saying where it can be answered —
+                // "Respond in the agent's own prompt on your Mac" — rather than
+                // growing a button the iPhone would refuse.
                 Text((alert.handling ?? .unavailable).message)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+            }
+
+            // Outside the connection branch on purpose. The buttons do
+            // disappear when the link goes down — the control draws none —
+            // but an answer already in flight keeps its sentence. Walking away
+            // from your iPhone must not erase "sent, waiting for your Mac" and
+            // leave the question looking untouched.
+            if alert.isAnswerable {
+                WatchAnswerControl(store: store, alert: alert)
+            }
+
+            // A waiting session has no running turn, so this stays silent here
+            // today. It is on the card because the card is one of the two
+            // places a session is shown on this Watch, and the offer is a fact
+            // about the session rather than about which screen it is on: the
+            // day a wait becomes stoppable, both screens say so at once.
+            if let followed = store.state?.followedTasks.first(where: { $0.sessionID == alert.sessionId }) {
+                WatchStopControl(store: store, task: followed)
             }
 
             if alsoWaiting > 0 {
@@ -153,27 +176,30 @@ struct WatchAlertCard: View {
 struct WatchApprovalActions: View {
     @ObservedObject var store: WatchStateStore
     let alert: WatchAlert
+    var isFrontmost: Bool = true
 
-    private var phase: WatchApprovalAction.Phase? {
-        store.approval.action.flatMap { $0.approvalId == alert.approvalId ? $0.phase : nil }
+    private var phase: WatchSessionActionAttempt.Phase? {
+        store.pendingAction.action.flatMap { $0.approvalId == alert.approvalId ? $0.phase : nil }
     }
 
     /// Why a decision cannot be sent right now, if it cannot.
     private var blocked: LocalizedStringResource? {
         if !store.canReachPhone { return "Can't reach your iPhone — decide there, or move closer." }
-        if store.state?.relay == .disconnected {
-            return "Your iPhone can't reach your Mac, so this can't be sent."
-        }
-        return nil
+        return WatchLinkBlock.message(store, now: Date())
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             VStack(spacing: 6) {
+                // Double Tap resolves the card one-handed. Only Approve is the
+                // primary action: pinching twice must never be the gesture that
+                // refuses something, and watchOS offers exactly one primary — so
+                // only the frontmost card claims it.
                 button(.allow, title: "Approve", tint: CompanionPalette.status(.completeUnread))
+                    .handGestureShortcut(.primaryAction, isEnabled: isFrontmost)
                 button(.deny, title: "Deny", tint: CompanionPalette.status(.error))
             }
-            .disabled(blocked != nil || store.approval.isBusy)
+            .disabled(blocked != nil || store.pendingAction.isBusy)
 
             if let message = statusText {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
@@ -211,8 +237,215 @@ struct WatchApprovalActions: View {
         case .sending: return "Sending…"
         case .awaitingResolution: return "Sent. Waiting for your Mac to confirm."
         case .failed: return "Couldn't send that. Try again."
+        // The reply was lost, so whether the Mac decided this is not something
+        // the wrist knows. Nothing is resent for it.
+        case .unknown: return "Couldn't confirm that. Check the request."
         case .refused: return "This is no longer waiting on you."
         case nil: return blocked
+        }
+    }
+}
+
+/// Why nothing can be sent from the wrist right now, in the wording every
+/// action-bearing surface already uses. One sentence, one place: an approval
+/// and a stop are blocked by the same broken link and must not describe it
+/// differently.
+enum WatchLinkBlock {
+    /// Nil means an action could actually travel right now. Every other answer
+    /// is the innermost link the Watch can prove is down, in the words that
+    /// link already had — and it is derived from `WatchConnection`, not from
+    /// the relayed verdict alone, so a state that has simply aged out disables
+    /// the buttons instead of leaving a live-looking one that does nothing.
+    @MainActor
+    static func message(_ store: WatchStateStore, now: Date) -> LocalizedStringResource? {
+        guard let state = store.state else { return "Waiting for an updated request from your iPhone." }
+        switch state.connection(now: now, phoneReachable: store.canReachPhone) {
+        case .macDisconnected:
+            return "Your iPhone can't reach your Mac, so this can't be sent."
+        case .phoneDisconnected:
+            return "Your iPhone hasn't sent an update. Open VibeBuddy on your iPhone."
+        case .watchUnreachable:
+            return "Can't reach your iPhone. Reconnect to verify this request."
+        case .noData:
+            return "Waiting for an updated request from your iPhone."
+        case .live:
+            return store.canReachPhone ? nil : "Can't reach your iPhone. Reconnect to verify this request."
+        }
+    }
+}
+
+/// Ending a running turn from the wrist.
+///
+/// Three states, and the third one is the point: a task that is not running
+/// says *nothing at all* here. A button that would be refused, or a sentence
+/// explaining an absence nobody asked about, are both worse than an empty
+/// space — so the offer is a fact carried on the projection (`WatchStopOffer`,
+/// derived on the iPhone from the shared rule) and this view only draws it.
+///
+/// The button is red and destructive, and it never acts on the first tap: the
+/// confirmation is its own screen, and only there is Stop the Double Tap
+/// primary action. Afterwards the wrist says "sent", never "stopped" — the
+/// button goes away when the next snapshot shows the turn is over, and nothing
+/// else takes it away.
+struct WatchStopControl: View {
+    @ObservedObject var store: WatchStateStore
+    let task: WatchFollowedTask
+    @State private var confirming: WatchStopIntent?
+
+    private var phase: WatchSessionActionAttempt.Phase? {
+        store.pendingAction.action.flatMap {
+            $0.isStop && $0.sessionId == task.sessionID ? $0.phase : nil
+        }
+    }
+
+    private var blocked: LocalizedStringResource? { WatchLinkBlock.message(store, now: Date()) }
+
+    var body: some View {
+        switch task.stop {
+        case nil:
+            EmptyView()
+        case .blocked(let block):
+            // Named agent, named reason, no button. "Stop this on your Mac" is
+            // an answer; a dead button is not. The words are chosen here, on
+            // the device doing the reading, from the code the iPhone relayed.
+            Text(block.message(agent: task.agent))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        case .offered:
+            offer
+        }
+    }
+
+    private var offer: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button {
+                confirming = WatchStopIntent(task: task)
+            } label: {
+                Label("Stop", systemImage: "stop.fill")
+                    .font(CompanionType.font(14, .heavy))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .frame(maxWidth: .infinity)
+            }
+            .tint(CompanionPalette.status(.error))
+            .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.capsule)
+            .disabled(blocked != nil || store.pendingAction.isBusy)
+
+            if let message = statusText {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    if phase == .sending { ProgressView().controlSize(.mini) }
+                    Text(message)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .sheet(item: $confirming) { intent in
+            WatchStopConfirmView(intent: intent) {
+                store.submitStop(sessionID: intent.sessionID, statusSince: intent.statusSince)
+            }
+        }
+    }
+
+    /// Never "Stopped". An accepted stop means the Mac has it; the turn is over
+    /// when a snapshot says so, and that same snapshot is what removes this.
+    private var statusText: LocalizedStringResource? {
+        // A broken link outranks the attempt: it is why the button is dead and
+        // why a tap on the confirmation page went nowhere.
+        if let blocked { return blocked }
+        switch phase {
+        case .sending: return "Sending…"
+        case .awaitingResolution: return "Sent. Waiting for your Mac to confirm."
+        // Never "couldn't send": a timeout can drop the reply to a stop the Mac
+        // already carried out, and this is the one action where inviting a
+        // blind retry is worse than saying the truth.
+        case .failed, .unknown: return "Couldn't confirm that. Check the task."
+        case .refused: return "This isn't running any more."
+        case nil: return nil
+        }
+    }
+}
+
+/// The turn a confirmation page was opened about.
+///
+/// The turn's own moment, captured when the first tap happened — not read back
+/// off a view property that the next snapshot replaces in place. A confirmation
+/// page is exactly the window in which a turn can end and the next one begin,
+/// which is the window this value exists to survive.
+struct WatchStopIntent: Identifiable, Equatable {
+    let id = UUID()
+    let sessionID: String
+    let statusSince: Date
+    let title: String
+
+    init(task: WatchFollowedTask) {
+        sessionID = task.sessionID
+        statusSince = task.statusSince
+        title = task.title
+    }
+}
+
+/// The second screen, which is the whole safety of a stop: the first tap only
+/// asks, and this is where the answer is given. Stop is the Double Tap primary
+/// action *here* and nowhere else, so the gesture cannot end a turn from a
+/// glance.
+///
+/// It closes only when something was actually started. A stop the wrist had to
+/// decline — the turn ended while this page was open — leaves the page up with
+/// the reason on it, because for a destructive action a page that dismisses
+/// itself is indistinguishable from one that worked.
+struct WatchStopConfirmView: View {
+    let intent: WatchStopIntent
+    /// Returns false when nothing at all was started, and the page stays up.
+    let onStop: () -> Bool
+    @State private var refused = false
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Stop this task?")
+                    .font(CompanionType.font(15, .black))
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(intent.title.isEmpty ? String(localized: "Unnamed task") : intent.title)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                Text("The turn it is running now ends. Work already finished stays done.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if refused {
+                    Text("Could not send. The task changed or another action is still pending.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Button(role: .destructive) {
+                    if onStop() { dismiss() } else { refused = true }
+                } label: {
+                    Text("Stop")
+                        .font(CompanionType.font(14, .heavy))
+                        .frame(maxWidth: .infinity)
+                }
+                .tint(CompanionPalette.status(.error))
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.capsule)
+                .handGestureShortcut(.primaryAction)
+
+                Button("Keep going") { dismiss() }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 2)
         }
     }
 }

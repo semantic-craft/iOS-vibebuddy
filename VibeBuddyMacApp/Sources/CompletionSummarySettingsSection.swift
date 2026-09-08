@@ -6,26 +6,32 @@ import VibeBuddyMacCore
 struct CompletionSummarySettingsSection: View {
     let provider: VoiceProvider
     let hasKey: Bool
-    let credentialRevision: Int
+    let apiKey: String
+    @ObservedObject var tests: SettingsTestCoordinator
+    let canTest: Bool
     @AppStorage(CompletionSummaryConfiguration.enabledKey) private var enabled = false
     @AppStorage private var modelID: String
     @AppStorage(VoiceSettings.conversationLanguageKey) private var language = VoiceLanguage.english.rawValue
     @AppStorage(VoiceSettings.regionIntlKey) private var intl = false
     @AppStorage(VoiceSettings.qwenWorkspaceIDKey) private var workspace = ""
-    @State private var testTask: Task<Void, Never>?
-    @State private var testing = false
-    @State private var result: CompletionSummaryResult?
-
-    init(provider: VoiceProvider, hasKey: Bool, credentialRevision: Int = 0) {
+    init(provider: VoiceProvider, hasKey: Bool, apiKey: String, tests: SettingsTestCoordinator, canTest: Bool) {
         self.provider = provider
         self.hasKey = hasKey
-        self.credentialRevision = credentialRevision
+        self.apiKey = apiKey
+        self.tests = tests
+        self.canTest = canTest
         _modelID = AppStorage(wrappedValue: CompletionSummaryConfiguration.recommendedModel(provider), CompletionSummaryConfiguration.modelKey(provider))
+    }
+
+    /// Match the runtime load policy without writing defaults while browsing.
+    static func effectiveModelID(_ stored: String, provider: VoiceProvider) -> String {
+        stored.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? CompletionSummaryConfiguration.recommendedModel(provider) : stored
     }
 
     private var configuration: CompletionSummaryConfiguration {
         // An explicit sample test is independent of enabling automatic summaries.
-        .init(enabled: true, provider: provider, modelID: modelID,
+        .init(enabled: true, provider: provider, modelID: Self.effectiveModelID(modelID, provider: provider),
               language: VoiceLanguage(rawValue: language) ?? .english,
               qwenUseIntl: intl, qwenWorkspaceID: workspace)
     }
@@ -43,14 +49,21 @@ struct CompletionSummarySettingsSection: View {
             LabeledContent("Provider", value: provider.display)
             VStack(alignment: .leading, spacing: 4) {
                 Text("Text model ID").font(.caption).foregroundStyle(.secondary)
-                TextField("Enter a text model available to your account", text: $modelID)
+                TextField("Text model ID", text: $modelID,
+                          prompt: CompletionSummaryConfiguration.recommendedModel(provider).isEmpty
+                            ? Text("Enter a text model available to your account")
+                            : Text(verbatim: CompletionSummaryConfiguration.recommendedModel(provider)))
                     .labelsHidden()
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: .infinity)
                     .font(.body.monospaced())
                     .autocorrectionDisabled()
                     .accessibilityIdentifier("completionSummaryModelID")
-                Text("Saved separately for each provider. Use a text model, not the realtime model above.")
+                if !CompletionSummaryConfiguration.recommendedModel(provider).isEmpty {
+                    Text("Leave the text model blank to use the recommended default.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Text("Saved separately for each provider. This text model is independent of the voice conversation’s realtime model.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             if let failure = configurationFailure {
@@ -60,98 +73,34 @@ struct CompletionSummarySettingsSection: View {
                 Text("Configuration entered — model access is confirmed only by a successful test.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            HStack {
-                Button("Test with sample", action: test)
-                    .disabled(testing || configurationFailure != nil)
-                    .accessibilityIdentifier("completionSummaryTest")
-                if testing {
-                    ProgressView().controlSize(.small)
-                    Button("Cancel", action: cancelTest)
-                }
-            }
+            Button("Test with sample", action: test)
+                .disabled(tests.isBusy || configurationFailure != nil || !canTest)
+                .accessibilityIdentifier("completionSummaryTest")
             Text("Testing sends one synthetic result using this Mac’s saved API key and may incur a text-generation charge. It does not send your task history or post a notification.")
                 .font(.caption).foregroundStyle(.secondary)
-            if let result {
-                if let failure = result.failure {
-                    Label(failureMessage(failure), systemImage: "exclamationmark.triangle")
-                        .font(.caption).foregroundStyle(.secondary)
-                } else if let text = result.text {
-                    Label("Sample generated", systemImage: "checkmark.circle")
-                        .foregroundStyle(.green)
-                    Text(text).textSelection(.enabled)
-                        .accessibilityIdentifier("completionSummaryTestResult")
-                    Text("Check that the summary still says device verification is pending.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Text("Elapsed: \(String(format: "%.2f", result.completionLatency)) s")
-                    .font(.caption).foregroundStyle(.secondary)
-                if let usage = result.usage {
-                    Text("Tokens — input: \(usage.inputTokens.map(String.init) ?? "—"), output: \(usage.outputTokens.map(String.init) ?? "—"), total: \(usage.totalTokens.map(String.init) ?? "—")")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }
+            SettingsTestFeedback(tests: tests, purpose: .summary)
         } header: {
             Text("AI completion summaries")
         } footer: {
             Text("Followed task completions use one summary when enabled. If generation fails, the ordinary completion notification is used.")
                 .font(.caption).foregroundStyle(.secondary)
         }
-        .onChange(of: configuration) { _, _ in invalidateTest() }
-        .onChange(of: hasKey) { _, _ in invalidateTest() }
-        .onChange(of: credentialRevision) { _, _ in invalidateTest() }
-        .onChange(of: enabled) { _, _ in invalidateTest() }
-        .onAppear { if modelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { modelID = CompletionSummaryConfiguration.recommendedModel(provider) } }
-        .onDisappear { invalidateTest() }
+        .onChange(of: configuration) { _, _ in tests.invalidate() }
+        .onChange(of: hasKey) { _, _ in tests.invalidate() }
+        .onChange(of: enabled) { _, _ in tests.invalidate() }
+        .onDisappear { tests.invalidate() }
     }
 
     private func test() {
-        guard !testing, configurationFailure == nil else { return }
-        result = nil
-        testing = true
+        guard !tests.isBusy, configurationFailure == nil, canTest else { return }
         let config = configuration
-        testTask = Task { @MainActor in
-            let now = Date()
-            let input = CompletionSummaryInput(sourceID: "settings-sample", sessionID: UUID().uuidString,
-                completionID: UUID().uuidString, title: "Sample routing fix",
-                finalText: "Fixed duplicate routing. Unit tests passed. Real-device verification is still pending; this result does not claim deployment or device acceptance.",
-                completedAt: now, observedAt: now)
-            let response = await CompletionSummaryService().generate(input, configuration: config)
-            guard !Task.isCancelled else { return }
-            result = response
-            testing = false
-            testTask = nil
-        }
-    }
-
-    private func cancelTest() {
-        testTask?.cancel()
-        testTask = nil
-        testing = false
-    }
-
-    private func invalidateTest() {
-        cancelTest()
-        result = nil
+        let key = apiKey
+        tests.start(.summary, timeout: .seconds(13), operation: {
+            await SettingsModelTestOperations.summary(configuration: config, apiKey: key)
+        })
     }
 
     private func failureMessage(_ failure: CompletionSummaryFailure) -> LocalizedStringKey {
-        switch failure {
-        case .missingModel: "Enter a text model ID to test summaries."
-        case .missingKey: "Add this provider’s API key above."
-        case .invalidModel: "The text model ID contains unsupported characters."
-        case .invalidWorkspace: "Check the Qwen workspace ID above."
-        case .unauthorized: "The provider rejected access. Check the key, model and region."
-        case .rateLimited: "The provider rate-limited this request. No automatic retry was made."
-        case .network: "Could not reach the provider. Check your connection."
-        case .expired: "The 12-second deadline elapsed. No automatic retry was made."
-        case .cancelled: "Test cancelled."
-        case .emptyOutput, .incompleteOutput, .outputTooLong, .invalidOutput:
-            "The response was empty, incomplete or unsuitable for a short spoken summary."
-        case .httpError: "The provider rejected the request. Check the text model and provider configuration."
-        case .invalidResponse: "The provider returned an unsupported response."
-        case .disabled: "AI completion summaries are off."
-        case .invalidInput, .resultTooLong: "The sample input could not be summarized."
-        case .duplicate: "This completion was already handled."
-        }
+        LocalizedStringKey(SettingsModelTestOperations.summaryFailureMessage(failure))
     }
 }

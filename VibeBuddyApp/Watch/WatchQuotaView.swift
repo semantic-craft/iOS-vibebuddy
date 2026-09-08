@@ -1,15 +1,27 @@
 import SwiftUI
 import VibeBuddyKit
 
-/// Weekly allowance in full: remaining first, then the context that makes a
-/// percentage useful — when it resets, how the short window looks, how old the
-/// reading is. Each provider is shown apart with its own freshness, so a healthy
-/// source never covers for a broken one.
+/// A single provider at a time, with every independent allowance pool visible.
 struct WatchQuotaView: View {
     let state: WatchDashboardState
     let connection: WatchConnection
     let now: Date
-    var selection: WatchQuotaSelection = .all
+    @State private var provider: AccountUsageProvider
+
+    init(state: WatchDashboardState, connection: WatchConnection, now: Date,
+         selection: WatchQuotaSelection = .all) {
+        self.state = state
+        self.connection = connection
+        self.now = now
+        _provider = State(initialValue: selection.providers.first ?? .codex)
+    }
+
+    private var quota: ProviderQuota {
+        var result = state.quota(provider)
+            ?? .unavailable(provider, reason: String(localized: "Window unavailable"))
+        if connection != .live { result.isCached = true }
+        return result
+    }
 
     var body: some View {
         NavigationStack {
@@ -24,10 +36,13 @@ struct WatchQuotaView: View {
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                     } else {
-                        ForEach(selection.providers) { provider in
-                            let quota = state.quotas.first { $0.provider == provider } ?? .unavailable(provider, reason: String(localized: "Window unavailable"))
-                            WatchQuotaDetail(quota: quota, now: now)
+                        Picker("Platform", selection: $provider) {
+                            ForEach(AccountUsageProvider.allCases) { provider in
+                                Text(provider.displayName).tag(provider)
+                            }
                         }
+                        .pickerStyle(.navigationLink)
+                        WatchQuotaDetail(quota: quota, now: now)
                     }
                     WatchFooter(state: state, connection: connection, now: now)
                 }
@@ -45,15 +60,30 @@ private struct WatchQuotaDetail: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(quota.provider.displayName).font(.headline)
             if let account = quota.accountLabel {
                 Text(account).font(.caption2).foregroundStyle(.secondary)
             }
             let standard = QuotaWindowKind.allCases.map { quota.window($0) }.filter {
                 $0.remainingPercent != nil || $0.durationMinutes != nil || $0.resetsAt != nil || $0.label != nil
             }
-            let readings = standard + (quota.otherWindows ?? []).map(cachedReading)
-            if readings.isEmpty { Text("Window unavailable").font(.caption2) }
+            let availableReadings = standard + (quota.otherWindows ?? []).map(cachedReading)
+            let readings = availableReadings.isEmpty ? [quota.displayWindow()] : availableReadings
+            if !readings.isEmpty {
+                LazyVGrid(columns: readings.count == 1 ? [GridItem(.flexible())] : [GridItem(.adaptive(minimum: 78))], spacing: 12) {
+                    ForEach(Array(readings.enumerated()), id: \.offset) { _, reading in
+                        VStack(spacing: 5) {
+                            WatchAllowanceRing(reading: reading, now: now, provider: quota.provider)
+                                .frame(width: 64, height: 64)
+                            Text(reading.label ?? WatchQuotaVoice.windowName(reading))
+                                .font(.caption2)
+                                .multilineTextAlignment(.center)
+                                .frame(maxWidth: 72)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                Text("Remaining").font(.caption2).foregroundStyle(.secondary)
+            }
             ForEach(Array(readings.enumerated()), id: \.offset) { _, reading in
                 window(reading, title: WatchQuotaVoice.windowName(reading))
             }
@@ -70,7 +100,6 @@ private struct WatchQuotaDetail: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
     }
 
     private func cachedReading(_ reading: QuotaWindow) -> QuotaWindow {
@@ -115,5 +144,51 @@ private struct WatchQuotaDetail: View {
         }
         .font(.caption2)
         .foregroundStyle(status == .live ? .primary : .secondary)
+    }
+}
+
+/// Missing and reset readings have a dashed track; a real zero has a solid one.
+private struct WatchAllowanceRing: View {
+    let reading: QuotaWindow
+    let now: Date
+    let provider: AccountUsageProvider
+
+    private var tint: Color {
+        guard reading.status(now: now) == .live else { return .secondary }
+        switch provider {
+        case .codex: return .cyan
+        case .claude: return .orange
+        case .cursor: return .purple
+        case .grok: return .indigo
+        case .grokBot: return .mint
+        }
+    }
+
+    var body: some View {
+        let remaining = reading.currentRemainingPercent(now: now)
+        let status = reading.status(now: now)
+        ZStack {
+            Circle().stroke(.secondary.opacity(0.3),
+                            style: StrokeStyle(lineWidth: 4, dash: remaining == nil ? [2, 5] : []))
+            if let remaining, remaining > 0 {
+                Circle().trim(from: 0, to: CGFloat(remaining) / 100)
+                    .stroke(tint, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+            VStack(spacing: 1) {
+                Text(status == .awaitingReset ? "↻" : remaining.map(WatchFormat.percent) ?? "—")
+                    .font(.system(.headline, design: .rounded)).monospacedDigit()
+                    .minimumScaleFactor(0.7).lineLimit(1)
+                if status == .stale {
+                    Text("Cached reading").font(.system(size: 9)).lineLimit(1).minimumScaleFactor(0.7)
+                }
+            }.padding(5)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(WatchQuotaVoice.windowName(reading))
+        .accessibilityValue(Text(status == .awaitingReset
+            ? String(localized: "Reset reached · awaiting update")
+            : (remaining.map(WatchFormat.percent) ?? String(localized: "Unavailable"))
+                + (status == .stale ? ", " + String(localized: "Cached reading") : "")))
     }
 }

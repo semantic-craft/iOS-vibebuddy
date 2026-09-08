@@ -10,6 +10,9 @@ public enum SessionActionIntent: String, Codable, Sendable {
     case steer
     /// Open the next turn on a finished session (`turn/start`).
     case `continue`
+    /// Interrupt the running turn (`turn/interrupt`). Destructive and bound to
+    /// the turn it was sent for: an expired stop must not end a later turn.
+    case stop
 }
 
 /// Phone/Mac shared rule: which intent a session's composer should send,
@@ -45,16 +48,74 @@ public struct SessionActionSupport: Equatable, Sendable {
         return SessionActionSupport(intent: intent)
     }
 
+    /// Whether **stop** is available for this session right now, and why not.
+    ///
+    /// Separate from `resolve(for:)` because stop is not a composer intent: it
+    /// carries no text and applies to a *running* turn, which is exactly when
+    /// the composer would be steering. The first release interrupts Codex only
+    /// (spec decision, 2026-09-08); every other agent is stopped where it runs.
+    /// The daemon re-checks all of this against the live snapshot before it
+    /// calls anything.
+    public static func resolveStop(for session: AgentSession) -> SessionActionSupport {
+        guard session.agent == .codex else {
+            return SessionActionSupport(intent: .stop, unsupportedReason: stopUnsupportedReason(for: session.agent))
+        }
+        // A Codex session is visible through the rollout tailer and hooks too,
+        // and those cannot interrupt anything. Only the app-server connection
+        // can, so a session it is not carrying must not offer a Stop button
+        // that the Mac would then have to refuse.
+        guard session.observations?.contains(where: { $0.source == .appserver && $0.health.isHealthy }) == true else {
+            return SessionActionSupport(intent: .stop,
+                                        unsupportedReason: String(localized: "Your Mac isn't connected to Codex right now."))
+        }
+        switch session.status {
+        case .working:
+            return SessionActionSupport(intent: .stop)
+        case .done:
+            return SessionActionSupport(intent: .stop,
+                                        unsupportedReason: String(localized: "This task has already finished."))
+        case .needsResponse:
+            return SessionActionSupport(intent: .stop,
+                                        unsupportedReason: String(localized: "This task is waiting on you, not running."))
+        }
+    }
+
+    private static func stopUnsupportedReason(for agent: AgentKind) -> String {
+        if agent == .claudeCode {
+            // No official remote interrupt contract; a tmux Escape is not one.
+            return String(localized: "Stop this on your Mac.")
+        }
+        if agent == .grokBot {
+            return String(localized: "Respond in Grok Bot on your Mac. Remote instructions are unavailable.")
+        }
+        return String(localized: "\(agent.displayName) sessions can't take instructions from the phone yet — use the terminal.")
+    }
+
     /// Shown before send: which Mac, project and agent will receive this.
     public static func targetCaption(macName: String?, session: AgentSession) -> String {
-        let trimmed = macName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let mac = trimmed.isEmpty ? String(localized: "Mac") : trimmed
-        return "\(mac) · \(session.project) · \(session.agent.shortName)"
+        targetCaption(macName: macName, project: session.project, agent: session.agent)
+    }
+
+    /// The same caption from the pieces a Watch actually holds. The wrist never
+    /// receives an `AgentSession` — its projection carries the project, the
+    /// agent and (since the wrist gained a send button) the Mac's own name — and
+    /// "which Mac am I about to talk to" must read identically on both devices.
+    public static func targetCaption(macName: String?, project: String, agent: AgentKind?) -> String {
+        let mac = macName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let location = mac.isEmpty ? String(localized: "Mac") : mac
+        let named = project.trimmingCharacters(in: .whitespacesAndNewlines)
+        let what = named.isEmpty ? String(localized: "Unknown project") : named
+        guard let agent else { return "\(location) · \(what)" }
+        return "\(location) · \(what) · \(agent.shortName)"
     }
 }
 
 /// Client → daemon payload for `/answer`. `intent` and `requestID` are how
 /// the daemon refuses an expired answer and ignores a duplicate tap.
+///
+/// A **stop** carries no text: it binds to the running turn through
+/// `expectedStatusSince` (when the session entered `working`), which the
+/// daemon requires and re-checks against the live snapshot.
 public struct SessionActionRequest: Equatable, Sendable {
     public var sessionID: String
     public var intent: SessionActionIntent?

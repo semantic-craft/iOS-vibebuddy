@@ -50,11 +50,12 @@ private enum AppRuntime {
     enum Role { case primary, secondary }
 
     private static let log = Logger(subsystem: "com.vibebuddy.app", category: "single-instance")
-    private static let openDashboardNotification = Notification.Name("com.vibebuddy.mac.openDashboard")
+    private static let openDashboardNotification = Notification.Name(E2ERunConfiguration.current.map { "com.vibebuddy.e2e.\($0.id).openDashboard" } ?? "com.vibebuddy.mac.openDashboard")
     nonisolated(unsafe) private static var lock: SingleInstanceLock?
 
     static let role: Role = {
-        if ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1" { return .primary }
+        let run = E2ERunConfiguration.current
+        if run == nil && ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1" { return .primary }
         do {
             if let acquired = try SingleInstanceLock.acquire(lockFileURL: try SingleInstanceLock.defaultLockFileURL()) {
                 lock = acquired
@@ -62,6 +63,7 @@ private enum AppRuntime {
             }
             return .secondary
         } catch {
+            if run != nil { fatalError("E2E instance lock failed; refusing to start.") }
             log.error("single-instance lock failed; continuing as primary: \(String(describing: error), privacy: .public)")
             return .primary
         }
@@ -227,166 +229,280 @@ private struct SessionListHeightKey: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
-/// The menu-bar dropdown, Companion style: the cat says how things are, the two
-/// big actions, pairing, then the sessions in the same three state groups as
-/// the dashboard (docs/design/mac-companion-redesign.md).
+/// Gives the scroller an explicit proposal even while MenuBarExtra asks for
+/// an intrinsic size. Header and footer keep their natural height.
+private struct MenuPanelLayout: Layout {
+    var maximumHeight: CGFloat
+    var listHeight: CGFloat
+    private let spacing: CGFloat = 10
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? 356
+        let heights = heights(width: width, height: proposal.height, subviews: subviews)
+        return CGSize(width: width, height: heights.reduce(0, +) + spacing * 2)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let heights = heights(width: bounds.width, height: bounds.height, subviews: subviews)
+        var y = bounds.minY
+        for (view, height) in zip(subviews, heights) {
+            view.place(at: CGPoint(x: bounds.minX, y: y), anchor: .topLeading,
+                       proposal: ProposedViewSize(width: bounds.width, height: height))
+            y += height + spacing
+        }
+    }
+
+    private func heights(width: CGFloat, height: CGFloat?, subviews: Subviews) -> [CGFloat] {
+        let natural = ProposedViewSize(width: width, height: nil)
+        let header = subviews[0].sizeThatFits(natural).height
+        let footer = subviews[2].sizeThatFits(natural).height
+        let budget = min(maximumHeight, height ?? maximumHeight)
+        let available = max(1, budget - header - footer - spacing * 2)
+        return [header, min(max(listHeight, 1), available), footer]
+    }
+}
+
+/// Reads the screen hosting this menu, rather than assuming the main display.
+private struct MenuScreenReader: NSViewRepresentable {
+    var onChange: (CGSize) -> Void
+
+    func makeNSView(context: Context) -> ScreenView { ScreenView() }
+    func updateNSView(_ view: ScreenView, context: Context) {
+        view.onChange = onChange
+        view.reportScreen()
+    }
+
+    final class ScreenView: NSView {
+        var onChange: ((CGSize) -> Void)?
+        private var lastSize: CGSize?
+
+        override init(frame frameRect: NSRect) {
+            super.init(frame: frameRect)
+            NotificationCenter.default.addObserver(self, selector: #selector(reportScreen),
+                                                   name: NSWindow.didChangeScreenNotification, object: nil)
+            NotificationCenter.default.addObserver(self, selector: #selector(reportScreen),
+                                                   name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        }
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); reportScreen() }
+
+        @objc func reportScreen() {
+            guard let size = window?.screen?.visibleFrame.size, size != lastSize else { return }
+            lastSize = size
+            DispatchQueue.main.async { [weak self] in self?.onChange?(size) }
+        }
+    }
+}
+
+/// The menu-bar dropdown: local visibility and project grouping, with actionable
+/// sessions always exposed regardless of each project's expansion preference.
 struct MenuContent: View {
     @ObservedObject var model: MenuBarModel
-    @State private var listContentHeight: CGFloat = 0
+    @State private var listContentHeight: CGFloat = 120
+    @State private var screenSize = NSScreen.main?.visibleFrame.size ?? CGSize(width: 800, height: 600)
+    @State private var showsPhoneDetails = false
     @State private var greet = 0
     @State private var hoveredSessionID: String?
     @AppStorage("menuSessionPreferences") private var menuPreferencesData = Data()
+    @AppStorage("menuExpandedProjects") private var expandedProjectsData = Data()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            summaryHead
+        MenuPanelLayout(maximumHeight: max(1, screenSize.height - 48), listHeight: listContentHeight) {
+            VStack(alignment: .leading, spacing: 10) {
+                summaryHead
+                navigationRow
+                Divider()
+                sessionControls
+            }
+            sessionList
+            VStack(alignment: .leading, spacing: 10) {
+                Divider()
+                phoneRow
+                footer
+            }
+        }
+        .padding(12)
+        .frame(width: min(380, screenSize.width - 24))
+        .background(MacTheme.bg)
+        .background(MenuScreenReader { screenSize = $0 })
+    }
 
+    private var navigationRow: some View {
+        HStack(spacing: 12) {
             Button {
                 NotificationCenter.default.post(name: .openDashboard, object: nil)
             } label: {
-                HStack(spacing: 8) {
-                    Label("Open Dashboard", systemImage: "macwindow")
-                    Spacer()
-                    Text(model.openDashboardHotkey.displayString)
-                        .font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink3)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                Label("Open Dashboard", systemImage: "macwindow")
+                    .fixedSize()
             }
-            .buttonStyle(PillButtonStyle(kind: .filled(MacTheme.accent)))
-
+            .help("Open Dashboard · \(model.openDashboardHotkey.displayString)")
+            Spacer(minLength: 0)
             Button {
                 model.setShowGlance(!model.showGlance)
             } label: {
-                HStack(spacing: 8) {
-                    Label(model.showGlance ? "Hide Glance" as LocalizedStringKey : "Show Glance",
-                          systemImage: model.showGlance ? "eye.slash.fill" : "eye.fill")
-                    Spacer()
-                    Text(model.toggleGlanceHotkey.displayString)
-                        .font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink3)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                Label(model.showGlance ? "Hide Glance" as LocalizedStringKey : "Show Glance",
+                      systemImage: model.showGlance ? "eye.slash" : "eye")
+                    .fixedSize()
             }
-            .buttonStyle(PillButtonStyle(kind: .soft))
+            .help("\(model.toggleGlanceHotkey.displayString)")
+        }
+        .buttonStyle(.borderless)
+        .font(MacTheme.font(12))
+        .foregroundStyle(MacTheme.ink)
+    }
 
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: model.pairedPhone != nil ? "iphone.gen3" : "iphone.slash")
-                    .foregroundStyle(model.pairedPhone != nil ? MacTheme.accent : MacTheme.ink3)
-                    .frame(width: 18)
+    private var phoneRow: some View {
+        Button { showsPhoneDetails.toggle() } label: {
+            HStack(spacing: 6) {
+                Image(systemName: model.pairedPhone == nil ? "iphone.slash" : "iphone.gen3")
                 if let phone = model.pairedPhone {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Paired: \(phone.name)").foregroundStyle(MacTheme.ink)
-                        if !phone.subtitle.isEmpty {
-                            Text(phone.subtitle).foregroundStyle(MacTheme.ink2)
-                        }
-                        HStack(spacing: 6) {
-                            Text("Last seen \(phone.lastSeen.formatted(date: .omitted, time: .shortened))")
-                            Text(phone.pushRegistered ? "Push ready" as LocalizedStringKey : "Push pending")
-                        }
-                        .foregroundStyle(MacTheme.ink3)
-                    }
+                    Text("Paired: \(phone.name)").lineLimit(1)
+                    Spacer(minLength: 0)
+                    Text("Last seen \(phone.lastSeen.formatted(date: .abbreviated, time: .shortened))")
+                        .lineLimit(1)
+                        .layoutPriority(1)
                 } else {
-                    Text("No phone paired").foregroundStyle(MacTheme.ink2)
+                    Text("No phone paired")
+                    Spacer(minLength: 0)
                 }
-                Spacer()
-                Text(model.pairingAddress).font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink3)
+                Image(systemName: "chevron.right")
             }
-            .font(MacTheme.font(11, .semibold))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .font(MacTheme.font(11))
+        .foregroundStyle(MacTheme.ink2)
+        .accessibilityLabel("Phone details and pairing")
+        .accessibilityValue(model.pairedPhone.map { String(localized: "Paired: \($0.name)") }
+                             ?? String(localized: "No phone paired"))
+        .popover(isPresented: $showsPhoneDetails, arrowEdge: .trailing) {
+            phoneDetails
+        }
+    }
 
-            Divider().overlay(MacTheme.line)
-
-            sessionControls
-
-            if model.menuSnapshot.sessions.isEmpty {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("No sessions reporting").font(MacTheme.font(12, .heavy)).foregroundStyle(MacTheme.ink)
-                    Text("Start a turn or repair hooks in Settings.")
-                        .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink2)
+    private var phoneDetails: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("Phone details").font(MacTheme.font(13, .semibold))
+                    Spacer()
+                    Button("Done") { showsPhoneDetails = false }
+                        .keyboardShortcut(.cancelAction)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 2)
-            } else {
-                sessionList
-            }
-
-            Divider().overlay(MacTheme.line)
-
-            DisclosureGroup("Pair a phone") {
+                if let phone = model.pairedPhone {
+                    Text("Paired: \(phone.name)")
+                    if !phone.subtitle.isEmpty { Text(phone.subtitle) }
+                    Text("Last seen \(phone.lastSeen.formatted(date: .abbreviated, time: .shortened))")
+                    Text(phone.pushRegistered ? "Push registered" as LocalizedStringKey : "Push not registered")
+                } else {
+                    Text("No phone paired")
+                }
+                Text("Live connection status unavailable")
+                    .foregroundStyle(MacTheme.ink2)
+                Text("Push registration does not confirm notification delivery.")
+                    .foregroundStyle(MacTheme.ink2)
+                Divider()
+                Text(model.pairingAddress).font(MacTheme.mono(11)).textSelection(.enabled)
+                Text("Pair a phone").font(MacTheme.font(12, .semibold))
                 if let qr = model.qrImage {
                     Image(nsImage: qr).interpolation(.none).resizable()
-                        .frame(width: 176, height: 176)
-                        .padding(12)
-                        .background(.white)
-                        .clipShape(.rect(cornerRadius: 8))
+                        .scaledToFit().frame(width: 176, height: 176)
+                        .padding(12).background(.white)
+                        .accessibilityLabel("Pairing QR code")
                     Text("Scan this in the vibebuddy iOS app")
-                        .font(MacTheme.font(10, .semibold)).foregroundStyle(MacTheme.ink2)
+                } else {
+                    Text("Pairing code unavailable")
                 }
             }
-            .font(MacTheme.font(12, .heavy))
-            .foregroundStyle(MacTheme.ink)
-
-            Divider().overlay(MacTheme.line)
-
-            HStack {
-                Button {
-                    NotificationCenter.default.post(name: .openAppSettings, object: nil)
-                } label: {
-                    Label("Settings…", systemImage: "gearshape")
-                }
-                .buttonStyle(.borderless)
-                Button {
-                    NSApp.activate(ignoringOtherApps: true)
-                    Updater.shared.checkForUpdates()
-                } label: {
-                    Label("Check for Updates…", systemImage: "arrow.down.circle")
-                }
-                .buttonStyle(.borderless)
-                Spacer()
-                Button("Quit vibebuddy") { NSApplication.shared.terminate(nil) }
-                    .buttonStyle(.borderless)
-            }
-            .font(MacTheme.font(12, .heavy))
-            .foregroundStyle(MacTheme.ink2)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(12)
         }
-        .padding(16)
-        .frame(width: 310)
+        .frame(width: min(320, screenSize.width - 48), height: min(430, screenSize.height - 72))
+        .font(MacTheme.font(12))
+        .foregroundStyle(MacTheme.ink)
         .background(MacTheme.bg)
     }
 
-    /// Round 5: the cat says one line, the second line carries the rest.
+    private var footer: some View {
+        HStack {
+            Button {
+                NotificationCenter.default.post(name: .openAppSettings, object: nil)
+            } label: {
+                Label("Settings…", systemImage: "gearshape")
+            }
+            .keyboardShortcut(",", modifiers: .command)
+            Spacer()
+            Menu {
+                localCleanup
+                Divider()
+                Button("Check for Updates…") {
+                    NSApp.activate(ignoringOtherApps: true)
+                    Updater.shared.checkForUpdates()
+                }
+                Button("Quit vibebuddy") { NSApplication.shared.terminate(nil) }
+                    .keyboardShortcut("q", modifiers: .command)
+            } label: {
+                Label("More", systemImage: "ellipsis.circle")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+        }
+        .buttonStyle(.borderless)
+        .font(MacTheme.font(12))
+        .foregroundStyle(MacTheme.ink)
+    }
+
+    private var localCleanup: some View {
+        let request = MenuClearRequest(model.menuSnapshot.sessions, preferences: preferences,
+                                       sourceID: model.menuSnapshot.sourceID,
+                                       roundIDs: model.menuSnapshot.roundIDs)
+        return Section("Local cleanup") {
+            Button("Clear filtered Done and Idle from menu (\(request.count))") {
+                guard model.menuSnapshotIsCurrent else { return }
+                let current = model.menuSnapshot
+                updatePreferences {
+                    request.apply(to: &$0, currentSessions: current.sessions,
+                                  currentSourceID: current.sourceID, currentRoundIDs: current.roundIDs)
+                }
+            }
+            .disabled(!request.isAvailable || !model.menuSnapshotIsCurrent)
+            .help("Only hides completed and idle rounds in the current filters. Unread results and reminders are kept.")
+        }
+    }
+
+    /// A small code-drawn Buddy beside the full-snapshot summary.
     private var summaryHead: some View {
-        let summary = model.presentationSummary
+        let summary = projectList.summary
         return HStack(spacing: 10) {
-            PetFace(state: model.buddyState, voice: .init(model.voiceChat.phase), greet: greet, bare: true, scale: 0.7)
-                .onTapGesture { greet += 1; model.voiceChat.toggle() }
+            Button { greet += 1; model.voiceChat.toggle() } label: {
+                PetFace(state: model.buddyState, voice: .init(model.voiceChat.phase), greet: greet, bare: true, scale: 0.5)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Toggle voice companion")
             VStack(alignment: .leading, spacing: 2) {
-                Text(MacSummaryCopy.moodLine(summary)).font(MacTheme.font(15, .black)).foregroundStyle(MacTheme.ink)
+                Text(MacSummaryCopy.moodLine(summary)).font(MacTheme.font(13, .semibold)).foregroundStyle(MacTheme.ink)
                 let rest = MacSummaryCopy.restLine(summary)
                 if !rest.isEmpty {
-                    Text(rest).font(MacTheme.font(11, .bold)).foregroundStyle(MacTheme.ink2)
+                    Text(rest).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
                 }
             }
             Spacer(minLength: 0)
         }
-        .accessibilityElement(children: .combine)
     }
 
-    /// Height cap for the session list — about eight compact rows. A short list
-    /// takes its natural height; a long one scrolls inside the cap so the
-    /// buttons above and the footer below never move off screen.
-    private static let listMaxHeight: CGFloat = 340
-
-    /// A ScrollView inside a MenuBarExtra window collapses to zero height
-    /// unless it is given one explicitly, so the rows report their natural
-    /// height and the scroller is sized to that, capped.
     private var sessionList: some View {
         ScrollView(.vertical) {
             sessionRows
+                .fixedSize(horizontal: false, vertical: true)
                 .background(GeometryReader { geo in
                     Color.clear.preference(key: SessionListHeightKey.self, value: geo.size.height)
                 })
         }
         .scrollBounceBehavior(.basedOnSize)
-        .onPreferenceChange(SessionListHeightKey.self) { listContentHeight = $0 }
-        .frame(height: min(max(listContentHeight, 1), Self.listMaxHeight))
+        .onPreferenceChange(SessionListHeightKey.self) { height in
+            // Ignore transient zero measurements during snapshot replacement.
+            if height > 0 { listContentHeight = height }
+        }
     }
 
     private var preferences: MenuSessionPreferences {
@@ -400,21 +516,23 @@ struct MenuContent: View {
         if let data = try? JSONEncoder().encode(value) { menuPreferencesData = data }
     }
 
-    private static let groupKeys: Set<String> = ["needsYou", "working", "done"]
+    private var expandedProjects: Set<String> {
+        (try? JSONDecoder().decode(Set<String>.self, from: expandedProjectsData)) ?? []
+    }
+
+    private func setExpandedProjects(_ keys: Set<String>) {
+        if let data = try? JSONEncoder().encode(keys) { expandedProjectsData = data }
+    }
+
+    private var projectList: MenuProjectList {
+        let live = model.menuListSnapshot
+        return MenuProjectList(live.sessions, preferences: preferences,
+                               sourceID: live.sourceID, roundIDs: live.roundIDs,
+                               expandedProjects: expandedProjects)
+    }
     private static let filterStates: [TaskPresentationState] = [
         .error, .requiresInput, .thinking, .completeUnread, .idle
     ]
-
-    private func filterLabel(_ state: TaskPresentationState) -> String {
-        switch state {
-        case .error: return "Error"
-        case .requiresInput: return "Needs input"
-        case .thinking: return "Working"
-        case .completeUnread: return "Done (unread)"
-        case .idle: return "Idle"
-        case .unassigned: return "Unassigned"
-        }
-    }
 
     private func restoreFilters() {
         updatePreferences {
@@ -424,13 +542,15 @@ struct MenuContent: View {
     }
 
     private var sessionControls: some View {
-        let allCollapsed = preferences.collapsedGroups.isSuperset(of: Self.groupKeys)
+        let expandableKeys = Set(projectList.projects.filter { !$0.others.isEmpty }.map(\.expansionKey))
+        let allCollapsed = expandedProjects.isDisjoint(with: expandableKeys)
+        let list = projectList
         return VStack(alignment: .leading, spacing: 5) {
             HStack {
                 Menu {
                     Section("State") {
                         ForEach(Self.filterStates, id: \.self) { state in
-                            Toggle(filterLabel(state), isOn: Binding(
+                            Toggle(LocalizedStringKey(state.label), isOn: Binding(
                                 get: { preferences.selectedStates.contains(state) },
                                 set: { selected in
                                     updatePreferences {
@@ -457,24 +577,37 @@ struct MenuContent: View {
                     Divider()
                     Button("Show all states and agents", action: restoreFilters)
                 } label: {
-                    Label(preferences.isFiltering ? "Filter · Active" : "Filter",
+                    Label(preferences.isFiltering ? "Filter · Active" as LocalizedStringKey : "Filter",
                           systemImage: "line.3.horizontal.decrease.circle")
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
                 .accessibilityLabel(preferences.isFiltering ? "Filter sessions, active" : "Filter sessions")
                 Spacer()
-                Button(allCollapsed ? "Expand all" : "Collapse all") {
-                    updatePreferences { $0.collapsedGroups = allCollapsed ? [] : Self.groupKeys }
+                Button(allCollapsed ? "Expand others" as LocalizedStringKey : "Collapse others") {
+                    setExpandedProjects(allCollapsed ? expandedProjects.union(expandableKeys)
+                                        : expandedProjects.subtracting(expandableKeys))
                 }
+                .disabled(expandableKeys.isEmpty)
                 .buttonStyle(.borderless)
             }
-            .font(MacTheme.font(11, .bold))
+            .font(MacTheme.font(11))
             .foregroundStyle(MacTheme.ink2)
-            if preferences.isFiltering {
-                Text("List filtered · Summary includes all sessions")
-                    .font(MacTheme.font(9, .semibold))
+            HStack {
+                Text("\(list.visibleCount) shown · \(list.summary.total) total")
+                Spacer(minLength: 0)
+                if preferences.isFiltering {
+                    Button("Reset filters", action: restoreFilters)
+                        .buttonStyle(.borderless)
+                }
+            }
+            .font(MacTheme.font(10))
+            .foregroundStyle(MacTheme.ink2)
+            if preferences.isFiltering || list.visibleCount != list.summary.total {
+                Text("Summary includes all tasks. Filters and cleared rounds only affect this list.")
+                    .font(MacTheme.font(10))
                     .foregroundStyle(MacTheme.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -482,105 +615,98 @@ struct MenuContent: View {
     /// Only this menu projects filters and hidden rounds. Other surfaces retain
     /// the complete snapshot and the shared Companion group names.
     private var sessionRows: some View {
-        let filtered = preferences.filtered(model.menuSnapshot.sessions)
-        let visible = preferences.visible(model.menuSnapshot.sessions, sourceID: model.menuSnapshot.sourceID, roundIDs: model.menuSnapshot.roundIDs)
-        let groups = StateGroups(visible)
+        let list = projectList
         return VStack(alignment: .leading, spacing: 8) {
-            if visible.isEmpty {
+            if let empty = list.emptyState {
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(filtered.isEmpty ? "No matching sessions" : "Current sessions cleared from menu")
-                        .font(MacTheme.font(12, .heavy))
-                        .foregroundStyle(MacTheme.ink)
-                    if filtered.isEmpty {
-                        Button("Show all states and agents", action: restoreFilters)
-                            .buttonStyle(.borderless)
-                    } else {
+                    switch empty {
+                    case .noSessions:
+                        Text("No sessions reporting")
+                            .font(MacTheme.font(12, .semibold))
+                        Text("Start a turn or repair hooks in Settings.")
+                            .foregroundStyle(MacTheme.ink2)
+                    case .noMatches:
+                        Text("No matching sessions")
+                            .font(MacTheme.font(12, .semibold))
+                        Text("Reset the filters to show other tasks.")
+                            .foregroundStyle(MacTheme.ink2)
+                    case .cleared:
+                        Text("Current sessions cleared from menu")
+                            .font(MacTheme.font(12, .semibold))
                         Text("Sessions remain in Dashboard. New turns appear here.")
                             .foregroundStyle(MacTheme.ink2)
                     }
                 }
-                .font(MacTheme.font(11, .semibold))
+                .foregroundStyle(MacTheme.ink)
+                .font(MacTheme.font(11))
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.vertical, 8)
             } else {
-                sessionCard(key: "needsYou", title: "Needs you", sessions: groups.needsYou, warm: true)
-                sessionCard(key: "working", title: "Working", sessions: groups.working, warm: false)
-                sessionCard(key: "done", title: "Done & Idle", sessions: groups.done, warm: false)
+                ForEach(list.projects) { project in
+                    projectSection(project)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder
-    private func sessionCard(key: String, title: String, sessions: [AgentSession], warm: Bool) -> some View {
-        let renderedRoundIDs = model.menuSnapshot.roundIDs
-        if !sessions.isEmpty {
-            let collapsed = preferences.collapsedGroups.contains(key)
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: 0) {
-                    Button {
-                        updatePreferences {
-                            if collapsed { $0.collapsedGroups.remove(key) }
-                            else { $0.collapsedGroups.insert(key) }
-                        }
-                    } label: {
-                        HStack(spacing: 7) {
-                            Image(systemName: collapsed ? "chevron.right" : "chevron.down")
-                                .font(.system(size: 9, weight: .bold))
-                                .frame(width: 10)
-                            Text(title).font(MacTheme.font(12, .black))
-                            Text("\(sessions.count)")
-                                .font(MacTheme.font(11, .heavy))
-                                .foregroundStyle(MacTheme.ink2)
-                            Spacer(minLength: 0)
-                        }
-                        .foregroundStyle(MacTheme.ink)
-                        .padding(.leading, 10)
-                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("\(title), \(sessions.count) sessions")
-                    .accessibilityValue(collapsed ? "Collapsed" : "Expanded")
-                    .accessibilityHint(collapsed ? "Expand group" : "Collapse group")
-                    if key == "done" {
-                        Button("Clear") {
-                            // Read the latest snapshot at the action boundary.
-                            updatePreferences {
-                                $0.clear(sessions, currentSessions: model.sessions, sourceID: model.menuSnapshot.sourceID,
-                                         roundIDs: renderedRoundIDs, currentRoundIDs: model.menuSnapshot.roundIDs)
-                            }
-                        }
-                        .buttonStyle(.borderless)
-                        .font(MacTheme.font(11, .bold))
-                        .foregroundStyle(MacTheme.accent)
-                        .padding(.horizontal, 10)
-                        .help("Only hides from this menu. Unread results and reminders are kept.")
-                        .disabled(model.menuSnapshot.sourceID == nil)
-                        .accessibilityLabel("Clear Done and Idle from menu")
-                        .accessibilityHint("Unread results and reminders are kept")
-                    }
-                }
-                .background(MacTheme.bg2)
-                if !collapsed {
-                    VStack(spacing: 8) {
-                        ForEach(sessions) { session in
-                            sessionButton(session, warm: warm)
-                        }
-                    }
-                    .padding(8)
+    private func projectSection(_ project: MenuProjectList.Project) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(project.id ?? String(localized: "Unknown project"))
+                    .font(MacTheme.font(12, .semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .help(project.title)
+                Text("\(project.count)")
+                    .foregroundStyle(MacTheme.ink2)
+                Spacer(minLength: 0)
+                if !project.actionable.isEmpty {
+                    Text("\(project.actionable.count) need attention")
+                        .foregroundStyle(MacTheme.ink2)
+                        .fixedSize()
                 }
             }
-            .background(MacTheme.bg)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(MacTheme.line, lineWidth: 1))
-            .padding(1)
+            .font(MacTheme.font(10))
+            .foregroundStyle(MacTheme.ink)
+            .padding(.top, 6)
+            .accessibilityElement(children: .combine)
+
+            ForEach(project.actionable) { session in
+                sessionButton(session)
+                Divider()
+            }
+            if !project.others.isEmpty {
+                Button {
+                    var keys = expandedProjects
+                    if project.isExpanded { keys.remove(project.expansionKey) }
+                    else { keys.insert(project.expansionKey) }
+                    setExpandedProjects(keys)
+                } label: {
+                    Label("Other tasks (\(project.others.count))",
+                          systemImage: project.isExpanded ? "chevron.down" : "chevron.right")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .font(MacTheme.font(11))
+                .foregroundStyle(MacTheme.ink2)
+                .padding(.vertical, 5)
+                .accessibilityLabel("Other tasks in \(project.title), \(project.others.count)")
+                .accessibilityValue(project.isExpanded ? "Expanded" : "Collapsed")
+                if project.isExpanded {
+                    ForEach(project.others) { session in
+                        sessionButton(session)
+                        Divider()
+                    }
+                }
+            }
         }
     }
 
-    private func sessionButton(_ session: AgentSession, warm: Bool) -> some View {
+    private func sessionButton(_ session: AgentSession) -> some View {
         Button { model.jump(session) } label: {
             VStack(alignment: .leading, spacing: 3) {
-                if warm { fullRow(session) } else { compactRow(session) }
+                taskRow(session)
                 if let outcome = model.jumpFeedback[session.id] {
                     Text(outcome.macMessage(for: session))
                         .font(MacTheme.font(10, .semibold))
@@ -596,48 +722,32 @@ struct MenuContent: View {
         .background(hoveredSessionID == session.id ? MacTheme.line : .clear,
                     in: RoundedRectangle(cornerRadius: 10))
         .onHover { hoveredSessionID = $0 ? session.id : nil }
-        .help("Jump to this session")
+        .help("\(session.displayTitle)\n\(session.presentationState.label)\nJump to this session")
         .accessibilityHint("Jump to this session")
     }
 
-    private func fullRow(_ session: AgentSession) -> some View {
+    private func taskRow(_ session: AgentSession) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            StateGlyph(state: session.presentationState, size: 26)
-            VStack(alignment: .leading, spacing: 1) {
+            StateGlyph(state: session.presentationState, size: 18)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(session.displayTitle)
+                    .font(MacTheme.font(12, .medium))
+                    .foregroundStyle(MacTheme.ink)
+                    .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 5) {
-                    Text(session.project).font(MacTheme.font(11, .bold)).foregroundStyle(MacTheme.ink2)
-                    AgentBadge(agent: session.agent)
-                    Spacer(minLength: 4)
-                    Text(session.updatedAt, style: .relative).font(MacTheme.font(10, .semibold))
-                        .foregroundStyle(MacTheme.ink3).monospacedDigit()
+                    Text(session.agent.displayName)
+                    Spacer(minLength: 0)
+                    Text(session.updatedAt, style: .relative).monospacedDigit()
                 }
-                Text(session.summary ?? ToolActivity.label(for: session))
-                    .font(MacTheme.font(13, .heavy)).foregroundStyle(MacTheme.ink).lineLimit(1)
-                Text(ToolActivity.label(for: session))
-                    .font(MacTheme.font(9, .heavy)).textCase(.uppercase).kerning(0.5)
+                .font(MacTheme.font(10))
+                .foregroundStyle(MacTheme.ink2)
+                Text(LocalizedStringKey(session.presentationState.label))
+                    .font(MacTheme.font(10))
                     .foregroundStyle(MacTheme.status(session.presentationState))
             }
         }
-        .padding(8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .companionCard(radius: 10)
-    }
-
-    /// One-line row for sessions that don't need the user: the glyph carries the
-    /// state, the trailing text says what the agent is doing and since when.
-    private func compactRow(_ session: AgentSession) -> some View {
-        HStack(spacing: 8) {
-            StateGlyph(state: session.presentationState, size: 18)
-            Text(session.project).font(MacTheme.font(12, .heavy)).foregroundStyle(MacTheme.ink)
-                .lineLimit(1).truncationMode(.tail)
-            Spacer(minLength: 6)
-            HStack(spacing: 4) {
-                Text(ToolActivity.label(for: session))
-                Text("·").foregroundStyle(MacTheme.ink3)
-                Text(session.updatedAt, style: .relative).monospacedDigit()
-            }
-            .font(MacTheme.font(10, .semibold)).foregroundStyle(MacTheme.ink2).lineLimit(1).fixedSize()
-        }
+        .padding(.vertical, 5)
         .padding(.horizontal, 4)
+        .accessibilityElement(children: .combine)
     }
 }

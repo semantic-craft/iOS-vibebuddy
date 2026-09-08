@@ -24,6 +24,7 @@ public actor CompletionSummaryService {
     private var queue: [CompletionSummaryIdentity] = []
     // A cancelled HTTP operation still occupies its slot until URLSession actually unwinds.
     private var workers: [CompletionSummaryIdentity: Task<Void, Never>] = [:]
+    private var idleWaiters: [CheckedContinuation<Void, Never>] = []
 
     public init(session: URLSession? = nil,
                 key: @escaping @Sendable (VoiceProvider) -> String? = { $0.apiKey }) {
@@ -64,6 +65,13 @@ public actor CompletionSummaryService {
     /// For a new turn, read acknowledgement, unfollow or source invalidation. Never permits regeneration.
     public func cancel(_ identity: CompletionSummaryIdentity) { stop(identity, token: nil, failure: .cancelled) }
 
+    /// For an isolated caller that must retain ownership until cancelled workers unwind.
+    /// Does not change generate/cancel's prompt return semantics.
+    public func waitUntilIdle() async {
+        guard !jobs.isEmpty || !workers.isEmpty else { return }
+        await withCheckedContinuation { idleWaiters.append($0) }
+    }
+
     private func stop(_ identity: CompletionSummaryIdentity, token: UUID?, failure: CompletionSummaryFailure) {
         guard let job = jobs[identity], token == nil || job.token == token else { return }
         jobs.removeValue(forKey: identity)
@@ -90,7 +98,7 @@ public actor CompletionSummaryService {
                 let response: CompletionSummaryResponse
                 if Task.isCancelled || ContinuousClock.now >= job.deadline {
                     response = .init(failure: .expired)
-                } else if let apiKey = key(job.configuration.provider), !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                } else if let provider = job.configuration.provider, let apiKey = key(provider), !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     let budget = min(job.input.completedAt.addingTimeInterval(Self.deadlineSeconds).timeIntervalSinceNow,
                                      Self.seconds(ContinuousClock.now.duration(to: job.deadline)))
                     if budget > 0, !Task.isCancelled {
@@ -99,6 +107,11 @@ public actor CompletionSummaryService {
                 } else { response = .init(failure: .missingKey) }
                 await self?.finished(identity, response: response)
             }
+        }
+        if jobs.isEmpty && workers.isEmpty {
+            let pending = idleWaiters
+            idleWaiters.removeAll()
+            for waiter in pending { waiter.resume() }
         }
     }
 

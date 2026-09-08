@@ -18,8 +18,8 @@ struct VoiceCallCoordinatorTests {
         #expect(coordinator.phase == .idle)
     }
 
-    @Test("model audio mutes the mic and enters speaking")
-    func modelAudioMutesMic() {
+    @Test("model audio enters speaking without controlling microphone capture")
+    func modelAudioEntersSpeaking() {
         let audio = FakeVoiceCallAudio()
         let coordinator = VoiceCallCoordinator(audio: audio, actionHandler: { _ in "" })
         let pcm = Data([0x01, 0x02, 0x03])
@@ -27,11 +27,10 @@ struct VoiceCallCoordinatorTests {
         coordinator.handle(.audioDelta(pcm))
 
         #expect(coordinator.phase == .speaking)
-        #expect(audio.micMuted == true)
         #expect(audio.enqueuedAudio == [pcm])
     }
 
-    @Test("mic reopens only after the model turn is done and playback drains")
+    @Test("speaking ends only after both model completion and playback drain")
     func responseDoneWaitsForPlaybackDrain() {
         let audio = FakeVoiceCallAudio()
         let coordinator = VoiceCallCoordinator(audio: audio, actionHandler: { _ in "" })
@@ -40,12 +39,59 @@ struct VoiceCallCoordinatorTests {
         coordinator.handle(.responseDone)
 
         #expect(coordinator.phase == .speaking)
-        #expect(audio.micMuted == true)
 
+        audio.isPlaybackPending = false
         coordinator.playbackDrained()
 
         #expect(coordinator.phase == .listening)
-        #expect(audio.micMuted == false)
+    }
+
+    @Test("barge-in flushes queued audio; stale drain cannot finish new playback")
+    func bargeIn() {
+        let audio = FakeVoiceCallAudio()
+        let coordinator = VoiceCallCoordinator(audio: audio, actionHandler: { _ in "" })
+        coordinator.handle(.audioDelta(Data([1, 2])))
+        coordinator.handle(.speechStarted)
+        #expect(audio.flushCount == 1)
+        #expect(coordinator.phase == .listening)
+        coordinator.handle(.audioDelta(Data([3, 4])))
+        coordinator.handle(.responseDone)
+        coordinator.playbackDrained() // previous generation callback
+        #expect(coordinator.phase == .speaking)
+        audio.isPlaybackPending = false
+        coordinator.playbackDrained()
+        #expect(coordinator.phase == .listening)
+        coordinator.stop()
+        coordinator.handle(.audioDelta(Data([5, 6])))
+        coordinator.handle(.speechStarted)
+        #expect(coordinator.phase == .idle)
+        #expect(audio.enqueuedAudio.count == 2)
+    }
+
+    @Test("a network gap does not end speaking before response completion")
+    func playbackBeforeResponseDone() {
+        let audio = FakeVoiceCallAudio()
+        let coordinator = VoiceCallCoordinator(audio: audio, actionHandler: { _ in "" })
+        coordinator.handle(.audioDelta(Data([1, 2])))
+        audio.isPlaybackPending = false
+        coordinator.playbackDrained()
+        #expect(coordinator.phase == .speaking)
+        coordinator.handle(.responseDone)
+        #expect(coordinator.phase == .listening)
+    }
+
+    @Test("interrupted response audio and tools are discarded even after the next response starts")
+    func interruptedResponseIdentity() {
+        var filter = RealtimeResponseFilter()
+        func accepts(_ event: [String: Any]) -> Bool { filter.accept(event) }
+        #expect(accepts(["type": "response.created", "response": ["id": "old"]]))
+        #expect(accepts(["type": "input_audio_buffer.speech_started"]))
+        #expect(!accepts(["type": "response.audio.delta", "response_id": "old"]))
+        #expect(accepts(["type": "response.created", "response": ["id": "new"]]))
+        #expect(!accepts(["type": "response.function_call_arguments.done", "response_id": "old"]))
+        #expect(!accepts(["type": "response.done", "response": ["id": "old"]]))
+        #expect(accepts(["type": "response.output_audio.delta", "response_id": "new"]))
+        #expect(accepts(["type": "response.done", "response": ["id": "new"]]))
     }
 
     @Test("assistant transcript deltas accumulate the visible reply")
@@ -129,6 +175,41 @@ struct VoiceCallCoordinatorTests {
         for _ in 0..<100 { await Task.yield() }
         #expect(sent.isEmpty)
         #expect(coordinator.phase == .idle)
+    }
+
+    @Test("provider cancellation prevents queued actions and suppresses an in-flight receipt")
+    func cancellationSuppressesTools() async {
+        var calls = 0
+        var receipt: CheckedContinuation<String, Never>?
+        var sent: [String] = []
+        let coordinator = VoiceCallCoordinator(audio: FakeVoiceCallAudio(), actionHandler: { _ in
+            calls += 1
+            return await withCheckedContinuation { receipt = $0 }
+        }, sendToolResult: { _, _, result in sent.append(result) })
+        coordinator.handle(.toolCall(name: "approve_session", arguments: #"{"project":"fixture"}"#, callID: "queued"))
+        coordinator.handle(.toolCallsCancelled(["queued"]))
+        for _ in 0..<100 { await Task.yield() }
+        #expect(calls == 0)
+        coordinator.handle(.toolCall(name: "approve_session", arguments: #"{"project":"fixture"}"#, callID: "running"))
+        for _ in 0..<100 where receipt == nil { await Task.yield() }
+        #expect(calls == 1)
+        coordinator.handle(.toolCallsCancelled(["running"]))
+        receipt?.resume(returning: "Already performed action receipt")
+        for _ in 0..<100 { await Task.yield() }
+        #expect(sent.isEmpty)
+    }
+
+    @Test("barge-in forwards the audible checkpoint to provider history")
+    func forwardsPlaybackCheckpoint() {
+        let audio = FakeVoiceCallAudio()
+        audio.checkpoints = [.init(item: .init(id: "item-1", contentIndex: 0), audioEndMilliseconds: 120)]
+        var sent: [VoicePlaybackCheckpoint] = []
+        let coordinator = VoiceCallCoordinator(audio: audio, actionHandler: { _ in "" },
+                                               truncatePlayback: { sent = $0 })
+        coordinator.handle(.speechStarted)
+        #expect(sent.count == 1)
+        #expect(sent.first?.item.id == "item-1")
+        #expect(sent.first?.audioEndMilliseconds == 120)
     }
 
     @Test("a close phrase ends the voice call")
@@ -221,23 +302,31 @@ struct VoiceCallCoordinatorTests {
         #expect(sentResults.first?.callID == "call-1")
         #expect(audio.enqueuedAudio == [pcm])
         #expect(coordinator.phase == .speaking)
-        #expect(audio.micMuted == true)
 
+        audio.isPlaybackPending = false
         coordinator.playbackDrained()
 
         #expect(coordinator.phase == .listening)
-        #expect(audio.micMuted == false)
     }
 }
 
 @MainActor
 private final class FakeVoiceCallAudio: VoiceCallAudio {
-    var micMuted = false
+    var isPlaybackPending = false
+    var flushCount = 0
+    var checkpoints: [VoicePlaybackCheckpoint] = []
+
+    func flushPlayback() -> [VoicePlaybackCheckpoint] {
+        flushCount += 1
+        isPlaybackPending = false
+        return checkpoints
+    }
     private(set) var enqueuedAudio: [Data] = []
     private(set) var stopped = false
 
-    func enqueue(_ pcm: Data) {
+    func enqueue(_ pcm: Data, item: VoiceAudioItem?) {
         enqueuedAudio.append(pcm)
+        isPlaybackPending = true
     }
 
     func stop() {
@@ -277,6 +366,8 @@ private actor FakeRealtimeVoiceProvider: RealtimeVoiceProvider {
     }
 
     func sendToolResult(callID: String, name: String, result: String) {}
+
+    func truncatePlayback(_ checkpoints: [VoicePlaybackCheckpoint]) {}
 
     func close() {
         closed = true

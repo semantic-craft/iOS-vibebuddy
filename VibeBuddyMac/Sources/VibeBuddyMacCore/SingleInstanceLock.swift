@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import VibeBuddyKit
 
 /// A process-local owner for an advisory file lock. Keep the returned object
 /// alive for as long as the app should be treated as the primary instance.
@@ -34,6 +35,7 @@ public final class SingleInstanceLock: @unchecked Sendable {
     }
 
     public static func defaultLockFileURL(filename: String = "mac-app.lock") throws -> URL {
+        if let run = E2ERunConfiguration.current { return run.file(filename) }
         let base = try FileManager.default.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,

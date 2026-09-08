@@ -19,7 +19,13 @@ public struct APNsConfig: Sendable {
 
     /// Env first (CLI), then the config file (GUI apps don't inherit shell env).
     public static func load() -> APNsConfig? {
-        fromEnvironment() ?? fromFile()
+        if let run = E2ERunConfiguration.current {
+            // Acceptance must opt in and explicitly supply a signer. Never
+            // discover production credentials implicitly from the config file.
+            guard run.notificationsEnabled else { return nil }
+            return fromEnvironment()
+        }
+        return fromEnvironment() ?? fromFile()
     }
 
     /// APNS_TEAM_ID / APNS_KEY_ID / APNS_BUNDLE_ID / APNS_KEY_PATH (+ APNS_SANDBOX=1).

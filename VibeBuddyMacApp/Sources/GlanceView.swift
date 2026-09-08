@@ -179,12 +179,16 @@ struct GlanceView: View {
 
     private var voiceBadge: some View {
         let speaking = voice.isSpeaking
+        let connecting = voice.phase == .connecting
+        let thinking = voice.phase == .thinking
+        let label: LocalizedStringKey = connecting ? "Connecting — wait to speak"
+            : thinking ? "Thinking…" : speaking ? "Speaking" : "Listening"
         return HStack(spacing: 6) {
-            Image(systemName: speaking ? "waveform" : "mic.fill")
+            Image(systemName: connecting || thinking ? "ellipsis" : speaking ? "waveform" : "mic.fill")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(speaking ? Color.green : Color.red)
                 .symbolEffect(.variableColor.iterative, options: .repeating, isActive: true)
-            Text(speaking ? "Speaking" as LocalizedStringKey : "Listening")
+            Text(label)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.white)
                 .lineLimit(1)

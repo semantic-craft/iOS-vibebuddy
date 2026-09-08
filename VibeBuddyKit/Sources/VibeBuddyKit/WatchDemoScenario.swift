@@ -30,16 +30,44 @@ public enum WatchDemoScenario: String, Codable, Sendable, CaseIterable, Identifi
 
     public var id: String { rawValue }
 
+    /// The sample Mac and pairing every scenario relays as. They are here so a
+    /// `vibebuddy://watch-task` link resolves in Demo Mode exactly as it does
+    /// against a real relay — a task detail (and the Stop on it) that only
+    /// exists when paired is a flow nobody can rehearse.
+    public static let sourceID = "demo-mac"
+    public static let pairingEpoch = "demo-epoch"
+    /// The sample Mac's display name. Present so the send-confirmation page
+    /// rehearses the caption it will really show — "which Mac am I about to
+    /// talk to" is the question that page exists to answer, and a sample that
+    /// falls back to a generic "Mac" never asks it.
+    public static let macName = "Demo Mac"
+
     public func state(now: Date) -> WatchDashboardState {
         guard self != .noData else { return .noData(observedAt: now) }
-        return WatchDashboardProjection.make(
-            snapshot: Snapshot(sessions: sessions(now: now), serverTime: now),
+        var state = WatchDashboardProjection.make(
+            snapshot: Snapshot(sessions: sessions(now: now), serverTime: now,
+                               sourceID: Self.sourceID),
             quotas: quotas(now: now),
             relay: self == .macDisconnected ? .disconnected : .live,
             now: now.addingTimeInterval(-observedAgo),
             isDemo: true
         )
+        state.pairingEpoch = Self.pairingEpoch
+        state.macName = Self.macName
+        return state
     }
+
+    /// The sample task a Stop can be rehearsed on, as a link the Watch opens
+    /// the same way it opens one from a complication.
+    public static let stoppableTask = WatchTaskLink(
+        sourceID: sourceID, pairingEpoch: pairingEpoch,
+        sessionID: "demo-watch-tests", completionID: nil)
+
+    /// The sample task whose agent cannot be stopped from a wrist, so the
+    /// "here is why there is no button" branch is rehearsable too.
+    public static let unstoppableTask = WatchTaskLink(
+        sourceID: sourceID, pairingEpoch: pairingEpoch,
+        sessionID: "demo-watch-auth", completionID: nil)
 
     /// How long ago the iPhone is pretending to have sent this. The two relay
     /// failures are only visible once the state has aged, and nobody is going
@@ -60,13 +88,25 @@ public enum WatchDemoScenario: String, Codable, Sendable, CaseIterable, Identifi
     private func sessions(now: Date) -> [AgentSession] {
         switch self {
         case .normal, .staleQuota, .unavailableQuota,
-             .macDisconnected, .phoneDisconnected, .watchUnreachable:
+             .phoneDisconnected, .watchUnreachable:
             return Self.workingAndDone(now: now)
+        case .macDisconnected:
+            // A waiting question is in here on purpose: a broken link is only
+            // interesting next to something the wrist would otherwise act on,
+            // and "the buttons are gone and here is why" is the branch worth
+            // rehearsing.
+            return [Self.openQuestionSession(now: now)] + Self.workingAndDone(now: now)
         case .permission:
             return [Self.permissionSession(now: now), Self.questionSession(now: now)]
                 + Self.workingAndDone(now: now).prefix(2)
         case .question:
-            return [Self.questionSession(now: now)] + Self.workingAndDone(now: now).prefix(3)
+            // Both shapes of question, because the wrist answers them
+            // differently: an open one takes the fixed phrases, one with
+            // choices takes the agent's own. The open one leads so the home
+            // takeover rehearses the phrases; the other is a task detail away
+            // (`VIBEBUDDY_WATCH_TASK=demo-watch-question`).
+            return [Self.openQuestionSession(now: now), Self.questionSession(now: now)]
+                + Self.workingAndDone(now: now).prefix(3)
         case .empty, .noData:
             return []
         }
@@ -85,6 +125,31 @@ public enum WatchDemoScenario: String, Codable, Sendable, CaseIterable, Identifi
             statusSince: now.addingTimeInterval(-38), updatedAt: now.addingTimeInterval(-38))
     }
 
+    /// The sample question with no choices attached: the fixed phrases are the
+    /// only quick answers, and dictation is the way past them.
+    public static let openQuestionTask = WatchTaskLink(
+        sourceID: sourceID, pairingEpoch: pairingEpoch,
+        sessionID: "demo-watch-open-question", completionID: nil)
+
+    /// The sample question the agent offered choices for: the choices replace
+    /// the phrases, and "Something else" is the way past them.
+    public static let optionQuestionTask = WatchTaskLink(
+        sourceID: sourceID, pairingEpoch: pairingEpoch,
+        sessionID: "demo-watch-question", completionID: nil)
+
+    private static func openQuestionSession(now: Date) -> AgentSession {
+        AgentSession(
+            id: "demo-watch-open-question", agent: .codex, project: "ios-vibebuddy",
+            branch: "feat/watch-03", model: "gpt-5-codex",
+            status: .needsResponse, waitKind: .question,
+            pendingQuestion: PendingQuestion(
+                id: "demo-watch-open-prompt",
+                prompt: "The migration touches two schemas. Should I keep going?"),
+            summary: "Waiting on a go-ahead",
+            attention: .followed,
+            statusSince: now.addingTimeInterval(-6 * 60), updatedAt: now.addingTimeInterval(-6 * 60))
+    }
+
     private static func questionSession(now: Date) -> AgentSession {
         AgentSession(
             id: "demo-watch-question", agent: .codex, project: "docs-review",
@@ -97,20 +162,35 @@ public enum WatchDemoScenario: String, Codable, Sendable, CaseIterable, Identifi
                     QuestionOption(id: "plain", label: "Plain language"),
                 ]),
             summary: "Waiting on a revision style",
+            attention: .followed,
             statusSince: now.addingTimeInterval(-4 * 60), updatedAt: now.addingTimeInterval(-4 * 60))
     }
 
     private static func workingAndDone(now: Date) -> [AgentSession] {
         [
+            // Followed, Codex, and carried by the app-server connection: the one
+            // shape a running turn can be ended from the wrist in. Everything
+            // the Stop button needs is on this session, so Demo Mode rehearses
+            // the real rule rather than a relaxed one.
             AgentSession(
                 id: "demo-watch-tests", agent: .codex, project: "ios-vibebuddy", branch: "main",
                 model: "gpt-5-codex", status: .working, summary: "Running the test suite…",
                 activeTool: "Bash",
+                observations: [ObservationEvidence(source: .appserver,
+                                                   lastObservedAt: now.addingTimeInterval(-12),
+                                                   health: .healthy)],
+                attention: .followed,
                 statusSince: now.addingTimeInterval(-12), updatedAt: now.addingTimeInterval(-12)),
+            // Followed and running, but Claude Code: the wrist says where to go
+            // instead of offering a button that would be refused.
             AgentSession(
                 id: "demo-watch-auth", agent: .claudeCode, project: "web-dashboard", branch: "feat/auth",
                 model: "claude-opus-4-8", status: .working, summary: "Refactoring the auth middleware…",
                 activeTool: "Edit",
+                observations: [ObservationEvidence(source: .hook,
+                                                   lastObservedAt: now.addingTimeInterval(-95),
+                                                   health: .healthy)],
+                attention: .followed,
                 statusSince: now.addingTimeInterval(-95), updatedAt: now.addingTimeInterval(-95)),
             AgentSession(
                 id: "demo-watch-docs", agent: .claudeCode, project: "docs-site",
@@ -135,10 +215,31 @@ public enum WatchDemoScenario: String, Codable, Sendable, CaseIterable, Identifi
 
     // MARK: quota
 
-    /// Sample quota for both providers. The iPhone relays these while it is in
+    /// Sample quota for all supported providers. The iPhone relays these while it is in
     /// Demo Mode, so the Watch's quota page has something honest-looking to show
     /// before a real provider source exists.
     public func quotas(now: Date) -> [ProviderQuota] {
+        let base = baseQuotas(now: now)
+        guard self != .noData, self != .empty else { return base }
+        let observed = now.addingTimeInterval(self == .staleQuota ? -18 * 60 : -max(42, observedAgo))
+        let cursor = ProviderQuota(provider: .cursor, otherWindows: [
+            QuotaWindow(remainingPercent: 74, durationMinutes: 43200,
+                        resetsAt: now.addingTimeInterval(12 * 86400), observedAt: observed, label: "Cursor Models"),
+            QuotaWindow(remainingPercent: 31, durationMinutes: 43200,
+                        resetsAt: now.addingTimeInterval(12 * 86400), observedAt: observed, label: "Other Models")
+        ], observedAt: observed)
+        let grok = ProviderQuota(provider: .grok, weeklyRemainingPercent: self == .unavailableQuota ? nil : 23,
+                                 weeklyResetsAt: now.addingTimeInterval(2 * 86400), weeklyWindowDurationMinutes: 10080,
+                                 observedAt: observed)
+        let bot: ProviderQuota = self == .unavailableQuota
+            ? .unavailable(.grokBot, reason: "Shared enterprise allowance; personal percentage unavailable")
+            : ProviderQuota(provider: .grokBot, weeklyRemainingPercent: 56,
+                            weeklyResetsAt: now.addingTimeInterval(3 * 86400), weeklyWindowDurationMinutes: 10080,
+                            observedAt: observed)
+        return base + [cursor, grok, bot]
+    }
+
+    private func baseQuotas(now: Date) -> [ProviderQuota] {
         switch self {
         case .staleQuota:
             return [Self.codex(observedAt: now.addingTimeInterval(-18 * 60), now: now),
@@ -165,8 +266,10 @@ public enum WatchDemoScenario: String, Codable, Sendable, CaseIterable, Identifi
             provider: .codex,
             weeklyRemainingPercent: 68,
             weeklyResetsAt: now.addingTimeInterval(3 * 86_400 + 8 * 3_600),
+            weeklyWindowDurationMinutes: 10080,
             shortWindowRemainingPercent: 84,
             shortWindowResetsAt: now.addingTimeInterval(2 * 3_600 + 10 * 60),
+            shortWindowDurationMinutes: 300,
             observedAt: observedAt)
     }
 
@@ -175,8 +278,10 @@ public enum WatchDemoScenario: String, Codable, Sendable, CaseIterable, Identifi
             provider: .claude,
             weeklyRemainingPercent: 41,
             weeklyResetsAt: now.addingTimeInterval(4 * 86_400 + 2 * 3_600),
+            weeklyWindowDurationMinutes: 10080,
             shortWindowRemainingPercent: 72,
             shortWindowResetsAt: now.addingTimeInterval(3_600 + 25 * 60),
+            shortWindowDurationMinutes: 300,
             observedAt: observedAt)
     }
 }

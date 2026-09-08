@@ -75,7 +75,8 @@ public enum LifecycleJournalLocation {
     public static func defaultURL(
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> URL {
-        home.appendingPathComponent("Library/Application Support/vibebuddy/lifecycle-journal.json")
+        if let run = E2ERunConfiguration.current { return run.file("lifecycle-journal.json") }
+        return home.appendingPathComponent("Library/Application Support/vibebuddy/lifecycle-journal.json")
     }
 }
 

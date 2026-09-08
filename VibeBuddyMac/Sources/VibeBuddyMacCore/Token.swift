@@ -1,4 +1,5 @@
 import Foundation
+import VibeBuddyKit
 
 /// A LAN bearer token. Random, not a credential store — just enough to stop a
 /// stranger on the same WiFi from reading your sessions.
@@ -17,6 +18,7 @@ public struct TokenStore: Sendable {
 
     /// ~/Library/Application Support/vibebuddy/token
     public static func defaultStore() -> TokenStore {
+        if let run = E2ERunConfiguration.current { return TokenStore(fileURL: run.file("token")) }
         let base = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return TokenStore(fileURL: base.appendingPathComponent("vibebuddy/token"))

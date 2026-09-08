@@ -1,16 +1,16 @@
 import SwiftUI
 import VibeBuddyKit
 
-/// The iPhone dashboard as a message stream (docs/design/mac-companion-redesign.md,
-/// rounds 6–8): every session is a message from its agent, oldest at the top
-/// and the newest beside the composer. A message that needs you carries its
-/// keys; replying to a message fixes whom the text goes to and what it means.
+/// Project-first navigation over the complete dashboard snapshot. Filtered
+/// sessions retain their message rows and explicit reply targets; filtering
+/// never changes the Buddy scope, subscription, or action authority.
 struct DashboardView: View {
     @State private var detailCompletionNotificationID: String?
     @EnvironmentObject private var connection: ConnectionStore
     @EnvironmentObject private var dashboard: DashboardStore
     @EnvironmentObject private var voice: VoiceChat
     @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
+    @StateObject private var settingsConnectionTest = VoiceConnectionTest()
     @State private var showSettings = false
     @State private var showQuota = false
     @State private var showNewTask = false
@@ -18,9 +18,12 @@ struct DashboardView: View {
     @State private var highlightId: String?
     @State private var detailId: String?
     @State private var replyTo: String?
+    @State private var filters = DashboardFilters()
+    @State private var showFilters = false
+    @State private var waitingForFilterDismiss = false
 
     /// Oldest first, so the newest sits by the composer like a conversation.
-    private var stream: [AgentSession] { dashboard.allSessions.sorted { $0.updatedAt < $1.updatedAt } }
+    private var stream: [AgentSession] { filters.sessions(from: dashboard.allSessions) }
     private var replyTarget: AgentSession? { replyTo.flatMap { id in dashboard.allSessions.first { $0.id == id } } }
     private var detailSession: AgentSession? { detailId.flatMap { id in dashboard.allSessions.first { $0.id == id } } }
     /// The paired Mac's name is the page title; the demo has no Mac.
@@ -33,6 +36,33 @@ struct DashboardView: View {
     var body: some View {
         ScrollViewReader { proxy in
         List {
+            DashboardFilterControls(selection: $filters, sessions: dashboard.allSessions,
+                                    showFilters: $showFilters, onDismiss: {
+                                        waitingForFilterDismiss = false
+                                        focus(proxy)
+                                    })
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+            if !dashboard.allSessions.isEmpty && dashboard.state != .connected {
+                Label("Showing last snapshot. Reconnect to update tasks.", systemImage: "wifi.exclamationmark")
+                    .font(.footnote).foregroundStyle(.secondary)
+                    .listRowSeparator(.hidden)
+            }
+            if dashboard.allSessions.isEmpty {
+                EmptyStateView(state: dashboard.state)
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+            } else if stream.isEmpty {
+                ContentUnavailableView {
+                    Label("No matching sessions", systemImage: "line.3.horizontal.decrease")
+                } description: {
+                    Text("Try another filter or clear filters to see all sessions.")
+                } actions: {
+                    Button("Clear filters") { filters = DashboardFilters() }
+                }
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+            }
             ForEach(stream) { session in
                 MessageRow(session: session,
                            isSelected: highlightId == session.id,
@@ -56,9 +86,6 @@ struct DashboardView: View {
         .onChange(of: dashboard.groups) { _, _ in
             if dashboard.focusedSessionId != nil { focus(proxy) }
             if let id = replyTo, !dashboard.allSessions.contains(where: { $0.id == id }) { replyTo = nil }
-        }
-        .onChange(of: stream.last?.id) { _, id in
-            if let id, dashboard.focusedSessionId == nil { withAnimation(.smooth) { proxy.scrollTo(id, anchor: .bottom) } }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
@@ -85,9 +112,6 @@ struct DashboardView: View {
         }
         .animation(.smooth, value: dashboard.groups)
         .animation(.smooth, value: replyTo)
-        .overlay {
-            if dashboard.groups.isEmpty { EmptyStateView(state: dashboard.state) }
-        }
         .navigationTitle(macTitle)
         // The cat's bubble is the header now; a large title above it only
         // spends a screen's worth of blank space (and on iOS 26 hides behind
@@ -125,7 +149,7 @@ struct DashboardView: View {
         .sheet(isPresented: $showSettings) {
             // A sheet doesn't inherit the presenter's environment objects, so
             // re-inject `voice` — Settings restarts a live session on change.
-            SettingsView()
+            SettingsView(connectionTest: settingsConnectionTest)
                 .environmentObject(voice)
                 .environmentObject(dashboard)
         }
@@ -192,7 +216,12 @@ struct DashboardView: View {
     /// No-ops (leaving the request pending) until that session is in the list, so
     /// a cold-start link still lands once the first snapshot arrives.
     private func focus(_ proxy: ScrollViewProxy) {
-        guard let id = dashboard.focusedSessionId else { return }
+        guard !waitingForFilterDismiss, let id = dashboard.focusedSessionId else { return }
+        if showFilters {
+            waitingForFilterDismiss = true
+            showFilters = false
+            return // Resume from the filter sheet's onDismiss, retaining the exact deep link.
+        }
         if let notificationID = dashboard.focusedCompletionNotificationID {
             guard dashboard.state == .connected else { return }
             let unbound = dashboard.allSessions.first { $0.id == id }?
@@ -211,7 +240,9 @@ struct DashboardView: View {
         detailCompletionNotificationID = nil
         detailId = id
         dashboard.clearFocus()
-        withAnimation(.smooth) { proxy.scrollTo(id, anchor: .center) }
+        if stream.contains(where: { $0.id == id }) {
+            withAnimation(.smooth) { proxy.scrollTo(id, anchor: .center) }
+        }
         highlightId = id
         Task {
             try? await Task.sleep(for: .seconds(2))
@@ -294,7 +325,9 @@ enum ReplyMeaning: Equatable {
         guard let target else { self = .newTask; return }
         switch SessionActionSupport.resolve(for: target).intent {
         case .answer: self = .answer
-        case .steer: self = .instruction
+        // The composer never resolves to stop — it carries no text — and a
+        // stoppable session is a running one, whose composer is an instruction.
+        case .steer, .stop: self = .instruction
         case .continue: self = .continuation
         }
     }
@@ -398,7 +431,7 @@ private struct MessageRow: View {
     private var whoLine: some View {
         HStack(spacing: 5) {
             Text(session.displayTitle).fontWeight(.heavy).foregroundStyle(CompanionPalette.ink)
-            if session.name != nil { Text(session.project) }
+            Text(DashboardFilters.projectTitle(session.project))
             Text("·"); Text(session.agent.shortName)
             if let branch = session.branch { Text(branch).font(CompanionType.mono(9)) }
             if session.effectiveAttention != .normal {
@@ -635,7 +668,7 @@ private struct SessionDetailSheet: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(session.displayTitle).font(CompanionType.font(22, .black)).foregroundStyle(CompanionPalette.ink)
                             HStack(spacing: 6) {
-                                if session.name != nil { Text(session.project) }
+                                Text(DashboardFilters.projectTitle(session.project))
                                 AgentBadge(agent: session.agent)
                                 if let branch = session.branch { Text(branch).font(CompanionType.mono(10)) }
                             }

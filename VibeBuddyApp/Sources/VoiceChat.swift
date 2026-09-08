@@ -38,6 +38,8 @@ final class VoiceChat: ObservableObject {
     // Realtime speech-to-speech — the only path. Provider chosen in Settings.
     private var realtime: (any RealtimeVoiceProvider)?
     private var audioIO: RealtimeAudioIO?
+    private var startID = UUID()
+    private var audioStarted = false
     private var eventTask: Task<Void, Never>?
     private var coordinator: VoiceCallCoordinator?
 
@@ -72,12 +74,14 @@ final class VoiceChat: ObservableObject {
         guard isAvailable else {
             errorText = "Add your \(VoiceSettings.provider.display) API key in Settings first."; return
         }
+        let id = UUID(); startID = id; phase = .connecting
         // The mic permission prompt is delivered on a background thread, so request
         // it off the main actor, then hop back to begin the session.
         Self.requestMic { [weak self] micOK in
             Task { @MainActor in
-                guard let self else { return }
+                guard let self, self.startID == id else { return }
                 guard micOK else {
+                    self.phase = .idle
                     self.errorText = "Microphone permission needed (Settings › Privacy › Microphone)."; return
                 }
                 self.beginRealtimeSession()
@@ -112,6 +116,7 @@ final class VoiceChat: ObservableObject {
         case .qwen:   session = QwenRealtimeSession(apiKey: key, model: model, workspaceID: VoiceSettings.qwenWorkspaceID, useIntl: VoiceSettings.useIntl)
         case .openai: session = OpenAIRealtimeSession(apiKey: key, model: model)
         case .gemini: session = GeminiRealtimeSession(apiKey: key, model: model)
+        case .doubao: session = DoubaoRealtimeSession(apiKey: key, model: model)
         }
         let io = RealtimeAudioIO(inputSampleRate: provider.inputSampleRate)
         realtime = session
@@ -122,6 +127,9 @@ final class VoiceChat: ObservableObject {
             sendToolResult: { callID, name, result in
                 Task { await session.sendToolResult(callID: callID, name: name, result: result) }
             },
+            truncatePlayback: { checkpoints in
+                Task { await session.truncatePlayback(checkpoints) }
+            },
             closeSession: { [weak self] in self?.closeRealtimeSession() }
         )
         self.coordinator = coordinator
@@ -130,26 +138,21 @@ final class VoiceChat: ObservableObject {
         coordinator.beginConnecting()
         syncFromCoordinator(coordinator)
 
+        let id = startID
         eventTask = Task { [weak self] in
             let stream = await session.start(instructions: instructions, voice: voice, tools: VoiceTools.all)
             for await event in stream {
-                await self?.handleRealtime(event)
+                guard !Task.isCancelled, let self, self.startID == id else { return }
+                self.handleRealtime(event)
             }
         }
         io.onAudioFrame = { @Sendable data in Task { await session.appendAudio(data) } }
         io.onPlaybackDrained = { [weak self] in
             Task { @MainActor in
-                guard let self, let coordinator = self.coordinator else { return }
+                guard let self, self.startID == id, let coordinator = self.coordinator else { return }
                 coordinator.playbackDrained()
                 self.syncFromCoordinator(coordinator)
             }
-        }
-        do {
-            try io.start()
-        } catch {
-            voiceLog.error("realtime audio start failed: \(String(describing: error), privacy: .public)")
-            errorText = "Couldn't start audio: \(error.localizedDescription)"
-            stopRealtime()
         }
     }
 
@@ -160,7 +163,20 @@ final class VoiceChat: ObservableObject {
         guard realtime != nil, let coordinator else { return }
         switch event {
         case .connected:
-            voiceLog.info("realtime connected")
+            // The provider drops pre-handshake PCM. Arm capture only after its
+            // acknowledgement, before the coordinator publishes Listening.
+            if !audioStarted {
+                guard let audioIO else { return }
+                do {
+                    try audioIO.start()
+                    audioStarted = true
+                } catch {
+                    errorText = "Couldn't start audio: \(error.localizedDescription)"
+                    stopRealtime()
+                    return
+                }
+            }
+            voiceLog.info("realtime connected; microphone ready")
         case .userTranscript(let text, _):
             if VoiceCloseIntent.shouldClose(text) {     // "再见 / 关闭 / bye" → hang up hands-free
                 voiceLog.info("voice close phrase heard — ending call")
@@ -177,6 +193,8 @@ final class VoiceChat: ObservableObject {
             let action = VoiceTools.action(name: name, arguments: arguments)
             voiceLog.info("voice tool=\(name, privacy: .public) resolved=\(action != .none, privacy: .public)")
             _ = callID
+        case .toolCallsCancelled:
+            break
         case .responseDone:
             break
         case .failed(let message):
@@ -190,6 +208,7 @@ final class VoiceChat: ObservableObject {
     }
 
     private func stopRealtime() {
+        startID = UUID()
         if let coordinator {
             self.coordinator = nil
             coordinator.stop()
@@ -201,8 +220,10 @@ final class VoiceChat: ObservableObject {
     }
 
     private func closeRealtimeSession() {
+        startID = UUID()
         eventTask?.cancel(); eventTask = nil
         audioIO = nil
+        audioStarted = false
         let session = realtime
         realtime = nil
         Task { await session?.close() }

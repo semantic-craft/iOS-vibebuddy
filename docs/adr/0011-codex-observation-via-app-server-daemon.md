@@ -101,3 +101,60 @@ and questions follow the first amendment. The route only accepts a `cwd` the
 daemon has already seen a session run in (`Snapshot.recentDirectories`), which
 is the whole of the "cwd whitelist"; vibebuddy never creates directories or
 starts a thread outside them. Without a connected daemon the route answers 503.
+
+## Amendment (2026-09-08): a running turn is interrupted on this connection
+
+Implements `.scratch/watch-wrist-resolve/issues/01`. The wrist needs to *end*
+things, not only watch them, so `SessionActionIntent` gains **stop** and
+`CodexAppServerMonitor.interrupt(threadID:)` calls `turn/interrupt` with
+`threadId` and the turn id — which the method **requires**, so the reducer's
+`activeTurnID` (learned from `turn/started`) is what makes a stop possible at
+all. A thread this connection attached to mid-turn has no known turn id and
+cannot be stopped from here; that is reported, not worked around.
+
+Scope of the opening, deliberately narrow:
+
+- One call per stop. A `turn/interrupt` that throws or returns an error is the
+  end of it: no retry, no `thread/resume` first, and never another method in
+  its place. `turn/steer` and `turn/start` are not fallbacks for a stop, just
+  as `turn/start` is not a fallback for a steer.
+- The daemon decides against the live snapshot before it calls anything. Stop
+  requires an `expectedStatusSince` matching the session's own — the moment it
+  entered `working`. A session that is no longer `working`, or whose
+  `statusSince` moved, is refused (409) and nothing is called. `requestId`
+  de-duplication is the existing `ActionRequestLog`, so a double tap
+  interrupts once.
+
+  `statusSince` is the session's clock, not the turn's, so this is a strong
+  guard and not a proof. Two turns share one `statusSince` whenever the daemon
+  misses the boundary between them — a reconnect resets the app-server
+  reducer, and the re-seeded `active` status carries no turn id, so the
+  session never passes through `done`. A stop held from before such a gap
+  would match and end the turn after it. Binding a stop to the turn id itself
+  would close this, and would mean putting the turn id on the wire for the
+  client to echo back; that is not done here.
+- Codex only. Claude Code has no official remote interrupt contract and a tmux
+  Escape is not one, so its reason reads "Stop this on your Mac"; Grok, Grok
+  Bot and Cursor keep their existing unsupported wording. This is the user's
+  2026-09-08 decision, not a limitation of this connection.
+- Stop changes no attention and raises no cue. The next snapshot — the
+  daemon's own `turn/completed` (`status: "interrupted"`) — is the only thing
+  that says the turn ended, which is why an accepted stop is reported as
+  *sent*, never as *stopped*.
+
+  Making that true took one more fact. Codex reports a stop the user asked for
+  exactly as it reports any interruption, and `FailureHeuristic.markers`
+  contains "interrupted", so the ending would land as `failed`: red instead of
+  done, no completion, and `agentStuck` — the error cue — for something that
+  went exactly as asked. Only the Mac that sent `turn/interrupt` knows the
+  difference, so it is the Mac that records it. The monitor claims the thread
+  *before* the call goes out (the ending can arrive while the request is still
+  in flight), the ending it claims is marked `userStopped` on its way to the
+  store, and `AgentSession.userStopped` carries that to the phone and the
+  Watch, where `SoundPolicy` stays silent for it. The claim is dropped after
+  sixty seconds, so a stop whose ending never came cannot mislabel the next
+  one, and an interruption this Mac did not ask for still reads as a failure —
+  vibebuddy only vouches for the stops it sent itself.
+
+"Read-mostly" now means: the writes are the ones a person asked for — a reply
+to a request the agent itself raised, a dispatched thread, a steer, and a stop.

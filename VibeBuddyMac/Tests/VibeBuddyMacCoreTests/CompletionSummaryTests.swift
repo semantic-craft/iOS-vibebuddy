@@ -26,7 +26,7 @@ struct CompletionSummaryTests {
     }
 
     @Test func officialRequestFormatsAndRegionIsolation() throws {
-        for provider in VoiceProvider.allCases {
+        for provider in VoiceProvider.summaryProviders {
             let request = try CompletionSummaryHTTP.request(input: input(), configuration: configuration(provider), key: "synthetic-key", timeout: 4)
             let bodyData = try #require(request.httpBody)
             let body = try #require(JSONSerialization.jsonObject(with: bodyData) as? [String: Any])
@@ -114,6 +114,14 @@ struct CompletionSummaryTests {
         #expect(CompletionSummaryConfiguration.load(defaults: defaults).configurationFailure == .missingModel)
         defaults.set("explicit-text", forKey: CompletionSummaryConfiguration.modelKey(.openai))
         #expect(CompletionSummaryConfiguration.load(defaults: defaults).modelID == "explicit-text")
+        VoiceSettings.selectVoiceProvider(.doubao, defaults: defaults)
+        defaults.set("1.2.6.1", forKey: VoiceSettings.modelKey(.doubao))
+        let preserved = CompletionSummaryConfiguration.load(defaults: defaults)
+        #expect(preserved.provider == .openai && preserved.modelID == "explicit-text")
+        defaults.set("doubao", forKey: VoiceSettings.summaryProviderKey)
+        let unsupported = CompletionSummaryConfiguration.load(defaults: defaults)
+        #expect(unsupported.provider == nil && unsupported.modelID.isEmpty)
+        #expect(unsupported.configurationFailure == .missingProvider)
     }
 
     @Test func singleRequestDuplicateAndNoPaidRetry() async throws {
@@ -194,7 +202,9 @@ struct CompletionSummaryTests {
             return "synthetic"
         })
         #expect(await service.generate(input("off"), configuration: .init()).failure == .disabled)
-        #expect(await service.generate(input("model"), configuration: .init(enabled: true)).failure == .missingModel)
+        #expect(await service.generate(input("model"), configuration: .init(enabled: true)).failure == .missingProvider)
+        #expect(await service.generate(input("doubao"), configuration: configuration(.doubao)).failure == .missingProvider)
+        #expect(await service.generate(input("missing-model"), configuration: .init(enabled: true, provider: .openai)).failure == .missingModel)
         #expect(await service.generate(input("old", age: 13), configuration: configuration()).failure == .expired)
         #expect(await service.generate(input("empty", text: " \n"), configuration: configuration()).failure == .invalidInput)
         #expect(await service.generate(input("long", text: String(repeating: "a", count: 12_001)), configuration: configuration()).failure == .resultTooLong)

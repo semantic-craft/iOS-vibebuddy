@@ -108,6 +108,11 @@ public struct WatchAlert: Codable, Equatable, Sendable, Identifiable {
     /// `nil` — always, for a question — means display-only. `handling` names
     /// the verified destination; absence never promises another device can act.
     public var approvalId: String?
+    /// Question only: the pending question's own id, so an answer sent from the
+    /// wrist binds to *this* question rather than to whatever is being asked
+    /// when it lands. Absent for a permission — `approvalId` is that binding —
+    /// and absent in relays that predate the shared action contract.
+    public var pendingId: String?
     public var handling: WaitHandling?
     public var waitingSince: Date
 
@@ -123,6 +128,7 @@ public struct WatchAlert: Codable, Equatable, Sendable, Identifiable {
         request: String? = nil,
         options: [String] = [],
         approvalId: String? = nil,
+        pendingId: String? = nil,
         handling: WaitHandling? = nil,
         waitingSince: Date
     ) {
@@ -135,6 +141,7 @@ public struct WatchAlert: Codable, Equatable, Sendable, Identifiable {
         self.request = request
         self.options = options
         self.approvalId = approvalId
+        self.pendingId = pendingId
         self.handling = handling
         self.waitingSince = waitingSince
     }
@@ -143,6 +150,14 @@ public struct WatchAlert: Codable, Equatable, Sendable, Identifiable {
     public var isDecidable: Bool {
         handling == .watchApproval && waitKind == .permission && agent != .grokBot
             && approvalId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
+
+    /// Whether a question on this alert could be answered remotely at all. The
+    /// wrist's input for it is ticket 03; the rule lives here so the projection
+    /// and the iPhone's gate cannot disagree about which questions qualify.
+    public var isAnswerable: Bool {
+        handling == .remoteAvailable && waitKind == .question
+            && pendingId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }
 
     public func waitedFor(now: Date) -> TimeInterval {
@@ -162,6 +177,13 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
     /// The three buckets the Watch renders. The wrist has room for three lines,
     /// and this is the split the prototype validated.
     public var sourceID: String?
+    /// The paired Mac's own name, as the pairing QR carried it. Present so a
+    /// send from the wrist can name where it is going — "My Mac · docs-review ·
+    /// Codex" rather than a generic "Mac" — which is the point of a
+    /// confirmation page for someone with more than one Mac. It is a label, not
+    /// an address: no host, no port and no token ever cross to the Watch.
+    /// Absent in relays that predate the wrist being able to send anything.
+    public var macName: String?
     public var pairingEpoch: String?
     /// Persistent iPhone publication order; never derived from the Mac clock.
     public var relayRevision: UInt64
@@ -176,6 +198,14 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
     /// the home screen.
     public var alerts: [WatchAlert]
     public var quotas: [ProviderQuota]
+    /// The phone's notification switches, mirrored so the wrist's own haptics
+    /// obey them (`WatchHaptics`). Optional: a relay from a build that predates
+    /// this reads as the phone default. The Watch has no settings of its own —
+    /// one notification switch, honoured on both devices.
+    public var categories: NotificationCategoryPrefs?
+    /// The phone's Quiet settings, relayed as settings rather than as a verdict
+    /// so the Watch can decide against its own clock.
+    public var quiet: WatchQuietSettings?
     public var relay: WatchRelayState
     /// When the backing state was observed (the live phone relay passes the Mac snapshot time).
     public var observedAt: Date
@@ -184,6 +214,7 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
 
     public init(
         sourceID: String? = nil,
+        macName: String? = nil,
         pairingEpoch: String? = nil,
         relayRevision: UInt64 = 0,
         followedTasks: [WatchFollowedTask] = [],
@@ -191,11 +222,14 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
         presentation: TaskPresentationSummary = TaskPresentationSummary(),
         alerts: [WatchAlert] = [],
         quotas: [ProviderQuota] = [],
+        categories: NotificationCategoryPrefs? = nil,
+        quiet: WatchQuietSettings? = nil,
         relay: WatchRelayState,
         observedAt: Date,
         isDemo: Bool = false
     ) {
         self.sourceID = sourceID
+        self.macName = macName
         self.pairingEpoch = pairingEpoch
         self.relayRevision = relayRevision
         self.followedTasks = followedTasks
@@ -203,6 +237,8 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
         self.presentation = presentation
         self.alerts = alerts
         self.quotas = quotas
+        self.categories = categories
+        self.quiet = quiet
         self.relay = relay
         self.observedAt = observedAt
         self.isDemo = isDemo
@@ -262,6 +298,46 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
         resolved.counts.working += 1
         resolved.presentation.requiresInput = max(0, presentation.requiresInput - 1)
         resolved.presentation.thinking += 1
+        return resolved
+    }
+
+    /// Demo Stop mirrors the Mac's acknowledged user stop, without error or unread completion.
+    public func resolvingStop(_ sessionID: String) -> WatchDashboardState {
+        guard let index = followedTasks.firstIndex(where: {
+            $0.sessionID == sessionID && $0.stop?.isOffered == true
+        }) else { return self }
+        var resolved = self
+        resolved.followedTasks[index].stop = nil
+        resolved.followedTasks[index].presentation = .idle
+        // The Mac's own wording for an interrupted turn, verbatim: a summary is
+        // data the Mac wrote, not copy this app translates.
+        resolved.followedTasks[index].summary = "Turn interrupted"
+        resolved.counts.working = max(0, counts.working - 1)
+        resolved.counts.done += 1
+        resolved.presentation.thinking = max(0, presentation.thinking - 1)
+        resolved.presentation.idle += 1
+        return resolved
+    }
+
+    /// Demo Mode only: what a later Mac snapshot would say once this answer
+    /// reached the agent. The question is gone and the session is running
+    /// again, which is exactly what makes the reply's card disappear — the
+    /// world changed, not the button.
+    public func resolvingAnswer(_ pendingId: String) -> WatchDashboardState {
+        guard let index = alerts.firstIndex(where: { $0.isAnswerable && $0.pendingId == pendingId })
+        else { return self }
+        var resolved = self
+        let sessionId = resolved.alerts[index].sessionId
+        resolved.alerts.remove(at: index)
+        resolved.counts.needsResponse = max(0, counts.needsResponse - 1)
+        resolved.counts.working += 1
+        resolved.presentation.requiresInput = max(0, presentation.requiresInput - 1)
+        resolved.presentation.thinking += 1
+        if let task = resolved.followedTasks.firstIndex(where: { $0.sessionID == sessionId }) {
+            resolved.followedTasks[task].presentation = .thinking
+            resolved.followedTasks[task].waitKind = nil
+            resolved.followedTasks[task].pendingID = nil
+        }
         return resolved
     }
 
@@ -335,6 +411,12 @@ public enum WatchDashboardProjection {
             // never decidable here, and neither is an approval whose real detail
             // stayed on the iPhone.
             approvalId: WatchApprovalEligibility.approvalId(for: session),
+            // Only for a question one string can finish. A multi-part or
+            // multi-select wait keeps `handling` (the iPhone can answer it) and
+            // loses the identity, because the wrist has no identity here it
+            // could act on: it would answer one question out of three.
+            pendingId: waitKind == .question
+                ? session.pendingQuestion.flatMap { $0.isSinglePart ? $0.id : nil } : nil,
             handling: WatchApprovalEligibility.approvalId(for: session) != nil
                 ? .watchApproval : WaitHandling.resolve(for: session),
             waitingSince: session.statusSince

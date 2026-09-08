@@ -12,10 +12,10 @@ protocol WatchStateTransport: AnyObject {
     var isAvailable: Bool { get }
     /// Called when the transport becomes able to deliver after refusing.
     var onReady: (() -> Void)? { get set }
-    /// A decision the Watch asked for. The handler answers with what actually
-    /// happened, and the transport hands that straight back to the wrist — the
-    /// Watch never assumes a tap landed.
-    var onApprovalRequest: ((WatchApprovalRequest) async -> WatchApprovalResult)? { get set }
+    /// An action the Watch asked for — approve, answer, or stop. The handler
+    /// answers with what actually happened, and the transport hands that
+    /// straight back to the wrist — the Watch never assumes a tap landed.
+    var onSessionAction: ((WatchSessionActionRequest) async -> WatchSessionActionResult)? { get set }
     var onCompletionRequest: ((WatchCompletionRequest) async -> WatchCompletionResult)? { get set }
     var onWaitReadRequest: ((WatchWaitReadRequest) async -> Bool)? { get set }
     /// Hand over the newest state, replacing any earlier one the Watch has not
@@ -39,12 +39,12 @@ final class WatchRelay {
     /// The newest value the transport could not take, retried when it can.
     private(set) var pending: WatchDashboardState?
 
-    /// Who decides a Watch tap. The relay owns the only WatchConnectivity
+    /// Who judges a Watch tap. The relay owns the only WatchConnectivity
     /// session on this device, so the door in goes through the same object as
-    /// the door out; the deciding itself belongs to the store.
-    var onApprovalRequest: ((WatchApprovalRequest) async -> WatchApprovalResult)? {
-        get { transport.onApprovalRequest }
-        set { transport.onApprovalRequest = newValue }
+    /// the door out; the judging itself belongs to the store.
+    var onSessionAction: ((WatchSessionActionRequest) async -> WatchSessionActionResult)? {
+        get { transport.onSessionAction }
+        set { transport.onSessionAction = newValue }
     }
 
     var onCompletionRequest: ((WatchCompletionRequest) async -> WatchCompletionResult)? {
@@ -116,7 +116,7 @@ final class WatchRelay {
 @MainActor
 final class WatchConnectivityTransport: NSObject, WatchStateTransport {
     var onReady: (() -> Void)?
-    var onApprovalRequest: ((WatchApprovalRequest) async -> WatchApprovalResult)?
+    var onSessionAction: ((WatchSessionActionRequest) async -> WatchSessionActionResult)?
     var onCompletionRequest: ((WatchCompletionRequest) async -> WatchCompletionResult)?
 
     var onWaitReadRequest: ((WatchWaitReadRequest) async -> Bool)?
@@ -148,27 +148,45 @@ final class WatchConnectivityTransport: NSObject, WatchStateTransport {
         try session.updateApplicationContext([WatchStateInbox.contextKey: payload])
     }
 
-    /// Answer one approval message from the wrist. The reply is sent only after
-    /// the decision has actually been attempted, so `accepted` on the Watch
-    /// means the Mac took it rather than that the radio worked.
-    fileprivate nonisolated func handle(approval payload: Data?,
+    /// Answer one action message from the wrist. The reply is sent only after
+    /// the action has actually been attempted, so `accepted` on the Watch means
+    /// the Mac took it rather than that the radio worked.
+    ///
+    /// `legacy` is the approval-only vocabulary an older watchOS build still
+    /// speaks — a Watch app updates on its own schedule, and its Approve button
+    /// keeps working through that window by being answered in its own words.
+    fileprivate nonisolated func handle(action payload: Data?, legacy: Bool,
                                         reply: @escaping @Sendable ([String: Any]) -> Void) {
-        // An unreadable payload names no attempt, so there is nothing to answer
-        // about. Refuse rather than guess which prompt it meant.
-        guard let payload,
-              let request = try? JSONDecoder().decode(WatchApprovalRequest.self, from: payload)
-        else {
-            reply([WatchApprovalResult.messageKey: Data()])
-            return
+        let replyKey = legacy ? WatchApprovalResult.messageKey : WatchSessionActionResult.messageKey
+        func send(_ result: WatchSessionActionResult?) {
+            let encoded: Data?
+            if let result {
+                encoded = legacy ? try? JSONEncoder().encode(WatchApprovalResult(result))
+                                 : try? JSONEncoder().encode(result)
+            } else {
+                encoded = nil
+            }
+            reply([replyKey: encoded ?? Data()])
         }
+        // An unreadable payload names no attempt, so there is nothing to answer
+        // about. Refuse rather than guess what it meant.
+        let request: WatchSessionActionRequest?
+        if let payload, legacy {
+            request = (try? JSONDecoder().decode(WatchApprovalRequest.self, from: payload))?.sessionAction
+        } else if let payload {
+            request = try? JSONDecoder().decode(WatchSessionActionRequest.self, from: payload)
+        } else {
+            request = nil
+        }
+        guard let request else { send(nil); return }
         Task { @MainActor [weak self] in
-            let result: WatchApprovalResult
-            if let handler = self?.onApprovalRequest {
+            let result: WatchSessionActionResult
+            if let handler = self?.onSessionAction {
                 result = await handler(request)
             } else {
-                result = WatchApprovalResult(attemptId: request.attemptId, outcome: .failed)
+                result = WatchSessionActionResult(attemptId: request.attemptId, outcome: .failed)
             }
-            reply([WatchApprovalResult.messageKey: (try? JSONEncoder().encode(result)) ?? Data()])
+            send(result)
         }
     }
 
@@ -235,14 +253,17 @@ extension WatchConnectivityTransport: WCSessionDelegate {
                              replyHandler: @escaping ([String: Any]) -> Void) {
         // Only the payload crosses the actor boundary: `[String: Any]` is not
         // Sendable, and nothing else in the message is ours.
-        let payload = message[WatchApprovalRequest.messageKey] as? Data
+        let action = message[WatchSessionActionRequest.messageKey] as? Data
+        let legacy = message[WatchApprovalRequest.messageKey] as? Data
         let reply = UncheckedSendable(replyHandler)
         if let wait = message[WatchWaitReadRequest.messageKey] as? Data {
             handle(waitRead: wait) { reply.value($0) }
         } else if let completion = message[WatchCompletionRequest.messageKey] as? Data {
             handle(completion: completion) { reply.value($0) }
+        } else if let action {
+            handle(action: action, legacy: false) { reply.value($0) }
         } else {
-            handle(approval: payload) { reply.value($0) }
+            handle(action: legacy, legacy: true) { reply.value($0) }
         }
     }
 }

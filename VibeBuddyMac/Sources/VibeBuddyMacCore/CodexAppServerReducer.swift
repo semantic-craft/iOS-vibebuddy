@@ -27,6 +27,9 @@ public struct CodexAppServerReducer: Sendable, Equatable {
 
     public private(set) var threads: [String: ThreadFacts] = [:]
     private var tokenUpdateCount = 0
+    // Late tool completions cannot reopen a thread already observed idle/ended.
+    private var inactiveThreads: Set<String> = []
+    private var endedTurns: [String: Set<String>] = [:]
     private struct FinalItem: Sendable, Equatable { let turnID: String; let text: String }
     private var finalItems: [String: FinalItem] = [:]
     private struct Ending: Sendable, Equatable { let turnID: String; let at: Date }
@@ -48,6 +51,7 @@ public struct CodexAppServerReducer: Sendable, Equatable {
             facts.branch = branch
         }
         let status = thread["status"] as? [String: Any]
+        recordActivity(threadID: id, status: status?["type"] as? String)
         facts.loaded = (status?["type"] as? String).map { $0 != "notLoaded" } ?? false
         if (status?["type"] as? String) == "idle" { facts.activeTurnID = nil }
         threads[id] = facts
@@ -69,6 +73,7 @@ public struct CodexAppServerReducer: Sendable, Equatable {
             return seed(thread: thread, receivedAt: receivedAt)
         case "thread/status/changed":
             guard let id = params["threadId"] as? String, let status = params["status"] as? [String: Any] else { return [] }
+            recordActivity(threadID: id, status: status["type"] as? String)
             var facts = threads[id] ?? ThreadFacts(cwd: nil, isDesktop: false, branch: nil, model: nil, loaded: false, activeTurnID: nil)
             facts.loaded = (status["type"] as? String) != "notLoaded"
             if (status["type"] as? String) == "idle" { facts.activeTurnID = nil }
@@ -78,20 +83,21 @@ public struct CodexAppServerReducer: Sendable, Equatable {
         case "turn/started":
             guard let id = params["threadId"] as? String else { return [] }
             let turn = params["turn"] as? [String: Any]
+            inactiveThreads.remove(id)
             finalItems[id] = nil
             endings[id] = nil
-            if let turnID = turn?["id"] as? String {
-                var facts = threads[id] ?? ThreadFacts(cwd: nil, isDesktop: false, branch: nil, model: nil, loaded: true, activeTurnID: nil)
-                facts.activeTurnID = turnID
-                facts.loaded = true
-                threads[id] = facts
-            }
+            var facts = threads[id] ?? ThreadFacts(cwd: nil, isDesktop: false, branch: nil, model: nil, loaded: true, activeTurnID: nil)
+            facts.activeTurnID = turn?["id"] as? String
+            facts.loaded = true
+            threads[id] = facts
             return [event(.userPromptSubmit, threadID: id, receivedAt: receivedAt,
                           turnID: turn?["id"] as? String)]
         case "turn/completed":
             guard let id = params["threadId"] as? String else { return [] }
+            inactiveThreads.insert(id)
             threads[id]?.activeTurnID = nil
             let turn = params["turn"] as? [String: Any] ?? [:]
+            if let turnID = turn["id"] as? String { endedTurns[id, default: []].insert(turnID) }
             let status = turn["status"] as? String ?? "completed"
             if turn["status"] as? String == "completed", let turnID = turn["id"] as? String {
                 if endings[id]?.turnID != turnID { endings[id] = Ending(turnID: turnID, at: receivedAt) }
@@ -129,6 +135,10 @@ public struct CodexAppServerReducer: Sendable, Equatable {
             guard let id = params["threadId"] as? String,
                   let item = params["item"] as? [String: Any],
                   let tool = Self.toolName(for: item) else { return [] }
+            if let itemTurn = params["turnId"] as? String {
+                guard endedTurns[id]?.contains(itemTurn) != true else { return [] }
+                if let active = threads[id]?.activeTurnID, itemTurn != active { return [] }
+            } else if inactiveThreads.contains(id) { return [] }
             if method == "item/started" {
                 return [event(.preToolUse, threadID: id, receivedAt: receivedAt, toolName: tool,
                               turnID: params["turnId"] as? String)]
@@ -153,19 +163,25 @@ public struct CodexAppServerReducer: Sendable, Equatable {
             return [event(.sessionMetadataChanged, threadID: id, receivedAt: receivedAt, enrichment: info)]
         case "thread/deleted", "thread/archived":
             // Gone from the daemon's list: the row goes with it.
-            guard let id = params["threadId"] as? String, threads.removeValue(forKey: id) != nil else { return [] }
+            guard let id = params["threadId"] as? String else { return [] }
+            inactiveThreads.remove(id)
+            endedTurns[id] = nil
+            guard threads.removeValue(forKey: id) != nil else { return [] }
             finalItems[id] = nil
             endings[id] = nil
+            inactiveThreads.remove(id)
             return [event(.sessionEnd, threadID: id, receivedAt: receivedAt)]
         case "thread/closed":
             // Unloaded from memory (no subscribers, idle) — the session is not
             // over, only quiet. Later notifications re-seed it.
-            if let id = params["threadId"] as? String { threads[id]?.loaded = false; finalItems[id] = nil; endings[id] = nil }
+            if let id = params["threadId"] as? String { recordActivity(threadID: id, status: "notLoaded"); threads[id]?.loaded = false; finalItems[id] = nil; endings[id] = nil }
             return []
         case "error":
             guard let id = params["threadId"] as? String,
                   params["willRetry"] as? Bool != true else { return [] }
             let detail = (params["error"] as? [String: Any])?["message"] as? String
+            recordActivity(threadID: id, status: "systemError")
+            if let turnID = params["turnId"] as? String { endedTurns[id, default: []].insert(turnID) }
             endings[id] = nil
             finalItems[id] = nil
             return [event(.stop, threadID: id, receivedAt: receivedAt,
@@ -180,6 +196,18 @@ public struct CodexAppServerReducer: Sendable, Equatable {
     public static func serverRequestMethod(_ message: [String: Any]) -> String? {
         guard message["id"] != nil, let method = message["method"] as? String else { return nil }
         return method
+    }
+
+    private mutating func recordActivity(threadID: String, status: String?) {
+        switch status {
+        case "active": inactiveThreads.remove(threadID)
+        case "idle", "notLoaded", "systemError":
+            inactiveThreads.insert(threadID)
+            if let turnID = threads[threadID]?.activeTurnID {
+                endedTurns[threadID, default: []].insert(turnID)
+            }
+        default: break
+        }
     }
 
     // MARK: - Mapping

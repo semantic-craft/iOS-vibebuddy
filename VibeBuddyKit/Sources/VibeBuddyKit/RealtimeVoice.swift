@@ -1,5 +1,26 @@
 import Foundation
 
+/// Provider identity of one assistant audio content part.
+public struct VoiceAudioItem: Hashable, Sendable {
+    public let id: String
+    public let contentIndex: Int
+    public init(id: String, contentIndex: Int) {
+        self.id = id
+        self.contentIndex = contentIndex
+    }
+}
+
+/// Conservative audible checkpoint: completed playback buffers only, never
+/// generated/queued bytes. A partially played buffer may be repeated, not assumed heard.
+public struct VoicePlaybackCheckpoint: Sendable {
+    public let item: VoiceAudioItem
+    public let audioEndMilliseconds: Int
+    public init(item: VoiceAudioItem, audioEndMilliseconds: Int) {
+        self.item = item
+        self.audioEndMilliseconds = audioEndMilliseconds
+    }
+}
+
 /// A provider-agnostic event from a real-time speech-to-speech session. Qwen,
 /// Gemini Live, and OpenAI Realtime all map onto this, so the audio/UI layer
 /// stays the same and providers are swappable.
@@ -7,9 +28,10 @@ public enum RealtimeVoiceEvent: Sendable {
     case connected
     case userTranscript(text: String, final: Bool)       // what the user said
     case assistantTranscript(text: String, final: Bool)  // what the model says
-    case audioDelta(Data)                                 // PCM 24 kHz mono 16-bit, to play
+    case audioDelta(Data, item: VoiceAudioItem? = nil)                                 // PCM 24 kHz mono 16-bit, to play
     case speechStarted                                    // server VAD: user started talking → barge-in
     case responseDone
+    case toolCallsCancelled([String])
     case toolCall(name: String, arguments: String, callID: String)  // model wants to run a function tool
     case failed(String)
     case closed
@@ -27,8 +49,33 @@ public protocol RealtimeVoiceProvider: Actor {
     /// speak a confirmation). `name` is required by some providers (Gemini); the
     /// OpenAI-style providers correlate on `callID` alone.
     func sendToolResult(callID: String, name: String, result: String)
+    /// Synchronize any discarded playback with providers that keep audio history.
+    func truncatePlayback(_ checkpoints: [VoicePlaybackCheckpoint])
     /// Tear the session down.
-    func close()
+    func close() async
+}
+
+/// The socket remains ordered, but cancellation can leave old response packets
+/// in flight. Filter by response identity, never by a global "ignore audio" flag
+/// that might also swallow the next valid turn (including function calls).
+struct RealtimeResponseFilter {
+    private var currentID: String?
+    private var interruptedIDs: Set<String> = []
+
+    mutating func accept(_ event: [String: Any]) -> Bool {
+        let type = event["type"] as? String ?? ""
+        if type == "input_audio_buffer.speech_started" {
+            if let currentID { interruptedIDs.insert(currentID) }
+            return true
+        }
+        let id = event["response_id"] as? String
+            ?? (event["response"] as? [String: Any])?["id"] as? String
+        if type.hasPrefix("response."), let id {
+            guard !interruptedIDs.contains(id) else { return false }
+            currentID = id
+        }
+        return true
+    }
 }
 
 /// Alibaba Bailian / DashScope **Qwen-Audio 3.0 Realtime** over its
@@ -45,6 +92,7 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
     private var task: URLSessionWebSocketTask?
     private var continuation: AsyncStream<RealtimeVoiceEvent>.Continuation?
     private var tools: [VoiceTool] = []
+    private var responseFilter = RealtimeResponseFilter()
     private var ready = false
     private var connectionTimeout: Task<Void, Never>?
     private var instructions = ""
@@ -152,6 +200,10 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
         send(["type": "response.create"])
     }
 
+    // Qwen smart_turn handles server interruption; its current API does not
+    // expose conversation.item.truncate.
+    public func truncatePlayback(_ checkpoints: [VoicePlaybackCheckpoint]) {}
+
     public func close() {
         ready = false
         connectionTimeout?.cancel()
@@ -210,6 +262,7 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
         guard let data = text.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = obj["type"] as? String else { return }
+        guard responseFilter.accept(obj) else { return }
         switch type {
         case "session.created":
             configureSession(instructions: instructions, voice: voice)

@@ -16,12 +16,16 @@ struct WatchHomeView: View {
                 VStack(spacing: 12) {
                     WatchConnectionBanner(connection: connection)
                     if let alert = state.topAlert {
+                        // An open task or quota sheet covers this card, so it
+                        // stops being the one a Double Tap should resolve.
                         WatchAlertCard(store: store, alert: alert, now: now,
-                                       alsoWaiting: state.alerts.count - 1)
+                                       alsoWaiting: state.alerts.count - 1,
+                                       isFrontmost: store.taskLink == nil && store.quotaSelection == nil)
                     } else {
                         WatchCalmHeader(state: state, connection: connection)
                     }
                     WatchCountsRow(counts: state.counts, stuck: state.stuck)
+                    followedTasks
                     WatchQuotaStrips(state: state, now: now)
                     WatchFooter(state: state, connection: connection, now: now)
                 }
@@ -30,6 +34,34 @@ struct WatchHomeView: View {
                 .padding(.bottom, 14)
             }
             .navigationTitle("vibebuddy")
+        }
+    }
+
+    @ViewBuilder
+    private var followedTasks: some View {
+        if let source = state.sourceID, !source.isEmpty,
+           let epoch = state.pairingEpoch, !epoch.isEmpty,
+           !state.followedTasks.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Followed tasks").font(.caption).foregroundStyle(.secondary)
+                ForEach(state.followedTasks) { task in
+                    Button {
+                        store.openTask(WatchTaskLink(sourceID: source, pairingEpoch: epoch,
+                            sessionID: task.sessionID, completionID: task.completionID).url)
+                    } label: {
+                        HStack {
+                            Image(systemName: task.presentation.symbolName)
+                            Text(task.title.isEmpty ? String(localized: "Unnamed task") : task.title)
+                                .lineLimit(2)
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right").font(.caption2)
+                        }
+                        .font(.caption)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
         }
     }
 }

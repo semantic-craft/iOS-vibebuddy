@@ -123,7 +123,7 @@ final class DashboardStore: ObservableObject {
     /// Judges taps that arrive from the wrist against the sessions this phone
     /// actually holds. The Watch's screen is a memory of a snapshot; this is the
     /// only copy that was ever authenticated.
-    private var watchApprovals = WatchApprovalGate()
+    private var watchActions = WatchSessionActionGate()
     /// Tells the Mac who this phone is and how to push to it. Run once per
     /// connection attempt, not once per launch: the Mac's device registry is
     /// repaired by the next reconnection after a Mac restart, without the user
@@ -160,51 +160,138 @@ final class DashboardStore: ObservableObject {
             return await self.acknowledgeFromWatch(request)
         }
         // The wrist's only way to act. It asks; this decides.
-        watchRelay?.onApprovalRequest = { [weak self] request in
+        watchRelay?.onSessionAction = { [weak self] request in
             guard let self else {
-                return WatchApprovalResult(attemptId: request.attemptId, outcome: .failed)
+                return WatchSessionActionResult(attemptId: request.attemptId, outcome: .failed)
             }
-            return await self.decideFromWatch(request)
+            return await self.actFromWatch(request)
         }
     }
 
-    /// Act on a one-shot decision the Watch asked for, and say what happened.
+    /// Act on one thing the Watch asked for — approve, answer, or stop — and
+    /// say what happened.
     ///
-    /// Everything the Watch sent is re-checked here: the session must still be
-    /// waiting, the approval id must still be the pending one, and the detail
-    /// must still be the kind a wrist may decide on. The Watch cannot express
-    /// `alwaysAllow` or `allowSession` at all — `WatchApprovalChoice` has two
-    /// cases — so no payload from the wrist can persist a permission rule
-    /// (ADR-0010).
-    func decideFromWatch(_ request: WatchApprovalRequest) async -> WatchApprovalResult {
-        func result(_ outcome: WatchApprovalOutcome) -> WatchApprovalResult {
-            WatchApprovalResult(attemptId: request.attemptId, outcome: outcome)
+    /// Everything the Watch sent is re-checked twice: once against the sessions
+    /// this phone already holds, and again against a snapshot fetched from the
+    /// Mac's own authority right before the action goes out. The Watch's screen
+    /// is a memory, and both re-checks exist so a tap made against that memory
+    /// cannot act on a world that has moved — an approval that already
+    /// resolved, a question that was answered on the Mac, a turn that ended and
+    /// was replaced by the next one.
+    ///
+    /// The Watch cannot express `alwaysAllow` or `allowSession` at all —
+    /// `WatchApprovalChoice` has two cases — so no payload from the wrist can
+    /// persist a permission rule (ADR-0010).
+    func actFromWatch(_ request: WatchSessionActionRequest) async -> WatchSessionActionResult {
+        func result(_ outcome: WatchSessionActionOutcome) -> WatchSessionActionResult {
+            WatchSessionActionResult(attemptId: request.attemptId, outcome: outcome)
         }
         guard isDemo || state == .connected else { return result(.failed) }
-        switch watchApprovals.admit(request, sessions: allSessions) {
+        let admitted = watchActions.admit(request, sessions: allSessions)
+        switch admitted {
         case .duplicate:
             // The same tap, twice. It already landed; do not send it again.
             return result(.accepted)
         case .refused:
             return result(.refused)
-        case .send(let approvalId, let decision):
-            if isDemo {
-                guard decideDemo(approvalId) == .received else { return result(.refused) }
-                watchApprovals.commit(request.attemptId)
-                return result(.accepted)
+        case .decide, .answer, .stop:
+            break
+        }
+        if isDemo {
+            guard resolveWatchActionInDemo(admitted, sessionId: request.sessionId) else {
+                return result(.refused)
             }
-            guard let pairing else { return result(.failed) }
-            let epoch = pairingEpoch
-            let generation = connectionGeneration
-            guard let snapshot = await decisionClient.actionSnapshot(pairing) else { return result(.failed) }
-            guard epoch == pairingEpoch, generation == connectionGeneration, state == .connected, snapshot.sourceID == sourceID,
-                  case .send = watchApprovals.admit(request, sessions: snapshot.sessions)
-            else { return result(.refused) }
-            guard await decisionClient.decide(pairing, approvalId: approvalId, decision: decision)
-            else { return result(.failed) }
-            watchApprovals.commit(request.attemptId)
+            watchActions.commit(request.attemptId)
             return result(.accepted)
         }
+        guard let pairing else { return result(.failed) }
+        let epoch = pairingEpoch
+        let generation = connectionGeneration
+        guard let snapshot = await decisionClient.actionSnapshot(pairing) else { return result(.failed) }
+        // The Mac's own copy, read just now, is what the action is judged on —
+        // and it has to be the same Mac, the same pairing and the same live
+        // connection this phone was showing when the tap arrived.
+        guard epoch == pairingEpoch, generation == connectionGeneration, state == .connected,
+              snapshot.sourceID == sourceID,
+              let current = snapshot.sessions.first(where: { $0.id == request.sessionId })
+        else { return result(.refused) }
+        let revalidated = watchActions.admit(request, sessions: snapshot.sessions)
+        switch revalidated {
+        case .decide(let approvalId, let decision):
+            guard await decisionClient.decide(pairing, approvalId: approvalId, decision: decision)
+            else { return result(.failed) }
+        case .answer(_, let text):
+            // Three different answers, because they mean three different things
+            // on a wrist. `.expired` is the Mac saying this question is gone —
+            // the same thing `refused` says for a stop, and the opposite of
+            // "try again". `.unconfirmed` is a reply that never came back to a
+            // request the Mac may well have carried out, which is the one case
+            // where claiming it did not send would be a lie.
+            switch await decisionClient.phoneAnswer(pairing, session: current, text: text,
+                                                    answers: nil, requestID: request.attemptId) {
+            case .received: break
+            case .expired: return result(.refused)
+            case .unconfirmed: return result(.unknown)
+            default: return result(.failed)
+            }
+        case .stop:
+            // `refused` and `failed` are both a 409 on the wire and they mean
+            // opposite things on a wrist: one says look at the task, the other
+            // says the tap can be made again. Keep them apart.
+            switch await decisionClient.phoneStop(pairing, session: current,
+                                                  requestID: request.attemptId) {
+            case .accepted: break
+            case .refused: return result(.refused)
+            case .unconfirmed: return result(.unknown)
+            case .failed: return result(.failed)
+            }
+        case .duplicate:
+            // Two copies of one tap raced past the first gate; the other copy
+            // committed it. It landed — saying "no longer running" here would
+            // send the user to look at a task that is being stopped.
+            return result(.accepted)
+        case .refused:
+            return result(.refused)
+        }
+        watchActions.commit(request.attemptId)
+        return result(.accepted)
+    }
+
+    /// Demo Mode resolves the sample locally, so the wrist can rehearse the
+    /// whole flow without a Mac. The sample then travels the same relay as real
+    /// data: the button goes away because the next state says the world
+    /// changed, not because a button was tapped.
+    private func resolveWatchActionInDemo(_ admitted: WatchSessionActionGate.Resolution,
+                                          sessionId: String) -> Bool {
+        switch admitted {
+        case .decide(let approvalId, _):
+            return decideDemo(approvalId) == .received
+        case .answer(_, let text):
+            return answerDemo(sessionId, text: text)
+        case .stop:
+            return stopDemo(sessionId)
+        case .duplicate, .refused:
+            return false
+        }
+    }
+
+    /// Demo Stop mirrors an acknowledged user stop: done, without error or unread completion.
+    private func stopDemo(_ sessionId: String) -> Bool {
+        guard let session = allSessions.first(where: { $0.id == sessionId }),
+              SessionActionSupport.resolveStop(for: session).isAvailable else { return false }
+        install(allSessions.map { original in
+            guard original.id == sessionId else { return original }
+            var stopped = original
+            stopped.status = .done
+            stopped.failed = false
+            stopped.userStopped = true
+            stopped.hasUnreadCompletion = false
+            stopped.completionID = nil
+            stopped.summary = "Turn interrupted"
+            stopped.statusSince = Date()
+            return stopped
+        })
+        return true
     }
 
     func acknowledgeWaitFromWatch(_ message: WatchWaitReadRequest) async -> Bool {
@@ -354,7 +441,15 @@ final class DashboardStore: ObservableObject {
             now: lastServerTime,
             isDemo: isDemo)
         projection.pairingEpoch = pairingEpoch
+        // The Mac's own name, so a send from the wrist can say where it is
+        // going. A label only — the host, port and token stay on this phone.
+        projection.macName = pairing?.macName
         projection.relayRevision = ConnectionStore.nextRelayRevision()
+        // The wrist plays its own haptics off this state, so it needs the same
+        // switches this phone obeys. Quiet travels as settings, not as a
+        // verdict: the Watch decides against its own clock.
+        projection.categories = SoundPrefs.categories
+        projection.quiet = WatchQuietSettings(manual: SoundPrefs.manualQuiet, hours: SoundPrefs.quietHours)
         watchRelay.publish(projection)
     }
 
@@ -436,6 +531,21 @@ final class DashboardStore: ObservableObject {
         }
     }
 
+    @discardableResult
+    private func answerDemo(_ sessionId: String, text: String) -> Bool {
+        guard allSessions.contains(where: { $0.id == sessionId }) else { return false }
+        install(allSessions.map { original in
+            guard original.id == sessionId else { return original }
+            var answered = original
+            answered.pendingQuestion = nil
+            answered.waitKind = nil
+            answered.status = .working
+            answered.summary = "Answered from phone: \(text)"
+            return answered
+        })
+        return true
+    }
+
     private func decideDemo(_ approvalId: String) -> PhoneActionResult {
         guard let session = allSessions.first(where: { $0.pendingApproval?.id == approvalId }),
               ApprovalEligibility.approval(for: session) != nil else { return .expired }
@@ -470,13 +580,8 @@ final class DashboardStore: ObservableObject {
             return .expired
         }
         if isDemo {
-            install(allSessions.map { original in
-                guard original.id == sessionId else { return original }
-                var s = original; s.pendingQuestion = nil; s.waitKind = nil; s.status = .working
-                s.summary = "Answered from phone: \(text ?? answers?.values.flatMap { $0 }.joined(separator: ", ") ?? "")"
-                return s
-            })
-            return .received
+            let spoken = text ?? answers?.values.flatMap { $0 }.joined(separator: ", ") ?? ""
+            return answerDemo(sessionId, text: spoken) ? .received : .expired
         }
         return await sendPhoneAction(session) { pairing, current in
             await self.decisionClient.phoneAnswer(pairing, session: current, text: text, answers: answers)
@@ -510,10 +615,17 @@ final class DashboardStore: ObservableObject {
                 summary: "Run the index writer tests",
                 tokens: 900, contextTokens: 22_000, contextWindow: 200_000,
                 statusSince: now.addingTimeInterval(-18), updatedAt: now.addingTimeInterval(-18)),
+            // Followed, Codex, and carried by the app-server connection: the one
+            // shape a running turn can be ended remotely in, so the Watch's
+            // Stop is rehearsable against sample data too.
             AgentSession(
                 id: "demo-work", agent: .codex, project: "ios-vibebuddy", branch: "main",
                 model: "gpt-5-codex", status: .working, summary: "Running the test suite…",
                 tokens: 1500, contextTokens: 64_000, contextWindow: 200_000,
+                observations: [ObservationEvidence(source: .appserver,
+                                                   lastObservedAt: now.addingTimeInterval(-8),
+                                                   health: .healthy)],
+                attention: .followed,
                 statusSince: now.addingTimeInterval(-8), updatedAt: now.addingTimeInterval(-8)),
             AgentSession(
                 id: "demo-subagents", agent: .claudeCode, project: "web-dashboard", branch: "feat/auth",

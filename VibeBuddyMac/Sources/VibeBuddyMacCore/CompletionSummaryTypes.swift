@@ -34,7 +34,7 @@ public struct CompletionSummaryIdentity: Hashable, Sendable {
 
 /// Safe for diagnostics: never includes provider error bodies, URLs, credentials or input text.
 public enum CompletionSummaryFailure: String, Error, Sendable, Equatable {
-    case disabled, missingModel, invalidModel, invalidWorkspace, missingKey
+    case disabled, missingProvider, missingModel, invalidModel, invalidWorkspace, missingKey
     case invalidInput, resultTooLong, duplicate, expired, cancelled
     case network, unauthorized, rateLimited, httpError, invalidResponse, incompleteOutput
     case emptyOutput, outputTooLong, invalidOutput

@@ -103,3 +103,92 @@ struct CodexDispatchTests {
         #expect(await store.snapshot(now: Date()).sessions.first { $0.id == "thr-new" }?.project == "one")
     }
 }
+
+/// The wrist's stop, end to end inside the daemon: `/answer` → `AnswerDispatch`
+/// → the app-server connection, with the HTTP result the phone reads.
+@Suite("Stop route")
+struct StopRouteTests {
+    private struct Harness {
+        let connection: FakeConnection
+        let store = SessionStore()
+        let monitor: CodexAppServerMonitor
+        let socket: URL
+        let run: Task<Void, Never>
+
+        init() {
+            socket = FileManager.default.temporaryDirectory.appendingPathComponent("vb-sock-\(UUID().uuidString)")
+            FileManager.default.createFile(atPath: socket.path, contents: Data())
+            var results = fakeDaemonResults()
+            results["turn/interrupt"] = [:]
+            connection = FakeConnection(results: results)
+            monitor = CodexAppServerMonitor(enabled: true, socketPath: socket.path,
+                                            makeClient: { [connection] _ in connection })
+            let store = self.store
+            let monitor = self.monitor
+            run = Task { await monitor.run(store: store) }
+        }
+
+        func stop() { run.cancel(); connection.close(); try? FileManager.default.removeItem(at: socket) }
+
+        /// A thread that is running a turn this connection saw start.
+        func runningSession(_ id: String, turnID: String) async -> AgentSession? {
+            guard await waitFor({ await monitor.diagnostics().connected }) else { return nil }
+            connection.push(["method": "thread/status/changed",
+                             "params": ["threadId": id, "status": ["type": "active", "activeFlags": []]]])
+            connection.push(["method": "turn/started",
+                             "params": ["threadId": id, "turn": ["id": turnID, "items": [], "status": "inProgress"]]])
+            guard await waitFor({ await monitor.activeTurnID(threadID: id) == turnID }) else { return nil }
+            return await store.snapshot(now: Date()).sessions.first { $0.id == id }
+        }
+    }
+
+    @Test("a stop takes no text, interrupts once for a repeated tap, and separates refused from never-sent")
+    func stopRoute() async throws {
+        let h = Harness()
+        defer { h.stop() }
+        let session = try #require(await h.runningSession("thr-http", turnID: "t-1"))
+        #expect(session.status == .working)
+        let since = session.statusSince.timeIntervalSince1970
+        let srv = VibeBuddyServer(store: h.store, token: "t0k", port: 9876, codexAppServerMonitor: h.monitor)
+        @Sendable func body(_ requestID: String, since: Double) -> String {
+            #"{"sessionId":"thr-http","intent":"stop","requestId":"\#(requestID)","expectedStatusSince":\#(since)}"#
+        }
+        try await srv.buildApplication().test(.router) { client in
+            // No `answer` and no `answers`, which every other intent requires.
+            for _ in 0..<2 {
+                try await client.execute(uri: "/answer", method: .post, headers: [.authorization: "Bearer t0k"],
+                                         body: ByteBuffer(string: body("r-1", since: since))) { res in
+                    #expect(res.status == .ok)
+                    #expect(String(buffer: res.body).contains(#""status":"accepted""#))
+                }
+            }
+            // Aimed at a turn that is no longer the one running.
+            try await client.execute(uri: "/answer", method: .post, headers: [.authorization: "Bearer t0k"],
+                                     body: ByteBuffer(string: body("r-2", since: since + 5))) { res in
+                #expect(res.status == .conflict)
+                #expect(String(buffer: res.body).contains(#""status":"refused""#))
+                #expect(String(buffer: res.body).contains("This task has changed"))
+            }
+            // A stop with something to say is a client bug, not an instruction.
+            try await client.execute(uri: "/answer", method: .post, headers: [.authorization: "Bearer t0k"],
+                                     body: ByteBuffer(string: #"{"sessionId":"thr-http","intent":"stop","requestId":"r-9","answer":"stop please"}"#)) { res in
+                #expect(res.status == .badRequest)
+            }
+        }
+        #expect(h.connection.calls.filter { $0 == "turn/interrupt" }.count == 1)
+
+        // The daemon rejects the call: nothing happened, the client is told
+        // why, and nothing else is tried in its place.
+        h.connection.fail("turn/interrupt")
+        let before = h.connection.calls.count
+        try await srv.buildApplication().test(.router) { client in
+            try await client.execute(uri: "/answer", method: .post, headers: [.authorization: "Bearer t0k"],
+                                     body: ByteBuffer(string: body("r-3", since: since))) { res in
+                #expect(res.status == .conflict)
+                #expect(String(buffer: res.body).contains(#""status":"failed""#))
+                #expect(String(buffer: res.body).contains("Codex refused the stop"))
+            }
+        }
+        #expect(h.connection.calls.dropFirst(before) == ["turn/interrupt"])
+    }
+}

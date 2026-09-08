@@ -5,7 +5,8 @@ public enum DeviceRegistryLocation {
     public static func defaultURL(
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> URL {
-        home.appendingPathComponent("Library/Application Support/vibebuddy/device-registry.json")
+        if let run = E2ERunConfiguration.current { return run.file("device-registry.json") }
+        return home.appendingPathComponent("Library/Application Support/vibebuddy/device-registry.json")
     }
 }
 

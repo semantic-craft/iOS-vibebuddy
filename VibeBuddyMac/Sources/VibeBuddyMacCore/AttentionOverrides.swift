@@ -10,6 +10,7 @@ public struct AttentionOverrides: Sendable, Equatable {
     private let url: URL?
 
     public static func defaultURL() -> URL {
+        if let run = E2ERunConfiguration.current { return run.file("attention.json") }
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
         return base.appendingPathComponent("vibebuddy/attention.json")

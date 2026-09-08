@@ -104,5 +104,63 @@
 "This request can't be verified. Wait for an updated connection and request." = "暂时无法验证此请求。请等待连接和请求更新。";
 "Can't reach your iPhone. Reconnect to verify this request." = "无法连接 iPhone。请恢复连接以验证此请求。";
 "Connection to your Mac is unavailable. Reconnect to verify this request." = "Mac 连接不可用。请恢复连接以验证此请求。";
+
+/* Stop availability (SessionActionSupport.resolveStop) */
+"Stop this on your Mac." = "在 Mac 上停。";
+"This task has already finished." = "这个任务已经结束了。";
+"This task is waiting on you, not running." = "这个任务在等你，没有在跑。";
+"Your Mac isn't connected to Codex right now." = "你的 Mac 现在没连上 Codex。";
 "Waiting for an updated request from your iPhone." = "正在等待 iPhone 更新请求。";
 "Your iPhone hasn't sent an update. Open VibeBuddy on your iPhone." = "iPhone 尚未发送更新。请在 iPhone 上打开 VibeBuddy。";
+
+/* Stopping a running turn from the wrist */
+"Stop" = "停下";
+"Stop this task?" = "要停下这个任务吗？";
+"The turn it is running now ends. Work already finished stays done." = "它正在跑的这一轮会结束。已经完成的部分不会撤销。";
+"Keep going" = "继续跑";
+"This isn't running any more." = "这个已经不在运行了。";
+"Couldn't confirm that. Check the task." = "无法确认，去看看这个任务。";
+
+/* Why a running turn can't be ended from the wrist (WatchStopBlock) */
+"%@ sessions can't take instructions from the phone yet — use the terminal." = "%@ 的会话还不能从手机接收指令，请用终端。";
+"This agent can't take instructions from the phone yet — use the terminal." = "这个代理还不能从手机接收指令，请用终端。";
+
+/* One action at a time, and what the wrist may say about it */
+"Sending…" = "正在发送…";
+"Sent. Waiting for your Mac to confirm." = "已发出，等 Mac 确认。";
+"Couldn't send that. Try again." = "没能发出去，再试一次。";
+"This is no longer waiting on you." = "这个已经不用你处理了。";
+"Can't reach your iPhone — decide there, or move closer." = "连不上 iPhone —— 到手机上处理，或者靠近一些。";
+
+/* Quick answers: the fixed phrases (WatchAnswerPhrase). The phrase is what the
+   agent receives, so it is translated rather than captioned. */
+"Yes, go ahead." = "可以，继续。";
+"No, don't do that." = "不，别这么做。";
+"Use the first option." = "用第一个方案。";
+"Run the tests first." = "先跑测试。";
+"Hold off for now — I'll look at this later." = "先别动，我等下再看。";
+
+/* Answering a question from the wrist */
+"Dictate an answer" = "口述回答";
+"Something else" = "其他";
+"Your answer" = "你的回答";
+"Send this answer?" = "要发送这个回答吗？";
+"Send" = "发送";
+"Cancel" = "取消";
+"Can't reach your iPhone — answer there, or move closer." = "连不上 iPhone —— 到手机上回答，或者靠近一些。";
+"Unknown project" = "未知项目";
+"Couldn't confirm that. Check the request." = "无法确认，去看看这条请求。";
+"That question is gone now. Nothing was sent." = "那个问题已经不在了，什么都没发出去。";
+"%lld more choices — see them on your iPhone." = "还有 %lld 个选项，请到 iPhone 上看。";
+
+"Platform" = "平台";
+
+"Remaining" = "剩余额度";
+
+"That turn has already ended. Nothing was sent." = "那一轮已经结束了，什么都没发出去。";
+
+"Could not send. The task changed or another action is still pending." = "未发送。任务已变化，或另一个操作仍在等待结果。";
+
+"Could not send. The question changed or another action is still pending." = "未发送。问题已变化，或另一个操作仍在等待结果。";
+
+"Followed tasks" = "关注的任务";

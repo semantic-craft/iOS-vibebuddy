@@ -178,3 +178,101 @@
 "This request can't be verified. Wait for an updated connection and request." = "暂时无法验证此请求。请等待连接和请求更新。";
 "Can't reach your iPhone. Reconnect to verify this request." = "无法连接 iPhone。请恢复连接以验证此请求。";
 "Connection to your Mac is unavailable. Reconnect to verify this request." = "Mac 连接不可用。请恢复连接以验证此请求。";
+
+"No project" = "未归属项目";
+
+"All projects" = "全部项目";
+
+"Projects" = "项目";
+
+"All statuses" = "全部状态";
+
+"Task status" = "任务状态";
+
+"Agent & attention" = "Agent 与关注程度";
+
+"Clear filters" = "清除筛选";
+
+"All agents" = "全部 Agent";
+
+"All attention levels" = "全部关注程度";
+
+"Filters" = "筛选";
+
+"Active filters: %@" = "当前筛选：%@";
+
+"Showing last snapshot. Reconnect to update tasks." = "正在显示上次快照。重新连接以更新任务。";
+
+"No matching sessions" = "没有匹配的 Session";
+
+"Try another filter or clear filters to see all sessions." = "更换筛选条件，或清除筛选以查看全部 Session。";
+
+"Requires input" = "待回应";
+
+"Error" = "异常";
+
+"Thinking" = "进行中";
+
+"Complete, unread update" = "完成未读";
+
+"Idle" = "空闲";
+
+/* iPhone settings directory (P2) */
+"This iPhone" = "此 iPhone";
+"Notifications & sounds" = "通知与声音";
+"Voice conversation" = "语音对话";
+"Connected Mac" = "连接的 Mac";
+"Connection information" = "连接信息";
+"Completion summaries" = "完成摘要";
+"Help" = "帮助";
+"Showing last diagnostics. Reconnect to update." = "正在显示上次诊断。重新连接以更新。";
+"Status" = "状态";
+"Address" = "地址";
+"Pairing and Mac setup" = "配对与 Mac 接入";
+"Pair by scanning the code from your Mac. Use the Mac menu at the top of the dashboard to reconnect or forget the current pairing." = "扫描 Mac 上的配对码进行配对。在首页顶部的 Mac 菜单中可重新连接或忘记当前配对。";
+"Demo — no Mac connected" = "演示 — 未连接 Mac";
+"Not paired" = "未配对";
+"Online" = "在线";
+"Offline" = "离线";
+"Completion summaries are configured and generated on your Mac. Choose the summary provider, model and credentials in the Mac app's Settings." = "完成摘要在 Mac 上配置和生成。请在 Mac App 的设置中选择摘要服务商、模型和凭据。";
+"Your iPhone receives the Mac's completion notice. There is no separate summary model or remote configuration control on this iPhone." = "iPhone 接收 Mac 生成的完成通知。此 iPhone 不提供独立的摘要模型或远程配置功能。";
+"Managed on your Mac" = "由 Mac 管理";
+"Voice conversation on this iPhone has its own provider and credentials. Changing voice settings does not configure Mac completion summaries or Mac read aloud." = "此 iPhone 的语音对话使用独立的服务商和凭据。更改语音设置不会配置 Mac 的完成摘要或朗读功能。";
+"Separate from iPhone voice" = "与 iPhone 语音独立";
+
+/* Doubao and independent purpose configuration */
+"Completion summary provider" = "完成摘要服务商";
+"Choose a completion summary provider before testing." = "请先选择完成摘要服务商，再进行测试。";
+"Purpose provider & shared language" = "用途服务商与共用语言";
+"Each purpose keeps its own provider. Credentials are shared only when both use the same provider; language remains shared." = "每个用途独立选择服务商。只有选择同一服务商时才共用凭据；对话语言仍共用。";
+"Changing the voice provider or shared language reconnects an active conversation. Changing the summary provider does not. Editing never starts an idle conversation or a test." = "切换语音服务商或共用语言会重连正在进行的对话。切换摘要服务商不会重连。编辑设置不会启动空闲对话或测试。";
+"This provider’s credentials are shared by the purposes that select it." = "选择此服务商的用途共用其凭据。";
+"Doubao realtime voice 3.0 · Recommended" = "豆包实时语音 3.0 · 推荐";
+"Custom realtime model" = "自定义实时语音模型";
+"The recommended model and Vivi voice are ready. Only your realtime API key is required." = "已预设推荐模型与 Vivi 音色，只需填入实时语音 API key。";
+"Your custom model or voice is retained. Review Advanced settings before testing." = "已保留你的自定义模型或音色，请在测试前检查高级设置。";
+"Checking saved configuration…" = "正在检查已保存的配置…";
+"Not configured" = "未配置";
+"Advanced settings" = "高级设置";
+"Restore recommended model and voice" = "恢复推荐模型与音色";
+"Review the realtime model, voice and connection before testing." = "请在测试前检查实时模型、音色和连接配置。";
+"This test may incur provider charges. It checks configuration only, without microphone input, task history, tools or audio playback." = "测试可能产生服务商费用。测试仅检查配置，不输入麦克风、任务历史或工具，也不播放音频。";
+"Testing connection…" = "正在测试连接…";
+"The connection ended without confirming configuration." = "连接已结束，尚未确认配置。";
+"Realtime connection configuration confirmed. Audio and conversation were not tested." = "已确认实时连接配置，尚未测试音频与对话。";
+"Realtime connection failed. Check the API key, model, voice, region and network before retrying." = "实时连接失败，请检查 API key、模型、音色、区域和网络后重试。";
+"Test timed out. Check your connection and configuration, then retry manually." = "测试超时，请检查连接与配置后手动重试。";
+"Test cancelled." = "测试已取消。";
+"API key could not be saved. Your edit is not stored; edit or paste it again to retry." = "API key 保存失败。本次编辑尚未存储，请重新编辑或粘贴以重试。";
+"Doubao could not identify a response after interruption. Reopen the voice conversation to continue safely." = "豆包在打断后无法确认响应归属，请重新开启语音对话后继续。";
+"Doubao (Volcengine)" = "豆包 · 火山引擎";
+
+"Stop this on your Mac." = "在 Mac 上停。";
+
+"This task has already finished." = "这个任务已经结束了。";
+
+"This task is waiting on you, not running." = "这个任务在等你，没有在跑。";
+
+"Your Mac isn't connected to Codex right now." = "你的 Mac 现在没连上 Codex。";
+
+"Unknown project" = "未知项目";

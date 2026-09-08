@@ -45,11 +45,11 @@ final class AccountUsageCoordinator: ObservableObject {
         self.store = store
         self.notifier = notifier
         self.liveFeed = liveFeed
-        let codexEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey(for: .codex), default: true)
-        let claudeEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey(for: .claude), default: true)
-        let grokEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey(for: .grok), default: true)
-        let cursorEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey(for: .cursor), default: true)
-        let grokBotEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey(for: .grokBot), default: false)
+        let codexEnabled = E2ERunConfiguration.current == nil && UserDefaults.standard.bool(forKey: Self.enabledKey(for: .codex), default: true)
+        let claudeEnabled = E2ERunConfiguration.current == nil && UserDefaults.standard.bool(forKey: Self.enabledKey(for: .claude), default: true)
+        let grokEnabled = E2ERunConfiguration.current == nil && UserDefaults.standard.bool(forKey: Self.enabledKey(for: .grok), default: true)
+        let cursorEnabled = E2ERunConfiguration.current == nil && UserDefaults.standard.bool(forKey: Self.enabledKey(for: .cursor), default: true)
+        let grokBotEnabled = E2ERunConfiguration.current == nil && UserDefaults.standard.bool(forKey: Self.enabledKey(for: .grokBot), default: false)
         collectionEnabled = [
             .codex: codexEnabled,
             .claude: claudeEnabled,
@@ -108,6 +108,7 @@ final class AccountUsageCoordinator: ObservableObject {
     /// Begin the refresh loops for every provider the user left switched on.
     /// Not called by the demo instance, which never touches real accounts.
     func start() {
+        guard E2ERunConfiguration.current == nil else { return }
         for provider in AccountUsageProvider.allCases where isCollectionEnabled(provider) {
             startCollection(provider)
         }
@@ -138,6 +139,7 @@ final class AccountUsageCoordinator: ObservableObject {
     }
 
     func setCollectionEnabled(_ enabled: Bool, provider: AccountUsageProvider) {
+        guard E2ERunConfiguration.current == nil else { return }
         guard enabled != isCollectionEnabled(provider) else { return }
         collectionEnabled[provider] = enabled
         UserDefaults.standard.set(enabled, forKey: Self.enabledKey(for: provider))

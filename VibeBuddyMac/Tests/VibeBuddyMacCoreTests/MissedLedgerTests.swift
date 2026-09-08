@@ -234,9 +234,17 @@ struct MissedRouteTests {
 
     @Test("/answer cancels the missed timer")
     func answerCancels() async throws {
-        try await expectCancel(uri: "/answer", body: #"{"sessionId":"s","answer":"yes"}"#) { store in
-            await store.setTerminalRef(sessionID: "s", TerminalRef(termProgram: "ghostty", tty: "ttys001"))
-        }
+        let questions = QuestionRegistry()
+        let waiting = Task { await questions.wait(sessionID: "s", questionID: "q", timeout: .seconds(5)) }
+        defer { waiting.cancel() }
+        #expect(await waitFor { await questions.isWaiting(sessionID: "s") })
+        try await expectCancel(uri: "/answer", body: #"{"sessionId":"s","intent":"answer","questionId":"q","answer":"yes"}"#,
+                               setup: { store in
+            await store.beginQuestion(sessionID: "s", PendingQuestion(id: "q", prompt: "Proceed?"), at: t0)
+        }, server: { store in
+            VibeBuddyServer(store: store, token: "t0k", questionRegistry: questions)
+        })
+        #expect(await waiting.value == ["q": ["yes"]])
     }
 
     @Test("/decision cancels the missed timer")
@@ -308,10 +316,10 @@ struct MissedRouteTests {
             await store.ingest(notification(session: "s", at: t0), receivedAt: t0)
             if question {
                 await store.beginQuestion(sessionID: "s", PendingQuestion(id: "q", prompt: "Continue?"), at: t0)
-                await store.endQuestion(sessionID: "s", at: t0.addingTimeInterval(60))
+                await store.endQuestion(sessionID: "s", questionID: "q", at: t0.addingTimeInterval(60))
             } else {
                 await store.beginApproval(sessionID: "s", PendingApproval(id: "p", tool: "Bash", commandPreview: "pwd"), at: t0)
-                await store.endApproval(sessionID: "s", at: t0.addingTimeInterval(60))
+                await store.endApproval(sessionID: "s", approvalID: "p", at: t0.addingTimeInterval(60))
             }
             #expect(await store.missedCounts(week: t0, now: t0.addingTimeInterval(330)).count == 0)
         }

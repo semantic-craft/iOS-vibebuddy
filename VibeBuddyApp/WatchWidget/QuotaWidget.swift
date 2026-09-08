@@ -71,7 +71,15 @@ struct QuotaProvider: AppIntentTimelineProvider {
         if context.isPreview { return sample(configuration: configuration) }
         return QuotaEntry(date: .now, configuration: configuration, quotas: readQuotas())
     }
-    func recommendations() -> [AppIntentRecommendation<QuotaConfiguration>] { [] }
+    func recommendations() -> [AppIntentRecommendation<QuotaConfiguration>] {
+        [QuotaPlatform.codex, .claude, .cursor, .grok, .grokBot].map { platform in
+            let configuration = QuotaConfiguration()
+            configuration.platform = platform
+            configuration.style = .ring
+            return AppIntentRecommendation(intent: configuration,
+                description: platform.selection.providers[0].displayName)
+        }
+    }
     func timeline(for configuration: QuotaConfiguration, in context: Context) async -> Timeline<QuotaEntry> {
         let now = Date()
         let quotas = readQuotas()
@@ -117,12 +125,8 @@ struct QuotaProvider: AppIntentTimelineProvider {
     }
     private func sample(configuration: QuotaConfiguration) -> QuotaEntry {
         let now = Date()
-        return QuotaEntry(date: now, configuration: configuration, quotas: [
-            ProviderQuota(provider: .codex, weeklyRemainingPercent: 68, weeklyResetsAt: now.addingTimeInterval(187200), weeklyWindowDurationMinutes: 10080,
-                          shortWindowRemainingPercent: 31, shortWindowDurationMinutes: 300, observedAt: now),
-            ProviderQuota(provider: .claude, weeklyRemainingPercent: 42, weeklyResetsAt: now.addingTimeInterval(108000), weeklyWindowDurationMinutes: 10080,
-                          shortWindowRemainingPercent: 76, shortWindowDurationMinutes: 300, observedAt: now)
-        ])
+        return QuotaEntry(date: now, configuration: configuration,
+                          quotas: WatchDemoScenario.normal.quotas(now: now))
     }
 }
 
@@ -159,7 +163,7 @@ struct QuotaWidgetView: View {
         case .claude: return .orange
         case .grok: return .indigo
         case .cursor: return .purple
-        case .grokBot: return .cyan
+        case .grokBot: return .mint
         }
     }
     private func periodLabel(_ reading: QuotaWindow, kind: QuotaWindowKind? = nil) -> String {
@@ -202,9 +206,14 @@ struct QuotaWidgetView: View {
             ForEach(providers) { provider in
                 Text("\(rowLabel(provider)) \(value(window(provider)))")
                     .font(.system(size: providers.count == 1 ? 15 : 11, weight: .semibold, design: .rounded))
-                    .monospacedDigit().lineLimit(1)
+                    .monospacedDigit().lineLimit(1).minimumScaleFactor(0.65)
             }
-            if !differentPeriods, let provider = providers.first {
+            if providers.count == 1, let provider = providers.first {
+                let reading = window(provider)
+                Text(reading.label ?? durationLabel(reading))
+                    .font(.system(size: 8)).lineLimit(1).minimumScaleFactor(0.7)
+            }
+            if providers.count > 1, !differentPeriods, let provider = providers.first {
                 Text(periodLabel(window(provider))).font(.system(size: 10)).lineLimit(1)
             }
         }
@@ -229,7 +238,9 @@ struct QuotaWidgetView: View {
                     }
                 }
             } else {
-                Circle().stroke(.secondary.opacity(0.2), lineWidth: 3).padding(inset)
+                Circle().stroke(.secondary.opacity(0.2), style: StrokeStyle(
+                    lineWidth: 3, dash: reading.currentRemainingPercent(now: now) == nil ? [2, 4] : []))
+                    .padding(inset)
                 if remaining > 0 {
                     Circle().trim(from: 0, to: remaining)
                         .stroke(tint, style: StrokeStyle(lineWidth: 3, lineCap: .round))
