@@ -1,14 +1,69 @@
 import Foundation
 import VibeBuddyKit
 
+/// What the Codex daemon says it will actually run of the hooks vibebuddy
+/// wrote, from `hooks/list`. Codex executes a hook only while its recorded
+/// trust still covers the hook's current definition; anything else is skipped
+/// in silence, so a hook present in `hooks.json` proves nothing on its own.
+public struct CodexHookTrust: Sendable, Equatable {
+    /// vibebuddy hooks the daemon knows about.
+    public let installed: Int
+    /// The events whose hooks Codex will not run, deduplicated and sorted.
+    public let blockedEvents: [String]
+    /// How many individual hooks are blocked (an event can hold more than one).
+    public let blocked: Int
+
+    public init(installed: Int, blockedEvents: [String], blocked: Int) {
+        self.installed = installed
+        self.blockedEvents = blockedEvents
+        self.blocked = blocked
+    }
+}
+
+/// The Codex the daemon is running, against the Codex installed on this Mac.
+///
+/// They come apart whenever the daemon keeps running across an update, and the
+/// symptom is protocol drift: fields and methods this Mac expects are simply
+/// absent, which reads like a bug in vibebuddy rather than a stale process.
+public struct CodexAppServerVersionDrift: Sendable, Equatable {
+    /// The version behind the control socket, from `initialize`'s user agent.
+    public let running: String
+    /// The version installed on disk.
+    public let installed: String
+
+    public init(running: String, installed: String) {
+        self.running = running
+        self.installed = installed
+    }
+
+    public var explanation: String {
+        "The Codex app-server still running is \(running) while \(installed) is installed. Restart Codex so the daemon picks up the installed version."
+    }
+}
+
 /// Mac-only configuration diagnosis. Kept outside ObservationHealth so this
 /// local setting cannot introduce a new value into the phone snapshot contract.
 public enum CodexHookConfigurationIssue: Sendable, Equatable {
     case hooksFeatureDisabled
+    /// Codex is skipping hooks it has not trusted since they last changed.
+    case hooksNotTrusted(CodexHookTrust)
 
-    public var displayName: String { "Hooks feature disabled" }
+    public var displayName: String {
+        switch self {
+        case .hooksFeatureDisabled: return "Hooks feature disabled"
+        case .hooksNotTrusted: return "Hooks not trusted"
+        }
+    }
+
     public var explanation: String {
-        "Codex hooks are disabled in the user configuration. Run codex features enable hooks, then start a fresh Codex session."
+        switch self {
+        case .hooksFeatureDisabled:
+            return "Codex hooks are disabled in the user configuration. Run codex features enable hooks, then start a fresh Codex session."
+        case .hooksNotTrusted(let trust):
+            let events = trust.blockedEvents.joined(separator: ", ")
+            let scope = events.isEmpty ? "" : " (\(events))"
+            return "Codex is skipping \(trust.blocked) of \(trust.installed) vibebuddy hooks\(scope) because it has not trusted them since they last changed, and it reports that nowhere else. Start a fresh Codex session, run /hooks, and trust the vibebuddy entries. Repairing the installation changes them again, so trust them after repairing, not before."
+        }
     }
 }
 
@@ -39,20 +94,77 @@ public struct ObservationRuntimeSignal: Sendable, Equatable {
 /// Read-only compatibility and source health inspection. It never inspects a
 /// process list and never mutates hook files or session progress.
 public enum ObservationHealthDetector {
+    /// The one thing wrong with this machine's Codex hook setup, worst first.
+    ///
+    /// The feature switch comes before trust because it disables every hook at
+    /// once. Trust is judged on the daemon's own report and deliberately does
+    /// not defer to a fresh runtime signal: Codex skips hooks one at a time, so
+    /// a recently trusted `PostCompact` says nothing about a skipped `Stop`.
+    public static func codexHookConfigurationIssue(
+        home: URL?, hook: ObservationSourceDiagnostic?, now: Date,
+        hookTrust: CodexHookTrust? = nil,
+        staleAfter: TimeInterval = 10 * 60
+    ) -> CodexHookConfigurationIssue? {
+        if hooksFeatureDisabled(home: home, hook: hook, now: now, staleAfter: staleAfter) {
+            return .hooksFeatureDisabled
+        }
+        if let hookTrust, hookTrust.blocked > 0 { return .hooksNotTrusted(hookTrust) }
+        return nil
+    }
+
+    /// A daemon left running across a Codex update, or nil whenever that
+    /// cannot be established: an unknown user agent, or an installation whose
+    /// version is not on disk to read (a package manager's own layout).
+    ///
+    /// Read-only and spawn-free by design — the managed installer records the
+    /// version in the path `current` points at, so nothing has to be executed
+    /// to learn it.
+    public static func codexAppServerVersionDrift(
+        home: URL?, serverUserAgent: String?, fileManager fm: FileManager = .default
+    ) -> CodexAppServerVersionDrift? {
+        guard let running = versionInUserAgent(serverUserAgent),
+              let installed = installedCodexVersion(home: home, fileManager: fm),
+              running != installed
+        else { return nil }
+        return CodexAppServerVersionDrift(running: running, installed: installed)
+    }
+
+    /// `Codex Desktop/0.153.4 (Mac OS 26.6.2; arm64) …` → `0.153.4`.
+    private static func versionInUserAgent(_ agent: String?) -> String? {
+        guard let agent, let slash = agent.firstIndex(of: "/") else { return nil }
+        let token = agent[agent.index(after: slash)...].prefix { !$0.isWhitespace }
+        return isVersion(token) ? String(token) : nil
+    }
+
+    /// The managed standalone install: `packages/standalone/current` is a
+    /// symlink to `releases/<version>-<target>`.
+    private static func installedCodexVersion(home: URL?, fileManager fm: FileManager) -> String? {
+        guard let current = home?.appendingPathComponent(".codex/packages/standalone/current"),
+              let destination = try? fm.destinationOfSymbolicLink(atPath: current.path)
+        else { return nil }
+        let release = URL(fileURLWithPath: destination).lastPathComponent
+        let version = release.prefix { $0.isNumber || $0 == "." }
+        return isVersion(version) ? String(version) : nil
+    }
+
+    private static func isVersion(_ text: Substring) -> Bool {
+        !text.isEmpty && text.first!.isNumber && text.contains(".")
+            && text.allSatisfy { $0.isNumber || $0 == "." }
+    }
+
     /// Hooks are installed at user level; project and profile overrides are
     /// outside this diagnostic's scope. Never writes the configuration. A fresh
     /// healthy runtime signal takes precedence over the file's static setting.
-    public static func codexHookConfigurationIssue(
-        home: URL?, hook: ObservationSourceDiagnostic?, now: Date,
-        staleAfter: TimeInterval = 10 * 60
-    ) -> CodexHookConfigurationIssue? {
+    private static func hooksFeatureDisabled(
+        home: URL?, hook: ObservationSourceDiagnostic?, now: Date, staleAfter: TimeInterval
+    ) -> Bool {
         if let hook, hook.health == .healthy, let observed = hook.lastObservedAt,
-           now.timeIntervalSince(observed) <= staleAfter { return nil }
+           now.timeIntervalSince(observed) <= staleAfter { return false }
         guard let home,
               let data = readData(at: home.appendingPathComponent(".codex/config.toml"),
                                   upToCount: (1 << 20) + 1, fileManager: .default),
               data.count <= 1 << 20, let text = String(data: data, encoding: .utf8)
-        else { return nil }
+        else { return false }
         // Same deliberately narrow scalar scan as install-codex-hooks.py.
         // Skip multiline string bodies: example keys are not settings.
         var table: [String]? = []
@@ -87,7 +199,7 @@ public enum ObservationHealthDetector {
             }
         }
         // The canonical key wins over the deprecated alias.
-        return (values["hooks"] ?? values["codex_hooks"]) == false ? .hooksFeatureDisabled : nil
+        return (values["hooks"] ?? values["codex_hooks"]) == false
     }
 
     /// Bare or simply quoted TOML components. A quoted key containing a dot
@@ -314,7 +426,7 @@ public enum ObservationHealthDetector {
         let hooks = root["hooks"] as? [String: Any] ?? [:]
         var coverage = Set<ObservationEventCoverage>()
         var hasManagedHook = false
-        var hasAsyncManagedHook = false
+        var hasAsyncGate = false
         for (event, groups) in hooks {
             guard let groups = groups as? [[String: Any]] else { continue }
             for group in groups {
@@ -324,17 +436,21 @@ public enum ObservationHealthDetector {
                           isManagedHook(command, value: value, agent: agent, event: event)
                     else { continue }
                     hasManagedHook = true
-                    if command["async"] as? Bool == true { hasAsyncManagedHook = true }
+                    if command["async"] as? Bool == true, value.contains("approval-hook.sh") {
+                        hasAsyncGate = true
+                    }
                     if let family = eventFamily(event) { coverage.insert(family) }
                 }
             }
         }
         let configurationIncomplete = !hasManagedHook
             || !requiredHookCoverage.isSubset(of: coverage)
-        // Codex runs `async` hooks detached and drops their output, so an async
-        // managed hook is a configuration error rather than a missing event.
+        // An async hook runs, but detached: the agent never waits for it and
+        // never applies its answer. That is what the status forwarder wants and
+        // what the blocking approval gate cannot survive, so only an async gate
+        // is a configuration error.
         let fallback: ObservationHealth =
-            (agent == .codex && hasAsyncManagedHook) ? .asyncIncompatible
+            hasAsyncGate ? .asyncIncompatible
                 : configurationIncomplete ? .eventsMissing : .temporarilySilent
         return diagnostic(source: .hook, signal: signal, fallback: fallback,
                           reasonCode: fallback == .asyncIncompatible ? nil

@@ -29,10 +29,13 @@ public actor CodexAppServerMonitor {
         /// recent last (bounded). Empty means the daemon never routed an
         /// approval or user-input request to a second subscriber.
         public var serverRequestsSeen: [String]
+        /// Which of our own hooks the daemon says it will run (`hooks/list`).
+        /// Nil until it answers; the hook source is unjudged until then.
+        public var hookTrust: CodexHookTrust?
 
         public init(enabled: Bool = true, connected: Bool = false, serverUserAgent: String? = nil,
                     lastError: String? = nil, lastEventAt: Date? = nil, subscribedThreads: Int = 0,
-                    serverRequestsSeen: [String] = []) {
+                    serverRequestsSeen: [String] = [], hookTrust: CodexHookTrust? = nil) {
             self.enabled = enabled
             self.connected = connected
             self.serverUserAgent = serverUserAgent
@@ -40,6 +43,7 @@ public actor CodexAppServerMonitor {
             self.lastEventAt = lastEventAt
             self.subscribedThreads = subscribedThreads
             self.serverRequestsSeen = serverRequestsSeen
+            self.hookTrust = hookTrust
         }
     }
 
@@ -209,14 +213,17 @@ public actor CodexAppServerMonitor {
 
         try await discover(client: client, store: store)
         await readUsage(client: client)
+        await readHookTrust(client: client)
         // Keep the live sample fresh while connected; the request doubles as
-        // a liveness check on an otherwise idle daemon.
+        // a liveness check on an otherwise idle daemon. Hook trust rides along
+        // so the Settings verdict follows the user trusting them in `/hooks`.
         let refresh = usageRefreshInterval
         let keepalive = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: refresh)
                 guard !Task.isCancelled else { break }
                 await self?.readUsage(client: client)
+                await self?.readHookTrust(client: client)
             }
         }
         defer { keepalive.cancel() }
@@ -368,9 +375,133 @@ public actor CodexAppServerMonitor {
                 await self?.holdQuestion(id: id, threadID: threadID, questionID: questionID,
                                          items: items, blocking: blocking, client: client, store: store)
             }
+        case "item/permissions/requestApproval":
+            // The agent asking to widen its own sandbox: extra filesystem
+            // paths, or network access. Answered by granting a profile rather
+            // than a decision word, so it has its own hold.
+            let requested = params["permissions"] as? [String: Any] ?? [:]
+            let card = PendingApproval(id: approvalID(), tool: "Permissions",
+                                       commandPreview: Self.permissionPreview(requested),
+                                       filePath: params["cwd"] as? String,
+                                       newText: Self.permissionDetail(requested, reason: reason))
+            // Carried as JSON so an approval echoes back byte for byte what was
+            // asked for, and so the payload crosses into the task Sendable.
+            let encoded = (try? JSONSerialization.data(withJSONObject: requested)) ?? Data("{}".utf8)
+            Task { [weak self] in
+                await self?.holdPermissions(id: id, threadID: threadID, requested: encoded,
+                                            card: card, client: client, store: store)
+            }
+        case "mcpServer/elicitation/request":
+            // An MCP server asking the person for structured input. vibebuddy
+            // has no way to fill an arbitrary form, so this is shown and never
+            // answered: the wait becomes visible, the answer stays where the
+            // session runs.
+            let server = params["serverName"] as? String ?? "An MCP server"
+            let message = (params["message"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                ?? "is waiting for your input"
+            Task { [weak self] in
+                await self?.showElicitation(id: id, threadID: threadID,
+                                            server: server, message: message, store: store)
+            }
         default:
             break
         }
+    }
+
+    /// One line naming what the agent wants added to its sandbox.
+    static func permissionPreview(_ profile: [String: Any]) -> String {
+        var parts: [String] = []
+        let paths = permissionPaths(profile)
+        if !paths.isEmpty {
+            parts.append("\(paths.count) path\(paths.count == 1 ? "" : "s")")
+        }
+        if (profile["network"] as? [String: Any])?["enabled"] as? Bool == true {
+            parts.append("network access")
+        }
+        return parts.isEmpty ? "Widen the sandbox" : "Allow " + parts.joined(separator: " + ")
+    }
+
+    /// The full escalation, one line each, so the card shows exactly what an
+    /// approval grants. The agent's own `reason` leads when it gave one.
+    static func permissionDetail(_ profile: [String: Any], reason: String?) -> String? {
+        var lines: [String] = []
+        if let reason, !reason.isEmpty { lines.append(reason) }
+        lines += permissionPaths(profile).map { "\($0.access): \($0.path)" }
+        if let network = profile["network"] as? [String: Any], let enabled = network["enabled"] as? Bool {
+            lines.append(enabled ? "network: enabled" : "network: disabled")
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
+
+    /// `fileSystem.entries` plus the `read`/`write` arrays Codex still accepts.
+    private static func permissionPaths(_ profile: [String: Any]) -> [(access: String, path: String)] {
+        guard let fileSystem = profile["fileSystem"] as? [String: Any] else { return [] }
+        var result: [(access: String, path: String)] = []
+        for entry in fileSystem["entries"] as? [[String: Any]] ?? [] {
+            let access = entry["access"] as? String ?? "access"
+            let described: String?
+            switch entry["path"] {
+            case let path as [String: Any]:
+                described = (path["path"] as? String) ?? (path["pattern"] as? String)
+                    ?? (path["value"] as? String)
+            case let path as String: described = path
+            default: described = nil
+            }
+            if let described, !described.isEmpty { result.append((access, described)) }
+        }
+        for legacy in ["read", "write"] {
+            for path in fileSystem[legacy] as? [String] ?? [] where !path.isEmpty {
+                result.append((legacy, path))
+            }
+        }
+        return result
+    }
+
+    /// Hold a sandbox escalation for the phone.
+    ///
+    /// Deliberately not routed through `holdApproval`: a standing session allow
+    /// or an always-allow rule is about one tool call, and must never silently
+    /// widen the sandbox. This one always asks, and an approval grants exactly
+    /// what was requested, for this turn only.
+    private func holdPermissions(id: JSONRPCID, threadID: String, requested: Data,
+                                 card: PendingApproval,
+                                 client: any CodexAppServerConnecting, store: SessionStore) async {
+        let key = Self.requestKey(threadID: threadID, id: id)
+        openRequests[key] = OpenRequest(id: id, threadID: threadID, kind: .approval(card.id))
+        if await presence(threadID) {
+            await store.beginApproval(sessionID: threadID, card.readOnly, at: Date())
+            return
+        }
+        // No rule: "Always allow" on this card resolves the one request and
+        // persists nothing, because there is no safe rule to persist.
+        await approvalContext.set(id: card.id, sessionID: threadID, rule: nil)
+        await approvalRegistry.prepare(id: card.id)
+        await store.beginApproval(sessionID: threadID, card, at: Date())
+        let outcome = await approvalRegistry.wait(id: card.id, timeout: requestTimeout)
+        guard openRequests.removeValue(forKey: key) != nil else { return }   // resolved elsewhere
+        await store.endApproval(sessionID: threadID, approvalID: card.id, at: Date())
+        switch outcome {
+        case .allow:
+            let profile = (try? JSONSerialization.jsonObject(with: requested)) as? [String: Any] ?? [:]
+            client.respond(id: id, result: ["permissions": profile, "scope": "turn"])
+        case .deny:
+            // Granting nothing is how this request is refused; there is no
+            // decision word for it.
+            client.respond(id: id, result: ["permissions": [String: Any]()])
+        case .pass:
+            break   // answered where the session runs
+        }
+    }
+
+    /// Show an MCP elicitation as a read-only wait and never answer it.
+    private func showElicitation(id: JSONRPCID, threadID: String, server: String, message: String,
+                                 store: SessionStore) async {
+        let questionID = "elicitation:\(id.description)"
+        let question = PendingQuestion(id: questionID, prompt: "\(server): \(message)",
+                                       options: [], questions: [], isBlocking: true)
+        openRequests[Self.requestKey(threadID: threadID, id: id)] =
+            OpenRequest(id: id, threadID: threadID, kind: .question(questionID))
+        await store.beginQuestion(sessionID: threadID, question.readOnly, at: Date())
     }
 
     private func holdApproval(id: JSONRPCID, threadID: String, tool: String, input: [String: Any],
@@ -665,6 +796,46 @@ public actor CodexAppServerMonitor {
         } catch {
             state.lastError = "rate limits: \(error)"
         }
+    }
+
+    /// The script basenames `install-codex-hooks.py` writes into `hooks.json`.
+    /// A hook naming one of these is ours; everything else in the list belongs
+    /// to the user or another tool and is none of our business.
+    private static let hookMarkers = ["vibebuddy-forward.sh", "approval-hook.sh", "capture-terminal.sh"]
+    /// `HookTrustStatus` values that let Codex run a hook. `modified` (edited
+    /// since it was trusted) and `untrusted` (never trusted) are skipped
+    /// silently — writing hooks.json does not make a hook run.
+    private static let hookTrustRunning: Set<String> = ["trusted", "managed"]
+
+    /// Ask the daemon which of our hooks it will actually run. Read-only, and
+    /// never fatal: a daemon that does not answer leaves the verdict unknown
+    /// rather than accusing a working installation.
+    private func readHookTrust(client: any CodexAppServerConnecting) async {
+        guard let result = try? await client.request("hooks/list", params: [:]) else { return }
+        let entries = result["data"] as? [[String: Any]] ?? []
+        var seen: Set<String> = []
+        var installed = 0
+        var blocked = 0
+        var blockedEvents: Set<String> = []
+        for entry in entries {
+            for hook in entry["hooks"] as? [[String: Any]] ?? [] {
+                guard let command = hook["command"] as? String,
+                      Self.hookMarkers.contains(where: command.contains) else { continue }
+                // The same hook is reported once per working directory it
+                // applies to; its key identifies the definition, not the cwd.
+                let key = (hook["key"] as? String) ?? command
+                guard seen.insert(key).inserted else { continue }
+                installed += 1
+                let trusted = Self.hookTrustRunning.contains((hook["trustStatus"] as? String) ?? "")
+                guard hook["enabled"] as? Bool == false || !trusted else { continue }
+                blocked += 1
+                if let event = hook["eventName"] as? String { blockedEvents.insert(event) }
+            }
+        }
+        guard installed > 0 else { return }
+        state.hookTrust = CodexHookTrust(installed: installed,
+                                         blockedEvents: blockedEvents.sorted(),
+                                         blocked: blocked)
     }
 
     /// Missing windows in an update are unknown. Reusing old window values here

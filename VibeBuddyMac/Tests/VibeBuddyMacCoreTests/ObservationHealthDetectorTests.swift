@@ -41,6 +41,48 @@ struct ObservationHealthDetectorTests {
         try text.write(to: url, atomically: true, encoding: .utf8)
     }
 
+    /// The managed standalone layout: `current` points at the release folder,
+    /// whose name carries the installed version.
+    private func installCodex(_ version: String, in home: URL) throws {
+        let packages = home.appendingPathComponent(".codex/packages/standalone")
+        let release = packages.appendingPathComponent("releases/\(version)-aarch64-apple-darwin")
+        try FileManager.default.createDirectory(at: release, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            at: packages.appendingPathComponent("current"), withDestinationURL: release)
+    }
+
+    @Test("a daemon left running across a Codex update is reported; a matching one is not")
+    func appServerVersionDrift() throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        try installCodex("0.153.4", in: home)
+        let drift = ObservationHealthDetector.codexAppServerVersionDrift(
+            home: home, serverUserAgent: "Codex Desktop/0.152.1 (Mac OS 26.6.2; arm64) dumb (vibebuddy; 1)")
+        #expect(drift == CodexAppServerVersionDrift(running: "0.152.1", installed: "0.153.4"))
+        #expect(drift?.explanation.contains("0.152.1") == true)
+        #expect(drift?.explanation.contains("0.153.4") == true)
+
+        #expect(ObservationHealthDetector.codexAppServerVersionDrift(
+            home: home, serverUserAgent: "Codex Desktop/0.153.4 (Mac OS 26.6.2; arm64)") == nil)
+    }
+
+    @Test("an unreadable version on either side is no verdict, never a false alarm")
+    func appServerVersionUnknown() throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        // Nothing installed in the managed layout (a package manager's own).
+        #expect(ObservationHealthDetector.codexAppServerVersionDrift(
+            home: home, serverUserAgent: "Codex Desktop/0.152.1 (Mac OS)") == nil)
+
+        try installCodex("0.153.4", in: home)
+        for agent in [nil, "", "Codex Desktop", "Codex Desktop/unknown (Mac OS)"] {
+            #expect(ObservationHealthDetector.codexAppServerVersionDrift(
+                home: home, serverUserAgent: agent) == nil)
+        }
+        #expect(ObservationHealthDetector.codexAppServerVersionDrift(
+            home: nil, serverUserAgent: "Codex Desktop/0.152.1 (Mac OS)") == nil)
+    }
+
     @Test("missing installations are distinct from missing events")
     func missingInstallationAndEvents() throws {
         let home = try tempHome()
@@ -99,16 +141,22 @@ struct ObservationHealthDetectorTests {
         #expect(ObservationHealthDetector.codexHookConfigurationIssue(home: home, hook: nil, now: now) == nil)
     }
 
-    @Test("Codex async incompatibility is reported explicitly")
-    func codexAsyncIncompatible() throws {
+    @Test("an asynchronous approval gate is reported explicitly; async status hooks are normal")
+    func asyncApprovalGateIsIncompatible() throws {
         let home = try tempHome()
         defer { try? FileManager.default.removeItem(at: home) }
         try write("model = \"gpt\"\n", to: home.appendingPathComponent(".codex/config.toml"))
+        let hooks = home.appendingPathComponent(".codex/hooks.json")
+        // Status delivery belongs off the agent's critical path: async here is
+        // the installed configuration, not a fault.
         try write(#"{"hooks":{"SessionStart":[{"hooks":[{"command":"/app/vibebuddy-forward.sh codex","async":true}]}]}}"#,
-                  to: home.appendingPathComponent(".codex/hooks.json"))
+                  to: hooks)
+        #expect(detect(home: home).health(agent: .codex, source: .hook) != .asyncIncompatible)
 
-        let result = detect(home: home)
-        #expect(result.health(agent: .codex, source: .hook) == .asyncIncompatible)
+        // A gate the agent never waits for can never answer: that is a fault.
+        try write(#"{"hooks":{"SessionStart":[{"hooks":[{"command":"/app/vibebuddy-forward.sh codex","async":true}]}],"PermissionRequest":[{"hooks":[{"command":"/app/approval-hook.sh codex","async":true}]}]}}"#,
+                  to: hooks)
+        #expect(detect(home: home).health(agent: .codex, source: .hook) == .asyncIncompatible)
     }
 
     @Test("an unreadable rollout is not reported as normal")

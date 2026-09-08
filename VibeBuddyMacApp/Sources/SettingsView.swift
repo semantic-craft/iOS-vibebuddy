@@ -266,6 +266,13 @@ private struct SetupSettings: View {
             if !d.serverRequestsSeen.isEmpty {
                 text += " · approval requests seen: \(Set(d.serverRequestsSeen).sorted().joined(separator: ", "))"
             }
+            // A daemon left running across a Codex update speaks an older
+            // protocol than this Mac expects, and nothing else says so.
+            if let drift = ObservationHealthDetector.codexAppServerVersionDrift(
+                home: E2ERunConfiguration.current?.file("agents") ?? FileManager.default.homeDirectoryForCurrentUser,
+                serverUserAgent: d.serverUserAgent) {
+                text += "\n⚠︎ \(drift.explanation)"
+            }
             return text
         }
         if let error = d.lastError { return "Not connected — \(error)" }
@@ -279,7 +286,9 @@ private struct SetupSettings: View {
     ) -> some View {
         let issue = agent == .codex && source.source == .hook
             ? ObservationHealthDetector.codexHookConfigurationIssue(
-                home: E2ERunConfiguration.current?.file("agents") ?? FileManager.default.homeDirectoryForCurrentUser, hook: source, now: Date()) : nil
+                home: E2ERunConfiguration.current?.file("agents") ?? FileManager.default.homeDirectoryForCurrentUser,
+                hook: source, now: Date(),
+                hookTrust: model.codexAppServerDiagnostics.hookTrust) : nil
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: issue != nil ? "exclamationmark.triangle.fill" : source.diagnosticIcon)
                 .foregroundStyle(issue != nil ? .orange : source.diagnosticColor)
