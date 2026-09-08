@@ -91,7 +91,7 @@ No more walking back to the desk to find a session has been blocked on a permiss
 ## ✨ Features
 
 ### 🎙️ Talk to your agents — voice companion
-Voice is off by default. Select a provider, enter your own API key, accept the data disclosure, and grant microphone access before explicitly starting a conversation. Ask about task status or respond to supported requests. Audio and selected task context go directly to your chosen provider (OpenAI, Google Gemini, or Alibaba DashScope / Qwen); provider fees may apply. Available actions depend on the connection and request. The dashboard and button approvals work without voice.
+Voice is off by default. Select a provider, enter your own API key, accept the data disclosure, and grant microphone access before explicitly starting a conversation. Ask about task status or respond to supported requests. Audio and selected task context go directly to your chosen provider (OpenAI, Google Gemini, Alibaba DashScope / Qwen, or Volcengine / Doubao); provider fees may apply. Available actions depend on the connection and request. The dashboard and button approvals work without voice.
 
 ### 📊 The three-bucket dashboard
 Every session grouped into **Needs response / Working / Done**, each row showing project · branch · model · live token & context-window usage · the tool the agent is currently running · and a peek at its most recent output. Priority is honest: `needs response` always outranks `working`.

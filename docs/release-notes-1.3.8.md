@@ -1,5 +1,7 @@
 # VibeBuddy 1.3.8
 
+Mac direct distribution: 1.3.8 (15). iPhone and Apple Watch: 1.3.8 (19).
+
 This update brings clearer model settings, Doubao realtime voice, and improvements to iPhone and Apple Watch task interaction.
 
 - Separate voice, summary and read-aloud configuration, with service connection checks.

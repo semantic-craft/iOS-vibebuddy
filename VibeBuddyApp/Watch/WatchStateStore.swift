@@ -368,7 +368,7 @@ final class WatchStateStore: NSObject, ObservableObject {
     /// error is read as *lost* rather than
     /// as *not sent*: claiming a message never left is the assertion that costs
     /// something when it is wrong.
-    private static func receiptWasLost(_ error: Error) -> Bool {
+    nonisolated private static func receiptWasLost(_ error: Error) -> Bool {
         guard let code = (error as? WCError)?.code else { return true }
         switch code {
         case .notReachable, .sessionNotActivated, .sessionInactive, .sessionMissingDelegate,

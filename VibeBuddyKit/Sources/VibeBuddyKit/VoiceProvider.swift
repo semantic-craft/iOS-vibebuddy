@@ -91,7 +91,7 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
         case .qwen:   return URL(string: "https://bailian.console.aliyun.com/?apiKey=1")!
         case .openai: return URL(string: "https://platform.openai.com/api-keys")!
         case .gemini: return URL(string: "https://aistudio.google.com/apikey")!
-        case .doubao: return URL(string: "https://console.volcengine.com/speech/new/setting/apikeys?projectName=default.")!
+        case .doubao: return URL(string: "https://console.volcengine.com/speech/new/setting/apikeys?projectName=default")!
         }
     }
 }
