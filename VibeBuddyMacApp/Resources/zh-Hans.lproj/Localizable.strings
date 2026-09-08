@@ -45,6 +45,13 @@
 /* MARK: Menu bar popover */
 "Open Dashboard" = "打开仪表盘";
 "Hide Glance" = "隐藏速览";
+"Search sessions or run a command" = "搜索任务，或输入命令";
+"%lld of %lld" = "%lld / %lld";
+"· matching “%@”" = "· 匹配“%@”";
+"%lld still need you" = "还有 %lld 件等你";
+"Needs you" = "等你处理";
+"No matches for “%@”" = "没有匹配“%@”的任务";
+"Try another word, or ⌘K for commands." = "换个词试试，或按 ⌘K 输入命令。";
 "Dashboard" = "仪表盘";
 "Toggle Glance · %@" = "切换速览 · %@";
 "Settings · ⌘," = "设置 · ⌘,";
@@ -402,31 +409,15 @@
 
 /* Frozen M1 / M2 / final M3 / D1 integration */
 "Unknown project" = "未知项目";
-"Expand others" = "展开其他任务";
-"Collapse others" = "收起其他任务";
 "%lld need attention" = "%lld 项待处理";
-"Other tasks (%lld)" = "其他任务（%lld）";
 "Requires input" = "需输入";
 "Complete, unread update" = "已完成，有未读更新";
 "Error" = "异常";
 "Thinking" = "思考中";
 "Idle" = "空闲";
-"Local cleanup" = "本地清理";
-"Clear filtered Done and Idle from menu (%lld)" = "从菜单清理当前筛选内的已完成与空闲任务（%lld）";
-"Only hides completed and idle rounds in the current filters. Unread results and reminders are kept." = "仅隐藏当前筛选内的完成与空闲轮次，保留未读结果和提醒。";
 "%lld shown · %lld total" = "列表 %lld 项 · 共 %lld 项";
-"Reset filters" = "重置筛选";
-"Summary includes all tasks. Filters and cleared rounds only affect this list." = "摘要包含全部任务；筛选和已清理轮次仅影响此列表。";
-"State" = "状态";
-"Filter" = "筛选";
-"Filter · Active" = "筛选 · 已启用";
-"Show all states and agents" = "显示全部状态和代理";
 "No sessions reporting" = "暂无上报的任务";
 "Start a turn or repair hooks in Settings." = "在代理中开始一轮任务，或前往设置修复钩子。";
-"No matching sessions" = "没有符合筛选条件的任务";
-"Reset the filters to show other tasks." = "重置筛选以显示其他任务。";
-"Current sessions cleared from menu" = "当前任务轮次已从菜单清理";
-"Sessions remain in Dashboard. New turns appear here." = "任务仍在 Dashboard 中，新轮次会重新显示。";
 "Phone details and pairing" = "手机详情与配对";
 "Phone details" = "手机详情";
 "Push registered" = "已注册推送";

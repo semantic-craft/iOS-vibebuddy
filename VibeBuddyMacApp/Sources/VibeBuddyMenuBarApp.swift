@@ -241,7 +241,7 @@ private struct SessionListHeightKey: PreferenceKey {
 private struct MenuPanelLayout: Layout {
     var maximumHeight: CGFloat
     var listHeight: CGFloat
-    private let spacing: CGFloat = 10
+    private let spacing: CGFloat = 0
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let width = proposal.width ?? 356
@@ -402,8 +402,9 @@ private struct MenuFooterControl: View {
     }
 }
 
-/// The menu-bar dropdown: local visibility and project grouping, with actionable
-/// sessions always exposed regardless of each project's expansion preference.
+/// The menu-bar dropdown: a command row you can type into, a one-line summary
+/// of the whole snapshot, whatever needs a person pinned at the top, and the
+/// rest as a stream of what just happened.
 struct MenuContent: View {
     @ObservedObject var model: MenuBarModel
     @State private var listContentHeight: CGFloat = 120
@@ -411,26 +412,49 @@ struct MenuContent: View {
     @State private var showsPhoneDetails = false
     @State private var greet = 0
     @State private var hoveredSessionID: String?
-    @AppStorage("menuExpandedProjects") private var expandedProjectsData = Data()
+    @State private var query = ""
+    @FocusState private var searchFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// The panel's own width, and the list's ceiling before it scrolls.
+    private static let width: CGFloat = 360
+    private static let listCeiling: CGFloat = 250
+
+    private var feed: MenuFeed { MenuFeed(model.sessions, query: query) }
 
     var body: some View {
-        MenuPanelLayout(maximumHeight: max(1, screenSize.height - 48), listHeight: listContentHeight) {
-            VStack(alignment: .leading, spacing: 10) {
-                summaryHead
+        let feed = self.feed
+        return MenuPanelLayout(maximumHeight: max(1, screenSize.height - 48),
+                               listHeight: min(listContentHeight, Self.listCeiling)) {
+            VStack(spacing: 0) {
+                commandRow(feed)
                 Divider()
-                sessionControls
+                // The summary steps aside for the result band while you type:
+                // one line at the top of the list, never two.
+                if feed.emptyState == nil {
+                    if feed.query.isEmpty { summaryRow(feed.summary) } else { resultBand(feed) }
+                }
             }
-            sessionList
-            VStack(alignment: .leading, spacing: 8) {
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: feed.query.isEmpty)
+            sessionList(feed)
+            VStack(spacing: 0) {
                 Divider()
                 controlRow
+                    .padding(.horizontal, 9)
+                    .padding(.top, 6)
+                    .padding(.bottom, 7)
             }
         }
-        .padding(12)
-        .frame(width: min(380, screenSize.width - 24))
-        .background(MacTheme.bg)
+        .frame(width: min(Self.width, screenSize.width - 24))
+        .background(MacTheme.bg3)
         .background(MenuScreenReader { screenSize = $0 })
         .background(MenuPanelAnchor())
+        // Typing is the only way to narrow the list, so the field takes the
+        // caret as the panel opens and each open starts from the whole snapshot.
+        .onAppear {
+            query = ""
+            searchFocused = true
+        }
     }
 
     private var phoneDetails: some View {
@@ -596,29 +620,125 @@ struct MenuContent: View {
         .accessibilityLabel("More")
     }
 
-    /// A small code-drawn Buddy beside the full-snapshot summary.
-    private var summaryHead: some View {
-        let summary = projectList.summary
-        return HStack(spacing: 10) {
+    // MARK: - The command row
+
+    /// Pet, one field, one badge. The pet doubles as the global status light —
+    /// the dot on its head is the most urgent state in the whole snapshot, so
+    /// it keeps telling the truth while a query narrows the list below.
+    private func commandRow(_ feed: MenuFeed) -> some View {
+        HStack(spacing: 10) {
             Button { greet += 1; model.voiceChat.toggle() } label: {
-                PetFace(state: model.buddyState, voice: .init(model.voiceChat.phase), greet: greet, bare: true, scale: 0.5)
+                PetFace(state: model.buddyState, voice: .init(model.voiceChat.phase),
+                        greet: greet, bare: true, scale: 0.52)
+                    .overlay(alignment: .topTrailing) { statusDot(feed.summary) }
             }
             .buttonStyle(.borderless)
             .accessibilityLabel("Toggle voice companion")
-            VStack(alignment: .leading, spacing: 2) {
-                Text(MacSummaryCopy.moodLine(summary)).font(MacTheme.font(13, .semibold)).foregroundStyle(MacTheme.ink)
-                let rest = MacSummaryCopy.restLine(summary)
-                if !rest.isEmpty {
-                    Text(rest).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
-                }
+            .accessibilityValue(Text(MacSummaryCopy.moodLine(feed.summary)))
+
+            TextField(text: $query) { Text("Search sessions or run a command") }
+                .textFieldStyle(.plain)
+                .font(MacTheme.font(13.5))
+                .foregroundStyle(MacTheme.ink)
+                .focused($searchFocused)
+                .onSubmit { jumpToTopResult(feed) }
+                .accessibilityLabel("Search sessions")
+
+            Button { searchFocused = true } label: {
+                Text(verbatim: "⌘K")
+                    .font(MacTheme.mono(9.5))
+                    .foregroundStyle(MacTheme.ink2)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(MacTheme.bg2, in: RoundedRectangle(cornerRadius: 5))
             }
-            Spacer(minLength: 0)
+            .buttonStyle(.plain)
+            .keyboardShortcut("k", modifiers: .command)
+            .help("Search sessions")
+            .accessibilityLabel("Search sessions")
+        }
+        .padding(13)
+    }
+
+    @ViewBuilder
+    private func statusDot(_ summary: TaskPresentationSummary) -> some View {
+        let state = summary.primaryState
+        if state != .unassigned {
+            Circle()
+                .fill(MacTheme.status(state))
+                .frame(width: 10, height: 10)
+                .padding(2)
+                .background(Circle().fill(MacTheme.bg3))
+                .offset(x: 4, y: -3)
+                .accessibilityHidden(true)
         }
     }
 
-    private var sessionList: some View {
+    /// Return, while searching, goes to the row the `↵ jump` badge marks.
+    private func jumpToTopResult(_ feed: MenuFeed) {
+        guard !feed.query.isEmpty, let target = feed.topResult else { return }
+        model.jump(target)
+    }
+
+    // MARK: - Summary and result band
+
+    /// One line for the whole snapshot, bold only on the first clause. It sits
+    /// above the scroller rather than inside it, so a long list scrolls under
+    /// an answer that stays put.
+    private func summaryRow(_ summary: TaskPresentationSummary) -> some View {
+        let rest = MacSummaryCopy.restLine(summary)
+        return HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(MacSummaryCopy.moodLine(summary))
+                .font(MacTheme.font(12.5, .semibold))
+                .foregroundStyle(MacTheme.ink)
+            if !rest.isEmpty {
+                Text(verbatim: "· \(rest)")
+                    .font(MacTheme.font(11.5))
+                    .foregroundStyle(MacTheme.ink2)
+            }
+            Spacer(minLength: 0)
+        }
+        .lineLimit(1)
+        .padding(.horizontal, 13)
+        .padding(.top, 9)
+        .padding(.bottom, 7)
+        .accessibilityElement(children: .combine)
+    }
+
+    /// What the query hid, said out loud — otherwise filtering something away
+    /// looks like it stopped existing.
+    private func resultBand(_ feed: MenuFeed) -> some View {
+        let needs = MacSummaryCopy.needsYou(feed.summary)
+        return HStack(spacing: 7) {
+            Text("\(feed.matchCount) of \(feed.totalCount)")
+                .font(MacTheme.font(10.5, .semibold))
+                .foregroundStyle(MacTheme.ink)
+                .monospacedDigit()
+                .fixedSize()
+            Text("· matching “\(feed.query)”")
+                .font(MacTheme.font(10.5))
+                .foregroundStyle(MacTheme.ink2)
+                .lineLimit(1)
+            Spacer(minLength: 6)
+            if needs > 0 {
+                Text("\(needs) still need you")
+                    .font(MacTheme.font(10.5, .semibold))
+                    .foregroundStyle(MacTheme.status(.requiresInput))
+                    .fixedSize()
+            }
+        }
+        .padding(.horizontal, 13)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(MacTheme.bg2)
+        .accessibilityElement(children: .combine)
+    }
+
+    // MARK: - The list
+
+    private func sessionList(_ feed: MenuFeed) -> some View {
         ScrollView(.vertical) {
-            sessionRows
+            listContent(feed)
                 .fixedSize(horizontal: false, vertical: true)
                 .background(GeometryReader { geo in
                     Color.clear.preference(key: SessionListHeightKey.self, value: geo.size.height)
@@ -631,161 +751,196 @@ struct MenuContent: View {
         }
     }
 
-    private var expandedProjects: Set<String> {
-        (try? JSONDecoder().decode(Set<String>.self, from: expandedProjectsData)) ?? []
-    }
-
-    private func setExpandedProjects(_ keys: Set<String>) {
-        if let data = try? JSONEncoder().encode(keys) { expandedProjectsData = data }
-    }
-
-    /// The menu shows the whole live snapshot: no filters, no locally cleared rounds.
-    private var projectList: MenuProjectList {
-        MenuProjectList(model.sessions, expandedProjects: expandedProjects)
-    }
-
-    private var sessionControls: some View {
-        let expandableKeys = Set(projectList.projects.filter { !$0.others.isEmpty }.map(\.expansionKey))
-        let allCollapsed = expandedProjects.isDisjoint(with: expandableKeys)
-        return HStack {
-            Spacer()
-            Button(allCollapsed ? "Expand others" as LocalizedStringKey : "Collapse others") {
-                setExpandedProjects(allCollapsed ? expandedProjects.union(expandableKeys)
-                                    : expandedProjects.subtracting(expandableKeys))
-            }
-            .disabled(expandableKeys.isEmpty)
-            .buttonStyle(.borderless)
-        }
-        .font(MacTheme.font(11))
-        .foregroundStyle(MacTheme.ink2)
-    }
-
-    /// Only this menu projects filters and hidden rounds. Other surfaces retain
-    /// the complete snapshot and the shared Companion group names.
-    private var sessionRows: some View {
-        let list = projectList
-        return VStack(alignment: .leading, spacing: 8) {
-            if let empty = list.emptyState {
-                VStack(alignment: .leading, spacing: 5) {
-                    switch empty {
-                    case .noSessions:
-                        Text("No sessions reporting")
-                            .font(MacTheme.font(12, .semibold))
-                        Text("Start a turn or repair hooks in Settings.")
-                            .foregroundStyle(MacTheme.ink2)
+    @ViewBuilder
+    private func listContent(_ feed: MenuFeed) -> some View {
+        let now = Date()
+        VStack(alignment: .leading, spacing: 0) {
+            if let empty = feed.emptyState {
+                emptyState(empty)
+            } else {
+                if !feed.pinned.isEmpty { pinnedBlock(feed, now: now) }
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(feed.feed.enumerated()), id: \.element.id) { index, session in
+                        feedRow(session, feed: feed, now: now,
+                                rail: .feed(isFirst: index == 0, isLast: index == feed.feed.count - 1),
+                                ground: MacTheme.bg3, hover: MacTheme.bg2)
                     }
                 }
-                .foregroundStyle(MacTheme.ink)
-                .font(MacTheme.font(11))
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.vertical, 8)
-            } else {
-                ForEach(list.projects) { project in
-                    projectSection(project)
-                }
+                .padding(.top, 4)
+                .padding(.bottom, 8)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func projectSection(_ project: MenuProjectList.Project) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(project.id ?? String(localized: "Unknown project"))
-                    .font(MacTheme.font(12, .semibold))
-                    .fixedSize(horizontal: false, vertical: true)
-                    .help(project.title)
-                Text("\(project.count)")
-                    .foregroundStyle(MacTheme.ink2)
+    /// Errors and questions never wait their turn in the stream. The block is
+    /// absent — not empty — when nothing needs a person, and the panel shortens.
+    private func pinnedBlock(_ feed: MenuFeed, now: Date) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: 7) {
+                Text("Needs you")
+                    .textCase(.uppercase)
+                    .kerning(0.95)
+                    .foregroundStyle(MacTheme.status(feed.pinned[0].presentationState))
                 Spacer(minLength: 0)
-                if !project.actionable.isEmpty {
-                    Text("\(project.actionable.count) need attention")
-                        .foregroundStyle(MacTheme.ink2)
-                        .fixedSize()
-                }
+                Text("\(feed.pinned.count)")
+                    .foregroundStyle(MacTheme.ink3)
+                    .monospacedDigit()
             }
-            .font(MacTheme.font(10))
-            .foregroundStyle(MacTheme.ink)
-            .padding(.top, 6)
+            .font(MacTheme.font(9.5, .semibold))
+            .padding(.horizontal, 13)
+            .padding(.top, 7)
+            .padding(.bottom, 2)
             .accessibilityElement(children: .combine)
 
-            ForEach(project.actionable) { session in
-                sessionButton(session)
-                Divider()
-            }
-            if !project.others.isEmpty {
-                Button {
-                    var keys = expandedProjects
-                    if project.isExpanded { keys.remove(project.expansionKey) }
-                    else { keys.insert(project.expansionKey) }
-                    setExpandedProjects(keys)
-                } label: {
-                    Label("Other tasks (\(project.others.count))",
-                          systemImage: project.isExpanded ? "chevron.down" : "chevron.right")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .font(MacTheme.font(11))
-                .foregroundStyle(MacTheme.ink2)
-                .padding(.vertical, 5)
-                .accessibilityLabel("Other tasks in \(project.title), \(project.others.count)")
-                .accessibilityValue(project.isExpanded ? "Expanded" : "Collapsed")
-                if project.isExpanded {
-                    ForEach(project.others) { session in
-                        sessionButton(session)
-                        Divider()
-                    }
-                }
+            ForEach(feed.pinned) { session in
+                feedRow(session, feed: feed, now: now, rail: .pinned,
+                        ground: MacTheme.bg2, hover: MacTheme.bg3)
             }
         }
+        .padding(.top, 3)
+        .padding(.bottom, 5)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(MacTheme.bg2)
     }
 
-    private func sessionButton(_ session: AgentSession) -> some View {
-        Button { model.jump(session) } label: {
-            VStack(alignment: .leading, spacing: 3) {
-                taskRow(session)
-                if let outcome = model.jumpFeedback[session.id] {
-                    Text(outcome.macMessage(for: session))
-                        .font(MacTheme.font(10, .semibold))
-                        .foregroundStyle(MacTheme.ink2)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 4)
+    private enum Rail {
+        case pinned
+        case feed(isFirst: Bool, isLast: Bool)
+    }
+
+    private func feedRow(_ session: AgentSession, feed: MenuFeed, now: Date,
+                         rail: Rail, ground: Color, hover: Color) -> some View {
+        let isTarget = !feed.query.isEmpty && feed.topResult?.id == session.id
+        return Button { model.jump(session) } label: {
+            HStack(alignment: .top, spacing: 0) {
+                Text(verbatim: MenuFeed.age(of: session.updatedAt, now: now))
+                    .font(MacTheme.mono(10))
+                    .monospacedDigit()
+                    .foregroundStyle(MacTheme.ink3)
+                    .lineLimit(1)
+                    .frame(width: 52, alignment: .trailing)
+                    .padding(.trailing, 9)
+                    .padding(.top, 7)
+                railView(rail, color: MacTheme.status(session.presentationState), ground: ground)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 8) {
+                        rowText(session).lineLimit(1)
+                        Spacer(minLength: 0)
+                        if isTarget { jumpBadge }
+                    }
+                    if let outcome = model.jumpFeedback[session.id] {
+                        Text(outcome.macMessage(for: session))
+                            .font(MacTheme.font(10, .semibold))
+                            .foregroundStyle(MacTheme.ink2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
+                .padding(.leading, 3)
+                .padding(.trailing, 13)
+                .padding(.top, 6)
+                .padding(.bottom, 7)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(hoveredSessionID == session.id ? hover : .clear,
+                            in: RoundedRectangle(cornerRadius: 7))
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(hoveredSessionID == session.id ? MacTheme.line : .clear,
-                    in: RoundedRectangle(cornerRadius: 10))
         .onHover { hoveredSessionID = $0 ? session.id : nil }
-        .help("\(session.displayTitle)\n\(session.presentationState.label)\nJump to this session")
+        .help("\(session.displayTitle)\n\(session.agent.displayName) · \(session.presentationState.label)\n\(session.summary ?? "")")
+        .accessibilityLabel(Text(verbatim: session.displayTitle))
+        .accessibilityValue(Text(verbatim: session.summary ?? session.presentationState.label))
         .accessibilityHint("Jump to this session")
     }
 
-    private func taskRow(_ session: AgentSession) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            StateGlyph(state: session.presentationState, size: 18)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(session.displayTitle)
-                    .font(MacTheme.font(12, .medium))
+    /// Project and the agent's own sentence as one run of text, so the sentence
+    /// gets the whole row instead of the leftovers after a status column.
+    private func rowText(_ session: AgentSession) -> Text {
+        let title = Text(verbatim: session.displayTitle)
+            .font(MacTheme.font(12.5, .semibold))
+            .foregroundColor(MacTheme.ink)
+        let detail = session.summary.flatMap { $0.isEmpty ? nil : Text(verbatim: $0) }
+            ?? Text(LocalizedStringKey(session.presentationState.label))
+        return title + Text(verbatim: "  ")
+            + detail.font(MacTheme.font(12.5)).foregroundColor(MacTheme.ink2)
+    }
+
+    private var jumpBadge: some View {
+        Text(verbatim: "↵ jump")
+            .font(MacTheme.mono(9))
+            .foregroundStyle(MacTheme.ink2)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke(MacTheme.line, lineWidth: 0.5))
+            .fixedSize()
+            .accessibilityHidden(true)
+    }
+
+    /// The 15pt gutter: a hairline through the stream with a status dot on it,
+    /// trimmed at the first and last row so the line does not dangle. The
+    /// pinned block draws the dot alone — it is not a stretch of the timeline.
+    @ViewBuilder
+    private func railView(_ rail: Rail, color: Color, ground: Color) -> some View {
+        switch rail {
+        case .pinned:
+            VStack(spacing: 0) {
+                dot(9, color: color, ground: ground).padding(.top, 5)
+                Spacer(minLength: 0)
+            }
+            .frame(width: 15)
+        case let .feed(isFirst, isLast):
+            VStack(spacing: 0) {
+                thread.frame(height: 6).opacity(isFirst ? 0 : 1)
+                dot(7, color: color, ground: ground)
+                thread.frame(maxHeight: .infinity).opacity(isLast ? 0 : 1)
+            }
+            .frame(width: 15)
+        }
+    }
+
+    private var thread: some View {
+        Rectangle().fill(MacTheme.line).frame(width: 1)
+    }
+
+    private func dot(_ size: CGFloat, color: Color, ground: Color) -> some View {
+        Circle()
+            .fill(color)
+            .frame(width: size, height: size)
+            .padding(2)
+            .background(Circle().fill(ground))
+    }
+
+    @ViewBuilder
+    private func emptyState(_ state: MenuFeed.EmptyState) -> some View {
+        VStack(spacing: 0) {
+            PetFace(state: model.buddyState, greet: greet, bare: true, scale: 0.88)
+                .padding(.bottom, 12)
+            switch state {
+            case .noSessions:
+                Text("No sessions reporting")
+                    .font(MacTheme.font(13, .semibold))
                     .foregroundStyle(MacTheme.ink)
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 5) {
-                    Text(session.agent.displayName)
-                    Spacer(minLength: 0)
-                    Text(session.updatedAt, style: .relative).monospacedDigit()
-                }
-                .font(MacTheme.font(10))
-                .foregroundStyle(MacTheme.ink2)
-                Text(LocalizedStringKey(session.presentationState.label))
-                    .font(MacTheme.font(10))
-                    .foregroundStyle(MacTheme.status(session.presentationState))
+                Text("Start a turn or repair hooks in Settings.")
+                    .font(MacTheme.font(11.5))
+                    .foregroundStyle(MacTheme.ink2)
+                    .padding(.top, 5)
+            case let .noMatches(query):
+                Text("No matches for “\(query)”")
+                    .font(MacTheme.font(13, .semibold))
+                    .foregroundStyle(MacTheme.ink)
+                    .lineLimit(2)
+                Text("Try another word, or ⌘K for commands.")
+                    .font(MacTheme.font(11.5))
+                    .foregroundStyle(MacTheme.ink2)
+                    .padding(.top, 5)
             }
         }
-        .padding(.vertical, 5)
-        .padding(.horizontal, 4)
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 18)
+        .padding(.top, 30)
+        .padding(.bottom, 34)
         .accessibilityElement(children: .combine)
     }
 }
