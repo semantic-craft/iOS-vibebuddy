@@ -294,6 +294,58 @@ private struct MenuScreenReader: NSViewRepresentable {
     }
 }
 
+/// One control in the panel's footer row: an icon, an optional label and an
+/// optional trailing shortcut hint. `showsLabel == false` is the narrow form —
+/// the tooltip carries the name and the shortcut in every form, so the row can
+/// shed text without leaving a control unexplained.
+private struct MenuFooterControl: View {
+    let label: LocalizedStringKey
+    let systemImage: String
+    let shortcut: String
+    let tooltip: LocalizedStringKey
+    /// The label this control shows in its *other* state. Laid out hidden
+    /// underneath, so a control whose wording changes keeps one width and the
+    /// row around it cannot re-fit itself every time the state flips.
+    var alternateLabel: LocalizedStringKey?
+    /// Read out after the label by VoiceOver — the Glance toggle's on/off state.
+    var state: LocalizedStringKey?
+    /// Combined with ⌘. Only Settings binds one here; Dashboard and Glance are
+    /// global hotkeys registered by `GlobalHotkey`, not panel shortcuts.
+    var keyEquivalent: KeyEquivalent?
+    var showsLabel = true
+    var showsShortcut = true
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: systemImage).font(.system(size: 12))
+                if showsLabel {
+                    ZStack(alignment: .leading) {
+                        if let alternateLabel { Text(alternateLabel).hidden() }
+                        Text(label)
+                    }
+                    .fixedSize()
+                    if showsShortcut && !shortcut.isEmpty {
+                        Text(verbatim: shortcut)
+                            .font(MacTheme.mono(9))
+                            .foregroundStyle(MacTheme.ink3)
+                            .fixedSize()
+                    }
+                }
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .keyboardShortcut(keyEquivalent.map { KeyboardShortcut($0, modifiers: .command) })
+        .help(tooltip)
+        .accessibilityLabel(label)
+        .accessibilityValue(state ?? "")
+    }
+}
+
 /// The menu-bar dropdown: local visibility and project grouping, with actionable
 /// sessions always exposed regardless of each project's expansion preference.
 struct MenuContent: View {
@@ -309,74 +361,19 @@ struct MenuContent: View {
         MenuPanelLayout(maximumHeight: max(1, screenSize.height - 48), listHeight: listContentHeight) {
             VStack(alignment: .leading, spacing: 10) {
                 summaryHead
-                navigationRow
                 Divider()
                 sessionControls
             }
             sessionList
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
                 Divider()
-                phoneRow
-                footer
+                controlRow
             }
         }
         .padding(12)
         .frame(width: min(380, screenSize.width - 24))
         .background(MacTheme.bg)
         .background(MenuScreenReader { screenSize = $0 })
-    }
-
-    private var navigationRow: some View {
-        HStack(spacing: 12) {
-            Button {
-                NotificationCenter.default.post(name: .openDashboard, object: nil)
-            } label: {
-                Label("Open Dashboard", systemImage: "macwindow")
-                    .fixedSize()
-            }
-            .help("Open Dashboard · \(model.openDashboardHotkey.displayString)")
-            Spacer(minLength: 0)
-            Button {
-                model.setShowGlance(!model.showGlance)
-            } label: {
-                Label(model.showGlance ? "Hide Glance" as LocalizedStringKey : "Show Glance",
-                      systemImage: model.showGlance ? "eye.slash" : "eye")
-                    .fixedSize()
-            }
-            .help("\(model.toggleGlanceHotkey.displayString)")
-        }
-        .buttonStyle(.borderless)
-        .font(MacTheme.font(12))
-        .foregroundStyle(MacTheme.ink)
-    }
-
-    private var phoneRow: some View {
-        Button { showsPhoneDetails.toggle() } label: {
-            HStack(spacing: 6) {
-                Image(systemName: model.pairedPhone == nil ? "iphone.slash" : "iphone.gen3")
-                if let phone = model.pairedPhone {
-                    Text("Paired: \(phone.name)").lineLimit(1)
-                    Spacer(minLength: 0)
-                    Text("Last seen \(phone.lastSeen.formatted(date: .abbreviated, time: .shortened))")
-                        .lineLimit(1)
-                        .layoutPriority(1)
-                } else {
-                    Text("No phone paired")
-                    Spacer(minLength: 0)
-                }
-                Image(systemName: "chevron.right")
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.borderless)
-        .font(MacTheme.font(11))
-        .foregroundStyle(MacTheme.ink2)
-        .accessibilityLabel("Phone details and pairing")
-        .accessibilityValue(model.pairedPhone.map { String(localized: "Paired: \($0.name)") }
-                             ?? String(localized: "No phone paired"))
-        .popover(isPresented: $showsPhoneDetails, arrowEdge: .trailing) {
-            phoneDetails
-        }
     }
 
     private var phoneDetails: some View {
@@ -422,31 +419,124 @@ struct MenuContent: View {
         .background(MacTheme.bg)
     }
 
-    private var footer: some View {
-        HStack {
-            Button {
-                NotificationCenter.default.post(name: .openAppSettings, object: nil)
-            } label: {
-                Label("Settings…", systemImage: "gearshape")
-            }
-            .keyboardShortcut(",", modifiers: .command)
-            Spacer()
-            Menu {
-                Button("Check for Updates…") {
-                    NSApp.activate(ignoringOtherApps: true)
-                    Updater.shared.checkForUpdates()
+    /// Every way out of the panel, on one clickable row: Dashboard, the Glance
+    /// toggle and Settings on the left; phone state and the overflow menu on
+    /// the right. Nothing here is reachable only by shortcut.
+    ///
+    /// The row must never wrap or grow taller than one line, so it sheds
+    /// detail instead, cheapest first: the shortcut hints, then the phone's
+    /// name (its dot still shows the pairing state, and the tooltip the name),
+    /// and only then the three labels. Which form is used depends on the panel
+    /// width and on how long the user's own hotkeys render — the
+    /// Open-Dashboard default is a five-glyph Hyper chord, so at 380pt the
+    /// hints usually do not fit and the tooltips carry them instead.
+    private var controlRow: some View {
+        ViewThatFits(in: .horizontal) {
+            controlRowBody(showsLabels: true, showsShortcuts: true, showsPhoneName: true)
+            controlRowBody(showsLabels: true, showsShortcuts: true, showsPhoneName: false)
+            controlRowBody(showsLabels: true, showsShortcuts: false, showsPhoneName: true)
+            controlRowBody(showsLabels: true, showsShortcuts: false, showsPhoneName: false)
+            controlRowBody(showsLabels: false, showsShortcuts: false, showsPhoneName: true)
+            controlRowBody(showsLabels: false, showsShortcuts: false, showsPhoneName: false)
+        }
+        .font(MacTheme.font(11))
+        .foregroundStyle(MacTheme.ink)
+        .popover(isPresented: $showsPhoneDetails, arrowEdge: .trailing) {
+            phoneDetails
+        }
+    }
+
+    private func controlRowBody(showsLabels: Bool, showsShortcuts: Bool, showsPhoneName: Bool) -> some View {
+        HStack(spacing: 2) {
+            MenuFooterControl(
+                label: "Dashboard",
+                systemImage: "macwindow",
+                shortcut: model.openDashboardHotkey.displayString,
+                tooltip: "Open Dashboard · \(model.openDashboardHotkey.displayString)",
+                showsLabel: showsLabels,
+                showsShortcut: showsShortcuts) {
+                    NotificationCenter.default.post(name: .openDashboard, object: nil)
                 }
-                Button("Quit vibebuddy") { NSApplication.shared.terminate(nil) }
-                    .keyboardShortcut("q", modifiers: .command)
-            } label: {
-                Label("More", systemImage: "ellipsis.circle")
+            MenuFooterControl(
+                label: model.showGlance ? "Hide Glance" : "Glance",
+                systemImage: model.showGlance ? "eye.slash" : "eye",
+                shortcut: model.toggleGlanceHotkey.displayString,
+                tooltip: "Toggle Glance · \(model.toggleGlanceHotkey.displayString)",
+                alternateLabel: model.showGlance ? "Glance" : "Hide Glance",
+                state: model.showGlance ? "Showing" : "Hidden",
+                showsLabel: showsLabels,
+                showsShortcut: showsShortcuts) {
+                    model.setShowGlance(!model.showGlance)
+                }
+            MenuFooterControl(
+                label: "Settings",
+                systemImage: "gearshape",
+                shortcut: "⌘,",
+                tooltip: "Settings · ⌘,",
+                keyEquivalent: ",",
+                showsLabel: showsLabels,
+                showsShortcut: showsShortcuts) {
+                    NotificationCenter.default.post(name: .openAppSettings, object: nil)
+                }
+            Spacer(minLength: 6)
+            phoneControl(showsName: showsPhoneName)
+            moreMenu
+        }
+    }
+
+    /// Phone state, where the standalone `Paired: … · Last seen …` row used to
+    /// be. It opens the same pairing detail popover, QR code included.
+    private func phoneControl(showsName: Bool) -> some View {
+        let phone = model.pairedPhone
+        return Button { showsPhoneDetails.toggle() } label: {
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(phone == nil ? MacTheme.ink3 : MacTheme.accent)
+                    .frame(width: 6, height: 6)
+                if showsName {
+                    Text(phone?.name ?? String(localized: "No phone paired"))
+                        .lineLimit(1)
+                        .fixedSize()
+                }
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
-        .font(MacTheme.font(12))
-        .foregroundStyle(MacTheme.ink)
+        .foregroundStyle(MacTheme.ink2)
+        .help(Self.phoneTooltip(phone))
+        .accessibilityLabel("Phone details and pairing")
+        .accessibilityValue(phone.map { String(localized: "Paired: \($0.name)") }
+                             ?? String(localized: "No phone paired"))
+    }
+
+    /// Both branches stay string literals so the translation keeps its `%@`.
+    private static func phoneTooltip(_ phone: PairedPhone?) -> LocalizedStringKey {
+        guard let phone else { return "No phone paired" }
+        return "Paired: \(phone.name)"
+    }
+
+    private var moreMenu: some View {
+        Menu {
+            Button("Check for Updates…") {
+                NSApp.activate(ignoringOtherApps: true)
+                Updater.shared.checkForUpdates()
+            }
+            Button("Quit vibebuddy") { NSApplication.shared.terminate(nil) }
+                .keyboardShortcut("q", modifiers: .command)
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 12))
+                .frame(width: 22, height: 20)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .foregroundStyle(MacTheme.ink2)
+        .help("More")
+        .accessibilityLabel("More")
     }
 
     /// A small code-drawn Buddy beside the full-snapshot summary.

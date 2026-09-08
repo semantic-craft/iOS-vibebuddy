@@ -45,7 +45,11 @@
 /* MARK: Menu bar popover */
 "Open Dashboard" = "打开仪表盘";
 "Hide Glance" = "隐藏速览";
-"Show Glance" = "显示速览";
+"Dashboard" = "仪表盘";
+"Toggle Glance · %@" = "切换速览 · %@";
+"Settings · ⌘," = "设置 · ⌘,";
+"Showing" = "显示中";
+"Hidden" = "已隐藏";
 "Paired: %@" = "已配对：%@";
 "Last seen %@" = "最后在线 %@";
 "Push ready" = "推送就绪";
