@@ -720,7 +720,13 @@ private struct VoiceSettingsTab: View {
             }
         }
         .onChange(of: provider) { _, _ in tests.invalidate(); model.voiceChat.reloadProviderIfActive() }
-        .onChange(of: summaryChoice) { _, _ in tests.invalidate() }
+        .onChange(of: summaryChoice) { _, _ in
+            tests.invalidate()
+            // Unpinned read-aloud follows this choice, so it just changed vendor.
+            // Whatever is generating or playing came from the provider being left;
+            // a pinned read-aloud is unaffected and keeps playing.
+            if VoiceSettings.pinnedReadAloudProvider() == nil { model.readAloud.stop() }
+        }
         .onChange(of: purpose) { _, _ in tests.invalidate() }
         .onDisappear { tests.invalidate() }
     }
