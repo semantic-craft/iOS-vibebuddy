@@ -89,6 +89,23 @@ struct CodexHookTrustTests {
         #expect(await monitor.diagnostics().lastError == nil)
     }
 
+    @Test("a later failed trust query clears the previous verdict")
+    func failedRefreshClearsTrust() async throws {
+        let socket = FileManager.default.temporaryDirectory.appendingPathComponent("vb-trust-\(UUID().uuidString)")
+        FileManager.default.createFile(atPath: socket.path, contents: Data())
+        defer { try? FileManager.default.removeItem(at: socket) }
+        let connection = FakeConnection(results: fakeDaemonResults().merging([
+            "hooks/list": ["data": [["hooks": [hook("stop", command: "/opt/vibebuddy-forward.sh codex", trust: "modified", key: "k")]]]]
+        ]) { _, new in new })
+        let monitor = CodexAppServerMonitor(socketPath: socket.path, usageRefreshInterval: .milliseconds(30),
+                                           makeClient: { _ in connection })
+        let run = Task { await monitor.run(store: SessionStore()) }
+        defer { run.cancel() }
+        #expect(await waitFor { await monitor.diagnostics().hookTrust?.blocked == 1 })
+        connection.fail("hooks/list")
+        #expect(await waitFor { await monitor.diagnostics().hookTrust == nil })
+    }
+
     @Test("blocked hooks become the Settings issue; trusted ones and an unknown verdict do not")
     func issueFromTrust() {
         let home = URL(fileURLWithPath: "/nonexistent/vb-codex-home")

@@ -383,7 +383,8 @@ public actor CodexAppServerMonitor {
             let card = PendingApproval(id: approvalID(), tool: "Permissions",
                                        commandPreview: Self.permissionPreview(requested),
                                        filePath: params["cwd"] as? String,
-                                       newText: Self.permissionDetail(requested, reason: reason))
+                                       newText: Self.permissionDetail(requested, reason: reason),
+                                       allowsPersistentDecision: false)
             // Carried as JSON so an approval echoes back byte for byte what was
             // asked for, and so the payload crosses into the task Sendable.
             let encoded = (try? JSONSerialization.data(withJSONObject: requested)) ?? Data("{}".utf8)
@@ -427,6 +428,10 @@ public actor CodexAppServerMonitor {
         var lines: [String] = []
         if let reason, !reason.isEmpty { lines.append(reason) }
         lines += permissionPaths(profile).map { "\($0.access): \($0.path)" }
+        if let fileSystem = profile["fileSystem"] as? [String: Any],
+           let depth = fileSystem["globScanMaxDepth"] as? Int {
+            lines.append("glob scan max depth: \(depth)")
+        }
         if let network = profile["network"] as? [String: Any], let enabled = network["enabled"] as? Bool {
             lines.append(enabled ? "network: enabled" : "network: disabled")
         }
@@ -443,7 +448,11 @@ public actor CodexAppServerMonitor {
             switch entry["path"] {
             case let path as [String: Any]:
                 described = (path["path"] as? String) ?? (path["pattern"] as? String)
-                    ?? (path["value"] as? String)
+                    ?? (path["value"] as? [String: Any]).map { value in
+                        let kind = value["kind"] as? String ?? "unknown"
+                        let subpath = value["subpath"] as? String
+                        return subpath.map { "\(kind)/\($0)" } ?? kind
+                    }
             case let path as String: described = path
             default: described = nil
             }
@@ -469,17 +478,16 @@ public actor CodexAppServerMonitor {
         let key = Self.requestKey(threadID: threadID, id: id)
         openRequests[key] = OpenRequest(id: id, threadID: threadID, kind: .approval(card.id))
         if await presence(threadID) {
-            await store.beginApproval(sessionID: threadID, card.readOnly, at: Date())
+            await store.beginApproval(sessionID: threadID, card.readOnly, at: Date(), source: .appserver)
             return
         }
-        // No rule: "Always allow" on this card resolves the one request and
-        // persists nothing, because there is no safe rule to persist.
+        // Only one-shot decisions are offered and accepted for this card.
         await approvalContext.set(id: card.id, sessionID: threadID, rule: nil)
         await approvalRegistry.prepare(id: card.id)
-        await store.beginApproval(sessionID: threadID, card, at: Date())
+        await store.beginApproval(sessionID: threadID, card, at: Date(), source: .appserver)
         let outcome = await approvalRegistry.wait(id: card.id, timeout: requestTimeout)
         guard openRequests.removeValue(forKey: key) != nil else { return }   // resolved elsewhere
-        await store.endApproval(sessionID: threadID, approvalID: card.id, at: Date())
+        await store.endApproval(sessionID: threadID, approvalID: card.id, at: Date(), source: .appserver)
         switch outcome {
         case .allow:
             let profile = (try? JSONSerialization.jsonObject(with: requested)) as? [String: Any] ?? [:]
@@ -501,7 +509,7 @@ public actor CodexAppServerMonitor {
                                        options: [], questions: [], isBlocking: true)
         openRequests[Self.requestKey(threadID: threadID, id: id)] =
             OpenRequest(id: id, threadID: threadID, kind: .question(questionID))
-        await store.beginQuestion(sessionID: threadID, question.readOnly, at: Date())
+        await store.beginQuestion(sessionID: threadID, question.readOnly, at: Date(), source: .appserver)
     }
 
     private func holdApproval(id: JSONRPCID, threadID: String, tool: String, input: [String: Any],
@@ -528,16 +536,16 @@ public actor CodexAppServerMonitor {
         if await presence(threadID) {
             // At the Mac: Desktop's dialog is right there. Show, don't hold;
             // `serverRequest/resolved` clears the card once it is answered.
-            await store.beginApproval(sessionID: threadID, shown.readOnly, at: Date())
+            await store.beginApproval(sessionID: threadID, shown.readOnly, at: Date(), source: .appserver)
             return
         }
         await approvalContext.set(id: card.id, sessionID: threadID,
                                   rule: AllowRule.forApproval(tool: tool, input: input))
         await approvalRegistry.prepare(id: card.id)
-        await store.beginApproval(sessionID: threadID, shown, at: Date())
+        await store.beginApproval(sessionID: threadID, shown, at: Date(), source: .appserver)
         let outcome = await approvalRegistry.wait(id: card.id, timeout: requestTimeout)
         guard openRequests.removeValue(forKey: key) != nil else { return }   // resolved elsewhere
-        await store.endApproval(sessionID: threadID, approvalID: card.id, at: Date())
+        await store.endApproval(sessionID: threadID, approvalID: card.id, at: Date(), source: .appserver)
         switch outcome {
         case .allow:
             let forSession = await sessionAllow.contains(threadID)
@@ -577,13 +585,13 @@ public actor CodexAppServerMonitor {
         let key = Self.requestKey(threadID: threadID, id: id)
         openRequests[key] = OpenRequest(id: id, threadID: threadID, kind: .question(questionID))
         if await presence(threadID) {
-            await store.beginQuestion(sessionID: threadID, question.readOnly, at: Date())
+            await store.beginQuestion(sessionID: threadID, question.readOnly, at: Date(), source: .appserver)
             return
         }
-        await store.beginQuestion(sessionID: threadID, question, at: Date())
+        await store.beginQuestion(sessionID: threadID, question, at: Date(), source: .appserver)
         let answers = await questionRegistry.wait(sessionID: threadID, questionID: questionID, timeout: timeout)
         guard openRequests.removeValue(forKey: key) != nil else { return }
-        await store.endQuestion(sessionID: threadID, questionID: questionID, at: Date())
+        await store.endQuestion(sessionID: threadID, questionID: questionID, at: Date(), source: .appserver)
         guard let answers else { return }
         var payload: [String: Any] = [:]
         for item in items {
@@ -593,15 +601,14 @@ public actor CodexAppServerMonitor {
     }
 
     /// Join a running turn. Does not start a new one when steer fails (Q35).
-    /// Sends `expectedTurnId` when the reducer still knows the active turn.
+    /// Requires the active turn identity before sending the protocol request.
     public func steer(threadID: String, text: String) async -> Bool {
         guard acceptanceThreadID == nil || acceptanceThreadID == threadID else { return false }
         guard let client, state.connected else { return false }
         guard await resumeIfNeeded(threadID: threadID) else { return false }
-        var input: [String: Any] = ["threadId": threadID, "input": [["type": "text", "text": text]]]
-        if let turnID = reducer.threads[threadID]?.activeTurnID {
-            input["expectedTurnId"] = turnID
-        }
+        guard let turnID = reducer.threads[threadID]?.activeTurnID else { return false }
+        let input: [String: Any] = ["threadId": threadID, "expectedTurnId": turnID,
+                                    "input": [["type": "text", "text": text]]]
         do {
             _ = try await client.request("turn/steer", params: input)
             return true
@@ -759,10 +766,10 @@ public actor CodexAppServerMonitor {
         case .approval(let approvalID):
             _ = await approvalContext.take(id: approvalID)
             await approvalRegistry.resolve(id: approvalID, with: .pass)
-            await store.endApproval(sessionID: threadID, approvalID: approvalID, at: Date())
+            await store.endApproval(sessionID: threadID, approvalID: approvalID, at: Date(), source: .appserver)
         case .question(let questionID):
             await questionRegistry.cancelExact(sessionID: threadID, questionID: questionID)
-            await store.endQuestion(sessionID: threadID, questionID: questionID, at: Date())
+            await store.endQuestion(sessionID: threadID, questionID: questionID, at: Date(), source: .appserver)
         }
     }
 
@@ -811,7 +818,10 @@ public actor CodexAppServerMonitor {
     /// never fatal: a daemon that does not answer leaves the verdict unknown
     /// rather than accusing a working installation.
     private func readHookTrust(client: any CodexAppServerConnecting) async {
-        guard let result = try? await client.request("hooks/list", params: [:]) else { return }
+        guard let result = try? await client.request("hooks/list", params: [:]) else {
+            state.hookTrust = nil
+            return
+        }
         let entries = result["data"] as? [[String: Any]] ?? []
         var seen: Set<String> = []
         var installed = 0
@@ -832,7 +842,10 @@ public actor CodexAppServerMonitor {
                 if let event = hook["eventName"] as? String { blockedEvents.insert(event) }
             }
         }
-        guard installed > 0 else { return }
+        guard installed > 0 else {
+            state.hookTrust = nil
+            return
+        }
         state.hookTrust = CodexHookTrust(installed: installed,
                                          blockedEvents: blockedEvents.sorted(),
                                          blocked: blocked)
@@ -867,6 +880,7 @@ public actor CodexAppServerMonitor {
         client = nil
         subscribed = []
         state.connected = false
+        state.hookTrust = nil
         state.subscribedThreads = 0
         if let reason { state.lastError = reason }
         await withdrawOpenRequests()
@@ -885,10 +899,10 @@ public actor CodexAppServerMonitor {
             case .approval(let approvalID):
                 _ = await approvalContext.take(id: approvalID)
                 await approvalRegistry.resolve(id: approvalID, with: .pass)
-                await boundStore?.endApproval(sessionID: request.threadID, approvalID: approvalID, at: Date())
+                await boundStore?.endApproval(sessionID: request.threadID, approvalID: approvalID, at: Date(), source: .appserver)
             case .question(let questionID):
                 await questionRegistry.cancelExact(sessionID: request.threadID, questionID: questionID)
-                await boundStore?.endQuestion(sessionID: request.threadID, questionID: questionID, at: Date())
+                await boundStore?.endQuestion(sessionID: request.threadID, questionID: questionID, at: Date(), source: .appserver)
             }
         }
     }

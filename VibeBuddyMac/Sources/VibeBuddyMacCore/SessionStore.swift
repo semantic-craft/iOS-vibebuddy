@@ -534,12 +534,12 @@ public actor SessionStore {
         reducer.enrich(sessionID: sessionID, with: metadata)
     }
 
-    public func beginApproval(sessionID: String, _ approval: PendingApproval, at: Date) {
+    public func beginApproval(sessionID: String, _ approval: PendingApproval, at: Date, source: ObservationSource = .hook) {
         reducer.setPendingApproval(sessionID: sessionID, approval, at: at)
         if let session = reducer.sessions[sessionID] {
             explicitWaits[sessionID] = .approval(approval.id)
             appendJournal(sessionID: sessionID, agent: session.agent,
-                          event: "approvalRequested", source: .hook, at: at)
+                          event: "approvalRequested", source: source, at: at)
         }
         evaluateMissed(now: at)
         broadcast()
@@ -548,24 +548,24 @@ public actor SessionStore {
         }
     }
 
-    public func endApproval(sessionID: String, approvalID: String, at: Date) {
+    public func endApproval(sessionID: String, approvalID: String, at: Date, source: ObservationSource = .hook) {
         guard reducer.sessions[sessionID]?.pendingApproval?.id == approvalID else { return }
         if case .approval = explicitWaits[sessionID] { explicitWaits[sessionID] = nil }
         cancelMissedWait(sessionID: sessionID, now: at)
         reducer.clearPendingApproval(sessionID: sessionID, at: at)
         if let session = reducer.sessions[sessionID] {
             appendJournal(sessionID: sessionID, agent: session.agent,
-                          event: "approvalResolved", source: .hook, at: at)
+                          event: "approvalResolved", source: source, at: at)
         }
         broadcast()
     }
 
-    public func beginQuestion(sessionID: String, _ question: PendingQuestion, at: Date) {
+    public func beginQuestion(sessionID: String, _ question: PendingQuestion, at: Date, source: ObservationSource = .hook) {
         reducer.setPendingQuestion(sessionID: sessionID, question, at: at)
         if let session = reducer.sessions[sessionID] {
             explicitWaits[sessionID] = .question(question.id)
             appendJournal(sessionID: sessionID, agent: session.agent,
-                          event: "questionAsked", source: .hook, at: at)
+                          event: "questionAsked", source: source, at: at)
         }
         evaluateMissed(now: at)
         broadcast()
@@ -584,14 +584,14 @@ public actor SessionStore {
         return now.timeIntervalSince(evidence.lastObservedAt) < Self.appServerAuthorityWindow
     }
 
-    public func endQuestion(sessionID: String, questionID: String, at: Date) {
+    public func endQuestion(sessionID: String, questionID: String, at: Date, source: ObservationSource = .hook) {
         guard reducer.sessions[sessionID]?.pendingQuestion?.id == questionID else { return }
         if case .question = explicitWaits[sessionID] { explicitWaits[sessionID] = nil }
         cancelMissedWait(sessionID: sessionID, now: at)
         reducer.clearPendingQuestion(sessionID: sessionID, at: at)
         if let session = reducer.sessions[sessionID] {
             appendJournal(sessionID: sessionID, agent: session.agent,
-                          event: "questionResolved", source: .hook, at: at)
+                          event: "questionResolved", source: source, at: at)
         }
         broadcast()
     }

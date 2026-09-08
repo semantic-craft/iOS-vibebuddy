@@ -20,8 +20,8 @@ PORT="${VIBEBUDDY_PORT:-9876}"
 MAX_TIME=3
 CONNECT_TIME=1
 if [ "$SOURCE" = "codex" ]; then
-    # Codex currently runs command hooks synchronously. Local delivery should
-    # normally take milliseconds; bound a missing/wedged daemon to one second.
+    # Codex status hooks run asynchronously, except SessionEnd. Bound delivery
+    # to a missing/wedged daemon to one second in either mode.
     MAX_TIME=1
     CONNECT_TIME=0.25
 fi

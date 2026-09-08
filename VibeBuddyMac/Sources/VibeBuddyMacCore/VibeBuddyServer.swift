@@ -700,6 +700,7 @@ public struct VibeBuddyServer: Sendable {
             let snapshot = await store.snapshot(now: Date())
             guard let pending = snapshot.sessions.compactMap(\.pendingApproval).first(where: { $0.id == id }),
                   pending.isAnswerable,
+                  pending.canPersistDecision || (decision != "alwaysAllow" && decision != "allowSession"),
                   let claimedContext = await approvalContext.take(id: id),
                   await registry.claim(id: id) else { return .conflict }
             let ctx = Optional(claimedContext)

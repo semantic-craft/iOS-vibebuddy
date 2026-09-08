@@ -3,9 +3,9 @@ import Foundation
 
 /// A JSON-RPC 2.0 client for the Codex app-server daemon, spoken over a
 /// WebSocket on its unix control socket (`~/.codex/app-server-control/
-/// app-server-control.sock`). This is the transport every Codex client
-/// (Desktop, the CLI TUI, `codex agents`, `codex queue`) shares, so a
-/// connection here sees the same threads they do.
+/// app-server-control.sock`). This connection sees threads owned by that
+/// daemon. Desktop may run a separate stdio server; its active-writer threads
+/// cannot be subscribed to through this socket.
 ///
 /// Deliberately small: a hand-rolled RFC 6455 client (handshake, masked text
 /// frames, ping/pong, close) on a raw socket, because no packaged client
