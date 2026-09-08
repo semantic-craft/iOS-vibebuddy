@@ -13,6 +13,7 @@ UI; the prototype is the visual truth where prose is ambiguous.
 |---|---|---|---|
 | 1 | Overall look | **Companion** — the cat is the protagonist; soft ground, large radii, pill controls, speech bubbles | Cupertino (native), Console, Instrument, Board |
 | 2 | Panel structure | **C · grouped by state** — Needs you / Working / Done panels, no filter sidebar, cat small in the top bar | three-column filter, hero top bar, single inbox, cat room |
+| | | *Still the Dashboard's answer. For the **menu-bar panel** it was superseded on 2026-09-08 — see `mac-menu-command-bar.md`.* | |
 | 3 | Session row | **3 · summary-first** — tinted glyph circle, project as eyebrow, the agent's summary is the main line, activity in small caps | pill label, left stripe, single-line table, message bubble |
 | 4 | Approval card | **Detail pane: 3 · request card with diff**; **Glance: 2 · two big keys** | current button group, cat asks, keyboard row |
 | 5 | State summary | **Glance pill: 4 · only the needs-you count**; **everywhere else: 2 · the cat says one line** | glyph counts, stacked bar, labelled chips |
@@ -55,7 +56,10 @@ one soft card shadow only; selection is a 2 pt accent ring.
 
 - Mood line (dropdown top, Glance expanded head, buddy bubble):
   `N things need you` / `1 thing needs you` / `All quiet — N working` /
-  `All quiet`. Second line: `N working · N done · N idle` (zeros omitted).
+  `All quiet`. Second line: `N working · N done · N idle` (zeros omitted), and
+  the working term is dropped when the mood line already carries it
+  (`All quiet — 3 working` → `7 done · 7 idle`, never `3 working · 7 done`).
+  The two lines are always rendered together, so no count may appear in both.
 - Glance pill: cat + an orange badge with the needs-you count (error + requires
   input). Zero → the word `All quiet`. Voice active → the existing
   Listening / Speaking badge replaces it.
@@ -86,9 +90,16 @@ Keyboard: ⌘F search, A / D approve / deny, ⏎ jump, ⌘1–5 / ⌘0 status fi
 narrow the groups.
 
 ### Menu bar dropdown
-Cat (34 pt) + mood line + second line; Open Dashboard / Show Glance buttons;
-pairing line; then the same three state groups in compact summary-first rows
-(needs-you rows keep the full row). Footer unchanged.
+**Superseded on 2026-09-08 — see `mac-menu-command-bar.md`.** Round 2's answer
+for this panel (cat 34 pt + mood line + second line; Open Dashboard / Show
+Glance buttons; a pairing line; the three state groups as compact
+summary-first rows) was replaced after a six-round session of its own: the
+panel now opens on a command row you type into, states one deduped summary
+line, pins what needs a person, and runs the rest as a time-ordered feed, with
+the footer as a row of real controls. State grouping, filtering and local
+clearing are gone from this surface. The decision applies **only** to the
+menu-bar panel; rounds 1 and 3–5 below, the tokens and the copy rules are
+untouched, and the new panel is built from them.
 
 ### Glance
 Collapsed: cat + needs-you badge. Expanded: cat (40 pt) + mood line + ×; when
