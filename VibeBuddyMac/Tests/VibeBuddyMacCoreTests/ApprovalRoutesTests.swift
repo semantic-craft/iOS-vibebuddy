@@ -110,6 +110,45 @@ struct ApprovalRoutesTests {
         #expect(await registry.claim(id: "expired") == false)
     }
 
+    @Test("sandbox cards reject persistent decisions without consuming the pending request", arguments: ["alwaysAllow", "allowSession"])
+    func sandboxRejectsPersistentDecision(decision: String) async throws {
+        let store = SessionStore()
+        await store.ingest(Data(bash("pwd").utf8), receivedAt: Date())
+        let card = PendingApproval(id: "sandbox", tool: "Permissions", commandPreview: "network",
+                                   allowsPersistentDecision: false)
+        await store.beginApproval(sessionID: "s", card, at: Date())
+        let registry = ApprovalRegistry()
+        await registry.prepare(id: card.id)
+        let context = ApprovalContextStore()
+        await context.set(id: card.id, sessionID: "s", rule: nil)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("sandbox-approval-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let allowStore = VibeBuddyAllowStore(url: url)
+        let sessionAllow = SessionAllowList()
+        let srv = VibeBuddyServer(store: store, token: "t0k", approvalRegistry: registry,
+                                 allowStore: allowStore, sessionAllow: sessionAllow, approvalContext: context)
+        try await srv.buildApplication().test(.router) { client in
+            try await client.execute(uri: "/decision", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"approvalId":"sandbox","decision":"\#(decision)"}"#)) { res in
+                #expect(res.status == .conflict)
+            }
+            try await client.execute(uri: "/decision", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"approvalId":"sandbox","decision":"allow"}"#)) { res in
+                #expect(res.status == .ok)
+            }
+        }
+        #expect(await allowStore.all().isEmpty)
+        #expect(await sessionAllow.contains("s") == false)
+        #expect(await registry.wait(id: card.id, timeout: .seconds(1)) == .allow)
+        #expect(card.supports(.allow) && card.supports(.deny))
+        #expect(!card.supports(.alwaysAllow) && !card.supports(.allowSession))
+        #expect(!card.readOnly.supports(.allow))
+        let decoded = try JSONDecoder().decode(PendingApproval.self, from: JSONEncoder().encode(card))
+        #expect(!decoded.canPersistDecision)
+    }
+
     @Test("allow-listed command returns an allow decision immediately")
     func allowImmediate() async throws {
         let body = #"{"hook_event_name":"PreToolUse","session_id":"s","cwd":"/x/p","tool_name":"Bash","tool_input":{"command":"ls -la"}}"#

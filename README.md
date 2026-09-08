@@ -171,7 +171,7 @@ Deployment targets: **iOS 17 / macOS 14**. The 1.2 candidate is built with **Xco
 cd VibeBuddyMacApp && xcodegen generate
 open VibeBuddyMacApp.xcodeproj   # build & run (⌘R)
 ```
-A menu-bar-only app: live counts, a "Pair a phone" QR, and launch-at-login; the Mac daemon's `TokenStore` keeps the LAN token in the owner-only file `~/Library/Application Support/vibebuddy/token`. (`vibebuddyd` in `VibeBuddyMac/` is the headless equivalent: `swift run vibebuddyd`.)
+A menu-bar-only app: live counts, a "Pair a phone" QR, and launch-at-login; the Mac daemon's `TokenStore` keeps the LAN token in the owner-only file `~/Library/Application Support/vibebuddy/token`. (`vibebuddyd` in `VibeBuddyMac/` is the headless equivalent: `swift run vibebuddyd`.) Choose **Pair a phone** to allow a new registration for two minutes; merely launching the Mac app does not enable pairing. For the headless daemon, use `swift run vibebuddyd --pair` for that same two-minute window. Saved phones reconnect normally; forgetting phones closes the window and survives a restart.
 
 **iOS app:**
 ```bash

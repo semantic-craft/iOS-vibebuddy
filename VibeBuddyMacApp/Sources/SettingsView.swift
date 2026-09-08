@@ -266,6 +266,13 @@ private struct SetupSettings: View {
             if !d.serverRequestsSeen.isEmpty {
                 text += " · approval requests seen: \(Set(d.serverRequestsSeen).sorted().joined(separator: ", "))"
             }
+            // A daemon left running across a Codex update speaks an older
+            // protocol than this Mac expects, and nothing else says so.
+            if let drift = ObservationHealthDetector.codexAppServerVersionDrift(
+                home: E2ERunConfiguration.current?.file("agents") ?? FileManager.default.homeDirectoryForCurrentUser,
+                serverUserAgent: d.serverUserAgent) {
+                text += "\n⚠︎ \(drift.explanation)"
+            }
             return text
         }
         if let error = d.lastError { return "Not connected — \(error)" }
@@ -279,7 +286,9 @@ private struct SetupSettings: View {
     ) -> some View {
         let issue = agent == .codex && source.source == .hook
             ? ObservationHealthDetector.codexHookConfigurationIssue(
-                home: E2ERunConfiguration.current?.file("agents") ?? FileManager.default.homeDirectoryForCurrentUser, hook: source, now: Date()) : nil
+                home: E2ERunConfiguration.current?.file("agents") ?? FileManager.default.homeDirectoryForCurrentUser,
+                hook: source, now: Date(),
+                hookTrust: model.codexAppServerDiagnostics.hookTrust) : nil
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: issue != nil ? "exclamationmark.triangle.fill" : source.diagnosticIcon)
                 .foregroundStyle(issue != nil ? .orange : source.diagnosticColor)
@@ -962,11 +971,15 @@ private struct DeviceSettings: View {
     var body: some View {
         Group {
             Section {
-                DisclosureGroup("Pair a phone") {
+                Button(model.pairingInProgress ? "Cancel pairing" : "Pair a phone") {
+                    if model.pairingInProgress { model.endPairing() } else { model.beginPairing() }
+                }
+                .disabled(model.changingPairing)
+                if model.pairingInProgress {
                     if let qr = model.qrImage {
                         Image(nsImage: qr).interpolation(.none).resizable()
                             .frame(width: 176, height: 176).padding(12).background(.white)
-                        Text("Scan this in the vibebuddy iOS app")
+                        Text("Scan this in the vibebuddy iOS app within 2 minutes.")
                     } else {
                         Text("Pairing is not ready.").foregroundStyle(.secondary)
                     }
@@ -986,7 +999,7 @@ private struct DeviceSettings: View {
 
             Section {
                 if let phone = model.pairedPhone {
-                    LabeledContent("Paired phone") {
+                    LabeledContent(phone.confirmed ? "Paired phone" : "Previously registered phone") {
                         Text(phone.name)
                             .font(.body.weight(.medium))
                     }
@@ -996,6 +1009,8 @@ private struct DeviceSettings: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+                    Text(phone.confirmed ? "Saved pairing. Live connection status unavailable." : "This phone was registered before pairing confirmation was recorded. Choose Pair a phone to confirm, or forget it.")
+                        .font(.footnote).foregroundStyle(.secondary)
                     LabeledContent("Last seen") {
                         Text(phone.lastSeen, style: .relative)
                             .monospacedDigit()
@@ -1009,9 +1024,10 @@ private struct DeviceSettings: View {
                     Button(role: .destructive) {
                         model.forgetPairedPhone()
                     } label: {
-                        Label("Forget phone", systemImage: "iphone.slash")
+                        Label("Forget all phones", systemImage: "iphone.slash")
                     }
-                    .help("Stops pushes to this phone and refuses its re-registration until you show the pairing QR again.")
+                    .disabled(model.changingPairing)
+                    .help("Stops pushes and forgets all registered phones until you choose Pair a phone again.")
                 } else {
                     Label("No phone paired", systemImage: "iphone.slash")
                         .foregroundStyle(.secondary)

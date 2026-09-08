@@ -5,10 +5,18 @@
     --install    status hooks (plus terminal capture); keeps an existing approval gate
     --approval   --install, with the blocking phone-approval gate on PermissionRequest
     --uninstall  remove every VibeBuddy entry
+    --verify     only ask Codex whether it is actually running these hooks
 
 The Codex ``notify`` command is deliberately untouched: it may already belong
 to Codex Computer Use or another notifier. Lifecycle progress belongs in
 ``hooks.json``, where multiple consumers can coexist.
+
+Writing hooks.json is not the last step. Codex runs a hook only while its
+recorded trust covers the hook's *current* definition, so every install and
+every edit here leaves the entries untrusted and silently skipped until the
+user trusts them again in Codex's own ``/hooks`` UI. Install and verify
+therefore end by asking the running daemon what it will actually run; see
+``codex_hook_trust.py``.
 """
 import json
 import os
@@ -132,6 +140,17 @@ def without_vibebuddy(groups):
     return cleaned
 
 
+def asynchronous(event):
+    """`{"async": True}` for the events where Codex honours it, else `{}`.
+
+    Status delivery must not sit on Codex's critical path. Codex runs a command
+    hook in the background when it carries `async: true`, with the one
+    exception it names itself: SessionEnd is forced back to synchronous and
+    logs a warning, so asking for it there only produces noise.
+    """
+    return {} if event == "SessionEnd" else {"async": True}
+
+
 def install(root, approval=False):
     # A plain re-install (the Mac app's Repair button) must not silently drop a
     # gate the user opted into, so an existing gate is carried forward.
@@ -143,6 +162,9 @@ def install(root, approval=False):
             del hooks[event]
     for event in EVENTS:
         if approval and event == APPROVAL_EVENT:
+            # The gate must stay synchronous: Codex only honours a decision
+            # from a hook it waited for (`can_apply_control_effects` is true
+            # for sync handlers alone).
             command = {
                 "type": "command",
                 "command": APPROVAL_COMMAND,
@@ -153,19 +175,16 @@ def install(root, approval=False):
                 "type": "command",
                 "command": COMMAND,
                 "timeout": 3,
+                **asynchronous(event),
             }
-        # Released Codex builds currently skip command hooks carrying
-        # `async: true`; SessionEnd is synchronous by design as well. Keep all
-        # handlers synchronous and bounded, while the forwarder caps its local
-        # HTTP request at one second.
         hooks.setdefault(event, []).append({"hooks": [command]})
     for event in CAPTURE_EVENTS:
         capture = {
             "type": "command",
             "command": CAPTURE_COMMAND,
             "timeout": 5,
+            **asynchronous(event),
         }
-        # Same released-Codex constraint as above: no `async: true`.
         hooks.setdefault(event, []).append({"hooks": [capture]})
     root["hooks"] = hooks
     return root
@@ -263,11 +282,30 @@ def hooks_feature_disabled():
     return values.get("hooks", values.get("codex_hooks")) is False
 
 
+def verify():
+    """Print what Codex will actually run, and say so when that is nothing.
+
+    Never fatal: the daemon is often simply not running, which is not an
+    installation problem. Returns True when every hook is live.
+    """
+    try:
+        from codex_hook_trust import report
+    except ImportError as error:  # pragma: no cover - a broken checkout
+        print("cannot check whether Codex trusts these hooks:", error)
+        return False
+    status, lines = report()
+    for line in lines:
+        print(line)
+    return status == "ok"
+
+
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "--dry-run"
-    if mode not in {"--dry-run", "--install", "--uninstall", "--approval"}:
+    if mode not in {"--dry-run", "--install", "--uninstall", "--approval", "--verify"}:
         print("unknown mode:", mode)
         sys.exit(2)
+    if mode == "--verify":
+        sys.exit(0 if verify() else 1)
     try:
         root = load()
     except (OSError, ValueError, json.JSONDecodeError) as error:
@@ -294,8 +332,12 @@ def main():
         print(f"{action} VibeBuddy Codex lifecycle hooks; preserved all other hooks and notify")
         if mode == "--approval":
             print("installed the blocking phone-approval gate on PermissionRequest")
-        if mode in {"--install", "--approval"}:
-            print("next: start a fresh Codex session, run /hooks, and trust the VibeBuddy entries")
+
+    # Being written into hooks.json is not the same as being run. Ask the
+    # daemon, on a no-op re-install too: that is exactly the case where the
+    # entries look present and Codex has been skipping them all along.
+    if mode in {"--install", "--approval"}:
+        verify()
 
     if mode != "--uninstall" and hooks_feature_disabled():
         print("Hooks feature disabled: run codex features enable hooks, then start a fresh Codex session.")

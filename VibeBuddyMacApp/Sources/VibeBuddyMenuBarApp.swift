@@ -482,7 +482,7 @@ struct MenuContent: View {
                         .keyboardShortcut(.cancelAction)
                 }
                 if let phone = model.pairedPhone {
-                    Text("Paired: \(phone.name)")
+                    Text(phone.confirmed ? String(localized: "Paired: \(phone.name)") : String(localized: "Registered: \(phone.name)"))
                     if !phone.subtitle.isEmpty { Text(phone.subtitle) }
                     Text("Last seen \(phone.lastSeen.formatted(date: .abbreviated, time: .shortened))")
                     Text(phone.pushRegistered ? "Push registered" as LocalizedStringKey : "Push not registered")
@@ -495,15 +495,16 @@ struct MenuContent: View {
                     .foregroundStyle(MacTheme.ink2)
                 Divider()
                 Text(model.pairingAddress).font(MacTheme.mono(11)).textSelection(.enabled)
-                Text("Pair a phone").font(MacTheme.font(12, .semibold))
-                if let qr = model.qrImage {
+                Button(model.pairingInProgress ? "Cancel pairing" : "Pair a phone") {
+                    if model.pairingInProgress { model.endPairing() } else { model.beginPairing() }
+                }
+                .disabled(model.changingPairing)
+                if model.pairingInProgress, let qr = model.qrImage {
                     Image(nsImage: qr).interpolation(.none).resizable()
                         .scaledToFit().frame(width: 176, height: 176)
                         .padding(12).background(.white)
                         .accessibilityLabel("Pairing QR code")
-                    Text("Scan this in the vibebuddy iOS app")
-                } else {
-                    Text("Pairing code unavailable")
+                    Text("Scan this in the vibebuddy iOS app within 2 minutes.")
                 }
             }
             .fixedSize(horizontal: false, vertical: true)
@@ -603,14 +604,14 @@ struct MenuContent: View {
         .foregroundStyle(MacTheme.ink2)
         .help(Self.phoneTooltip(phone))
         .accessibilityLabel("Phone details and pairing")
-        .accessibilityValue(phone.map { String(localized: "Paired: \($0.name)") }
+        .accessibilityValue(phone.map { $0.confirmed ? String(localized: "Paired: \($0.name)") : String(localized: "Registered: \($0.name)") }
                              ?? String(localized: "No phone paired"))
     }
 
     /// Both branches stay string literals so the translation keeps its `%@`.
     private static func phoneTooltip(_ phone: PairedPhone?) -> LocalizedStringKey {
         guard let phone else { return "No phone paired" }
-        return "Paired: \(phone.name)"
+        return phone.confirmed ? "Paired: \(phone.name)" : "Registered: \(phone.name)"
     }
 
     private var moreMenu: some View {

@@ -77,12 +77,14 @@ public struct PendingApproval: Codable, Sendable, Equatable {
     /// agent's own prompt take the answer: the card is for reading, the
     /// buttons do nothing. Nil (older Macs) means answerable.
     public let answerable: Bool?
+    /// False for sandbox grants, which may only resolve the current request.
+    public let allowsPersistentDecision: Bool?
 
     public init(id: String, tool: String, commandPreview: String,
                 command: String? = nil, filePath: String? = nil,
                 oldText: String? = nil, newText: String? = nil,
                 permissionMode: String? = nil, suggestedRule: String? = nil,
-                answerable: Bool? = nil) {
+                answerable: Bool? = nil, allowsPersistentDecision: Bool? = nil) {
         self.id = id
         self.tool = tool
         self.commandPreview = commandPreview
@@ -93,9 +95,14 @@ public struct PendingApproval: Codable, Sendable, Equatable {
         self.permissionMode = permissionMode
         self.suggestedRule = suggestedRule
         self.answerable = answerable
+        self.allowsPersistentDecision = allowsPersistentDecision
     }
 
     public var isAnswerable: Bool { answerable ?? true }
+    public var canPersistDecision: Bool { allowsPersistentDecision ?? true }
+    public func supports(_ decision: ApprovalDecision) -> Bool {
+        isAnswerable && (canPersistDecision || decision == .allow || decision == .deny)
+    }
 }
 
 /// A question the agent asked in the terminal, with optional pre-defined answers
@@ -737,7 +744,8 @@ public extension PendingApproval {
     var readOnly: PendingApproval {
         PendingApproval(id: id, tool: tool, commandPreview: commandPreview, command: command,
                         filePath: filePath, oldText: oldText, newText: newText,
-                        permissionMode: permissionMode, suggestedRule: suggestedRule, answerable: false)
+                        permissionMode: permissionMode, suggestedRule: suggestedRule, answerable: false,
+                        allowsPersistentDecision: allowsPersistentDecision)
     }
 }
 

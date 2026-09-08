@@ -13,6 +13,33 @@ struct DeviceRegistryTests {
             .appendingPathComponent("device-registry.json")
     }
 
+    @Test func pairingWindowAndTokenlessIdentitySurviveTheRightBoundaries() async throws {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let now = Date(timeIntervalSince1970: 1000)
+        let tokens = DeviceTokens(url: url)
+        let phone = DeviceRegistrationPayload(deviceID: "phone-a", name: "Phone A")
+        await tokens.acceptNewRegistrations(now: now)
+        #expect(await tokens.registerFromPhone(phone, now: now))
+        let restarted = DeviceTokens(url: url)
+        #expect(await restarted.pairedPhones().first?.pairedAt == now)
+        #expect(await restarted.registerFromPhone(phone, now: now.addingTimeInterval(200)))
+        let stranger = DeviceRegistrationPayload(deviceID: "phone-b", name: "Phone B")
+        #expect(await restarted.registerFromPhone(stranger, now: now) == false)
+        #expect(await tokens.registerFromPhone(stranger, now: now.addingTimeInterval(120)) == false)
+        let withPush = DeviceRegistrationPayload(token: "push-a", deviceID: "phone-a", name: "Phone A")
+        #expect(await restarted.registerFromPhone(withPush, now: now.addingTimeInterval(201)))
+        #expect(await restarted.registerFromPhone(phone, now: now.addingTimeInterval(202)))
+        #expect(await restarted.all() == ["push-a"])
+        #expect(await restarted.pairedPhones().count == 1)
+        _ = await restarted.applySendResult(sent(410, reason: "Unregistered"), token: "push-a")
+        #expect(await restarted.all().isEmpty)
+        #expect(await restarted.pairedPhones().count == 1)
+        await restarted.acceptNewRegistrations(now: now)
+        await restarted.endPairing()
+        #expect(await restarted.registerFromPhone(stranger, now: now) == false)
+    }
+
     @Test func registrationSurvivesARestart() async throws {
         let url = tempURL()
         let first = DeviceTokens(url: url)
@@ -23,6 +50,7 @@ struct DeviceRegistryTests {
         // A new process reading the same file — what used to come up empty.
         let restarted = DeviceTokens(url: url)
         #expect(await restarted.all() == ["abc"])
+        #expect(await restarted.pairedPhones().first?.pairedAt == nil)
         #expect(await restarted.devices().first?.name == "Hermes")
         #expect(await restarted.devices().first?.playSound == true)
         #expect(await restarted.summary().count == 1)

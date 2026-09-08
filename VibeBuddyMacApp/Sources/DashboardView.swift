@@ -544,7 +544,8 @@ private struct RequestCard: View {
         SplitApproveButton(
             approve: { model.decide(approval.id, .allow) },
             always: { model.decide(approval.id, .alwaysAllow) },
-            session: { model.decide(approval.id, .allowSession) })
+            session: { model.decide(approval.id, .allowSession) },
+            allowsPersistentDecision: approval.canPersistDecision)
             .background { Button("") { model.decide(approval.id, .allow) }.keyboardShortcut("a", modifiers: []).opacity(0) }
         Button("Deny") { model.decide(approval.id, .deny) }
             .buttonStyle(PillButtonStyle(kind: .ghost))

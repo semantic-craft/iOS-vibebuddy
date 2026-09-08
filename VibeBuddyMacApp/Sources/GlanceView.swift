@@ -3,9 +3,9 @@ import VibeBuddyKit
 import VibeBuddyMacCore
 
 /// The glance, drawn with the Dynamic Island's grammar. On a notch Mac the
-/// housing itself is never drawn into: idle shows nothing, `compact` grows a
-/// small wing either side (the cat on the left, the one state that matters on
-/// the right), and `card` / `expanded` drop below it. Without a notch the same
+/// housing itself is never drawn into: idle shows nothing, `compact` places a
+/// housing-width status strip below the camera, and `card` / `expanded` drop
+/// their content below it. Without a notch the same
 /// content hangs under the menu bar as a capsule.
 struct GlanceView: View {
     @ObservedObject var model: MenuBarModel
@@ -15,14 +15,12 @@ struct GlanceView: View {
 
     @State private var hovering = false
     @State private var hoverTask: Task<Void, Never>?
-    @State private var leadingWidth: CGFloat = 0
-    @State private var trailingWidth: CGFloat = 0
 
     private enum Mode: Equatable { case idle, compact, card, expanded }
 
     private static let motion = Animation.spring(response: 0.36, dampingFraction: 0.8)
     /// User size preset; scales the card and the expanded content only — the
-    /// wings are sized by the notch, not by preference.
+    /// compact content is sized by the notch, not by preference.
     private var s: CGFloat { model.glanceScale }
     private var summary: TaskPresentationSummary { model.presentationSummary }
     private var pending: AgentSession? { model.sessions.first { $0.pendingApproval != nil } }
@@ -54,23 +52,19 @@ struct GlanceView: View {
 
     // MARK: notch layout
 
-    private var topRadius: CGFloat { mode == .compact || mode == .idle ? 6 : 15 }
+    private var topRadius: CGFloat { mode == .compact || mode == .idle ? 0 : 15 }
     private var bottomRadius: CGFloat { mode == .compact || mode == .idle ? 14 : 20 }
     private var cardWidth: CGFloat { 400 * s }
 
-    /// Wings beside the housing plus, in the two tall modes, a body below it. The
-    /// black `NotchShape` is the content's own background, so it always spans
-    /// exactly what is drawn and its flared top corners meet the menu bar where
-    /// the housing does. Uneven wings shift the whole island so the gap between
-    /// them stays over the real notch (the offset is zero in the tall modes).
+    /// The compact strip stays within the housing's width. Reserve the camera's
+    /// full height, then put visible content below it; no lateral wings or flares.
     private func island(notch: NotchGeometry) -> some View {
         VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                wing(leading: true, height: notch.height)
-                    .onGeometryChange(for: CGFloat.self, of: \.size.width) { leadingWidth = $0 }
-                Color.clear.frame(width: notch.width, height: notch.height)
-                wing(leading: false, height: notch.height)
-                    .onGeometryChange(for: CGFloat.self, of: \.size.width) { trailingWidth = $0 }
+            Color.clear.frame(width: notch.width, height: notch.height)
+            if mode == .compact {
+                compactStrip
+                    .frame(width: notch.width, height: 28)
+                    .clipped()
             }
             if mode == .card, let card = model.glanceCard {
                 GlanceEventCard(card: card, model: model, scale: s)
@@ -83,31 +77,50 @@ struct GlanceView: View {
             }
         }
         .padding(.horizontal, topRadius)
+        .fixedSize(horizontal: true, vertical: false)
         .background(NotchShape(topRadius: topRadius, bottomRadius: bottomRadius).fill(.black))
         .overlay(voiceRing(NotchShape(topRadius: topRadius, bottomRadius: bottomRadius)))
         .contentShape(NotchShape(topRadius: topRadius, bottomRadius: bottomRadius))
-        .offset(x: mode == .compact ? (trailingWidth - leadingWidth) / 2 : 0)
         .onHover(perform: hoverChanged)
         .onTapGesture { if mode == .compact || mode == .idle { model.setGlanceExpanded(true) } }
     }
 
-    @ViewBuilder private func wing(leading: Bool, height: CGFloat) -> some View {
-        if mode == .compact {
-            Group {
-                if leading {
-                    PetFace(state: model.buddyState, voice: .init(voice.phase), greet: greet,
-                            bare: true, scale: (height - 10) / 60)
-                        .onTapGesture { greet += 1; voice.toggle() }   // tap the buddy to talk
-                        .padding(.leading, 8).padding(.trailing, 4)
-                } else if voice.isActive {
-                    voiceBadge.padding(.leading, 6).padding(.trailing, 12)
-                } else {
-                    needsYouBadge.padding(.leading, 8).padding(.trailing, 12)
-                }
+    private var compactStrip: some View {
+        HStack(spacing: 6) {
+            Button {
+                greet += 1
+                voice.toggle()
+            } label: {
+                PetFace(state: model.buddyState, voice: .init(voice.phase), greet: greet,
+                        bare: true, scale: 0.3)
             }
-            .frame(height: height)
-            .transition(.opacity.combined(with: .scale(scale: 0.4, anchor: leading ? .trailing : .leading)))
+            .buttonStyle(.plain)
+            .accessibilityLabel(voice.isActive ? "Stop voice companion" : "Start voice companion")
+            Spacer(minLength: 0)
+            if voice.isActive {
+                Image(systemName: voiceSymbol)
+                    .foregroundStyle(voice.isSpeaking ? Color.green : Color.red)
+                    .accessibilityLabel(Text(voiceLabel))
+                    .help(Text(voiceLabel))
+            } else {
+                let state = summary.primaryState
+                let count = summary.count(for: state)
+                HStack(spacing: 4) {
+                    Image(systemName: state.symbolName)
+                        .foregroundStyle(MacTheme.status(state))
+                    Text(count > 99 ? "99+" : "\(count)")
+                        .monospacedDigit()
+                        .foregroundStyle(.white)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(count) \(state.label)")
+                .help("\(count) \(state.label)")
+            }
         }
+        .font(.system(size: 12, weight: .semibold))
+        .lineLimit(1)
+        .padding(.horizontal, 14)
+        .padding(.bottom, 4)
     }
 
     // MARK: notchless layout
@@ -172,23 +185,33 @@ struct GlanceView: View {
     @ViewBuilder private func voiceRing<S: Shape>(_ shape: S) -> some View {
         if voice.isActive {
             let tint = voice.isSpeaking ? Color.green : Color.red
-            shape.stroke(tint.opacity(0.8), lineWidth: 1.5)
-                .shadow(color: tint.opacity(0.28), radius: 3)
+            if layout.notch != nil && mode == .compact {
+                shape.stroke(tint.opacity(0.8), lineWidth: 1.5)
+                    .clipShape(shape)
+            } else {
+                shape.stroke(tint.opacity(0.8), lineWidth: 1.5)
+                    .shadow(color: tint.opacity(0.28), radius: 3)
+            }
         }
     }
 
+    private var voiceLabel: LocalizedStringKey {
+        voice.phase == .connecting ? "Connecting — wait to speak"
+            : voice.phase == .thinking ? "Thinking…" : voice.isSpeaking ? "Speaking" : "Listening"
+    }
+
+    private var voiceSymbol: String {
+        voice.phase == .connecting || voice.phase == .thinking ? "ellipsis"
+            : voice.isSpeaking ? "waveform" : "mic.fill"
+    }
+
     private var voiceBadge: some View {
-        let speaking = voice.isSpeaking
-        let connecting = voice.phase == .connecting
-        let thinking = voice.phase == .thinking
-        let label: LocalizedStringKey = connecting ? "Connecting — wait to speak"
-            : thinking ? "Thinking…" : speaking ? "Speaking" : "Listening"
-        return HStack(spacing: 6) {
-            Image(systemName: connecting || thinking ? "ellipsis" : speaking ? "waveform" : "mic.fill")
+        HStack(spacing: 6) {
+            Image(systemName: voiceSymbol)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(speaking ? Color.green : Color.red)
+                .foregroundStyle(voice.isSpeaking ? Color.green : Color.red)
                 .symbolEffect(.variableColor.iterative, options: .repeating, isActive: true)
-            Text(label)
+            Text(voiceLabel)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.white)
                 .lineLimit(1)
@@ -279,12 +302,14 @@ struct GlanceView: View {
                             .keyboardShortcut("d", modifiers: [])
                     }
                     HStack(spacing: 6 * s) {
+                        if a.canPersistDecision {
                         linkButton("Always") { model.decide(a.id, .alwaysAllow) }
                             .help("Always allow this exact command in future")
                         Text("·").foregroundStyle(.white.opacity(0.4))
                         linkButton("This session") { model.decide(a.id, .allowSession) }
                             .help("Stop asking for the rest of this run")
                         Text("·").foregroundStyle(.white.opacity(0.4))
+                        }
                         linkButton(p.agent == .grokBot ? "Open Grok Bot" : p.jumpsToDesktopThread ? "Open thread" : "Jump ⏎") { model.jump(p) }
                             .help(p.agent == .grokBot ? "Open Grok Bot and select the task" : p.jumpsToDesktopThread ? "Open this thread in ChatGPT" : "Jump to terminal")
                     }
@@ -393,6 +418,11 @@ private struct GlanceEventCard: View {
                 }
                 .lineLimit(1)
                 Spacer(minLength: 0)
+            }
+            if let approval = live.pendingApproval, !approval.canPersistDecision,
+               card.alert.sound == .needsApproval {
+                ApprovalBody(approval: approval, onDark: true)
+                    .frame(maxHeight: 140)
             }
             if live.status == .needsResponse && live.pendingApproval == nil && WaitHandling.resolve(for: live) != .remoteAvailable {
                 Text(WaitHandling.resolve(for: live).message)

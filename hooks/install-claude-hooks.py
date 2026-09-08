@@ -61,9 +61,22 @@ EVENTS = [
     "SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest",
     "PermissionDenied", "PostToolUse", "PostToolUseFailure", "Notification",
     "PostToolBatch", "Elicitation", "ElicitationResult", "SubagentStart", "SubagentStop",
-    "TaskCreated", "TaskCompleted", "PreCompact", "PostCompact",
+    "TeammateIdle", "TaskCreated", "TaskCompleted", "PreCompact", "PostCompact",
     "Stop", "StopFailure", "PostModelSwitch", "CwdChanged", "SessionEnd",
 ]
+# Deliberately not registered, having read what each one does:
+#   WorktreeCreate    — configuring it REPLACES Claude's own git worktree
+#                       creation. A status forwarder there would make every
+#                       worktree-isolated session fail to start.
+#   WorktreeRemove    — only the cleanup counterpart of a hook we must not add.
+#   DirectoryAdded    — would widen `recentDirectories`, the allowlist that
+#                       stops a phone pointing an agent at an arbitrary path,
+#                       to directories no session has run in. A product
+#                       decision, not a wiring detail.
+#   MessageDisplay    — assistant text on every message; RecentOutput already
+#                       has a bounded source.
+#   Setup, UserPromptExpansion, InstructionsLoaded, ConfigChange, FileChanged,
+#   PreModelSwitch    — carry no session progress we do not already have.
 # Terminal capture runs on SessionStart (catch new sessions) AND UserPromptSubmit
 # (re-capture so a session that missed SessionStart — e.g. the hook was added
 # mid-session — self-heals on its next prompt). The re-capture skips the Ghostty

@@ -173,18 +173,22 @@ public struct SplitApproveButton: View {
     public let approve: () -> Void
     public let always: () -> Void
     public let session: () -> Void
+    public let allowsPersistentDecision: Bool
     private let green = CompanionPalette.status(.completeUnread)
 
-    public init(approve: @escaping () -> Void, always: @escaping () -> Void, session: @escaping () -> Void) {
+    public init(approve: @escaping () -> Void, always: @escaping () -> Void, session: @escaping () -> Void,
+                allowsPersistentDecision: Bool = true) {
         self.approve = approve
         self.always = always
         self.session = session
+        self.allowsPersistentDecision = allowsPersistentDecision
     }
 
     public var body: some View {
         HStack(spacing: 1) {
             Button(String(localized: "Approve"), action: approve)
                 .buttonStyle(SplitHalfStyle(color: green))
+            if allowsPersistentDecision {
             Menu {
                 Button(String(localized: "Always allow this"), action: always)
                 Button(String(localized: "Allow all this session"), action: session)
@@ -204,6 +208,7 @@ public struct SplitApproveButton: View {
                                                           bottomTrailingRadius: 17, topTrailingRadius: 17,
                                                           style: .continuous))
             .accessibilityLabel(String(localized: "More approval options"))
+            }
         }
         .shadow(color: green.opacity(0.28), radius: 6, y: 3)
     }
@@ -264,10 +269,14 @@ public struct ApprovalBody: View {
     private var ink: Color { onDark ? .white : CompanionPalette.ink }
 
     private func codeBlock(_ text: String) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            Text(text).font(CompanionType.mono(12)).lineLimit(14).textSelection(.enabled)
+        ScrollView(approval.canPersistDecision ? .horizontal : [.horizontal, .vertical],
+                   showsIndicators: !approval.canPersistDecision) {
+            Text(text).font(CompanionType.mono(12))
+                .lineLimit(approval.canPersistDecision ? 14 : nil)
+                .fixedSize(horizontal: true, vertical: true).textSelection(.enabled)
                 .foregroundStyle(ink)
         }
+        .frame(maxHeight: approval.canPersistDecision ? nil : 240)
         .padding(10)
         .background(block, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }

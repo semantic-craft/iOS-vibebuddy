@@ -12,7 +12,7 @@
 
 - 本地状态入口：`.scratch/mac-app-store/CHECKLIST.md`。
 - 候选 spec 和研究：同目录 `PRD.md`、`RESEARCH.md`。
-- 工作票：同目录 `issues/01-…08-….md`；按 checklist 的精确链接定位。
+- 工作票：同目录 `issues/`；当前有效票与依赖按 checklist 的精确链接定位，不从历史票号推断。
 - Claude 独立评审提示词：同目录 `CLAUDE-CODE-PROMPT.md`。只有实际存在评审结果才声称收到意见。
 
 领取工作前复核当前源码、git 状态、票 owner 和已有证据；收尾回写 checklist 的下一张票及 ticket 证据。本文件不复制动态状态。

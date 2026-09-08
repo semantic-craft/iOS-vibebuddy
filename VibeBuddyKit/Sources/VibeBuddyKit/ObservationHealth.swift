@@ -70,7 +70,7 @@ public enum ObservationHealth: String, Codable, Sendable, CaseIterable {
         case .eventsMissing:
             return "Required lifecycle events have not been observed."
         case .asyncIncompatible:
-            return "Codex ignores asynchronous command hooks in this version."
+            return "The approval hook is installed as asynchronous, so the agent never waits for the answer. Repair the installation."
         case .sourceUnreadable:
             switch source {
             case .gateway: return "The Grok Bot gateway cannot be reached. Open Grok Bot and check its connection."

@@ -399,16 +399,19 @@ public struct VibeBuddyServer: Sendable {
             let buffer = try await request.body.collect(upTo: 4096)
             let body = String(decoding: Data(buffer: buffer), as: UTF8.self)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
+            let payload: DeviceRegistrationPayload
             if body.hasPrefix("{") {
-                let payload = (try? JSONDecoder().decode(DeviceRegistrationPayload.self,
-                                                          from: Data(body.utf8)))
-                    ?? DeviceRegistrationPayload()
-                await deviceTokens.register(payload)   // token + sound prefs (playSound/quietMode)
-                if payload.hasVisibleDeviceInfo { onDevicePaired(payload) }
-            } else if !body.isEmpty {
-                await deviceTokens.add(body)
-                onDevicePaired(DeviceRegistrationPayload(token: body))
+                guard let decoded = try? JSONDecoder().decode(DeviceRegistrationPayload.self,
+                                                               from: Data(body.utf8)) else {
+                    throw HTTPError(.badRequest)
+                }
+                payload = decoded
+            } else {
+                guard !body.isEmpty else { throw HTTPError(.badRequest) }
+                payload = DeviceRegistrationPayload(token: body)
             }
+            guard await deviceTokens.registerFromPhone(payload) else { throw HTTPError(.forbidden) }
+            if payload.hasVisibleDeviceInfo { onDevicePaired(payload) }
             return .ok
         }
 
@@ -700,6 +703,7 @@ public struct VibeBuddyServer: Sendable {
             let snapshot = await store.snapshot(now: Date())
             guard let pending = snapshot.sessions.compactMap(\.pendingApproval).first(where: { $0.id == id }),
                   pending.isAnswerable,
+                  pending.canPersistDecision || (decision != "alwaysAllow" && decision != "allowSession"),
                   let claimedContext = await approvalContext.take(id: id),
                   await registry.claim(id: id) else { return .conflict }
             let ctx = Optional(claimedContext)

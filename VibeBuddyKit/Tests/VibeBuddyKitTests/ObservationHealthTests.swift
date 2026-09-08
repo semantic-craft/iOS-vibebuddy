@@ -48,7 +48,7 @@ struct ObservationHealthTests {
     @Test("Mac and iOS can share one human-readable health explanation")
     func sharedHumanReadableExplanation() {
         #expect(ObservationHealth.asyncIncompatible.explanation(for: .hook)
-                == "Codex ignores asynchronous command hooks in this version.")
+                == "The approval hook is installed as asynchronous, so the agent never waits for the answer. Repair the installation.")
         #expect(ObservationHealth.sourceUnreadable.explanation(for: .rollout)
                 == "The rollout stream cannot be read.")
         #expect(ObservationHealth.temporarilySilent.displayName == "Temporarily silent")
