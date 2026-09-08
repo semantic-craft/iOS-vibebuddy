@@ -291,10 +291,9 @@ private struct MenuPanelAnchor: NSViewRepresentable {
         @objc func realign() {
             guard let window, let item = anchoringStatusItem(for: window),
                   let screen = hostScreen(for: window) else { return }
-            let visible = screen.visibleFrame
-            let width = window.frame.width
-            let rightmost = max(visible.minX + 8, visible.maxX - width - 8)
-            let x = min(max(item.midX - width / 2, visible.minX + 8), rightmost)
+            let x = MenuPanelPlacement.x(itemMidX: item.midX,
+                                         panelWidth: window.frame.width,
+                                         visible: screen.visibleFrame)
             guard abs(x - window.frame.minX) > 0.5 else { return }
             window.setFrameOrigin(CGPoint(x: x, y: window.frame.minY))
         }
