@@ -162,50 +162,14 @@ final class MenuBarModel: ObservableObject {
     /// daemon's presence check). Weak: the model owns the app's lifetime, not
     /// the other way round.
     private(set) static weak var shared: MenuBarModel?
-    struct MenuSnapshot {
-        var sessions: [AgentSession] = []
-        var sourceID: String?
-        var roundIDs: [String: String] = [:]
-    }
-    @Published private(set) var menuSnapshot = MenuSnapshot()
-    /// Round evidence is resolved asynchronously. Do not clear using newer
-    /// lifecycle data paired with older menu round identities or another source.
-    var menuSnapshotIsCurrent: Bool {
-        menuSnapshot.sourceID == snapshotSourceID && Self.sameMenuLifecycles(menuSnapshot.sessions, sessions)
-    }
-    /// Lists use live rows; actions continue to use the asynchronously resolved snapshot.
-    var menuListSnapshot: MenuSnapshot {
-        let captured = Dictionary(uniqueKeysWithValues: menuSnapshot.sessions.map { ($0.id, $0) })
-        let current = Dictionary(uniqueKeysWithValues: sessions.map { ($0.id, $0) })
-        let rounds = menuSnapshot.sourceID == snapshotSourceID ? menuSnapshot.roundIDs.filter { id, _ in
-            guard let old = captured[id], let live = current[id] else { return false }
-            return Self.sameMenuLifecycle(old, live)
-        } : [:]
-        return MenuSnapshot(sessions: sessions, sourceID: snapshotSourceID, roundIDs: rounds)
-    }
+    // The menu reads `sessions` directly. The captured menu snapshot, its round
+    // identities and the lifecycle comparisons existed only so local clearing
+    // could not hide a newer round; clearing is gone and nothing else read them.
 
-    private static func sameMenuLifecycle(_ lhs: AgentSession, _ rhs: AgentSession) -> Bool {
-        lhs.id == rhs.id && lhs.agent == rhs.agent && lhs.statusSince == rhs.statusSince &&
-        lhs.completionID == rhs.completionID && lhs.presentationState == rhs.presentationState
-    }
-
-    /// Tokens, timestamps and observation health do not change the round the user can clear.
-    private static func sameMenuLifecycles(_ lhs: [AgentSession], _ rhs: [AgentSession]) -> Bool {
-        guard lhs.count == rhs.count else { return false }
-        let current = Dictionary(uniqueKeysWithValues: rhs.map { ($0.id, $0) })
-        return lhs.allSatisfy { old in
-            guard let live = current[old.id] else { return false }
-            return sameMenuLifecycle(old, live)
-        }
-    }
-
-    private let menuRoundReader = MenuRoundIdentityReader()
-    private var menuRefreshTask: Task<Void, Never>?
     private let menuRolloutMonitor: CodexRolloutMonitor = {
         guard let run = E2ERunConfiguration.current else { return CodexRolloutMonitor() }
         return CodexRolloutMonitor(root: run.file("agents").appendingPathComponent("codex/sessions", isDirectory: true))
     }()
-    private static let menuSourcePathsKey = "menuSourcePaths"
 
     private var snapshotSourceID: String?
 
@@ -310,7 +274,6 @@ final class MenuBarModel: ObservableObject {
         let isDemo = (E2ERunConfiguration.current == nil && ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1")
         if isDemo {
             sessions = MacDemoData.sessions()
-            menuSnapshot = MenuSnapshot(sessions: sessions)
             observationDiagnostics = MacDemoData.observationDiagnostics()
         } else if runtimeEnabled {
             notifier.requestAuthorization()
@@ -477,49 +440,9 @@ final class MenuBarModel: ObservableObject {
                 Task { await self.pushToPhones(alerts, focused: present) }
                 await self.pushActivityUpdates(snapshot.sessions)
                 await self.checkBudget(snapshot.sessions)
-                if self.menuRefreshTask == nil {
-                    self.menuRefreshTask = Task { [weak self] in
-                        guard let self else { return }
-                        defer { self.menuRefreshTask = nil }
-                        await self.refreshMenuSnapshot(snapshot)
-                    }
-                }
                 try? await Task.sleep(for: .seconds(2))
             }
         }
-    }
-
-    /// Resolve menu evidence separately from notification and lifecycle projection.
-    private func refreshMenuSnapshot(_ snapshot: Snapshot) async {
-        let defaults = UserDefaults.standard
-        var saved = defaults.dictionary(forKey: Self.menuSourcePathsKey) as? [String: String] ?? [:]
-        let known = await store.menuTranscriptPaths()
-        var paths: [String: String] = [:]
-        for session in snapshot.sessions where session.completionID == nil && session.presentationState == .idle {
-            let key = "\(snapshot.sourceID ?? "unknown"):\(session.agent.rawValue):\(session.id)"
-            let rollout = session.agent == .codex ? await menuRolloutMonitor.rolloutPath(for: session.id) : nil
-            if let path = rollout ?? known[session.id] ?? saved[key] {
-                paths[session.id] = path
-                saved[key] = path
-            }
-        }
-        let missing = Set(snapshot.sessions.filter {
-            $0.agent == .codex && $0.completionID == nil && $0.presentationState == .idle && paths[$0.id] == nil
-        }.map(\.id))
-        if !missing.isEmpty {
-            let discovered = await menuRoundReader.codexPaths(sessionIDs: missing,
-                root: E2ERunConfiguration.current?.file("agents").appendingPathComponent("codex/sessions", isDirectory: true) ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/sessions"))
-            for (id, path) in discovered {
-                paths[id] = path
-                saved["\(snapshot.sourceID ?? "unknown"):\(AgentKind.codex.rawValue):\(id)"] = path
-            }
-        }
-        if saved != (defaults.dictionary(forKey: Self.menuSourcePathsKey) as? [String: String] ?? [:]) {
-            defaults.set(saved, forKey: Self.menuSourcePathsKey)
-        }
-        let rounds = await menuRoundReader.identities(sessions: snapshot.sessions, paths: paths)
-        guard snapshotSourceID == snapshot.sourceID, Self.sameMenuLifecycles(sessions, snapshot.sessions) else { return }
-        menuSnapshot = MenuSnapshot(sessions: sessions, sourceID: snapshot.sourceID, roundIDs: rounds)
     }
 
     private func isCurrentCompletion(_ alert: SoundAlert, deviceToken: String? = nil) async -> Bool {

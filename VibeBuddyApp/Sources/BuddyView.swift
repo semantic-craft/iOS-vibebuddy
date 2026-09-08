@@ -65,7 +65,7 @@ struct BuddyView: View {
 
     private var subline: String {
         var parts: [String] = []
-        let rest = CompanionCopy.restLine(summary)
+        let rest = CompanionCopy.restLine(summary, moodLineIsVisible: voice == .none)
         if !rest.isEmpty { parts.append(rest) }
         if !companionEnabled {
             parts.append(String(localized: "Voice companion off"))
