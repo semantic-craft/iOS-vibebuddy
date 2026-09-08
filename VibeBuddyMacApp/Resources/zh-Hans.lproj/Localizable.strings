@@ -144,13 +144,10 @@
 "Conversation language" = "对话语言";
 "Companion" = "伙伴";
 "Tap the buddy to talk — it knows your sessions and can approve / answer for you. Pick the provider whose key you've filled in below. Switching applies instantly if the buddy is already listening." = "点一下伙伴就能说话——它了解你的会话，并能替你批准／回答。选择你在下方填了密钥的服务商；如果伙伴正在聆听，切换会即时生效。";
-"API Key — paste your own (kept in the Keychain)" = "API 密钥——粘贴你自己的（存在钥匙串里）";
 "Get an API key" = "获取 API 密钥";
 "Model ID — editable, type any model" = "模型 ID——可编辑，可输入任意模型";
 "Browse available models" = "浏览可用模型";
-"Voice ID — editable (blank = auto by language)" = "音色 ID——可编辑（留空＝按语言自动）";
 "Browse available voices" = "浏览可用音色";
-"Workspace ID — optional; uses the workspace endpoint when set" = "业务空间 ID——可选，填写后使用业务空间专属接入点";
 "Find your workspace ID" = "查找业务空间 ID";
 "Use Singapore (international) region" = "使用新加坡（国际）地域";
 "Paste your %@ key" = "粘贴你的 %@ 密钥";
@@ -220,13 +217,8 @@
 
 /* MARK: AI completion summaries */
 "AI completion summaries" = "AI 完成摘要";
-"Send followed tasks’ final results to the selected provider. Summaries may appear in notification previews. This does not enable the microphone." = "将关注任务的最终结果发送给所选服务。摘要可能显示在通知预览中，不会开启麦克风。";
 "Text model ID" = "文本模型 ID";
-"Enter a text model available to your account" = "输入当前账号可使用的文本模型";
 "Saved separately for each provider. Use a text model, not the realtime model above." = "每家服务分别保存。请填写文本模型，不要使用上方的实时语音模型。";
-"Configuration entered — model access is confirmed only by a successful test." = "配置已填写；测试成功后才能确认模型访问权限。";
-"Test with sample" = "测试样例";
-"Testing sends one synthetic result using this Mac’s saved API key and may incur a text-generation charge. It does not send your task history or post a notification." = "测试会使用此 Mac 保存的 API Key 发送一条合成结果，可能产生文本生成费用。不会发送任务历史或发布通知。";
 "Sample generated" = "样例已生成";
 "Check that the summary still says device verification is pending." = "请检查摘要是否保留“真机尚未验证”的限制。";
 "Elapsed: %@ s" = "耗时：%@ 秒";
@@ -248,8 +240,6 @@
 "The sample input could not be summarized." = "无法为样例输入生成摘要。";
 "This completion was already handled." = "此完成结果已处理。";
 
-"Followed task completions use one summary when enabled. If generation fails, the ordinary completion notification is used." = "开启后，关注任务的完成通知使用一次 AI 摘要；生成失败时使用普通完成通知。";
-
 /* Mac read aloud */
 "Generating speech…" = "正在合成语音…";
 "Save your %@ API key first." = "请先保存 %@ 的 API Key";
@@ -258,13 +248,10 @@
 "Read-aloud stopped" = "朗读已停止";
 "Playback complete" = "播放完成";
 "Speech generation failed. Check your read-aloud model, voice and connection." = "语音合成失败，请检查朗读模型、音色和网络";
-"Automatically read AI completion summaries for followed tasks" = "自动朗读关注任务的 AI 完成摘要";
-"Generate speech with your read-aloud provider and play it through your Mac’s current audio output. No microphone is needed. Each reading incurs speech-generation charges." = "使用朗读服务商生成语音，由 Mac 当前音频输出播放；无需打开麦克风。每次朗读会产生语音合成费用。";
 "Speech synthesis model" = "语音合成模型";
 "Longan Fengyue · Warm and natural" = "龙安风悦 · 自然亲切";
 "Longan Lingxi · Sweet and cheerful" = "龙安灵希 · 可爱甜美";
 "Longan Yuanfei · Female character voice" = "龙安元妃 · 角色女声";
-"Preview read-aloud voice" = "试听朗读音色";
 "Stop" = "停止";
 "Hello, I’m your work companion. The task is complete, and device verification is still pending." = "你好，我是你的工作伙伴。任务已完成，设备验证仍待进行。";
 "Read-aloud voice" = "朗读音色";
@@ -297,34 +284,17 @@
 
 /* S2 purpose cards and inline configuration */
 "Voice conversation" = "语音对话";
-"Completion summaries" = "完成摘要";
-"Talk to your buddy about your sessions." = "与伙伴谈论当前任务。";
-"Summarize followed tasks’ final results." = "概括所关注任务的最终结果。";
-"Select a purpose to edit it. Selection does not turn it on." = "选择用途以编辑配置。选中用途不会启用该功能。";
-"Tap the buddy to start a conversation. Enabling this switch does not start the microphone." = "点击伙伴开始对话。开启此开关不会启动麦克风。";
 "Realtime model ID" = "实时模型 ID";
-"Leave the realtime model blank to use the provider default." = "实时模型留空时使用该服务商的默认模型。";
-"Voice & advanced parameters" = "音色与高级参数";
 "Shared provider & language" = "共享服务商与语言";
 "Both purposes use this provider, its API key and this language. Realtime and text model IDs are saved separately for each provider." = "两个用途共用此服务商、API 密钥和语言。实时模型与文本模型按服务商分别保存。";
 "Changing provider or language reconnects an active voice conversation immediately. When no conversation is active, editing does not start one or run a test." = "修改服务商或语言会立即重新连接正在进行的语音对话。没有活动对话时，编辑不会启动对话或测试。";
 "API key could not be saved. Your edit is not stored; edit or paste it again to retry." = "API 密钥保存失败，本次编辑尚未存储；请重新编辑或粘贴后重试。";
 "Provider connection" = "服务商连接";
 "This connection is shared by voice conversation and completion summaries." = "语音对话与完成摘要共用此连接。";
-"Qwen region & workspace" = "Qwen 区域与工作空间";
 "Configure connection" = "配置连接";
 "Enabled" = "已启用";
-"Select to edit. The enable switch is separate." = "选择以编辑，启用开关独立设置。";
-"API key not saved" = "API 密钥未保存";
-"Checking saved configuration…" = "正在检查已保存的配置…";
-"API key required" = "需要 API 密钥";
-"Review the text model or Qwen connection" = "请检查文本模型或 Qwen 连接配置";
-"Configuration entered · unverified" = "已填写配置 · 尚未验证";
-"Saved separately for each provider. This text model is independent of the voice conversation’s realtime model." = "按服务商分别保存。此文本模型独立于语音对话的实时模型。";
 "Add this provider’s API key in Provider connection." = "请在“服务商连接”中填写此服务商的 API 密钥。";
 "Check the Qwen workspace ID in Provider connection." = "请检查“服务商连接”中的 Qwen 工作空间 ID。";
-"Leave the text model blank to use the recommended default." = "文本模型留空时使用推荐默认值。";
-
 "Enter a valid realtime model ID before testing." = "测试前请输入有效的实时模型 ID。";
 
 "Enter a voice ID or use the language default." = "请输入音色 ID，或使用该语言的默认音色。";
@@ -343,47 +313,25 @@
 
 "Test details" = "测试详情";
 
-"Test realtime connection" = "测试实时连接";
-
-"This test may incur provider charges. It checks configuration only, without microphone input, task history, tools or audio playback." = "此测试可能产生服务商费用。仅检查配置，不使用麦克风、任务历史、工具或音频播放。";
-
-"Realtime connection confirmed" = "实时连接已确认";
-
-"Sample summary generated" = "已生成示例摘要";
-
 "Not verified" = "尚未验证";
 "Testing…" = "正在测试…";
 "Elapsed: %.2f s" = "耗时：%.2f 秒";
 
-"Read summaries on this Mac" = "在这台 Mac 上朗读摘要";
-
 "Read-aloud provider" = "朗读服务商";
 
-"Same as summaries" = "与摘要相同";
+"Same as summaries · %@" = "与摘要相同 · %@";
 
-"Read-aloud follows the completion summary provider, currently %@." = "朗读跟随完成摘要服务商，当前为 %@。";
-
-"Read-aloud uses %@, whatever the summary provider is." = "朗读使用 %@，不受摘要服务商影响。";
+"not set" = "未设置";
 
 "Read-aloud is waiting for a completion summary provider. Choose one, or pick a read-aloud provider of its own." = "朗读正在等待完成摘要服务商。请先设置摘要服务商，或为朗读单独选择一家。";
 
 "%@ cannot read summaries aloud yet. Choose another read-aloud provider." = "%@ 暂不支持朗读摘要，请另选一家朗读服务商。";
-
-"Automatic reading needs AI completion summaries to be enabled and successfully generated. Previewing does not enable either feature." = "自动朗读需要启用 AI 完成摘要并成功生成摘要。试听不会启用这两项功能。";
-
-"Credentials, region and workspace are shared with the selected provider. Edit them in Provider connection below." = "密钥、区域和工作空间与当前服务商共用。请在下方“服务商连接”中编辑。";
-
-"Read-aloud provider connection" = "朗读服务商连接";
-
-"These credentials are also used when this provider is selected for conversation or summaries." = "对话或摘要选择这家服务商时，也会使用此处的密钥。";
 
 "API key" = "API 密钥";
 
 "Enter a speech synthesis model before previewing." = "试听前请输入语音合成模型。";
 
 "Stop the current voice conversation or reading before previewing." = "请先停止当前语音对话或朗读，再开始试听。";
-
-"Preview sends only the sample text to your read-aloud provider and may incur a speech-generation charge. It does not enable automatic reading or use the microphone." = "试听仅向朗读服务商发送示例文本，可能产生语音合成费用。不会启用自动朗读，也不使用麦克风。";
 
 "Read-aloud preview" = "朗读试听";
 
@@ -398,17 +346,7 @@
 /* Doubao and independent purpose configuration */
 "Completion summary provider" = "完成摘要服务商";
 "Choose a completion summary provider before testing." = "请先选择完成摘要服务商，再进行测试。";
-"Purpose provider & shared language" = "用途服务商与共用语言";
-"Each purpose keeps its own provider. Credentials are shared only when both use the same provider; language remains shared." = "每个用途独立选择服务商。只有选择同一服务商时才共用凭据；对话语言仍共用。";
-"Changing the voice provider or shared language reconnects an active conversation. Changing the summary provider does not. Editing never starts an idle conversation or a test." = "切换语音服务商或共用语言会重连正在进行的对话。切换摘要服务商不会重连。编辑设置不会启动空闲对话或测试。";
-"This provider’s credentials are shared by the purposes that select it." = "选择此服务商的用途共用其凭据。";
-"Doubao realtime voice 3.0 · Recommended" = "豆包实时语音 3.0 · 推荐";
-"Custom realtime model" = "自定义实时语音模型";
-"The recommended model and Vivi voice are ready. Only your realtime API key is required." = "已预设推荐模型与 Vivi 音色，只需填入实时语音 API key。";
-"Your custom model or voice is retained. Review Advanced settings before testing." = "已保留你的自定义模型或音色，请在测试前检查高级设置。";
 "Not configured" = "未配置";
-"Advanced settings" = "高级设置";
-"Restore recommended model and voice" = "恢复推荐模型与音色";
 "Review the realtime model, voice and connection before testing." = "请在测试前检查实时模型、音色和连接配置。";
 "Testing connection…" = "正在测试连接…";
 "Doubao could not identify a response after interruption. Reopen the voice conversation to continue safely." = "豆包在打断后无法确认响应归属，请重新开启语音对话后继续。";
@@ -458,3 +396,85 @@
 "1 session" = "1 个会话";
 
 "Connecting — wait to speak" = "正在连接，请稍候再说话";
+
+/* Voice settings: features table + provider accounts */
+
+"Features" = "功能";
+
+"Provider accounts" = "服务商账号";
+
+"Shared" = "共享设置";
+
+"Read summaries aloud" = "朗读摘要";
+
+"Tap the buddy to talk about your sessions. The switch does not open the microphone." = "点一下桌宠即可聊聊你的会话。打开这个开关不会启用麦克风。";
+
+"Sends followed tasks’ final results to this provider. Summaries may appear in notification previews." = "把关注任务的最终结果发送给这家服务商。摘要可能出现在通知预览中。";
+
+"Speaks that summary through this Mac’s current audio output. No microphone; each reading is billed by the provider." = "通过这台 Mac 当前的音频输出朗读该摘要。不使用麦克风；每次朗读由服务商计费。";
+
+"No API key yet · Add it" = "尚未填写 API Key · 去添加";
+
+"Nothing to read yet" = "暂时没有可朗读的内容";
+
+"Unverified" = "未验证";
+
+"Connection confirmed" = "连接已确认";
+
+"Preview played" = "试听已播放";
+
+"Waiting for a summary provider" = "正在等待摘要服务商";
+
+"Needs attention" = "需要处理";
+
+"Opens this provider’s account below." = "打开下方对应的服务商账号。";
+
+"Voice conversation provider" = "语音对话服务商";
+
+"Voice ID" = "音色 ID";
+
+"Test" = "测试";
+
+"Sample" = "生成样例";
+
+"Check the realtime connection. Billed by the provider; no microphone, task history or tools." = "检查实时连接。由服务商计费；不使用麦克风、任务历史或工具。";
+
+"Generate one synthetic summary with this Mac’s saved key. Billed; no task history is sent." = "用这台 Mac 已保存的密钥生成一条合成摘要。会计费；不会发送任务历史。";
+
+"No voice — summaries are text" = "无音色——摘要是文本";
+
+"Play one sample line. This calls the provider and is billed." = "播放一句示例。会真实调用服务商并计费。";
+
+"Preview the read-aloud voice" = "试听朗读音色";
+
+"Turn on AI completion summaries first — this only ever speaks that summary." = "请先开启 AI 完成摘要——朗读只会念这段摘要。";
+
+"Speaks through %@, whatever summaries use. Each reading is billed by the provider." = "固定使用 %@ 朗读，不受摘要服务商影响。每次朗读由服务商计费。";
+
+"Follows the completion summary provider, currently %@. Each reading is billed by the provider." = "跟随完成摘要服务商，当前为 %@。每次朗读由服务商计费。";
+
+"Check the Qwen workspace ID in the account below." = "请检查下方账号中的 Qwen 工作空间 ID。";
+
+"Key saved" = "已保存密钥";
+
+"No key" = "未填写密钥";
+
+"Key not saved" = "密钥未保存";
+
+"Edit" = "编辑";
+
+"Add key" = "添加密钥";
+
+"Used by %@" = "用于 %@";
+
+"Not used by any feature" = "暂无功能使用";
+
+"A key belongs to the provider, not to a feature: every feature that selects a provider uses the same key." = "密钥属于服务商，而不属于某个功能：选择同一家的所有功能共用这把密钥。";
+
+"Kept in the Keychain, once per provider." = "保存在钥匙串中，每家服务商一份。";
+
+"Workspace ID" = "工作空间 ID";
+
+"Optional. When set, Qwen connects through the workspace endpoint." = "可选。填写后 Qwen 将通过工作空间专属接入点连接。";
+
+"Shared by all three features, and it decides which voice each provider defaults to." = "三个功能共用，并决定每家服务商默认使用哪个音色。";

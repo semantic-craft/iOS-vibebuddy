@@ -86,6 +86,23 @@ public enum KeychainStore {
         return operations.add(add)
     }
 
+    /// Whether an account holds a secret, **without decrypting it**. A
+    /// metadata-only lookup does not consult the item's access control, so a
+    /// page that merely reports "key saved" never raises a Keychain
+    /// authorization prompt for an account this build was not granted.
+    public static func exists(
+        _ key: String,
+        matching: ([String: Any]) -> OSStatus = { query in
+            var request = query
+            request[kSecReturnAttributes as String] = true
+            request[kSecMatchLimit as String] = kSecMatchLimitOne
+            var item: CFTypeRef?
+            return SecItemCopyMatching(request as CFDictionary, &item)
+        }
+    ) -> Bool {
+        matching(baseQuery(for: key)) == errSecSuccess
+    }
+
     public static func get(
         _ key: String,
         operations: Operations = .live
