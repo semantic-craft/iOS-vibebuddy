@@ -1,4 +1,5 @@
 import Foundation
+import VibeBuddyKit
 
 /// Derives and matches vibebuddy's own "always allow" rules. See ADR 0010.
 ///
@@ -49,6 +50,7 @@ public actor VibeBuddyAllowStore {
     private var rules: [String]
 
     public static func defaultURL() -> URL {
+        if let run = E2ERunConfiguration.current { return run.file("permission-allow.json") }
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
         return base.appendingPathComponent("vibebuddy/permission-allow.json")

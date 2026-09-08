@@ -74,4 +74,37 @@ struct MenuSessionPreferencesTests {
         #expect(recovered.completionID == nil)
     }
 
+    @Test func filteredCleanupPreservesDashboardAndCompletionReminders() throws {
+        let since = Date(timeIntervalSince1970: 0)
+        let done = AgentSession(id: "done", agent: .codex, project: "A", status: .done,
+                                hasUnreadCompletion: true, completionID: "turn-1", attention: .followed,
+                                statusSince: since, updatedAt: since)
+        let other = AgentSession(id: "other", agent: .claudeCode, project: "B", status: .done,
+                                 hasUnreadCompletion: true, statusSince: since, updatedAt: since)
+        let idle = AgentSession(id: "idle", agent: .codex, project: "A", status: .done,
+                                statusSince: since, updatedAt: since)
+        let working = AgentSession(id: "working", agent: .codex, project: "A", status: .working,
+                                   statusSince: since, updatedAt: since)
+        let waiting = AgentSession(id: "waiting", agent: .codex, project: "A", status: .needsResponse,
+                                   statusSince: since, updatedAt: since)
+        let error = AgentSession(id: "error", agent: .codex, project: "A", status: .done,
+                                 failed: true, statusSince: since, updatedAt: since)
+        let dashboard = [done, other, idle, working, waiting, error]
+        var schedule = CompletionReminderSchedule()
+        #expect(schedule.due(dashboard, now: since).isEmpty)
+        var prefs = MenuSessionPreferences()
+        prefs.selectedAgents = [.codex]
+        prefs.clear(dashboard, sourceID: "mac")
+        #expect(prefs.visible(dashboard, sourceID: "mac") == [working, waiting, error])
+        prefs.selectedAgents = Set(AgentKind.allCases)
+        let restored = try JSONDecoder().decode(MenuSessionPreferences.self, from: JSONEncoder().encode(prefs))
+        #expect(restored.visible(dashboard, sourceID: "mac") == [other, working, waiting, error])
+        #expect(dashboard.count == 6)
+        #expect(done.hasUnreadCompletion)
+        #expect(schedule.due(dashboard, now: Date(timeIntervalSince1970: 300)).map(\.id) == ["done"])
+        var next = done
+        next.completionID = "turn-2"
+        #expect(restored.visible([next], sourceID: "mac") == [next])
+    }
+
 }

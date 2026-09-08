@@ -1,6 +1,7 @@
 import Carbon.HIToolbox
 import AppKit
 import VibeBuddyMacCore
+import VibeBuddyKit
 
 extension Notification.Name {
     static let openAppSettings = Notification.Name("vibebuddy.openAppSettings")
@@ -29,15 +30,20 @@ final class GlobalHotkey {
     private static let glanceID: UInt32 = 2
 
     /// Install the Carbon handler (once) and register the saved shortcuts.
-    static func install() { shared.start() }
+    static func install() {
+        guard E2ERunConfiguration.current == nil else { return }
+        shared.start()
+    }
 
     /// Re-register the Open-Dashboard shortcut (called by the Settings recorder).
     static func setHotkey(_ hotkey: Hotkey) {
+        guard E2ERunConfiguration.current == nil else { return }
         shared.register(hotkey, id: dashboardID, ref: \.dashboardRef)
     }
 
     /// Re-register the Toggle-Glance shortcut.
     static func setGlanceHotkey(_ hotkey: Hotkey) {
+        guard E2ERunConfiguration.current == nil else { return }
         shared.register(hotkey, id: glanceID, ref: \.glanceRef)
     }
 

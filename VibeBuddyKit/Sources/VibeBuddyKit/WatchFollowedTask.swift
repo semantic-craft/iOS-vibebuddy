@@ -1,5 +1,88 @@
 import Foundation
 
+/// Whether this session's running turn can be ended from the wrist.
+///
+/// Derived on the iPhone from the shared `SessionActionSupport` rule and only
+/// displayed on the Watch, the same way `WaitHandling` is: the wrist must never
+/// be the thing that decides an agent can be interrupted.
+///
+/// Absent (`nil`) is the third answer and the common one — this session is not
+/// running a turn, so there is nothing to end and nothing to say about ending
+/// it. A relay predating this contract is also absent, which reads the same
+/// way: no button, no explanation, no claim.
+public enum WatchStopOffer: Codable, Equatable, Sendable {
+    /// A running turn this Watch may end, after a second confirmation.
+    case offered
+    /// A running turn that cannot be ended from here, and why not — shown in
+    /// the button's place, because a button that does nothing is worse than a
+    /// sentence saying where to go instead.
+    case blocked(WatchStopBlock)
+
+    public var isOffered: Bool { self == .offered }
+
+    public var block: WatchStopBlock? {
+        if case .blocked(let block) = self { return block }
+        return nil
+    }
+
+    /// The rule, run against one session. Only a `working` session has a turn
+    /// to end; `done` and `needsResponse` say nothing rather than explaining an
+    /// absence nobody asked about.
+    public static func resolve(for session: AgentSession) -> WatchStopOffer? {
+        guard session.status == .working else { return nil }
+        guard !SessionActionSupport.resolveStop(for: session).isAvailable else { return .offered }
+        return .blocked(WatchStopBlock(blocking: session))
+    }
+}
+
+/// Why a running turn cannot be ended from the wrist, as a code rather than a
+/// sentence.
+///
+/// The same choice `WaitHandling` makes, for the same reason: this value is
+/// projected on the iPhone and rendered on the Watch, so a sentence resolved
+/// here would arrive in the *phone's* language and freeze until the next relay.
+/// The code travels; the words are chosen where they are read.
+public enum WatchStopBlock: String, Codable, Equatable, Sendable {
+    /// Claude Code — no official remote interrupt contract exists, so the Mac
+    /// is where this ends (spec decision, 2026-09-08).
+    case macOnly
+    /// Grok, Grok Bot, Cursor and anything else that takes no remote
+    /// instruction yet.
+    case agentUnsupported
+    /// Codex, but this Mac is not carrying the session on its app-server
+    /// connection — the rollout tailer and hooks can see a turn, and neither
+    /// can end one.
+    case macNotConnected
+
+    /// Derived from the session rather than from the daemon's wording, so the
+    /// two can never drift into disagreeing. Only reached for a `working`
+    /// session `resolveStop` refused, which leaves exactly these three causes.
+    init(blocking session: AgentSession) {
+        if session.agent == .claudeCode { self = .macOnly }
+        else if session.agent != .codex { self = .agentUnsupported }
+        else { self = .macNotConnected }
+    }
+
+    /// What to say in the button's place. `agent` names the one that cannot be
+    /// asked, matching the wording every other remote-instruction refusal uses.
+    public func message(agent: AgentKind?) -> String {
+        switch self {
+        case .macOnly:
+            return String(localized: "Stop this on your Mac.")
+        case .macNotConnected:
+            return String(localized: "Your Mac isn't connected to Codex right now.")
+        case .agentUnsupported:
+            guard let agent else {
+                return String(localized: "This agent can't take instructions from the phone yet — use the terminal.")
+            }
+            if agent == .grokBot {
+                return String(localized: "Respond in Grok Bot on your Mac. Remote instructions are unavailable.")
+            }
+            return String(localized: "\(agent.displayName) sessions can't take instructions from the phone yet — use the terminal.")
+        }
+    }
+}
+
 /// Only the display-safe facts needed to recognize a followed session.
 public struct WatchFollowedTask: Codable, Equatable, Sendable, Identifiable {
     /// Absent in older relays/caches; never infer an agent from display text.
@@ -13,6 +96,10 @@ public struct WatchFollowedTask: Codable, Equatable, Sendable, Identifiable {
     public var presentation: TaskPresentationState
     public var waitKind: WaitKind?
     public var pendingID: String?
+    /// Whether the wrist may end this session's running turn, and why not when
+    /// it may not. `nil` on an older relay or cache, which reads as "say
+    /// nothing" — never as a Stop button.
+    public var stop: WatchStopOffer?
     public var statusSince: Date
     public var id: String { sessionID }
 
@@ -40,6 +127,7 @@ public struct WatchFollowedTask: Codable, Equatable, Sendable, Identifiable {
         waitKind = session.status == .needsResponse
             ? (session.waitKind ?? (session.pendingApproval != nil ? .permission : .question)) : nil
         pendingID = session.pendingApproval?.id ?? session.pendingQuestion?.id
+        stop = WatchStopOffer.resolve(for: session)
         statusSince = session.statusSince
     }
 
@@ -48,6 +136,9 @@ public struct WatchFollowedTask: Codable, Equatable, Sendable, Identifiable {
     public var complicationTask: Self {
         var compact = self
         compact.detailSummary = nil
+        // A complication is a glance, not a control surface: it offers no way
+        // to stop anything, so it carries neither the offer nor its reason.
+        compact.stop = nil
         return compact
     }
 

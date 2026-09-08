@@ -245,6 +245,11 @@ public final class SoundPolicy {
         // A focused terminal is handled by the list cap in `evaluate`.
         guard let prev, prev.status != .done, !input.appActive else { return nil }
         if session.probeRetired == true { return nil }
+        // You asked for this ending, on this device or another of yours. Codex
+        // reports it as an interrupted turn, which the failure heuristic below
+        // would ring as `agentStuck` — an error alert for something that went
+        // exactly as asked.
+        if session.userStopped == true { return nil }
 
         // Real signal first (a tool/turn error reported by the hook), then the
         // prose heuristic as a fallback. Either way failures ring regardless of runtime.

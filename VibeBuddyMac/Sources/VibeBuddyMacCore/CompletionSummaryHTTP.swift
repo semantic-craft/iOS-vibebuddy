@@ -33,7 +33,8 @@ struct CompletionSummaryHTTP: Sendable {
                 }
                 return .init(failure: failure)
             }
-            return Self.decode(data, provider: configuration.provider)
+            guard let provider = configuration.provider else { return .init(failure: .missingProvider) }
+            return Self.decode(data, provider: provider)
         } catch is CancellationError { return .init(failure: .cancelled)
         } catch let error as URLError {
             return .init(failure: error.code == .timedOut ? .expired : error.code == .cancelled ? .cancelled : .network)
@@ -44,6 +45,7 @@ struct CompletionSummaryHTTP: Sendable {
     static func request(input: CompletionSummaryInput, configuration c: CompletionSummaryConfiguration,
                         key: String, timeout: TimeInterval) throws -> URLRequest {
         if let failure = c.configurationFailure { throw failure }
+        guard let provider = c.provider else { throw CompletionSummaryFailure.missingProvider }
         let instructions = """
         Summarize the completed task's final result for a spoken notification in 1–2 complete plain-text sentences.
         Preserve every material limitation, failure, pending action and unverified check. Do not turn a completed turn into a claim of project success.
@@ -57,7 +59,8 @@ struct CompletionSummaryHTTP: Sendable {
         let user = String(decoding: userData, as: UTF8.self)
         let endpoint: String
         let body: [String: Any]
-        switch c.provider {
+        switch provider {
+        case .doubao: throw CompletionSummaryFailure.missingProvider
         case .qwen:
             let host: String
             if let workspace = c.qwenWorkspaceID {
@@ -94,6 +97,7 @@ struct CompletionSummaryHTTP: Sendable {
         func fail(_ reason: CompletionSummaryFailure) -> CompletionSummaryResponse { .init(usage: usage, failure: reason) }
         var pieces: [String] = []
         switch provider {
+        case .doubao: return fail(.missingProvider)
         case .qwen:
             guard let choices = root["choices"] as? [[String: Any]], choices.count == 1,
                   let choice = choices.first, let message = choice["message"] as? [String: Any] else { return fail(.invalidResponse) }
@@ -148,6 +152,7 @@ struct CompletionSummaryHTTP: Sendable {
         guard let u = root[provider == .gemini ? "usageMetadata" : "usage"] as? [String: Any] else { return nil }
         func number(_ value: Any?) -> Int? { guard let n = value as? Int, n >= 0 else { return nil }; return n }
         switch provider {
+        case .doubao: return nil
         case .qwen:
             return .init(inputTokens: number(u["prompt_tokens"]), outputTokens: number(u["completion_tokens"]), totalTokens: number(u["total_tokens"]),
                          cachedInputTokens: number((u["prompt_tokens_details"] as? [String: Any])?["cached_tokens"]),

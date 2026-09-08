@@ -3,7 +3,7 @@
 **Status:** Accepted (2026-06-05)
 
 The realtime WebSocket sessions (`QwenRealtimeSession`, `OpenAIRealtimeSession`,
-`GeminiRealtimeSession`) live in `VibeBuddyKit` as pure Foundation /
+`GeminiRealtimeSession`, `DoubaoRealtimeSession`) live in `VibeBuddyKit` as pure Foundation /
 `URLSessionWebSocketTask` and are platform-agnostic. The audio I/O
 (`RealtimeAudioIO`) and the UI are written per platform — macOS omits
 `AVAudioSession`; iOS requires it. So iOS reuses the Kit sessions unchanged and

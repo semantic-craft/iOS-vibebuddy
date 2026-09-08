@@ -3,6 +3,7 @@ import VibeBuddyKit
 @testable import VibeBuddyApp
 
 private actor DecisionRecorder: DecisionClient {
+    private(set) var sentActions = 0
     private(set) var acknowledgedSessionIDs: [String] = []
     private(set) var waitRequests: [WaitReadRequest] = []
     func acknowledgeWait(_ pairing: PairingPayload, request: WaitReadRequest) async -> Bool {
@@ -37,8 +38,8 @@ private actor DecisionRecorder: DecisionClient {
         return nextOutput ?? RecentOutput(sessionId: sessionId, source: .transcript)
     }
 
-    func decide(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> Bool { true }
-    func answer(_ pairing: PairingPayload, sessionId: String, answer: String) async {}
+    func decide(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> Bool { sentActions += 1; return true }
+    func answer(_ pairing: PairingPayload, sessionId: String, answer: String) async { sentActions += 1 }
     func jump(_ pairing: PairingPayload, sessionId: String) async -> JumpOutcome? { nil }
 }
 
@@ -314,7 +315,8 @@ private actor PhoneActionRecorder: DecisionClient {
         try? await Task.sleep(for: .milliseconds(30))
         return outcome
     }
-    func phoneAnswer(_ pairing: PairingPayload, session: AgentSession, text: String?, answers: QuestionAnswers?) async -> PhoneActionResult {
+    func phoneAnswer(_ pairing: PairingPayload, session: AgentSession, text: String?,
+                     answers: QuestionAnswers?, requestID: String) async -> PhoneActionResult {
         sent += 1
         return outcome
     }
@@ -401,19 +403,19 @@ extension DashboardStoreTests {
         addTeardownBlock { @MainActor in await store.stop().value }
         for _ in 0..<100 where store.allSessions.isEmpty { try await Task.sleep(for: .milliseconds(5)) }
         let request = WatchApprovalRequest(attemptId: "first", sessionId: session.id, approvalId: "wait-01", choice: .allow)
-        let accepted = await store.decideFromWatch(request)
+        let accepted = await store.actFromWatch(request.sessionAction)
         XCTAssertEqual(accepted.outcome, .accepted)
         XCTAssertEqual(store.allSessions.first?.status, .needsResponse, "Acceptance does not finish the task")
-        let duplicate = await store.decideFromWatch(request)
+        let duplicate = await store.actFromWatch(request.sessionAction)
         XCTAssertEqual(duplicate.outcome, .accepted)
         session.pendingApproval = PendingApproval(id: "wait-01", tool: "Bash", commandPreview: "pwd", command: "pwd", answerable: false)
         await client.replaceSnapshot(Snapshot(sessions: [session], serverTime: now, sourceID: "fixture-mac"))
-        let refused = await store.decideFromWatch(WatchApprovalRequest(attemptId: "late", sessionId: session.id, approvalId: "wait-01", choice: .deny))
+        let refused = await store.actFromWatch(WatchApprovalRequest(attemptId: "late", sessionId: session.id, approvalId: "wait-01", choice: .deny).sessionAction)
         XCTAssertEqual(refused.outcome, .refused)
         let count = await client.sent
         XCTAssertEqual(count, 1)
         await store.stop().value
-        let offline = await store.decideFromWatch(request)
+        let offline = await store.actFromWatch(request.sessionAction)
         XCTAssertEqual(offline.outcome, .failed)
         let finalCount = await client.sent
         XCTAssertEqual(finalCount, 1)
@@ -456,5 +458,82 @@ extension DashboardStoreTests {
         XCTAssertEqual(result, .expired)
         let count = await client.sent
         XCTAssertEqual(count, 0)
+    }
+}
+
+extension DashboardStoreTests {
+    func testHomeFiltersIntersectWithoutChangingSnapshotBuddyOrDeepLink() async throws {
+        let now = Date()
+        let stream = AsyncStream<Snapshot>.makeStream()
+        let decisions = DecisionRecorder()
+        let store = DashboardStore(streamer: ApprovalStream(snapshots: stream.stream), notifier: SilentNotifier(),
+            decisionClient: decisions, watchRelay: nil, reportDevice: { _ in })
+        store.start(PairingPayload(host: "127.0.0.1", port: 9, token: "fixture"))
+        addTeardownBlock { @MainActor in await store.stop().value }
+        var selected = AgentSession(id: "selected", agent: .codex, project: "Project A", status: .working,
+            statusSince: now, updatedAt: now)
+        selected.attention = .followed
+        // Effective attention is the snapshot value, not the manual override.
+        selected.attentionOverride = .muted
+        func fixture(_ id: String, project: String = "Project A", agent: AgentKind = .codex,
+                     status: SessionStatus = .working, attention: SessionAttention = .followed) -> AgentSession {
+            var session = AgentSession(id: id, agent: agent, project: project, status: status,
+                hasUnreadCompletion: status == .done, statusSince: now, updatedAt: now)
+            session.attention = attention
+            return session
+        }
+        let otherProject = fixture("project", project: "Project B")
+        let otherAgent = fixture("agent", agent: .grokBot)
+        let otherStatus = fixture("status", status: .done)
+        let otherAttention = fixture("attention", attention: .normal)
+        let sessions = [selected, otherProject, otherAgent, otherStatus, otherAttention]
+        stream.continuation.yield(Snapshot(sessions: sessions, serverTime: now))
+        for _ in 0..<100 where store.allSessions.count != 5 { try await Task.sleep(for: .milliseconds(5)) }
+        store.toggleBuddy("project")
+        var filters = DashboardFilters(project: "Project A", status: .thinking, agent: .codex, attention: .followed)
+        XCTAssertEqual(filters.sessions(from: store.allSessions).map(\.id), ["selected"])
+        XCTAssertEqual(store.allSessions.count, 5)
+        XCTAssertEqual(store.buddySessionIDs, ["project"])
+        store.open(VibeBuddyDeepLink.sessionURL(id: "status"))
+        XCTAssertEqual(store.focusedSessionId, "status")
+        XCTAssertTrue(store.allSessions.contains { $0.id == store.focusedSessionId })
+        XCTAssertFalse(filters.sessions(from: store.allSessions).contains { $0.id == store.focusedSessionId })
+        XCTAssertEqual(store.allSessions.first { $0.id == "status" }?.hasUnreadCompletion, true)
+
+        selected.attention = .normal
+        stream.continuation.yield(Snapshot(sessions: [selected, otherProject], serverTime: now.addingTimeInterval(1)))
+        for _ in 0..<100 where store.allSessions.count != 2 { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertTrue(filters.sessions(from: store.allSessions).isEmpty)
+        XCTAssertEqual(filters.project, "Project A")
+        XCTAssertEqual(store.buddySessionIDs, ["project"])
+        stream.continuation.yield(Snapshot(sessions: [otherProject], serverTime: now.addingTimeInterval(2)))
+        for _ in 0..<100 where store.allSessions.count != 1 { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertTrue(filters.projects(from: store.allSessions).contains("Project A"))
+        filters = DashboardFilters()
+        XCTAssertEqual(filters.sessions(from: store.allSessions).map(\.id), ["project"])
+        let sentActions = await decisions.sentActions
+        XCTAssertEqual(sentActions, 0)
+        let reads = await decisions.acknowledgedSessionIDs
+        let attentionWrites = await decisions.attentions
+        let waitReads = await decisions.waitRequests
+        XCTAssertTrue(reads.isEmpty)
+        XCTAssertTrue(attentionWrites.isEmpty)
+        XCTAssertTrue(waitReads.isEmpty)
+        XCTAssertTrue(store.phoneActions.isEmpty)
+        stream.continuation.finish()
+        for _ in 0..<100 where store.state == .connected { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertNotEqual(store.state, .connected)
+        XCTAssertEqual(filters.sessions(from: store.allSessions).map(\.id), ["project"], "Retain the last snapshot offline")
+    }
+
+    func testHomeFiltersUsePresentationStateAndMissingProject() {
+        let now = Date()
+        var session = AgentSession(id: "fixture", agent: .cursor, project: "", status: .done,
+            hasUnreadCompletion: true, statusSince: now, updatedAt: now)
+        XCTAssertTrue(DashboardFilters(project: "", status: .completeUnread, agent: .cursor).matches(session))
+        session.failed = true
+        XCTAssertFalse(DashboardFilters(status: .completeUnread).matches(session))
+        XCTAssertTrue(DashboardFilters(status: .error).matches(session))
+        XCTAssertFalse(DashboardFilters.projectTitle("").isEmpty)
     }
 }

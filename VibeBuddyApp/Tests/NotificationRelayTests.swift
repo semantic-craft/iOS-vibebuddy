@@ -80,9 +80,11 @@ final class NotificationRelayTests: XCTestCase {
     }
 
     /// The Watch app must never schedule anything of its own: a second scheduler
-    /// is a duplicate by construction, and it would have to re-derive quiet mode,
-    /// the sound preference and the `needsResponse` boundary from a projection
-    /// that deliberately does not carry them.
+    /// is a duplicate by construction, and it would have to re-derive the
+    /// `needsResponse` boundary and the sound preference from a projection that
+    /// deliberately does not carry them. (The projection does now carry the
+    /// notification switches and the Quiet *settings*, so the wrist can mute its
+    /// own haptics — muting what it already has, not deciding a new cue.)
     func testDemoPostsApprovalAndQuestionBanners() async throws {
         let notifier = RecordingNotifier()
         let store = DashboardStore(
@@ -98,6 +100,13 @@ final class NotificationRelayTests: XCTestCase {
         XCTAssertTrue(notifier.posted.contains("demo-question-needs_answer"))
     }
 
+    /// Reading a notification that has already been delivered is a different
+    /// thing from scheduling one, and the Watch's long look has to do it: a
+    /// `WKUserNotificationHostingController` is handed a `UNNotification` and
+    /// that type lives in `UserNotifications`. So the ban is on the scheduler
+    /// itself — `UNUserNotificationCenter` and `UNNotificationRequest` — rather
+    /// than on the import. Nothing on the wrist may add, withdraw, or ask
+    /// permission for a notification.
     func testTheWatchTargetSchedulesNoNotificationsOfItsOwn() throws {
         let watch = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()   // Tests
@@ -110,8 +119,10 @@ final class NotificationRelayTests: XCTestCase {
 
         for source in sources {
             let text = try String(contentsOf: source, encoding: .utf8)
-            XCTAssertFalse(text.contains("UserNotifications"), "\(source.lastPathComponent) imports UserNotifications")
-            XCTAssertFalse(text.contains("UNNotificationRequest"), "\(source.lastPathComponent) schedules a notification")
+            XCTAssertFalse(text.contains("UNUserNotificationCenter"),
+                           "\(source.lastPathComponent) touches the notification centre")
+            XCTAssertFalse(text.contains("UNNotificationRequest"),
+                           "\(source.lastPathComponent) schedules a notification")
         }
     }
 }

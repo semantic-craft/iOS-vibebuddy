@@ -15,7 +15,8 @@ final class HookSetup: ObservableObject {
     @Published private(set) var running = false
 
     func refresh() {
-        statuses = EnvironmentDetector.detect(EnvironmentDetector.defaultCLIs())
+        let home = E2ERunConfiguration.current?.file("agents").path ?? NSHomeDirectory()
+        statuses = EnvironmentDetector.detect(EnvironmentDetector.defaultCLIs(home: home))
     }
 
     /// True when at least one CLI is configured but missing the vibebuddy hook.
@@ -45,6 +46,10 @@ final class HookSetup: ObservableObject {
     }
 
     private func run(_ mode: String, scriptName: String = "install-agent-hooks.py") {
+        guard E2ERunConfiguration.current == nil else {
+            lastOutput = "Hook installation is disabled during isolated acceptance."
+            return
+        }
         guard !running, let script = Self.scriptURL(named: scriptName),
               FileManager.default.fileExists(atPath: script.path) else {
             lastOutput = "Installer not found in the app bundle."

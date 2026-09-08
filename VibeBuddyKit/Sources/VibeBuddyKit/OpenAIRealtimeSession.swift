@@ -11,6 +11,9 @@ public actor OpenAIRealtimeSession: RealtimeVoiceProvider {
     private var task: URLSessionWebSocketTask?
     private var continuation: AsyncStream<RealtimeVoiceEvent>.Continuation?
     private var tools: [VoiceTool] = []
+    private var connectionTimeout: Task<Void, Never>?
+    private var configurationConfirmed = false
+    private var responseFilter = RealtimeResponseFilter()
 
     public init(apiKey: String, model: String = "gpt-realtime-2.1") {
         self.apiKey = apiKey
@@ -22,9 +25,11 @@ public actor OpenAIRealtimeSession: RealtimeVoiceProvider {
     }
 
     public func start(instructions: String, voice: String, tools: [VoiceTool]) -> AsyncStream<RealtimeVoiceEvent> {
+        close()
         let (stream, cont) = AsyncStream<RealtimeVoiceEvent>.makeStream()
         continuation = cont
         self.tools = tools
+        configurationConfirmed = false
 
         var request = URLRequest(url: endpoint)
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")  // GA: no beta header
@@ -32,6 +37,12 @@ public actor OpenAIRealtimeSession: RealtimeVoiceProvider {
         task = socket
         socket.resume()
 
+        connectionTimeout = Task {
+            try? await Task.sleep(for: .seconds(15))
+            guard !Task.isCancelled, !self.configurationConfirmed else { return }
+            self.continuation?.yield(.failed("OpenAI connection timed out. Check your network and model settings."))
+            self.close()
+        }
         configureSession(instructions: instructions, voice: voice)
         Task { await self.receiveLoop() }
         return stream
@@ -46,7 +57,7 @@ public actor OpenAIRealtimeSession: RealtimeVoiceProvider {
             "audio": [
                 "input": [
                     "format": pcm,
-                    "turn_detection": ["type": "server_vad"],
+                    "turn_detection": ["type": "server_vad", "interrupt_response": true],
                     "transcription": ["model": "whisper-1"],
                 ],
                 "output": ["format": pcm, "voice": voice],
@@ -57,7 +68,6 @@ public actor OpenAIRealtimeSession: RealtimeVoiceProvider {
             session["tool_choice"] = "auto"
         }
         send(["type": "session.update", "session": session])
-        continuation?.yield(.connected)
     }
 
     public func appendAudio(_ pcm24k: Data) {
@@ -70,7 +80,18 @@ public actor OpenAIRealtimeSession: RealtimeVoiceProvider {
         send(["type": "response.create"])
     }
 
+    public func truncatePlayback(_ checkpoints: [VoicePlaybackCheckpoint]) {
+        for checkpoint in checkpoints {
+            send(["type": "conversation.item.truncate", "item_id": checkpoint.item.id,
+                  "content_index": checkpoint.item.contentIndex,
+                  "audio_end_ms": checkpoint.audioEndMilliseconds])
+        }
+    }
+
     public func close() {
+        connectionTimeout?.cancel()
+        connectionTimeout = nil
+        configurationConfirmed = false
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
         continuation?.yield(.closed)
@@ -84,22 +105,30 @@ public actor OpenAIRealtimeSession: RealtimeVoiceProvider {
               let text = String(data: data, encoding: .utf8) else { return }
         task.send(.string(text)) { [weak self] error in
             guard let error else { return }
-            Task { await self?.yield(.failed("send: \(error.localizedDescription)")) }
+            Task { await self?.yield(.failed("send: \(error.localizedDescription)"), from: task) }
         }
     }
 
-    private func yield(_ event: RealtimeVoiceEvent) { continuation?.yield(event) }
+    private func yield(_ event: RealtimeVoiceEvent, from socket: URLSessionWebSocketTask) {
+        guard task === socket else { return }
+        continuation?.yield(event)
+    }
 
     private func receiveLoop() async {
         guard let task else { return }
         while true {
             do {
-                switch try await task.receive() {
+                let message = try await task.receive()
+                guard self.task === task else { return }
+                switch message {
                 case .string(let text): handle(text)
                 case .data(let data): if let t = String(data: data, encoding: .utf8) { handle(t) }
                 @unknown default: break
                 }
             } catch {
+                guard self.task === task else { return }
+                connectionTimeout?.cancel()
+                connectionTimeout = nil
                 continuation?.yield(.failed("recv: \(error.localizedDescription)"))
                 continuation?.finish()
                 return
@@ -111,10 +140,21 @@ public actor OpenAIRealtimeSession: RealtimeVoiceProvider {
         guard let data = text.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = obj["type"] as? String else { return }
+        guard responseFilter.accept(obj) else { return }
         switch type {
+        case "session.updated":
+            // Only the server can confirm the requested model/voice configuration.
+            guard task != nil, !configurationConfirmed else { return }
+            configurationConfirmed = true
+            connectionTimeout?.cancel()
+            connectionTimeout = nil
+            continuation?.yield(.connected)
         case "response.output_audio.delta":
             if let b64 = obj["delta"] as? String, let audio = Data(base64Encoded: b64) {
-                continuation?.yield(.audioDelta(audio))
+                let item = (obj["item_id"] as? String).map {
+                    VoiceAudioItem(id: $0, contentIndex: obj["content_index"] as? Int ?? 0)
+                }
+                continuation?.yield(.audioDelta(audio, item: item))
             }
         case "response.output_audio_transcript.delta":
             if let d = obj["delta"] as? String { continuation?.yield(.assistantTranscript(text: d, final: false)) }

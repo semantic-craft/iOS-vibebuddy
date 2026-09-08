@@ -4,13 +4,13 @@ import VibeBuddyKit
 /// A separate opt-in and text model; never falls back to a realtime model.
 public struct CompletionSummaryConfiguration: Sendable, Equatable {
     public var enabled: Bool
-    public var provider: VoiceProvider
+    public var provider: VoiceProvider?
     public var modelID: String
     public var language: VoiceLanguage
     public var qwenUseIntl: Bool
     public var qwenWorkspaceID: String?
 
-    public init(enabled: Bool = false, provider: VoiceProvider = .qwen, modelID: String = "",
+    public init(enabled: Bool = false, provider: VoiceProvider? = nil, modelID: String = "",
                 language: VoiceLanguage = .english, qwenUseIntl: Bool = false,
                 qwenWorkspaceID: String? = nil) {
         self.enabled = enabled
@@ -29,9 +29,12 @@ public struct CompletionSummaryConfiguration: Sendable, Equatable {
 
     /// Reads only known preferences; UI owns writes. Keychain is read only when a request can start.
     public static func load(defaults: UserDefaults = .standard) -> Self {
-        let provider = VoiceProvider(rawValue: defaults.string(forKey: VoiceSettings.providerKey) ?? "") ?? .qwen
+        let provider = VoiceSettings.summaryProvider(defaults: defaults)
+        let model = provider.map { p in
+            defaults.string(forKey: modelKey(p)).flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 } ?? recommendedModel(p)
+        } ?? ""
         return Self(enabled: defaults.bool(forKey: enabledKey), provider: provider,
-                    modelID: defaults.string(forKey: modelKey(provider)).flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 } ?? recommendedModel(provider),
+                    modelID: model,
                     language: VoiceLanguage(rawValue: defaults.string(forKey: VoiceSettings.conversationLanguageKey) ?? "") ?? .english,
                     qwenUseIntl: defaults.bool(forKey: VoiceSettings.regionIntlKey),
                     qwenWorkspaceID: defaults.string(forKey: VoiceSettings.qwenWorkspaceIDKey))
@@ -39,6 +42,7 @@ public struct CompletionSummaryConfiguration: Sendable, Equatable {
 
     public var configurationFailure: CompletionSummaryFailure? {
         if !enabled { return .disabled }
+        guard let provider, provider.supportsCompletionSummaries else { return .missingProvider }
         if modelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return .missingModel }
         // Model IDs are data except in Gemini's path. Reject URL delimiters rather than accepting a different endpoint.
         if !modelID.utf8.allSatisfy({ Self.identifierBytes.contains($0) }), provider == .gemini { return .invalidModel }

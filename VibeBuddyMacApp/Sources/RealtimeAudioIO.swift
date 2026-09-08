@@ -5,17 +5,10 @@ import VibeBuddyKit
 
 private let rtAudioLog = Logger(subsystem: "com.vibebuddy.mac", category: "realtime-audio")
 
-/// Full-duplex audio for the realtime voice session, on one `AVAudioEngine`:
-/// the mic tap is converted to **16 kHz mono PCM16** and handed to `onAudioFrame`;
-/// incoming **24 kHz mono PCM16** is converted to float and streamed out a player
-/// node. Deliberately NOT `@MainActor` — the tap runs on the audio render thread,
-/// so the closure must stay non-isolated (a main-actor closure would trap).
-///
-/// Echo is handled by half-duplex gating (`micMuted`), not hardware AEC.
-///
-/// `@unchecked Sendable`: instances cross the main actor ↔ audio render thread.
-/// All shared mutable state is either set once before `start()` (the callbacks)
-/// or lock-guarded (`pendingBuffers`); `micMuted` is a benign single-word flag.
+/// Full-duplex audio with system voice processing (AEC). Hardware runs at its
+/// negotiated format; only the provider boundary is resampled to 16/24 kHz.
+/// Control methods run on the main actor; the tap and completion callbacks run
+/// on audio threads. Playback bookkeeping is lock guarded.
 final class RealtimeAudioIO: @unchecked Sendable {
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
@@ -37,50 +30,105 @@ final class RealtimeAudioIO: @unchecked Sendable {
     var onAudioFrame: (@Sendable (Data) -> Void)?
 
     /// Fired (on a background thread) when all queued playback buffers have drained
-    /// — i.e. the model finished speaking out loud. Used to re-open the mic.
+    /// — i.e. the queued audio has finished playing (also fires in network gaps).
     var onPlaybackDrained: (@Sendable () -> Void)?
 
     private let pendingLock = NSLock()
     private var pendingBuffers = 0
+    private var pendingItems: [VoiceAudioItem: Int] = [:]
+    private var playedItemFrames: [VoiceAudioItem: Int] = [:]
+    private var latestItem: VoiceAudioItem?
 
-    /// Half-duplex gate: while the model is speaking we stop forwarding mic audio
-    /// so it doesn't hear its own voice (which would feed the server VAD and make
-    /// it ramble to itself). Plain Bool, flipped from the main actor; a stray
-    /// frame either side of the flip is harmless.
-    nonisolated(unsafe) var micMuted = false
+    private var playbackGeneration: UInt64 = 0
+    private var tapInstalled = false
 
+    var isPlaybackPending: Bool {
+        pendingLock.lock(); defer { pendingLock.unlock() }
+        return pendingBuffers > 0
+    }
+
+    @MainActor
     func start() throws {
         let input = engine.inputNode
-        let nativeFormat = input.inputFormat(forBus: 0)
-        converter = AVAudioConverter(from: nativeFormat, to: captureFormat)
+        // Materialize both I/O nodes before switching to voice processing.
+        let output = engine.outputNode
+        // Enable VPIO before reading formats or connecting the graph: changing
+        // it replaces both I/O units and can change their processing formats.
+        try input.setVoiceProcessingEnabled(true)
+        let nativeFormat = input.outputFormat(forBus: 0)
+        // Save this BEFORE connecting the player. AVAudioEngine's automatic
+        // mixer connection can replace the output client rate with 44.1 kHz;
+        // VPIO then fails with -10875 when its capture side is still 48 kHz.
+        let outputFormat = output.inputFormat(forBus: 0)
+        guard nativeFormat.sampleRate > 0, nativeFormat.channelCount > 0,
+              let tapFormat = AVAudioFormat(standardFormatWithSampleRate: nativeFormat.sampleRate, channels: 1),
+              let converter = AVAudioConverter(from: tapFormat, to: captureFormat) else {
+            throw NSError(domain: "RealtimeAudio", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "No usable microphone format for voice processing."])
+        }
+        self.converter = converter
 
         engine.attach(player)
         engine.connect(player, to: engine.mainMixerNode, format: playFormat)
+        // Let the mixer resample 24 kHz model audio into the VPIO output format.
+        engine.connect(engine.mainMixerNode, to: output,
+                       format: outputFormat)
 
-        input.installTap(onBus: 0, bufferSize: 2048, format: nativeFormat) { [weak self] buffer, _ in
+        // AVFoundation invokes this off the main actor; do not inherit start() isolation.
+        input.installTap(onBus: 0, bufferSize: 2048, format: tapFormat) { @Sendable [weak self] buffer, _ in
             self?.captureAndForward(buffer)
         }
+        tapInstalled = true
         engine.prepare()
         try engine.start()
         player.play()
         rtAudioLog.info("audio engine started (native \(nativeFormat.sampleRate, privacy: .public)Hz)")
     }
 
+    @MainActor
     func stop() {
-        engine.inputNode.removeTap(onBus: 0)
+        if tapInstalled {
+            engine.inputNode.removeTap(onBus: 0)
+            tapInstalled = false
+        }
+        invalidatePlayback()
         player.stop()
         if engine.isRunning { engine.stop() }
     }
 
     /// Barge-in / reset: drop everything queued so the model stops talking.
-    func flushPlayback() {
+    @MainActor
+    @discardableResult
+    func flushPlayback() -> [VoicePlaybackCheckpoint] {
+        pendingLock.lock()
+        var interruptedItems = Set(pendingItems.keys)
+        if let latestItem { interruptedItems.insert(latestItem) }
+        let checkpoints = interruptedItems.map { item in
+            VoicePlaybackCheckpoint(item: item,
+                audioEndMilliseconds: (playedItemFrames[item, default: 0] * 1000) / 24000)
+        }
+        pendingLock.unlock()
+        // stop() can deliver callbacks for discarded buffers. Invalidate those
+        // before stopping, so they cannot drain a subsequent response's queue.
+        invalidatePlayback()
         player.stop()
-        pendingLock.lock(); pendingBuffers = 0; pendingLock.unlock()
-        player.play()
+        if engine.isRunning { player.play() }
+        return checkpoints
+    }
+
+    private func invalidatePlayback() {
+        pendingLock.lock(); defer { pendingLock.unlock() }
+        playbackGeneration &+= 1
+        pendingBuffers = 0
+        pendingItems.removeAll()
+        playedItemFrames.removeAll()
+        latestItem = nil
     }
 
     /// Queue one 24 kHz mono PCM16 chunk for playback.
-    func enqueue(_ pcm16: Data) {
+    @MainActor
+    func enqueue(_ pcm16: Data, item: VoiceAudioItem? = nil) {
+        guard engine.isRunning else { return }
         let frames = AVAudioFrameCount(pcm16.count / 2)
         guard frames > 0,
               let buffer = AVAudioPCMBuffer(pcmFormat: playFormat, frameCapacity: frames),
@@ -90,11 +138,28 @@ final class RealtimeAudioIO: @unchecked Sendable {
             guard let samples = raw.baseAddress?.assumingMemoryBound(to: Int16.self) else { return }
             for i in 0..<Int(frames) { out[i] = Float(samples[i]) / 32768.0 }
         }
-        pendingLock.lock(); pendingBuffers += 1; pendingLock.unlock()
-        player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+        pendingLock.lock()
+        pendingBuffers += 1
+        if let item {
+            pendingItems[item, default: 0] += 1
+            latestItem = item
+        }
+        let generation = playbackGeneration
+        pendingLock.unlock()
+        // Playback callbacks also run off the main actor.
+        player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { @Sendable [weak self] _ in
             guard let self else { return }
             self.pendingLock.lock()
+            guard self.playbackGeneration == generation else {
+                self.pendingLock.unlock()
+                return
+            }
             self.pendingBuffers -= 1
+            if let item {
+                self.playedItemFrames[item, default: 0] += Int(frames)
+                self.pendingItems[item, default: 0] -= 1
+                if self.pendingItems[item] == 0 { self.pendingItems[item] = nil }
+            }
             let drained = self.pendingBuffers == 0
             self.pendingLock.unlock()
             if drained { self.onPlaybackDrained?() }
@@ -103,7 +168,7 @@ final class RealtimeAudioIO: @unchecked Sendable {
     }
 
     private func captureAndForward(_ buffer: AVAudioPCMBuffer) {
-        guard !micMuted, let converter, let onAudioFrame else { return }
+        guard let converter, let onAudioFrame else { return }
         let ratio = captureFormat.sampleRate / buffer.format.sampleRate
         let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 1
         guard let out = AVAudioPCMBuffer(pcmFormat: captureFormat, frameCapacity: capacity) else { return }

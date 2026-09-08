@@ -25,3 +25,32 @@ enum PhoneActionResult: Equatable, Sendable {
         }
     }
 }
+
+/// What the Mac said about a **stop**. Its `/answer` reply carries a `status`
+/// field, and that field — not the HTTP code — is the authority: `refused` and
+/// `failed` are both 409, and they mean opposite things to the person who
+/// tapped. `refused` says this stop no longer applies, so look at the task
+/// rather than tapping again; `failed` says nothing was carried out, so a
+/// second tap is the sensible thing.
+enum StopDelivery: Equatable, Sendable {
+    /// Handed to Codex. Not stopped — only the next snapshot can say that.
+    case accepted
+    /// No longer applicable: not this agent, not running any more, or aimed at
+    /// a turn that has already ended.
+    case refused
+    /// It did not happen. Nothing was interrupted.
+    case failed
+    /// The request may have arrived, but its receipt could not be confirmed.
+    case unconfirmed
+
+    /// The Mac's own words for the outcome, read from the response body.
+    /// A lost or unreadable receipt is not proof that nothing happened.
+    init(status: String?) {
+        switch status {
+        case "accepted": self = .accepted
+        case "refused": self = .refused
+        case "failed": self = .failed
+        default: self = .unconfirmed
+        }
+    }
+}

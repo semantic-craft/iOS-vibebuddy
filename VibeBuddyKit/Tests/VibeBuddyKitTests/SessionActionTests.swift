@@ -11,7 +11,8 @@ struct SessionActionTests {
         status: SessionStatus,
         question: PendingQuestion? = nil,
         approval: PendingApproval? = nil,
-        project: String = "ios-vibebuddy"
+        project: String = "ios-vibebuddy",
+        appServer: ObservationHealth? = .healthy
     ) -> AgentSession {
         AgentSession(
             id: "s", agent: agent, project: project,
@@ -19,6 +20,7 @@ struct SessionActionTests {
             waitKind: question != nil ? .question : approval != nil ? .permission : nil,
             pendingApproval: approval,
             pendingQuestion: question,
+            observations: appServer.map { [ObservationEvidence(source: .appserver, lastObservedAt: now, health: $0)] },
             statusSince: now, updatedAt: now)
     }
 
@@ -55,6 +57,34 @@ struct SessionActionTests {
         let done = SessionActionSupport.resolve(for: session(agent: .claudeCode, status: .done))
         #expect(done.intent == .continue)
         #expect(done.unsupportedReason != nil)
+    }
+
+    @Test("only a running Codex turn can be stopped from the wrist")
+    func stopAvailability() {
+        #expect(SessionActionSupport.resolveStop(for: session(status: .working)).isAvailable)
+        #expect(SessionActionSupport.resolveStop(for: session(status: .working)).intent == .stop)
+        for status in [SessionStatus.done, .needsResponse] {
+            let support = SessionActionSupport.resolveStop(for: session(status: status))
+            #expect(support.intent == .stop)
+            #expect(support.unsupportedReason != nil)
+        }
+        // Claude Code is unsupported at every status, and says where to go.
+        for status in SessionStatus.allCases {
+            let support = SessionActionSupport.resolveStop(for: session(agent: .claudeCode, status: status))
+            #expect(support.unsupportedReason == "Stop this on your Mac.")
+        }
+        #expect(SessionActionSupport.resolveStop(for: session(agent: .grokBot, status: .working))
+            .unsupportedReason?.contains("Grok Bot") == true)
+        #expect(SessionActionSupport.resolveStop(for: session(agent: .cursor, status: .working))
+            .unsupportedReason?.contains("Cursor") == true)
+        #expect(SessionActionSupport.resolveStop(for: session(agent: .grok, status: .working))
+            .isAvailable == false)
+        // A Codex session the app-server connection is not carrying (rollout or
+        // hooks only, or the connection is unhealthy) cannot be stopped at all.
+        #expect(SessionActionSupport.resolveStop(for: session(status: .working, appServer: nil))
+            .isAvailable == false)
+        #expect(SessionActionSupport.resolveStop(for: session(status: .working, appServer: .temporarilySilent))
+            .unsupportedReason == "Your Mac isn't connected to Codex right now.")
     }
 
     @Test("the send caption names Mac, project and agent")

@@ -1,6 +1,6 @@
 # App Store Connect — paste sheet (iOS 1.1)
 
-> 1.3 更新请从 [新版提交文案包](app-store-submission-1.3.md) 开始。本文件保留历史准备记录；旧版本号、构建号、截图与在线状态不可直接沿用。
+> 当前 1.3.8（19）的更新内容以 [1.3.8 发布说明](release-notes-1.3.8.md) 为准；1.3 的 [提交文案包](app-store-submission-1.3.md) 仅供历史参考。本文件保留历史准备记录；旧版本号、构建号、截图与在线状态不可直接沿用。
 
 For this routine update, use the existing app (Apple ID `6777469338`) and select
 version **1.1**, build **4**. Do not create another app. The release-specific

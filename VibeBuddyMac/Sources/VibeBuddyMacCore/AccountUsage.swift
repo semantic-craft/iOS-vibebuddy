@@ -340,7 +340,8 @@ public actor AccountUsageFileCache: AccountUsageCaching {
         provider: AccountUsageProvider,
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> URL {
-        home.appendingPathComponent("Library/Application Support/VibeBuddy/\(provider.rawValue)-usage.json")
+        if let run = E2ERunConfiguration.current { return run.file("\(provider.rawValue)-usage.json") }
+        return home.appendingPathComponent("Library/Application Support/VibeBuddy/\(provider.rawValue)-usage.json")
     }
 
     /// Build a 0600 temporary file and atomically rename it into place. The

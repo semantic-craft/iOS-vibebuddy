@@ -17,12 +17,14 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
 
     override init() {
         super.init()
+        guard E2ERunConfiguration.current?.notificationsEnabled ?? true else { return }
         center.delegate = self
         Self.registerCategories(on: center)
     }
 
     /// Ask once for alert + sound permission. A denial just makes posting a no-op.
     func requestAuthorization() {
+        guard E2ERunConfiguration.current?.notificationsEnabled ?? true else { return }
         Self.registerCategories(on: center)
         center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
@@ -143,7 +145,7 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
-        content.sound = Self.flag("playNotificationSound") ? .default : nil
+        content.sound = (E2ERunConfiguration.current?.audioEnabled ?? true) && Self.flag("playNotificationSound") ? .default : nil
         do {
             try await center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
             return .scheduled()
@@ -154,17 +156,19 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
     }
 
     private func enqueue(title: String, body: String, sound: NotificationSound, id: String) {
+        guard E2ERunConfiguration.current?.notificationsEnabled ?? true else { return }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
-        content.sound = Self.flag("playNotificationSound")
+        content.sound = (E2ERunConfiguration.current?.audioEnabled ?? true) && Self.flag("playNotificationSound")
             ? UNNotificationSound(named: UNNotificationSoundName(rawValue: sound.fileName))
             : nil
         center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
     }
 
     private func isAuthorized() async -> Bool {
-        switch await center.notificationSettings().authorizationStatus {
+        guard E2ERunConfiguration.current?.notificationsEnabled ?? true else { return false }
+        return switch await center.notificationSettings().authorizationStatus {
         case .authorized, .provisional: true
         default: false
         }
@@ -179,7 +183,7 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
-        content.sound = delivery.makesSound && Self.flag("playNotificationSound")
+        content.sound = (E2ERunConfiguration.current?.audioEnabled ?? true) && delivery.makesSound && Self.flag("playNotificationSound")
             ? UNNotificationSound(named: UNNotificationSoundName(rawValue: sound.fileName))
             : nil
         if let category {

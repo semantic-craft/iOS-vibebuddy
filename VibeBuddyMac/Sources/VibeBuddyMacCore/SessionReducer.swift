@@ -46,6 +46,7 @@ public struct SessionReducer: Sendable {
             upsert(event, status: .done, waitKind: nil)
             sessions[event.sessionID]?.failed = false
             sessions[event.sessionID]?.probeRetired = nil
+            sessions[event.sessionID]?.userStopped = nil
             sessions[event.sessionID]?.activeTool = nil
         case .userPromptSubmit:
             if let turnID = event.turnID { currentTurnID[event.sessionID] = turnID }
@@ -54,6 +55,7 @@ public struct SessionReducer: Sendable {
             sessions[event.sessionID]?.completionID = nil
             sessions[event.sessionID]?.failed = false
             sessions[event.sessionID]?.probeRetired = nil
+            sessions[event.sessionID]?.userStopped = nil
             sessions[event.sessionID]?.activeTool = nil
         case .preToolUse, .postToolUse:
             if event.childID != nil {
@@ -64,6 +66,7 @@ public struct SessionReducer: Sendable {
                 sessions[event.sessionID]?.hasUnreadCompletion = false
                 sessions[event.sessionID]?.completionID = nil
                 sessions[event.sessionID]?.probeRetired = nil
+                sessions[event.sessionID]?.userStopped = nil
                 if event.kind == .preToolUse {
                     sessions[event.sessionID]?.activeTool = event.toolName
                 } else {
@@ -110,6 +113,18 @@ public struct SessionReducer: Sendable {
                 break
             }
             sessions[event.sessionID]?.probeRetired = nil
+            // A stop the user asked vibebuddy for is an ending, not an
+            // accident. Codex reports it as an interrupted turn — a word the
+            // failure heuristic reads as a crash — so without this the person
+            // who pressed Stop gets told the agent broke. No completion to
+            // read either: they know how it ended, they ended it.
+            if event.userStopped {
+                sessions[event.sessionID]?.userStopped = true
+                sessions[event.sessionID]?.failed = false
+                sessions[event.sessionID]?.hasUnreadCompletion = false
+                sessions[event.sessionID]?.completionID = nil
+                break
+            }
             // Carry the last tool's outcome; also treat a failure-looking stop
             // message as stuck even when no tool error was reported.
             if FailureHeuristic.looksFailed(event.message) { sessions[event.sessionID]?.failed = true }

@@ -267,3 +267,192 @@
 "This request can't be verified. Wait for an updated connection and request." = "暂时无法验证此请求。请等待连接和请求更新。";
 "Can't reach your iPhone. Reconnect to verify this request." = "无法连接 iPhone。请恢复连接以验证此请求。";
 "Connection to your Mac is unavailable. Reconnect to verify this request." = "Mac 连接不可用。请恢复连接以验证此请求。";
+
+/* Native Settings sidebar */
+"Everyday" = "日常设置";
+"Models & Voice" = "模型与语音";
+"Devices & Integrations" = "设备与接入";
+"Usage & Limits" = "用量与额度";
+"Advanced & Diagnostics" = "高级与诊断";
+"Settings categories" = "设置分类";
+"Connection & delivery" = "连接与通知投递";
+"Show advanced diagnostics" = "查看高级诊断";
+"Hook setup details" = "Hook 接入说明";
+"Hook operation output" = "Hook 操作输出";
+"Hook operation finished. Review its output in diagnostics." = "Hook 操作已结束，请在诊断中查看结果。";
+"Open & display" = "打开与显示";
+"Shortcuts & cleanup" = "快捷键与整理";
+"Pairing is not ready." = "配对尚未就绪。";
+"Notification delivery failed: %@" = "通知投递失败：%@";
+
+/* S2 purpose cards and inline configuration */
+"Voice conversation" = "语音对话";
+"Completion summaries" = "完成摘要";
+"Talk to your buddy about your sessions." = "与伙伴谈论当前任务。";
+"Summarize followed tasks’ final results." = "概括所关注任务的最终结果。";
+"Select a purpose to edit it. Selection does not turn it on." = "选择用途以编辑配置。选中用途不会启用该功能。";
+"Tap the buddy to start a conversation. Enabling this switch does not start the microphone." = "点击伙伴开始对话。开启此开关不会启动麦克风。";
+"Realtime model ID" = "实时模型 ID";
+"Leave the realtime model blank to use the provider default." = "实时模型留空时使用该服务商的默认模型。";
+"Voice & advanced parameters" = "音色与高级参数";
+"Shared provider & language" = "共享服务商与语言";
+"Both purposes use this provider, its API key and this language. Realtime and text model IDs are saved separately for each provider." = "两个用途共用此服务商、API 密钥和语言。实时模型与文本模型按服务商分别保存。";
+"Changing provider or language reconnects an active voice conversation immediately. When no conversation is active, editing does not start one or run a test." = "修改服务商或语言会立即重新连接正在进行的语音对话。没有活动对话时，编辑不会启动对话或测试。";
+"API key could not be saved. Your edit is not stored; edit or paste it again to retry." = "API 密钥保存失败，本次编辑尚未存储；请重新编辑或粘贴后重试。";
+"Provider connection" = "服务商连接";
+"This connection is shared by voice conversation and completion summaries." = "语音对话与完成摘要共用此连接。";
+"Qwen region & workspace" = "Qwen 区域与工作空间";
+"Configure connection" = "配置连接";
+"Enabled" = "已启用";
+"Select to edit. The enable switch is separate." = "选择以编辑，启用开关独立设置。";
+"API key not saved" = "API 密钥未保存";
+"Checking saved configuration…" = "正在检查已保存的配置…";
+"API key required" = "需要 API 密钥";
+"Review the text model or Qwen connection" = "请检查文本模型或 Qwen 连接配置";
+"Configuration entered · unverified" = "已填写配置 · 尚未验证";
+"Saved separately for each provider. This text model is independent of the voice conversation’s realtime model." = "按服务商分别保存。此文本模型独立于语音对话的实时模型。";
+"Add this provider’s API key in Provider connection." = "请在“服务商连接”中填写此服务商的 API 密钥。";
+"Check the Qwen workspace ID in Provider connection." = "请检查“服务商连接”中的 Qwen 工作空间 ID。";
+"Leave the text model blank to use the recommended default." = "文本模型留空时使用推荐默认值。";
+
+"Enter a valid realtime model ID before testing." = "测试前请输入有效的实时模型 ID。";
+
+"Enter a voice ID or use the language default." = "请输入音色 ID，或使用该语言的默认音色。";
+
+"Realtime connection configuration confirmed. Audio and conversation were not tested." = "实时连接配置已确认。尚未测试音频与对话。";
+
+"Realtime connection failed. Check the API key, model, voice, region and network before retrying." = "实时连接失败。请检查 API 密钥、模型、音色、区域和网络后重试。";
+
+"The connection closed before configuration was confirmed. Check the settings and retry manually." = "配置确认前连接已关闭。请检查设置后手动重试。";
+
+"The connection ended without confirming configuration." = "连接已结束，未能确认配置。";
+
+"Test timed out. Check your connection and configuration, then retry manually." = "测试超时。请检查连接和配置后手动重试。";
+
+"Finishing the previous test…" = "正在结束上一次测试…";
+
+"Test details" = "测试详情";
+
+"Test realtime connection" = "测试实时连接";
+
+"This test may incur provider charges. It checks configuration only, without microphone input, task history, tools or audio playback." = "此测试可能产生服务商费用。仅检查配置，不使用麦克风、任务历史、工具或音频播放。";
+
+"Realtime connection confirmed" = "实时连接已确认";
+
+"Sample summary generated" = "已生成示例摘要";
+
+"Not verified" = "尚未验证";
+"Testing…" = "正在测试…";
+"Elapsed: %.2f s" = "耗时：%.2f 秒";
+
+"Read summaries on this Mac" = "在这台 Mac 上朗读摘要";
+
+"Read-aloud provider" = "朗读服务商";
+
+"Read-aloud always uses Qwen. Changing the shared provider does not change this connection." = "朗读始终使用 Qwen。更改共享服务商不会改变此连接。";
+
+"Automatic reading needs AI completion summaries to be enabled and successfully generated. Previewing does not enable either feature." = "自动朗读需要启用 AI 完成摘要并成功生成摘要。试听不会启用这两项功能。";
+
+"Qwen credentials, region and workspace are shared with the selected provider. Edit them in Provider connection below." = "Qwen 密钥、区域和工作空间与当前服务商共用。请在下方“服务商连接”中编辑。";
+
+"Qwen read-aloud connection" = "Qwen 朗读连接";
+
+"These Qwen credentials are also used when Qwen is selected for conversation or summaries." = "对话或摘要选择 Qwen 时，也会使用此处的 Qwen 密钥。";
+
+"Qwen API key" = "Qwen API 密钥";
+
+"Enter a speech synthesis model before previewing." = "试听前请输入语音合成模型。";
+
+"Stop the current voice conversation or reading before previewing." = "请先停止当前语音对话或朗读，再开始试听。";
+
+"Preview sends only the sample text to Qwen and may incur a speech-generation charge. It does not enable automatic reading or use the microphone." = "试听仅向 Qwen 发送示例文本，可能产生语音合成费用。不会启用自动朗读，也不使用麦克风。";
+
+"Qwen read-aloud preview" = "Qwen 朗读试听";
+
+"Qwen preview playback completed on this Mac. Confirm that you heard it through the intended output." = "Qwen 试听已在这台 Mac 上播放完毕。请确认你已通过预期的输出设备听到声音。";
+
+"Automatic reading" = "自动朗读";
+
+"Automatic reading is queued until the preview finishes." = "自动朗读正在排队，将在试听结束后继续。";
+
+"Stop automatic reading" = "停止自动朗读";
+
+/* Doubao and independent purpose configuration */
+"Completion summary provider" = "完成摘要服务商";
+"Choose a completion summary provider before testing." = "请先选择完成摘要服务商，再进行测试。";
+"Purpose provider & shared language" = "用途服务商与共用语言";
+"Each purpose keeps its own provider. Credentials are shared only when both use the same provider; language remains shared." = "每个用途独立选择服务商。只有选择同一服务商时才共用凭据；对话语言仍共用。";
+"Changing the voice provider or shared language reconnects an active conversation. Changing the summary provider does not. Editing never starts an idle conversation or a test." = "切换语音服务商或共用语言会重连正在进行的对话。切换摘要服务商不会重连。编辑设置不会启动空闲对话或测试。";
+"This provider’s credentials are shared by the purposes that select it." = "选择此服务商的用途共用其凭据。";
+"Doubao realtime voice 3.0 · Recommended" = "豆包实时语音 3.0 · 推荐";
+"Custom realtime model" = "自定义实时语音模型";
+"The recommended model and Vivi voice are ready. Only your realtime API key is required." = "已预设推荐模型与 Vivi 音色，只需填入实时语音 API key。";
+"Your custom model or voice is retained. Review Advanced settings before testing." = "已保留你的自定义模型或音色，请在测试前检查高级设置。";
+"Not configured" = "未配置";
+"Advanced settings" = "高级设置";
+"Restore recommended model and voice" = "恢复推荐模型与音色";
+"Review the realtime model, voice and connection before testing." = "请在测试前检查实时模型、音色和连接配置。";
+"Testing connection…" = "正在测试连接…";
+"Doubao could not identify a response after interruption. Reopen the voice conversation to continue safely." = "豆包在打断后无法确认响应归属，请重新开启语音对话后继续。";
+"Doubao (Volcengine)" = "豆包 · 火山引擎";
+
+/* Frozen M1 / M2 / final M3 / D1 integration */
+"Unknown project" = "未知项目";
+"Expand others" = "展开其他任务";
+"Collapse others" = "收起其他任务";
+"%lld need attention" = "%lld 项待处理";
+"Other tasks (%lld)" = "其他任务（%lld）";
+"Requires input" = "需输入";
+"Complete, unread update" = "已完成，有未读更新";
+"Error" = "异常";
+"Thinking" = "思考中";
+"Idle" = "空闲";
+"Local cleanup" = "本地清理";
+"Clear filtered Done and Idle from menu (%lld)" = "从菜单清理当前筛选内的已完成与空闲任务（%lld）";
+"Only hides completed and idle rounds in the current filters. Unread results and reminders are kept." = "仅隐藏当前筛选内的完成与空闲轮次，保留未读结果和提醒。";
+"%lld shown · %lld total" = "列表 %lld 项 · 共 %lld 项";
+"Reset filters" = "重置筛选";
+"Summary includes all tasks. Filters and cleared rounds only affect this list." = "摘要包含全部任务；筛选和已清理轮次仅影响此列表。";
+"State" = "状态";
+"Filter" = "筛选";
+"Filter · Active" = "筛选 · 已启用";
+"Show all states and agents" = "显示全部状态和代理";
+"No sessions reporting" = "暂无上报的任务";
+"Start a turn or repair hooks in Settings." = "在代理中开始一轮任务，或前往设置修复钩子。";
+"No matching sessions" = "没有符合筛选条件的任务";
+"Reset the filters to show other tasks." = "重置筛选以显示其他任务。";
+"Current sessions cleared from menu" = "当前任务轮次已从菜单清理";
+"Sessions remain in Dashboard. New turns appear here." = "任务仍在 Dashboard 中，新轮次会重新显示。";
+"Phone details and pairing" = "手机详情与配对";
+"Phone details" = "手机详情";
+"Push registered" = "已注册推送";
+"Push not registered" = "未注册推送";
+"Live connection status unavailable" = "无法获知当前在线状态";
+"Push registration does not confirm notification delivery." = "推送注册不代表通知已送达。";
+"Pairing QR code" = "配对二维码";
+"Pairing code unavailable" = "配对码暂不可用";
+"More" = "更多";
+"Toggle voice companion" = "开启或关闭语音伙伴";
+"Open Dashboard · %@" = "打开任务面板 · %@";
+"All projects" = "全部项目";
+"Projects" = "项目";
+"Counts include all sessions" = "数量包含全部会话";
+"All states" = "全部状态";
+"Filter sessions by state" = "按状态筛选会话";
+"%lld sessions" = "%lld 个会话";
+"Reset view filters" = "重置视图筛选";
+"Activity: %@" = "活动：%@";
+"Remove from the buddy's context" = "从伙伴上下文中移除";
+"Unknown project (unassigned)" = "未知项目（未归属）";
+
+"Stop this on your Mac." = "在 Mac 上停。";
+
+"This task has already finished." = "这个任务已经结束了。";
+
+"This task is waiting on you, not running." = "这个任务在等你，没有在跑。";
+
+"Your Mac isn't connected to Codex right now." = "你的 Mac 现在没连上 Codex。";
+
+"1 session" = "1 个会话";
+
+"Connecting — wait to speak" = "正在连接，请稍候再说话";

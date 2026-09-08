@@ -63,10 +63,14 @@ code, and tests — don't drift to synonyms.
 
 - **Voice companion** — tap the pet to hold a **realtime speech-to-speech**
   conversation; it knows the live sessions and can **approve / answer** for you.
-- **VoiceProvider** — the realtime backend: `qwen`, `openai`, or `gemini`. Each
+- **VoiceProvider** — the realtime backend: `qwen`, `openai`, `gemini`, or `doubao`. Each
   has its own key, model, voice, and input sample rate. Qwen additionally takes
   an optional Bailian **workspace ID** (workspace-specific `maas.aliyuncs.com`
   endpoint) and a Beijing/Singapore region switch.
+- **Purpose provider** — voice and completion summaries have independent choices.
+  Summary providers must support text generation; Doubao is realtime-only. A valid
+  previous shared summary choice is retained before changing the voice provider,
+  and an absent or invalid summary choice remains unconfigured.
 - **RealtimeVoiceProvider / RealtimeVoiceEvent** — the provider-agnostic Kit
   protocol + event stream (connected, userTranscript, assistantTranscript,
   audioDelta, speechStarted, responseDone, failed, closed) that the audio + UI
@@ -85,14 +89,24 @@ code, and tests — don't drift to synonyms.
   `expectedTurnId` when known). Failure is reported; it must not fall back to
   `turn/start`. A finished session uses **continue** (`turn/start`) instead.
   Codex threads never take typed input through a terminal.
-- **Session action / SessionActionIntent** — what free text on an existing
-  session means: **answer** (bind to the current question), **steer**
-  (supplement the running turn), **continue** (open the next turn). Distinct
-  from Approval and from New task. The daemon re-checks the live question /
-  turn before executing; an expired Answer does not become a steer. The
-  client shows not-sent / sending / accepted / failed / unknown; accepted is
-  not working or finished. Duplicate taps reuse a `requestId`; a lost receipt
-  stays unknown and is not resent. No connection (Q16) is not-sent.
+- **Stop** — end the running turn (Codex `turn/interrupt`, which requires the
+  turn id the app-server connection saw start). Carries no text, is bound to
+  the session's `statusSince`, and is refused rather than retried when that no
+  longer matches. Codex only in this release; every other agent is stopped
+  where it runs (ADR-0011, third amendment). The ending it produces is marked
+  `userStopped`: Codex words a requested stop and a crash the same
+  ("interrupted"), so without that mark the failure heuristic would ring the
+  error cue for something the user asked for. An interruption this Mac did not
+  send is unmarked and still reads as a failure.
+- **Session action / SessionActionIntent** — what a client asks of an existing
+  session: **answer** (bind to the current question), **steer** (supplement the
+  running turn), **continue** (open the next turn), **stop** (interrupt the
+  running turn). Distinct from Approval and from New task. The daemon re-checks
+  the live question / turn before executing; an expired Answer does not become
+  a steer. The client shows not-sent / sending / accepted / failed / unknown;
+  accepted is not working or finished. Duplicate taps reuse a `requestId`; a
+  lost receipt stays unknown and is not resent. No connection (Q16) is
+  not-sent.
 - **Attach** — the jump for a Claude *background session* (`claude --bg`,
   agent view, Desktop Dispatch): it has no window, so `ClaudeBackgroundSessions`
   reads the supervisor's `~/.claude/jobs/<id>/state.json` (read-only) and

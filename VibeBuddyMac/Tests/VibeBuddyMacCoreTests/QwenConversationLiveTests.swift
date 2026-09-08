@@ -31,7 +31,7 @@ struct QwenConversationLiveTests {
                         try? await Task.sleep(for: .milliseconds(100))
                     }
                 }
-            case .audioDelta(let data): bytes += data.count
+            case .audioDelta(let data, _): bytes += data.count
             case .userTranscript(let text, _): transcript = !text.isEmpty
             case .responseDone: completed = true; await session.close()
             case .failed: Issue.record("Real Qwen conversation failed"); await session.close()

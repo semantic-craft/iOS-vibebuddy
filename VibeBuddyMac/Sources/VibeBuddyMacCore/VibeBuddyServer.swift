@@ -587,7 +587,7 @@ public struct VibeBuddyServer: Sendable {
                 guard let answers = await questionRegistry.wait(sessionID: sessionID, questionID: question.id, timeout: timeout) else {
                     return Response(status: .ok)
                 }
-                await store.endQuestion(sessionID: sessionID, at: Date())
+                await store.endQuestion(sessionID: sessionID, questionID: question.id, at: Date())
                 let updated = AskUserQuestionInput.updatedInput(original: input, question: question, answers: answers)
                 return Self.questionResponse(updatedInput: updated)
             }
@@ -676,7 +676,7 @@ public struct VibeBuddyServer: Sendable {
                                     permissionMode: call.permissionMode,
                                     suggestedRule: PermissionSuggestion.describe(suggestions)), at: Date())
                 let outcome = await registry.wait(id: id, timeout: timeout)
-                await store.endApproval(sessionID: sessionID, at: Date())
+                await store.endApproval(sessionID: sessionID, approvalID: id, at: Date())
                 switch outcome {
                 case .allow:
                     let grant = await approvalContext.takeGrant(id: id)
@@ -872,8 +872,9 @@ public struct VibeBuddyServer: Sendable {
         }
 
         // `{"sessionId", "intent"?, "requestId"?, "questionId"?, "answer"?, "answers"?}`.
-        // Intent is Answer / steer / continue (Q29). A missing intent is inferred
-        // from the live session; an expired Answer still does not become steer.
+        // Intent is Answer / steer / continue / stop (Q29). A missing intent is
+        // inferred from the live session; an expired Answer still does not
+        // become steer, and stop is only ever explicit.
         let monitor = self.codexAppServerMonitor
         let dispatch = AnswerDispatch(store: store, questions: questionRegistry, inject: self.onAnswer,
                                       steer: { sessionID, text in
@@ -881,6 +882,10 @@ public struct VibeBuddyServer: Sendable {
                                       },
                                       startTurn: { sessionID, text in
                                           await monitor?.startTurn(threadID: sessionID, text: text) ?? false
+                                      },
+                                      interrupt: { sessionID in
+                                          await monitor?.interrupt(threadID: sessionID)
+                                              ?? .notSent(String(localized: "This Mac isn't watching Codex."))
                                       },
                                       requests: self.actionRequests)
         authed.post("answer") { request, _ -> Response in
@@ -909,8 +914,15 @@ public struct VibeBuddyServer: Sendable {
                     else if let one = value as? String { answers[key] = [one] }
                 }
             }
-            guard !(text ?? "").isEmpty || !answers.isEmpty else { throw HTTPError(.badRequest) }
             let intent = (o["intent"] as? String).flatMap(SessionActionIntent.init(rawValue:))
+            // A stop is the one action with nothing to say; everything else is
+            // text or answers by definition. A stop that carries text is a
+            // client bug — refuse it rather than silently dropping the words.
+            if intent == .stop {
+                guard (text ?? "").isEmpty, answers.isEmpty else { throw HTTPError(.badRequest) }
+            } else {
+                guard !(text ?? "").isEmpty || !answers.isEmpty else { throw HTTPError(.badRequest) }
+            }
             let action = SessionActionRequest(
                 sessionID: sid,
                 intent: intent,
@@ -994,6 +1006,12 @@ public struct VibeBuddyServer: Sendable {
         case .unknown:
             body["status"] = "unknown"
             status = .serviceUnavailable
+        case .refused(let why):
+            // Same 409 a stale answer gets; the status string is what tells a
+            // client "this no longer applies" apart from "it never went out".
+            body["status"] = "refused"
+            body["error"] = why
+            status = .conflict
         case .failed(let why):
             body["status"] = "failed"
             body["error"] = why

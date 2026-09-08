@@ -5,11 +5,13 @@ import VibeBuddyKit
 /// turn and item notifications into the session store as `.appserver`
 /// evidence — the primary Codex source while it is fresh (ADR-0011).
 ///
-/// Read-mostly by construction: the only methods ever called are `initialize`,
+/// Read-mostly by construction: observation only calls `initialize`,
 /// `thread/list`, `thread/resume` (with `excludeTurns`, to subscribe) and
-/// `thread/unsubscribe`. It never starts, steers or interrupts a turn, never
-/// touches config, and never answers a server-initiated request — those are
-/// counted for diagnostics so ticket 03 can see what the daemon routes here.
+/// `thread/unsubscribe`, and never touches config, fs, process or plugin
+/// methods. The writes are the ones the ADR's amendments opened, each on the
+/// user's own action: answering a request the agent itself raised,
+/// `thread/start` + `turn/start` for a dispatch, `turn/steer` for a
+/// supplement, and `turn/interrupt` for a stop.
 ///
 /// The daemon's absence is not an error: the monitor waits for the control
 /// socket to appear and the rollout tailer / hooks keep covering Codex until
@@ -41,6 +43,7 @@ public actor CodexAppServerMonitor {
         }
     }
 
+    private let acceptanceThreadID: String?
     private let socketPath: String
     private let makeClient: @Sendable (String) -> any CodexAppServerConnecting
     private let discoveryLimit: Int
@@ -78,13 +81,21 @@ public actor CodexAppServerMonitor {
     /// The store `run(store:)` was given, so a disconnect can withdraw the
     /// cards of requests this connection was holding.
     private var boundStore: SessionStore?
+    /// Threads this connection asked Codex to interrupt, and when. The entry is
+    /// made *before* the call goes out, so the `turn/completed` that answers it
+    /// cannot arrive while the request is still in flight and be read as a
+    /// crash. Consumed by the first ending for that thread, and dropped after
+    /// `stopClaimWindow` so a stop whose ending never came cannot mislabel the
+    /// next one.
+    private var stopsRequested: [String: Date] = [:]
+    private static let stopClaimWindow: TimeInterval = 60
     /// The items behind pending approvals: `item/started` carries the command
     /// or the file changes, the approval request only their ids.
     private var recentItems: [String: [String: Any]] = [:]
     private var recentItemOrder: [String] = []
 
     private struct OpenRequest: Sendable {
-        enum Kind: Sendable { case approval(String), question }
+        enum Kind: Sendable { case approval(String), question(String) }
         let id: JSONRPCID
         let threadID: String
         let kind: Kind
@@ -97,6 +108,7 @@ public actor CodexAppServerMonitor {
         enabled: Bool = true,
         socketPath: String = CodexAppServerClient.defaultSocketPath,
         discoveryLimit: Int = 50,
+        acceptanceThreadID: String? = nil,
         minimumBackoff: Duration = .seconds(2),
         maximumBackoff: Duration = .seconds(30),
         usageFeed: AccountUsageLiveFeed? = nil,
@@ -112,6 +124,7 @@ public actor CodexAppServerMonitor {
         makeClient: @escaping @Sendable (String) -> any CodexAppServerConnecting = { CodexAppServerClient(socketPath: $0) }
     ) {
         self.enabled = enabled
+        self.acceptanceThreadID = acceptanceThreadID
         self.socketPath = socketPath
         self.discoveryLimit = discoveryLimit
         self.minimumBackoff = minimumBackoff
@@ -211,6 +224,7 @@ public actor CodexAppServerMonitor {
         for await raw in client.messages {
             guard enabled, !Task.isCancelled else { break }
             guard let message = (try? JSONSerialization.jsonObject(with: raw)) as? [String: Any] else { continue }
+            if let acceptanceThreadID, Self.threadID(of: message) != acceptanceThreadID { continue }
             if let method = CodexAppServerReducer.serverRequestMethod(message) {
                 state.serverRequestsSeen.append(method)
                 if state.serverRequestsSeen.count > 20 { state.serverRequestsSeen.removeFirst() }
@@ -233,7 +247,7 @@ public actor CodexAppServerMonitor {
             let events = reducer.handle(message, receivedAt: now)
             if !events.isEmpty {
                 state.lastEventAt = now
-                for event in events { await store.ingest(event) }
+                await forward(events, to: store, now: now)
             }
             // A thread we did not subscribe to has started or come alive:
             // subscribe so its turn/item stream reaches us too.
@@ -249,6 +263,10 @@ public actor CodexAppServerMonitor {
 
     /// Page the daemon's stored threads once and subscribe to every loaded one.
     private func discover(client: any CodexAppServerConnecting, store: SessionStore) async throws {
+        if let acceptanceThreadID {
+            await subscribe(acceptanceThreadID, client: client, store: store)
+            return
+        }
         var cursor: String?
         var pages = 0
         repeat {
@@ -261,7 +279,7 @@ public actor CodexAppServerMonitor {
                 let events = reducer.seed(thread: thread, receivedAt: now)
                 if !events.isEmpty {
                     state.lastEventAt = now
-                    for event in events { await store.ingest(event) }
+                    await forward(events, to: store, now: now)
                 }
                 if let id = thread["id"] as? String, reducer.threads[id]?.loaded == true {
                     await subscribe(id, client: client, store: store)
@@ -279,13 +297,19 @@ public actor CodexAppServerMonitor {
         do {
             let result = try await client.request("thread/resume",
                                                   params: ["threadId": threadID, "excludeTurns": true])
+            if let acceptanceThreadID,
+               (result["thread"] as? [String: Any])?["id"] as? String != acceptanceThreadID {
+                state.lastError = "Acceptance subscription returned a different task"
+                return
+            }
             subscribed.insert(threadID)
             state.subscribedThreads = subscribed.count
             if let thread = result["thread"] as? [String: Any] {
                 let now = Date()
-                for event in reducer.seed(thread: thread, receivedAt: now) {
+                let events = reducer.seed(thread: thread, receivedAt: now)
+                if !events.isEmpty {
                     state.lastEventAt = now
-                    await store.ingest(event)
+                    await forward(events, to: store, now: now)
                 }
             }
         } catch {
@@ -382,7 +406,7 @@ public actor CodexAppServerMonitor {
         await store.beginApproval(sessionID: threadID, shown, at: Date())
         let outcome = await approvalRegistry.wait(id: card.id, timeout: requestTimeout)
         guard openRequests.removeValue(forKey: key) != nil else { return }   // resolved elsewhere
-        await store.endApproval(sessionID: threadID, at: Date())
+        await store.endApproval(sessionID: threadID, approvalID: card.id, at: Date())
         switch outcome {
         case .allow:
             let forSession = await sessionAllow.contains(threadID)
@@ -420,7 +444,7 @@ public actor CodexAppServerMonitor {
                                        isBlocking: blocking,
                                        expiresAt: blocking ? nil : Date().addingTimeInterval(60))
         let key = Self.requestKey(threadID: threadID, id: id)
-        openRequests[key] = OpenRequest(id: id, threadID: threadID, kind: .question)
+        openRequests[key] = OpenRequest(id: id, threadID: threadID, kind: .question(questionID))
         if await presence(threadID) {
             await store.beginQuestion(sessionID: threadID, question.readOnly, at: Date())
             return
@@ -428,7 +452,7 @@ public actor CodexAppServerMonitor {
         await store.beginQuestion(sessionID: threadID, question, at: Date())
         let answers = await questionRegistry.wait(sessionID: threadID, questionID: questionID, timeout: timeout)
         guard openRequests.removeValue(forKey: key) != nil else { return }
-        await store.endQuestion(sessionID: threadID, at: Date())
+        await store.endQuestion(sessionID: threadID, questionID: questionID, at: Date())
         guard let answers else { return }
         var payload: [String: Any] = [:]
         for item in items {
@@ -440,6 +464,7 @@ public actor CodexAppServerMonitor {
     /// Join a running turn. Does not start a new one when steer fails (Q35).
     /// Sends `expectedTurnId` when the reducer still knows the active turn.
     public func steer(threadID: String, text: String) async -> Bool {
+        guard acceptanceThreadID == nil || acceptanceThreadID == threadID else { return false }
         guard let client, state.connected else { return false }
         guard await resumeIfNeeded(threadID: threadID) else { return false }
         var input: [String: Any] = ["threadId": threadID, "input": [["type": "text", "text": text]]]
@@ -455,9 +480,82 @@ public actor CodexAppServerMonitor {
         }
     }
 
+    /// Every event this connection produces goes to the store through here, so
+    /// the ending of a turn we were asked to stop is labelled wherever it shows
+    /// up — a `turn/completed` notification, or an idle status seen on a
+    /// re-seed after a reconnect.
+    private func forward(_ events: [HookEvent], to store: SessionStore, now: Date) async {
+        for event in events {
+            guard event.kind == .stop, let asked = stopsRequested[event.sessionID] else {
+                await store.ingest(event)
+                continue
+            }
+            stopsRequested[event.sessionID] = nil
+            let ours = now.timeIntervalSince(asked) < Self.stopClaimWindow
+            await store.ingest(ours ? event.markingUserStop() : event)
+        }
+    }
+
+    /// The running turn this connection knows about — set by `turn/started`,
+    /// cleared when the turn completes. `turn/interrupt` cannot be sent
+    /// without it.
+    func activeTurnID(threadID: String) -> String? { reducer.threads[threadID]?.activeTurnID }
+
+    /// What became of a stop. A `Bool` would fold "we never sent it" into
+    /// "we don't know", and those are different answers for the person
+    /// holding the watch: one is final, the other is worth checking on.
+    public enum InterruptOutcome: Equatable, Sendable {
+        /// The daemon accepted `turn/interrupt`.
+        case sent
+        /// Nothing went out, or the daemon rejected it outright. Retrying the
+        /// same stop cannot change this answer; the reason says why.
+        case notSent(String)
+        /// It went out and the connection died before the answer came back.
+        /// Whether the turn was interrupted is genuinely unknown.
+        case unconfirmed
+    }
+
+    /// Interrupt the running turn (ADR-0011, third amendment). One call and
+    /// one only: no resume, no retry, no other method when it fails, so a
+    /// stop that did not land stays a stop that did not land.
+    ///
+    /// `turn/interrupt` *requires* the turn id, so a thread whose turn this
+    /// connection never saw start (it attached mid-turn) cannot be stopped
+    /// from here — and says so, rather than reporting an unknown.
+    public func interrupt(threadID: String) async -> InterruptOutcome {
+        guard acceptanceThreadID == nil || acceptanceThreadID == threadID else {
+            return .notSent("This task is outside the acceptance run")
+        }
+        guard let client, state.connected else {
+            return .notSent(String(localized: "Your Mac isn't connected to Codex right now."))
+        }
+        guard let turnID = reducer.threads[threadID]?.activeTurnID else {
+            state.lastError = "turn/interrupt \(threadID.suffix(8)): no running turn on this connection"
+            return .notSent(String(localized: "Your Mac isn't following this task's current turn."))
+        }
+        // Claimed before the call: the ending can arrive while we are awaiting
+        // the answer, and an ending we asked for must never be read as a crash.
+        stopsRequested[threadID] = Date()
+        do {
+            _ = try await client.request("turn/interrupt", params: ["threadId": threadID, "turnId": turnID])
+            return .sent
+        } catch {
+            stopsRequested[threadID] = nil
+            state.lastError = "turn/interrupt \(threadID.suffix(8)): \(error)"
+            // A JSON-RPC error is the daemon's own answer: it arrived and was
+            // refused. Anything else (socket gone, timeout) leaves the fate of
+            // the request open.
+            if case CodexAppServerClient.ClientError.rpc(_, let message) = error {
+                return .notSent(String(localized: "Codex refused the stop: \(message)"))
+            }
+            return .unconfirmed
+        }
+    }
+
     /// Open the next turn on an idle or cold thread. Resume first when the
     /// daemon has unloaded it. Nothing about model, approval or sandbox.
     public func startTurn(threadID: String, text: String) async -> Bool {
+        guard acceptanceThreadID == nil || acceptanceThreadID == threadID else { return false }
         guard let client, state.connected else { return false }
         guard await resumeIfNeeded(threadID: threadID) else { return false }
         let input: [String: Any] = ["threadId": threadID, "input": [["type": "text", "text": text]]]
@@ -493,6 +591,7 @@ public actor CodexAppServerMonitor {
     /// sandbox; `thread/start` auto-subscribes this connection, so the session
     /// surfaces through the normal notifications. Desktop lists it too.
     public func dispatch(_ request: DispatchRequest) async -> DispatchOutcome {
+        guard acceptanceThreadID == nil else { return .unavailable("Use the designated acceptance task") }
         guard let client, state.connected else {
             return .unavailable("The Codex app-server daemon is not connected")
         }
@@ -529,10 +628,10 @@ public actor CodexAppServerMonitor {
         case .approval(let approvalID):
             _ = await approvalContext.take(id: approvalID)
             await approvalRegistry.resolve(id: approvalID, with: .pass)
-            await store.endApproval(sessionID: threadID, at: Date())
-        case .question:
-            await questionRegistry.cancel(sessionID: threadID)
-            await store.endQuestion(sessionID: threadID, at: Date())
+            await store.endApproval(sessionID: threadID, approvalID: approvalID, at: Date())
+        case .question(let questionID):
+            await questionRegistry.cancelExact(sessionID: threadID, questionID: questionID)
+            await store.endQuestion(sessionID: threadID, questionID: questionID, at: Date())
         }
     }
 
@@ -615,10 +714,10 @@ public actor CodexAppServerMonitor {
             case .approval(let approvalID):
                 _ = await approvalContext.take(id: approvalID)
                 await approvalRegistry.resolve(id: approvalID, with: .pass)
-                await boundStore?.endApproval(sessionID: request.threadID, at: Date())
-            case .question:
-                await questionRegistry.cancel(sessionID: request.threadID)
-                await boundStore?.endQuestion(sessionID: request.threadID, at: Date())
+                await boundStore?.endApproval(sessionID: request.threadID, approvalID: approvalID, at: Date())
+            case .question(let questionID):
+                await questionRegistry.cancelExact(sessionID: request.threadID, questionID: questionID)
+                await boundStore?.endQuestion(sessionID: request.threadID, questionID: questionID, at: Date())
             }
         }
     }

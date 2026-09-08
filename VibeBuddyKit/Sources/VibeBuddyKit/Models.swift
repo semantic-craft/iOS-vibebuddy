@@ -173,6 +173,19 @@ public struct PendingQuestion: Codable, Sendable, Equatable, Identifiable {
     public var items: [QuestionItem] {
         questions ?? [QuestionItem(id: id, text: prompt, options: options)]
     }
+
+    /// Whether this whole wait is one question taking one answer.
+    ///
+    /// A surface that can send only a single string — the Watch — may finish
+    /// this wait and no other. A free-text answer to a three-question prompt
+    /// lands on the first item alone (`QuestionRegistry.normalize`) and the
+    /// agent treats the rest as unanswered, so offering one tap for it would
+    /// under-answer without saying so. Multi-select is the same: one tap
+    /// cannot express two picks.
+    public var isSinglePart: Bool {
+        let list = items
+        return list.count == 1 && !list[0].multiSelect
+    }
 }
 
 /// Answers from the phone or the Mac, keyed by question id: the chosen option
@@ -449,6 +462,11 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     /// snapshots decode as a normal completion. Distinct from a real stop
     /// whose last message happened to be "Abandoned".
     public var probeRetired: Bool?
+    /// True when this ending is a stop the user asked vibebuddy for. Codex
+    /// reports it as an interrupted turn, which reads like a failure; only the
+    /// Mac that sent `turn/interrupt` knows it was deliberate. Optional so
+    /// older snapshots decode as they did before.
+    public var userStopped: Bool?
     /// Facts Claude Code's status line reports about the session (all optional
     /// so older snapshots decode unchanged): the `--name` / `/rename` or
     /// generated title, the effort level, the client-side cost estimate, the
@@ -500,6 +518,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         childAgents: [ChildAgent]? = nil,
         childTopologyDegraded: Bool? = nil,
         probeRetired: Bool? = nil,
+        userStopped: Bool? = nil,
         name: String? = nil,
         effort: String? = nil,
         costUSD: Double? = nil,
@@ -535,6 +554,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         self.childAgents = childAgents
         self.childTopologyDegraded = childTopologyDegraded
         self.probeRetired = probeRetired
+        self.userStopped = userStopped
         self.name = name
         self.effort = effort
         self.costUSD = costUSD

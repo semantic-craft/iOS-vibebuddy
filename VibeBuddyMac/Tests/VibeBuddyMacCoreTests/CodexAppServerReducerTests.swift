@@ -23,6 +23,32 @@ struct CodexAppServerReducerTests {
                     + #""gitInfo":{"branch":"main","sha":"abc"},"cliVersion":"0.153.3","name":"Clean plugin dir","turns":[]}"#)
     }
 
+    @Test("A delayed command completion cannot revive an interrupted turn")
+    func lateToolAfterStop() {
+        var reducer = CodexAppServerReducer()
+        _ = reducer.seed(thread: thread(status: "active"), receivedAt: now)
+        func message(_ method: String, _ params: [String: Any]) -> [String: Any] {
+            ["method": method, "params": params]
+        }
+        let started = message("turn/started", ["threadId": "thr-1", "turn": ["id": "old"]])
+        _ = reducer.handle(started, receivedAt: now)
+        _ = reducer.handle(message("turn/completed", ["threadId": "thr-1", "turn": ["id": "old", "status": "interrupted"]]), receivedAt: now)
+        let late = message("item/completed", ["threadId": "thr-1", "turnId": "old", "item": ["type": "commandExecution", "status": "completed"]])
+        #expect(reducer.handle(late, receivedAt: now.addingTimeInterval(120)).isEmpty)
+        _ = reducer.handle(message("turn/started", ["threadId": "thr-1", "turn": ["id": "new"]]), receivedAt: now)
+        #expect(reducer.handle(late, receivedAt: now).isEmpty)
+        let current = message("item/completed", ["threadId": "thr-1", "turnId": "new", "item": ["type": "commandExecution", "status": "completed"]])
+        #expect(reducer.handle(current, receivedAt: now).map(\.kind) == [.postToolUse])
+        _ = reducer.handle(message("thread/status/changed", ["threadId": "thr-1", "status": ["type": "idle"]]), receivedAt: now)
+        let newer = message("item/started", ["threadId": "thr-1", "turnId": "newer", "item": ["type": "commandExecution"]])
+        #expect(reducer.handle(newer, receivedAt: now).map(\.kind) == [.preToolUse])
+        #expect(reducer.handle(late, receivedAt: now).isEmpty)
+        // Attaching mid-turn has no turn ID yet, but active tool observations remain useful.
+        var attached = CodexAppServerReducer()
+        _ = attached.seed(thread: thread(status: "active"), receivedAt: now)
+        #expect(attached.handle(current, receivedAt: now).map(\.kind) == [.postToolUse])
+    }
+
     @Test("a loaded active Desktop thread surfaces as working with its cwd, branch and thread id")
     func seedActive() {
         var reducer = CodexAppServerReducer()

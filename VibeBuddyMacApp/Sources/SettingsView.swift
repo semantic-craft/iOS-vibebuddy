@@ -3,72 +3,100 @@ import AppKit
 import VibeBuddyKit
 import VibeBuddyMacCore
 
-/// The Cmd+, Settings window: a classic top-tab Preferences layout (deliberately
-/// not NavigationSplitView). Consolidates preferences that used to live in the
-/// menu-bar popover, plus the configurable Open-Dashboard global hotkey.
+/// Retained Settings content. Each category owns one independently scrolling form.
 struct SettingsView: View {
     @ObservedObject var model: MenuBarModel
-
     @StateObject private var hookSetup = HookSetup()
-    @State private var selectedTab: SettingsTab = .general
+    @StateObject private var tests = SettingsTestCoordinator()
+    @State private var selection: SettingsCategory = .everyday
 
-    private enum SettingsTab: String, CaseIterable {
-        case general = "General", setup = "Setup", glance = "Glance", devices = "Devices"
-        case notifications = "Notifications", usage = "Usage", voice = "Voice"
+    private enum SettingsCategory: String, CaseIterable {
+        case everyday = "Everyday"
+        case voice = "Models & Voice"
+        case devices = "Devices & Integrations"
+        case usage = "Usage & Limits"
+        case diagnostics = "Advanced & Diagnostics"
 
         var symbol: String {
             switch self {
-            case .general: "gearshape"
-            case .setup: "checklist"
-            case .glance: "menubar.rectangle"
-            case .devices: "iphone.gen3"
-            case .notifications: "bell"
-            case .usage: "gauge.with.dots.needle.50percent"
+            case .everyday: "gearshape"
             case .voice: "waveform"
+            case .devices: "iphone.gen3"
+            case .usage: "gauge.with.dots.needle.50percent"
+            case .diagnostics: "stethoscope"
             }
         }
     }
 
     var body: some View {
-        // Render navigation in the content, independent of SwiftUI Settings-scene
-        // toolbar adaptation (which collapses all tabs in an AppKit-hosted window).
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                ForEach(SettingsTab.allCases, id: \.self) { tab in
-                    Button { selectedTab = tab } label: {
-                        VStack(spacing: 5) {
-                            Image(systemName: tab.symbol).font(.system(size: 20))
-                            Text(LocalizedStringKey(tab.rawValue)).font(.system(size: 10))
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                        .contentShape(Rectangle())
-                        .foregroundStyle(selectedTab == tab ? Color.accentColor : Color.secondary)
-                        .background(selectedTab == tab ? Color.accentColor.opacity(0.08) : .clear,
-                                    in: RoundedRectangle(cornerRadius: 8))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(LocalizedStringKey(tab.rawValue))
-                    .accessibilityAddTraits(selectedTab == tab ? .isSelected : [])
-                }
+        HStack(spacing: 0) {
+            List(SettingsCategory.allCases, id: \.self, selection: Binding<SettingsCategory?>(
+                get: { selection },
+                set: { if let category = $0 { selection = category } }
+            )) { category in
+                Label(LocalizedStringKey(category.rawValue), systemImage: category.symbol)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.vertical, 5)
+                    .tag(category)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
+            .listStyle(.sidebar)
+            .frame(width: 196)
+            .accessibilityLabel("Settings categories")
             Divider()
-            Group {
-                switch selectedTab {
-                case .general: GeneralSettings(model: model)
-                case .setup: SetupSettings(model: model, setup: hookSetup)
-                case .glance: GlanceSettings(model: model)
-                case .devices: DeviceSettings(model: model)
-                case .notifications: NotificationSettings(model: model)
-                case .usage: AccountUsageSettings(model: model)
-                case .voice: VoiceSettingsTab(model: model)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(LocalizedStringKey(selection.rawValue))
+                    .font(.title2.bold())
+                    .padding(20)
+                    .accessibilityAddTraits(.isHeader)
+                Form {
+                    switch selection {
+                    case .everyday:
+                        GeneralSettings(model: model)
+                        GlanceSettings(model: model)
+                        NotificationSettings(model: model)
+                        diagnosticsLink
+                    case .voice:
+                        VoiceSettingsTab(model: model, tests: tests)
+                    case .devices:
+                        DeviceSettings(model: model)
+                        SetupSettings(model: model, setup: hookSetup, diagnostics: false)
+                        diagnosticsLink
+                    case .usage:
+                        AccountUsageSettings(model: model)
+                        SessionBudgetSettings()
+                    case .diagnostics:
+                        SetupSettings(model: model, setup: hookSetup, diagnostics: true)
+                        NotificationDiagnostics(model: model)
+                    }
                 }
+                .formStyle(.grouped)
+                .id(selection)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(width: 500, height: 480)
+        .frame(minWidth: 720, minHeight: 560)
+        .modifier(SettingsTestLifecycle(tests: tests))
+    }
+
+    private var diagnosticsLink: some View {
+        Section("Connection & delivery") {
+            if let failure = model.notificationDeliveryHealth.latchedFailure {
+                Text("Notification delivery failed: \(failure.failureReason ?? "unknown")")
+                    .foregroundStyle(.orange)
+            }
+            ForEach(model.observationDiagnostics) { agent in
+                ForEach(agent.sources.filter { !$0.health.isHealthy && !$0.isInformational }) { source in
+                    Label("\(agent.agent.displayName) · \(source.source.displayName): \(source.diagnosticTitle)",
+                          systemImage: source.diagnosticIcon)
+                        .foregroundStyle(source.diagnosticColor)
+                }
+            }
+            if !hookSetup.running && !hookSetup.lastOutput.isEmpty {
+                Text("Hook operation finished. Review its output in diagnostics.")
+                    .foregroundStyle(.secondary)
+            }
+            Button("Show advanced diagnostics") { selection = .diagnostics }
+        }
     }
 }
 
@@ -79,29 +107,31 @@ struct SettingsView: View {
 private struct SetupSettings: View {
     @ObservedObject var model: MenuBarModel
     @ObservedObject var setup: HookSetup
+    let diagnostics: Bool
 
     var body: some View {
-        Form {
-            Section("Observation health") {
-                if model.observationDiagnostics.isEmpty {
-                    Text("Checking Claude and Codex sources…")
-                        .foregroundStyle(.secondary)
-                }
-                ForEach(model.observationDiagnostics) { agent in
-                    VStack(alignment: .leading, spacing: 7) {
-                        Text(agent.agent.displayName).font(.headline)
-                        ForEach(agent.sources) { source in
-                            observationRow(agent: agent.agent, source: source)
-                        }
+        Group {
+            if diagnostics {
+                Section("Observation health") {
+                    if model.observationDiagnostics.isEmpty {
+                        Text("Checking Claude and Codex sources…")
+                            .foregroundStyle(.secondary)
                     }
-                    .padding(.vertical, 3)
+                    ForEach(model.observationDiagnostics) { agent in
+                        VStack(alignment: .leading, spacing: 7) {
+                            Text(agent.agent.displayName).font(.headline)
+                            ForEach(agent.sources) { source in
+                                observationRow(agent: agent.agent, source: source)
+                            }
+                        }
+                        .padding(.vertical, 3)
+                    }
                 }
-            }
 
-            Section {
-                if model.lifecycleTimeline.isEmpty {
-                    Text("No recent lifecycle transitions.")
-                        .foregroundStyle(.secondary)
+                Section {
+                    if model.lifecycleTimeline.isEmpty {
+                        Text("No recent lifecycle transitions.")
+                            .foregroundStyle(.secondary)
                 } else {
                     ForEach(model.lifecycleTimeline.prefix(20)) { entry in
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -147,81 +177,82 @@ private struct SetupSettings: View {
                     .font(.caption)
             }
 
-            Section {
-                if setup.statuses.isEmpty {
-                    Text("No agent CLIs detected yet.").foregroundStyle(.secondary)
+            } else {
+                Section {
+                    if setup.statuses.isEmpty {
+                        Text("No agent CLIs detected yet.").foregroundStyle(.secondary)
+                    }
+                    ForEach(setup.statuses, id: \.name) { s in
+                        HStack(spacing: 8) {
+                            Image(systemName: s.hookInjected ? "checkmark.circle.fill"
+                                  : (s.configured ? "exclamationmark.triangle.fill" : "minus.circle"))
+                                .foregroundStyle(s.hookInjected ? .green : (s.configured ? .orange : .secondary))
+                            Text(s.name).bold()
+                            Spacer()
+                            Text(s.hookInjected ? "hooked"
+                                 : (s.configured ? "configured · not hooked" : "not installed"))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                } header: { Text("Agent CLIs") }
+
+                HStack {
+                    Button("Install / repair hooks") { setup.install() }.disabled(setup.running)
+                    Button("Uninstall") { setup.uninstall() }.disabled(setup.running)
+                    if setup.running { ProgressView().controlSize(.small) }
                 }
-                ForEach(setup.statuses, id: \.name) { s in
-                    HStack(spacing: 8) {
-                        Image(systemName: s.hookInjected ? "checkmark.circle.fill"
-                              : (s.configured ? "exclamationmark.triangle.fill" : "minus.circle"))
-                            .foregroundStyle(s.hookInjected ? .green : (s.configured ? .orange : .secondary))
-                        Text(s.name).bold()
-                        Spacer()
-                        Text(s.hookInjected ? "hooked"
-                             : (s.configured ? "configured · not hooked" : "not installed"))
-                            .font(.caption).foregroundStyle(.secondary)
+                DisclosureGroup("Hook setup details") {
+                    Text("Wires (or removes) the vibebuddy hook in every detected CLI's config (~/.claude/settings.json …) via the bundled installer. Reversible. Re-run after installing a new CLI.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("Codex Desktop is monitored automatically from its local rollout stream. Codex CLI hooks still require explicit trust: start a fresh CLI session, run /hooks, review the VibeBuddy entries, and trust them.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                }
+
+                Section {
+                    Toggle("Always ask the phone first", isOn: Binding(
+                        get: { model.alwaysAskPhone },
+                        set: { model.setAlwaysAskPhone($0) }))
+                } header: { Text("Approvals and questions") } footer: {
+                    Text("Off: while you are at the Mac — the session's terminal or Codex Desktop in front, screen unlocked, input within the last two minutes — the agent's own prompt takes the answer, the phone shows a read-only card, and ordinary reminders stay on the Mac. Leaving, locking, or going idle restores the reminder; the card stays read-only. On: every prompt waits for the phone even at the desk.")
+                        .font(.caption)
+                }
+
+                Section {
+                    Toggle("Use the Codex app-server daemon", isOn: Binding(
+                        get: { model.codexAppServerEnabled },
+                        set: { model.setCodexAppServerEnabled($0) }))
+                    Text(codexAppServerStatus)
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } header: { Text("Codex daemon") } footer: {
+                    Text("Reads every Codex thread (Desktop, CLI, agents) from the shared local app-server over its unix control socket, read-only. When off or unavailable, the rollout stream and hooks cover Codex as before.")
+                        .font(.caption)
+                }
+
+                Section {
+                    Toggle("Observe Grok Bot tasks", isOn: Binding(
+                        get: { model.grokBotEnabled },
+                        set: { model.setGrokBotEnabled($0) }))
+                } header: { Text("Grok Bot") } footer: {
+                    Text("Read task status from the signed-in Grok Bot app. Completion alerts support ordinary conversations submitted after connecting. Question continuations, automated tasks, and turns spanning a disconnect are not yet supported; check their final status in Grok Bot. Replies and approvals stay in Grok Bot. Summaries and Mac reading use your existing optional settings. This source is off by default.")
+                }
+
+            }
+            if diagnostics {
+                Section("Codex daemon") { Text(codexAppServerStatus).textSelection(.enabled) }
+                if !setup.lastOutput.isEmpty {
+                    Section("Hook operation output") {
+                        Text(setup.lastOutput)
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
-            } header: { Text("Agent CLIs") }
-
-            HStack {
-                Button("Install / repair hooks") { setup.install() }.disabled(setup.running)
-                Button("Uninstall") { setup.uninstall() }.disabled(setup.running)
-                if setup.running { ProgressView().controlSize(.small) }
-            }
-            Text("Wires (or removes) the vibebuddy hook in every detected CLI's config (~/.claude/settings.json …) via the bundled installer. Reversible. Re-run after installing a new CLI.")
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Text("Codex Desktop is monitored automatically from its local rollout stream. Codex CLI hooks still require explicit trust: start a fresh CLI session, run /hooks, review the VibeBuddy entries, and trust them.")
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Section {
-                Toggle("Always ask the phone first", isOn: Binding(
-                    get: { model.alwaysAskPhone },
-                    set: { model.setAlwaysAskPhone($0) }))
-            } header: { Text("Approvals and questions") } footer: {
-                Text("Off: while you are at the Mac — the session's terminal or Codex Desktop in front, screen unlocked, input within the last two minutes — the agent's own prompt takes the answer, the phone shows a read-only card, and ordinary reminders stay on the Mac. Leaving, locking, or going idle restores the reminder; the card stays read-only. On: every prompt waits for the phone even at the desk.")
-                    .font(.caption)
-            }
-
-            Section {
-                Toggle("Use the Codex app-server daemon", isOn: Binding(
-                    get: { model.codexAppServerEnabled },
-                    set: { model.setCodexAppServerEnabled($0) }))
-                Text(codexAppServerStatus)
-                    .font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            } header: { Text("Codex daemon") } footer: {
-                Text("Reads every Codex thread (Desktop, CLI, agents) from the shared local app-server over its unix control socket, read-only. When off or unavailable, the rollout stream and hooks cover Codex as before.")
-                    .font(.caption)
-            }
-
-            Section {
-                Toggle("Observe Grok Bot tasks", isOn: Binding(
-                    get: { model.grokBotEnabled },
-                    set: { model.setGrokBotEnabled($0) }))
-            } header: { Text("Grok Bot") } footer: {
-                Text("Read task status from the signed-in Grok Bot app. Completion alerts support ordinary conversations submitted after connecting. Question continuations, automated tasks, and turns spanning a disconnect are not yet supported; check their final status in Grok Bot. Replies and approvals stay in Grok Bot. Summaries and Mac reading use your existing optional settings. This source is off by default.")
-            }
-
-            if !setup.lastOutput.isEmpty {
-                ScrollView {
-                    Text(setup.lastOutput)
-                        .font(.system(.caption, design: .monospaced))
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(maxHeight: 110)
             }
         }
-        // Every other tab is `.grouped`; Setup was the one plain `Form`, and on
-        // macOS only the grouped style puts the form in a scroll view. Setup is
-        // also the only tab taller than the window's fixed 400pt frame, so the
-        // unscrollable form was laid out over-tall and centre-clipped: the whole
-        // "Observation health" section sat above the top edge, unreachable.
-        .formStyle(.grouped)
         .onAppear { setup.refresh() }
     }
 
@@ -248,7 +279,7 @@ private struct SetupSettings: View {
     ) -> some View {
         let issue = agent == .codex && source.source == .hook
             ? ObservationHealthDetector.codexHookConfigurationIssue(
-                home: FileManager.default.homeDirectoryForCurrentUser, hook: source, now: Date()) : nil
+                home: E2ERunConfiguration.current?.file("agents") ?? FileManager.default.homeDirectoryForCurrentUser, hook: source, now: Date()) : nil
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: issue != nil ? "exclamationmark.triangle.fill" : source.diagnosticIcon)
                 .foregroundStyle(issue != nil ? .orange : source.diagnosticColor)
@@ -293,7 +324,6 @@ private struct SetupSettings: View {
     }
 }
 
-
 private extension LifecycleJournalEntry {
     var sessionSuffix: String { String(sessionID.suffix(8)) }
 
@@ -333,64 +363,64 @@ private struct GeneralSettings: View {
     @State private var showHideIconNote = false
 
     var body: some View {
-        Form {
-            Toggle("Launch at Login", isOn: Binding(
-                get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
+        Group {
+            Section("Open & display") {
+                Toggle("Launch at Login", isOn: Binding(
+                    get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
 
-            Toggle("Show icon in menu bar", isOn: Binding(
-                get: { showMenuBarIcon },
-                set: { on in showMenuBarIcon = on; if !on { showHideIconNote = true } }))
-            Text("A fixed shortcut to the Dashboard and Settings. Live status and alerts appear in the Glance.")
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Toggle("Show task status in menu bar", isOn: $showMenuBarTaskStatus)
-                .disabled(!showMenuBarIcon)
-            Text("Add a status dot and the primary task count beside the cat icon.")
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            if showHideIconNote {
-                Text("Hidden. You can still open the Dashboard with \(model.openDashboardHotkey.displayString) — it has a Settings button.")
+                Toggle("Show icon in menu bar", isOn: Binding(
+                    get: { showMenuBarIcon },
+                    set: { on in showMenuBarIcon = on; if !on { showHideIconNote = true } }))
+                Text("A fixed shortcut to the Dashboard and Settings. Live status and alerts appear in the Glance.")
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                Toggle("Show task status in menu bar", isOn: $showMenuBarTaskStatus)
+                    .disabled(!showMenuBarIcon)
+                Text("Add a status dot and the primary task count beside the cat icon.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if showHideIconNote {
+                    Text("Hidden. You can still open the Dashboard with \(model.openDashboardHotkey.displayString) — it has a Settings button.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
             }
+            Section("Shortcuts & cleanup") {
 
-            Divider().padding(.vertical, 4)
+                LabeledContent("Open Dashboard") {
+                    HotkeyRecorderView(current: model.openDashboardHotkey, onRecord: model.setHotkey)
+                }
+                Text("A global shortcut that opens the Dashboard from anywhere. Hyper (⌃⌥⇧⌘) combos recommended.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
-            LabeledContent("Open Dashboard") {
-                HotkeyRecorderView(current: model.openDashboardHotkey, onRecord: model.setHotkey)
-            }
-            Text("A global shortcut that opens the Dashboard from anywhere. Hyper (⌃⌥⇧⌘) combos recommended.")
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                LabeledContent("Toggle Glance") {
+                    HotkeyRecorderView(current: model.toggleGlanceHotkey, onRecord: model.setGlanceHotkey)
+                }
+                Text("Show/hide the floating glance from the keyboard — handy on a notchless screen where it would otherwise sit on top of your work.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
-            LabeledContent("Toggle Glance") {
-                HotkeyRecorderView(current: model.toggleGlanceHotkey, onRecord: model.setGlanceHotkey)
-            }
-            Text("Show/hide the floating glance from the keyboard — handy on a notchless screen where it would otherwise sit on top of your work.")
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Divider().padding(.vertical, 4)
-
-            Picker("Clean up idle sessions after", selection: Binding(
-                get: { model.idleTimeoutHours }, set: { model.setIdleTimeout($0) })) {
-                Text("30 min").tag(0.5)
-                Text("1 hour").tag(1.0)
-                Text("2 hours").tag(2.0)
-                Text("4 hours").tag(4.0)
-                Text("8 hours").tag(8.0)
-                Text("24 hours").tag(24.0)
-                Text("Never").tag(0.0)
+                Picker("Clean up idle sessions after", selection: Binding(
+                    get: { model.idleTimeoutHours }, set: { model.setIdleTimeout($0) })) {
+                    Text("30 min").tag(0.5)
+                    Text("1 hour").tag(1.0)
+                    Text("2 hours").tag(2.0)
+                    Text("4 hours").tag(4.0)
+                    Text("8 hours").tag(8.0)
+                    Text("24 hours").tag(24.0)
+                    Text("Never").tag(0.0)
+                }
             }
         }
-        .formStyle(.grouped)
     }
 }
 
 private struct GlanceSettings: View {
     @ObservedObject var model: MenuBarModel
     var body: some View {
-        Form {
+        Section("Glance") {
             Toggle("Show glance", isOn: Binding(
                 get: { model.showGlance }, set: { model.setShowGlance($0) }))
             Picker("Size", selection: Binding(
@@ -402,21 +432,13 @@ private struct GlanceSettings: View {
             .pickerStyle(.segmented)
             .disabled(!model.showGlance)
         }
-        .formStyle(.grouped)
     }
 }
 
-private struct NotificationSettings: View {
+private struct NotificationDiagnostics: View {
     @ObservedObject var model: MenuBarModel
-    @AppStorage("notifyOnNeedsResponse") private var notify = true
-    @AppStorage("playNotificationSound") private var sound = true
-    @AppStorage("quietMode") private var quiet = false
-    @AppStorage("sessionBudgetUSD") private var budgetUSD = 0.0
-    @State private var quietHours = NotificationSettings.loadQuietHours()
-    @State private var categories = NotificationCategoryPrefs.loadMac()
-
     var body: some View {
-        Form {
+        Group {
             Section {
                 LabeledContent("Local authorization") {
                     Text(model.notificationDeliveryHealth.authorization.rawValue)
@@ -532,6 +554,20 @@ private struct NotificationSettings: View {
                     .font(.caption)
             }
 
+        }
+    }
+}
+
+private struct NotificationSettings: View {
+    @ObservedObject var model: MenuBarModel
+    @AppStorage("notifyOnNeedsResponse") private var notify = true
+    @AppStorage("playNotificationSound") private var sound = true
+    @AppStorage("quietMode") private var quiet = false
+    @State private var quietHours = NotificationSettings.loadQuietHours()
+    @State private var categories = NotificationCategoryPrefs.loadMac()
+
+    var body: some View {
+        Group {
             Section {
                 Toggle("Show notifications", isOn: $notify)
                 Toggle("Play sound", isOn: $sound).disabled(!notify)
@@ -559,19 +595,6 @@ private struct NotificationSettings: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {
-                Picker("Budget alert per session", selection: $budgetUSD) {
-                    Text("Off").tag(0.0)
-                    Text("$1").tag(1.0)
-                    Text("$2").tag(2.0)
-                    Text("$5").tag(5.0)
-                    Text("$10").tag(10.0)
-                    Text("$20").tag(20.0)
-                }.disabled(!notify)
-            } footer: {
-                Text("A gentle heads-up when a session's estimated spend crosses this amount. Cost is a rough estimate from token usage.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Section {
                 Toggle("Quiet hours", isOn: $quietHours.enabled).disabled(!notify)
                 if quietHours.enabled {
                     Picker("From", selection: $quietHours.startHour) { hourTags }
@@ -582,7 +605,6 @@ private struct NotificationSettings: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
-        .formStyle(.grouped)
         .onChange(of: quietHours) { _, q in NotificationSettings.saveQuietHours(q) }
         .onChange(of: categories) { _, c in c.save() }
     }
@@ -602,119 +624,290 @@ private struct NotificationSettings: View {
     }
 }
 
+private struct SessionBudgetSettings: View {
+    @AppStorage("notifyOnNeedsResponse") private var notify = true
+    @AppStorage("sessionBudgetUSD") private var budgetUSD = 0.0
+    var body: some View {
+        Section {
+            Picker("Budget alert per session", selection: $budgetUSD) {
+                Text("Off").tag(0.0)
+                Text("$1").tag(1.0)
+                Text("$2").tag(2.0)
+                Text("$5").tag(5.0)
+                Text("$10").tag(10.0)
+                Text("$20").tag(20.0)
+            }.disabled(!notify)
+        } footer: {
+            Text("A gentle heads-up when a session's estimated spend crosses this amount. Cost is a rough estimate from token usage.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+}
+
+enum SettingsVoicePurpose: String, CaseIterable {
+    case conversation = "Voice conversation"
+    case summary = "Completion summaries"
+
+    var symbol: String { self == .conversation ? "waveform" : "text.bubble" }
+    var explanation: LocalizedStringKey {
+        self == .conversation ? "Talk to your buddy about your sessions."
+            : "Summarize followed tasks’ final results."
+    }
+}
+
 private struct VoiceSettingsTab: View {
     @ObservedObject var model: MenuBarModel
-    @AppStorage(VoiceSettings.conversationLanguageKey) private var language = VoiceLanguage.english.rawValue
+    @ObservedObject var tests: SettingsTestCoordinator
+    @StateObject private var credentials = SettingsCredentials()
     @AppStorage(VoiceSettings.providerKey) private var provider = VoiceProvider.qwen.rawValue
+    @AppStorage(VoiceSettings.summaryProviderKey) private var summaryChoice: String?
+    @AppStorage(CompletionSummaryConfiguration.enabledKey) private var summaryEnabled = false
+    @State private var purpose: SettingsVoicePurpose = .conversation
+
+    private var summaryProvider: VoiceProvider? {
+        // Access AppStorage to refresh when the independent choice changes.
+        _ = summaryChoice
+        return VoiceSettings.summaryProvider()
+    }
+    private var selection: Binding<String> {
+        Binding(get: { purpose == .conversation ? provider : summaryProvider?.rawValue ?? "" }, set: { raw in
+            tests.invalidate()
+            if purpose == .conversation, let value = VoiceProvider(rawValue: raw) {
+                VoiceSettings.selectVoiceProvider(value)
+                provider = raw
+            } else if let value = VoiceProvider(rawValue: raw), value.supportsCompletionSummaries {
+                summaryChoice = raw
+            }
+        })
+    }
+    var body: some View {
+        Group {
+            Section {
+                HStack(alignment: .top, spacing: 12) {
+                    SettingsPurposeCard(purpose: .conversation, selected: purpose == .conversation,
+                        provider: VoiceProvider(rawValue: provider), credentials: credentials, tests: tests) { purpose = .conversation }
+                    SettingsPurposeCard(purpose: .summary, selected: purpose == .summary,
+                        provider: summaryProvider, credentials: credentials, tests: tests) { purpose = .summary }
+                }
+                Text("Select a purpose to edit it. Selection does not turn it on.").font(.caption).foregroundStyle(.secondary)
+            }
+            if let editedProvider = purpose == .conversation ? VoiceProvider(rawValue: provider) : summaryProvider {
+                ProviderSection(provider: editedProvider, providerSelection: selection,
+                    purpose: $purpose, menuModel: model, tests: tests, credential: credentials[editedProvider])
+                    .id(editedProvider.rawValue + purpose.rawValue)
+            } else {
+                Section("AI completion summaries") {
+                    Toggle("AI completion summaries", isOn: $summaryEnabled)
+                    Picker("Completion summary provider", selection: selection) {
+                        Text("Not configured").tag("")
+                        ForEach(VoiceProvider.summaryProviders, id: \.rawValue) { Text($0.display).tag($0.rawValue) }
+                    }
+                    Text("Choose a completion summary provider before testing.")
+                }
+            }
+            if purpose == .summary {
+                QwenReadAloudConnection(reader: model.qwenReadAloud, voiceChat: model.voiceChat,
+                    tests: tests, credential: credentials[.qwen], summaryUsesQwen: summaryProvider == .qwen)
+            }
+        }
+        .onChange(of: provider) { _, _ in tests.invalidate(); model.voiceChat.reloadProviderIfActive() }
+        .onChange(of: summaryChoice) { _, _ in tests.invalidate() }
+        .onChange(of: purpose) { _, _ in tests.invalidate() }
+        .onDisappear { tests.invalidate() }
+    }
+}
+
+private struct QwenReadAloudConnection: View {
+    @ObservedObject var reader: QwenReadAloud
+    @ObservedObject var voiceChat: VoiceChat
+    @ObservedObject var tests: SettingsTestCoordinator
+    @ObservedObject var credential: SettingsCredential
+    let summaryUsesQwen: Bool
+    var body: some View {
+        QwenReadAloudSettings(reader: reader, voiceChat: voiceChat, tests: tests,
+            qwenKey: Binding(get: { credential.value }, set: { credential.edit($0); tests.invalidate() }),
+            hasKey: credential.configured, keySaveFailed: credential.saveFailed, sharedProviderIsQwen: summaryUsesQwen)
+            .onAppear { credential.load() }
+    }
+}
+
+/// One provider's saved fields, with a selected purpose that never changes consent.
+private struct ProviderSection: View {
+    let provider: VoiceProvider
+    @Binding var providerSelection: String
+    @Binding var purpose: SettingsVoicePurpose
+    @ObservedObject var menuModel: MenuBarModel
+    @ObservedObject var reader: QwenReadAloud
+    @ObservedObject var tests: SettingsTestCoordinator
+    @ObservedObject var credential: SettingsCredential
     @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
+    @AppStorage(CompletionSummaryConfiguration.enabledKey) private var summaryEnabled = false
+    @AppStorage(VoiceSettings.conversationLanguageKey) private var language = VoiceLanguage.english.rawValue
+    @AppStorage(VoiceSettings.regionIntlKey) private var intl = false
+    @AppStorage(VoiceSettings.qwenWorkspaceIDKey) private var workspaceID = ""
+    @AppStorage private var modelID: String
+    @AppStorage private var voiceID: String
+    @AppStorage private var textModelID: String
+    private var apiKey: String { credential.value }
+    private var keySaveFailed: Bool { credential.saveFailed }
+
+    init(provider: VoiceProvider, providerSelection: Binding<String>,
+         purpose: Binding<SettingsVoicePurpose>, menuModel: MenuBarModel, tests: SettingsTestCoordinator, credential: SettingsCredential) {
+        self.provider = provider
+        _providerSelection = providerSelection
+        _purpose = purpose
+        self.menuModel = menuModel
+        self.reader = menuModel.qwenReadAloud
+        self.tests = tests
+        self.credential = credential
+        _modelID = AppStorage(wrappedValue: "", VoiceSettings.modelKey(provider))
+        _voiceID = AppStorage(wrappedValue: "", VoiceSettings.voiceKey(provider))
+        _textModelID = AppStorage(wrappedValue: CompletionSummaryConfiguration.recommendedModel(provider),
+                                 CompletionSummaryConfiguration.modelKey(provider))
+    }
+
+    private var hasKey: Bool { credential.configured }
+    private var keyInput: Binding<String> {
+        Binding(get: { credential.value }, set: { credential.edit($0); tests.invalidate() })
+    }
 
     var body: some View {
-        Form {
-            Section {
-                Toggle("Voice companion", isOn: $companionEnabled)
-                    .onChange(of: companionEnabled) { _, on in if !on { model.voiceChat.companionDisabled() } }
-                Picker("Voice provider", selection: $provider) {
-                    ForEach(VoiceProvider.allCases, id: \.rawValue) { p in
+        Group {
+            if purpose == .conversation {
+                Section("Voice conversation") {
+                    Toggle("Voice companion", isOn: $companionEnabled)
+                        .onChange(of: companionEnabled) { _, on in
+                            if !on { menuModel.voiceChat.companionDisabled() }
+                        }
+                    Text("Tap the buddy to start a conversation. Enabling this switch does not start the microphone.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if provider == .doubao {
+                        providerKeyField
+                        Text(voiceTestConfiguration.model == provider.defaultModel ? "Doubao realtime voice 3.0 · Recommended" : "Custom realtime model")
+                            .font(.headline)
+                        Text(voiceTestConfiguration.model == provider.defaultModel && voiceTestConfiguration.voice == provider.defaultVoice(.english) ? "The recommended model and Vivi voice are ready. Only your realtime API key is required." : "Your custom model or voice is retained. Review Advanced settings before testing.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        DisclosureGroup("Advanced settings") {
+                            realtimeModelField
+                            realtimeVoiceField
+                            Button("Restore recommended model and voice") { modelID = ""; voiceID = "" }
+                        }
+                    } else {
+                        realtimeModelField
+                        Text("Leave the realtime model blank to use the provider default.").font(.caption).foregroundStyle(.secondary)
+                        DisclosureGroup("Voice & advanced parameters") { realtimeVoiceField }
+                    }
+                    if let failure = voiceTestConfiguration.failure {
+                        Label(LocalizedStringKey(failure), systemImage: "exclamationmark.circle")
+                            .foregroundStyle(.secondary)
+                    } else if !hasKey {
+                        Text("API key required").foregroundStyle(.secondary)
+                    }
+                    Button("Test realtime connection", action: testVoice)
+                        .disabled(tests.isBusy || !hasKey || voiceTestConfiguration.failure != nil || reader.busy)
+                    Text("This test may incur provider charges. It checks configuration only, without microphone input, task history, tools or audio playback.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    SettingsTestFeedback(tests: tests, purpose: .voice)
+
+                }
+            } else {
+                CompletionSummarySettingsSection(provider: provider, hasKey: hasKey,
+                    apiKey: apiKey, tests: tests, canTest: !reader.busy)
+
+            }
+
+            Section("Purpose provider & shared language") {
+                Picker("Provider", selection: $providerSelection) {
+                    ForEach(purpose == .conversation ? VoiceProvider.allCases : VoiceProvider.summaryProviders, id: \.rawValue) { p in
                         Text(p.display).tag(p.rawValue)
                     }
                 }
-                .onChange(of: provider) { _, _ in model.voiceChat.reloadProviderIfActive() }
                 Picker("Conversation language", selection: $language) {
                     Text("English").tag(VoiceLanguage.english.rawValue)
                     Text("中文").tag(VoiceLanguage.chinese.rawValue)
                 }
-                .onChange(of: language) { _, _ in model.voiceChat.reloadProviderIfActive() }
-            } header: {
-                Text("Companion")
-            } footer: {
-                Text("Tap the buddy to talk — it knows your sessions and can approve / answer for you. Pick the provider whose key you've filled in below. Switching applies instantly if the buddy is already listening.")
+                .onChange(of: language) { _, _ in menuModel.voiceChat.reloadProviderIfActive() }
+                Text("Each purpose keeps its own provider. Credentials are shared only when both use the same provider; language remains shared.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text("Changing the voice provider or shared language reconnects an active conversation. Changing the summary provider does not. Editing never starts an idle conversation or a test.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
-            QwenReadAloudSettings(reader: model.qwenReadAloud)
-
-            // Only the selected provider's credentials show — key + editable
-            // Model ID + Voice ID — and they swap as the picker changes. `.id`
-            // recreates the section so its fields reload for the new provider.
-            if let p = VoiceProvider(rawValue: provider) {
-                ProviderSection(provider: p)
-                    .id(p.rawValue)
-            }
-        }
-        .formStyle(.grouped)
-        .animation(.smooth, value: provider)
-    }
-}
-
-/// Credentials + editable Model ID and Voice ID for one voice provider. The key
-/// lives in the Keychain (per-provider account); model/voice are UserDefaults.
-private struct ProviderSection: View {
-    let provider: VoiceProvider
-    @AppStorage(VoiceSettings.regionIntlKey) private var intl = false
-    @AppStorage(VoiceSettings.qwenWorkspaceIDKey) private var workspaceID = ""
-    @State private var apiKey = ""
-    @State private var model = ""
-    @State private var voice = ""
-    @State private var credentialRevision = 0
-
-    var body: some View {
-        Group {
-        Section {
-            // API key
-            field(caption: "API Key — paste your own (kept in the Keychain)",
-                  link: "Get an API key", icon: "key", url: provider.apiKeyURL,
-                  pasteInto: $apiKey, id: "voiceAPIKey") {
-                SecureField("Paste your \(provider.display) key", text: $apiKey)
-                    .textFieldStyle(.roundedBorder)
-                    .autocorrectionDisabled()
-            }
-            // Model ID — clearly editable
-            field(caption: "Model ID — editable, type any model",
-                  link: "Browse available models", icon: "arrow.up.right.square", url: provider.modelsURL,
-                  pasteInto: $model, id: "voiceModelID") {
-                TextField(provider.defaultModel, text: $model)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.body.monospaced())
-                    .autocorrectionDisabled()
-            }
-            // Voice ID — clearly editable
-            field(caption: "Voice ID — editable (blank = auto by language)",
-                  link: "Browse available voices", icon: "arrow.up.right.square", url: provider.voicesURL,
-                  pasteInto: $voice, id: "voiceID") {
-                TextField(exampleVoice, text: $voice)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.body.monospaced())
-                    .autocorrectionDisabled()
-            }
-            if provider == .qwen {
-                field(caption: "Workspace ID — optional; uses the workspace endpoint when set",
-                      link: "Find your workspace ID", icon: "arrow.up.right.square", url: VoiceProvider.qwenWorkspaceIDURL,
-                      pasteInto: $workspaceID, id: "qwenWorkspaceID") {
-                    TextField("e.g. llm-xxxxxxxx", text: $workspaceID)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.body.monospaced())
-                        .autocorrectionDisabled()
+            if provider != .doubao {
+                Section("Provider connection") {
+                    Text("This provider’s credentials are shared by the purposes that select it.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    providerKeyField
+                    if provider == .qwen {
+                        DisclosureGroup("Qwen region & workspace") {
+                            Toggle("Use Singapore (international) region", isOn: $intl)
+                            field(caption: "Workspace ID — optional; uses the workspace endpoint when set",
+                                  link: "Find your workspace ID", icon: "arrow.up.right.square",
+                                  url: VoiceProvider.qwenWorkspaceIDURL,
+                                  pasteInto: $workspaceID, id: "qwenWorkspaceID") {
+                                TextField("e.g. llm-xxxxxxxx", text: $workspaceID)
+                                    .textFieldStyle(.roundedBorder)
+                                    .font(.body.monospaced()).autocorrectionDisabled()
+                            }
+                        }
+                    }
                 }
-                Toggle("Use Singapore (international) region", isOn: $intl)
             }
-        } header: {
-            Text(provider.display)
         }
-        CompletionSummarySettingsSection(provider: provider,
-            hasKey: !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-            credentialRevision: credentialRevision)
+        .onAppear { credential.load() }
+        .onChange(of: testInputs) { _, _ in tests.invalidate() }
+        .onDisappear { tests.invalidate() }
+    }
+
+    private var providerKeyField: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            field(caption: "API Key — paste your own (kept in the Keychain)", link: "Get an API key", icon: "key",
+                url: provider.apiKeyURL, pasteInto: keyInput, id: "voiceAPIKey") {
+                SecureField("Paste your \(provider.display) key", text: keyInput)
+                    .textFieldStyle(.roundedBorder).autocorrectionDisabled()
+            }
+            if keySaveFailed {
+                Text("API key could not be saved. Your edit is not stored; edit or paste it again to retry.").foregroundStyle(.orange)
+            }
         }
-        .onAppear {
-            apiKey = provider.apiKey ?? ""
-            model = VoiceSettings.model(provider)
-            voice = UserDefaults.standard.string(forKey: VoiceSettings.voiceKey(provider)) ?? ""
+    }
+    private var realtimeModelField: some View {
+        field(caption: "Realtime model ID", link: "Browse available models", icon: "arrow.up.right.square",
+            url: provider.modelsURL, pasteInto: $modelID, id: "voiceModelID") {
+            TextField(provider.defaultModel, text: $modelID).textFieldStyle(.roundedBorder)
+                .font(.body.monospaced()).autocorrectionDisabled()
         }
-        .onChange(of: apiKey) { _, v in
-            credentialRevision += 1
-            KeychainStore.set(v, for: provider.keychainAccount)
+    }
+    private var realtimeVoiceField: some View {
+        field(caption: "Voice ID — editable (blank = auto by language)", link: "Browse available voices", icon: "arrow.up.right.square",
+            url: provider.voicesURL, pasteInto: $voiceID, id: "voiceID") {
+            TextField(exampleVoice, text: $voiceID).textFieldStyle(.roundedBorder)
+                .font(.body.monospaced()).autocorrectionDisabled()
         }
-        .onChange(of: model) { _, v in UserDefaults.standard.set(v, forKey: VoiceSettings.modelKey(provider)) }
-        .onChange(of: voice) { _, v in UserDefaults.standard.set(v, forKey: VoiceSettings.voiceKey(provider)) }
+    }
+
+    private var testInputs: [String] {
+        [modelID, voiceID, textModelID, language, workspaceID, String(intl),
+         String(credential.revision), String(companionEnabled), String(summaryEnabled)]
+    }
+
+    private var voiceTestConfiguration: SettingsModelTestOperations.VoiceConfiguration {
+        let selectedLanguage = VoiceLanguage(rawValue: language) ?? .english
+        let model = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let voice = voiceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let workspace = workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return .init(provider: provider, model: model.isEmpty ? provider.defaultModel : model,
+                     voice: voice.isEmpty ? provider.defaultVoice(selectedLanguage) : voice,
+                     workspace: workspace.isEmpty ? nil : workspace, international: intl)
+    }
+
+    private func testVoice() {
+        let configuration = voiceTestConfiguration
+        guard hasKey, configuration.failure == nil, !tests.isBusy, !reader.busy else { return }
+        let session = configuration.makeSession(apiKey: apiKey)
+        tests.start(.voice, timeout: .seconds(15), operation: {
+            await SettingsModelTestOperations.handshake(session: session, voice: configuration.voice)
+        }, cleanup: { await session.close() })
     }
 
     /// One labelled, clearly-editable field with a click-through link to the
@@ -730,6 +923,7 @@ private struct ProviderSection: View {
                     .labelsHidden()
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier(id)
+                    .accessibilityLabel(caption)
                 Button {
                     guard let pasted = NSPasteboard.general.string(forType: .string) else { return }
                     let trimmed = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -757,6 +951,7 @@ private struct ProviderSection: View {
         case .qwen:   return "e.g. longanqian / longanlufeng"
         case .openai: return "e.g. marin / cedar"
         case .gemini: return "e.g. Puck / Kore"
+        case .doubao: return "zh_female_vv_jupiter_bigtts"
         }
     }
 }
@@ -765,7 +960,18 @@ private struct DeviceSettings: View {
     @ObservedObject var model: MenuBarModel
 
     var body: some View {
-        Form {
+        Group {
+            Section {
+                DisclosureGroup("Pair a phone") {
+                    if let qr = model.qrImage {
+                        Image(nsImage: qr).interpolation(.none).resizable()
+                            .frame(width: 176, height: 176).padding(12).background(.white)
+                        Text("Scan this in the vibebuddy iOS app")
+                    } else {
+                        Text("Pairing is not ready.").foregroundStyle(.secondary)
+                    }
+                }
+            }
             Section {
                 LabeledContent("This Mac") {
                     Text(model.macDisplayName)
@@ -812,7 +1018,6 @@ private struct DeviceSettings: View {
                 }
             }
         }
-        .formStyle(.grouped)
     }
 }
 
@@ -862,6 +1067,7 @@ struct HotkeyRecorderView: View {
 
     private func stop() {
         recording = false
+        hint = false
         if let m = monitor { NSEvent.removeMonitor(m); monitor = nil }
     }
 

@@ -31,7 +31,10 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var recentDirectories: [String] = []
     /// Agents a new task can be started for from this Mac.
     @Published private(set) var dispatchAgents: [AgentKind] = []
-    private let claudeLauncher = ClaudeBackgroundLauncher()
+    private let claudeLauncher: ClaudeBackgroundLauncher = {
+        guard let run = E2ERunConfiguration.current else { return ClaudeBackgroundLauncher() }
+        return ClaudeBackgroundLauncher(executable: nil, jobsDirectory: run.file("agents").appendingPathComponent("claude/jobs", isDirectory: true))
+    }()
     /// The Codex app-server daemon connection (ADR-0011): on by default, and
     /// the rollout tailer + hooks keep covering Codex whenever it is off or
     /// the daemon is not running.
@@ -165,40 +168,79 @@ final class MenuBarModel: ObservableObject {
         var roundIDs: [String: String] = [:]
     }
     @Published private(set) var menuSnapshot = MenuSnapshot()
+    /// Round evidence is resolved asynchronously. Do not clear using newer
+    /// lifecycle data paired with older menu round identities or another source.
+    var menuSnapshotIsCurrent: Bool {
+        menuSnapshot.sourceID == snapshotSourceID && Self.sameMenuLifecycles(menuSnapshot.sessions, sessions)
+    }
+    /// Lists use live rows; actions continue to use the asynchronously resolved snapshot.
+    var menuListSnapshot: MenuSnapshot {
+        let captured = Dictionary(uniqueKeysWithValues: menuSnapshot.sessions.map { ($0.id, $0) })
+        let current = Dictionary(uniqueKeysWithValues: sessions.map { ($0.id, $0) })
+        let rounds = menuSnapshot.sourceID == snapshotSourceID ? menuSnapshot.roundIDs.filter { id, _ in
+            guard let old = captured[id], let live = current[id] else { return false }
+            return Self.sameMenuLifecycle(old, live)
+        } : [:]
+        return MenuSnapshot(sessions: sessions, sourceID: snapshotSourceID, roundIDs: rounds)
+    }
+
+    private static func sameMenuLifecycle(_ lhs: AgentSession, _ rhs: AgentSession) -> Bool {
+        lhs.id == rhs.id && lhs.agent == rhs.agent && lhs.statusSince == rhs.statusSince &&
+        lhs.completionID == rhs.completionID && lhs.presentationState == rhs.presentationState
+    }
+
+    /// Tokens, timestamps and observation health do not change the round the user can clear.
+    private static func sameMenuLifecycles(_ lhs: [AgentSession], _ rhs: [AgentSession]) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        let current = Dictionary(uniqueKeysWithValues: rhs.map { ($0.id, $0) })
+        return lhs.allSatisfy { old in
+            guard let live = current[old.id] else { return false }
+            return sameMenuLifecycle(old, live)
+        }
+    }
+
     private let menuRoundReader = MenuRoundIdentityReader()
     private var menuRefreshTask: Task<Void, Never>?
-    private let menuRolloutMonitor = CodexRolloutMonitor()
+    private let menuRolloutMonitor: CodexRolloutMonitor = {
+        guard let run = E2ERunConfiguration.current else { return CodexRolloutMonitor() }
+        return CodexRolloutMonitor(root: run.file("agents").appendingPathComponent("codex/sessions", isDirectory: true))
+    }()
     private static let menuSourcePathsKey = "menuSourcePaths"
 
     private var snapshotSourceID: String?
 
     init(runtimeEnabled: Bool = true) {
-        port = ProcessInfo.processInfo.environment["VIBEBUDDY_PORT"].flatMap(Int.init) ?? 9876
+        port = E2ERunConfiguration.current?.port ?? ProcessInfo.processInfo.environment["VIBEBUDDY_PORT"].flatMap(Int.init) ?? 9876
         let savedIdleTimeout = UserDefaults.standard.object(forKey: "idleTimeoutHours") as? Double ?? 2
         idleTimeoutHours = savedIdleTimeout
         store = SessionStore(
             staleAfter: Self.staleInterval(forHours: savedIdleTimeout),
             sourceID: DaemonIdentity.load(),
-            diagnosticsHome: FileManager.default.homeDirectoryForCurrentUser,
-            journalURL: ProcessInfo.processInfo.environment["VIBEBUDDY_JOURNAL_PATH"].map {
+            diagnosticsHome: E2ERunConfiguration.current?.file("agents") ?? FileManager.default.homeDirectoryForCurrentUser,
+            journalURL: (E2ERunConfiguration.current == nil ? ProcessInfo.processInfo.environment["VIBEBUDDY_JOURNAL_PATH"] : nil).map {
                 URL(fileURLWithPath: $0)
             } ?? LifecycleJournalLocation.defaultURL(),
             attentionURL: AttentionOverrides.defaultURL(),
-            missedURL: ProcessInfo.processInfo.environment["VIBEBUDDY_MISSED_PATH"].map {
+            missedURL: (E2ERunConfiguration.current == nil ? ProcessInfo.processInfo.environment["VIBEBUDDY_MISSED_PATH"] : nil).map {
                 URL(fileURLWithPath: $0)
             } ?? MissedLedgerLocation.defaultURL()
         )
         // File-based store (owner-only): no Keychain ACL, so an ad-hoc rebuild
         // never re-prompts. Shared with vibebuddyd's default store.
-        token = (try? TokenStore.defaultStore().loadOrCreate()) ?? Token.generate()
+        if E2ERunConfiguration.current != nil {
+            do { token = try TokenStore.defaultStore().loadOrCreate() }
+            catch { fatalError("E2E token storage failed; refusing to start.") }
+        } else {
+            token = (try? TokenStore.defaultStore().loadOrCreate()) ?? Token.generate()
+        }
         let saved = UserDefaults.standard.double(forKey: "glanceScale")
         let base: CGFloat = saved > 0 ? saved : Self.defaultGlanceScale()
         // Snap to one of the 3 presets so the menu Picker selection always matches.
         glanceScale = [0.8, 1.0, 1.2].min(by: { abs($0 - base) < abs($1 - base) }) ?? 1.0
         showGlance = UserDefaults.standard.bool(forKey: "showGlance", default: true)
-        let appServerOn = UserDefaults.standard.bool(forKey: Self.codexAppServerEnabledKey, default: true)
+        let appServerOn = E2ERunConfiguration.current.map { $0.codexThreadID != nil } ?? UserDefaults.standard.bool(forKey: Self.codexAppServerEnabledKey, default: true)
         codexAppServerEnabled = appServerOn
-        let grokBotOn = UserDefaults.standard.bool(forKey: Self.grokBotEnabledKey)
+        let grokBotOn = E2ERunConfiguration.current == nil && UserDefaults.standard.bool(forKey: Self.grokBotEnabledKey)
         grokBotEnabled = grokBotOn
         grokBotMonitor = GrokBotMonitor(enabled: grokBotOn)
         alwaysAskPhone = UserDefaults.standard.bool(forKey: Self.alwaysAskPhoneKey)
@@ -207,7 +249,9 @@ final class MenuBarModel: ObservableObject {
         // would hold a prompt for the phone.
         let presence = Presence.evaluator()
         codexAppServerMonitor = CodexAppServerMonitor(
-            enabled: appServerOn, usageFeed: usageFeed,
+            enabled: appServerOn,
+            acceptanceThreadID: E2ERunConfiguration.current?.codexThreadID,
+            usageFeed: E2ERunConfiguration.current == nil ? usageFeed : nil,
             approvalRegistry: approvalRegistry, allowStore: allowStore, sessionAllow: sessionAllow,
             approvalContext: approvalContext, questionRegistry: questionRegistry,
             presence: presence)
@@ -216,7 +260,7 @@ final class MenuBarModel: ObservableObject {
         usage = AccountUsageCoordinator(store: store, notifier: notifier, liveFeed: usageFeed)
         pairedPhone = Self.loadPairedPhone()
         let apnsConfig = APNsConfig.load()
-        let deliveryURL = ProcessInfo.processInfo.environment["VIBEBUDDY_DELIVERY_LOG_PATH"].map {
+        let deliveryURL = (E2ERunConfiguration.current == nil ? ProcessInfo.processInfo.environment["VIBEBUDDY_DELIVERY_LOG_PATH"] : nil).map {
             URL(fileURLWithPath: $0)
         } ?? NotificationDeliveryLogLocation.defaultURL()
         let recorder = NotificationDeliveryRecorder(
@@ -230,9 +274,9 @@ final class MenuBarModel: ObservableObject {
         // restart emptied it and no push reached a closed phone until the phone
         // happened to cold-launch. The demo instance stays in memory so it can
         // never touch (or push to) the real user's phones.
-        deviceTokens = DeviceTokens(url: ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1"
+        deviceTokens = DeviceTokens(url: (E2ERunConfiguration.current == nil && ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1")
             ? nil
-            : (ProcessInfo.processInfo.environment["VIBEBUDDY_DEVICE_REGISTRY_PATH"].map {
+            : ((E2ERunConfiguration.current == nil ? ProcessInfo.processInfo.environment["VIBEBUDDY_DEVICE_REGISTRY_PATH"] : nil).map {
                 URL(fileURLWithPath: $0)
             } ?? DeviceRegistryLocation.defaultURL()))
         // The views read usage through this model's facades, so the coordinator's
@@ -263,7 +307,7 @@ final class MenuBarModel: ObservableObject {
         // server, polling, pairing, and notifications entirely. It never binds the
         // port or pushes to a phone, so it runs harmlessly alongside a real
         // instance and never touches real session data.
-        let isDemo = ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1"
+        let isDemo = (E2ERunConfiguration.current == nil && ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1")
         if isDemo {
             sessions = MacDemoData.sessions()
             menuSnapshot = MenuSnapshot(sessions: sessions)
@@ -325,22 +369,40 @@ final class MenuBarModel: ObservableObject {
     private func startServer() {
         // pusher: nil — push is driven from startPolling off the same cues the
         // Mac notifies on; the server only collects device tokens/prefs.
-        let server = VibeBuddyServer(store: store, token: token, port: port,
+        let server = VibeBuddyServer(store: store, token: token, host: E2ERunConfiguration.current?.host ?? "0.0.0.0", port: port,
                                      pusher: nil, phoneReceipts: phoneReceipts,
                                      deviceTokens: deviceTokens,
                                      activityTokens: activityTokens,
-                                     codexRolloutMonitor: menuRolloutMonitor,
-                                     codexAppServerMonitor: codexAppServerMonitor,
-                                     grokBotMonitor: grokBotMonitor,
+                                     codexRolloutMonitor: E2ERunConfiguration.current == nil ? menuRolloutMonitor : nil,
+                                     codexAppServerMonitor: E2ERunConfiguration.current == nil || codexAppServerEnabled ? codexAppServerMonitor : nil,
+                                     grokBotMonitor: E2ERunConfiguration.current == nil ? grokBotMonitor : nil,
                                      usageFeed: usageFeed,
                                      approvalRegistry: approvalRegistry,
+                                     rules: { agent in
+                                         E2ERunConfiguration.current == nil ? PermissionRules.load(for: agent) : PermissionRules(allow: [], deny: [])
+                                     },
                                      allowStore: allowStore,
                                      sessionAllow: sessionAllow,
                                      approvalContext: approvalContext,
                                      questionRegistry: questionRegistry,
                                      presence: Presence.evaluator(),
+                                     onJump: { ref in
+                                         guard E2ERunConfiguration.current == nil else { return .noTerminal }
+                                         return await TerminalJumper.jump(ref)
+                                     },
+                                     onJumpToDesktopThread: { id in
+                                         guard E2ERunConfiguration.current == nil else { return .noTerminal }
+                                         return await CodexDesktopJumper.jump(threadID: id)
+                                     },
                                      onDevicePaired: { [weak self] device in
                                          Task { @MainActor in self?.recordPairedDevice(device) }
+                                     },
+                                     backgroundSessions: {
+                                         E2ERunConfiguration.current == nil ? ClaudeBackgroundSessions.load() : []
+                                     },
+                                     onAttach: { id, term in
+                                         guard E2ERunConfiguration.current == nil else { return .noTerminal }
+                                         return await TerminalLauncher.attach(claudeJobID: id, preferring: term)
                                      },
                                      claudeLauncher: claudeLauncher,
                                      onCompletionReminder: { [weak self] session in
@@ -363,7 +425,7 @@ final class MenuBarModel: ObservableObject {
         // Putting the QR on screen is the explicit intent to pair: lift any
         // block a "forget phone" left on previously registered tokens.
         Task { [deviceTokens] in await deviceTokens.acceptNewRegistrations() }
-        let host = LANAddress.primaryIPv4() ?? "127.0.0.1"
+        let host = E2ERunConfiguration.current?.host ?? LANAddress.primaryIPv4() ?? "127.0.0.1"
         let payload = Pairing.payload(host: host, port: port, token: token, macName: macDisplayName)
         pairing = payload
         if let cg = Pairing.qrImage(from: Pairing.qrJSONString(for: payload)) {
@@ -379,7 +441,9 @@ final class MenuBarModel: ObservableObject {
                 enabled: { CompletionSummaryConfiguration.load().enabled },
                 generate: { [weak self] session in await self?.generateCompletionNotice(session) })
             while !Task.isCancelled {
-                await self.store.applyBackgroundSessions(ClaudeBackgroundSessions.load())
+                if E2ERunConfiguration.current == nil {
+                    await self.store.applyBackgroundSessions(ClaudeBackgroundSessions.load())
+                }
                 let snapshot = await self.store.snapshot(now: Date())
                 self.snapshotSourceID = snapshot.sourceID
                 self.sessions = snapshot.sessions
@@ -444,7 +508,7 @@ final class MenuBarModel: ObservableObject {
         }.map(\.id))
         if !missing.isEmpty {
             let discovered = await menuRoundReader.codexPaths(sessionIDs: missing,
-                root: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/sessions"))
+                root: E2ERunConfiguration.current?.file("agents").appendingPathComponent("codex/sessions", isDirectory: true) ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/sessions"))
             for (id, path) in discovered {
                 paths[id] = path
                 saved["\(snapshot.sourceID ?? "unknown"):\(AgentKind.codex.rawValue):\(id)"] = path
@@ -454,8 +518,8 @@ final class MenuBarModel: ObservableObject {
             defaults.set(saved, forKey: Self.menuSourcePathsKey)
         }
         let rounds = await menuRoundReader.identities(sessions: snapshot.sessions, paths: paths)
-        guard snapshotSourceID == snapshot.sourceID, sessions == snapshot.sessions else { return }
-        menuSnapshot = MenuSnapshot(sessions: snapshot.sessions, sourceID: snapshot.sourceID, roundIDs: rounds)
+        guard snapshotSourceID == snapshot.sourceID, Self.sameMenuLifecycles(sessions, snapshot.sessions) else { return }
+        menuSnapshot = MenuSnapshot(sessions: sessions, sourceID: snapshot.sourceID, roundIDs: rounds)
     }
 
     private func isCurrentCompletion(_ alert: SoundAlert, deviceToken: String? = nil) async -> Bool {
@@ -521,6 +585,7 @@ final class MenuBarModel: ObservableObject {
     }
 
     func setGrokBotEnabled(_ on: Bool) {
+        guard E2ERunConfiguration.current == nil else { return }
         grokBotEnabled = on
         UserDefaults.standard.set(on, forKey: Self.grokBotEnabledKey)
         Task { [grokBotMonitor] in await grokBotMonitor.setEnabled(on) }
@@ -548,6 +613,7 @@ final class MenuBarModel: ObservableObject {
     }
 
     func setCodexAppServerEnabled(_ on: Bool) {
+        guard E2ERunConfiguration.current == nil else { return }
         codexAppServerEnabled = on
         UserDefaults.standard.set(on, forKey: Self.codexAppServerEnabledKey)
         Task { [codexAppServerMonitor] in await codexAppServerMonitor.setEnabled(on) }
@@ -854,6 +920,10 @@ final class MenuBarModel: ObservableObject {
     /// ChatGPT.app opens. Never refuses. A session with neither is a real answer
     /// ("no terminal recorded"), not a dead control — that silence was the bug.
     func jump(_ session: AgentSession) {
+        guard E2ERunConfiguration.current == nil else {
+            showJumpFeedback(.noTerminal, for: session.id)
+            return
+        }
         if session.agent == .grokBot {
             Task { [weak self] in
                 let outcome = await GrokBotJumper.jump()
@@ -918,7 +988,7 @@ final class MenuBarModel: ObservableObject {
     /// Explicitly viewing/selecting a completion clears its authoritative unread
     /// bit. Demo sessions mirror the same transition without touching the store.
     func acknowledge(_ sessionID: String) {
-        if ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1" {
+        if (E2ERunConfiguration.current == nil && ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1") {
             guard let index = sessions.firstIndex(where: { $0.id == sessionID }),
                   sessions[index].hasUnreadCompletion else { return }
             sessions[index].hasUnreadCompletion = false
@@ -939,7 +1009,7 @@ final class MenuBarModel: ObservableObject {
     /// Set, or with `nil` return to automatic, how much this session may
     /// interrupt you. The daemon owns the value; demo mode mirrors it locally.
     func setAttention(_ sessionID: String, _ level: SessionAttention?) {
-        if ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1" {
+        if (E2ERunConfiguration.current == nil && ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1") {
             guard let index = sessions.firstIndex(where: { $0.id == sessionID }) else { return }
             sessions[index].attentionOverride = level
             sessions[index].attention = level ?? .normal

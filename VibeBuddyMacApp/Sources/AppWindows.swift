@@ -28,8 +28,8 @@ final class AppWindows: NSObject, NSWindowDelegate {
         if settingsWindow == nil {
             settingsWindow = makeWindow(
                 content: settingsContent, title: "Settings", id: "settings",
-                size: NSSize(width: 500, height: 480), minimum: NSSize(width: 500, height: 480),
-                resizable: false)
+                size: NSSize(width: 820, height: 640), minimum: NSSize(width: 720, height: 560),
+                resizable: true)
         }
         present(settingsWindow!)
     }

@@ -66,6 +66,11 @@ public actor QuestionRegistry {
         waiters.removeValue(forKey: sessionID)?.continuation.resume(returning: nil)
     }
 
+    public func cancelExact(sessionID: String, questionID: String) {
+        guard waiters[sessionID]?.questionID == questionID else { return }
+        cancel(sessionID: sessionID)
+    }
+
     private func expire(sessionID: String, token: UUID) {
         // Only the wait that installed this timer expires; a newer wait for the
         // same session keeps its own.
@@ -109,12 +114,18 @@ public actor ActionRequestLog {
 public enum SessionActionDelivery: Equatable, Sendable {
     case accepted
     case unknown
+    /// The action no longer applies to this session — the turn it named has
+    /// moved on, or this agent cannot take it. Nothing was attempted and
+    /// nothing will be; the client should look at the current state, not
+    /// retry. Only `stop` distinguishes this from `failed` so far.
+    case refused(String)
     case failed(String)
 }
 
 /// Where a phone or Mac action goes: to the waiting agent through its own
-/// contract, else Codex `turn/steer` / `turn/start` by intent, else a tmux
-/// pane for an old no-intent Claude reply. Steer never becomes start.
+/// contract, else Codex `turn/steer` / `turn/start` / `turn/interrupt` by
+/// intent, else a tmux pane for an old no-intent Claude reply. Steer never
+/// becomes start, and a stop never becomes anything else.
 public struct AnswerDispatch: Sendable {
     public let store: SessionStore
     public let questions: QuestionRegistry
@@ -124,18 +135,25 @@ public struct AnswerDispatch: Sendable {
     public let steer: @Sendable (String, String) async -> Bool
     /// Codex `turn/start` (resume first when the thread is cold).
     public let startTurn: @Sendable (String, String) async -> Bool
+    /// Codex `turn/interrupt`. Says whether it was sent, definitely not sent
+    /// (with the reason), or sent without an answer — never retried here, and
+    /// never followed by another method.
+    public let interrupt: @Sendable (String) async -> CodexAppServerMonitor.InterruptOutcome
     public let requests: ActionRequestLog
 
     public init(store: SessionStore, questions: QuestionRegistry,
                 inject: @escaping @Sendable (TerminalRef, String) -> Void,
                 steer: @escaping @Sendable (String, String) async -> Bool = { _, _ in false },
                 startTurn: @escaping @Sendable (String, String) async -> Bool = { _, _ in false },
+                interrupt: @escaping @Sendable (String) async -> CodexAppServerMonitor.InterruptOutcome
+                    = { _ in .notSent(String(localized: "This Mac cannot stop Codex tasks.")) },
                 requests: ActionRequestLog = ActionRequestLog()) {
         self.store = store
         self.questions = questions
         self.inject = inject
         self.steer = steer
         self.startTurn = startTurn
+        self.interrupt = interrupt
         self.requests = requests
     }
 
@@ -162,6 +180,10 @@ public struct AnswerDispatch: Sendable {
         let structured = Self.normalize(answers: request.answers, text: request.text, for: pending)
         let typed = request.text ?? Self.flatten(structured)
         let intent = request.intent ?? inferredIntent(session: session, waiting: waiting, pending: pending)
+
+        // A stop carries no text and is never inferred, so it skips every
+        // answer-shaped check and is decided against the live session alone.
+        if intent == .stop { return await stop(request, session: session) }
 
         guard session?.pendingApproval == nil, pending?.isAnswerable != false,
               pending?.expiresAt.map({ $0 > Date() }) != false else { return .failed("This wait cannot be answered here") }
@@ -192,7 +214,6 @@ public struct AnswerDispatch: Sendable {
             guard await steer(request.sessionID, typed) else {
                 return .unknown
             }
-            await store.endQuestion(sessionID: request.sessionID, at: Date())
             return .accepted
         }
 
@@ -218,9 +239,41 @@ public struct AnswerDispatch: Sendable {
         guard let ref = await store.terminalRef(for: request.sessionID) else {
             return .failed("Nothing was waiting, and there is no tmux pane to type into.")
         }
+        guard E2ERunConfiguration.current == nil else {
+            return .failed("Terminal injection is disabled during isolated acceptance")
+        }
         inject(ref, typed)
-        await store.endQuestion(sessionID: request.sessionID, at: Date())
         return .accepted
+    }
+
+    /// Interrupt the turn the client was looking at, or say why not.
+    ///
+    /// The identity is the session's `statusSince` — the moment it entered
+    /// `working`. It is required, not optional: a stop with no turn to name
+    /// could only be aimed at "whatever is running now", which is how a stale
+    /// wrist tap ends a turn the user never saw.
+    ///
+    /// Three different answers, because they mean three different things to
+    /// the person who tapped: `refused` — this stop no longer applies, look at
+    /// the task; `failed` — nothing was sent, and the reason says why;
+    /// `unknown` — it went out and the connection died, so check on the Mac.
+    private func stop(_ request: SessionActionRequest, session: AgentSession?) async -> SessionActionDelivery {
+        guard let session else { return .refused("This task is no longer on this Mac") }
+        let support = SessionActionSupport.resolveStop(for: session)
+        guard support.isAvailable else {
+            return .refused(support.unsupportedReason ?? "This task can't be stopped from here")
+        }
+        guard let expected = request.expectedStatusSince else {
+            return .refused("A stop must name the turn it is for")
+        }
+        guard abs(session.statusSince.timeIntervalSince1970 - expected) < 0.001 else {
+            return .refused("This task has changed")
+        }
+        switch await interrupt(request.sessionID) {
+        case .sent: return .accepted
+        case .notSent(let why): return .failed(why)
+        case .unconfirmed: return .unknown
+        }
     }
 
     /// When an older client omits intent: a live or leftover question is

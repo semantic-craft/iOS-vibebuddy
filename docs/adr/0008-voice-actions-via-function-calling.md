@@ -12,7 +12,7 @@ speaks a confirmation.
 
 This extends ADR-0001: the tools, a `.toolCall(name, arguments, callID)` event, and
 `sendToolResult(callID:name:result:)` are added to the `RealtimeVoiceProvider`
-protocol and implemented for all three providers — OpenAI Realtime GA and Qwen
+protocol and implemented for all four providers — OpenAI Realtime GA and Qwen
 (`session.tools` + `response.function_call_arguments.done` + `function_call_output`
 → `response.create`), and Gemini Live (`setup.tools.functionDeclarations` + top-level
 `toolCall` + `toolResponse`; schema types are the uppercase proto enum).
@@ -35,3 +35,12 @@ Defense in depth, since the action is consequential:
 - **Reuse the turn-based `ACTION:` text directive** (`VoicePrompt.parse`) — not viable
   in speech-to-speech: the model won't speak an "ACTION:" line aloud, so there is no
   text channel to parse. Tools are the structured channel that fits realtime.
+
+Doubao uses `response.function_call_arguments.done.items` and aggregates every
+call ID's result into one `conversation.item.create` tool-items message. It
+never sends OpenAI `response.create` or truncate events. ASR-start interrupts
+local playback and cancels outstanding tool work. After a real interruption,
+packets belonging to a known cancelled response are dropped. If the service
+omits the identity needed to associate a later response or tool call safely,
+the session ends with an explicit instruction to reopen the conversation;
+local turn counters are not accepted as evidence of server response identity.

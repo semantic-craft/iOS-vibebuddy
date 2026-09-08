@@ -75,6 +75,10 @@ public struct HookEvent: Sendable, Equatable {
     /// True only for the Desktop probe's synthetic stop. Distinct from an
     /// agent that happened to finish with the word "Abandoned".
     public let probeRetirement: Bool
+    /// True only for the ending of a turn this Mac itself interrupted on the
+    /// user's request. Codex reports a stop the user asked for and one nobody
+    /// asked for identically; this is the difference.
+    public let userStopped: Bool
     /// Full final result carried only by an explicitly successful source ending.
     public let completionText: String?
     /// True for explicit success, false for explicit failure/interruption,
@@ -105,6 +109,7 @@ public struct HookEvent: Sendable, Equatable {
         enrichment: TranscriptInfo? = nil,
         desktopThreadID: String? = nil,
         probeRetirement: Bool = false,
+        userStopped: Bool = false,
         completionText: String? = nil,
         completionSucceeded: Bool? = nil,
         sourceCompletionID: String? = nil
@@ -131,9 +136,24 @@ public struct HookEvent: Sendable, Equatable {
         self.enrichment = enrichment
         self.desktopThreadID = desktopThreadID
         self.probeRetirement = probeRetirement
+        self.userStopped = userStopped
         self.completionText = completionText
         self.completionSucceeded = completionSucceeded
         self.sourceCompletionID = sourceCompletionID
+    }
+
+    /// Mark this ending as the answer to a stop the user asked for.
+    public func markingUserStop() -> HookEvent {
+        HookEvent(
+            kind: kind, sessionID: sessionID, agent: agent, cwd: cwd, sessionName: sessionName,
+            toolName: toolName, message: message, waitKind: waitKind,
+            transcriptPath: transcriptPath, model: model, observationSource: observationSource,
+            toolError: toolError, timestamp: timestamp, childID: childID,
+            childKind: childKind, childName: childName, childType: childType,
+            childAction: childAction, turnID: turnID, enrichment: enrichment,
+            desktopThreadID: desktopThreadID, probeRetirement: probeRetirement, userStopped: true,
+            completionText: completionText, completionSucceeded: completionSucceeded,
+            sourceCompletionID: sourceCompletionID)
     }
 
     /// Stamp the rollout file this event was tailed from, so a later read-only
@@ -146,7 +166,7 @@ public struct HookEvent: Sendable, Equatable {
             toolError: toolError, timestamp: timestamp, childID: childID,
             childKind: childKind, childName: childName, childType: childType,
             childAction: childAction, turnID: turnID, enrichment: enrichment,
-            desktopThreadID: desktopThreadID, probeRetirement: probeRetirement,
+            desktopThreadID: desktopThreadID, probeRetirement: probeRetirement, userStopped: userStopped,
             completionText: completionText, completionSucceeded: completionSucceeded, sourceCompletionID: sourceCompletionID)
     }
 }

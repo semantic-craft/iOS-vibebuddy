@@ -37,6 +37,11 @@ struct WatchTaskDetailView: View {
                         if let alert = store.state?.alerts.first(where: { $0.sessionId == link.sessionID }),
                            task.presentation == .requiresInput {
                             WatchAlertCard(store: store, alert: alert, now: Date(), alsoWaiting: 0)
+                        } else {
+                            // The alert card already carries the control for a
+                            // waiting session; showing it twice on one screen
+                            // would offer the same turn two buttons.
+                            WatchStopControl(store: store, task: task)
                         }
                         if let state = store.state {
                             WatchFooter(state: state,

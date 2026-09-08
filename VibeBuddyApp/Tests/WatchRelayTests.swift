@@ -8,7 +8,7 @@ private final class FakeWatchTransport: WatchStateTransport {
     var onCompletionRequest: ((WatchCompletionRequest) async -> WatchCompletionResult)?
     var isAvailable = true
     var onReady: (() -> Void)?
-    var onApprovalRequest: ((WatchApprovalRequest) async -> WatchApprovalResult)?
+    var onSessionAction: ((WatchSessionActionRequest) async -> WatchSessionActionResult)?
     var failNextSends = false
     /// Everything the transport accepted, in order.
     private(set) var sent: [Data] = []
@@ -31,11 +31,18 @@ private final class FakeWatchTransport: WatchStateTransport {
     }
 
     /// A tap on the wrist, delivered the way WatchConnectivity delivers one.
-    func tap(_ request: WatchApprovalRequest) async -> WatchApprovalResult {
-        guard let onApprovalRequest else {
-            return WatchApprovalResult(attemptId: request.attemptId, outcome: .failed)
+    func tap(_ request: WatchSessionActionRequest) async -> WatchSessionActionResult {
+        guard let onSessionAction else {
+            return WatchSessionActionResult(attemptId: request.attemptId, outcome: .failed)
         }
-        return await onApprovalRequest(request)
+        return await onSessionAction(request)
+    }
+
+    /// The same tap in the approval-only words an older watchOS build speaks.
+    /// The iPhone must keep honouring them: a Watch app updates on its own
+    /// schedule, and its Approve button has to survive that window.
+    func tap(_ request: WatchApprovalRequest) async -> WatchApprovalResult {
+        WatchApprovalResult(await tap(request.sessionAction))
     }
 
     /// The Watch came back. Drive the callback the real session fires.
@@ -192,7 +199,7 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertEqual(relayed?.counts.working, 3)
         XCTAssertEqual(relayed?.counts.done, 3)
         XCTAssertEqual(relayed?.stuck, 1)
-        XCTAssertEqual(relayed?.quotas.count, 2)
+        XCTAssertEqual(Set(relayed?.quotas.map(\.provider) ?? []), Set([.codex, .claude, .grok, .cursor, .grokBot]))
         await store.stop().value
     }
 
@@ -347,4 +354,460 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertEqual(attempts, 0, "No decision is sent without a fresh authenticated snapshot")
         await store.stop().value
     }
+
+    // MARK: - Stopping a running turn from the wrist
+
+    /// A running Codex turn the Mac's app-server connection is carrying: the
+    /// one shape a stop exists for.
+    private func runningCodex(id: String = "task-run",
+                              agent: AgentKind = .codex,
+                              startedAt: Date) -> AgentSession {
+        AgentSession(id: id, agent: agent, project: "vibebuddy", branch: "main",
+                     model: "gpt-5-codex", status: .working, summary: "Running the test suite…",
+                     observations: [ObservationEvidence(source: .appserver,
+                                                        lastObservedAt: startedAt, health: .healthy)],
+                     attention: .followed,
+                     statusSince: startedAt, updatedAt: startedAt)
+    }
+
+    /// A store fed one authenticated snapshot, with a Mac that answers stops
+    /// however the test says it does.
+    private func connectedStore(_ transport: FakeWatchTransport,
+                                sessions: [AgentSession],
+                                client: StoppingDecisionClient) async throws -> DashboardStore {
+        let snapshot = Snapshot(sessions: sessions, serverTime: now, sourceID: "fixture-mac")
+        await client.replaceSnapshot(snapshot)
+        let store = DashboardStore(streamer: ScriptedStreamer(snapshots: [snapshot]),
+                                   notifier: SilentNotifier(), decisionClient: client,
+                                   watchRelay: WatchRelay(transport: transport), reportDevice: { _ in })
+        addTeardownBlock { @MainActor in await store.stop().value }
+        store.start(PairingPayload(host: "127.0.0.1", port: 9, token: "fixture"))
+        for _ in 0..<100 where store.allSessions.isEmpty { try await Task.sleep(for: .milliseconds(5)) }
+        return store
+    }
+
+    /// The stop the wrist would actually send, taken from what was relayed to
+    /// it — never from the store's internals, because that is all the Watch has.
+    private func relayedStop(_ transport: FakeWatchTransport,
+                             sessionID: String,
+                             attempt: String = "t-1") throws -> WatchSessionActionRequest {
+        let state = try XCTUnwrap(transport.states.last)
+        let task = try XCTUnwrap(state.followedTasks.first { $0.sessionID == sessionID })
+        XCTAssertEqual(task.stop, .offered, "the wrist was not offered a Stop to send")
+        var action = WatchSessionActionState()
+        return try XCTUnwrap(action.begin(stop: task, attemptId: attempt))
+    }
+
+    func testAStopIsForwardedOnceAndAcceptedIsNotStopped() async throws {
+        let transport = FakeWatchTransport()
+        let client = StoppingDecisionClient(stop: .accepted)
+        let started = now.addingTimeInterval(-30)
+        let store = try await connectedStore(transport, sessions: [runningCodex(startedAt: started)],
+                                             client: client)
+        let request = try relayedStop(transport, sessionID: "task-run")
+
+        let result = await transport.tap(request)
+        XCTAssertEqual(result.outcome, .accepted)
+        var stops = await client.stops
+        XCTAssertEqual(stops.count, 1)
+        XCTAssertEqual(stops.first?.sessionID, "task-run")
+        XCTAssertEqual(stops.first?.statusSince, started, "the stop named the turn the wrist was shown")
+        // Accepted is not stopped: the phone's own copy still says working, and
+        // the relayed offer is unchanged until the Mac says otherwise.
+        XCTAssertEqual(store.allSessions.first?.status, .working)
+        XCTAssertEqual(transport.states.last?.followedTasks.first?.stop, .offered)
+
+        // The same tap again interrupts nothing a second time.
+        let repeated = await transport.tap(request)
+        XCTAssertEqual(repeated.outcome, .accepted)
+        stops = await client.stops
+        XCTAssertEqual(stops.count, 1)
+    }
+
+    func testAStopAimedAtATurnThatMovedOnIsRefusedWithoutReachingTheMac() async throws {
+        let transport = FakeWatchTransport()
+        let client = StoppingDecisionClient(stop: .accepted)
+        let store = try await connectedStore(transport,
+                                             sessions: [runningCodex(startedAt: now.addingTimeInterval(-30))],
+                                             client: client)
+        let stale = try relayedStop(transport, sessionID: "task-run")
+        // The Mac's own copy has moved on to the next turn.
+        await client.replaceSnapshot(Snapshot(sessions: [runningCodex(startedAt: now)],
+                                              serverTime: now, sourceID: "fixture-mac"))
+
+        let result = await transport.tap(stale)
+
+        XCTAssertEqual(result.outcome, .refused)
+        let stops = await client.stops
+        XCTAssertTrue(stops.isEmpty, "a stale stop must not reach the Mac at all")
+        _ = store
+    }
+
+    func testTheMacsRefusalAndAFailedInterruptAreDifferentAnswers() async throws {
+        // Both are a 409 on the wire and they mean opposite things on a wrist:
+        // "look at the task" against "that can be tapped again".
+        for (delivery, expected) in [(StopDelivery.refused, WatchSessionActionOutcome.refused),
+                                     (StopDelivery.failed, WatchSessionActionOutcome.failed),
+                                     (StopDelivery.unconfirmed, WatchSessionActionOutcome.unknown)] {
+            let transport = FakeWatchTransport()
+            let client = StoppingDecisionClient(stop: delivery)
+            _ = try await connectedStore(transport,
+                                         sessions: [runningCodex(startedAt: now.addingTimeInterval(-30))],
+                                         client: client)
+            let request = try relayedStop(transport, sessionID: "task-run")
+
+            let result = await transport.tap(request)
+            XCTAssertEqual(result.outcome, expected, "\(delivery) must read as \(expected)")
+            let stops = await client.stops
+            XCTAssertEqual(stops.count, 1)
+
+            // Nothing was committed either way, so the tap stays retryable —
+            // and it is safe, because the daemon re-checks the same turn.
+            let again = await transport.tap(request)
+            XCTAssertEqual(again.outcome, expected)
+            let retried = await client.stops
+            XCTAssertEqual(retried.count, 2)
+        }
+    }
+
+    func testAnAgentThatCannotBeStoppedRemotelyOffersNoStopAndSendsNone() async throws {
+        let transport = FakeWatchTransport()
+        let client = StoppingDecisionClient(stop: .accepted)
+        let started = now.addingTimeInterval(-30)
+        _ = try await connectedStore(transport,
+                                     sessions: [runningCodex(id: "task-claude", agent: .claudeCode,
+                                                             startedAt: started)],
+                                     client: client)
+        let state = try XCTUnwrap(transport.states.last)
+        let task = try XCTUnwrap(state.followedTasks.first)
+        XCTAssertEqual(task.stop, .blocked(.macOnly))
+        XCTAssertEqual(task.stop?.block?.message(agent: .claudeCode), "Stop this on your Mac.")
+
+        // Even a hand-made message naming the right turn: the rule is re-run
+        // here, not trusted from the wrist.
+        let forged = WatchSessionActionRequest(attemptId: "t-1", sessionId: "task-claude",
+                                               action: .stop(statusSince: started))
+        let result = await transport.tap(forged)
+        XCTAssertEqual(result.outcome, .refused)
+        let stops = await client.stops
+        XCTAssertTrue(stops.isEmpty)
+    }
+
+    func testTheMacsOwnWordForTheOutcomeIsWhatIsRead() {
+        // Both `refused` and `failed` arrive as a 409, so the body's `status`
+        // is the only thing that tells them apart. `unknown` is the daemon
+        // saying the interrupt went out and the connection died before it could
+        // confirm — only the next snapshot can settle whether it stopped.
+        XCTAssertEqual(StopDelivery(status: "accepted"), .accepted)
+        XCTAssertEqual(StopDelivery(status: "unknown"), .unconfirmed)
+        XCTAssertEqual(StopDelivery(status: "refused"), .refused)
+        XCTAssertEqual(StopDelivery(status: "failed"), .failed)
+        // An unreadable receipt cannot prove success or that nothing happened.
+        XCTAssertEqual(StopDelivery(status: nil), .unconfirmed)
+        XCTAssertEqual(StopDelivery(status: ""), .unconfirmed)
+        XCTAssertEqual(StopDelivery(status: "Accepted"), .unconfirmed)
+    }
+
+    func testADemoStopEndsTheSampleTurnThroughTheSameRelay() async throws {
+        let transport = FakeWatchTransport()
+        let store = demoStore(transport)
+        let request = try relayedStop(transport, sessionID: "demo-work")
+
+        let result = await transport.tap(request)
+
+        XCTAssertEqual(result.outcome, .accepted)
+        let stopped = try XCTUnwrap(store.allSessions.first { $0.id == "demo-work" })
+        XCTAssertEqual(stopped.status, .done)
+        // The Mac marks an acknowledged user stop without error or unread completion.
+        XCTAssertEqual(stopped.failed, false)
+        XCTAssertEqual(stopped.userStopped, true)
+        XCTAssertFalse(stopped.hasUnreadCompletion)
+        let relayed = try XCTUnwrap(transport.states.last?.followedTasks.first { $0.sessionID == "demo-work" })
+        XCTAssertNil(relayed.stop, "the offer goes away because the world changed")
+        await store.stop().value
+    }
+
+    // MARK: - Answering a question from the wrist
+
+    /// A Codex question the Mac says can be answered remotely: the one shape a
+    /// quick answer exists for.
+    private func askingCodex(id: String = "task-ask",
+                             questionID: String = "q-1",
+                             answerable: Bool = true,
+                             at moment: Date) -> AgentSession {
+        AgentSession(id: id, agent: .codex, project: "docs-review", model: "gpt-5-codex",
+                     status: .needsResponse, waitKind: .question,
+                     pendingQuestion: PendingQuestion(id: questionID,
+                                                      prompt: "Which tone?",
+                                                      options: [QuestionOption(id: "t", label: "Tighten")],
+                                                      answerable: answerable),
+                     attention: .followed,
+                     statusSince: moment, updatedAt: moment)
+    }
+
+    private func answeringStore(_ transport: FakeWatchTransport,
+                                sessions: [AgentSession],
+                                client: AnsweringDecisionClient) async throws -> DashboardStore {
+        let snapshot = Snapshot(sessions: sessions, serverTime: now, sourceID: "fixture-mac")
+        await client.replaceSnapshot(snapshot)
+        let store = DashboardStore(streamer: ScriptedStreamer(snapshots: [snapshot]),
+                                   notifier: SilentNotifier(), decisionClient: client,
+                                   watchRelay: WatchRelay(transport: transport), reportDevice: { _ in })
+        addTeardownBlock { @MainActor in await store.stop().value }
+        store.start(PairingPayload(host: "127.0.0.1", port: 9, token: "fixture", macName: "My Mac"))
+        for _ in 0..<100 where store.allSessions.isEmpty { try await Task.sleep(for: .milliseconds(5)) }
+        return store
+    }
+
+    /// The answer the wrist would actually send: the quick reply it was offered,
+    /// begun through the same state machine, from the alert it was relayed.
+    private func relayedAnswer(_ transport: FakeWatchTransport,
+                               sessionID: String,
+                               attempt: String = "t-1") throws -> WatchSessionActionRequest {
+        let state = try XCTUnwrap(transport.states.last)
+        let alert = try XCTUnwrap(state.alerts.first { $0.sessionId == sessionID })
+        let choices = try XCTUnwrap(WatchQuickAnswers.resolve(for: alert),
+                                    "the wrist was offered no answer to send")
+        let reply = try XCTUnwrap(choices.replies.first)
+        var action = WatchSessionActionState()
+        return try XCTUnwrap(action.begin(alert: alert, answer: reply.text, attemptId: attempt))
+    }
+
+    func testAnAnswerIsForwardedOnceAsTheTextTheWristWasShown() async throws {
+        let transport = FakeWatchTransport()
+        let client = AnsweringDecisionClient(answer: .received)
+        let store = try await answeringStore(transport, sessions: [askingCodex(at: now)],
+                                             client: client)
+        // The Mac's own name reached the wrist, so the confirmation page can
+        // name where the answer is going.
+        XCTAssertEqual(transport.states.last?.macName, "My Mac")
+        let request = try relayedAnswer(transport, sessionID: "task-ask")
+
+        let result = await transport.tap(request)
+
+        XCTAssertEqual(result.outcome, .accepted)
+        var answers = await client.answers
+        XCTAssertEqual(answers.count, 1)
+        XCTAssertEqual(answers.first?.sessionID, "task-ask")
+        XCTAssertEqual(answers.first?.questionID, "q-1")
+        XCTAssertEqual(answers.first?.text, "Tighten", "what was shown is what was sent")
+        XCTAssertNil(answers.first?.answers, "the wrist sends free text, never a structured pick")
+        // Accepted is not answered: the phone's own copy still says waiting.
+        XCTAssertEqual(store.allSessions.first?.status, .needsResponse)
+
+        // The same tap again answers nothing a second time.
+        let repeated = await transport.tap(request)
+        XCTAssertEqual(repeated.outcome, .accepted)
+        answers = await client.answers
+        XCTAssertEqual(answers.count, 1)
+    }
+
+    func testAnAnswerToAQuestionTheMacAlreadyAnsweredIsRefusedWithoutReachingIt() async throws {
+        let transport = FakeWatchTransport()
+        let client = AnsweringDecisionClient(answer: .received)
+        _ = try await answeringStore(transport, sessions: [askingCodex(at: now)], client: client)
+        let stale = try relayedAnswer(transport, sessionID: "task-ask")
+
+        // Answered on the Mac while the wrist was still looking at the card.
+        var moved = askingCodex(at: now)
+        moved.status = .working
+        moved.waitKind = nil
+        moved.pendingQuestion = nil
+        await client.replaceSnapshot(Snapshot(sessions: [moved], serverTime: now,
+                                              sourceID: "fixture-mac"))
+
+        let result = await transport.tap(stale)
+
+        XCTAssertEqual(result.outcome, .refused)
+        let answers = await client.answers
+        XCTAssertTrue(answers.isEmpty, "a question that is gone must not be answered at all")
+    }
+
+    func testAnAnswerAimedAtTheNextQuestionOfTheSameSessionIsRefused() async throws {
+        let transport = FakeWatchTransport()
+        let client = AnsweringDecisionClient(answer: .received)
+        _ = try await answeringStore(transport, sessions: [askingCodex(at: now)], client: client)
+        let stale = try relayedAnswer(transport, sessionID: "task-ask")
+
+        // Still waiting, but on a different question. An expired answer must
+        // not be re-pointed at whatever is being asked now.
+        await client.replaceSnapshot(Snapshot(sessions: [askingCodex(questionID: "q-2", at: now)],
+                                              serverTime: now, sourceID: "fixture-mac"))
+
+        let result = await transport.tap(stale)
+
+        XCTAssertEqual(result.outcome, .refused)
+        let answers = await client.answers
+        XCTAssertTrue(answers.isEmpty)
+    }
+
+    func testAReadOnlyQuestionOffersNoAnswerAndSendsNone() async throws {
+        let transport = FakeWatchTransport()
+        let client = AnsweringDecisionClient(answer: .received)
+        _ = try await answeringStore(transport,
+                                     sessions: [askingCodex(answerable: false, at: now)],
+                                     client: client)
+        let alert = try XCTUnwrap(transport.states.last?.alerts.first)
+        XCTAssertFalse(alert.isAnswerable)
+        XCTAssertNil(WatchQuickAnswers.resolve(for: alert))
+        XCTAssertEqual(alert.handling, .macNativePrompt, "the card keeps saying where to answer")
+
+        // Even a hand-made message naming the right question: the rule is
+        // re-run here, not trusted from the wrist.
+        let forged = WatchSessionActionRequest(attemptId: "t-1", sessionId: "task-ask",
+                                               action: .answer(pendingId: "q-1", text: "Tighten"))
+        let result = await transport.tap(forged)
+        XCTAssertEqual(result.outcome, .refused)
+        let answers = await client.answers
+        XCTAssertTrue(answers.isEmpty)
+    }
+
+    func testTheMacsThreeAnswersAreThreeDifferentThingsOnAWrist() async throws {
+        // `expired` says stop tapping; `failed` says nothing was said to the
+        // agent, so try again; `unconfirmed` is the Mac's reply going missing
+        // after a request it may well have carried out — the one case where
+        // "that didn't send" would be a lie.
+        for (delivery, expected) in [(PhoneActionResult.expired, WatchSessionActionOutcome.refused),
+                                     (PhoneActionResult.failed, WatchSessionActionOutcome.failed),
+                                     (PhoneActionResult.unconfirmed, WatchSessionActionOutcome.unknown)] {
+            let transport = FakeWatchTransport()
+            let client = AnsweringDecisionClient(answer: delivery)
+            _ = try await answeringStore(transport, sessions: [askingCodex(at: now)], client: client)
+            let request = try relayedAnswer(transport, sessionID: "task-ask")
+
+            let result = await transport.tap(request)
+            XCTAssertEqual(result.outcome, expected, "\(delivery) must read as \(expected)")
+
+            // Nothing was committed for any of the three, so the same tap is
+            // still admitted — the daemon's own `requestId` de-duplication is
+            // what stops a second delivery, which is why the tap carries it.
+            let again = await transport.tap(request)
+            XCTAssertEqual(again.outcome, expected)
+            let answers = await client.answers
+            XCTAssertEqual(answers.count, 2)
+            XCTAssertEqual(Set(answers.map(\.requestID)), ["t-1"],
+                           "one gesture keeps one request id, so the Mac can tell a replay")
+        }
+    }
+
+    func testAMultiPartQuestionOffersNoQuickAnswerAndSendsNone() async throws {
+        // One string cannot finish three questions: a free-text answer lands on
+        // the first item and the agent reads the rest as unanswered.
+        let transport = FakeWatchTransport()
+        let client = AnsweringDecisionClient(answer: .received)
+        var many = askingCodex(at: now)
+        many.pendingQuestion = PendingQuestion(
+            id: "q-1", prompt: "Which tone?",
+            questions: [QuestionItem(id: "a", text: "Which tone?",
+                                     options: [QuestionOption(id: "t", label: "Tighten")]),
+                        QuestionItem(id: "b", text: "Ship it today?")])
+        _ = try await answeringStore(transport, sessions: [many], client: client)
+
+        let alert = try XCTUnwrap(transport.states.last?.alerts.first)
+        XCTAssertNil(alert.pendingId, "the wrist is given no identity it could act on")
+        XCTAssertFalse(alert.isAnswerable)
+        XCTAssertNil(WatchQuickAnswers.resolve(for: alert))
+        // The wait is still remotely answerable — just not from here.
+        XCTAssertEqual(alert.handling, .remoteAvailable)
+
+        let forged = WatchSessionActionRequest(attemptId: "t-1", sessionId: "task-ask",
+                                               action: .answer(pendingId: "q-1", text: "Tighten"))
+        let result = await transport.tap(forged)
+        XCTAssertEqual(result.outcome, .refused)
+        let answers = await client.answers
+        XCTAssertTrue(answers.isEmpty)
+    }
+
+    func testADemoAnswerClearsTheSampleQuestionThroughTheSameRelay() async throws {
+        let transport = FakeWatchTransport()
+        let store = demoStore(transport)
+        let asking = try XCTUnwrap(transport.states.last?.alerts.first { $0.isAnswerable })
+        let request = try relayedAnswer(transport, sessionID: asking.sessionId)
+
+        let result = await transport.tap(request)
+
+        XCTAssertEqual(result.outcome, .accepted)
+        let answered = try XCTUnwrap(store.allSessions.first { $0.id == asking.sessionId })
+        XCTAssertEqual(answered.status, .working)
+        XCTAssertNil(answered.pendingQuestion)
+        let relayed = try XCTUnwrap(transport.states.last)
+        XCTAssertFalse(relayed.alerts.contains { $0.sessionId == asking.sessionId },
+                       "the card goes away because the world changed")
+        await store.stop().value
+    }
+}
+
+/// A Mac that answers a question however the test says, and remembers exactly
+/// what it was asked to answer.
+private final class AnsweringDecisionClient: DecisionClient, @unchecked Sendable {
+    struct Answer: Equatable, Sendable {
+        let sessionID: String
+        let questionID: String?
+        let text: String?
+        let answers: QuestionAnswers?
+        let requestID: String
+    }
+
+    private let lock = NSLock()
+    private var _snapshot: Snapshot?
+    private var _answers: [Answer] = []
+    private let outcome: PhoneActionResult
+
+    init(answer: PhoneActionResult) { outcome = answer }
+
+    var answers: [Answer] { lock.withLock { _answers } }
+
+    func replaceSnapshot(_ snapshot: Snapshot) { lock.withLock { _snapshot = snapshot } }
+
+    func actionSnapshot(_ pairing: PairingPayload) async -> Snapshot? { lock.withLock { _snapshot } }
+
+    func phoneAnswer(_ pairing: PairingPayload, session: AgentSession, text: String?,
+                     answers: QuestionAnswers?, requestID: String) async -> PhoneActionResult {
+        lock.withLock {
+            _answers.append(Answer(sessionID: session.id, questionID: session.pendingQuestion?.id,
+                                   text: text, answers: answers, requestID: requestID))
+        }
+        return outcome
+    }
+
+    func acknowledge(_ pairing: PairingPayload, request: CompletionReadRequest) async -> CompletionReadOutcome { .accepted }
+    func decide(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> Bool { true }
+    func jump(_ pairing: PairingPayload, sessionId: String) async -> JumpOutcome? { nil }
+    func setAttention(_ pairing: PairingPayload, sessionId: String, level: SessionAttention?) async {}
+}
+
+/// A Mac that answers a stop however the test says, and remembers exactly what
+/// it was asked to stop.
+private final class StoppingDecisionClient: DecisionClient, @unchecked Sendable {
+    struct Stop: Equatable, Sendable {
+        let sessionID: String
+        let statusSince: Date
+        let requestID: String
+    }
+
+    private let lock = NSLock()
+    private var _snapshot: Snapshot?
+    private var _stops: [Stop] = []
+    private let outcome: StopDelivery
+
+    init(stop: StopDelivery) { outcome = stop }
+
+    var stops: [Stop] { lock.withLock { _stops } }
+
+    func replaceSnapshot(_ snapshot: Snapshot) { lock.withLock { _snapshot = snapshot } }
+
+    func actionSnapshot(_ pairing: PairingPayload) async -> Snapshot? { lock.withLock { _snapshot } }
+
+    func phoneStop(_ pairing: PairingPayload, session: AgentSession, requestID: String) async -> StopDelivery {
+        lock.withLock {
+            _stops.append(Stop(sessionID: session.id, statusSince: session.statusSince,
+                               requestID: requestID))
+        }
+        return outcome
+    }
+
+    func acknowledge(_ pairing: PairingPayload, request: CompletionReadRequest) async -> CompletionReadOutcome { .accepted }
+    func decide(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> Bool { true }
+    func jump(_ pairing: PairingPayload, sessionId: String) async -> JumpOutcome? { nil }
+    func setAttention(_ pairing: PairingPayload, sessionId: String, level: SessionAttention?) async {}
 }

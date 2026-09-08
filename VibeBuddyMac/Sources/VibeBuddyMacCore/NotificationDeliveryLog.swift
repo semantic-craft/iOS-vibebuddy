@@ -1,10 +1,12 @@
 import Foundation
+import VibeBuddyKit
 
 public enum NotificationDeliveryLogLocation {
     public static func defaultURL(
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> URL {
-        home.appendingPathComponent("Library/Application Support/vibebuddy/notification-delivery.json")
+        if let run = E2ERunConfiguration.current { return run.file("notification-delivery.json") }
+        return home.appendingPathComponent("Library/Application Support/vibebuddy/notification-delivery.json")
     }
 }
 

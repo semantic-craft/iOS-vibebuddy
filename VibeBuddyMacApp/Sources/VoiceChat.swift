@@ -38,6 +38,7 @@ final class VoiceChat: ObservableObject {
     // Realtime speech-to-speech — the active path. Provider chosen in Settings.
     private var realtime: (any RealtimeVoiceProvider)?
     private var audioIO: RealtimeAudioIO?
+    private var audioStarted = false
     private var eventTask: Task<Void, Never>?
     private var coordinator: VoiceCallCoordinator?
 
@@ -68,6 +69,7 @@ final class VoiceChat: ObservableObject {
     // MARK: Realtime speech-to-speech (active path)
 
     private func startRealtime() {
+        guard E2ERunConfiguration.current?.audioEnabled ?? true else { return }
         errorText = nil
         guard isAvailable else { errorText = "Add your Qwen (DashScope) key in Settings first."; return }
         let id = UUID(); startID = id; phase = .connecting
@@ -101,6 +103,7 @@ final class VoiceChat: ObservableObject {
         case .qwen:   session = QwenRealtimeSession(apiKey: key, model: model, workspaceID: VoiceSettings.qwenWorkspaceID, useIntl: VoiceSettings.useIntl)
         case .openai: session = OpenAIRealtimeSession(apiKey: key, model: model)
         case .gemini: session = GeminiRealtimeSession(apiKey: key, model: model)
+        case .doubao: session = DoubaoRealtimeSession(apiKey: key, model: model)
         }
         let io = RealtimeAudioIO(inputSampleRate: provider.inputSampleRate)
         realtime = session
@@ -110,6 +113,9 @@ final class VoiceChat: ObservableObject {
             actionHandler: actionHandler,
             sendToolResult: { callID, name, result in
                 Task { await session.sendToolResult(callID: callID, name: name, result: result) }
+            },
+            truncatePlayback: { checkpoints in
+                Task { await session.truncatePlayback(checkpoints) }
             },
             closeSession: { [weak self] in self?.closeRealtimeSession() }
         )
@@ -129,16 +135,10 @@ final class VoiceChat: ObservableObject {
         io.onPlaybackDrained = { [weak self] in
             Task { @MainActor in
                 guard let self, let coordinator = self.coordinator else { return }
+                voiceLog.info("playback drained")
                 coordinator.playbackDrained()
                 self.syncFromCoordinator(coordinator)
             }
-        }
-        do {
-            try io.start()
-        } catch {
-            voiceLog.error("realtime audio start failed: \(String(describing: error), privacy: .public)")
-            errorText = "Couldn't start audio: \(error.localizedDescription)"
-            stopRealtime()
         }
     }
 
@@ -149,7 +149,21 @@ final class VoiceChat: ObservableObject {
         guard realtime != nil, let coordinator else { return }
         switch event {
         case .connected:
-            voiceLog.info("realtime connected")
+            // The provider drops pre-handshake PCM. Arm capture only after its
+            // acknowledgement, before the coordinator publishes Listening.
+            if !audioStarted {
+                guard let audioIO else { return }
+                do {
+                    try audioIO.start()
+                    audioStarted = true
+                    NSSound(named: "Tink")?.play()
+                } catch {
+                    errorText = "Couldn't start audio: \(error.localizedDescription)"
+                    stopRealtime()
+                    return
+                }
+            }
+            voiceLog.info("realtime connected; microphone ready")
         case .userTranscript(let text, _):
             if VoiceCloseIntent.shouldClose(text) {     // "再见 / 关闭 / bye" → hang up hands-free
                 voiceLog.info("voice close phrase heard — ending call")
@@ -157,7 +171,7 @@ final class VoiceChat: ObservableObject {
         case .assistantTranscript, .audioDelta:
             break
         case .speechStarted:           // server detected real user speech
-            break
+            voiceLog.info("speech started; flushing playback pending=\(self.audioIO?.isPlaybackPending ?? false, privacy: .public)")
         case .toolCall(let name, let arguments, let callID):
             // Approach A — function calling. The model emits a structured call only
             // when it decides to act, so ordinary conversation never approves a real
@@ -166,8 +180,10 @@ final class VoiceChat: ObservableObject {
             let action = VoiceTools.action(name: name, arguments: arguments)
             voiceLog.info("voice tool=\(name, privacy: .public) resolved=\(action != .none, privacy: .public)")
             _ = callID
-        case .responseDone:
+        case .toolCallsCancelled:
             break
+        case .responseDone:
+            voiceLog.info("response done; playback pending=\(self.audioIO?.isPlaybackPending ?? false, privacy: .public)")
         case .failed(let message):
             voiceLog.error("realtime failed: \(message, privacy: .public)")
         case .closed:
@@ -193,6 +209,7 @@ final class VoiceChat: ObservableObject {
     private func closeRealtimeSession() {
         eventTask?.cancel(); eventTask = nil
         audioIO = nil
+        audioStarted = false
         let session = realtime
         realtime = nil
         Task { await session?.close() }

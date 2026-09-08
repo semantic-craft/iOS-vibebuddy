@@ -418,12 +418,21 @@ struct WatchDashboardStateTests {
         #expect(state.counts.needsResponse == 2)
     }
 
-    @Test("question takes over and stays display-only")
+    @Test("question takes over, and both shapes of it can be answered")
     func questionScenario() throws {
         let state = WatchDemoScenario.question.state(now: now)
         let alert = try #require(state.topAlert)
         #expect(alert.waitKind == .question)
-        #expect(alert.request == "Which revision style should I use?")
+        // The open question leads, so the home takeover rehearses the fixed
+        // phrases; the one with choices is a task detail away.
+        #expect(alert.request == "The migration touches two schemas. Should I keep going?")
+        #expect(alert.isAnswerable)
+        let withOptions = try #require(state.alerts.first { $0.sessionId == "demo-watch-question" })
+        #expect(withOptions.request == "Which revision style should I use?")
+        #expect(withOptions.options == ["Tighten", "Plain language"])
+        #expect(withOptions.isAnswerable)
+        // A question is still never *decidable*: approve/deny is not an answer.
+        #expect(state.alerts.allSatisfy { !$0.isDecidable })
     }
 
     @Test("empty is connected with nothing running")
@@ -464,6 +473,115 @@ struct WatchDashboardStateTests {
     func scenariosAreDeterministic() {
         #expect(WatchDemoScenario.permission.state(now: now) == WatchDemoScenario.permission.state(now: now))
     }
+
+    // MARK: what the wrist may end
+
+    /// A running Codex turn the app-server connection is actually carrying —
+    /// the only shape a stop exists for.
+    private func running(agent: AgentKind = .codex,
+                         status: SessionStatus = .working,
+                         source: ObservationSource? = .appserver,
+                         health: ObservationHealth = .healthy,
+                         attention: SessionAttention = .followed) -> AgentSession {
+        AgentSession(
+            id: "s-run", agent: agent, project: "vibebuddy", branch: "main",
+            model: "gpt-5-codex", status: status, summary: "Running the test suite…",
+            observations: source.map { [ObservationEvidence(source: $0, lastObservedAt: now, health: health)] },
+            attention: attention,
+            statusSince: now.addingTimeInterval(-30), updatedAt: now)
+    }
+
+    private func followed(_ session: AgentSession) -> WatchFollowedTask? {
+        project([session]).followedTasks.first { $0.sessionID == session.id }
+    }
+
+    @Test("A running Codex turn the Mac is carrying is the only one the wrist may end")
+    func stopIsOfferedOnlyForACarriedCodexTurn() throws {
+        #expect(followed(running())?.stop == .offered)
+
+        // Claude Code has no remote interrupt contract; say where to go instead.
+        #expect(followed(running(agent: .claudeCode))?.stop == .blocked(.macOnly))
+        #expect(followed(running(agent: .grok))?.stop == .blocked(.agentUnsupported))
+        #expect(followed(running(agent: .grokBot))?.stop == .blocked(.agentUnsupported))
+        // Codex seen only through the rollout tailer cannot be interrupted at all.
+        #expect(followed(running(source: .rollout))?.stop == .blocked(.macNotConnected))
+        #expect(followed(running(health: .eventsMissing))?.stop == .blocked(.macNotConnected))
+        #expect(followed(running(source: nil))?.stop != .offered)
+    }
+
+    @Test("The reason travels as a code and is worded where it is read")
+    func stopReasonIsWordedOnTheDisplayDevice() throws {
+        // The wording must match what the daemon would refuse with, so the
+        // wrist and the Mac never explain the same fact differently.
+        for session in [running(agent: .claudeCode), running(agent: .grok),
+                        running(agent: .grokBot), running(source: .rollout)] {
+            let block = try #require(followed(session)?.stop?.block)
+            #expect(block.message(agent: session.agent)
+                    == SessionActionSupport.resolveStop(for: session).unsupportedReason)
+        }
+        // The code is what crosses the wire — not a sentence in the phone's language.
+        let json = try #require(String(data: JSONEncoder().encode(WatchStopOffer.blocked(.macOnly)),
+                                       encoding: .utf8))
+        #expect(json.contains("macOnly"))
+        #expect(!json.contains("your Mac"))
+    }
+
+    @Test("A session that is not running says nothing about stopping")
+    func stopIsSilentWhenThereIsNoTurn() {
+        // Not a button *and* not a sentence: "this already finished" under a
+        // finished task is noise, and the daemon's wording for it is for the
+        // client that asked anyway, not for a wrist that did not.
+        #expect(followed(running(status: .done))?.stop == nil)
+        #expect(followed(running(status: .needsResponse))?.stop == nil)
+    }
+
+    @Test("An older relay's task offers no Stop rather than an unguarded one")
+    func stopIsAbsentInAnOlderRelay() throws {
+        let state = project([running()])
+        var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as? [String: Any])
+        var tasks = try #require(json["followedTasks"] as? [[String: Any]])
+        #expect(tasks[0]["stop"] != nil)
+        tasks[0].removeValue(forKey: "stop")
+        json["followedTasks"] = tasks
+        let restored = try JSONDecoder().decode(WatchDashboardState.self,
+                                                from: JSONSerialization.data(withJSONObject: json))
+        let task = try #require(restored.followedTasks.first)
+        #expect(task.stop == nil)
+        var action = WatchSessionActionState()
+        #expect(action.begin(stop: task, attemptId: "tap") == nil)
+    }
+
+    @Test("A complication carries no stop offer and no reason to show one")
+    func complicationDropsTheStopOffer() throws {
+        let task = try #require(followed(running()))
+        #expect(task.complicationTask.stop == nil)
+        let snapshot = WatchComplicationSnapshot(state: project([running()]))
+        #expect(snapshot.tasks.allSatisfy { $0.stop == nil })
+    }
+
+    @Test("Demo Mode's sample stop ends the turn the way the Mac would")
+    func demoStopMirrorsTheRealEnding() throws {
+        let demo = WatchDemoScenario.normal.state(now: now)
+        let task = try #require(WatchDemoScenario.stoppableTask.task(in: demo))
+        #expect(task.stop == .offered)
+
+        let stopped = demo.resolvingStop(task.sessionID)
+        let after = try #require(WatchDemoScenario.stoppableTask.task(in: stopped))
+        #expect(after.stop == nil)
+        // An acknowledged user stop is idle, without a false failure cue.
+        #expect(after.presentation == .idle)
+        #expect(stopped.counts.working == demo.counts.working - 1)
+        #expect(stopped.counts.done == demo.counts.done + 1)
+        #expect(stopped.presentation.error == demo.presentation.error)
+        #expect(stopped.presentation.idle == demo.presentation.idle + 1)
+        #expect(demo.resolvingStop("no-such-session") == demo)
+
+        // The unsupported agent is rehearsable too, and its Stop never resolves.
+        let claude = try #require(WatchDemoScenario.unstoppableTask.task(in: demo))
+        #expect(claude.stop == .blocked(.macOnly))
+        #expect(demo.resolvingStop(claude.sessionID) == demo)
+    }
+
 }
 
 @Suite("Verified wait destinations")
@@ -533,7 +651,7 @@ struct WaitDestinationTests {
         let alert = try #require(restored.topAlert)
         #expect(alert.handling == nil)
         #expect(!alert.isDecidable)
-        var action = WatchApprovalActionState()
+        var action = WatchSessionActionState()
         #expect(action.begin(alert: alert, choice: .allow, attemptId: "tap") == nil)
     }
 }

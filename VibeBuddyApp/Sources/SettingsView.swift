@@ -1,16 +1,16 @@
 import SwiftUI
 import VibeBuddyKit
 
-/// The phone's settings sheet. Sound-pack controls the spec asks for (play / mute,
-/// Quiet mode, a nightly window) plus the voice companion: a provider picker
-/// (Qwen / OpenAI / Gemini) with per-provider Key / Model ID / Voice ID, mirroring
-/// the Mac. No per-sound picker.
+/// Native directory separating phone preferences, Mac information, and help.
+/// Preference state remains owned by the sheet across navigation destinations.
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var voice: VoiceChat
     @EnvironmentObject private var dashboard: DashboardStore
+    @EnvironmentObject private var connection: ConnectionStore
     @AppStorage(SoundPrefs.playSoundKey) private var playSound = true
     @AppStorage(SoundPrefs.quietModeKey) private var quiet = false
+    @ObservedObject var connectionTest: VoiceConnectionTest
     @State private var quietHours = SoundPrefs.quietHours
     @State private var categories = SoundPrefs.categories
     @AppStorage(VoiceSettings.conversationLanguageKey) private var voiceLanguage = VoiceLanguage.english.rawValue
@@ -20,110 +20,209 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    NavigationLink {
-                        MacCompanionSetupView()
-                    } label: {
-                        Label("Download or update the Mac app", systemImage: "desktopcomputer")
+                Section("This iPhone") {
+                    NavigationLink { notificationSettings } label: {
+                        Label("Notifications & sounds", systemImage: "bell.badge")
                     }
-                } header: {
-                    Text("Mac companion")
-                } footer: {
-                    Text("Your live tasks come from your own Mac. Install the free Mac companion and scan its code to unlock connected features.")
+                    NavigationLink { voiceSettings } label: {
+                        Label("Voice conversation", systemImage: "waveform")
+                    }
                 }
-
-                Section {
-                    if dashboard.observationDiagnostics.isEmpty {
-                        Text("No observation diagnostics received from the Mac yet.")
-                            .foregroundStyle(.secondary)
+                Section("Connected Mac") {
+                    NavigationLink { connectionDetails } label: {
+                        Label("Connection information", systemImage: "desktopcomputer")
                     }
-                    ForEach(dashboard.observationDiagnostics) { agent in
-                        VStack(alignment: .leading, spacing: 7) {
-                            Text(agent.agent.displayName).font(.headline)
-                            ForEach(agent.sources) { source in
-                                ObservationDiagnosticRow(source: source)
-                            }
-                        }
+                    NavigationLink { completionSummaryInfo } label: {
+                        Label("Completion summaries", systemImage: "text.alignleft")
                     }
-                } header: {
-                    Text("Observation health")
-                } footer: {
-                    Text("Each row describes one source. Configuration changes are made on the Mac; a healthy source does not verify every session or its approvals.")
                 }
-
-                Section {
-                    ForEach(NotificationCategoryPrefs.displayOrder, id: \.rawValue) { category in
-                        Toggle(category.categoryTitle, isOn: Binding(
-                            get: { categories.isEnabled(category) },
-                            set: { categories.set(category, enabled: $0) }))
+                Section("Help") {
+                    NavigationLink { observationDiagnostics } label: {
+                        Label("Observation health", systemImage: "waveform.path.ecg")
                     }
-                } header: {
-                    Text("Notify me about")
-                } footer: {
-                    Text("Disabled categories never notify your iPhone or Apple Watch. Quiet mode and quiet hours silence session alerts except silent approvals and questions. Enabled quota alerts are unaffected.")
-                }
-
-                Section {
-                    Toggle("Sound", isOn: $playSound)
-                    Toggle("Quiet mode (quota unaffected)", isOn: $quiet).disabled(!playSound)
-                } header: {
-                    Text("Sound")
-                } footer: {
-                    Text("Status changes can play a short cue. Quiet mode keeps approvals and questions silent and suppresses other session alerts. Enabled quota alerts still follow the Sound setting.")
-                }
-
-                Section {
-                    Toggle("Auto-mute at night", isOn: $quietHours.enabled).disabled(!playSound)
-                    if quietHours.enabled {
-                        Picker("Start", selection: $quietHours.startHour) { hourTags }
-                        Picker("End", selection: $quietHours.endHour) { hourTags }
+                    NavigationLink { MacCompanionSetupView() } label: {
+                        Label("Download or update the Mac app", systemImage: "arrow.down.circle")
                     }
-                } header: {
-                    Text("Night")
-                } footer: {
-                    Text("During this window Quiet mode applies to session alerts. Enabled quota alerts are unaffected.")
-                }
-
-                Section {
-                    Toggle("Voice companion", isOn: $companionEnabled)
-                        .onChange(of: companionEnabled) { _, on in if !on { voice.companionDisabled() } }
-                    Picker("Voice provider", selection: $provider) {
-                        ForEach(VoiceProvider.allCases, id: \.rawValue) { p in
-                            Text(p.display).tag(p.rawValue)
-                        }
-                    }
-                    .onChange(of: provider) { _, _ in voice.reloadProviderIfActive() }
-                    Picker("Conversation language", selection: $voiceLanguage) {
-                        Text("English").tag(VoiceLanguage.english.rawValue)
-                        Text("中文").tag(VoiceLanguage.chinese.rawValue)
-                    }
-                    .onChange(of: voiceLanguage) { _, _ in voice.reloadProviderIfActive() }
-                } header: {
-                    Text("Voice companion")
-                } footer: {
-                    Text("Optional and off by default. When you start a voice conversation, your microphone audio and selected session context (project names, agent type, status, and summaries) are sent directly to your selected provider — Qwen (DashScope), OpenAI, or Gemini (Google) — using your own API key. The key stays in Keychain and nothing passes through a vibebuddy server.")
-                }
-
-                // Only the selected provider's credentials show — key + editable
-                // Model ID + Voice ID — and they swap as the picker changes. `.id`
-                // recreates the section so its fields reload for the new provider.
-                if let p = VoiceProvider(rawValue: provider) {
-                    ProviderSection(provider: p).id(p.rawValue)
                 }
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
-            .animation(.smooth, value: provider)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
                 }
             }
-            .onChange(of: playSound) { _, _ in reportPrefs() }
-            .onChange(of: quiet) { _, _ in reportPrefs() }
-            .onChange(of: quietHours) { _, q in SoundPrefs.setQuietHours(q); reportPrefs() }
-            .onChange(of: categories) { _, c in SoundPrefs.categories = c; reportPrefs() }
         }
+        .onDisappear { connectionTest.invalidate() }
+    }
+
+    private var notificationSettings: some View {
+        Form {
+            Section {
+                ForEach(NotificationCategoryPrefs.displayOrder, id: \.rawValue) { category in
+                    Toggle(category.categoryTitle, isOn: Binding(
+                        get: { categories.isEnabled(category) },
+                        set: { categories.set(category, enabled: $0) }))
+                }
+            } header: {
+                Text("Notify me about")
+            } footer: {
+                Text("Disabled categories never notify your iPhone or Apple Watch. Quiet mode and quiet hours silence session alerts except silent approvals and questions. Enabled quota alerts are unaffected.")
+            }
+
+            Section {
+                Toggle("Sound", isOn: $playSound)
+                Toggle("Quiet mode (quota unaffected)", isOn: $quiet).disabled(!playSound)
+            } header: {
+                Text("Sound")
+            } footer: {
+                Text("Status changes can play a short cue. Quiet mode keeps approvals and questions silent and suppresses other session alerts. Enabled quota alerts still follow the Sound setting.")
+            }
+
+            Section {
+                Toggle("Auto-mute at night", isOn: $quietHours.enabled).disabled(!playSound)
+                if quietHours.enabled {
+                    Picker("Start", selection: $quietHours.startHour) { hourTags }
+                    Picker("End", selection: $quietHours.endHour) { hourTags }
+                }
+            } header: {
+                Text("Night")
+            } footer: {
+                Text("During this window Quiet mode applies to session alerts. Enabled quota alerts are unaffected.")
+            }
+        }
+        .navigationTitle("Notifications & sounds")
+        .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: playSound) { _, _ in reportPrefs() }
+        .onChange(of: quiet) { _, _ in reportPrefs() }
+        .onChange(of: quietHours) { _, q in SoundPrefs.setQuietHours(q); reportPrefs() }
+        .onChange(of: categories) { _, c in SoundPrefs.categories = c; reportPrefs() }
+    }
+
+    private var voiceSettings: some View {
+        Form {
+            Section {
+                Toggle("Voice companion", isOn: $companionEnabled)
+                    .onChange(of: companionEnabled) { _, on in if !on { voice.companionDisabled() } }
+                Picker("Voice provider", selection: Binding(get: { provider }, set: { raw in
+                    guard let selected = VoiceProvider(rawValue: raw) else { return }
+                    VoiceSettings.selectVoiceProvider(selected)
+                    provider = raw
+                })) {
+                    ForEach(VoiceProvider.allCases, id: \.rawValue) { p in
+                        Text(p.display).tag(p.rawValue)
+                    }
+                }
+                .onChange(of: provider) { _, _ in connectionTest.invalidate(); voice.reloadProviderIfActive() }
+                Picker("Conversation language", selection: $voiceLanguage) {
+                    Text("English").tag(VoiceLanguage.english.rawValue)
+                    Text("中文").tag(VoiceLanguage.chinese.rawValue)
+                }
+                .onChange(of: voiceLanguage) { _, _ in connectionTest.invalidate(); voice.reloadProviderIfActive() }
+            } header: {
+                Text("Voice companion")
+            } footer: {
+                Text("Optional and off by default. When you start a voice conversation, your microphone audio and selected session context (project names, agent type, status, and summaries) are sent directly to your selected provider — Qwen (DashScope), OpenAI, Gemini (Google), or Doubao (Volcengine) — using your own API key. The key stays in Keychain and nothing passes through a vibebuddy server.")
+            }
+
+            // Only the selected provider's credentials show — key + editable
+            // Model ID + Voice ID — and they swap as the picker changes. `.id`
+            // recreates the section so its fields reload for the new provider.
+            if let p = VoiceProvider(rawValue: provider) {
+                ProviderSection(provider: p, connectionTest: connectionTest).id(p.rawValue)
+            }
+        }
+        .navigationTitle("Voice conversation")
+        .navigationBarTitleDisplayMode(.inline)
+        .animation(.smooth, value: provider)
+    }
+
+    private var observationDiagnostics: some View {
+        Form {
+            if dashboard.state != .connected && !dashboard.observationDiagnostics.isEmpty {
+                Section {
+                    Label("Showing last diagnostics. Reconnect to update.", systemImage: "wifi.exclamationmark")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Section {
+                if dashboard.observationDiagnostics.isEmpty {
+                    Text("No observation diagnostics received from the Mac yet.")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(dashboard.observationDiagnostics) { agent in
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text(agent.agent.displayName).font(.headline)
+                        ForEach(agent.sources) { source in
+                            ObservationDiagnosticRow(source: source)
+                        }
+                    }
+                }
+            } header: {
+                Text("Observation health")
+            } footer: {
+                Text("Each row describes one source. Configuration changes are made on the Mac; a healthy source does not verify every session or its approvals.")
+            }
+        }
+        .navigationTitle("Observation health")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var connectionDetails: some View {
+        Form {
+            Section("Connection information") {
+                LabeledContent("Status") { Text(connectionStatus) }
+                if let pairing = connection.pairing {
+                    if let name = pairing.macName, !name.isEmpty {
+                        LabeledContent("Mac") { Text(name).textSelection(.enabled) }
+                    }
+                    LabeledContent("Address") {
+                        Text("\(pairing.host):\(pairing.port)")
+                            .textSelection(.enabled)
+                    }
+                }
+                if connection.pairing != nil, case .failed(let message) = dashboard.state {
+                    Text(message).font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+            Section {
+                NavigationLink { MacCompanionSetupView() } label: {
+                    Label("Pairing and Mac setup", systemImage: "qrcode")
+                }
+            } footer: {
+                Text("Pair by scanning the code from your Mac. Use the Mac menu at the top of the dashboard to reconnect or forget the current pairing.")
+            }
+        }
+        .navigationTitle("Connection information")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var connectionStatus: String {
+        if connection.demo { return String(localized: "Demo — no Mac connected") }
+        guard connection.pairing != nil else { return String(localized: "Not paired") }
+        switch dashboard.state {
+        case .connecting: return String(localized: "Connecting")
+        case .connected: return String(localized: "Online")
+        case .failed: return String(localized: "Offline")
+        }
+    }
+
+    private var completionSummaryInfo: some View {
+        Form {
+            Section {
+                Text("Completion summaries are configured and generated on your Mac. Choose the summary provider, model and credentials in the Mac app's Settings.")
+                Text("Your iPhone receives the Mac's completion notice. There is no separate summary model or remote configuration control on this iPhone.")
+            } header: {
+                Text("Managed on your Mac")
+            }
+            Section {
+                Text("Voice conversation on this iPhone has its own provider and credentials. Changing voice settings does not configure Mac completion summaries or Mac read aloud.")
+            } header: {
+                Text("Separate from iPhone voice")
+            }
+        }
+        .navigationTitle("Completion summaries")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     private var hourTags: some View {
@@ -151,10 +250,36 @@ private struct ProviderSection: View {
     @State private var model = ""
     @State private var voice = ""
     @State private var advanced = false
-    @State private var testing = false
-    @State private var testResult: String?
-    @State private var testTask: Task<Void, Never>?
-    @State private var testSession: QwenRealtimeSession?
+    @ObservedObject var connectionTest: VoiceConnectionTest
+    @State private var keyLoaded = false
+    @State private var keySaveFailed = false
+    private var hasKey: Bool { keyLoaded && !keySaveFailed && !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var keyInput: Binding<String> {
+        Binding(get: { apiKey }, set: { value in
+            apiKey = value
+            connectionTest.invalidate()
+            keySaveFailed = KeychainStore.set(value, for: provider.keychainAccount) != 0
+        })
+    }
+    private var effectiveModel: String {
+        let value = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? provider.defaultModel : value
+    }
+    private var effectiveVoice: String {
+        let value = voice.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? provider.defaultVoice(VoiceSettings.conversationLanguage) : value
+    }
+    private var configurationValid: Bool {
+        let allowed = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-".utf8)
+        guard !effectiveModel.isEmpty, effectiveModel.utf8.allSatisfy(allowed.contains), !effectiveVoice.isEmpty else { return false }
+        if provider == .qwen {
+            let workspace = workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+            let host = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-".utf8)
+            return workspace.isEmpty || (workspace.count <= 63 && workspace.first != "-" && workspace.last != "-"
+                && workspace.utf8.allSatisfy(host.contains))
+        }
+        return true
+    }
 
     private let models = ["qwen-audio-3.0-realtime-plus", "qwen-audio-3.0-realtime-flash"]
     private let voices = ["longanqian", "longanlingxin", "longanlingxi", "longanxiaoxin", "longanlufeng"]
@@ -162,8 +287,8 @@ private struct ProviderSection: View {
     var body: some View {
         Section {
             field(caption: "API Key — paste your own (kept in the Keychain)",
-                  link: "Get an API key", icon: "key", url: provider.apiKeyURL, pasteInto: $apiKey, id: "voiceAPIKey") {
-                SecureField("Paste your \(provider.display) key", text: $apiKey)
+                  link: "Get an API key", icon: "key", url: provider.apiKeyURL, pasteInto: keyInput, id: "voiceAPIKey") {
+                SecureField("Paste your \(provider.display) key", text: keyInput)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
             }
@@ -202,36 +327,46 @@ private struct ProviderSection: View {
                 Button("Restore recommended model and voice") {
                     model = ""
                     voice = ""
-                    testResult = nil
+                    connectionTest.invalidate()
                 }
-                Button(testing ? "Testing connection…" : "Test connection") { testConnection() }
-                    .disabled(apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || testing)
-                    .accessibilityIdentifier("qwenTestConnection")
-                Text("Tests the selected voice configuration without recording audio or sending task context.")
+            } else if provider == .doubao {
+                Text(effectiveModel == provider.defaultModel ? "Doubao realtime voice 3.0 · Recommended" : "Custom realtime model").font(.headline)
+                Text(effectiveModel == provider.defaultModel && effectiveVoice == provider.defaultVoice(.english) ? "The recommended model and Vivi voice are ready. Only your realtime API key is required." : "Your custom model or voice is retained. Review Advanced settings before testing.")
                     .font(.caption).foregroundStyle(.secondary)
-                if let testResult { Text(testResult).font(.caption).textSelection(.enabled) }
+                DisclosureGroup("Advanced settings") {
+                    customFields
+                    Button("Restore recommended model and voice") { model = ""; voice = "" }
+                }
             } else {
                 customFields
             }
+            if keySaveFailed {
+                Text("API key could not be saved. Your edit is not stored; edit or paste it again to retry.").foregroundStyle(.orange)
+            }
+            if !configurationValid { Text("Review the realtime model, voice and connection before testing.").foregroundStyle(.secondary) }
+            HStack {
+                Button("Test connection", action: testConnection).disabled(!hasKey || !configurationValid || connectionTest.busy)
+                if connectionTest.busy { Button("Cancel") { connectionTest.cancel() } }
+            }
+            Text("This test may incur provider charges. It checks configuration only, without microphone input, task history, tools or audio playback.")
+                .font(.caption).foregroundStyle(.secondary)
+            if let result = connectionTest.message { Text(LocalizedStringKey(result)).font(.caption) }
         } header: {
             Text(provider.display)
         }
-        .disabled(testing)
-        .onDisappear {
-            testTask?.cancel()
-            let session = testSession
-            Task { await session?.close() }
-        }
+        .onDisappear { connectionTest.invalidate() }
         .onAppear {
+            guard !keyLoaded else { return }
             apiKey = provider.apiKey ?? ""
+            keyLoaded = true
             model = UserDefaults.standard.string(forKey: VoiceSettings.modelKey(provider)) ?? ""
             voice = UserDefaults.standard.string(forKey: VoiceSettings.voiceKey(provider)) ?? ""
         }
-        .onChange(of: apiKey) { _, v in testResult = nil; KeychainStore.set(v.trimmingCharacters(in: .whitespacesAndNewlines), for: provider.keychainAccount) }
-        .onChange(of: model) { _, v in testResult = nil; UserDefaults.standard.set(v, forKey: VoiceSettings.modelKey(provider)) }
-        .onChange(of: intl) { _, _ in testResult = nil }
-        .onChange(of: workspaceID) { _, _ in testResult = nil }
-        .onChange(of: voice) { _, v in testResult = nil; UserDefaults.standard.set(v, forKey: VoiceSettings.voiceKey(provider)) }
+
+        .onChange(of: model) { _, v in connectionTest.invalidate(); UserDefaults.standard.set(v, forKey: VoiceSettings.modelKey(provider)) }
+        .onChange(of: intl) { _, _ in connectionTest.invalidate() }
+        .onChange(of: workspaceID) { _, _ in connectionTest.invalidate() }
+        .onChange(of: voice) { _, v in connectionTest.invalidate(); UserDefaults.standard.set(v, forKey: VoiceSettings.voiceKey(provider)) }
     }
 
     @ViewBuilder private var customFields: some View {
@@ -252,33 +387,17 @@ private struct ProviderSection: View {
     }
 
     private func testConnection() {
-        testing = true
-        testResult = nil
-        let session = QwenRealtimeSession(
-            apiKey: apiKey.trimmingCharacters(in: .whitespacesAndNewlines),
-            model: model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? provider.defaultModel : model.trimmingCharacters(in: .whitespacesAndNewlines),
-            workspaceID: workspaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : workspaceID.trimmingCharacters(in: .whitespacesAndNewlines),
-            useIntl: intl)
-        testSession = session
-        let selectedVoice = voice.trimmingCharacters(in: .whitespacesAndNewlines)
-        testTask = Task { @MainActor in
-            let start = Date()
-            let stream = await session.start(instructions: "Stay silent.", voice: selectedVoice.isEmpty ? "longanqian" : selectedVoice, tools: VoiceTools.all)
-            for await event in stream {
-                if Task.isCancelled { break }
-                switch event {
-                case .connected:
-                    testResult = String(format: "Configuration accepted (%.1f s). This measures connection setup, not spoken reply latency.", Date().timeIntervalSince(start))
-                case .failed(let message): testResult = message
-                default: continue
-                }
-                break
-            }
-            await session.close()
-            testing = false
-            testSession = nil
-            testTask = nil
+        guard hasKey, configurationValid, !connectionTest.busy else { return }
+        let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let workspace = workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let session: any RealtimeVoiceProvider
+        switch provider {
+        case .qwen: session = QwenRealtimeSession(apiKey: key, model: effectiveModel, workspaceID: workspace.isEmpty ? nil : workspace, useIntl: intl)
+        case .openai: session = OpenAIRealtimeSession(apiKey: key, model: effectiveModel)
+        case .gemini: session = GeminiRealtimeSession(apiKey: key, model: effectiveModel)
+        case .doubao: session = DoubaoRealtimeSession(apiKey: key, model: effectiveModel)
         }
+        connectionTest.start(session, voice: effectiveVoice)
     }
 
     /// One labelled, clearly-editable field with a click-through link to the
@@ -317,6 +436,7 @@ private struct ProviderSection: View {
         case .qwen:   return "e.g. longanqian / longanlufeng"
         case .openai: return "e.g. marin / cedar"
         case .gemini: return "e.g. Puck / Kore"
+        case .doubao: return "zh_female_vv_jupiter_bigtts"
         }
     }
 }

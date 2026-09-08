@@ -5,7 +5,7 @@ import Security
 /// Never written to UserDefaults or committed; read at runtime only.
 /// Shared by iOS and Mac.
 public enum KeychainStore {
-    private static let service = "com.vibebuddy.secrets"
+    private static let service = E2ERunConfiguration.current?.keychainService ?? "com.vibebuddy.secrets"
 
     /// Injectable Security operations so unit tests never touch the user's Keychain.
     public struct Operations: Sendable {
@@ -137,7 +137,7 @@ public enum PushDeviceIdentity {
 
     private static func query(_ key: String) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: "com.vibebuddy.secrets",
+         kSecAttrService as String: E2ERunConfiguration.current?.keychainService ?? "com.vibebuddy.secrets",
          kSecAttrAccount as String: key]
     }
 
@@ -202,6 +202,23 @@ public enum VoiceSettings {
     public static let qwenWorkspaceIDKey = "voiceQwenWorkspaceID"
     public static let conversationLanguageKey = "voiceConversationLanguage"
     public static let providerKey = "voiceProvider"
+    public static let summaryProviderKey = "completionSummaryProvider"
+
+    /// Explicit summary choice wins. Only a valid old shared value can be inherited.
+    public static func summaryProvider(defaults: UserDefaults = .standard) -> VoiceProvider? {
+        let key = defaults.object(forKey: summaryProviderKey) == nil ? providerKey : summaryProviderKey
+        guard let raw = defaults.string(forKey: key), let provider = VoiceProvider(rawValue: raw),
+              provider.supportsCompletionSummaries else { return nil }
+        return provider
+    }
+
+    /// Freeze the old summary choice (including unconfigured) before changing voice.
+    public static func selectVoiceProvider(_ provider: VoiceProvider, defaults: UserDefaults = .standard) {
+        if defaults.object(forKey: summaryProviderKey) == nil {
+            defaults.set(summaryProvider(defaults: defaults)?.rawValue ?? "", forKey: summaryProviderKey)
+        }
+        defaults.set(provider.rawValue, forKey: providerKey)
+    }
     public static let companionEnabledKey = "voiceCompanionEnabled"
 
     /// Per-provider model / voice ID UserDefaults keys (one set each).

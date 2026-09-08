@@ -50,7 +50,8 @@ enum CuePlayer {
     nonisolated(unsafe) private static var playing: NSSound?
 
     static func play(_ sound: NotificationSound) {
-        guard let url = Bundle.main.url(forResource: sound.rawValue, withExtension: "caf"),
+        guard E2ERunConfiguration.current?.audioEnabled ?? true,
+              let url = Bundle.main.url(forResource: sound.rawValue, withExtension: "caf"),
               let cue = NSSound(contentsOf: url, byReference: true) else { return }
         playing?.stop()
         playing = cue

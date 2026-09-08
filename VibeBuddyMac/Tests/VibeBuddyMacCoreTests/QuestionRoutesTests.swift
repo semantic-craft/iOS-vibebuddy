@@ -76,6 +76,8 @@ struct QuestionRoutesTests {
             await Task.yield()
         }
         #expect(await registry.resolveExact(sessionID: "fixture", questionID: "old", answers: ["q": ["no"]]) == false)
+        await registry.cancelExact(sessionID: "fixture", questionID: "old")
+        #expect(await registry.isWaiting(sessionID: "fixture"))
         #expect(await registry.resolveExact(sessionID: "fixture", questionID: "new", answers: ["q": ["yes"]]))
         #expect(await waiter.value == ["q": ["yes"]])
         #expect(await registry.resolveExact(sessionID: "fixture", questionID: "new", answers: ["q": ["yes"]]) == false)

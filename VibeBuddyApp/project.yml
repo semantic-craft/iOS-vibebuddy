@@ -34,7 +34,7 @@ targets:
           - UIInterfaceOrientationPortrait
         NSCameraUsageDescription: "Scan the pairing QR shown by the vibebuddy Mac app."
         NSLocalNetworkUsageDescription: "Connect to the vibebuddy Mac app on your local network to show live session status and approve actions."
-        NSMicrophoneUsageDescription: "Talk to your agents by voice. With the optional voice companion, your microphone audio and selected session context are sent directly to the AI provider you choose (OpenAI, Google, or Alibaba) using your own API key — they never pass through a vibebuddy server."
+        NSMicrophoneUsageDescription: "Talk to your agents by voice. With the optional voice companion, your microphone audio and selected session context are sent directly to the AI provider you choose (OpenAI, Google, Alibaba, or Volcengine) using your own API key — they never pass through a vibebuddy server."
         NSSupportsLiveActivities: true
         ITSAppUsesNonExemptEncryption: false
         CFBundleURLTypes:
@@ -46,8 +46,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.app
-        MARKETING_VERSION: "1.3"
-        CURRENT_PROJECT_VERSION: "17"
+        MARKETING_VERSION: "1.3.8"
+        CURRENT_PROJECT_VERSION: "19"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"
         DEVELOPMENT_TEAM: LQAVR62TK2
@@ -81,8 +81,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.app.widget
-        MARKETING_VERSION: "1.3"
-        CURRENT_PROJECT_VERSION: "17"
+        MARKETING_VERSION: "1.3.8"
+        CURRENT_PROJECT_VERSION: "19"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"
         DEVELOPMENT_TEAM: LQAVR62TK2
@@ -117,8 +117,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.app.watchkitapp
         CODE_SIGN_ENTITLEMENTS: Watch/VibeBuddyWatch.entitlements
-        MARKETING_VERSION: "1.3"
-        CURRENT_PROJECT_VERSION: "17"
+        MARKETING_VERSION: "1.3.8"
+        CURRENT_PROJECT_VERSION: "19"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "4"
         DEVELOPMENT_TEAM: LQAVR62TK2
@@ -145,8 +145,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.app.watchkitapp.widget
-        MARKETING_VERSION: "1.3"
-        CURRENT_PROJECT_VERSION: "17"
+        MARKETING_VERSION: "1.3.8"
+        CURRENT_PROJECT_VERSION: "19"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "4"
         DEVELOPMENT_TEAM: LQAVR62TK2

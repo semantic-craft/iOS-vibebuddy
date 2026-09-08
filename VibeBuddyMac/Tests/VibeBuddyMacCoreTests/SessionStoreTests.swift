@@ -51,6 +51,69 @@ struct SessionStoreTests {
         #expect(await store.snapshot(now: t0.addingTimeInterval(200)).sessions.isEmpty)
     }
 
+    @Test("a transcript-inferred question still reconciles from later transcript activity")
+    func sweepReconcilesInferredQuestion() async throws {
+        let tmp = NSTemporaryDirectory() + "vb-inferred-wait-\(UUID().uuidString).jsonl"
+        try "{}".write(toFile: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        let store = SessionStore(staleAfter: 86_400)
+        let question = PendingQuestion(id: "inferred", prompt: "Which color?", options: [])
+        await store.ingest(HookEvent(kind: .notification, sessionID: "s", agent: .codex,
+                                    cwd: "/x/proj", message: "Waiting for your input", transcriptPath: tmp,
+                                    timestamp: t0, enrichment: TranscriptInfo(pendingQuestion: question)))
+        #expect(await store.snapshot(now: t0).sessions.first?.pendingQuestion?.id == "inferred")
+        try FileManager.default.setAttributes([.modificationDate: t0.addingTimeInterval(2)], ofItemAtPath: tmp)
+        await store.sweep(now: t0.addingTimeInterval(10))
+        #expect(await store.snapshot(now: t0.addingTimeInterval(10)).sessions.isEmpty)
+    }
+
+    @Test("transcript writes do not resolve an explicit unanswered question or approval", arguments: [false, true])
+    func sweepPreservesExplicitWait(approval: Bool) async throws {
+        let tmp = NSTemporaryDirectory() + "vb-live-wait-\(UUID().uuidString).jsonl"
+        try "{}".write(toFile: tmp, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        let store = SessionStore(staleAfter: 86_400)
+        let payload = #"{"hook_event_name":"SessionStart","session_id":"s","cwd":"/x/proj","transcript_path":"\#(tmp)"}"#
+        await store.ingest(Data(payload.utf8), receivedAt: t0)
+        if approval {
+            await store.beginApproval(sessionID: "s", PendingApproval(id: "ap", tool: "Bash", commandPreview: "echo test"), at: t0.addingTimeInterval(1))
+        } else {
+            await store.beginQuestion(sessionID: "s", PendingQuestion(id: "q", prompt: "Which color?", options: []), at: t0.addingTimeInterval(1))
+        }
+        await store.ingest(HookEvent(kind: .sessionMetadataChanged, sessionID: "s", timestamp: t0.addingTimeInterval(1.25),
+                                    enrichment: TranscriptInfo(pendingQuestion: PendingQuestion(id: "inferred", prompt: "Old log question", options: []))))
+        // A late completion from the other request type cannot settle this wait.
+        if approval { await store.endQuestion(sessionID: "s", questionID: "q", at: t0.addingTimeInterval(1.5)) }
+        else { await store.endApproval(sessionID: "s", approvalID: "ap", at: t0.addingTimeInterval(1.5)) }
+        // Nor can a superseded request of the same type settle it.
+        if approval { await store.endApproval(sessionID: "s", approvalID: "old-ap", at: t0.addingTimeInterval(1.75)) }
+        else { await store.endQuestion(sessionID: "s", questionID: "old-q", at: t0.addingTimeInterval(1.75)) }
+        // A held, answerable card outlives a stray tool-progress notification.
+        await store.ingest(HookEvent(kind: .postToolUse, sessionID: "s", timestamp: t0.addingTimeInterval(1.8)))
+        await store.ingest(HookEvent(kind: .notification, sessionID: "s", message: "Waiting for your input", timestamp: t0.addingTimeInterval(1.9)))
+        // App-server flushes the question itself after publishing the wait.
+        try FileManager.default.setAttributes([.modificationDate: t0.addingTimeInterval(2)], ofItemAtPath: tmp)
+        await store.sweep(now: t0.addingTimeInterval(10))
+        let waiting = await store.snapshot(now: t0.addingTimeInterval(10)).sessions.first
+        #expect(waiting?.status == .needsResponse)
+        #expect(approval ? waiting?.pendingApproval?.id == "ap" : waiting?.pendingQuestion?.id == "q")
+        #expect(await store.missedCounts(week: t0, now: t0.addingTimeInterval(302)).count == 1)
+        if approval { await store.endApproval(sessionID: "s", approvalID: "ap", at: t0.addingTimeInterval(303)) }
+        else { await store.endQuestion(sessionID: "s", questionID: "q", at: t0.addingTimeInterval(303)) }
+        #expect(await store.snapshot(now: t0.addingTimeInterval(303)).sessions.first?.status == .working)
+        // Once the explicit wait ends, a later inferred wait regains mtime recovery.
+        await store.ingest(HookEvent(kind: .notification, sessionID: "s", message: "Waiting for your input", timestamp: t0.addingTimeInterval(303.1),
+                                    enrichment: TranscriptInfo(pendingQuestion: PendingQuestion(id: "later-log", prompt: "Later question", options: []))))
+        try FileManager.default.setAttributes([.modificationDate: t0.addingTimeInterval(303.2)], ofItemAtPath: tmp)
+        await store.sweep(now: t0.addingTimeInterval(304))
+        #expect(await store.snapshot(now: t0.addingTimeInterval(304)).sessions.isEmpty)
+        // Explicit provenance does not disable the bounded abandonment cleanup.
+        await store.ingest(Data(payload.utf8), receivedAt: t0.addingTimeInterval(304))
+        await store.beginQuestion(sessionID: "s", PendingQuestion(id: "stale", prompt: "Still waiting?", options: []), at: t0.addingTimeInterval(305))
+        await store.sweep(now: t0.addingTimeInterval(86_800))
+        #expect(await store.snapshot(now: t0.addingTimeInterval(86_800)).sessions.isEmpty)
+    }
+
     @Test("beginApproval fires the needsResponse handler so a closed app can be pushed")
     func beginApprovalNotifies() async {
         actor Box { var ids: [String] = []; func add(_ id: String) { ids.append(id) }; func all() -> [String] { ids } }
@@ -83,7 +146,7 @@ struct SessionStoreTests {
         #expect(waiting?.status == .needsResponse)
         #expect(waiting?.pendingApproval?.id == "ap1")
 
-        await store.endApproval(sessionID: "s", at: t0.addingTimeInterval(2))
+        await store.endApproval(sessionID: "s", approvalID: "ap1", at: t0.addingTimeInterval(2))
         let done = await store.snapshot(now: t0).sessions.first
         #expect(done?.pendingApproval == nil)
         #expect(done?.status == .working)
@@ -157,6 +220,7 @@ struct SessionStoreTests {
             ProviderQuota(provider: .claude, weeklyRemainingPercent: 40),
             ProviderQuota(provider: .grok, weeklyRemainingPercent: 55),
             ProviderQuota(provider: .cursor, weeklyRemainingPercent: 60),
+            ProviderQuota(provider: .grokBot, weeklyRemainingPercent: 65),
         ])
         let snap = await store.snapshot(now: Date(timeIntervalSince1970: 1_700_000_000))
         #expect(snap.providerQuota?.map(\.provider) == AccountUsageProvider.allCases)

@@ -10,6 +10,7 @@ final class FakeConnection: CodexAppServerConnecting, @unchecked Sendable {
     private let lock = NSLock()
     private var results: [String: [String: Any]]
     private(set) var calls: [String] = []
+    private var sent: [(method: String, params: [String: Any])] = []
     private(set) var responses: [(id: JSONRPCID, result: [String: Any])] = []
 
     init(results: [String: [String: Any]]) {
@@ -22,7 +23,7 @@ final class FakeConnection: CodexAppServerConnecting, @unchecked Sendable {
     func connect() throws {}
 
     func request(_ method: String, params: [String: Any], timeout: Duration) async throws -> [String: Any] {
-        lock.withLock { calls.append(method) }
+        lock.withLock { calls.append(method); sent.append((method, params)) }
         if let result = lock.withLock({ results[method] }) { return result }
         throw CodexAppServerClient.ClientError.rpc(code: -32601, message: "no such method \(method)")
     }
@@ -43,6 +44,12 @@ final class FakeConnection: CodexAppServerConnecting, @unchecked Sendable {
 
     /// Make a method answer with a JSON-RPC error from now on.
     func fail(_ method: String) { lock.withLock { results.removeValue(forKey: method) } }
+
+    /// The params of the most recent call to `method`, so a test can assert
+    /// what actually went on the wire.
+    func lastParams(_ method: String) -> [String: Any]? {
+        lock.withLock { sent.last { $0.method == method }?.params }
+    }
 
     /// Recorded responses, newest last, as decision strings where present.
     var decisions: [String] {
