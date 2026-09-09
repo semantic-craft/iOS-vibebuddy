@@ -37,6 +37,20 @@ public struct DoubaoSpeechSynthesizer: SpeechSynthesizer {
         return try Self.audio(from: data)
     }
 
+    /// Every frame carries a status: `0` on each audio chunk and `20000000`
+    /// ("OK") on the terminal one that closes the stream. The whole 2xxxxxxx
+    /// family is status rather than failure — the realtime API uses 20000002
+    /// the same way — so only codes outside it end the read. Their codes
+    /// distinguish auth from quota; nothing they said is ever repeated back.
+    static func failure(for code: Int) -> SpeechSynthesisFailure? {
+        switch code {
+        case 0, 20_000_000..<30_000_000: nil
+        case 401, 403: .rejected
+        case 429: .rateLimited
+        default: .transport
+        }
+    }
+
     /// The endpoint streams a sequence of JSON objects, one per audio chunk;
     /// the body therefore holds several concatenated objects, not one.
     static func audio(from data: Data) throws -> Data {
@@ -48,11 +62,7 @@ public struct DoubaoSpeechSynthesizer: SpeechSynthesizer {
                   let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any]
             else { continue }
             sawObject = true
-            if let code = object["code"] as? Int, code != 0 {
-                // Their codes distinguish auth from quota; nothing they said is repeated.
-                throw code == 401 || code == 403 ? SpeechSynthesisFailure.rejected
-                    : code == 429 ? .rateLimited : .transport
-            }
+            if let code = object["code"] as? Int, let failure = Self.failure(for: code) { throw failure }
             guard let encoded = object["data"] as? String, !encoded.isEmpty else { continue }
             guard let chunk = Data(base64Encoded: encoded, options: .ignoreUnknownCharacters) else {
                 throw SpeechSynthesisFailure.transport

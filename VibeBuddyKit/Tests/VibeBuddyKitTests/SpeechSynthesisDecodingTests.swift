@@ -59,6 +59,20 @@ struct SpeechSynthesisDecodingTests {
         #expect(Array(audio) == [9, 9, 8, 8])
     }
 
+    @Test func doubaoTreatsTheTerminalStatusFrameAsTheEndOfTheStream() throws {
+        // The stream closes with code 20000000 "OK" after the audio; reading it
+        // as an error threw away a complete recording.
+        let body = """
+        {"code":0,"message":"","data":"\(base64([1, 2]))"}
+        {"code":0,"message":"","data":"\(base64([3, 4]))","sentence":{"words":[]}}
+        {"code":20000000,"message":"OK","data":""}
+        """
+        #expect(Array(try DoubaoSpeechSynthesizer.audio(from: Data(body.utf8))) == [1, 2, 3, 4])
+        #expect(DoubaoSpeechSynthesizer.failure(for: 20_000_000) == nil)
+        #expect(DoubaoSpeechSynthesizer.failure(for: 20_000_002) == nil)
+        #expect(DoubaoSpeechSynthesizer.failure(for: 0) == nil)
+    }
+
     @Test func doubaoGradesItsOwnCodesWithoutRepeatingThem() {
         for (code, expected) in [(401, SpeechSynthesisFailure.rejected), (403, .rejected),
                                  (429, .rateLimited), (55_000_001, .transport)] {
