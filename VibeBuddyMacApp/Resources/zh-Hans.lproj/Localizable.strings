@@ -321,8 +321,6 @@
 
 "Read-aloud is waiting for a completion summary provider. Choose one, or pick a read-aloud provider of its own." = "朗读正在等待完成摘要服务商。请先设置摘要服务商，或为朗读单独选择一家。";
 
-"%@ cannot read summaries aloud yet. Choose another read-aloud provider." = "%@ 暂不支持朗读摘要，请另选一家朗读服务商。";
-
 "API key" = "API 密钥";
 
 "Enter a speech synthesis model before previewing." = "试听前请输入语音合成模型。";
@@ -502,3 +500,17 @@
 "Search voices" = "搜索音色";
 
 "No match" = "没有匹配项";
+
+/* Read-aloud synthesis failures — graded, never the provider's own words */
+
+"Check the read-aloud model and voice before speaking." = "朗读前请检查朗读模型和音色。";
+
+"The provider rejected this API key. Open its account and paste the key again." = "服务商拒绝了这把 API Key。请打开对应账号重新粘贴密钥。";
+
+"The provider is rate-limiting this key. Try again in a moment." = "服务商正在限流这把密钥，请稍后再试。";
+
+"The provider did not answer in time." = "服务商未在超时前返回。";
+
+"The provider returned no audio for this text." = "服务商没有为这段文本返回音频。";
+
+"The provider returned more audio than a summary should need." = "服务商返回的音频超出一段摘要应有的长度。";

@@ -12,11 +12,6 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
     public var supportsCompletionSummaries: Bool { self != .doubao }
     public static var summaryProviders: [Self] { allCases.filter(\.supportsCompletionSummaries) }
 
-    /// Whether this provider can read summaries aloud, i.e. whether it has a
-    /// `SpeechSynthesizer`. Not every realtime provider has one yet.
-    public var supportsReadAloud: Bool { SpeechSynthesis.support(self) != nil }
-    public static var readAloudProviders: [Self] { allCases.filter(\.supportsReadAloud) }
-
     public var display: String {
         switch self {
         case .qwen:   return "Qwen (DashScope)"

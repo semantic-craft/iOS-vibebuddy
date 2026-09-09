@@ -549,7 +549,7 @@ private struct ReadAloudFeatureRow: View {
         _selection = selection
         self.reveal = reveal
         let keyed = status.provider ?? .qwen
-        _modelID = AppStorage(wrappedValue: SpeechSynthesis.support(keyed)?.defaultModel ?? "",
+        _modelID = AppStorage(wrappedValue: SpeechSynthesis.support(keyed).defaultModel,
                               VoiceSettings.readAloudModelKey(keyed))
         // Deliberately empty: a stored voice wins, and everything else is
         // decided by the language-aware fallback below.
@@ -579,14 +579,9 @@ private struct ReadAloudFeatureRow: View {
         if voiceChat.isActive { return NSLocalizedString("Stop the current voice conversation or reading before previewing.", comment: "Read-aloud busy") }
         return nil
     }
-    private var detail: String? {
-        if case .unsupported = status { return ReadAloud.unavailability(status) }
-        return nil
-    }
     private var rowStatus: VoiceFeatureStatus {
         switch status {
         case .waitingForSummaryProvider: return .waitingForSummaries
-        case .unsupported: return .needsAttention
         case .ready(let provider):
             if !credential.configured { return .needsKey(provider) }
             if !summariesEnabled { return .nothingToRead }
@@ -613,16 +608,16 @@ private struct ReadAloudFeatureRow: View {
 
     var body: some View {
         FeatureRow(feature: .readAloud, dependsOnPrevious: true, enabled: $enabled,
-                   status: rowStatus, detail: detail, hint: hint, tests: tests, reveal: reveal) {
+                   status: rowStatus, hint: hint, tests: tests, reveal: reveal) {
           VStack(alignment: .leading, spacing: 6) {
             ControlLine {
                 ProviderPicker(label: "Read-aloud provider", selection: $selection,
-                               options: VoiceProvider.readAloudProviders,
+                               options: VoiceProvider.allCases,
                                leading: ("", followTitle))
             } model: {
                 if case .ready(let provider) = status {
                     IDField(label: "Speech synthesis model",
-                            placeholder: SpeechSynthesis.support(provider)?.defaultModel ?? "",
+                            placeholder: SpeechSynthesis.support(provider).defaultModel,
                             text: $modelID, browse: provider.modelsURL,
                             browseHelp: "Browse available models", identifier: "readAloudModelID")
                 } else { Text(verbatim: "—").foregroundStyle(.secondary) }

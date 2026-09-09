@@ -96,7 +96,7 @@ struct VoiceDefaultsInCatalogTests {
 
     @Test func everySynthesisDefaultIsACatalogVoice() {
         for provider in VoiceProvider.allCases {
-            guard let support = SpeechSynthesis.support(provider) else { continue }
+            let support = SpeechSynthesis.support(provider)
             let ids = Set(VoiceCatalog.voices(.readAloud, provider).map(\.id))
             #expect(ids.contains(support.defaultVoice), "\(provider) → \(support.defaultVoice)")
         }

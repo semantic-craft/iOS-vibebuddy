@@ -256,14 +256,12 @@ public enum VoiceSettings {
     public enum ReadAloudStatus: Equatable, Sendable {
         /// Following summaries, which are unconfigured. Not a reason to use Qwen.
         case waitingForSummaryProvider
-        /// Resolved, but this provider has no `SpeechSynthesizer` yet.
-        case unsupported(VoiceProvider)
         case ready(VoiceProvider)
 
         public var provider: VoiceProvider? {
             switch self {
             case .waitingForSummaryProvider: return nil
-            case .unsupported(let p), .ready(let p): return p
+            case .ready(let p): return p
             }
         }
     }
@@ -282,7 +280,7 @@ public enum VoiceSettings {
     public static func readAloudStatus(defaults: UserDefaults = .standard) -> ReadAloudStatus {
         guard let provider = pinnedReadAloudProvider(defaults: defaults)
                 ?? summaryProvider(defaults: defaults) else { return .waitingForSummaryProvider }
-        return provider.supportsReadAloud ? .ready(provider) : .unsupported(provider)
+        return .ready(provider)
     }
 
     /// Pin read-aloud to one provider, or pass `nil` to follow summaries again.
@@ -290,12 +288,12 @@ public enum VoiceSettings {
         defaults.set(provider?.rawValue ?? "", forKey: readAloudProviderKey)
     }
 
-    /// The read-aloud model / voice for a provider (blank → the provider's own
-    /// default, empty for a provider that cannot speak yet).
+    /// The read-aloud model / voice for a provider; blank falls back to the
+    /// provider's own default.
     public static func readAloudModel(_ p: VoiceProvider, defaults: UserDefaults = .standard) -> String {
         let v = (defaults.string(forKey: readAloudModelKey(p)) ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return v.isEmpty ? (SpeechSynthesis.support(p)?.defaultModel ?? "") : v
+        return v.isEmpty ? SpeechSynthesis.support(p).defaultModel : v
     }
     /// Blank falls back to the catalog's first voice **for the conversation
     /// language** — a fresh English setup must not be handed a Chinese voice,
@@ -307,7 +305,7 @@ public enum VoiceSettings {
         guard v.isEmpty else { return v }
         let spoken = language ?? conversationLanguage(defaults: defaults)
         return VoiceCatalog.defaultVoice(.readAloud, p, language: spoken)
-            ?? SpeechSynthesis.support(p)?.defaultVoice ?? ""
+            ?? SpeechSynthesis.support(p).defaultVoice
     }
 
     public static func readAloudConfiguration(_ p: VoiceProvider,

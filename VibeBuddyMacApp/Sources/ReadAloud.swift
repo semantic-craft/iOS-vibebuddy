@@ -11,7 +11,7 @@ final class ReadAloud: ObservableObject {
     @Published private(set) var status = ""
     @Published private(set) var previewStatus = ""
     enum PreviewResult: Sendable { case completed, cancelled, failed(String) }
-    private let makeSynthesizer: @Sendable (SpeechSynthesisConfiguration) -> (any SpeechSynthesizer)?
+    private let makeSynthesizer: @Sendable (SpeechSynthesisConfiguration) -> any SpeechSynthesizer
     private let automaticKey: @MainActor (VoiceProvider) -> String?
     private var previewTask: Task<PreviewResult, Never>?
     private var previewGeneration = UUID()
@@ -20,7 +20,7 @@ final class ReadAloud: ObservableObject {
     var automaticBusy: Bool { queueBusy }
 
     init(automaticKey: @escaping @MainActor (VoiceProvider) -> String? = { $0.apiKey },
-         makeSynthesizer: @escaping @Sendable (SpeechSynthesisConfiguration) -> (any SpeechSynthesizer)? = SpeechSynthesis.synthesizer) {
+         makeSynthesizer: @escaping @Sendable (SpeechSynthesisConfiguration) -> any SpeechSynthesizer = SpeechSynthesis.synthesizer) {
         self.automaticKey = automaticKey
         self.makeSynthesizer = makeSynthesizer
     }
@@ -55,8 +55,6 @@ final class ReadAloud: ObservableObject {
         switch status {
         case .waitingForSummaryProvider:
             return NSLocalizedString("Read-aloud is waiting for a completion summary provider. Choose one, or pick a read-aloud provider of its own.", comment: "Read-aloud follows an unconfigured summary provider")
-        case .unsupported(let provider):
-            return String(format: NSLocalizedString("%@ cannot read summaries aloud yet. Choose another read-aloud provider.", comment: "Provider has no speech synthesis"), provider.display)
         case .ready:
             return nil
         }
@@ -80,10 +78,8 @@ final class ReadAloud: ObservableObject {
                 guard let key = self.automaticKey(provider), !key.isEmpty else {
                     self.status = String(format: NSLocalizedString("Save your %@ API key first.", comment: "Read-aloud needs a key"), provider.display); return
                 }
-                guard let synthesizer = self.makeSynthesizer(VoiceSettings.readAloudConfiguration(provider)) else {
-                    self.status = Self.unavailability(.unsupported(provider)) ?? ""; return
-                }
                 self.status = "Generating speech…"
+                let synthesizer = self.makeSynthesizer(VoiceSettings.readAloudConfiguration(provider))
                 let data = try await synthesizer.synthesize(text, apiKey: key)
                 guard !Task.isCancelled, self.generation == current, self.canSpeak() else { return }
                 guard await validate(), !Task.isCancelled, self.generation == current, self.canSpeak() else { return }
@@ -101,9 +97,16 @@ final class ReadAloud: ObservableObject {
                 }
                 if self.generation == current { self.status = "Playback complete"; self.player = nil }
             } catch is CancellationError { }
-              catch { if self.generation == current { self.status = "Speech generation failed. Check your read-aloud model, voice and connection." } }
+              catch { if self.generation == current { self.status = Self.copy(for: error) } }
         }
     }
+    /// Graded, actionable, and never the provider's own words — a raw response
+    /// can carry the credential that was sent with it.
+    static func copy(for error: any Error) -> String {
+        NSLocalizedString((error as? SpeechSynthesisFailure ?? .transport).message,
+                          comment: "Speech synthesis failure")
+    }
+
     private func updateBusy() { busy = queueBusy || previewTask != nil }
 
     /// Cancels only the Settings-owned preview; queued automatic speech is untouched.
@@ -119,9 +122,7 @@ final class ReadAloud: ObservableObject {
         guard E2ERunConfiguration.current?.audioEnabled ?? true else { return .cancelled }
         guard !Task.isCancelled else { return .cancelled }
         guard !busy, canSpeak() else { return .failed("Stop the current voice conversation or reading before previewing.") }
-        guard let synthesizer = makeSynthesizer(configuration) else {
-            return .failed(Self.unavailability(.unsupported(configuration.provider)) ?? "")
-        }
+        let synthesizer = makeSynthesizer(configuration)
         let id = UUID()
         previewGeneration = id
         let task = Task { @MainActor [self] in
@@ -143,7 +144,7 @@ final class ReadAloud: ObservableObject {
             } catch is CancellationError { return .cancelled }
               catch {
                 if Task.isCancelled || previewGeneration != id { return .cancelled }
-                return .failed("Speech generation failed. Check your read-aloud model, voice and connection.")
+                return .failed(Self.copy(for: error))
             }
         }
         previewTask = task // Occupy the shared reader before the first suspension.
