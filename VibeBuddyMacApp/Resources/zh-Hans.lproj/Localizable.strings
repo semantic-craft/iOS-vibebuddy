@@ -147,7 +147,6 @@
 "Get an API key" = "获取 API 密钥";
 "Model ID — editable, type any model" = "模型 ID——可编辑，可输入任意模型";
 "Browse available models" = "浏览可用模型";
-"Browse available voices" = "浏览可用音色";
 "Find your workspace ID" = "查找业务空间 ID";
 "Use Singapore (international) region" = "使用新加坡（国际）地域";
 "Paste your %@ key" = "粘贴你的 %@ 密钥";
@@ -249,9 +248,6 @@
 "Playback complete" = "播放完成";
 "Speech generation failed. Check your read-aloud model, voice and connection." = "语音合成失败，请检查朗读模型、音色和网络";
 "Speech synthesis model" = "语音合成模型";
-"Longan Fengyue · Warm and natural" = "龙安风悦 · 自然亲切";
-"Longan Lingxi · Sweet and cheerful" = "龙安灵希 · 可爱甜美";
-"Longan Yuanfei · Female character voice" = "龙安元妃 · 角色女声";
 "Stop" = "停止";
 "Hello, I’m your work companion. The task is complete, and device verification is still pending." = "你好，我是你的工作伙伴。任务已完成，设备验证仍待进行。";
 "Read-aloud voice" = "朗读音色";
@@ -482,3 +478,27 @@
 "Optional. When set, Qwen connects through the workspace endpoint." = "可选。填写后 Qwen 将通过工作空间专属接入点连接。";
 
 "Shared by all three features, and it decides which voice each provider defaults to." = "三个功能共用，并决定每家服务商默认使用哪个音色。";
+
+/* Voice catalog picker */
+
+"Conversation voice" = "对话音色";
+
+"Custom voice ID…" = "自定义音色 ID…";
+
+"Custom voice ID" = "自定义音色 ID";
+
+"voice ID from the provider’s docs" = "服务商文档里的音色 ID";
+
+"Back to the list" = "返回列表";
+
+"Show all %lld voices…" = "查看全部 %lld 个音色…";
+
+"%lld voices from %@" = "共 %lld 个音色 · %@";
+
+"Search" = "搜索";
+
+"Search %lld voices…" = "搜索 %lld 个音色…";
+
+"Search voices" = "搜索音色";
+
+"No match" = "没有匹配项";

@@ -385,9 +385,10 @@ private struct ConversationFeatureRow: View {
                 } else { Text(verbatim: "—").foregroundStyle(.secondary) }
             } voice: {
                 if let provider {
-                    IDField(label: "Voice ID", placeholder: provider.defaultVoice(VoiceLanguage(rawValue: language) ?? .english),
-                            text: $voiceID, browse: provider.voicesURL, browseHelp: "Browse available voices",
-                            identifier: "voiceID")
+                    VoicePicker(label: "Conversation voice", purpose: .conversation, provider: provider,
+                                language: VoiceLanguage(rawValue: language) ?? .english,
+                                fallback: provider.defaultVoice(VoiceLanguage(rawValue: language) ?? .english),
+                                voiceID: $voiceID)
                 } else { Text(verbatim: "—").foregroundStyle(.secondary) }
             } trailing: {
                 Button("Test", action: test)
@@ -525,6 +526,7 @@ private struct ReadAloudFeatureRow: View {
     let reveal: (VoiceProvider) -> Void
     @AppStorage(ReadAloud.enabledKey) private var enabled = false
     @AppStorage(CompletionSummaryConfiguration.enabledKey) private var summariesEnabled = false
+    @AppStorage(VoiceSettings.conversationLanguageKey) private var language = VoiceLanguage.english.rawValue
     @AppStorage(VoiceSettings.regionIntlKey) private var intl = false
     @AppStorage(VoiceSettings.qwenWorkspaceIDKey) private var workspace = ""
     @AppStorage private var modelID: String
@@ -620,18 +622,11 @@ private struct ReadAloudFeatureRow: View {
                             browseHelp: "Browse available models", identifier: "readAloudModelID")
                 } else { Text(verbatim: "—").foregroundStyle(.secondary) }
             } voice: {
-                if case .ready = status {
-                    HStack(spacing: 6) {
-                        // Qwen's own TTS voices; the per-provider voice catalogue replaces this picker.
-                        Picker("Read-aloud voice", selection: $voiceID) {
-                            Text("Longan Fengyue · Warm and natural").tag("longanfengyue")
-                            Text("Longan Lingxi · Sweet and cheerful").tag("longanlingxi")
-                            Text("Longan Yuanfei · Female character voice").tag("longanyuanfei")
-                            if !["longanfengyue", "longanlingxi", "longanyuanfei"].contains(voiceID) {
-                                Text(verbatim: voiceID).tag(voiceID)
-                            }
-                        }
-                        .labelsHidden().accessibilityLabel("Read-aloud voice")
+                if case .ready(let provider) = status {
+                    VoicePicker(label: "Read-aloud voice", purpose: .readAloud, provider: provider,
+                                language: VoiceLanguage(rawValue: language) ?? .english,
+                                fallback: SpeechSynthesis.support(provider)?.defaultVoice ?? "",
+                                voiceID: $voiceID) {
                         Button(action: preview) {
                             Image(systemName: isPreviewing ? "stop.fill" : "play.fill")
                         }
