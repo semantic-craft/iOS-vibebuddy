@@ -24,11 +24,15 @@ final class SettingsCredential: ObservableObject {
     }
     /// Metadata only — never prompts.
     func refresh() { present = provider.hasAPIKey }
+    /// Decrypt the stored key. A previous read that came back empty — a failed
+    /// or cancelled Keychain authorization — is retried, and leaves `configured`
+    /// false so the row reports a missing key rather than sending an empty one.
     func load() {
         refresh()
-        guard !loaded else { return }
+        guard !loaded || value.isEmpty else { return }
         value = provider.apiKey ?? ""
         loaded = true
+        if value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { present = false }
     }
     func edit(_ value: String) {
         self.value = value

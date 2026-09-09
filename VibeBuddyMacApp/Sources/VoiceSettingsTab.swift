@@ -162,6 +162,17 @@ struct VoiceSettingsTab: View {
     }
 }
 
+private extension SettingsTestCoordinator {
+    /// The account holds an item but it could not be decrypted — a failed or
+    /// cancelled Keychain authorization. Say so where this row's other results
+    /// appear, rather than calling the provider with an empty key.
+    func reportUnreadableKey(_ purpose: Purpose) {
+        start(purpose, timeout: .seconds(5), operation: {
+            .failure("Could not read the saved API key. Open this provider’s account below and paste the key again.")
+        })
+    }
+}
+
 // MARK: - Row chrome
 
 /// One feature row: switch, name with status, the controls that provider governs,
@@ -395,6 +406,7 @@ private struct ConversationFeatureRow: View {
         guard let configuration, credential.configured, configuration.failure == nil,
               !tests.isBusy, !reader.busy else { return }
         credential.load()
+        guard credential.configured else { return tests.reportUnreadableKey(.voice) }
         let session = configuration.makeSession(apiKey: credential.value)
         tests.start(.voice, timeout: .seconds(15), operation: {
             await SettingsModelTestOperations.handshake(session: session, voice: configuration.voice)
@@ -491,6 +503,7 @@ private struct SummaryFeatureRow: View {
         guard let configuration, credential.configured, configuration.configurationFailure == nil,
               !tests.isBusy, !reader.busy else { return }
         credential.load()
+        guard credential.configured else { return tests.reportUnreadableKey(.summary) }
         let key = credential.value
         tests.start(.summary, timeout: .seconds(13), operation: {
             await SettingsModelTestOperations.summary(configuration: configuration, apiKey: key)
@@ -620,13 +633,15 @@ private struct ReadAloudFeatureRow: View {
                         }
                         .labelsHidden().accessibilityLabel("Read-aloud voice")
                         Button(action: preview) {
-                            Image(systemName: tests.purpose == .readAloud && tests.phase == .running
-                                  ? "stop.fill" : "play.fill")
+                            Image(systemName: isPreviewing ? "stop.fill" : "play.fill")
                         }
-                        .disabled(previewFailure != nil || reader.busy
-                                  || (tests.isBusy && tests.purpose != .readAloud))
-                        .help(previewFailure.map { LocalizedStringKey($0) }
-                              ?? "Play one sample line. This calls the provider and is billed.")
+                        // While this row owns the test the button *is* Stop, so it
+                        // stays enabled — `reader.busy` is true for the whole preview.
+                        .disabled(isPreviewing ? false
+                                  : (previewFailure != nil || reader.busy || tests.isBusy))
+                        .help(isPreviewing ? "Stop the preview."
+                              : (previewFailure.map { LocalizedStringKey($0) }
+                                 ?? "Play one sample line. This calls the provider and is billed."))
                         .accessibilityLabel("Preview the read-aloud voice")
                         .accessibilityIdentifier("readAloudPreview")
                     }
@@ -660,10 +675,14 @@ private struct ReadAloudFeatureRow: View {
         }
     }
 
+    /// This row owns the running test, so its button reads and acts as Stop.
+    private var isPreviewing: Bool { tests.purpose == .readAloud && tests.isBusy }
+
     private func preview() {
-        if tests.purpose == .readAloud, tests.isBusy { tests.cancel(); return }
+        if isPreviewing { tests.cancel(); return }
         guard previewFailure == nil, !tests.isBusy, !reader.busy else { return }
         credential.load()
+        guard credential.configured else { return tests.reportUnreadableKey(.readAloud) }
         let config = configuration, key = credential.value, reader = reader
         let text = NSLocalizedString("Hello, I’m your work companion. The task is complete, and device verification is still pending.", comment: "Synthetic read-aloud preview")
         tests.start(.readAloud, timeout: .seconds(35), operation: {

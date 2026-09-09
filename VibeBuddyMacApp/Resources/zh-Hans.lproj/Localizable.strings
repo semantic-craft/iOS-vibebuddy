@@ -427,6 +427,10 @@
 
 "Needs attention" = "需要处理";
 
+"Could not read the saved API key. Open this provider’s account below and paste the key again." = "无法读取已保存的 API Key。请在下方该服务商的账号里重新粘贴密钥。";
+
+"Stop the preview." = "停止试听。";
+
 "Opens this provider’s account below." = "打开下方对应的服务商账号。";
 
 "Voice conversation provider" = "语音对话服务商";
