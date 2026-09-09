@@ -47,9 +47,9 @@ struct ReadAloudPurposeSettingsTests {
         // Nothing configured anywhere: waiting, not Qwen.
         #expect(VoiceSettings.readAloudStatus(defaults: defaults) == .waitingForSummaryProvider)
         #expect(VoiceSettings.pinnedReadAloudProvider(defaults: defaults) == nil)
-        // A summary provider without a synthesizer is reported, not replaced.
+        // Following means following, whichever vendor summaries picked.
         defaults.set("openai", forKey: VoiceSettings.summaryProviderKey)
-        #expect(VoiceSettings.readAloudStatus(defaults: defaults) == .unsupported(.openai))
+        #expect(VoiceSettings.readAloudStatus(defaults: defaults) == .ready(.openai))
         defaults.set("qwen", forKey: VoiceSettings.summaryProviderKey)
         #expect(VoiceSettings.readAloudStatus(defaults: defaults) == .ready(.qwen))
         // An explicit "follow summaries" and a value this build cannot parse both follow.
@@ -67,7 +67,7 @@ struct ReadAloudPurposeSettingsTests {
         defaults.set("openai", forKey: VoiceSettings.summaryProviderKey)
         #expect(VoiceSettings.readAloudStatus(defaults: defaults) == .ready(.qwen))
         VoiceSettings.selectReadAloudProvider(nil, defaults: defaults)
-        #expect(VoiceSettings.readAloudStatus(defaults: defaults) == .unsupported(.openai))
+        #expect(VoiceSettings.readAloudStatus(defaults: defaults) == .ready(.openai))
     }
 
     @Test func migrationMovesLegacyKeysOnceAndNeverOverwrites() throws {
@@ -94,11 +94,14 @@ struct ReadAloudPurposeSettingsTests {
         #expect(VoiceSettings.readAloudVoice(.qwen, defaults: defaults) == "kept-voice")
     }
 
-    @Test func onlyProvidersWithASynthesizerCanReadAloud() throws {
-        #expect(VoiceProvider.readAloudProviders == [.qwen])
-        #expect(SpeechSynthesis.synthesizer(VoiceSettings.readAloudConfiguration(.qwen)) != nil)
-        for p in VoiceProvider.allCases where !p.supportsReadAloud {
-            #expect(SpeechSynthesis.synthesizer(VoiceSettings.readAloudConfiguration(p)) == nil)
+    @Test func everyProviderCanReadAloud() throws {
+        // Doubao stays out of summaries, but read-aloud is a separate question:
+        // it speaks, so it can be picked here — only never inherited.
+        #expect(!VoiceProvider.summaryProviders.contains(.doubao))
+        for provider in VoiceProvider.allCases {
+            let support = SpeechSynthesis.support(provider)
+            #expect(!support.defaultModel.isEmpty, "\(provider) model")
+            #expect(!support.defaultVoice.isEmpty, "\(provider) voice")
         }
     }
 }

@@ -549,17 +549,27 @@ private struct ReadAloudFeatureRow: View {
         _selection = selection
         self.reveal = reveal
         let keyed = status.provider ?? .qwen
-        _modelID = AppStorage(wrappedValue: SpeechSynthesis.support(keyed)?.defaultModel ?? "",
+        _modelID = AppStorage(wrappedValue: SpeechSynthesis.support(keyed).defaultModel,
                               VoiceSettings.readAloudModelKey(keyed))
         // Deliberately empty: a stored voice wins, and everything else is
         // decided by the language-aware fallback below.
         _voiceID = AppStorage(wrappedValue: "", VoiceSettings.readAloudVoiceKey(keyed))
     }
 
+    private var spokenLanguage: VoiceLanguage { VoiceLanguage(rawValue: language) ?? .english }
+    /// What will actually be spoken. A provider picked for the first time has
+    /// nothing stored yet, and the picker shows the language default without
+    /// writing it — so preview and the request must resolve it the same way
+    /// rather than treat "nothing stored" as "no voice".
+    private var effectiveVoice: String {
+        voiceID.isEmpty
+            ? VoiceSettings.readAloudVoice(status.provider ?? .qwen, language: spokenLanguage)
+            : voiceID
+    }
     private var configuration: SpeechSynthesisConfiguration {
         let value = workspace.trimmingCharacters(in: .whitespacesAndNewlines)
         return .init(provider: status.provider ?? .qwen,
-                     model: modelID.trimmingCharacters(in: .whitespacesAndNewlines), voice: voiceID,
+                     model: modelID.trimmingCharacters(in: .whitespacesAndNewlines), voice: effectiveVoice,
                      qwenWorkspaceID: value.isEmpty ? nil : value, qwenUseIntl: intl)
     }
     /// Why preview cannot run — the same order the status pill reports.
@@ -570,7 +580,7 @@ private struct ReadAloudFeatureRow: View {
             return String(format: NSLocalizedString("Save your %@ API key first.", comment: "Read-aloud needs a key"), provider.display)
         }
         if configuration.model.isEmpty { return NSLocalizedString("Enter a speech synthesis model before previewing.", comment: "Read-aloud model missing") }
-        if voiceID.isEmpty { return NSLocalizedString("Enter a voice ID or use the language default.", comment: "Read-aloud voice missing") }
+        if effectiveVoice.isEmpty { return NSLocalizedString("Enter a voice ID or use the language default.", comment: "Read-aloud voice missing") }
         if provider == .qwen {
             let config = CompletionSummaryConfiguration(enabled: true, provider: .qwen, modelID: configuration.model,
                 qwenUseIntl: intl, qwenWorkspaceID: workspace)
@@ -579,14 +589,9 @@ private struct ReadAloudFeatureRow: View {
         if voiceChat.isActive { return NSLocalizedString("Stop the current voice conversation or reading before previewing.", comment: "Read-aloud busy") }
         return nil
     }
-    private var detail: String? {
-        if case .unsupported = status { return ReadAloud.unavailability(status) }
-        return nil
-    }
     private var rowStatus: VoiceFeatureStatus {
         switch status {
         case .waitingForSummaryProvider: return .waitingForSummaries
-        case .unsupported: return .needsAttention
         case .ready(let provider):
             if !credential.configured { return .needsKey(provider) }
             if !summariesEnabled { return .nothingToRead }
@@ -613,16 +618,16 @@ private struct ReadAloudFeatureRow: View {
 
     var body: some View {
         FeatureRow(feature: .readAloud, dependsOnPrevious: true, enabled: $enabled,
-                   status: rowStatus, detail: detail, hint: hint, tests: tests, reveal: reveal) {
+                   status: rowStatus, hint: hint, tests: tests, reveal: reveal) {
           VStack(alignment: .leading, spacing: 6) {
             ControlLine {
                 ProviderPicker(label: "Read-aloud provider", selection: $selection,
-                               options: VoiceProvider.readAloudProviders,
+                               options: VoiceProvider.allCases,
                                leading: ("", followTitle))
             } model: {
                 if case .ready(let provider) = status {
                     IDField(label: "Speech synthesis model",
-                            placeholder: SpeechSynthesis.support(provider)?.defaultModel ?? "",
+                            placeholder: SpeechSynthesis.support(provider).defaultModel,
                             text: $modelID, browse: provider.modelsURL,
                             browseHelp: "Browse available models", identifier: "readAloudModelID")
                 } else { Text(verbatim: "—").foregroundStyle(.secondary) }
@@ -630,8 +635,7 @@ private struct ReadAloudFeatureRow: View {
                 if case .ready(let provider) = status {
                     VoicePicker(label: "Read-aloud voice", purpose: .readAloud, provider: provider,
                                 language: VoiceLanguage(rawValue: language) ?? .english,
-                                fallback: VoiceSettings.readAloudVoice(provider,
-                                    language: VoiceLanguage(rawValue: language) ?? .english),
+                                fallback: VoiceSettings.readAloudVoice(provider, language: spokenLanguage),
                                 voiceID: $voiceID) {
                         Button(action: preview) {
                             Image(systemName: isPreviewing ? "stop.fill" : "play.fill")
