@@ -65,6 +65,8 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
     }
 
     public var apiKey: String? { KeychainStore.get(keychainAccount) }
+    /// Whether a key is stored, without reading it — see `KeychainStore.exists`.
+    public var hasAPIKey: Bool { KeychainStore.exists(keychainAccount) }
 
     /// Where to browse this provider's available model IDs.
     public var modelsURL: URL {
