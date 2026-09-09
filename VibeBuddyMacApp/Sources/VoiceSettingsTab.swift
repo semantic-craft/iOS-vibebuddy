@@ -266,10 +266,14 @@ private struct ControlLine<P: View, M: View, V: View, T: View>: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 8) {
-            provider.frame(maxWidth: .infinity).layoutPriority(1)
-            model.frame(maxWidth: .infinity).layoutPriority(1)
-            voice.frame(maxWidth: .infinity).layoutPriority(2)
-            trailing
+            // Minimums, not just proportions: the voice cell carries the widest
+            // text and without them it squeezes the other two into slivers. The
+            // row's own action keeps its full width so it cannot be clipped off
+            // the right edge.
+            provider.frame(minWidth: 120, maxWidth: .infinity)
+            model.frame(minWidth: 120, maxWidth: .infinity)
+            voice.frame(minWidth: 170, maxWidth: .infinity).layoutPriority(1)
+            trailing.fixedSize().layoutPriority(3)
         }
     }
 }
