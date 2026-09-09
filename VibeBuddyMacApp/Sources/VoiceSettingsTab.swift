@@ -153,7 +153,7 @@ struct VoiceSettingsTab: View {
     }
     private var summarySelection: Binding<String> {
         Binding(get: { summaryProvider?.rawValue ?? "" }, set: { raw in
-            guard let value = VoiceProvider(rawValue: raw), value.supportsCompletionSummaries else { return }
+            guard raw.isEmpty || VoiceProvider(rawValue: raw)?.supportsCompletionSummaries == true else { return }
             summaryChoice = raw
         })
     }
@@ -363,7 +363,7 @@ private struct ConversationFeatureRow: View {
         let voice = voiceID.trimmingCharacters(in: .whitespacesAndNewlines)
         let workspace = workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
         return .init(provider: provider, model: model.isEmpty ? provider.defaultModel : model,
-                     voice: voice.isEmpty ? provider.defaultVoice(selectedLanguage) : voice,
+                     voice: voice.isEmpty ? VoiceSettings.voice(provider, selectedLanguage) : voice,
                      workspace: workspace.isEmpty ? nil : workspace, international: intl)
     }
     private var detail: String? { provider == nil ? nil : configuration?.failure }
@@ -391,7 +391,8 @@ private struct ConversationFeatureRow: View {
                 if let provider {
                     VoicePicker(label: "Conversation voice", purpose: .conversation, provider: provider,
                                 language: VoiceLanguage(rawValue: language) ?? .english,
-                                fallback: provider.defaultVoice(VoiceLanguage(rawValue: language) ?? .english),
+                                fallback: VoiceSettings.voice(provider,
+                                    VoiceLanguage(rawValue: language) ?? .english),
                                 voiceID: $voiceID)
                 } else { Text(verbatim: "—").foregroundStyle(.secondary) }
             } trailing: {
