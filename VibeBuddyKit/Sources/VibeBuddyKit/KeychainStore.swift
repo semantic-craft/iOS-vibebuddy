@@ -297,17 +297,34 @@ public enum VoiceSettings {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return v.isEmpty ? (SpeechSynthesis.support(p)?.defaultModel ?? "") : v
     }
-    /// Blank falls back to the catalog's first voice **for the conversation
-    /// language** — a fresh English setup must not be handed a Chinese voice,
-    /// which is the accent bug this catalog exists to fix.
+    /// Blank falls back to a voice that speaks **the conversation language** —
+    /// a fresh English setup must not be handed a Chinese voice, which is the
+    /// accent bug this catalog exists to fix.
     public static func readAloudVoice(_ p: VoiceProvider, language: VoiceLanguage? = nil,
                                       defaults: UserDefaults = .standard) -> String {
         let v = (defaults.string(forKey: readAloudVoiceKey(p)) ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard v.isEmpty else { return v }
         let spoken = language ?? conversationLanguage(defaults: defaults)
-        return VoiceCatalog.defaultVoice(.readAloud, p, language: spoken)
-            ?? SpeechSynthesis.support(p)?.defaultVoice ?? ""
+        return languageDefault(.readAloud, p, spoken,
+                               curated: SpeechSynthesis.support(p)?.defaultVoice ?? "")
+    }
+
+    /// How a blank voice ID becomes a real one, for either purpose.
+    ///
+    /// The catalog is the authority on **which language a voice speaks**; the
+    /// vendor constant is the authority on **which voice we like**. So keep the
+    /// curated pick whenever it speaks the conversation language — that is how
+    /// Gemini keeps Aoede for Chinese and Puck for English — and only when it
+    /// does not (Doubao's Vivi is Chinese-only) fall to the catalog's first
+    /// voice for that language. A constant the catalog does not list cannot be
+    /// vouched for, so it loses to the catalog too, and is kept only as the
+    /// last resort for a provider with no catalog entries at all.
+    static func languageDefault(_ purpose: VoicePurpose, _ p: VoiceProvider,
+                                _ language: VoiceLanguage, curated: String) -> String {
+        let listed = VoiceCatalog.voices(purpose, p).first { $0.id == curated }
+        if listed?.speaks(language) == true { return curated }
+        return VoiceCatalog.defaultVoice(purpose, p, language: language) ?? curated
     }
 
     public static func readAloudConfiguration(_ p: VoiceProvider,
@@ -374,12 +391,14 @@ public enum VoiceSettings {
         return v.isEmpty ? p.defaultModel : v
     }
 
-    /// The voice ID for a provider, user-editable (blank → a language-appropriate
-    /// default). CN voices carry an accent in English, so the default is chosen
-    /// from the conversation language.
-    public static func voice(_ p: VoiceProvider, _ language: VoiceLanguage) -> String {
-        let v = (UserDefaults.standard.string(forKey: voiceKey(p)) ?? "")
+    /// The realtime voice ID for a provider, user-editable (blank → a
+    /// language-appropriate default). CN voices carry an accent in English, so
+    /// the default is resolved through the catalog exactly as read-aloud is.
+    public static func voice(_ p: VoiceProvider, _ language: VoiceLanguage,
+                             defaults: UserDefaults = .standard) -> String {
+        let v = (defaults.string(forKey: voiceKey(p)) ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return v.isEmpty ? p.defaultVoice(language) : v
+        guard v.isEmpty else { return v }
+        return languageDefault(.conversation, p, language, curated: p.defaultVoice(language))
     }
 }

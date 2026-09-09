@@ -267,7 +267,23 @@ private struct ProviderSection: View {
     }
     private var effectiveVoice: String {
         let value = voice.trimmingCharacters(in: .whitespacesAndNewlines)
-        return value.isEmpty ? provider.defaultVoice(VoiceSettings.conversationLanguage) : value
+        return value.isEmpty ? recommendedVoice : value
+    }
+    /// What a blank Voice ID resolves to — the same call the realtime session
+    /// makes, so this screen never advertises a voice the call will not use.
+    private var recommendedVoice: String {
+        VoiceSettings.voice(provider, VoiceSettings.conversationLanguage)
+    }
+    /// Doubao's summary line names the voice, and the recommended one changes
+    /// with the conversation language (Vivi in Chinese, Tim in English), so the
+    /// name comes from the catalog rather than being written into the sentence.
+    private var recommendedSummary: LocalizedStringKey {
+        guard effectiveModel == provider.defaultModel, effectiveVoice == recommendedVoice else {
+            return "Your custom model or voice is retained. Review Advanced settings before testing."
+        }
+        let name = VoiceCatalog.voices(.conversation, provider)
+            .first { $0.id == recommendedVoice }?.name ?? recommendedVoice
+        return "The recommended model and \(name) voice are ready. Only your realtime API key is required."
     }
     private var configurationValid: Bool {
         let allowed = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-".utf8)
@@ -331,7 +347,7 @@ private struct ProviderSection: View {
                 }
             } else if provider == .doubao {
                 Text(effectiveModel == provider.defaultModel ? "Doubao realtime voice 3.0 · Recommended" : "Custom realtime model").font(.headline)
-                Text(effectiveModel == provider.defaultModel && effectiveVoice == provider.defaultVoice(.english) ? "The recommended model and Vivi voice are ready. Only your realtime API key is required." : "Your custom model or voice is retained. Review Advanced settings before testing.")
+                Text(recommendedSummary)
                     .font(.caption).foregroundStyle(.secondary)
                 DisclosureGroup("Advanced settings") {
                     customFields

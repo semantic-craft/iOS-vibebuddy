@@ -103,6 +103,74 @@ struct VoiceDefaultsInCatalogTests {
     }
 }
 
+@Suite("A fresh conversation voice follows the language")
+struct ConversationDefaultVoiceTests {
+    private func suite() throws -> (UserDefaults, String) {
+        let name = "conversation-voice-\(UUID())"
+        return (try #require(UserDefaults(suiteName: name)), name)
+    }
+
+    @Test func doubaoEnglishNoLongerStartsOnAChineseVoice() throws {
+        let (defaults, name) = try suite()
+        defer { defaults.removePersistentDomain(forName: name) }
+        // The bug: Vivi is Chinese-only, and the vendor constant handed her out
+        // whatever the conversation language was.
+        #expect(VoiceProvider.doubao.defaultVoice(.english) == "zh_female_vv_jupiter_bigtts")
+        let english = VoiceSettings.voice(.doubao, .english, defaults: defaults)
+        #expect(VoiceCatalog.voices(.conversation, .doubao).first { $0.id == english }?.language == .english)
+        #expect(VoiceSettings.voice(.doubao, .chinese, defaults: defaults) == "zh_female_vv_jupiter_bigtts")
+    }
+
+    @Test func aCuratedVoiceThatSpeaksTheLanguageIsKept() throws {
+        let (defaults, name) = try suite()
+        defer { defaults.removePersistentDomain(forName: name) }
+        // Gemini's voices are multilingual, so its own language branch stands —
+        // the catalog corrects the language, it does not overrule the taste.
+        #expect(VoiceSettings.voice(.gemini, .english, defaults: defaults) == "Puck")
+        #expect(VoiceSettings.voice(.gemini, .chinese, defaults: defaults) == "Aoede")
+        #expect(VoiceSettings.voice(.openai, .chinese, defaults: defaults) == "marin")
+        // Qwen's realtime voices are Chinese-only, so English has nothing better.
+        #expect(VoiceSettings.voice(.qwen, .english, defaults: defaults) == "longanqian")
+    }
+
+    @Test func aStoredVoiceOutranksTheLanguage() throws {
+        let (defaults, name) = try suite()
+        defer { defaults.removePersistentDomain(forName: name) }
+        defaults.set("S_MyClonedVoice_42", forKey: VoiceSettings.voiceKey(.doubao))
+        #expect(VoiceSettings.voice(.doubao, .english, defaults: defaults) == "S_MyClonedVoice_42")
+    }
+
+    @Test func everyProviderAndLanguageResolvesToACatalogVoice() throws {
+        let (defaults, name) = try suite()
+        defer { defaults.removePersistentDomain(forName: name) }
+        for provider in VoiceProvider.allCases {
+            for language in [VoiceLanguage.english, .chinese] {
+                let id = VoiceSettings.voice(provider, language, defaults: defaults)
+                let voice = VoiceCatalog.voices(.conversation, provider).first { $0.id == id }
+                #expect(voice != nil, "\(provider) \(language) → \(id)")
+                // And it is never a voice documented as speaking another one.
+                #expect(voice?.speaks(language) == true
+                        || VoiceCatalog.voices(.conversation, provider).allSatisfy { !$0.speaks(language) },
+                        "\(provider) \(language) → \(id)")
+            }
+        }
+    }
+
+    /// The picker's shortlist and the voice the session actually opens with must
+    /// agree, or the row shows one voice and the call speaks another.
+    @Test func theShortlistLeadsWithTheVoiceTheSessionWillUse() throws {
+        let (defaults, name) = try suite()
+        defer { defaults.removePersistentDomain(forName: name) }
+        for provider in VoiceProvider.allCases {
+            for language in [VoiceLanguage.english, .chinese] {
+                let id = VoiceSettings.voice(provider, language, defaults: defaults)
+                #expect(VoiceCatalog.shortlist(.conversation, provider, language: language)
+                    .contains { $0.id == id }, "\(provider) \(language) → \(id)")
+            }
+        }
+    }
+}
+
 @Suite("A fresh read-aloud voice follows the language")
 struct ReadAloudDefaultVoiceTests {
     private func suite() throws -> (UserDefaults, String) {
