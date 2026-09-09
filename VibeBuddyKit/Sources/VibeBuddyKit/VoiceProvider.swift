@@ -48,14 +48,18 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
         }
     }
 
-    /// A natural default voice for the conversation language. Verified voice
-    /// names per provider; the user can override with a free-text Voice ID.
+    /// The voice we pick for this provider when the user has not — taste, not
+    /// language. A vendor whose voices are all multilingual can still branch
+    /// (Gemini), but a vendor whose pick speaks only one language does not
+    /// pretend otherwise: Doubao's Vivi is Chinese, and `VoiceSettings.voice`
+    /// is what swaps it for an English voice when the conversation is English.
+    /// Call that, not this — this is the curated pick, not the resolved one.
     public func defaultVoice(_ language: VoiceLanguage) -> String {
         switch self {
         case .qwen:   return "longanqian"   // Qwen-Audio system voice (multilingual)
         case .openai: return "marin"
         case .gemini: return language == .chinese ? "Aoede" : "Puck"
-        case .doubao: return "zh_female_vv_jupiter_bigtts"
+        case .doubao: return "zh_female_vv_jupiter_bigtts"   // Chinese; English → the catalog
         }
     }
 
