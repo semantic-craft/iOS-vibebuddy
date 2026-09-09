@@ -76,7 +76,9 @@ struct ReadAloudPurposeSettingsTests {
         // Absent legacy keys: no side effect, and the provider default still applies.
         VoiceSettings.migrateLegacyReadAloudKeys(defaults: defaults)
         #expect(defaults.object(forKey: VoiceSettings.readAloudModelKey(.qwen)) == nil)
-        #expect(VoiceSettings.readAloudVoice(.qwen, defaults: defaults) == QwenSpeechSynthesizer.defaultVoice)
+        // No legacy key and nothing stored: the language decides, not a constant.
+        #expect(VoiceSettings.readAloudVoice(.qwen, language: .chinese, defaults: defaults)
+                == QwenSpeechSynthesizer.defaultVoice)
 
         defaults.set("custom-model", forKey: VoiceSettings.legacyReadAloudModelKey)
         defaults.set("longanlingxi", forKey: VoiceSettings.legacyReadAloudVoiceKey)

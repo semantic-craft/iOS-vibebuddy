@@ -297,10 +297,17 @@ public enum VoiceSettings {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return v.isEmpty ? (SpeechSynthesis.support(p)?.defaultModel ?? "") : v
     }
-    public static func readAloudVoice(_ p: VoiceProvider, defaults: UserDefaults = .standard) -> String {
+    /// Blank falls back to the catalog's first voice **for the conversation
+    /// language** — a fresh English setup must not be handed a Chinese voice,
+    /// which is the accent bug this catalog exists to fix.
+    public static func readAloudVoice(_ p: VoiceProvider, language: VoiceLanguage? = nil,
+                                      defaults: UserDefaults = .standard) -> String {
         let v = (defaults.string(forKey: readAloudVoiceKey(p)) ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return v.isEmpty ? (SpeechSynthesis.support(p)?.defaultVoice ?? "") : v
+        guard v.isEmpty else { return v }
+        let spoken = language ?? conversationLanguage(defaults: defaults)
+        return VoiceCatalog.defaultVoice(.readAloud, p, language: spoken)
+            ?? SpeechSynthesis.support(p)?.defaultVoice ?? ""
     }
 
     public static func readAloudConfiguration(_ p: VoiceProvider,
@@ -310,6 +317,11 @@ public enum VoiceSettings {
         return SpeechSynthesisConfiguration(provider: p,
             model: readAloudModel(p, defaults: defaults), voice: readAloudVoice(p, defaults: defaults),
             qwenWorkspaceID: workspace.isEmpty ? nil : workspace, qwenUseIntl: defaults.bool(forKey: regionIntlKey))
+    }
+
+    /// The shared conversation language, from an injectable store.
+    public static func conversationLanguage(defaults: UserDefaults = .standard) -> VoiceLanguage {
+        VoiceLanguage(rawValue: defaults.string(forKey: conversationLanguageKey) ?? "") ?? .english
     }
 
     /// Move the Qwen-only read-aloud model / voice onto the per-provider keys.

@@ -51,10 +51,9 @@ struct VoicePicker<Trailing: View>: View {
                         .accessibilityIdentifier("customVoiceID")
                     trailing
                 }
-                Button("Back to the list") {
-                    custom = false
-                    if !all.contains(where: { $0.id == voiceID }) { voiceID = "" }
-                }
+                // The list keeps a row for an off-catalog value, so returning to
+                // it must not discard the ID the user just typed.
+                Button("Back to the list") { custom = false }
                 .buttonStyle(.link).font(.caption)
             } else {
                 HStack(spacing: 6) {

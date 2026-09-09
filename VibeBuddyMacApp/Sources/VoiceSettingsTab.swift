@@ -551,8 +551,9 @@ private struct ReadAloudFeatureRow: View {
         let keyed = status.provider ?? .qwen
         _modelID = AppStorage(wrappedValue: SpeechSynthesis.support(keyed)?.defaultModel ?? "",
                               VoiceSettings.readAloudModelKey(keyed))
-        _voiceID = AppStorage(wrappedValue: SpeechSynthesis.support(keyed)?.defaultVoice ?? "",
-                              VoiceSettings.readAloudVoiceKey(keyed))
+        // Deliberately empty: a stored voice wins, and everything else is
+        // decided by the language-aware fallback below.
+        _voiceID = AppStorage(wrappedValue: "", VoiceSettings.readAloudVoiceKey(keyed))
     }
 
     private var configuration: SpeechSynthesisConfiguration {
@@ -629,7 +630,8 @@ private struct ReadAloudFeatureRow: View {
                 if case .ready(let provider) = status {
                     VoicePicker(label: "Read-aloud voice", purpose: .readAloud, provider: provider,
                                 language: VoiceLanguage(rawValue: language) ?? .english,
-                                fallback: SpeechSynthesis.support(provider)?.defaultVoice ?? "",
+                                fallback: VoiceSettings.readAloudVoice(provider,
+                                    language: VoiceLanguage(rawValue: language) ?? .english),
                                 voiceID: $voiceID) {
                         Button(action: preview) {
                             Image(systemName: isPreviewing ? "stop.fill" : "play.fill")

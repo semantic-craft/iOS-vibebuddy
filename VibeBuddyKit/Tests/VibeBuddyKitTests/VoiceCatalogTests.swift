@@ -102,3 +102,44 @@ struct VoiceDefaultsInCatalogTests {
         }
     }
 }
+
+@Suite("A fresh read-aloud voice follows the language")
+struct ReadAloudDefaultVoiceTests {
+    private func suite() throws -> (UserDefaults, String) {
+        let name = "read-aloud-voice-\(UUID())"
+        return (try #require(UserDefaults(suiteName: name)), name)
+    }
+
+    @Test func englishNeverStartsOnAChineseVoice() throws {
+        let (defaults, name) = try suite()
+        defer { defaults.removePersistentDomain(forName: name) }
+        // Nothing stored: the language decides, not the vendor's constant.
+        defaults.set(VoiceLanguage.english.rawValue, forKey: VoiceSettings.conversationLanguageKey)
+        let english = VoiceSettings.readAloudVoice(.qwen, defaults: defaults)
+        #expect(VoiceCatalog.voices(.readAloud, .qwen).first { $0.id == english }?.language == .english)
+        defaults.set(VoiceLanguage.chinese.rawValue, forKey: VoiceSettings.conversationLanguageKey)
+        let chinese = VoiceSettings.readAloudVoice(.qwen, defaults: defaults)
+        #expect(VoiceCatalog.voices(.readAloud, .qwen).first { $0.id == chinese }?.language == .chinese)
+        #expect(english != chinese)
+    }
+
+    @Test func aStoredVoiceOutranksTheLanguage() throws {
+        let (defaults, name) = try suite()
+        defer { defaults.removePersistentDomain(forName: name) }
+        defaults.set(VoiceLanguage.english.rawValue, forKey: VoiceSettings.conversationLanguageKey)
+        defaults.set("S_MyClonedVoice_42", forKey: VoiceSettings.readAloudVoiceKey(.qwen))
+        #expect(VoiceSettings.readAloudVoice(.qwen, defaults: defaults) == "S_MyClonedVoice_42")
+    }
+
+    @Test func everyProviderAndLanguageResolvesToACatalogVoice() throws {
+        let (defaults, name) = try suite()
+        defer { defaults.removePersistentDomain(forName: name) }
+        for provider in VoiceProvider.allCases {
+            for language in [VoiceLanguage.english, .chinese] {
+                let id = VoiceSettings.readAloudVoice(provider, language: language, defaults: defaults)
+                #expect(VoiceCatalog.voices(.readAloud, provider).contains { $0.id == id },
+                        "\(provider) \(language) → \(id)")
+            }
+        }
+    }
+}
