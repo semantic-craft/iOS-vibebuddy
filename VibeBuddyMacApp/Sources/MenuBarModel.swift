@@ -104,7 +104,7 @@ final class MenuBarModel: ObservableObject {
     private var lastActivityKey: String?
     private let notifier = UserNotificationsNotifier()
     private let completionSummaryService = CompletionSummaryService()
-    let qwenReadAloud = QwenReadAloud()
+    let readAloud = ReadAloud()
     /// Session cues go to the glance first (a card under the notch) and only
     /// fall back to a system banner while the glance is hidden. Lazy so the
     /// router can point back at this model.
@@ -115,18 +115,18 @@ final class MenuBarModel: ObservableObject {
         delivery: deliveryRecorder,
         onScheduled: { [weak self] alert in
             Task { @MainActor in
-                guard let self, UserDefaults.standard.bool(forKey: QwenReadAloud.enabledKey),
+                guard let self, UserDefaults.standard.bool(forKey: ReadAloud.enabledKey),
                       !self.voiceChat.isActive, !alert.isReminder, alert.sound == .agentDone,
                       let notice = alert.session.completionNotice, notice.state == .summary,
                       let text = notice.text, await self.isCurrentCompletion(alert) else { return }
-                guard UserDefaults.standard.bool(forKey: QwenReadAloud.enabledKey), !self.voiceChat.isActive else { return }
+                guard UserDefaults.standard.bool(forKey: ReadAloud.enabledKey), !self.voiceChat.isActive else { return }
                 guard (alert.session.agent != .grokBot || self.grokBotEnabled),
                       !ForegroundTerminal.sourceAppSuppressesSpeech(for: alert.session,
                         frontmostBundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier) else { return }
-                self.qwenReadAloud.speak(text, id: notice.id) { [weak self] in
+                self.readAloud.speak(text, id: notice.id) { [weak self] in
                     guard let self, await self.isCurrentCompletion(alert) else { return false }
                     // Recheck live speech preferences and foreground after the store actor hop.
-                    guard UserDefaults.standard.bool(forKey: QwenReadAloud.enabledKey), !self.voiceChat.isActive,
+                    guard UserDefaults.standard.bool(forKey: ReadAloud.enabledKey), !self.voiceChat.isActive,
                           alert.session.agent != .grokBot || self.grokBotEnabled else { return false }
                     return !ForegroundTerminal.sourceAppSuppressesSpeech(for: alert.session,
                         frontmostBundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
@@ -153,7 +153,7 @@ final class MenuBarModel: ObservableObject {
             return BuddyScope.included(from: self.sessions, selectedIDs: self.buddySessionIDs)
         },
         actionHandler: { [weak self] action in self?.performVoiceAction(action) ?? "" },
-        onStart: { [weak self] in self?.qwenReadAloud.stop() })
+        onStart: { [weak self] in self?.readAloud.stop() })
     private var pollTask: Task<Void, Never>?
     private var glance: GlanceWindow?
     @Published private(set) var pairingInProgress = false
@@ -259,7 +259,7 @@ final class MenuBarModel: ObservableObject {
             self?.objectWillChange.send()
         }
         Self.shared = self
-        qwenReadAloud.canSpeak = { [weak self] in self?.voiceChat.isActive == false }
+        readAloud.canSpeak = { [weak self] in self?.voiceChat.isActive == false }
         notifier.validateCompletion = { [weak self] alert in
             guard let self else { return false }
             return await self.isCurrentCompletion(alert)

@@ -1,13 +1,25 @@
 import Foundation
 
 /// Qwen-Audio 3.0 TTS, one bounded request. Only the supplied text leaves the app.
-public enum QwenSpeechSynthesis {
+public struct QwenSpeechSynthesizer: SpeechSynthesizer {
     public static let defaultModel = "qwen-audio-3.0-tts-flash"
     public static let defaultVoice = "longanfengyue"
-    public enum Failure: String, Error { case configuration, rejected, transport, emptyAudio, excessiveAudio }
 
-    public static func synthesize(_ text: String, apiKey: String, model: String = defaultModel,
-        voice: String = defaultVoice, workspaceID: String?, useIntl: Bool) async throws -> Data {
+    let model: String
+    let voice: String
+    let workspaceID: String?
+    let useIntl: Bool
+
+    public init(model: String = defaultModel, voice: String = defaultVoice,
+                workspaceID: String?, useIntl: Bool) {
+        self.model = model.isEmpty ? Self.defaultModel : model
+        self.voice = voice.isEmpty ? Self.defaultVoice : voice
+        self.workspaceID = workspaceID
+        self.useIntl = useIntl
+    }
+
+    public func synthesize(_ text: String, apiKey: String) async throws -> Data {
+        typealias Failure = SpeechSynthesisFailure
         guard !text.isEmpty, text.count <= 180, !apiKey.isEmpty,
               let realtimeURL = QwenRealtimeSession.endpoint(model: model, workspaceID: workspaceID, useIntl: useIntl),
               var components = URLComponents(url: realtimeURL, resolvingAgainstBaseURL: false) else { throw Failure.configuration }

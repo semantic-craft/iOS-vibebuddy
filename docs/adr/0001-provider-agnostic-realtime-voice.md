@@ -34,3 +34,21 @@ the summary provider's credential and text model. Mac read-aloud remains a
 separate Qwen TTS capability. Settings checks use isolated sessions without
 microphone capture, task context or tools; configuration confirmation is not
 conversation or audio acceptance.
+
+## Read-aloud joins the abstraction (2026-09-09)
+
+The 2026-09-08 section above said Mac read-aloud "remains a separate Qwen TTS
+capability". It no longer does: the same decision now covers text-to-speech.
+Synthesis sits behind a `SpeechSynthesizer` protocol with one conformance per
+vendor, and the read-aloud player obtains audio through the protocol without
+knowing which vendor is speaking. Adding a vendor is one Kit file plus one case,
+exactly as for realtime.
+
+Read aloud is therefore a third purpose provider alongside voice conversation
+and completion summaries, and requires TTS rather than text generation. Its
+default is **follow the summary provider**; pinning a provider stops it
+following. Following inherits the summary provider's unconfigured state too —
+read-aloud reports that it is waiting for a summary provider rather than
+falling back to Qwen, matching how an absent or invalid summary choice is
+handled. Model and voice are stored per provider; the Qwen-only keys are
+migrated once at launch and removed.

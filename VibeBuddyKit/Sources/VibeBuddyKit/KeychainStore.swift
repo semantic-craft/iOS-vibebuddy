@@ -221,6 +221,92 @@ public enum VoiceSettings {
     }
     public static let companionEnabledKey = "voiceCompanionEnabled"
 
+    // MARK: Read aloud
+
+    /// Which provider reads summaries aloud. **Blank or absent = follow the
+    /// summary provider**, which is the default; a stored provider is a pin the
+    /// user made, and later summary-provider changes must not move it.
+    public static let readAloudProviderKey = "readAloudProvider"
+    /// Per-provider read-aloud model / voice, mirroring `modelKey` / `voiceKey`.
+    public static func readAloudModelKey(_ p: VoiceProvider) -> String { "readAloud.model.\(p.rawValue)" }
+    public static func readAloudVoiceKey(_ p: VoiceProvider) -> String { "readAloud.voice.\(p.rawValue)" }
+    /// The Qwen-only keys read-aloud used before it became a purpose provider.
+    public static let legacyReadAloudModelKey = "qwenReadAloudModel"
+    public static let legacyReadAloudVoiceKey = "qwenReadAloudVoice"
+
+    /// What read-aloud can do right now, so callers never have to re-derive it
+    /// (and never have to guess a provider when there is none).
+    public enum ReadAloudStatus: Equatable, Sendable {
+        /// Following summaries, which are unconfigured. Not a reason to use Qwen.
+        case waitingForSummaryProvider
+        /// Resolved, but this provider has no `SpeechSynthesizer` yet.
+        case unsupported(VoiceProvider)
+        case ready(VoiceProvider)
+
+        public var provider: VoiceProvider? {
+            switch self {
+            case .waitingForSummaryProvider: return nil
+            case .unsupported(let p), .ready(let p): return p
+            }
+        }
+    }
+
+    /// The pinned provider, or `nil` when read-aloud follows summaries. A value
+    /// this build cannot parse is treated as no pin: following is the default,
+    /// and inventing a provider for an unknown string would be worse.
+    public static func pinnedReadAloudProvider(defaults: UserDefaults = .standard) -> VoiceProvider? {
+        let raw = (defaults.string(forKey: readAloudProviderKey) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return raw.isEmpty ? nil : VoiceProvider(rawValue: raw)
+    }
+
+    /// Follow the summary provider until pinned — including following it into
+    /// "not configured". Read-aloud never silently becomes Qwen.
+    public static func readAloudStatus(defaults: UserDefaults = .standard) -> ReadAloudStatus {
+        guard let provider = pinnedReadAloudProvider(defaults: defaults)
+                ?? summaryProvider(defaults: defaults) else { return .waitingForSummaryProvider }
+        return provider.supportsReadAloud ? .ready(provider) : .unsupported(provider)
+    }
+
+    /// Pin read-aloud to one provider, or pass `nil` to follow summaries again.
+    public static func selectReadAloudProvider(_ provider: VoiceProvider?, defaults: UserDefaults = .standard) {
+        defaults.set(provider?.rawValue ?? "", forKey: readAloudProviderKey)
+    }
+
+    /// The read-aloud model / voice for a provider (blank → the provider's own
+    /// default, empty for a provider that cannot speak yet).
+    public static func readAloudModel(_ p: VoiceProvider, defaults: UserDefaults = .standard) -> String {
+        let v = (defaults.string(forKey: readAloudModelKey(p)) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return v.isEmpty ? (SpeechSynthesis.support(p)?.defaultModel ?? "") : v
+    }
+    public static func readAloudVoice(_ p: VoiceProvider, defaults: UserDefaults = .standard) -> String {
+        let v = (defaults.string(forKey: readAloudVoiceKey(p)) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return v.isEmpty ? (SpeechSynthesis.support(p)?.defaultVoice ?? "") : v
+    }
+
+    public static func readAloudConfiguration(_ p: VoiceProvider,
+                                              defaults: UserDefaults = .standard) -> SpeechSynthesisConfiguration {
+        let workspace = (defaults.string(forKey: qwenWorkspaceIDKey) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return SpeechSynthesisConfiguration(provider: p,
+            model: readAloudModel(p, defaults: defaults), voice: readAloudVoice(p, defaults: defaults),
+            qwenWorkspaceID: workspace.isEmpty ? nil : workspace, qwenUseIntl: defaults.bool(forKey: regionIntlKey))
+    }
+
+    /// Move the Qwen-only read-aloud model / voice onto the per-provider keys.
+    /// Runs at launch: it never overwrites a value the new keys already hold, and
+    /// drops the legacy keys so nothing can read them again.
+    public static func migrateLegacyReadAloudKeys(defaults: UserDefaults = .standard) {
+        for (legacy, modern) in [(legacyReadAloudModelKey, readAloudModelKey(.qwen)),
+                                 (legacyReadAloudVoiceKey, readAloudVoiceKey(.qwen))] {
+            guard let value = defaults.string(forKey: legacy) else { continue }
+            if defaults.object(forKey: modern) == nil { defaults.set(value, forKey: modern) }
+            defaults.removeObject(forKey: legacy)
+        }
+    }
+
     /// Per-provider model / voice ID UserDefaults keys (one set each).
     public static func modelKey(_ p: VoiceProvider) -> String { "voiceModel.\(p.rawValue)" }
     public static func voiceKey(_ p: VoiceProvider) -> String { "voiceVoice.\(p.rawValue)" }

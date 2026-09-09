@@ -1,12 +1,13 @@
-# Qwen preview ownership checks
+# Read-aloud preview ownership checks
 
-`reader-main.swift` links the actual QwenReadAloud, SettingsTestCoordinator and
+`reader-main.swift` links the actual ReadAloud, SettingsTestCoordinator and
 existing Kit package objects. Compile like the service probe in README.md, with
-QwenReadAloud.swift added to the source list. Ten checks cover Settings preview
+ReadAloud.swift added to the source list. Ten checks cover Settings preview
 cancellation, preserved queued automatic work, global stop, the voice gate and
 stopping while automatic validation is suspended.
 
-Synthesis is injected as a gate that returns empty data after cancellation.
+Synthesis is injected as a fake `SpeechSynthesizer` that parks until released
+and then returns empty data.
 Automatic validation returns false, or credential lookup is injected as nil.
 No real credentials, network, microphone or audio output are used.
 

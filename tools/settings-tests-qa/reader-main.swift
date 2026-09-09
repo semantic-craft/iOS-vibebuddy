@@ -1,6 +1,13 @@
 import Foundation
 import VibeBuddyKit
 
+/// A `SpeechSynthesizer` that never touches a network: it parks in `synthesize`
+/// until the fixture releases it.
+struct GateSynthesizer: SpeechSynthesizer {
+    let gate: SynthesisGate
+    func synthesize(_ text: String, apiKey: String) async throws -> Data { await gate.run() }
+}
+
 actor SynthesisGate {
     var entered = false
     var waiter: CheckedContinuation<Data, Never>?
@@ -25,9 +32,9 @@ struct ReaderQA {
     }
     @MainActor static func main() async {
         let gate = SynthesisGate()
-        let reader = QwenReadAloud(synthesizePreview: { _, _, _ in await gate.run() })
+        let reader = ReadAloud(makeSynthesizer: { _ in GateSynthesizer(gate: gate) })
         let tests = SettingsTestCoordinator()
-        let config = QwenReadAloud.PreviewConfiguration(model: "synthetic", voice: "synthetic", workspaceID: nil, useIntl: false)
+        let config = SpeechSynthesisConfiguration(provider: .qwen, model: "synthetic", voice: "synthetic")
         tests.start(.readAloud, timeout: .seconds(10), operation: {
             _ = await reader.preview("Synthetic", apiKey: "synthetic-not-a-key", configuration: config)
             return .success(.init(message: "obsolete"))
@@ -48,7 +55,7 @@ struct ReaderQA {
         check(automaticValidated, "Cancelling preview preserves queued automatic reading and revalidates it afterward")
 
         let gate2 = SynthesisGate()
-        let reader2 = QwenReadAloud(synthesizePreview: { _, _, _ in await gate2.run() })
+        let reader2 = ReadAloud(makeSynthesizer: { _ in GateSynthesizer(gate: gate2) })
         let preview = Task { await reader2.preview("Synthetic", apiKey: "synthetic-not-a-key", configuration: config) }
         await until { await gate2.entered }
         var oldAutomaticValidated = false
@@ -67,7 +74,7 @@ struct ReaderQA {
         else { check(false, "Active voice gate refuses preview before synthesis") }
         let validationGate = SynthesisGate()
         var keyReads = 0
-        let reader3 = QwenReadAloud(automaticKey: { keyReads += 1; return nil })
+        let reader3 = ReadAloud(automaticKey: { _ in keyReads += 1; return nil })
         var validationReturned = false
         reader3.speak("Never sent", id: "suspended-validation") {
             _ = await validationGate.run()
@@ -80,6 +87,6 @@ struct ReaderQA {
         await until { validationReturned }
         await Task.yield()
         check(keyReads == 0, "Stopping during suspended validation prevents credential lookup and synthesis afterward")
-        print("All Qwen preview ownership checks passed; no credentials, network or audio were used")
+        print("All read-aloud preview ownership checks passed; no credentials, network or audio were used")
     }
 }

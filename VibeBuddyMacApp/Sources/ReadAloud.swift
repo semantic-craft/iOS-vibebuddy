@@ -3,34 +3,27 @@ import SwiftUI
 import VibeBuddyKit
 
 @MainActor
-final class QwenReadAloud: ObservableObject {
+final class ReadAloud: ObservableObject {
+    /// The key keeps its original name on purpose: renaming it would silently
+    /// switch read-aloud off for everyone who already has it on.
     static let enabledKey = "qwenReadAloudEnabled"
-    static let modelKey = "qwenReadAloudModel"
-    static let voiceKey = "qwenReadAloudVoice"
     @Published private(set) var busy = false
     @Published private(set) var status = ""
     @Published private(set) var previewStatus = ""
-    struct PreviewConfiguration: Sendable {
-        let model: String
-        let voice: String
-        let workspaceID: String?
-        let useIntl: Bool
-    }
     enum PreviewResult: Sendable { case completed, cancelled, failed(String) }
-    typealias Synthesis = @Sendable (String, String, PreviewConfiguration) async throws -> Data
-    private let synthesizePreview: Synthesis
-    private let automaticKey: @MainActor () -> String?
+    private let makeSynthesizer: @Sendable (SpeechSynthesisConfiguration) -> (any SpeechSynthesizer)?
+    private let automaticKey: @MainActor (VoiceProvider) -> String?
     private var previewTask: Task<PreviewResult, Never>?
     private var previewGeneration = UUID()
     private var previewPlayer: AVAudioPlayer?
     private var queueBusy = false
     var automaticBusy: Bool { queueBusy }
 
-    init(automaticKey: @escaping @MainActor () -> String? = { VoiceProvider.qwen.apiKey },
-         synthesizePreview: @escaping Synthesis = { text, key, config in
-        try await QwenSpeechSynthesis.synthesize(text, apiKey: key, model: config.model,
-            voice: config.voice, workspaceID: config.workspaceID, useIntl: config.useIntl)
-    }) { self.automaticKey = automaticKey; self.synthesizePreview = synthesizePreview }
+    init(automaticKey: @escaping @MainActor (VoiceProvider) -> String? = { $0.apiKey },
+         makeSynthesizer: @escaping @Sendable (SpeechSynthesisConfiguration) -> (any SpeechSynthesizer)? = SpeechSynthesis.synthesizer) {
+        self.automaticKey = automaticKey
+        self.makeSynthesizer = makeSynthesizer
+    }
 
     var canSpeak: @MainActor () -> Bool = { true }
     private var player: AVAudioPlayer?
@@ -57,6 +50,18 @@ final class QwenReadAloud: ObservableObject {
         status = "Read-aloud stopped"
     }
 
+    /// Why read-aloud cannot speak right now, in words the user can act on.
+    static func unavailability(_ status: VoiceSettings.ReadAloudStatus) -> String? {
+        switch status {
+        case .waitingForSummaryProvider:
+            return NSLocalizedString("Read-aloud is waiting for a completion summary provider. Choose one, or pick a read-aloud provider of its own.", comment: "Read-aloud follows an unconfigured summary provider")
+        case .unsupported(let provider):
+            return String(format: NSLocalizedString("%@ cannot read summaries aloud yet. Choose another read-aloud provider.", comment: "Provider has no speech synthesis"), provider.display)
+        case .ready:
+            return nil
+        }
+    }
+
     func speak(_ text: String, id: String = UUID().uuidString,
                validate: @escaping @MainActor () async -> Bool = { true }) {
         guard E2ERunConfiguration.current?.audioEnabled ?? true, canSpeak() else { return }
@@ -68,21 +73,24 @@ final class QwenReadAloud: ObservableObject {
             do {
                 guard !Task.isCancelled, self.generation == current, self.canSpeak() else { return }
                 guard await validate(), !Task.isCancelled, self.generation == current, self.canSpeak() else { return }
-                guard let key = self.automaticKey(), !key.isEmpty else {
-                    self.status = "Save your DashScope API key first."; return
+                let readAloud = VoiceSettings.readAloudStatus()
+                guard case .ready(let provider) = readAloud else {
+                    self.status = Self.unavailability(readAloud) ?? ""; return
                 }
-                self.status = "Generating Qwen speech…"
-                let defaults = UserDefaults.standard
-                let data = try await QwenSpeechSynthesis.synthesize(text, apiKey: key,
-                    model: defaults.string(forKey: Self.modelKey) ?? QwenSpeechSynthesis.defaultModel,
-                    voice: defaults.string(forKey: Self.voiceKey) ?? QwenSpeechSynthesis.defaultVoice,
-                    workspaceID: VoiceSettings.qwenWorkspaceID, useIntl: VoiceSettings.useIntl)
+                guard let key = self.automaticKey(provider), !key.isEmpty else {
+                    self.status = String(format: NSLocalizedString("Save your %@ API key first.", comment: "Read-aloud needs a key"), provider.display); return
+                }
+                guard let synthesizer = self.makeSynthesizer(VoiceSettings.readAloudConfiguration(provider)) else {
+                    self.status = Self.unavailability(.unsupported(provider)) ?? ""; return
+                }
+                self.status = "Generating speech…"
+                let data = try await synthesizer.synthesize(text, apiKey: key)
                 guard !Task.isCancelled, self.generation == current, self.canSpeak() else { return }
                 guard await validate(), !Task.isCancelled, self.generation == current, self.canSpeak() else { return }
                 let player = try AVAudioPlayer(data: data)
                 self.player = player
                 guard player.play() else { self.status = "Your Mac could not play the audio."; self.player = nil; return }
-                self.status = "Playing Qwen speech"
+                self.status = "Playing speech"
                 while player.isPlaying && !Task.isCancelled {
                     try await Task.sleep(for: .milliseconds(100))
                     guard await validate(), !Task.isCancelled, self.generation == current, self.canSpeak() else {
@@ -93,7 +101,7 @@ final class QwenReadAloud: ObservableObject {
                 }
                 if self.generation == current { self.status = "Playback complete"; self.player = nil }
             } catch is CancellationError { }
-              catch { if self.generation == current { self.status = "Speech generation failed. Check your DashScope model, voice and connection." } }
+              catch { if self.generation == current { self.status = "Speech generation failed. Check your read-aloud model, voice and connection." } }
         }
     }
     private func updateBusy() { busy = queueBusy || previewTask != nil }
@@ -107,23 +115,26 @@ final class QwenReadAloud: ObservableObject {
         previewStatus = "Read-aloud stopped"
     }
 
-    func preview(_ text: String, apiKey: String, configuration: PreviewConfiguration) async -> PreviewResult {
+    func preview(_ text: String, apiKey: String, configuration: SpeechSynthesisConfiguration) async -> PreviewResult {
         guard E2ERunConfiguration.current?.audioEnabled ?? true else { return .cancelled }
         guard !Task.isCancelled else { return .cancelled }
         guard !busy, canSpeak() else { return .failed("Stop the current voice conversation or reading before previewing.") }
+        guard let synthesizer = makeSynthesizer(configuration) else {
+            return .failed(Self.unavailability(.unsupported(configuration.provider)) ?? "")
+        }
         let id = UUID()
         previewGeneration = id
         let task = Task { @MainActor [self] in
             defer { previewPlayer?.stop(); previewPlayer = nil }
             do {
                 try Task.checkCancellation()
-                previewStatus = "Generating Qwen speech…"
-                let data = try await synthesizePreview(text, apiKey, configuration)
+                previewStatus = "Generating speech…"
+                let data = try await synthesizer.synthesize(text, apiKey: apiKey)
                 guard !Task.isCancelled, previewGeneration == id, canSpeak() else { return PreviewResult.cancelled }
                 let player = try AVAudioPlayer(data: data)
                 previewPlayer = player
                 guard player.play() else { return .failed("Your Mac could not play the audio.") }
-                previewStatus = "Playing Qwen speech"
+                previewStatus = "Playing speech"
                 while player.isPlaying {
                     try await Task.sleep(for: .milliseconds(100))
                     guard !Task.isCancelled, previewGeneration == id, canSpeak() else { return .cancelled }
@@ -132,7 +143,7 @@ final class QwenReadAloud: ObservableObject {
             } catch is CancellationError { return .cancelled }
               catch {
                 if Task.isCancelled || previewGeneration != id { return .cancelled }
-                return .failed("Speech generation failed. Check your DashScope model, voice and connection.")
+                return .failed("Speech generation failed. Check your read-aloud model, voice and connection.")
             }
         }
         previewTask = task // Occupy the shared reader before the first suspension.
