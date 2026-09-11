@@ -23,3 +23,9 @@
 
 - Serialize audio shutdown and startup across calls so an old call cannot finish its queued teardown after a replacement call activates.
 - 将各通话的音频启停统一串行处理，避免旧通话已排队的释放操作越过新通话启动。
+
+## Availability
+
+Mac 1.3.12 (19) is available in the signed, notarized DMG below. iPhone/Watch 1.3.12 (25) has been uploaded but is awaiting the final physical rapid-restart check before App Store submission. Mobile availability is separate from this Mac release.
+
+Mac 1.3.12（19）通过下方已签名、公证的 DMG 提供。iPhone／Watch 1.3.12（25）已上传，待完成最后的实体快速重拨检查后提交 App Store；手机版尚未公开。
