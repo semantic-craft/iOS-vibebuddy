@@ -158,7 +158,10 @@ private final class RealtimeAudioEngine: @unchecked Sendable {
     /// — i.e. the queued audio has finished playing (also fires in network gaps).
     var onPlaybackDrained: (@Sendable () -> Void)?
 
-    let queue = DispatchQueue(label: "com.vibebuddy.voice.audio-engine")
+    // AVAudioSession is process-wide. A replacement call must wait for the
+    // previous instance's queued teardown before activating the shared session.
+    private static let sessionQueue = DispatchQueue(label: "com.vibebuddy.voice.audio-engine")
+    let queue = RealtimeAudioEngine.sessionQueue
     private let lease = OSAllocatedUnfairLock<UUID?>(initialState: nil)
     var onConfigurationChange: (@Sendable (UUID) -> Void)?
     private var observer: NSObjectProtocol?
