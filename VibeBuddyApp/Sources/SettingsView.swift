@@ -246,6 +246,7 @@ private struct ProviderSection: View {
     let provider: VoiceProvider
     @AppStorage(VoiceSettings.regionIntlKey) private var intl = false
     @AppStorage(VoiceSettings.qwenWorkspaceIDKey) private var workspaceID = ""
+    @AppStorage(VoiceSettings.openAILiveBackendModelKey) private var liveBackendModel = ""
     @State private var apiKey = ""
     @State private var model = ""
     @State private var voice = ""
@@ -382,6 +383,7 @@ private struct ProviderSection: View {
         .onChange(of: model) { _, v in connectionTest.invalidate(); UserDefaults.standard.set(v, forKey: VoiceSettings.modelKey(provider)) }
         .onChange(of: intl) { _, _ in connectionTest.invalidate() }
         .onChange(of: workspaceID) { _, _ in connectionTest.invalidate() }
+        .onChange(of: liveBackendModel) { _, _ in connectionTest.invalidate() }
         .onChange(of: voice) { _, v in connectionTest.invalidate(); UserDefaults.standard.set(v, forKey: VoiceSettings.voiceKey(provider)) }
     }
 
@@ -400,6 +402,13 @@ private struct ProviderSection: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
             }
+            if provider == .openai, OpenAIVoiceSession.usesLive(effectiveModel) {
+                TextField(OpenAILiveSession.defaultBackendModel, text: $liveBackendModel)
+                    .font(.body.monospaced()).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    .accessibilityLabel("Task reasoning model")
+                Text("Live handles conversation; the task reasoning model checks tasks and selects actions. Billed separately from voice time.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
     }
 
     private func testConnection() {
@@ -409,7 +418,7 @@ private struct ProviderSection: View {
         let session: any RealtimeVoiceProvider
         switch provider {
         case .qwen: session = QwenRealtimeSession(apiKey: key, model: effectiveModel, workspaceID: workspace.isEmpty ? nil : workspace, useIntl: intl)
-        case .openai: session = OpenAIRealtimeSession(apiKey: key, model: effectiveModel)
+        case .openai: session = OpenAIVoiceSession.make(apiKey: key, model: effectiveModel)
         case .gemini: session = GeminiRealtimeSession(apiKey: key, model: effectiveModel)
         case .doubao: session = DoubaoRealtimeSession(apiKey: key, model: effectiveModel)
         }

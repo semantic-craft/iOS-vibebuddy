@@ -1,5 +1,19 @@
 import Foundation
 
+/// A display-level signal check, not VAD and never an audio/action gate. Live
+/// streams silent PCM too; queued silence alone must not mean "speaking".
+public enum VoicePCM {
+    public static func hasAudibleSignal(_ pcm: Data) -> Bool {
+        pcm.withUnsafeBytes { bytes in
+            for offset in stride(from: 0, to: bytes.count - 1, by: 2) {
+                let sample = Int(Int16(littleEndian: bytes.loadUnaligned(fromByteOffset: offset, as: Int16.self)))
+                if abs(sample) > 96 { return true }
+            }
+            return false
+        }
+    }
+}
+
 /// Provider identity of one assistant audio content part.
 public struct VoiceAudioItem: Hashable, Sendable {
     public let id: String
@@ -28,6 +42,7 @@ public enum RealtimeVoiceEvent: Sendable {
     case connected
     case userTranscript(text: String, final: Bool)       // what the user said
     case assistantTranscript(text: String, final: Bool)  // what the model says
+    case transcriptFragment(VoiceTranscriptFragment)   // continuous Live captions, never a completed turn
     case audioDelta(Data, item: VoiceAudioItem? = nil)                                 // PCM 24 kHz mono 16-bit, to play
     case speechStarted                                    // server VAD: user started talking → barge-in
     case responseDone
@@ -37,13 +52,21 @@ public enum RealtimeVoiceEvent: Sendable {
     case closed
 }
 
+public struct VoiceTranscriptFragment: Sendable, Equatable {
+    public enum Speaker: Sendable { case user, assistant }
+    public let speaker: Speaker
+    public let text: String
+    public let startMilliseconds: Int
+    public let endMilliseconds: Int
+}
+
 /// A real-time speech-to-speech voice backend. Implementations stream 16 kHz mono
-/// PCM16 up and emit `RealtimeVoiceEvent`s (including 24 kHz PCM16 audio) down.
+/// PCM16 at the provider's input rate up and emit events (24 kHz PCM16 audio) down.
 public protocol RealtimeVoiceProvider: Actor {
     /// Open the session with a system prompt + voice + the function tools the model
     /// may call; returns the event stream.
     func start(instructions: String, voice: String, tools: [VoiceTool]) -> AsyncStream<RealtimeVoiceEvent>
-    /// Append captured microphone audio (16 kHz mono PCM16).
+    /// Append captured microphone audio at VoiceProvider.inputSampleRate, mono PCM16.
     func appendAudio(_ pcm16k: Data)
     /// Return a tool call's result to the model so it can continue the turn (and
     /// speak a confirmation). `name` is required by some providers (Gemini); the
@@ -301,5 +324,14 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
         default:
             break
         }
+    }
+}
+
+public struct VoiceToolResult: Sendable {
+    public let callID: String
+    public let name: String
+    public let result: String
+    public init(callID: String, name: String, result: String) {
+        self.callID = callID; self.name = name; self.result = result
     }
 }

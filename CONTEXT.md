@@ -70,6 +70,11 @@ code, and tests — don't drift to synonyms.
 
 ## Voice
 
+- **Live conversation / task backend** — the OpenAI voice companion's two roles:
+  GPT-Live conducts the spoken exchange; the task backend interprets requests and
+  selects tools. Interrupting speech does not cancel a coding task.
+- **Voice scope** — the sessions the user included in a conversation. Reading
+  status and resolving an action target stay inside that scope.
 - **Voice companion** — tap the pet to hold a **realtime speech-to-speech**
   conversation; it knows the live sessions and can **approve / answer** for you.
 - **VoiceProvider** — the realtime backend: `qwen`, `openai`, `gemini`, or `doubao`. Each

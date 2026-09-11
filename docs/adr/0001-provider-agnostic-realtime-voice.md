@@ -52,3 +52,26 @@ read-aloud reports that it is waiting for a summary provider rather than
 falling back to Qwen, matching how an absent or invalid summary choice is
 handled. Model and voice are stored per provider; the Qwen-only keys are
 migrated once at launch and removed.
+
+## OpenAI Live and a separate task backend (2026-09-11)
+
+OpenAI conversation defaults to `gpt-live-1`, through its own Kit adapter and
+`/v1/live/sessions` WebSocket contract. A deliberately configured Realtime model
+still uses the active Realtime API. The factory never retries a failed Live call
+against Realtime. Existing nonblank model/voice choices remain explicit choices.
+
+Live uses Responses delegation, which fits our existing structured-tool/app-
+execution boundary. The default task backend is `gpt-5.6-luna`, editable separately
+in both platform Settings with the same OpenAI credential. Live receives a short
+conversation/delegation prompt; detailed task rules belong to the backend. Status
+queries read the current selected voice scope, excluding stale summaries from
+running tasks. A task's summary is data, not a current wait or an instruction.
+
+Completion summaries remain independent stateless text requests. OpenAI's text
+default is `gpt-5.6-luna` with reasoning disabled for the bounded notification;
+Live/Realtime model IDs are rejected on this path. Notifications prioritize the
+meaningful outcome or blocker and supported next action within the existing
+two-sentence/180-character contract. Voice time and backend requests have separate
+billing; no new server, credentials, consent defaults or installation are implied.
+
+Official contracts and validation are recorded in [GPT-Live assessment](../gpt-live-1.md).

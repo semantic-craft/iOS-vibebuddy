@@ -22,7 +22,13 @@ public struct CompletionSummaryConfiguration: Sendable, Equatable {
         self.qwenWorkspaceID = workspace?.isEmpty == false ? workspace : nil
     }
 
-    public static func recommendedModel(_ provider: VoiceProvider) -> String { provider == .qwen ? "qwen3.8-flash" : "" }
+    public static func recommendedModel(_ provider: VoiceProvider) -> String {
+        switch provider {
+        case .qwen: "qwen3.8-flash"
+        case .openai: "gpt-5.6-luna"
+        case .gemini, .doubao: ""
+        }
+    }
 
     public static let enabledKey = "completionSummaryEnabled"
     public static func modelKey(_ provider: VoiceProvider) -> String { "completionSummaryModel.\(provider.rawValue)" }
@@ -44,6 +50,9 @@ public struct CompletionSummaryConfiguration: Sendable, Equatable {
         if !enabled { return .disabled }
         guard let provider, provider.supportsCompletionSummaries else { return .missingProvider }
         if modelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return .missingModel }
+        if provider == .openai, modelID.hasPrefix("gpt-live-") || modelID.hasPrefix("gpt-realtime") {
+            return .invalidModel
+        }
         // Model IDs are data except in Gemini's path. Reject URL delimiters rather than accepting a different endpoint.
         if !modelID.utf8.allSatisfy({ Self.identifierBytes.contains($0) }), provider == .gemini { return .invalidModel }
         if provider == .qwen, let workspace = qwenWorkspaceID,

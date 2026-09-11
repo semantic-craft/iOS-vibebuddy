@@ -339,6 +339,7 @@ private struct ConversationFeatureRow: View {
     @AppStorage(VoiceSettings.conversationLanguageKey) private var language = VoiceLanguage.english.rawValue
     @AppStorage(VoiceSettings.regionIntlKey) private var intl = false
     @AppStorage(VoiceSettings.qwenWorkspaceIDKey) private var workspaceID = ""
+    @AppStorage(VoiceSettings.openAILiveBackendModelKey) private var liveBackendModel = ""
     @AppStorage private var modelID: String
     @AppStorage private var voiceID: String
 
@@ -401,9 +402,19 @@ private struct ConversationFeatureRow: View {
                               || configuration?.failure != nil || reader.busy)
                     .help("Check the realtime connection. Billed by the provider; no microphone, task history or tools.")
             }
+            if provider == .openai, OpenAIVoiceSession.usesLive(configuration?.model ?? "") {
+                HStack {
+                    Text("Task reasoning model").font(.caption).foregroundStyle(.secondary)
+                    IDField(label: "Task reasoning model", placeholder: OpenAILiveSession.defaultBackendModel,
+                            text: $liveBackendModel, browse: VoiceProvider.openai.modelsURL,
+                            browseHelp: "Browse available models", identifier: "liveBackendModelID")
+                }
+                Text("Live handles conversation; this model checks tasks and selects actions. Voice time and task reasoning are billed separately.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
         .onAppear { credential.refresh() }
-        .onChange(of: [modelID, voiceID, language, workspaceID, String(intl),
+        .onChange(of: [modelID, voiceID, liveBackendModel, language, workspaceID, String(intl),
                        String(credential.revision), String(enabled)]) { _, _ in tests.invalidate() }
         .onChange(of: enabled) { _, on in if !on { menuModel.voiceChat.companionDisabled() } }
     }

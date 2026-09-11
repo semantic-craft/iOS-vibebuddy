@@ -44,3 +44,65 @@ packets belonging to a known cancelled response are dropped. If the service
 omits the identity needed to associate a later response or tool call safely,
 the session ends with an explicit instruction to reopen the conversation;
 local turn counters are not accepted as evidence of server response identity.
+
+## GPT-Live Responses delegation (2026-09-11)
+
+Live delegates tool selection to a Responses model. Collect complete function
+items inside `response.event`; the terminal response's empty `output` array does
+not mean there were no calls. Release calls only on successful response
+completion, deduplicate their IDs, submit every required result, then send one
+Live `response.create` continuation. Unknown tools, failed or overlapping response
+rounds stop explicitly instead of guessing or replaying an action.
+
+The app still resolves and revalidates actions. Voice scope is checked at
+execution as well as in the prompt. Reading selected status and hanging up are
+separate explicit tools; transcript fragments never authorize coding actions.
+The narrow local hangup exception below supersedes the initial tool-only hangup
+design. Closing voice suppresses late receipts without claiming to undo
+work already performed. Mac's immediate action wording says a request was
+submitted, rather than claiming confirmed execution before a receipt exists.
+
+## Hangup receipt and transport finalization (2026-09-11)
+
+The coordinator stops local audio immediately and passes the hangup function
+receipt to the transport owner. Both platform controllers return that receipt
+and close in the same asynchronous operation. Live allows bounded time for the
+receipt continuation before sending session.close, then keeps its receiver alive
+for finalization. This separates immediate user-facing hangup from backend and
+usage completion; a timeout never establishes final usage.
+
+## Explicit local voice hangup (2026-09-11 manual acceptance)
+
+Manual AirPods acceptance exposed a frontend saying it had hung up without
+emitting the tool. The microphone remained active and other audio stayed ducked.
+The shared coordinator now recognizes only a whole explicit call-ending command
+in accumulated user captions, then waits 750 ms without further text before
+stopping local audio and closing the session. New text cancels and re-evaluates
+that pending close. Negated, quoted and interrogative text does not match;
+farewells alone do not match this Live path. This is a reversible local call
+control, never approval, task cancellation or execution of a coding action.
+
+The settle interval is an application heuristic, not an API turn-final event.
+Both platform controllers return their visible state to idle even when closure
+starts asynchronously from this local control. The existing tool route remains
+available for other explicit phrasings and carries its receipt into close.
+
+## Shared conversation capabilities (2026-09-11)
+
+Doubao installed acceptance exposed a wiring gap: only GPT-Live received the
+status and hangup tools, and final transcripts from Qwen/Doubao still used the
+older short-command matcher. All realtime app entry points now pass
+`VoiceTools.conversation`: status, approve, deny, answer, and end-call. Provider
+adapters retain their own wire schemas. GPT-Live's backend and the directly
+speaking providers share the task evidence and tool-use instructions; the latter
+have a spoken-companion role. Task data is read on demand from the current scope
+rather than embedded as a stale initial snapshot.
+
+A complete final user transcript may invoke the same explicit whole-call hangup
+matcher as settled Live captions. Partial final-transcript-provider results never
+close the call. This controls local voice only; task mutations still require
+structured calls and current target validation. Audio teardown remains immediate.
+
+This common wiring also reaches Gemini and OpenAI Realtime, but the current
+provider acceptance scope is Qwen and Doubao; shared code is not proof of the
+other providers' runtime behavior.
