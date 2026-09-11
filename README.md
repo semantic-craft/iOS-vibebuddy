@@ -4,7 +4,8 @@
 
 # vibebuddy
 
-**Claude Code and Codex, connected across iPhone, Apple Watch and Mac.**
+**Your AI agent companion across iPhone, Apple Watch and Mac.**
+Follow Claude Code, Codex and Grok Build tasks, observe Grok Bot, and check Cursor account usage.
 Step away from your desk. Check progress, see what needs you, and handle supported approvals and questions—with a little cat keeping you company.
 
 [**⬇️ Download for macOS**](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest) · [Features](#-features) · [How it works](#-how-it-works) · [Build from source](#️-build--run) · [简体中文](./README.zh-CN.md)
@@ -20,7 +21,7 @@ Step away from your desk. Check progress, see what needs you, and handle support
 
 ## From a status dashboard to a three-device companion
 
-**The 1.3 candidate is a major step beyond the original phone dashboard.** The first release focused on session status and local alerts. This update brings deeper Codex integration, Watch complications and a more consistent companion experience.
+**The 1.3 series brings your tasks to the desktop, pocket and wrist.** The first release focused on session status and local alerts. This update brings deeper Codex integration, Watch complications and a more consistent companion experience.
 
 | Upgrade | What it means for you |
 |---|---|
@@ -30,7 +31,7 @@ Step away from your desk. Check progress, see what needs you, and handle support
 | **Refreshed icons and interactions** | A shared cat identity and agent icons across devices, a simpler phone connection menu and clearer task states. |
 | **Updated macOS UI** | Menu-bar status, notch glance and task cards, with improved dashboard reopening and glance position recovery. |
 
-> These are current-source and 1.3 candidate features, pending release and device acceptance. The latest public Mac download is currently 1.1. Update the Mac companion when the new release is available. Watch refresh timing is system-controlled; quota depends on available provider data.
+> Install the latest Mac companion for matching integrations. Capabilities vary by agent; Watch refresh timing is system-controlled and quota depends on available provider data.
 
 ## New here? Start with your Mac
 
@@ -39,7 +40,7 @@ Step away from your desk. Check progress, see what needs you, and handle support
 3. **Tap “Scan to pair” on iPhone** and scan the Mac's QR code. Follow Setup in the Mac settings to connect your agent.
 4. **Just exploring?** Tap “See the demo (no Mac needed)” on the iPhone connection screen. Live tasks require a reachable paired Mac.
 
-Apple Watch also requires a paired iPhone. See Download below for current iPhone availability; the new App Store listing is being prepared.
+Apple Watch also requires a paired iPhone. See Download below for current iPhone availability; App Store updates become available after Apple approval.
 
 ---
 
@@ -104,8 +105,13 @@ Approval and question banners request **Time Sensitive** delivery when their fin
 
 The current source supports APNs notifications with the iPhone app closed when the Mac sender is running, APNs signing is configured for the iPhone build, the phone has registered, and notifications are allowed. This is not yet a public-download setup promise: the distribution approach awaits [DEC-APNS](docs/adr/0013-apns-key-delivery.md), and lock-screen / Focus / Watch delivery still needs device acceptance. Responding requires a reachable paired Mac; away from that network, return to it before acting (an existing Tailscale connection is an advanced option).
 
-### 🤖 Three existing adapters; Cursor is planned
-The first-class roadmap covers **Claude Code, Codex, Grok, and Cursor**: three-state tracking and remote approval are the required baseline; quota and jump support are best effort. Claude Code, Codex and Grok have adapters today; **Cursor is planned and is not yet supported**. Device acceptance remains a separate gate for each agent. **Qwen, Kimi, OpenCode, and Antigravity** adapters are community-tier, unverified, and fail-open. See the [hook setup guide](docs/multi-cli-hook-setup.md) for agent-specific setup.
+### 🤖 Claude Code, Codex, Grok Build, Grok Bot and Cursor
+- **Claude Code and Codex:** task status and supported approvals/questions; Codex also supports follow-up instructions and task creation through supported connections.
+- **Grok Build:** hook-based task tracking, account usage and configured approval gates. Whether a remote approval resolves the native prompt depends on Grok's permission mode.
+- **Grok Bot:** optional read-only task observation, completion summaries and separate account usage. Respond to its questions in the official Mac app.
+- **Cursor:** account usage from an existing Cursor app or Cursor CLI login, with separate Cursor Models and Other Models pools. Cursor task tracking and remote approvals are not yet supported.
+
+Available data and actions depend on agent version and setup. **Qwen, Kimi, OpenCode and Antigravity** task adapters remain community-tier and unverified. See the [hook setup guide](docs/multi-cli-hook-setup.md).
 
 ### 📷 QR pairing, zero typing
 The Mac shows a QR encoding `host:port` + a bearer token. The phone scans it once — no manual IP entry. (The same QR can carry a Tailscale `100.x` address later, with no code change.)
@@ -126,12 +132,12 @@ Full English and Simplified-Chinese UI on both apps. Plus a **Demo mode** that l
 ### macOS app
 **[Download the latest Mac Companion →](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest)** · Apple Silicon · macOS 14+
 
-The v1.1 DMG is Developer ID signed and notarized. Open it and drag **VibeBuddyMacApp** to **Applications**. No quarantine-removal command is needed.
+The current DMG is Developer ID signed and notarized. Open it and drag **VibeBuddyMacApp** to **Applications**. No quarantine-removal command is needed.
 
 **Updating from v1.0:** install v1.1 manually once. The original v1.0 shipped with an invalid update URL, so it cannot discover this release automatically. v1.1 uses the published Sparkle feed for future releases. The installed source build and the GitHub release are separate: use the latest release asset for the supported download.
 
 ### iPhone app
-Build it from source for now — see [Build & run](#️-build--run). Install on your own iPhone; there is no public iPhone download.
+[Download on the App Store](https://apps.apple.com/app/id6777469338). Includes the Apple Watch companion; new updates become available after Apple approval.
 
 ---
 

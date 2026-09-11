@@ -4,7 +4,8 @@
 
 # vibebuddy
 
-**Claude Code 与 Codex 的 iPhone、Apple Watch 和 Mac 伴侣。**
+**连接 iPhone、Apple Watch 和 Mac 的 AI Agent 伴侣。**
+跟踪 Claude Code、Codex 与 Grok Build 任务，观察 Grok Bot，并查看 Cursor 账户用量。
 离开电脑，也能看进度、查看需要回应的任务，并处理支持的批准与提问。让小猫帮你盯着任务，把注意力留给生活。
 
 [**⬇️ 下载 macOS 版**](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest) · [功能](#-功能) · [工作原理](#-工作原理) · [从源码构建](#️-构建与运行) · [English](./README.md)
@@ -20,7 +21,7 @@
 
 ## 从初版看状态，到三端协作
 
-**1.3 候选版，是一次从手机看板到桌面、口袋与手腕的重大升级。** 初版以会话状态和本地提醒为核心；新版把 Codex 深度集成、手表小组件与统一交互带到日常使用中。
+**1.3 系列把任务带到桌面、口袋与手腕。** 初版以会话状态和本地提醒为核心；新版把 Codex 深度集成、手表小组件与统一交互带到日常使用中。
 
 | 升级 | 对你有什么用 |
 |---|---|
@@ -30,7 +31,7 @@
 | **图标与交互全面焕新** | 三端统一小猫形象与 Agent 图标；手机配对连接菜单更简洁，任务状态更易辨认。 |
 | **macOS UI 更新** | 菜单栏、刘海概览与任务卡片协同呈现，改善仪表盘重新打开及概览位置恢复。 |
 
-> 此处介绍当前源码与 1.3 候选功能，尚不代表公开发布或完成真机验收。GitHub 最新公开 Mac 包目前为 1.1；新版发布后，请同步更新 Mac 伴侣。表盘刷新由系统调度，额度取决于来源提供的数据。
+> 请安装最新版 Mac 伴侣以使用配套接入。各家 Agent 的能力有所不同；表盘刷新由系统调度，额度取决于来源提供的数据。
 
 ## 第一次使用，从这里开始
 
@@ -39,7 +40,7 @@
 3. **在 iPhone 点“扫码配对”**，扫描 Mac 显示的二维码。随后按 Mac 设置中的 Setup 指引接入 Agent。
 4. **先体验也可以**：iPhone 连接页点“查看演示（无需 Mac）”，浏览示例任务；真实任务需要已配对且可连接的 Mac。
 
-真实任务数据主要来自你自己的 Mac；请保持 Mac 伴侣运行、网络可连接。Apple Watch 功能还需要配对的 iPhone。iPhone 当前获取方式见下方“下载”；App Store 新版文案正在准备中。
+真实任务数据主要来自你自己的 Mac；请保持 Mac 伴侣运行、网络可连接。Apple Watch 功能还需要配对的 iPhone。iPhone 当前获取方式见下方“下载”；App Store 更新通过 Apple 审核后提供。
 
 ---
 
@@ -104,8 +105,13 @@
 
 当前源码支持关闭 iPhone App 后通过 APNs 接收通知，条件是 Mac 发送端正在运行、APNs 签名与 iPhone 构建匹配、手机已注册且允许通知。这尚不是公开下载后开箱即用的承诺：分发方案仍待 [DEC-APNS](docs/adr/0013-apns-key-delivery.md)，锁屏／专注模式／Watch 送达仍需真机验收。回应要求已配对的 Mac 可达；离开该网络时应回到同一网络后处理（已有 Tailscale 连接可作为进阶方案）。
 
-### 🤖 三家现有适配，Cursor 计划中，以及社区适配器
-一等支持路线图覆盖 **Claude Code、Codex、Grok、Cursor**：三态追踪与远程审批是必需能力，配额和跳转尽力支持。Claude Code、Codex、Grok 已有适配器；**Cursor 仍在计划中，尚未支持**。每家仍需分别完成真机验收。**Qwen、Kimi、OpenCode、Antigravity** 为社区级适配器，未验证、失败即放行。各家的接线方法见 [hook 配置指南](docs/multi-cli-hook-setup.md)。
+### 🤖 Claude Code、Codex、Grok Build、Grok Bot 与 Cursor
+- **Claude Code 与 Codex**：任务状态、支持的审批与提问；Codex 还可通过支持的连接追加指令、发起任务。
+- **Grok Build**：通过 hook 跟踪任务，查看账户用量，并使用已配置的审批通道。远程批准能否直接解除原生提示，取决于 Grok 的权限模式。
+- **Grok Bot**：可选的只读任务观察、完成摘要与独立账户用量。提问仍需在官方 Mac 应用中回应。
+- **Cursor**：使用已有的 Cursor 应用或 Cursor CLI 登录查看账户用量，分别呈现 Cursor Models 与 Other Models 额度池。尚不支持 Cursor 任务跟踪和远程审批。
+
+数据和操作能力取决于 Agent 版本与接入配置。**Qwen、Kimi、OpenCode、Antigravity** 任务适配器仍属社区级，未经验证。接线方式见 [hook 配置指南](docs/multi-cli-hook-setup.md)。
 
 ### 📷 扫码配对，零输入
 Mac 显示一个编码了 `host:port` + bearer token 的二维码。手机扫一次即可——无需手动输 IP。（同一个二维码以后可以承载 Tailscale `100.x` 地址，无需改代码。）
@@ -126,12 +132,12 @@ vibebuddy 在你的 Mac 与手机之间**直接**通过你自己的网络通信�
 ### macOS 应用
 **[下载最新版 Mac Companion →](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest)** · Apple Silicon · macOS 14+
 
-v1.1 DMG 已使用 Developer ID 签名并完成公证。打开后把 **VibeBuddyMacApp** 拖入**应用程序**，无需执行移除隔离属性的命令。
+当前 DMG 已使用 Developer ID 签名并完成公证。打开后把 **VibeBuddyMacApp** 拖入**应用程序**，无需执行移除隔离属性的命令。
 
 **从 v1.0 更新：**请手动安装一次 v1.1。原 v1.0 内置更新地址无效，不能自动发现本次更新；v1.1 使用正式 Sparkle 更新源接收后续版本。源码构建和 GitHub 发布包是不同交付物，需要直接安装时请使用上方最新版 Release 资产。
 
 ### iPhone 应用
-目前请从源码构建——见 [构建与运行](#️-构建与运行)。装到你自己的 iPhone 上即可；没有公开的 iPhone 下载。
+[在 App Store 下载](https://apps.apple.com/app/id6777469338)。包含 Apple Watch 伴侣；新版本通过 Apple 审核后提供。
 
 ---
 
