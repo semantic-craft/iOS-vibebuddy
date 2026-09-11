@@ -2,33 +2,16 @@
 
 Agent-facing configuration for the iOS-vibebuddy repo.
 
-## Scope and inherited rules
+## Scope and delivery
 
-Apply the active global instructions, then ancestor-directory rules, then this
-file and any more specific instructions for the files being changed. Project
-rules specialize inherited defaults; they do not override higher-priority
-session instructions or grant permission for external or destructive actions.
+Apply the active global and ancestor rules, then the rules for the affected path.
+Cross-machine work uses `~/Projects/AGENTS.md` when present; other clones have no
+fleet. Routine work does not trigger synchronization.
 
-On the maintainer's machines, `~/Projects/AGENTS.md` supplies cross-machine
-sync and repo authority rules; consult its sync runbook and live authority state
-when cross-machine work is requested. When that file is absent (any other clone,
-CI, a review sandbox), there is no fleet: treat the checkout as the only copy,
-commit and push through the normal PR flow, and do not attempt cross-machine
-sync. Its GitHub issue-tracker default is replaced by the local Markdown
-convention below in every checkout. Routine local work never triggers sync.
-
-## Project delivery boundaries
-
-Use the global rules for autonomy, clarification, approval, preserving existing
-work, and completion. This project adds these delivery boundaries:
-
-- Commit, push, cross-machine sync, installation or replacement of the user's
-  running app, deployment, and release require authorization covering that
-  action. Authorization already given remains valid within its scope;
-  reporting separate states does not create separate approval gates.
-- Using configured authentication for an authorized operation is part of that
-  operation. Reading secret values for context or changing credentials is not
-  implied.
+Commit, push, cross-machine sync, installing or replacing the running app,
+deployment, and release need authorization covering that action. Existing
+authorization remains valid within its scope. Configured authentication may be
+used for an authorized operation; reading secrets for context is not implied.
 
 ## Verification strategy
 
@@ -57,21 +40,14 @@ tests, but do not let low-value test expansion displace end-to-end validation.
 
 ## Agent skills
 
-Skills come from `dev-link` (Matt Pocock groups + `design-ui`), never from
-anything tracked in this repo. `.agents/skills/<name>` are absolute symlinks
-into the `xw-skills` warehouse, and `.claude/skills/<name>` are relative
-symlinks pointing at those. Both directories are gitignored/excluded and
-machine-local. When updating the project's linked skills after warehouse
-changes, re-run `dev-link` and reopen the session as required by the global
-skill-wiring rules. Ordinary tasks do not require refreshing skills. This repo
-owns no skills of its own.
+Project `.agents/skills/` entries link to originals in `xw-skills`;
+`.claude/skills/` points to those local entries. Both are excluded from Git.
+Edit the original, preserve valid links, and follow global wiring rules only
+when links or names change. This repo owns no skills.
 
-Use a skill when explicitly requested or when its stated trigger fits the task.
-Apply its relevant branch within the user's scope and these project conventions.
-The skill inventory does not make every workflow mandatory: routine work does
-not automatically require a PRD, ticket, multiple models, subagents, test-first
-development, or a full test suite. Preserve explicitly requested model routing
-and workflows; a skill does not independently authorize external actions.
+Use skills for their actual task triggers. Ordinary work does not require a PRD,
+ticket, multiple models, test-first development, or a full suite. Explicitly
+requested workflows and model choices remain binding within the user's scope.
 
 ## Issue tracker
 
