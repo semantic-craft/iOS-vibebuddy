@@ -107,8 +107,7 @@ final class VoiceChat: ObservableObject {
         let language = VoiceSettings.conversationLanguage
         let model = VoiceSettings.model(provider)
         let usesLive = provider == .openai && OpenAIVoiceSession.usesLive(model)
-        let instructions = usesLive ? VoicePrompt.liveBackend(language: language) : VoicePrompt.realtimeConversation(language: language)
-            + "\n\nThis is a live voice call. Stay silent until the user actually speaks — Never claim an action succeeded before its tool result arrives. Report the tool result faithfully; Mac receipt is not agent completion. never start talking on your own or fill silence, and never reply to your own voice. Answer in one short, natural sentence unless asked for more, and don't repeat yourself. Speak in a calm, gentle, even tone at a steady volume; never suddenly raise your pitch, shout, or get loud."
+        let instructions = usesLive ? VoicePrompt.liveBackend(language: language) : VoicePrompt.realtimeConversation(language: language, provider: provider)
         let voice = VoiceSettings.voice(provider, language)
         voiceLog.info("realtime start provider=\(provider.rawValue, privacy: .public) model=\(model, privacy: .public) voice=\(voice, privacy: .public)")
 
