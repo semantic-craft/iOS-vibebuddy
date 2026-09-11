@@ -96,4 +96,25 @@ struct DoubaoRealtimeSessionTests {
         #expect(batch.cancel() == ["c"])
         #expect(batch.complete(callID: "c", result: "late") == nil)
     }
+    @Test("Hangup resolves the full batch before close even with unfinished tools")
+    func hangupBatch() throws {
+        var batch = DoubaoToolBatch()
+        _ = batch.begin([
+            ["call_id": "finished", "name": "get_session_status", "arguments": "{}"],
+            ["call_id": "pending", "name": "answer_session", "arguments": "{}"],
+            ["call_id": "hangup", "name": "end_voice_call", "arguments": "{}"],
+        ])
+        #expect(batch.complete(callID: "finished", result: "known result") == nil)
+        let completed = batch.complete(callID: "hangup", result: "ending", endingSession: true)
+        let receipt = try #require(completed)
+        #expect(receipt.compactMap { $0["call_id"] as? String } == ["finished", "pending", "hangup"])
+        let texts = receipt.map { ($0["content"] as? [[String: String]])?.first?["text"] ?? "" }
+        #expect(texts[0] == "known result")
+        #expect(texts[1].contains("cancelled") && texts[1].contains("unconfirmed"))
+        #expect(texts[2] == "ending")
+        #expect(!batch.hasPending)
+        #expect(batch.complete(callID: "pending", result: "late") == nil)
+        #expect(batch.complete(callID: "hangup", result: "duplicate", endingSession: true) == nil)
+    }
+
 }

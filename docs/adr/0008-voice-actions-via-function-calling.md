@@ -106,3 +106,15 @@ structured calls and current target validation. Audio teardown remains immediate
 This common wiring also reaches Gemini and OpenAI Realtime, but the current
 provider acceptance scope is Qwen and Doubao; shared code is not proof of the
 other providers' runtime behavior.
+
+
+## Receipt delivery before close (2026-09-11 release review)
+
+The async tool-result contract requires socket delivery before return, or a
+provider-owned drain during close (GPT-Live). Qwen, OpenAI Realtime and Gemini
+wait for bounded socket completion; Doubao waits for the exact FIFO sequence.
+A hangup completes Doubao's outstanding aggregate with known results retained
+and pending results explicitly unconfirmed, because stopping the coordinator
+cancels result collection but cannot undo a previously dispatched action.
+Delivery failure terminates without replay. Socket completion is not proof of
+server-side business acknowledgement.

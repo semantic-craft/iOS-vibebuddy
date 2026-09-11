@@ -70,8 +70,10 @@ public protocol RealtimeVoiceProvider: Actor {
     func appendAudio(_ pcm16k: Data)
     /// Return a tool call's result to the model so it can continue the turn (and
     /// speak a confirmation). `name` is required by some providers (Gemini); the
-    /// OpenAI-style providers correlate on `callID` alone.
-    func sendToolResult(callID: String, name: String, result: String)
+    /// OpenAI-style providers correlate on `callID` alone. Implementations must
+    /// finish socket delivery before returning, or preserve and drain the result
+    /// in close(); failed delivery must terminate explicitly without retrying.
+    func sendToolResult(callID: String, name: String, result: String) async
     /// Synchronize any discarded playback with providers that keep audio history.
     func truncatePlayback(_ checkpoints: [VoicePlaybackCheckpoint])
     /// Tear the session down.
@@ -215,12 +217,17 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
         send(["type": "input_audio_buffer.append", "audio": pcm16k.base64EncodedString()])
     }
 
-    public func sendToolResult(callID: String, name: String, result: String) {
-        // OpenAI-Realtime shape: append the function result as a conversation item,
-        // then ask the model to continue so it can speak its confirmation.
-        send(["type": "conversation.item.create",
-              "item": ["type": "function_call_output", "call_id": callID, "output": result]])
-        send(["type": "response.create"])
+    public func sendToolResult(callID: String, name: String, result: String) async {
+        guard let socket = task else { return }
+        let messages = RealtimeToolDelivery.encode([
+            ["type": "conversation.item.create",
+             "item": ["type": "function_call_output", "call_id": callID, "output": result]],
+            ["type": "response.create"],
+        ])
+        guard await RealtimeToolDelivery.send(messages, over: socket), task === socket else {
+            if task === socket { continuation?.yield(.failed("Qwen tool result delivery failed; no action was retried.")); close() }
+            return
+        }
     }
 
     // Qwen smart_turn handles server interruption; its current API does not
@@ -333,5 +340,50 @@ public struct VoiceToolResult: Sendable {
     public let result: String
     public init(callID: String, name: String, result: String) {
         self.callID = callID; self.name = name; self.result = result
+    }
+}
+
+/// A tool receipt must finish socket delivery before its caller closes the session.
+/// Timeouts resolve once and cancel the affected socket; payloads never enter errors.
+enum RealtimeToolDelivery {
+    static func encode(_ messages: [[String: Any]]) -> [String]? {
+        try? messages.map { String(decoding: try JSONSerialization.data(withJSONObject: $0), as: UTF8.self) }
+    }
+
+    static func send(_ messages: [String]?, over socket: URLSessionWebSocketTask) async -> Bool {
+        guard let messages else { return false }
+        for text in messages {
+            let sent = await wait(start: { done in
+                socket.send(.string(text)) { error in done(error == nil) }
+            }, onTimeout: { socket.cancel(with: .goingAway, reason: nil) })
+            if !sent { return false }
+        }
+        return true
+    }
+
+    static func wait(timeout: TimeInterval = 2,
+                     start: (@escaping @Sendable (Bool) -> Void) -> Void,
+                     onTimeout: @escaping @Sendable () -> Void = {}) async -> Bool {
+        await withCheckedContinuation { continuation in
+            let completion = Completion(continuation)
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+                if completion.finish(false) { onTimeout() }
+            }
+            start { _ = completion.finish($0) }
+        }
+    }
+
+    private final class Completion: @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<Bool, Never>?
+        init(_ continuation: CheckedContinuation<Bool, Never>) { self.continuation = continuation }
+        func finish(_ value: Bool) -> Bool {
+            lock.lock()
+            let pending = continuation
+            continuation = nil
+            lock.unlock()
+            pending?.resume(returning: value)
+            return pending != nil
+        }
     }
 }

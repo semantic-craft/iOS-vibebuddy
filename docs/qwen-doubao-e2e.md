@@ -20,3 +20,9 @@
 - iPhone 两引擎复验：在要求分别测试 Hermes＋AirPods 上的查询、插话、挂断和音量恢复后，用户反馈“可以了”。按该整体反馈记录两引擎人工验收通过；没有逐项手机事件日志或定量声学测量，不外推到其他设备、长时通话或断连重连。
 
 测试日志：`/tmp/vibebuddy-shared-voice-tests.log`。构建和安装日志：`/tmp/vibebuddy-shared-voice-mac.log`、`/tmp/vibebuddy-shared-voice-iphone.log`、`/tmp/vibebuddy-shared-voice-iphone-install.log`。真实应用事件：`.scratch/doubao-e2e/mac-live.log`，只记录事件类别及状态，不记录凭据或麦克风音频。
+
+## 1.3.11 发布复核补充
+
+发布审查发现非 Live 适配器的工具回执发送仅排入队列，紧接的关闭可能丢弃它。现将回执接口明确为异步：Qwen、OpenAI Realtime、Gemini 等待 socket 写入回调；豆包等待对应 FIFO 项发送完成。每次发送等待有界，失败明确终止且不重试操作。豆包挂断时完整汇总尚未结束的工具批次，保留已收到结果，其余只说明结果收集取消、此前执行结果未确认，不声称撤销操作。
+
+49 项定向测试通过，包含延迟发送回调、发送失败、超时与晚到回调，以及豆包混合工具批次挂断；独立复核确认关闭竞态已解决。日志 `/tmp/vibebuddy-receipt-drain-tests.log`。这证明本地发送和关闭顺序，不等于服务端业务确认，也不替代上面的真人通话记录。正式候选为 Mac 1.3.11 (18)、iPhone/Watch 1.3.11 (23)。
