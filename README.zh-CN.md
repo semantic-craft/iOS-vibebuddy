@@ -6,7 +6,7 @@
 
 ### 离开书桌，也能接着推进任务。
 
-为 **Claude Code 和 Codex** 打造的 **Mac、iPhone 与 Apple Watch** 原生伴侣。<br>看看谁需要你，回应可远程处理的请求，听听任务完成了什么。
+陪你使用 AI 工具的 **Mac、iPhone 与 Apple Watch** 原生伴侣。<br>**Claude Code · Codex · Grok Build · Grok Bot · Cursor**<br>关注任务进展，回应可处理的请求，随时查看账户额度。
 
 [**下载 Mac 版**](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest) · [**获取 iPhone 版**](https://apps.apple.com/us/app/vibebuddy-agent-monitor/id6777469338) · [开始使用](#开始使用) · [English](README.md)
 
@@ -22,7 +22,7 @@
 
 ## 少来回查看，多做自己的事。
 
-让 Claude Code 改代码，让 Codex 跑测试，VibeBuddy 把它们放进同一个视图。只要 Mac 保持运行、网络可达，你就能在手机上处理问题，在手表上关注任务，或者开口询问最新进展。
+让 Claude Code 改代码、Codex 跑测试、Grok Build 执行构建，也能在同一个伴侣中查看 Grok Bot 的结果与 Cursor 剩余额度。只要 Mac 保持运行、网络可达，你就能在手机上处理问题，在手表上关注任务，或者开口询问最新进展。
 
 | 看清当前情况 | 接着推进任务 | 了解完成结果 |
 | --- | --- | --- |
@@ -57,11 +57,13 @@
 | **听懂完成结果** | 可选 AI 摘要聚焦结果、阻塞与下一步。Mac 朗读可分别选择服务商、模型和音色，并先试听。[模型设置更新](docs/release-notes-1.3.10.md)。 |
 | **继续已有对话** | 回答可处理的等待请求，为运行中的 Codex 任务补充指令，或继续已有任务；查看近期对话与发送回执。[任务交互更新](docs/release-notes-1.3.6.md)。 |
 | **随手找到 Mac 上的任务** | 搜索和筛选菜单栏活动，打开任务详情，通过主动开启的二维码配对窗口连接手机。[Mac 伴侣更新](docs/release-notes-1.3.9.md)。 |
-| **带上更多工作信息** | Watch 快捷回答与任务控制、可选 Grok Bot 观测，以及在服务商数据可用时查看 Claude、Codex、Grok、Cursor 账户额度。[Watch 更新](docs/release-notes-1.3.8.md) · [Grok Bot](docs/release-notes-1.3.7.md)。 |
+| **抬腕关注任务** | Watch 快捷回答、任务控制与完成摘要，方便随时查看关注中的任务。[Watch 更新](docs/release-notes-1.3.8.md)。 |
+| **关注 Grok Build 与 Grok Bot** | 追踪 Build CLI 任务、账户额度与依权限模式提供的审批请求；可开启 Bot 只读观测、可核实的普通对话完成摘要与独立账户额度。[Grok Build 配置](docs/getting-started.md#grok-build) · [Grok Bot 更新](docs/release-notes-1.3.7.md)。 |
+| **查看 Cursor 剩余额度** | 使用已有 Cursor App 或 Cursor CLI 登录，分别显示 **Cursor Models** 与 **Other Models** 两个额度池。[Cursor CLI 支持](docs/release-notes-1.3.2.md)。 |
 
 Mac 版本与 iPhone／Watch 的 App Store 更新分别发布，新功能需要相应设备安装更新后的客户端。当前版本和可用情况以 [Mac Releases](https://github.com/semantic-craft/iOS-vibebuddy/releases) 和 [App Store 页面](https://apps.apple.com/us/app/vibebuddy-agent-monitor/id6777469338)为准。
 
-## 围绕 Claude Code 与 Codex 的实际工作流
+## 常用工具与支持能力
 
 VibeBuddy 连接你已经在用的 Agent。能否操作，取决于当前连接方式和具体请求。
 
@@ -70,8 +72,9 @@ VibeBuddy 连接你已经在用的 Agent。能否操作，取决于当前连接�
 | **Claude Code** | 生命周期 hooks、任务状态、用量、权限决定与受支持的问题回答。 | 远程回应需要安装审批 hooks；交互由原生提示处理时，回到 Mac 回应。 |
 | **Codex CLI／已连接的 app-server** | 任务状态、额度、受支持的审批与问题；通过已连接的 app-server 新建、继续、补充指令和停止任务。 | 连接的服务必须拥有该任务，并能识别相应轮次或请求；MCP elicitation 目前只读。 |
 | **Codex Desktop** | 观测本地任务进展和完成结果，跳回应用。 | Desktop 可能使用独立 app-server；原生审批覆盖不完整，没有可回应请求时需使用 Mac 提示。 |
-| **Grok Build／Grok Bot** | Build CLI hooks 与依权限模式提供的审批；可选 Bot 观测和额度。 | Bot 只读；Build 的审批效果取决于权限模式。 |
-| **Cursor** | 从支持的登录来源读取账户额度，包括 Cursor CLI 登录。 | 已支持额度；尚不支持任务追踪和远程审批。 |
+| **Grok Build** | CLI 生命周期 hooks、任务状态、账户额度与配置后的审批通道。 | 远程批准能否解除原生提示，取决于 Grok 的权限模式。 |
+| **Grok Bot** | 可选的只读任务观测、可核实的普通对话完成摘要与独立账户额度。 | 回复和审批在官方 App 中处理；问题续接、自动化任务及跨断线轮次尚未支持。 |
+| **Cursor** | 从支持的登录来源读取账户额度，包括 Cursor App 与 Cursor CLI，分别显示 **Cursor Models** 和 **Other Models**。 | 已支持额度；尚不支持任务追踪和远程审批。 |
 
 详见 [Codex 集成契约](docs/codex-integration.md)和 [Agent hook 配置](docs/multi-cli-hook-setup.md)。Qwen、Kimi、OpenCode、Antigravity 编码 Agent 适配器属于实验性社区集成；其验证状态与已支持的千问语音服务不同。
 
@@ -80,7 +83,7 @@ VibeBuddy 连接你已经在用的 Agent。能否操作，取决于当前连接�
 1. **安装 Mac 伴侣。** [下载最新 DMG](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest)，将 App 拖入“应用程序”并打开。发布的 Mac 版需要 Apple Silicon 与 macOS 14+。
 2. **接入编码 Agent。** 在 Mac 设置的 Setup 中按对应 Agent 的说明配置，也可查看[手动配置指南](docs/getting-started.md#connect-an-agent)。
 3. **连接 iPhone。** 安装 [VibeBuddy: Agent Monitor](https://apps.apple.com/us/app/vibebuddy-agent-monitor/id6777469338)，在 Mac 选择“配对手机”，在 iPhone 选择“扫码配对”。首次在同一可信局域网操作。iPhone 需要 iOS 17+，当前 Watch 伴侣需要 watchOS 26.5+。
-4. **跑一个任务。** 在 Claude Code 或 Codex 发起简短任务，查看状态、打开详情并关注至完成。语音和摘要可按需单独开启。
+4. **试试你的工作流。** 在 Claude Code、Codex 或 Grok Build 发起简短任务并关注至完成，也可[开启 Grok Bot 观测](docs/getting-started.md#grok-bot)或[接入 Cursor 额度](docs/getting-started.md#cursor)。语音和摘要可按需单独开启。
 
 **想先看看界面？** iPhone 连接页有“查看演示（无需 Mac）”，Mac 也可独立使用。上述 App Store 链接指向美国商店，是否可下载取决于账号地区；也可[自行编译](docs/getting-started.md#build-from-source)。
 
@@ -96,8 +99,10 @@ VibeBuddy 连接你已经在用的 Agent。能否操作，取决于当前连接�
 
 ```mermaid
 flowchart LR
-    A[Claude Code 与 Agent CLI hooks] --> M[Mac 上的 VibeBuddy]
+    A[Claude Code 与 Grok Build hooks] --> M[Mac 上的 VibeBuddy]
     C[Codex 本地记录与已连接的 app-server] <--> M
+    B[Grok Bot 观测] --> M
+    U[账户额度与 Cursor 用量] --> M
     M <-->|配对后的本地连接| P[iPhone]
     P <-->|WatchConnectivity| W[Apple Watch]
     M -. 可选 AI 功能 .-> V[你选择的 AI 服务商]

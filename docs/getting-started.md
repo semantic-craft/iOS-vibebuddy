@@ -1,7 +1,8 @@
 # Getting started with VibeBuddy
 
-VibeBuddy's Mac app observes your coding agents and connects to the optional
-iPhone and Apple Watch companions. [Back to the homepage](../README.md).
+VibeBuddy's Mac app tracks Claude Code, Codex and Grok Build tasks, optionally
+observes Grok Bot, and reads Cursor account usage. Add the iPhone and Apple Watch
+companions to bring those views with you. [Back to the homepage](../README.md).
 
 ## Install and pair
 
@@ -64,11 +65,45 @@ establish permission coverage or task-control access. Read the
 [Codex integration contract](codex-integration.md) for the current boundary and
 [probe instructions](../tools/codex-integration/README.md) for diagnostics.
 
-### Other agents and removal
+### Grok Build
 
-See [multi-agent hook setup](multi-cli-hook-setup.md) for Grok Build and
-experimental adapters. Cursor currently supplies account usage, not task control.
-Each Claude/Codex installer accepts `--uninstall` to remove its managed entries.
+```bash
+python3 hooks/install-grok-hooks.py --dry-run
+python3 hooks/install-grok-hooks.py --install
+```
+
+Reload Grok's hooks with `/hooks` then `r`, or start a fresh session. The optional
+`--approval` installer flag adds the blocking approval gate. Grok's permission
+mode determines whether a phone approval also resolves the native prompt; read
+the [Grok Build setup details](multi-cli-hook-setup.md#grok-build-grokhooksvibebuddyjson)
+before enabling it. Task observation and account usage do not require that gate.
+
+### Grok Bot
+
+Sign in through the official Grok Bot app, then enable **Observe Grok Bot tasks**
+in VibeBuddy's Mac settings. The observer is off by default. Its read-only view
+supports task status, verified ordinary completions and optional completion
+summaries/read-aloud; replies and approvals stay in Grok Bot. Question
+continuations, automated tasks and turns spanning a disconnect are not yet
+supported, so check those results in the official app.
+
+For its separate quota, use the **Grok Bot** section in Usage settings. If access
+is needed, use **Authorize Grok Bot account access…** there, then enable collection
+and refresh. Renew expired login in Grok Bot itself.
+
+### Cursor
+
+In Mac **Settings → Usage → Login source**, choose the existing Cursor app or
+**Cursor CLI login**. The CLI path uses the account signed in through
+`cursor-agent login` and does not require the Cursor desktop app. Refresh usage
+to see **Cursor Models** and **Other Models** as separate pools. Available values
+depend on the selected account and provider response. This is account-usage
+integration; Cursor task tracking and remote approval are not yet supported.
+
+### Experimental adapters and removal
+
+See [multi-agent hook setup](multi-cli-hook-setup.md) for experimental adapters.
+The Claude, Codex and Grok installers accept `--uninstall` to remove managed entries.
 Keep this checkout at its installed path while file-based hooks refer to it.
 
 ## Optional AI and notifications
