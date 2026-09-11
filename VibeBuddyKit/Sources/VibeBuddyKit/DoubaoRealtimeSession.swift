@@ -17,7 +17,9 @@ public actor DoubaoRealtimeSession: RealtimeVoiceProvider {
     private var sendTask: Task<Void, Never>?
     private var audioTask: Task<Void, Never>?
     private var timeoutTask: Task<Void, Never>?
-    private struct Outgoing { let text: String }
+    private struct Outgoing { let text: String; let sequence: UInt64 }
+    private var nextSequence: UInt64 = 0
+    private var sentSequence: UInt64 = 0
     private var outgoing: [Outgoing] = []
     private var frames = DoubaoPCMFrames()
     private var muted = false
@@ -98,10 +100,21 @@ public actor DoubaoRealtimeSession: RealtimeVoiceProvider {
         }
     }
 
-    public func sendToolResult(callID: String, name: String, result: String) {
-        guard ready, !closing, let items = calls.complete(callID: callID, result: result) else { return }
-        enqueue(["type": "conversation.item.create", "items": items])
+    public func sendToolResult(callID: String, name: String, result: String) async {
+        guard ready, !closing, let items = calls.complete(callID: callID, result: result,
+            endingSession: name == VoiceTools.endCall.name) else { return }
+        guard let sequence = enqueue(["type": "conversation.item.create", "items": items]) else { return }
+        // Wait for this exact FIFO item, not merely insertion into the queue.
         // Doubao continues from the aggregated tool items; no response.create.
+        let id = generation
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while generation == id, sentSequence < sequence, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+            if Task.isCancelled { break }
+        }
+        if generation == id, sentSequence < sequence {
+            fail("Doubao tool result delivery failed; no action was retried.")
+        }
     }
 
     // Natural interruption follows ASR started; the official demo stops local
@@ -157,16 +170,21 @@ public actor DoubaoRealtimeSession: RealtimeVoiceProvider {
         for waiter in waiters { waiter.resume() }
     }
 
-    private func enqueue(_ object: [String: Any]) {
+    @discardableResult
+    private func enqueue(_ object: [String: Any]) -> UInt64? {
         guard socket != nil,
               let data = try? JSONSerialization.data(withJSONObject: object),
-              let text = String(data: data, encoding: .utf8) else { return }
+              let text = String(data: data, encoding: .utf8) else { return nil }
         // Do not let the network FIFO defeat the realtime frame pacing.
-        guard outgoing.count < 8 else { fail("Doubao audio connection is too slow. Reconnect to continue."); return }
-        outgoing.append(Outgoing(text: text))
-        guard sendTask == nil else { return }
-        let id = generation
-        sendTask = Task { await self.flush(generation: id) }
+        guard outgoing.count < 8 else { fail("Doubao audio connection is too slow. Reconnect to continue."); return nil }
+        nextSequence += 1
+        let sequence = nextSequence
+        outgoing.append(Outgoing(text: text, sequence: sequence))
+        if sendTask == nil {
+            let id = generation
+            sendTask = Task { await self.flush(generation: id) }
+        }
+        return sequence
     }
 
     private func flush(generation id: UUID) async {
@@ -176,6 +194,8 @@ public actor DoubaoRealtimeSession: RealtimeVoiceProvider {
                 // pumpAudio alone paces capture frames. A second delay here
                 // adds send latency to every frame and grows the FIFO on a healthy link.
                 try await socket.send(.string(message.text))
+                guard generation == id else { return }
+                sentSequence = message.sequence
             }
             catch {
                 guard generation == id else { return }
@@ -349,12 +369,23 @@ struct DoubaoToolBatch {
         seen.formUnion(ids); batches.append(ids)
         return calls
     }
-    mutating func complete(callID: String, result: String) -> [[String: Any]]? {
+    mutating func complete(callID: String, result: String, endingSession: Bool = false) -> [[String: Any]]? {
         guard let index = batches.firstIndex(where: { $0.contains(callID) }), results[callID] == nil else { return nil }
         results[callID] = result
-        let ids = batches[index]
-        guard ids.allSatisfy({ results[$0] != nil }) else { return nil }
-        batches.remove(at: index)
+        let ids: [String]
+        if endingSession {
+            // The coordinator cancels remaining tasks on hangup. Resolve every
+            // outstanding result without claiming that a sent action was undone.
+            ids = batches.flatMap { $0 }
+            for id in ids where results[id] == nil {
+                results[id] = "Voice call ended; pending result collection was cancelled. Any prior action outcome is unconfirmed."
+            }
+            batches.removeAll()
+        } else {
+            ids = batches[index]
+            guard ids.allSatisfy({ results[$0] != nil }) else { return nil }
+            batches.remove(at: index)
+        }
         return ids.map { id in
             let value = results.removeValue(forKey: id)!
             return ["call_id": id, "role": "tool", "content": [["type": "input_text", "text": value]]]

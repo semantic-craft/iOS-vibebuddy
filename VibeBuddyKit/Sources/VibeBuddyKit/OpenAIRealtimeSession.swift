@@ -74,10 +74,17 @@ public actor OpenAIRealtimeSession: RealtimeVoiceProvider {
         send(["type": "input_audio_buffer.append", "audio": pcm24k.base64EncodedString()])
     }
 
-    public func sendToolResult(callID: String, name: String, result: String) {
-        send(["type": "conversation.item.create",
-              "item": ["type": "function_call_output", "call_id": callID, "output": result]])
-        send(["type": "response.create"])
+    public func sendToolResult(callID: String, name: String, result: String) async {
+        guard let socket = task else { return }
+        let messages = RealtimeToolDelivery.encode([
+            ["type": "conversation.item.create",
+             "item": ["type": "function_call_output", "call_id": callID, "output": result]],
+            ["type": "response.create"],
+        ])
+        guard await RealtimeToolDelivery.send(messages, over: socket), task === socket else {
+            if task === socket { continuation?.yield(.failed("OpenAI tool result delivery failed; no action was retried.")); close() }
+            return
+        }
     }
 
     public func truncatePlayback(_ checkpoints: [VoicePlaybackCheckpoint]) {

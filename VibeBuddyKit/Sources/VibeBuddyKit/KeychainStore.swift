@@ -215,6 +215,11 @@ public enum VoiceLanguage: String, CaseIterable, Sendable {
 /// Keychain (user-provided, BYO); the rest are plain UserDefaults values. The
 /// companion is available whenever a key is present — no separate enable toggle.
 public enum VoiceSettings {
+    public static let openAILiveBackendModelKey = "voiceOpenAILiveBackendModel"
+    public static func openAILiveBackendModel(defaults: UserDefaults = .standard) -> String {
+        let value = (defaults.string(forKey: openAILiveBackendModelKey) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? OpenAILiveSession.defaultBackendModel : value
+    }
     public static let regionIntlKey = "voiceRegionIntl"
     public static let qwenWorkspaceIDKey = "voiceQwenWorkspaceID"
     public static let conversationLanguageKey = "voiceConversationLanguage"

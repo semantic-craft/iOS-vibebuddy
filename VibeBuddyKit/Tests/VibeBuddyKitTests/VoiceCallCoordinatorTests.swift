@@ -6,6 +6,38 @@ import Testing
 @MainActor
 struct VoiceCallCoordinatorTests {
 
+    @Test("final Qwen and Doubao transcripts end locally without a model tool")
+    func finalTranscriptHangup() {
+        let audio = FakeVoiceCallAudio()
+        var closeCount = 0
+        let coordinator = VoiceCallCoordinator(audio: audio, actionHandler: { _ in
+            Issue.record("Local hangup must not mutate coding tasks")
+            return ""
+        }, closeSession: { _ in closeCount += 1 })
+        coordinator.handle(.connected)
+        coordinator.handle(.audioDelta(Data([1, 2])))
+        coordinator.handle(.userTranscript(text: "请立即挂断这次语音通话", final: false))
+        #expect(!audio.stopped)
+        coordinator.handle(.userTranscript(text: "请立即挂断这次语音通话", final: true))
+        coordinator.handle(.userTranscript(text: "请立即挂断这次语音通话", final: true))
+        #expect(audio.stopped)
+        #expect(coordinator.phase == .idle)
+        #expect(coordinator.endedByExplicitVoiceCommand)
+        #expect(closeCount == 1)
+    }
+
+    @Test("completed negated and quoted hangup requests keep the call open")
+    func nonCommandsStayOpen() {
+        let audio = FakeVoiceCallAudio()
+        let coordinator = VoiceCallCoordinator(audio: audio, actionHandler: { _ in "" })
+        coordinator.handle(.connected)
+        for text in ["不要挂断通话", "“挂断通话”", "挂断通话？", "结束这个会话之前先跑测试"] {
+            coordinator.handle(.userTranscript(text: text, final: true))
+            #expect(!audio.stopped)
+        }
+        coordinator.stop()
+    }
+
     @Test("connecting remains distinct from listening until provider confirmation")
     func awaitsConfirmation() {
         let audio = FakeVoiceCallAudio()
@@ -219,7 +251,7 @@ struct VoiceCallCoordinatorTests {
         let coordinator = VoiceCallCoordinator(
             audio: audio,
             actionHandler: { _ in "" },
-            closeSession: { closed = true }
+            closeSession: { _ in closed = true }
         )
 
         coordinator.handle(.connected)
@@ -238,7 +270,7 @@ struct VoiceCallCoordinatorTests {
         let coordinator = VoiceCallCoordinator(
             audio: audio,
             actionHandler: { _ in "" },
-            closeSession: { closed = true }
+            closeSession: { _ in closed = true }
         )
 
         coordinator.handle(.connected)

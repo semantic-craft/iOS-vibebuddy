@@ -1,5 +1,19 @@
 import Foundation
 
+/// A display-level signal check, not VAD and never an audio/action gate. Live
+/// streams silent PCM too; queued silence alone must not mean "speaking".
+public enum VoicePCM {
+    public static func hasAudibleSignal(_ pcm: Data) -> Bool {
+        pcm.withUnsafeBytes { bytes in
+            for offset in stride(from: 0, to: bytes.count - 1, by: 2) {
+                let sample = Int(Int16(littleEndian: bytes.loadUnaligned(fromByteOffset: offset, as: Int16.self)))
+                if abs(sample) > 96 { return true }
+            }
+            return false
+        }
+    }
+}
+
 /// Provider identity of one assistant audio content part.
 public struct VoiceAudioItem: Hashable, Sendable {
     public let id: String
@@ -28,6 +42,7 @@ public enum RealtimeVoiceEvent: Sendable {
     case connected
     case userTranscript(text: String, final: Bool)       // what the user said
     case assistantTranscript(text: String, final: Bool)  // what the model says
+    case transcriptFragment(VoiceTranscriptFragment)   // continuous Live captions, never a completed turn
     case audioDelta(Data, item: VoiceAudioItem? = nil)                                 // PCM 24 kHz mono 16-bit, to play
     case speechStarted                                    // server VAD: user started talking → barge-in
     case responseDone
@@ -37,18 +52,28 @@ public enum RealtimeVoiceEvent: Sendable {
     case closed
 }
 
+public struct VoiceTranscriptFragment: Sendable, Equatable {
+    public enum Speaker: Sendable { case user, assistant }
+    public let speaker: Speaker
+    public let text: String
+    public let startMilliseconds: Int
+    public let endMilliseconds: Int
+}
+
 /// A real-time speech-to-speech voice backend. Implementations stream 16 kHz mono
-/// PCM16 up and emit `RealtimeVoiceEvent`s (including 24 kHz PCM16 audio) down.
+/// PCM16 at the provider's input rate up and emit events (24 kHz PCM16 audio) down.
 public protocol RealtimeVoiceProvider: Actor {
     /// Open the session with a system prompt + voice + the function tools the model
     /// may call; returns the event stream.
     func start(instructions: String, voice: String, tools: [VoiceTool]) -> AsyncStream<RealtimeVoiceEvent>
-    /// Append captured microphone audio (16 kHz mono PCM16).
+    /// Append captured microphone audio at VoiceProvider.inputSampleRate, mono PCM16.
     func appendAudio(_ pcm16k: Data)
     /// Return a tool call's result to the model so it can continue the turn (and
     /// speak a confirmation). `name` is required by some providers (Gemini); the
-    /// OpenAI-style providers correlate on `callID` alone.
-    func sendToolResult(callID: String, name: String, result: String)
+    /// OpenAI-style providers correlate on `callID` alone. Implementations must
+    /// finish socket delivery before returning, or preserve and drain the result
+    /// in close(); failed delivery must terminate explicitly without retrying.
+    func sendToolResult(callID: String, name: String, result: String) async
     /// Synchronize any discarded playback with providers that keep audio history.
     func truncatePlayback(_ checkpoints: [VoicePlaybackCheckpoint])
     /// Tear the session down.
@@ -192,12 +217,17 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
         send(["type": "input_audio_buffer.append", "audio": pcm16k.base64EncodedString()])
     }
 
-    public func sendToolResult(callID: String, name: String, result: String) {
-        // OpenAI-Realtime shape: append the function result as a conversation item,
-        // then ask the model to continue so it can speak its confirmation.
-        send(["type": "conversation.item.create",
-              "item": ["type": "function_call_output", "call_id": callID, "output": result]])
-        send(["type": "response.create"])
+    public func sendToolResult(callID: String, name: String, result: String) async {
+        guard let socket = task else { return }
+        let messages = RealtimeToolDelivery.encode([
+            ["type": "conversation.item.create",
+             "item": ["type": "function_call_output", "call_id": callID, "output": result]],
+            ["type": "response.create"],
+        ])
+        guard await RealtimeToolDelivery.send(messages, over: socket), task === socket else {
+            if task === socket { continuation?.yield(.failed("Qwen tool result delivery failed; no action was retried.")); close() }
+            return
+        }
     }
 
     // Qwen smart_turn handles server interruption; its current API does not
@@ -300,6 +330,60 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
             close()
         default:
             break
+        }
+    }
+}
+
+public struct VoiceToolResult: Sendable {
+    public let callID: String
+    public let name: String
+    public let result: String
+    public init(callID: String, name: String, result: String) {
+        self.callID = callID; self.name = name; self.result = result
+    }
+}
+
+/// A tool receipt must finish socket delivery before its caller closes the session.
+/// Timeouts resolve once and cancel the affected socket; payloads never enter errors.
+enum RealtimeToolDelivery {
+    static func encode(_ messages: [[String: Any]]) -> [String]? {
+        try? messages.map { String(decoding: try JSONSerialization.data(withJSONObject: $0), as: UTF8.self) }
+    }
+
+    static func send(_ messages: [String]?, over socket: URLSessionWebSocketTask) async -> Bool {
+        guard let messages else { return false }
+        for text in messages {
+            let sent = await wait(start: { done in
+                socket.send(.string(text)) { error in done(error == nil) }
+            }, onTimeout: { socket.cancel(with: .goingAway, reason: nil) })
+            if !sent { return false }
+        }
+        return true
+    }
+
+    static func wait(timeout: TimeInterval = 2,
+                     start: (@escaping @Sendable (Bool) -> Void) -> Void,
+                     onTimeout: @escaping @Sendable () -> Void = {}) async -> Bool {
+        await withCheckedContinuation { continuation in
+            let completion = Completion(continuation)
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+                if completion.finish(false) { onTimeout() }
+            }
+            start { _ = completion.finish($0) }
+        }
+    }
+
+    private final class Completion: @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<Bool, Never>?
+        init(_ continuation: CheckedContinuation<Bool, Never>) { self.continuation = continuation }
+        func finish(_ value: Bool) -> Bool {
+            lock.lock()
+            let pending = continuation
+            continuation = nil
+            lock.unlock()
+            pending?.resume(returning: value)
+            return pending != nil
         }
     }
 }

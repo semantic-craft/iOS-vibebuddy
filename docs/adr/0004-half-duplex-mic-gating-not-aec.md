@@ -49,3 +49,31 @@ iPhone hardware behavior, Bluetooth/route changes, or installation acceptance.
 Those require actual calls on the relevant devices. A voice-processing startup
 failure remains an explicit call failure; it does not silently enable untreated
 full-duplex speaker audio.
+
+## Continuous GPT-Live audio (2026-09-11)
+
+The response-based completion/truncation rules above apply to Realtime providers.
+GPT-Live has no corresponding speech-start, output-audio-done or item-truncation
+events. It manages interruption within its continuous stream. Its transcript
+fragments are captions, never authoritative completed turns or action-cancellation
+signals. A backend tool or the explicit local whole-call hangup command described in ADR-0008 ends the call.
+
+Continuous output includes silence. Both platform players retain every buffer
+to preserve timing and separately count buffers with audible signal. Live's
+speaking phase follows that playback count, not backend completion, transcript
+arrival or queued silence. The signal threshold changes only the display and
+never gates capture, drops audio, or approves an action. Existing generation
+tokens still prevent flushed callbacks from draining a newer playback queue.
+
+## Release voice processing on hangup (2026-09-11)
+
+Installed Mac/AirPods acceptance found background audio remained ducked after
+`end_voice_call` and an idle UI; quitting the app restored it. Stop rendering,
+then explicitly disable voice processing on the stopped input node (which also
+disables the output node). Do this before iOS audio-session deactivation. Release
+the call coordinator during teardown rather than relying on another event.
+The system voice processing remains enabled throughout an active call.
+
+A retained-object native probe confirms capture stops and voice processing is
+false after repeated stop. Actual post-call volume recovery remains a manual
+acceptance condition; engine state alone does not establish hearing quality.

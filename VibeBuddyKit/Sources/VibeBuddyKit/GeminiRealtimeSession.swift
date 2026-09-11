@@ -66,10 +66,15 @@ public actor GeminiRealtimeSession: RealtimeVoiceProvider {
         ]]])
     }
 
-    public func sendToolResult(callID: String, name: String, result: String) {
+    public func sendToolResult(callID: String, name: String, result: String) async {
+        guard let socket = task else { return }
         var response: [String: Any] = ["name": name, "response": ["result": result]]
         if !callID.isEmpty { response["id"] = callID }   // correlate when the server gave an id
-        send(["toolResponse": ["functionResponses": [response]]])
+        let messages = RealtimeToolDelivery.encode([["toolResponse": ["functionResponses": [response]]]])
+        guard await RealtimeToolDelivery.send(messages, over: socket), task === socket else {
+            if task === socket { continuation?.yield(.failed("Gemini tool result delivery failed; no action was retried.")); close() }
+            return
+        }
     }
 
     // Gemini manages interrupted audio history on its server.

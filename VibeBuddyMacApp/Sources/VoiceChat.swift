@@ -92,16 +92,17 @@ final class VoiceChat: ObservableObject {
             phase = .idle; return
         }
         let language = VoiceSettings.conversationLanguage
-        let instructions = VoicePrompt.systemPrompt(sessions: contextProvider(), language: language, actionStyle: .tools)
-            + "\n\nThis is a live voice call. Stay silent until the user actually speaks — never start talking on your own or fill silence, and never reply to your own voice. Answer in one short, natural sentence unless asked for more, and don't repeat yourself. Speak in a calm, gentle, even tone at a steady volume; never suddenly raise your pitch, shout, or get loud."
         let model = VoiceSettings.model(provider)
+        let usesLive = provider == .openai && OpenAIVoiceSession.usesLive(model)
+        let instructions = usesLive ? VoicePrompt.liveBackend(language: language) : VoicePrompt.realtimeConversation(language: language)
+            + "\n\nThis is a live voice call. Stay silent until the user actually speaks — never start talking on your own or fill silence, and never reply to your own voice. Answer in one short, natural sentence unless asked for more, and don't repeat yourself. Speak in a calm, gentle, even tone at a steady volume; never suddenly raise your pitch, shout, or get loud."
         let voice = VoiceSettings.voice(provider, language)
         voiceLog.info("realtime start provider=\(provider.rawValue, privacy: .public) model=\(model, privacy: .public) voice=\(voice, privacy: .public)")
 
         let session: any RealtimeVoiceProvider
         switch provider {
         case .qwen:   session = QwenRealtimeSession(apiKey: key, model: model, workspaceID: VoiceSettings.qwenWorkspaceID, useIntl: VoiceSettings.useIntl)
-        case .openai: session = OpenAIRealtimeSession(apiKey: key, model: model)
+        case .openai: session = OpenAIVoiceSession.make(apiKey: key, model: model, language: language)
         case .gemini: session = GeminiRealtimeSession(apiKey: key, model: model)
         case .doubao: session = DoubaoRealtimeSession(apiKey: key, model: model)
         }
@@ -117,7 +118,9 @@ final class VoiceChat: ObservableObject {
             truncatePlayback: { checkpoints in
                 Task { await session.truncatePlayback(checkpoints) }
             },
-            closeSession: { [weak self] in self?.closeRealtimeSession() }
+            closeSession: { [weak self] result in self?.closeRealtimeSession(completingTool: result) },
+            continuousPlayback: usesLive,
+            contextProvider: contextProvider
         )
         self.coordinator = coordinator
         activeProvider = provider
@@ -125,16 +128,18 @@ final class VoiceChat: ObservableObject {
         coordinator.beginConnecting()
         syncFromCoordinator(coordinator)
 
+        let id = startID
         eventTask = Task { [weak self] in
-            let stream = await session.start(instructions: instructions, voice: voice, tools: VoiceTools.all)
+            let stream = await session.start(instructions: instructions, voice: voice, tools: VoiceTools.conversation)
             for await event in stream {
-                await self?.handleRealtime(event)
+                guard !Task.isCancelled, let self, self.startID == id else { return }
+                self.handleRealtime(event)
             }
         }
         io.onAudioFrame = { @Sendable data in Task { await session.appendAudio(data) } }
         io.onPlaybackDrained = { [weak self] in
             Task { @MainActor in
-                guard let self, let coordinator = self.coordinator else { return }
+                guard let self, self.startID == id, let coordinator = self.coordinator else { return }
                 voiceLog.info("playback drained")
                 coordinator.playbackDrained()
                 self.syncFromCoordinator(coordinator)
@@ -168,7 +173,7 @@ final class VoiceChat: ObservableObject {
             if VoiceCloseIntent.shouldClose(text) {     // "再见 / 关闭 / bye" → hang up hands-free
                 voiceLog.info("voice close phrase heard — ending call")
             }
-        case .assistantTranscript, .audioDelta:
+        case .assistantTranscript, .transcriptFragment, .audioDelta:
             break
         case .speechStarted:           // server detected real user speech
             voiceLog.info("speech started; flushing playback pending=\(self.audioIO?.isPlaybackPending ?? false, privacy: .public)")
@@ -206,13 +211,20 @@ final class VoiceChat: ObservableObject {
         phase = .idle
     }
 
-    private func closeRealtimeSession() {
+    private func closeRealtimeSession(completingTool: VoiceToolResult? = nil) {
+        phase = .idle
+        coordinator = nil
         eventTask?.cancel(); eventTask = nil
         audioIO = nil
         audioStarted = false
         let session = realtime
         realtime = nil
-        Task { await session?.close() }
+        Task {
+            if let result = completingTool {
+                await session?.sendToolResult(callID: result.callID, name: result.name, result: result.result)
+            }
+            await session?.close()
+        }
         activeProvider = nil
     }
 

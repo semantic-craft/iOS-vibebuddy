@@ -5,6 +5,18 @@ import Foundation
 @Suite("VoiceTools — realtime function-calling catalog & decoding")
 struct VoiceToolsTests {
 
+    @Test("Qwen and Doubao wire configurations include fresh status and hangup")
+    func conversationToolsOnBothWires() throws {
+        let expected: Set<String> = ["get_session_status", "end_voice_call", "approve_session", "deny_session", "answer_session"]
+        let qwen = QwenRealtimeSession.sessionConfig(instructions: "test", voice: "Cherry", tools: VoiceTools.conversation)
+        let qwenTools = try #require(qwen["tools"] as? [[String: Any]])
+        #expect(Set(qwenTools.compactMap { ($0["function"] as? [String: Any])?["name"] as? String }) == expected)
+        let doubao = DoubaoRealtimeSession.sessionConfig(model: "1.2.6.1", instructions: "test", voice: "zh_female_vv_jupiter_bigtts", tools: VoiceTools.conversation)
+        let doubaoTools = try #require(doubao["tools"] as? [[String: Any]])
+        #expect(Set(doubaoTools.compactMap { $0["name"] as? String }) == expected)
+        #expect(doubaoTools.count == expected.count)
+    }
+
     // MARK: Catalog — the three tools the model is given
 
     @Test("the catalog exposes approve, deny, and answer tools")

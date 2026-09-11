@@ -13,9 +13,14 @@ public enum VoiceCallPhase: Equatable, Sendable {
 @MainActor
 public protocol VoiceCallAudio: AnyObject {
     var isPlaybackPending: Bool { get }
+    var isAudiblePlaybackPending: Bool { get }
     func flushPlayback() -> [VoicePlaybackCheckpoint]
     func enqueue(_ pcm: Data, item: VoiceAudioItem?)
     func stop()
+}
+
+public extension VoiceCallAudio {
+    var isAudiblePlaybackPending: Bool { isPlaybackPending }
 }
 
 @MainActor
@@ -29,25 +34,35 @@ public final class VoiceCallCoordinator {
     private let actionHandler: (VoiceAction) async -> String
     private let sendToolResult: (String, String, String) -> Void
     private let truncatePlayback: ([VoicePlaybackCheckpoint]) -> Void
-    private let closeSession: () -> Void
+    private let closeSession: (VoiceToolResult?) -> Void
+    private let continuousPlayback: Bool
+    private let contextProvider: (() -> [AgentSession])?
+    private var userFragments: [VoiceTranscriptFragment] = []
+    private var assistantFragments: [VoiceTranscriptFragment] = []
     private var turnComplete = true
     private var assistantBuffer = ""
     private var toolTasks: [String: Task<Void, Never>] = [:]
     private var handledToolIDs: Set<String> = []
     private var stopped = false
+    private var closeIntentTask: Task<Void, Never>?
+    public private(set) var endedByExplicitVoiceCommand = false
 
     public init(
         audio: any VoiceCallAudio,
         actionHandler: @escaping (VoiceAction) async -> String,
         sendToolResult: @escaping (String, String, String) -> Void = { _, _, _ in },
         truncatePlayback: @escaping ([VoicePlaybackCheckpoint]) -> Void = { _ in },
-        closeSession: @escaping () -> Void = {}
+        closeSession: @escaping (VoiceToolResult?) -> Void = { _ in },
+        continuousPlayback: Bool = false,
+        contextProvider: (() -> [AgentSession])? = nil
     ) {
         self.audio = audio
         self.actionHandler = actionHandler
         self.sendToolResult = sendToolResult
         self.closeSession = closeSession
         self.truncatePlayback = truncatePlayback
+        self.continuousPlayback = continuousPlayback
+        self.contextProvider = contextProvider
     }
 
     public func beginConnecting() {
@@ -59,9 +74,38 @@ public final class VoiceCallCoordinator {
         switch event {
         case .connected:
             phase = .listening
-        case .userTranscript(let text, _):
+        case .userTranscript(let text, let final):
             lastUserText = text
-            if VoiceCloseIntent.shouldClose(text) { stop() }
+            if final, VoiceCloseIntent.isExplicitCallEnd(text) {
+                endedByExplicitVoiceCommand = true
+                stop()
+            } else if final, VoiceCloseIntent.shouldClose(text) {
+                stop()
+            }
+        case .transcriptFragment(let fragment):
+            // Retain a bounded window for each speaker, including overlap and
+            // late fragments. Captions never authorize coding actions. A narrow
+            // settled call-ending command controls this local voice session only.
+            if fragment.speaker == .user {
+                userFragments.append(fragment)
+                userFragments = Array(userFragments.suffix(128))
+                lastUserText = Self.caption(userFragments)
+                closeIntentTask?.cancel()
+                closeIntentTask = nil
+                if continuousPlayback, VoiceCloseIntent.isExplicitCallEnd(lastUserText) {
+                    closeIntentTask = Task { [weak self] in
+                        try? await Task.sleep(for: .milliseconds(750))
+                        guard !Task.isCancelled, let self, !self.stopped,
+                              VoiceCloseIntent.isExplicitCallEnd(self.lastUserText) else { return }
+                        self.endedByExplicitVoiceCommand = true
+                        self.stop()
+                    }
+                }
+            } else {
+                assistantFragments.append(fragment)
+                assistantFragments = Array(assistantFragments.suffix(128))
+                lastReply = Self.caption(assistantFragments)
+            }
         case .assistantTranscript(let text, let final):
             if final {
                 lastReply = text
@@ -71,21 +115,38 @@ public final class VoiceCallCoordinator {
                 lastReply = assistantBuffer
             }
         case .audioDelta(let pcm, let item):
-            turnComplete = false
-            phase = .speaking
+            turnComplete = continuousPlayback
             audio.enqueue(pcm, item: item)
+            if !continuousPlayback || audio.isAudiblePlaybackPending { phase = .speaking }
+            else { updatePlaybackPhase() }
         case .responseDone:
             turnComplete = true
             updatePlaybackPhase()
         case .toolCall(let name, let arguments, let callID):
             let action = VoiceTools.action(name: name, arguments: arguments)
             guard !stopped, handledToolIDs.insert(callID).inserted else { return }
-            phase = .thinking
+            let playing = continuousPlayback ? audio.isAudiblePlaybackPending : audio.isPlaybackPending
+            phase = playing ? .speaking : .thinking
             toolTasks[callID] = Task { [weak self] in
                 guard let self, !Task.isCancelled else { return }
-                let result = action == .none ? "Sorry, I couldn't do that." : await actionHandler(action)
+                let result: String
+                let object = arguments.data(using: .utf8).flatMap {
+                    (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any]
+                }
+                if name == VoiceTools.status.name, object?.isEmpty == true {
+                    result = VoicePrompt.sessionContext(contextProvider?() ?? [])
+                } else if name == VoiceTools.endCall.name, object?.isEmpty == true {
+                    stop(completingTool: VoiceToolResult(callID: callID, name: name, result: "Voice call ending; coding tasks are unchanged."))
+                    return
+                } else if action != .none, let contextProvider,
+                          let project = object?["project"] as? String,
+                          VoiceSessionMatch.match(project, in: contextProvider()) == nil {
+                    result = "No unique matching task in the user's selected voice scope; no action was sent."
+                } else {
+                    result = action == .none ? "Sorry, I couldn't do that." : await actionHandler(action)
+                }
                 guard !Task.isCancelled, !stopped else { return }
-                if action != .none { lastReply = result }
+                if action != .none, !continuousPlayback { lastReply = result }
                 sendToolResult(callID, name, result)
                 toolTasks[callID] = nil
             }
@@ -107,14 +168,15 @@ public final class VoiceCallCoordinator {
         }
     }
 
-    public func stop() {
+    public func stop(completingTool: VoiceToolResult? = nil) {
         guard !stopped else { return }
         stopped = true
+        closeIntentTask?.cancel(); closeIntentTask = nil
         toolTasks.values.forEach { $0.cancel() }
         toolTasks.removeAll()
         audio.stop()
         turnComplete = true
-        closeSession()
+        closeSession(completingTool)
         phase = .idle
     }
 
@@ -124,8 +186,26 @@ public final class VoiceCallCoordinator {
     }
 
     private func updatePlaybackPhase() {
-        if turnComplete, !audio.isPlaybackPending, phase == .speaking {
-            phase = .listening
+        let pending = continuousPlayback ? audio.isAudiblePlaybackPending : audio.isPlaybackPending
+        if turnComplete, !pending, phase == .speaking {
+            phase = toolTasks.isEmpty ? .listening : .thinking
         }
+    }
+
+    private static func caption(_ fragments: [VoiceTranscriptFragment]) -> String {
+        // Show the latest same-speaker group; the 1.5s gap is a UI grouping
+        // heuristic only. Keep the original fragments so late text can regroup.
+        let ordered = fragments.enumerated().sorted {
+            if $0.element.startMilliseconds == $1.element.startMilliseconds { return $0.offset < $1.offset }
+            return $0.element.startMilliseconds < $1.element.startMilliseconds
+        }.map(\.element)
+        var text = ""
+        var end: Int?
+        for fragment in ordered {
+            if let end, fragment.startMilliseconds - end > 1500 { text = "" }
+            text += fragment.text
+            end = max(end ?? 0, fragment.endMilliseconds)
+        }
+        return String(text.suffix(4096))
     }
 }

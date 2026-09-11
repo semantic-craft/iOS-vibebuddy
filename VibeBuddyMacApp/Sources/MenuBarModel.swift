@@ -966,17 +966,17 @@ final class MenuBarModel: ObservableObject {
         switch action {
         case .approve(let project):
             guard let s = match(project), let ap = s.pendingApproval else { return "No session to approve." }
-            decide(ap.id, approve: true); return "Approved \(s.project)."
+            decide(ap.id, approve: true); return "Approval request submitted for \(s.project); execution is not yet confirmed."
         case .deny(let project):
             guard let s = match(project), let ap = s.pendingApproval else { return "No session to deny." }
-            decide(ap.id, approve: false); return "Denied \(s.project)."
+            decide(ap.id, approve: false); return "Denial request submitted for \(s.project); receipt is not yet confirmed."
         case .answer(let project, let text):
             guard let s = match(project), s.pendingQuestion != nil || s.terminalRef != nil else {
                 return "No matching session, or it has nothing waiting and no terminal."
             }
             answer(s.id, answers: [:], text: text)
             Task { [store] in await store.recordInteraction(sessionID: s.id) }
-            return "Replied to \(s.project)."
+            return "Answer submitted for \(s.project); agent receipt is not yet confirmed."
         case .none:
             return ""
         }

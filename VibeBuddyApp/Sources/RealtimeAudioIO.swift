@@ -35,6 +35,7 @@ final class RealtimeAudioIO: @unchecked Sendable {
 
     private let pendingLock = NSLock()
     private var pendingBuffers = 0
+    private var audibleBuffers = 0
     private var pendingItems: [VoiceAudioItem: Int] = [:]
     private var playedItemFrames: [VoiceAudioItem: Int] = [:]
     private var latestItem: VoiceAudioItem?
@@ -42,6 +43,11 @@ final class RealtimeAudioIO: @unchecked Sendable {
     private var playbackGeneration: UInt64 = 0
     private var tapInstalled = false
     private var sessionActivated = false
+
+    var isAudiblePlaybackPending: Bool {
+        pendingLock.lock(); defer { pendingLock.unlock() }
+        return audibleBuffers > 0
+    }
 
     var isPlaybackPending: Bool {
         pendingLock.lock(); defer { pendingLock.unlock() }
@@ -103,6 +109,14 @@ final class RealtimeAudioIO: @unchecked Sendable {
         invalidatePlayback()
         player.stop()
         if engine.isRunning { engine.stop() }
+        // Release voice processing before returning the audio session to others.
+        if engine.inputNode.isVoiceProcessingEnabled {
+            do {
+                try engine.inputNode.setVoiceProcessingEnabled(false)
+            } catch {
+                rtAudioLog.error("disable voice processing: \(error.localizedDescription, privacy: .public)")
+            }
+        }
         if sessionActivated {
             sessionActivated = false
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
@@ -133,6 +147,7 @@ final class RealtimeAudioIO: @unchecked Sendable {
         pendingLock.lock(); defer { pendingLock.unlock() }
         playbackGeneration &+= 1
         pendingBuffers = 0
+        audibleBuffers = 0
         pendingItems.removeAll()
         playedItemFrames.removeAll()
         latestItem = nil
@@ -151,8 +166,10 @@ final class RealtimeAudioIO: @unchecked Sendable {
             guard let samples = raw.baseAddress?.assumingMemoryBound(to: Int16.self) else { return }
             for i in 0..<Int(frames) { out[i] = Float(samples[i]) / 32768.0 }
         }
+        let audible = VoicePCM.hasAudibleSignal(pcm16)
         pendingLock.lock()
         pendingBuffers += 1
+        if audible { audibleBuffers += 1 }
         if let item {
             pendingItems[item, default: 0] += 1
             latestItem = item
@@ -168,12 +185,13 @@ final class RealtimeAudioIO: @unchecked Sendable {
                 return
             }
             self.pendingBuffers -= 1
+            if audible { self.audibleBuffers -= 1 }
             if let item {
                 self.playedItemFrames[item, default: 0] += Int(frames)
                 self.pendingItems[item, default: 0] -= 1
                 if self.pendingItems[item] == 0 { self.pendingItems[item] = nil }
             }
-            let drained = self.pendingBuffers == 0
+            let drained = self.pendingBuffers == 0 || (audible && self.audibleBuffers == 0)
             self.pendingLock.unlock()
             if drained { self.onPlaybackDrained?() }
         }

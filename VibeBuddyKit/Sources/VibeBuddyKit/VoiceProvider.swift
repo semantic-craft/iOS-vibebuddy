@@ -34,7 +34,7 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
     public var defaultModel: String {
         switch self {
         case .qwen:   return "qwen-audio-3.0-realtime-plus"
-        case .openai: return "gpt-realtime-2.1"
+        case .openai: return "gpt-live-1"
         case .gemini: return "gemini-3.1-flash-live-preview"
         case .doubao: return "1.2.6.1"
         }
@@ -81,7 +81,7 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
     public var voicesURL: URL {
         switch self {
         case .qwen:   return URL(string: "https://help.aliyun.com/zh/model-studio/qwen-audio-realtime-user-guides")!
-        case .openai: return URL(string: "https://platform.openai.com/docs/guides/realtime")!
+        case .openai: return URL(string: "https://developers.openai.com/api/docs/guides/live-conversations")!
         case .gemini: return URL(string: "https://ai.google.dev/gemini-api/docs/speech-generation")!
         case .doubao: return URL(string: "https://www.volcengine.com/docs/6561/2549778?lang=zh")!
         }
