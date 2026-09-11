@@ -26,6 +26,13 @@ public actor ApprovalRegistry {
         return true
     }
 
+    /// Voice decisions commit atomically in this actor: cancellation cannot
+    /// leave a claimed approval stranded before resolution.
+    public func resolveVoice(id: String, with outcome: Outcome) -> Bool {
+        guard !Task.isCancelled, outcome != .pass, claim(id: id) else { return false }
+        return resolve(id: id, with: outcome)
+    }
+
     public func wait(id: String, timeout: Duration) async -> Outcome {
         prepare(id: id)
         if let outcome = pending[id]?.outcome {

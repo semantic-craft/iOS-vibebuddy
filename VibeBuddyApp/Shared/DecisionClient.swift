@@ -131,6 +131,7 @@ struct HTTPDecisionClient: DecisionClient {
     }
 
     private func postAction(_ pairing: PairingPayload, path: String, body: [String: Any]) async -> PhoneActionResult {
+        guard !Task.isCancelled else { return .failed }
         guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/\(path)"),
               let data = try? JSONSerialization.data(withJSONObject: body) else { return .failed }
         var request = URLRequest(url: url)

@@ -18,6 +18,19 @@ struct OpenAILiveSessionTests {
         envelope(["type": "response.completed", "response": ["id": id, "status": status, "output": []]])
     }
 
+    @Test func lateExplicitResponseCannotContaminateNextResponse() {
+        var loop = LiveResponseTools(allowedTools: ["get_session_status"])
+        _ = loop.handle(created("old")); _ = loop.handle(completed("old"))
+        _ = loop.handle(created("new"))
+        var old = call("old-call")["event"] as! [String: Any]
+        old["response_id"] = "old"
+        _ = loop.handle(envelope(old))
+        var fresh = call("new-call")["event"] as! [String: Any]
+        fresh["response_id"] = "new"
+        _ = loop.handle(envelope(fresh))
+        #expect(loop.handle(completed("new")).calls.map(\.id) == ["new-call"])
+    }
+
     @Test func routesLiveSeparatelyAndKeepsTheConfiguredRealtimeModel() {
         #expect(VoiceProvider.openai.defaultModel == "gpt-live-1")
         #expect(OpenAIVoiceSession.make(apiKey: "test", model: "gpt-live-1") is OpenAILiveSession)

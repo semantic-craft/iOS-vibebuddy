@@ -4,6 +4,34 @@ import Foundation
 
 @Suite("ApprovalRegistry — hold until decision or timeout")
 struct ApprovalRegistryTests {
+    @Test @MainActor func cancelledVoiceDecisionCannotClaimAndCommittedDecisionRemains() async {
+        let reg = ApprovalRegistry()
+        await reg.prepare(id: "voice")
+        let cancelled = Task { await reg.resolveVoice(id: "voice", with: .allow) }
+        cancelled.cancel()
+        #expect(await cancelled.value == false)
+        // Cancellation did not consume or strand the approval.
+        #expect(await reg.resolveVoice(id: "voice", with: .deny))
+        #expect(await reg.wait(id: "voice", timeout: .seconds(1)) == .deny)
+    }
+
+    @Test @MainActor func cancellationWhileWaitingPreservesApprovalAndNeverUndoesCommit() async {
+        let reg = ApprovalRegistry()
+        await reg.prepare(id: "waiting")
+        var resume: CheckedContinuation<Void, Never>?
+        let action = Task {
+            await withCheckedContinuation { resume = $0 }
+            return await reg.resolveVoice(id: "waiting", with: .allow)
+        }
+        while resume == nil { await Task.yield() }
+        action.cancel()
+        resume?.resume()
+        #expect(await action.value == false)
+        #expect(await reg.resolveVoice(id: "waiting", with: .deny))
+        // Once committed, cancelling a caller is not an undo operation.
+        #expect(await reg.wait(id: "waiting", timeout: .seconds(1)) == .deny)
+    }
+
     @Test("resolve before timeout returns that outcome")
     func resolves() async {
         let reg = ApprovalRegistry()

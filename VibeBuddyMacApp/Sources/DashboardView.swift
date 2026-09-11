@@ -227,6 +227,7 @@ private struct MacBuddyBar: View {
     /// live Listening/Speaking/idle status.
     private var headline: LocalizedStringKey {
         if !companionEnabled { return "Voice companion off" }
+        if voice.phase == .recovering { return "Recovering audio… tap the pet to end" }
         if voice.phase == .connecting { return "Connecting — wait to speak" }
         if voice.phase == .thinking { return "Thinking…" }
         if voice.isListening { return "Listening…" }

@@ -75,6 +75,7 @@ public actor OpenAIRealtimeSession: RealtimeVoiceProvider {
     }
 
     public func sendToolResult(callID: String, name: String, result: String) async {
+        responseFilter.completed(callID: callID)
         guard let socket = task else { return }
         let messages = RealtimeToolDelivery.encode([
             ["type": "conversation.item.create",
@@ -147,7 +148,13 @@ public actor OpenAIRealtimeSession: RealtimeVoiceProvider {
         guard let data = text.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = obj["type"] as? String else { return }
-        guard responseFilter.accept(obj) else { return }
+        guard responseFilter.accept(obj) else {
+            if let rejection = responseFilter.rejection { continuation?.yield(.failed(rejection)) }
+            return
+        }
+        if !responseFilter.cancelledCalls.isEmpty {
+            continuation?.yield(.toolCallsCancelled(responseFilter.cancelledCalls))
+        }
         switch type {
         case "session.updated":
             // Only the server can confirm the requested model/voice configuration.

@@ -203,11 +203,12 @@ public final class CodexAppServerClient: CodexAppServerConnecting, @unchecked Se
     /// Send a request and await its `result`. A JSON-RPC `error` throws `.rpc`.
     public func request(_ method: String, params: [String: Any],
                         timeout: Duration) async throws -> [String: Any] {
+        try Task.checkCancellation()
         let id = try allocateRequestID()
         let message: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": method, "params": params]
         return try await withCheckedThrowingContinuation { continuation in
             register(id, continuation)
-            guard send(json: message) else {
+            guard send(json: message, cancelBeforeWrite: true) else {
                 _ = takePending(id)?.resume(throwing: ClientError.closed)
                 return
             }
@@ -249,15 +250,15 @@ public final class CodexAppServerClient: CodexAppServerConnecting, @unchecked Se
         return pending.removeValue(forKey: id)
     }
 
-    private func send(json: [String: Any]) -> Bool {
+    private func send(json: [String: Any], cancelBeforeWrite: Bool = false) -> Bool {
         guard JSONSerialization.isValidJSONObject(json),
               let data = try? JSONSerialization.data(withJSONObject: json) else { return false }
-        return send(frame: Self.frame(opcode: 0x1, payload: data))
+        return send(frame: Self.frame(opcode: 0x1, payload: data), cancelBeforeWrite: cancelBeforeWrite)
     }
 
-    private func send(frame: Data) -> Bool {
+    private func send(frame: Data, cancelBeforeWrite: Bool = false) -> Bool {
         lock.lock(); defer { lock.unlock() }
-        guard !isClosed, descriptor >= 0 else { return false }
+        guard !isClosed, descriptor >= 0, !(cancelBeforeWrite && Task.isCancelled) else { return false }
         return Self.writeAll(descriptor, frame)
     }
 

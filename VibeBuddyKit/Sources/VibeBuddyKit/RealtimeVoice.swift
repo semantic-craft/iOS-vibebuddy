@@ -86,18 +86,58 @@ public protocol RealtimeVoiceProvider: Actor {
 struct RealtimeResponseFilter {
     private var currentID: String?
     private var interruptedIDs: Set<String> = []
+    private var itemResponses: [String: String] = [:]
+    private var callResponses: [String: String] = [:]
+    private var pendingCalls: Set<String> = []
+
+    mutating func completed(callID: String) { pendingCalls.remove(callID) }
+    private(set) var cancelledCalls: [String] = []
+    private(set) var rejection: String?
 
     mutating func accept(_ event: [String: Any]) -> Bool {
+        cancelledCalls = []; rejection = nil
         let type = event["type"] as? String ?? ""
         if type == "input_audio_buffer.speech_started" {
-            if let currentID { interruptedIDs.insert(currentID) }
+            if let currentID {
+                interruptedIDs.insert(currentID)
+
+            }
+            cancelledCalls = pendingCalls.sorted()
+            for callID in pendingCalls {
+                if let response = callResponses[callID] { interruptedIDs.insert(response) }
+            }
+            pendingCalls.removeAll()
+            currentID = nil
             return true
         }
-        let id = event["response_id"] as? String
+        guard type.hasPrefix("response.") else { return true }
+        let explicit = event["response_id"] as? String
             ?? (event["response"] as? [String: Any])?["id"] as? String
-        if type.hasPrefix("response."), let id {
-            guard !interruptedIDs.contains(id) else { return false }
-            currentID = id
+        let item = event["item"] as? [String: Any]
+        let itemID = event["item_id"] as? String ?? item?["id"] as? String
+        let known = itemID.flatMap { itemResponses[$0] }
+        if let explicit, let known, explicit != known {
+            rejection = "Realtime tool identity conflicted. No action was executed."
+            return false
+        }
+        let id = explicit ?? known
+        if let id, interruptedIDs.contains(id) { return false }
+        if let itemID, let id { itemResponses[itemID] = id }
+        if type == "response.created" { currentID = id }
+        // Some servers begin output before response.created. Only adopt an
+        // identity when no active response is known; late packets cannot move it.
+        if currentID == nil, let id { currentID = id }
+        if type == "response.function_call_arguments.done" {
+            guard let id, !id.isEmpty, let callID = event["call_id"] as? String, !callID.isEmpty else {
+                rejection = "Realtime tool had no verifiable response identity. No action was executed."
+                return false
+            }
+            if let previous = callResponses[callID], previous != id {
+                rejection = "Realtime reused a tool identity. No action was executed."
+                return false
+            }
+            callResponses[callID] = id
+            pendingCalls.insert(callID)
         }
         return true
     }
@@ -218,6 +258,7 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
     }
 
     public func sendToolResult(callID: String, name: String, result: String) async {
+        responseFilter.completed(callID: callID)
         guard let socket = task else { return }
         let messages = RealtimeToolDelivery.encode([
             ["type": "conversation.item.create",
@@ -292,7 +333,13 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
         guard let data = text.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = obj["type"] as? String else { return }
-        guard responseFilter.accept(obj) else { return }
+        guard responseFilter.accept(obj) else {
+            if let rejection = responseFilter.rejection { continuation?.yield(.failed(rejection)) }
+            return
+        }
+        if !responseFilter.cancelledCalls.isEmpty {
+            continuation?.yield(.toolCallsCancelled(responseFilter.cancelledCalls))
+        }
         switch type {
         case "session.created":
             configureSession(instructions: instructions, voice: voice)

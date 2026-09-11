@@ -226,6 +226,19 @@ public actor DoubaoRealtimeSession: RealtimeVoiceProvider {
         }
     }
 
+    /// The provider's cumulative hypothesis replaces the previous caption.
+    static func userTranscriptionEvent(_ object: [String: Any]) -> RealtimeVoiceEvent? {
+        switch object["type"] as? String {
+        case "conversation.item.input_audio_transcription.delta":
+            return (object["delta"] as? String).map { .userTranscript(text: $0, final: false) }
+        case "conversation.item.input_audio_transcription.completed":
+            let text = ["transcript", "text"].compactMap { object[$0] as? String }
+                .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            return text.map { .userTranscript(text: $0, final: true) }
+        default: return nil
+        }
+    }
+
     private func handle(_ object: [String: Any]) {
         guard let type = object["type"] as? String else { return }
         // Only fixed protocol names and booleans; never log payloads or identifiers.
@@ -268,11 +281,11 @@ public actor DoubaoRealtimeSession: RealtimeVoiceProvider {
                 return
             }
         }
+        if let event = Self.userTranscriptionEvent(object) {
+            continuation?.yield(event)
+            return
+        }
         switch type {
-        case "conversation.item.input_audio_transcription.delta":
-            if let text = object["delta"] as? String { continuation?.yield(.userTranscript(text: text, final: false)) }
-        case "conversation.item.input_audio_transcription.completed":
-            if let text = object["transcript"] as? String { continuation?.yield(.userTranscript(text: text, final: true)) }
         case "conversation.item.input_audio_transcription.failed":
             fail("Doubao could not transcribe the audio. Reconnect to try again.")
         case "response.output_text.delta":
@@ -281,7 +294,7 @@ public actor DoubaoRealtimeSession: RealtimeVoiceProvider {
             if let text = object["text"] as? String { continuation?.yield(.assistantTranscript(text: text, final: true)) }
         case "response.output_audio.delta":
             if let delta = object["delta"] as? String, let audio = Data(base64Encoded: delta) {
-                let item = DoubaoResponseState.nonempty(object["response_id"]).map { VoiceAudioItem(id: $0, contentIndex: 0) }
+                let item = (DoubaoResponseState.nonempty(object["response_id"]) ?? filter.audioResponseID).map { VoiceAudioItem(id: $0, contentIndex: 0) }
                 continuation?.yield(.audioDelta(audio, item: item))
             }
         case "response.output_audio.done", "response.done":
@@ -306,19 +319,21 @@ struct DoubaoPCMFrames {
     }
 }
 
-/// Empty response IDs in audio.started are not an identity. Once interrupted,
-/// identity-free packets cannot safely be attributed to a new turn. Surface this
-/// ambiguity so the caller can end the session explicitly instead of silently
-/// disabling tools for the remainder of the conversation.
+/// Audio deltas are an ordered, identity-free stream between audio.started/done.
+/// After interruption a fresh server identity must open that stream. This media
+/// association never grants permission to execute an unidentified task action.
 struct DoubaoResponseState {
     private var responses: Set<String> = []
     private var questions: Set<String> = []
     private var cancelledResponses: Set<String> = []
     private var cancelledQuestions: Set<String> = []
     private var interrupted = false
+    private var audioSegmentOpen = false
+    private(set) var audioResponseID: String?
     private(set) var hasActiveResponse = false
     mutating func responseDone() {
         hasActiveResponse = false
+        audioSegmentOpen = false; audioResponseID = nil
         responses.removeAll(); questions.removeAll()
     }
     static func nonempty(_ value: Any?) -> String? {
@@ -327,6 +342,7 @@ struct DoubaoResponseState {
     }
     mutating func interrupt() {
         interrupted = true; hasActiveResponse = false
+        audioSegmentOpen = false; audioResponseID = nil
         cancelledResponses.formUnion(responses); cancelledQuestions.formUnion(questions)
         responses.removeAll(); questions.removeAll()
     }
@@ -336,8 +352,32 @@ struct DoubaoResponseState {
         let question = Self.nonempty(object["question_id"])
         if let response, cancelledResponses.contains(response) { return .cancelled }
         if let question, cancelledQuestions.contains(question) { return .cancelled }
-        if interrupted, response == nil, question == nil { return .ambiguous }
         let type = object["type"] as? String
+        if interrupted, response == nil, question == nil {
+            switch type {
+            case "response.output_audio.delta":
+                return audioSegmentOpen ? .accepted : .cancelled
+            case "response.output_text.delta", "response.output_audio.started":
+                return .cancelled
+            case "response.output_audio.done", "response.done":
+                // Structural completion has no task side effects. It does not
+                // restore trust in unidentified action calls after interruption.
+                responseDone()
+                return .accepted
+            case "response.function_call_arguments.done":
+                // A delayed read can only read the current user-selected scope.
+                // Mixed batches and all task mutations retain fail-closed behavior.
+                guard let items = object["items"] as? [[String: Any]], !items.isEmpty,
+                      items.allSatisfy({ $0["name"] as? String == VoiceTools.status.name }) else {
+                    return .ambiguous
+                }
+            default: return .ambiguous
+            }
+        }
+        if type == "response.output_audio.started" {
+            audioSegmentOpen = true
+            audioResponseID = response
+        }
         if type == "response.output_audio.done" || type == "response.done" {
             responseDone()
             return .accepted
