@@ -26,6 +26,6 @@
 
 ## Availability
 
-Mac 1.3.12 (19) is available in the signed, notarized DMG below. iPhone/Watch 1.3.12 (25) has been uploaded but is awaiting the final physical rapid-restart check before App Store submission. Mobile availability is separate from this Mac release.
+Mac 1.3.12 (19) is available in the signed, notarized DMG below. iPhone/Watch 1.3.12 (25) passed the five-round physical iPhone rapid-restart check and has been submitted to App Review. It is waiting for review and will release automatically after approval. Mobile availability is separate from this Mac release.
 
-Mac 1.3.12（19）通过下方已签名、公证的 DMG 提供。iPhone／Watch 1.3.12（25）已上传，待完成最后的实体快速重拨检查后提交 App Store；手机版尚未公开。
+Mac 1.3.12（19）通过下方已签名、公证的 DMG 提供。iPhone／Watch 1.3.12（25）已通过五轮实体快速重拨检查，并已提交 App Store 审核；审核通过后自动发布，当前尚未公开。
