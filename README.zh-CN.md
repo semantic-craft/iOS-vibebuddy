@@ -1,220 +1,133 @@
 <div align="center">
 
-<img src="docs/screenshots/app-icon-256.png" width="112" alt="vibebuddy" />
+<img src="docs/screenshots/app-icon-256.png" width="88" alt="vibebuddy 的绿耳白猫" />
 
 # vibebuddy
 
-**连接 iPhone、Apple Watch 和 Mac 的 AI Agent 伴侣。**
-跟踪 Claude Code、Codex 与 Grok Build 任务，观察 Grok Bot，并查看 Cursor 账户用量。
-离开电脑，也能看进度、查看需要回应的任务，并处理支持的批准与提问。让小猫帮你盯着任务，把注意力留给生活。
+### 离开书桌，也能接着推进任务。
 
-[**⬇️ 下载 macOS 版**](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest) · [功能](#-功能) · [工作原理](#-工作原理) · [从源码构建](#️-构建与运行) · [English](./README.md)
+陪你使用 AI 工具的 **Mac、iPhone 与 Apple Watch** 原生伴侣。<br>**Claude Code · Codex · Grok Build · Grok Bot · Cursor**<br>关注任务进展，回应可处理的请求，随时查看账户额度。
 
-![License](https://img.shields.io/badge/license-MIT-green)
-![Platform](https://img.shields.io/badge/platform-iOS%2017%20%2B%20macOS%2014-blue)
-![Swift](https://img.shields.io/badge/Swift-6.0-orange)
-[![Latest release](https://img.shields.io/github/v/release/semantic-craft/iOS-vibebuddy)](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest)
+[**下载 Mac 版**](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest) · [**获取 iPhone 版**](https://apps.apple.com/us/app/vibebuddy-agent-monitor/id6777469338) · [开始使用](#开始使用) · [English](README.md)
 
-</div>
+[![最新 Mac 版本](https://img.shields.io/github/v/release/semantic-craft/iOS-vibebuddy?label=Mac%20release&color=67a86b)](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest) [![MIT 许可](https://img.shields.io/badge/license-MIT-67a86b)](LICENSE) ![平台](https://img.shields.io/badge/platforms-macOS%20%C2%B7%20iOS%20%C2%B7%20watchOS-536584) ![Swift 6](https://img.shields.io/badge/Swift-6-F05138)
 
----
+**免费开源 · 无需 VibeBuddy 账号 · 无行为分析 · AI 功能使用自己的密钥**
 
-## 从初版看状态，到三端协作
+<img src="docs/app-store-screenshots/1.3/macos/zh-Hans/01-dashboard-approval.jpg" width="960" alt="Mac 任务看板：Claude Code、Codex 任务与文件编辑审批" />
 
-**1.3 系列把任务带到桌面、口袋与手腕。** 初版以会话状态和本地提醒为核心；新版把 Codex 深度集成、手表小组件与统一交互带到日常使用中。
-
-| 升级 | 对你有什么用 |
-|---|---|
-| **Agent 适配持续升级** | 围绕 Claude Code 与 Codex 的任务、权限请求和提问完善接入；支持情况见下方适配说明。 |
-| **Codex 深度集成** | 覆盖 Desktop 与 CLI 的状态观测，并在支持的连接中处理提问、追加指令和发起任务。 |
-| **新增 Apple Watch 表盘小组件** | 矩形“关注任务”看任务状态；圆形“额度”查看 Claude、Codex 或两者的剩余额度，提供五种显示样式。 |
-| **图标与交互全面焕新** | 三端统一小猫形象与 Agent 图标；手机配对连接菜单更简洁，任务状态更易辨认。 |
-| **macOS UI 更新** | 菜单栏、刘海概览与任务卡片协同呈现，改善仪表盘重新打开及概览位置恢复。 |
-
-> 请安装最新版 Mac 伴侣以使用配套接入。各家 Agent 的能力有所不同；表盘刷新由系统调度，额度取决于来源提供的数据。
-
-## 第一次使用，从这里开始
-
-1. **在 Mac 下载并安装 [Mac 版伴侣](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest)**：打开 Release 的 Assets，下载 DMG，将应用拖入“应用程序”。需要 Apple Silicon Mac、macOS 14 或更高版本。
-2. **在 Mac 菜单栏打开“配对手机”**，让 iPhone 与 Mac 连接同一局域网。
-3. **在 iPhone 点“扫码配对”**，扫描 Mac 显示的二维码。随后按 Mac 设置中的 Setup 指引接入 Agent。
-4. **先体验也可以**：iPhone 连接页点“查看演示（无需 Mac）”，浏览示例任务；真实任务需要已配对且可连接的 Mac。
-
-真实任务数据主要来自你自己的 Mac；请保持 Mac 伴侣运行、网络可连接。Apple Watch 功能还需要配对的 iPhone。iPhone 当前获取方式见下方“下载”；App Store 更新通过 Apple 审核后提供。
-
----
-
-## 🐱 30 秒介绍
-
-你同时开了三个 Claude Code 会话，又切到 Codex 跑第四个，转身去倒了杯咖啡——回来已经分不清：哪个 agent 卡着在等你确认，哪个还在埋头干活，哪个早就跑完在那儿空等。
-
-**vibebuddy** = Mac 菜单栏里的一只小猫 + iPhone 上的伴侣 App。它盯着每一个编程 agent 会话，只回答最关键的三个问题：
-
-> ### 🟠 需要回应 · 🔵 进行中 · 🟢 已完成
-
-再也不用走回电脑前，才发现某个会话已经卡在权限确认上十分钟了。手机一震，你查看 diff 预览，点一下**批准**——或者点一下那只猫，**直接说一句"批准"**。
-
-<div align="center">
-
-<img src="docs/screenshots/mac/dashboard-zh.png" width="840" alt="vibebuddy Mac 菜单栏应用——三栏仪表盘：状态侧栏、带语音宠物的会话列表、远程批准详情" />
-
-<sub><b>Mac 菜单栏应用</b>——所有会话分三栏、语音宠物，以及远程批准详情面板。</sub>
-
-<br><br>
-
-<img src="docs/screenshots/mac/glance.png" width="360" alt="vibebuddy 刘海概览——小猫和最要紧的一个计数分列刘海两侧" />
-<img src="docs/screenshots/mac/glance-card.png" width="360" alt="从刘海下方展开的审批卡片，带批准 / 拒绝 / 跳转" />
-
-<sub><b>刘海概览</b>——像灵动岛一样贴着刘海：空闲时什么都不显示，有事时小猫 + 最要紧的计数分列两侧，悬停展开，审批直接以卡片从刘海下方掉出来就地处理。</sub>
-
-<br><br>
-
-<img src="docs/app-store-screenshots/6.9/01-dashboard.png" width="280" alt="vibebuddy iPhone 仪表盘，含内联 diff 与 批准/拒绝 按钮" />
-
-<sub><b>在你的 iPhone 上</b>——点开一个会话，看内联 diff 并 批准 / 拒绝。</sub>
+<sub>真实 App 的 1.3 演示界面，使用样例任务。截图展示界面，不代表真实 Agent 的运行结果。</sub>
 
 </div>
 
-<div align="center">
+## 少来回查看，多做自己的事。
 
-<img src="docs/screenshots/app-icon.png" width="640" alt="vibebuddy 应用图标在 macOS、iPhone 与 Apple Watch 上的样子——石板蓝底上一只绿耳朵绿眼睛的小白猫" />
+让 Claude Code 改代码、Codex 跑测试、Grok Build 执行构建，也能在同一个伴侣中查看 Grok Bot 的结果与 Cursor 剩余额度。只要 Mac 保持运行、网络可达，你就能在手机上处理问题，在手表上关注任务，或者开口询问最新进展。
 
-<sub><b>一个图标，三个平台</b>——同一只小猫出现在 Mac、iPhone 和 Apple Watch 上，由各系统套上自己的遮罩。</sub>
+| 看清当前情况 | 接着推进任务 | 了解完成结果 |
+| --- | --- | --- |
+| **统一任务视图。** 需要回应、进行中、已完成；查看项目、模型、当前活动与可获取的用量信息。 | **审批与回复。** 查看命令或有限行数的差异预览，回答问题，继续支持远程控制的 Codex 任务。 | **语音与摘要。** 询问当前任务状态，阅读简明的完成摘要，也可在 Mac 上开启朗读。 |
 
-</div>
+## 三块屏幕，同一个小伙伴。
 
-> **应用图标**是一只绿耳朵、绿眼睛的小白猫，趴在柔和的石板蓝底上——一个柔软的剪影、三种颜色，缩到 16 px 仍能认出来。它用 [ip-as-logo](https://github.com/s1dashu/ip-as-logo-skill) 技能设计，从六张生成候选中选出；同一张 1024 px 原图同时用于 macOS、iOS 和 watchOS。
->
-> App 里的 **buddy 就是同一只猫，纯代码绘制**，iPhone、Apple Watch、灵动岛、Mac 仪表盘、刘海概览和菜单栏共用一套几何。心情（耳朵、眼睛、嘴巴）和小动作随会话变化；在紧凑位置（菜单栏、收起的刘海概览、灵动岛、手表标题栏）只画头部，菜单栏里是单色模板剪影，只有 iPhone 和 Mac 上会动。以上截图均为**演示模式**（示例数据），不含任何真实会话数据。
+<table>
+<tr>
+<th>在 iPhone 上处理请求</th>
+<th>打开任务详情</th>
+<th>抬腕查看额度</th>
+</tr>
+<tr>
+<td align="center" valign="top"><img src="docs/app-store-screenshots/1.3/ios/zh-Hans/01-dashboard.jpg" width="270" alt="iPhone 演示看板中的 Claude 编辑审批与问题" /></td>
+<td align="center" valign="top"><img src="docs/app-store-screenshots/1.3/ios/zh-Hans/02-codex-task.jpg" width="270" alt="iPhone 演示中的 Codex 任务详情、上下文用量与回复入口" /></td>
+<td align="center" valign="top"><img src="docs/app-store-screenshots/1.3/watchos/zh-Hans/02-quota.jpg" width="208" alt="Apple Watch 演示中的 Codex 周额度与短窗口剩余额度" /><br><br>关注中的任务<br>快捷回答<br>完成摘要<br>剩余额度</td>
+</tr>
+</table>
 
----
+<sub>以上均来自实际运行的 1.3 App 演示模式。Watch 图片为 App 内额度页。<a href="docs/app-store-screenshots/1.3/README.md">截图来源说明</a>。</sub>
 
-## ✨ 功能
+- **Mac：** 可搜索的菜单栏活动列表、完整任务看板、刘海 Glance，以及返回原终端或应用的快捷入口。
+- **iPhone：** 任务详情、近期对话、支持的审批与回复、实时活动和灵动岛计数。
+- **Apple Watch：** 关注任务、快捷回答、完成摘要、任务与额度表盘组件，以及智能叠放相关性提示。需要配对的 iPhone，后台刷新由 watchOS 调度。
 
-### 🎙️ 和你的 agent 对话——语音伴侣
-语音伙伴默认关闭。选择服务商、填写自己的 API key、接受数据用途说明并授予麦克风权限后，可主动开始语音交流，询问任务状态或处理支持的请求。音频与所选任务上下文直接发送至所选服务商（OpenAI、Google Gemini、阿里云百炼 / 通义千问或火山引擎 / 豆包），可能产生服务商费用。可执行操作取决于连接与请求支持情况；不启用语音也能使用任务看板和按钮批准。
+## 1.3 系列带来了什么
 
-### 📊 三栏仪表盘
-每个会话按 **需要回应 / 进行中 / 已完成** 分组，每行显示 项目 · 分支 · 模型 · 实时 token 与上下文窗口占用 · 当前正在执行的工具 · 最近输出的预览。优先级很诚实：`需要回应` 永远盖过 `进行中`。
+| 新功能 | 具体变化 |
+| --- | --- |
+| **开口询问任务** | [1.3.11](https://github.com/semantic-craft/iOS-vibebuddy/releases/tag/v1.3.11) 接入 GPT-Live 1，可独立配置任务推理模型。OpenAI、Gemini、千问与豆包共用任务状态查询和受支持的操作工具。 |
+| **听懂完成结果** | 可选 AI 摘要聚焦结果、阻塞与下一步。Mac 朗读可分别选择服务商、模型和音色，并先试听。[模型设置更新](docs/release-notes-1.3.10.md)。 |
+| **继续已有对话** | 回答可处理的等待请求，为运行中的 Codex 任务补充指令，或继续已有任务；查看近期对话与发送回执。[任务交互更新](docs/release-notes-1.3.6.md)。 |
+| **随手找到 Mac 上的任务** | 搜索和筛选菜单栏活动，打开任务详情，通过主动开启的二维码配对窗口连接手机。[Mac 伴侣更新](docs/release-notes-1.3.9.md)。 |
+| **抬腕关注任务** | Watch 快捷回答、任务控制与完成摘要，方便随时查看关注中的任务。[Watch 更新](docs/release-notes-1.3.8.md)。 |
+| **关注 Grok Build 与 Grok Bot** | 追踪 Build CLI 任务、账户额度与依权限模式提供的审批请求；可开启 Bot 只读观测、可核实的普通对话完成摘要与独立账户额度。[Grok Build 配置](docs/getting-started.md#grok-build) · [Grok Bot 更新](docs/release-notes-1.3.7.md)。 |
+| **查看 Cursor 剩余额度** | 使用已有 Cursor App 或 Cursor CLI 登录，分别显示 **Cursor Models** 与 **Other Models** 两个额度池。[Cursor CLI 支持](docs/release-notes-1.3.2.md)。 |
 
-### ✅ 远程批准
-当 agent 请求执行命令或修改文件时，可在手机仪表盘查看命令或 **diff 预览**。diff 每侧最多显示八行；需要更多上下文时，请到 Mac 查看完整改动。可在仪表盘或锁屏通知中**批准 / 拒绝**（批准需要解锁），可远程作答的问题通知提供文本输入。**总是允许这一条** / **本次会话全部允许**仅在仪表盘提供，不是通知按钮。只读等待会提示到 Mac 原生对话框处理。操作要求已配对且 Mac 可达。
+Mac 版本与 iPhone／Watch 的 App Store 更新分别发布，新功能需要相应设备安装更新后的客户端。当前版本和可用情况以 [Mac Releases](https://github.com/semantic-craft/iOS-vibebuddy/releases) 和 [App Store 页面](https://apps.apple.com/us/app/vibebuddy-agent-monitor/id6777469338)为准。
 
-### 🔔 通知、实时活动与灵动岛
-审批和问题横幅在最终投递级别带声音时请求 **Time Sensitive（时效性通知）**；Quiet 会将它们降为普通静音横幅，其余类别使用普通级别。类别开关及系统通知／专注模式设置仍然生效。ActivityKit 将实时计数显示在**锁屏和灵动岛**上，并在 App 位于前台或保持连接时更新。
+## 常用工具与支持能力
 
-当前源码支持关闭 iPhone App 后通过 APNs 接收通知，条件是 Mac 发送端正在运行、APNs 签名与 iPhone 构建匹配、手机已注册且允许通知。这尚不是公开下载后开箱即用的承诺：分发方案仍待 [DEC-APNS](docs/adr/0013-apns-key-delivery.md)，锁屏／专注模式／Watch 送达仍需真机验收。回应要求已配对的 Mac 可达；离开该网络时应回到同一网络后处理（已有 Tailscale 连接可作为进阶方案）。
+VibeBuddy 连接你已经在用的 Agent。能否操作，取决于当前连接方式和具体请求。
 
-### 🤖 Claude Code、Codex、Grok Build、Grok Bot 与 Cursor
-- **Claude Code 与 Codex**：任务状态、支持的审批与提问；Codex 还可通过支持的连接追加指令、发起任务。
-- **Grok Build**：通过 hook 跟踪任务，查看账户用量，并使用已配置的审批通道。远程批准能否直接解除原生提示，取决于 Grok 的权限模式。
-- **Grok Bot**：可选的只读任务观察、完成摘要与独立账户用量。提问仍需在官方 Mac 应用中回应。
-- **Cursor**：使用已有的 Cursor 应用或 Cursor CLI 登录查看账户用量，分别呈现 Cursor Models 与 Other Models 额度池。尚不支持 Cursor 任务跟踪和远程审批。
+| 连接方式 | 已有集成 | 能力范围 |
+| --- | --- | --- |
+| **Claude Code** | 生命周期 hooks、任务状态、用量、权限决定与受支持的问题回答。 | 远程回应需要安装审批 hooks；交互由原生提示处理时，回到 Mac 回应。 |
+| **Codex CLI／已连接的 app-server** | 任务状态、额度、受支持的审批与问题；通过已连接的 app-server 新建、继续、补充指令和停止任务。 | 连接的服务必须拥有该任务，并能识别相应轮次或请求；MCP elicitation 目前只读。 |
+| **Codex Desktop** | 观测本地任务进展和完成结果，跳回应用。 | Desktop 可能使用独立 app-server；原生审批覆盖不完整，没有可回应请求时需使用 Mac 提示。 |
+| **Grok Build** | CLI 生命周期 hooks、任务状态、账户额度与配置后的审批通道。 | 远程批准能否解除原生提示，取决于 Grok 的权限模式。 |
+| **Grok Bot** | 可选的只读任务观测、可核实的普通对话完成摘要与独立账户额度。 | 回复和审批在官方 App 中处理；问题续接、自动化任务及跨断线轮次尚未支持。 |
+| **Cursor** | 从支持的登录来源读取账户额度，包括 Cursor App 与 Cursor CLI，分别显示 **Cursor Models** 和 **Other Models**。 | 已支持额度；尚不支持任务追踪和远程审批。 |
 
-数据和操作能力取决于 Agent 版本与接入配置。**Qwen、Kimi、OpenCode、Antigravity** 任务适配器仍属社区级，未经验证。接线方式见 [hook 配置指南](docs/multi-cli-hook-setup.md)。
+详见 [Codex 集成契约](docs/codex-integration.md)和 [Agent hook 配置](docs/multi-cli-hook-setup.md)。Qwen、Kimi、OpenCode、Antigravity 编码 Agent 适配器属于实验性社区集成；其验证状态与已支持的千问语音服务不同。
 
-### 📷 扫码配对，零输入
-Mac 显示一个编码了 `host:port` + bearer token 的二维码。手机扫一次即可——无需手动输 IP。（同一个二维码以后可以承载 Tailscale `100.x` 地址，无需改代码。）
+## 开始使用
 
-### 🖥️ 原生 Mac 菜单栏应用
-固定菜单栏入口（可选状态点和数量，默认关闭）、负责实时状态与提醒的 macOS 刘海概览、**跳转到终端**（一键打开对应会话）、开机自启，以及持久化在仅所有者可读写（`0600`）文件 `~/Library/Application Support/vibebuddy/token` 中的局域网 bearer token。还有 ⏎ / ⌘F 仪表盘快捷键。v1.1 使用带签名的 Sparkle 更新源；原 v1.0 用户需要先手动安装一次新版。
+1. **安装 Mac 伴侣。** [下载最新 DMG](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest)，将 App 拖入“应用程序”并打开。发布的 Mac 版需要 Apple Silicon 与 macOS 14+。
+2. **接入编码 Agent。** 在 Mac 设置的 Setup 中按对应 Agent 的说明配置，也可查看[手动配置指南](docs/getting-started.md#connect-an-agent)。
+3. **连接 iPhone。** 安装 [VibeBuddy: Agent Monitor](https://apps.apple.com/us/app/vibebuddy-agent-monitor/id6777469338)，在 Mac 选择“配对手机”，在 iPhone 选择“扫码配对”。首次在同一可信局域网操作。iPhone 需要 iOS 17+，当前 Watch 伴侣需要 watchOS 26.5+。
+4. **试试你的工作流。** 在 Claude Code、Codex 或 Grok Build 发起简短任务并关注至完成，也可[开启 Grok Bot 观测](docs/getting-started.md#grok-bot)或[接入 Cursor 额度](docs/getting-started.md#cursor)。语音和摘要可按需单独开启。
 
-### 🔒 本地优先，隐私至上
-vibebuddy 在你的 Mac 与手机之间**直接**通过你自己的网络通信。会话数据**绝不**经过 vibebuddy 服务器——没有 vibebuddy 云、没有账号、没有埋点、没有追踪。守护进程路由由 bearer token 把关。配置 APNs 后，通知负载（包括标题和正文）会经过 Apple 推送服务。（可选语音伙伴只会在你开启后，把麦克风音频和所选会话上下文发往*你选择*的服务商，并使用*你自己*的 key。）
+**想先看看界面？** iPhone 连接页有“查看演示（无需 Mac）”，Mac 也可独立使用。上述 App Store 链接指向美国商店，是否可下载取决于账号地区；也可[自行编译](docs/getting-started.md#build-from-source)。
 
-### 🌏 双语 + 演示模式
-两端 App 都支持完整的中英文界面。还有一个**演示模式**，用示例数据加载整个界面——无需 Mac 即可浏览示例任务。
+### 语音按需开启
 
----
+选择 **OpenAI、Google Gemini、阿里千问或火山引擎豆包**，在 App 内填写自己的 API 凭据、阅读告知后主动开始通话。可以询问“哪个任务需要我？”，也可以明确回答当前可处理的请求。实时对话、完成摘要和 Mac 朗读分别配置。服务商可能收费；任务看板和按钮审批不需要 AI API 密钥。
 
-## ⬇️ 下载
+### 通知取决于实际配置
 
-### macOS 应用
-**[下载最新版 Mac Companion →](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest)** · Apple Silicon · macOS 14+
+手机连接期间会更新实时活动与灵动岛计数。App 关闭后的推送需要 Mac 持续运行、匹配的 APNs 签名配置、已注册的手机及通知权限。**公开下载目前尚未提供开箱即用的闭应用推送配置**，见 [APNs 配置](docs/apns-setup.md)和[分发决策](docs/adr/0013-apns-key-delivery.md)。操作始终需要已配对且网络可达的 Mac；专注模式、通知设置及 watchOS 调度会影响实际呈现。
 
-当前 DMG 已使用 Developer ID 签名并完成公证。打开后把 **VibeBuddyMacApp** 拖入**应用程序**，无需执行移除隔离属性的命令。
+## 你的 Mac 是连接中心
 
-**从 v1.0 更新：**请手动安装一次 v1.1。原 v1.0 内置更新地址无效，不能自动发现本次更新；v1.1 使用正式 Sparkle 更新源接收后续版本。源码构建和 GitHub 发布包是不同交付物，需要直接安装时请使用上方最新版 Release 资产。
-
-### iPhone 应用
-[在 App Store 下载](https://apps.apple.com/app/id6777469338)。包含 Apple Watch 伴侣；新版本通过 Apple 审核后提供。
-
----
-
-## 🧠 工作原理
-
-```
-Claude Code / Codex / Qwen / … ──hooks──▶ vibebuddy（macOS 菜单栏应用）
-                                          • 把 hooks 归约为 needsResponse / working / done
-                                          • 解析 JSONL transcript → 模型 / tokens / 摘要
-                                          • 在局域网上提供服务（HTTP /snapshot、WebSocket /ws）
-                                                  │  扫码配对（host:port + token）
-                                                  ▼
-                                          vibebuddy（iPhone，SwiftUI）
-                                          • 三栏仪表盘 + 实时活动
-                                          • 通知 + 远程批准 + 语音伴侣
-                  共享 VibeBuddyKit —— 唯一一套 Codable 线缆模型，只写一次
-```
-
-最难的部分——*检测*会话状态——由每个 agent CLI 在其生命周期事件（`UserPromptSubmit`、`PreToolUse`、`Notification`、`Stop` …）上触发的 **hooks** 解决。vibebuddy 把它们归约为三种状态，再广播一份受 token 保护的快照。这些 hook **失败即放行**：vibebuddy 没运行时，你的 agent 完全不受影响。
-
----
-
-## 🛠️ 构建与运行
-
-部署目标：**iOS 17 / macOS 14**。1.2 候选使用 **Xcode 26.6** 构建；Xcode 27 工作暂缓，留待后续更新。
-
-| 路径 | 内容 |
-|------|------|
-| `VibeBuddyKit/` | 共享 Codable 线缆模型（SwiftPM） |
-| `VibeBuddyMac/` | macOS 核心库 + `vibebuddyd` 无头 CLI（SwiftPM） |
-| `VibeBuddyMacApp/` | macOS 菜单栏应用（xcodegen）—— 仅所有者可读写的局域网 token 文件、开机自启、Sparkle |
-| `VibeBuddyApp/` | iOS 应用（xcodegen） |
-| `docs/planning/` | 概览、PRD、架构、路线图、先行研究 |
-
-**Mac 端（菜单栏应用）：**
-```bash
-cd VibeBuddyMacApp && xcodegen generate
-open VibeBuddyMacApp.xcodeproj   # 构建并运行（⌘R）
-```
-一个纯菜单栏应用：实时计数、"配对手机"二维码、开机自启；Mac 守护进程的 `TokenStore` 把局域网 token 保存在仅所有者可读写的文件 `~/Library/Application Support/vibebuddy/token` 中。（`VibeBuddyMac/` 里的 `vibebuddyd` 是无头等价物：`swift run vibebuddyd`。）
-
-**iOS 应用：**
-```bash
-cd VibeBuddyApp && xcodegen generate
-open VibeBuddyApp.xcodeproj   # 在模拟器/真机上运行
-```
-扫码配对，或手动输入 host/port/token。在 iOS 上，`ConnectionStore` 把配对 payload 持久化到 `UserDefaults`。（模拟器：用 `127.0.0.1` 和 `~/Library/Application Support/vibebuddy/token` 里的 token。）
-
-**Hooks（接入真实 agent 会话）：**
-```bash
-python3 hooks/install-claude-hooks.py --dry-run    # 预览改动
-python3 hooks/install-claude-hooks.py --install    # 备份并安装
-python3 hooks/install-claude-hooks.py --uninstall  # 还原
-```
-为每个生命周期事件安装失败即放行的 `curl` POST。所有受支持的 CLI 见 [`docs/multi-cli-hook-setup.md`](docs/multi-cli-hook-setup.md)。
-
-**测试：**
-```bash
-cd VibeBuddyKit && swift test     # 线缆模型测试
-cd VibeBuddyMac && swift test     # 守护进程 / 归约器 / transcript 测试
+```mermaid
+flowchart LR
+    A[Claude Code 与 Grok Build hooks] --> M[Mac 上的 VibeBuddy]
+    C[Codex 本地记录与已连接的 app-server] <--> M
+    B[Grok Bot 观测] --> M
+    U[账户额度与 Cursor 用量] --> M
+    M <-->|配对后的本地连接| P[iPhone]
+    P <-->|WatchConnectivity| W[Apple Watch]
+    M -. 可选 AI 功能 .-> V[你选择的 AI 服务商]
+    P -. 可选语音 .-> V
 ```
 
----
+**没有 VibeBuddy 云端、账号或行为分析服务。** Mac 与手机通过自己的网络通信，使用 bearer token 验证身份。可选 AI 功能把所需音频或任务文本直接发送到你选择的服务商；配置后的推送通知经由 Apple。语音凭据保存在 Keychain。详见[隐私政策](docs/privacy-policy.md)。
 
-## 💡 灵感来源
+## 完整开源，欢迎一起改进
 
-vibebuddy 站在两个聪明项目的肩膀上——它们最早证明了可以从 hooks 和 transcript 尾部*检测*编程 agent 的状态，我们把这个想法重新指向了手机（并加上了双向语音）。我们**研究了它们的架构、自己写了 Swift**；没有复制任何代码。
+Mac App、iPhone App、Watch 伴侣、守护进程、共享 Swift 模型和 Agent hooks 均在本仓库，以 MIT 许可开放。集成方式及能力范围有对应文档，便于开发者检查、复现和改进。
 
-- **[op7418/m5-paper-buddy](https://github.com/op7418/m5-paper-buddy)** —— 通过解析 transcript 尾部的 JSONL 和失败即放行的 hook `curl`，把 agent 的 RUNNING / WAITING 状态显示在 **M5Paper 墨水屏小工具**上。vibebuddy 借用了它的检测理念，把显示从桌面小工具搬进了你的口袋。
-- **[Octane0411/open-vibe-island](https://github.com/Octane0411/open-vibe-island)** —— 一个跨 10+ agent 的、与来源无关的 `SessionState` 归约器，呈现在 **macOS 菜单栏 / 刘海**上。它塑造了 vibebuddy 的多 agent 模型和 Mac 端概览。
+| 想了解什么 | 从这里开始 |
+| --- | --- |
+| 编译与运行 | [开发环境配置](docs/getting-started.md#build-from-source) |
+| 共享模型与语音适配器 | [VibeBuddyKit](VibeBuddyKit/Sources/VibeBuddyKit) |
+| Agent 观测与本地服务 | [VibeBuddyMacCore](VibeBuddyMac/Sources/VibeBuddyMacCore) |
+| 原生客户端 | [Mac](VibeBuddyMacApp/Sources) · [iPhone](VibeBuddyApp/Sources) · [Watch](VibeBuddyApp/Watch) |
+| 协议检查与设计决策 | [Codex 探针](tools/codex-integration/README.md) · [架构决策](docs/adr) |
+| 维护记录 | [发布历史](https://github.com/semantic-craft/iOS-vibebuddy/releases) · [已合并 PR](https://github.com/semantic-craft/iOS-vibebuddy/pulls?q=is%3Apr+is%3Amerged) |
 
----
+**欢迎贡献。** 复现集成问题、改进翻译、记录设备使用流程，或提交范围明确的修复，都很有帮助。详见 [CONTRIBUTING.md](CONTRIBUTING.md)。如果 VibeBuddy 帮到了你，欢迎点 Star，或分享具体的使用方式，让更多人发现它。
 
-## 📍 状态
+## 致谢
 
-Mac v1.1 源码已包含 Codex Desktop 0.153.3 观测、UTF-8 截断处理、守护进程正常退出、观测诊断和 Watch 伴侣支持。Mac、iPhone、Apple Watch 已在本地安装，真实手机审批、恢复及手机到手表的状态传递已验证。完整腕上审批、通知感知、语音与可访问性体验仍留待实际使用确认。App Store 上架与 Mac GitHub 发布分别推进。见[最新 Mac Release](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest)和[路线图](docs/planning/roadmap.md)。
+[m5-paper-buddy](https://github.com/op7418/m5-paper-buddy) 启发了通过 hook 与对话记录观测任务状态的思路；[open-vibe-island](https://github.com/Octane0411/open-vibe-island) 为多 Agent 模型与 Mac Glance 提供了参考。VibeBuddy 的 Swift 实现为独立编写。App 图标借助 [ip-as-logo skill](https://github.com/s1dashu/ip-as-logo-skill)设计，App 内的小猫由共享 Swift 代码绘制。
 
-## 📄 许可
-
-[MIT](./LICENSE) © 2026 Xianwei Zhang
+[MIT](LICENSE) © 2026 Xianwei Zhang。独立社区项目，与 Anthropic、OpenAI 或 Apple 无隶属或背书关系。
