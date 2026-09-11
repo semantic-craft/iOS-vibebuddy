@@ -1,0 +1,20 @@
+# vibebuddy 1.3.12
+
+- Recover voice audio after device changes, with recovery status and audio-release failure messages.
+- Prevent interrupted voice actions and late responses from submitting stale task decisions.
+- Fix Doubao disconnecting on normal audio fragments after an interruption; keep unidentified task actions blocked.
+- Strengthen instructions to refresh task status for repeated questions and follow-ups after interruption.
+
+## 中文
+
+- 改进音频设备切换后的通话恢复，显示恢复状态，并提示音频释放失败。
+- 阻止被插话取消的语音操作和迟到响应提交过期任务决定。
+- 修复豆包插话后接收正常音频分片时断线的问题，继续拦截身份不明的任务操作。
+- 强化重复及插话后状态查询的重新读取指令。
+
+## Known limitations / 已知限制
+
+- Doubao task actions without a verifiable response identity after interruption still end the call safely; start a new call to retry.
+- A long-response hangup test timed out once; two instrumented repeats passed, and the original cause remains unresolved.
+- 豆包插话后的任务操作若缺少可验证的响应身份，仍会安全结束通话，需要重新通话后重试。
+- 长篇汇报的一次挂断测试曾超时；两次带发送记录的复测通过，原超时原因仍未确定。

@@ -75,7 +75,7 @@ final class DashboardStore: ObservableObject {
                       current.pendingApproval?.isAnswerable != false,
                       current.pendingQuestion?.isAnswerable != false,
                       current.pendingQuestion?.expiresAt.map({ $0 > snapshot.serverTime }) != false {
-                result = await send(pairing, current)
+                result = Task.isCancelled ? .failed : await send(pairing, current)
             } else { result = .expired }
         } else { result = .failed }
         if epoch == pairingEpoch {

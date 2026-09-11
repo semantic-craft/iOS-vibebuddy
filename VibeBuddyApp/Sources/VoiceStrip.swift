@@ -14,6 +14,8 @@ struct VoiceStrip: View {
             VStack(alignment: .leading, spacing: 1) {
                 if let err = voice.errorText {
                     Text(err).font(.caption).foregroundStyle(.red)
+                } else if voice.phase == .recovering {
+                    Text("Recovering audio… tap the pet to end").font(.caption)
                 } else {
                     if !voice.lastUserText.isEmpty {
                         Text(voice.lastUserText).font(.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -47,7 +49,7 @@ struct VoiceStrip: View {
         if voice.errorText != nil { return "exclamationmark.circle" }
         switch voice.phase {
         case .listening: return "mic.fill"
-        case .connecting, .thinking:  return "ellipsis"
+        case .connecting, .recovering, .thinking:  return "ellipsis"
         case .speaking:  return "waveform"
         case .idle:      return "mic"
         }

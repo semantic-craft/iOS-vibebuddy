@@ -605,7 +605,7 @@ public actor CodexAppServerMonitor {
     public func steer(threadID: String, text: String) async -> Bool {
         guard acceptanceThreadID == nil || acceptanceThreadID == threadID else { return false }
         guard let client, state.connected else { return false }
-        guard await resumeIfNeeded(threadID: threadID) else { return false }
+        guard !Task.isCancelled, await resumeIfNeeded(threadID: threadID), !Task.isCancelled else { return false }
         guard let turnID = reducer.threads[threadID]?.activeTurnID else { return false }
         let input: [String: Any] = ["threadId": threadID, "expectedTurnId": turnID,
                                     "input": [["type": "text", "text": text]]]
@@ -695,7 +695,7 @@ public actor CodexAppServerMonitor {
     public func startTurn(threadID: String, text: String) async -> Bool {
         guard acceptanceThreadID == nil || acceptanceThreadID == threadID else { return false }
         guard let client, state.connected else { return false }
-        guard await resumeIfNeeded(threadID: threadID) else { return false }
+        guard !Task.isCancelled, await resumeIfNeeded(threadID: threadID), !Task.isCancelled else { return false }
         let input: [String: Any] = ["threadId": threadID, "input": [["type": "text", "text": text]]]
         do {
             // A failed RPC may already have reached the daemon. Never replay it
