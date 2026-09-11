@@ -18,3 +18,8 @@
 - A long-response hangup test timed out once; two instrumented repeats passed, and the original cause remains unresolved.
 - 豆包插话后的任务操作若缺少可验证的响应身份，仍会安全结束通话，需要重新通话后重试。
 - 长篇汇报的一次挂断测试曾超时；两次带发送记录的复测通过，原超时原因仍未确定。
+
+## iPhone rapid restart
+
+- Serialize audio shutdown and startup across calls so an old call cannot finish its queued teardown after a replacement call activates.
+- 将各通话的音频启停统一串行处理，避免旧通话已排队的释放操作越过新通话启动。
