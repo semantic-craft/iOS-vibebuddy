@@ -661,10 +661,11 @@ private struct DeviceSettings: View {
     var body: some View {
         Group {
             Section {
+                TailscalePairingSettings(model: model)
                 Button(model.pairingInProgress ? "Cancel pairing" : "Pair a phone") {
                     if model.pairingInProgress { model.endPairing() } else { model.beginPairing() }
                 }
-                .disabled(model.changingPairing)
+                .disabled(model.changingPairing || (!model.pairingInProgress && model.pairing == nil))
                 if model.pairingInProgress {
                     if let qr = model.qrImage {
                         Image(nsImage: qr).interpolation(.none).resizable()
@@ -722,6 +723,26 @@ private struct DeviceSettings: View {
                     Label("No phone paired", systemImage: "iphone.slash")
                         .foregroundStyle(.secondary)
                 }
+            }
+        }
+    }
+}
+
+/// Both device settings surfaces edit the same saved companion endpoint.
+struct TailscalePairingSettings: View {
+    @ObservedObject var model: MenuBarModel
+
+    var body: some View {
+        Toggle("Use Tailscale for remote access", isOn: $model.useTailscale)
+            .disabled(model.pairingInProgress || model.changingPairing)
+        if model.useTailscale {
+            TextField("100.x.x.x or Mac name.ts.net", text: $model.tailscaleHost)
+                .textFieldStyle(.roundedBorder)
+                .disabled(model.pairingInProgress || model.changingPairing)
+            Text("Connect Mac and iPhone to the same tailnet. For Headscale, use this Mac’s 100.x.x.x address.")
+                .font(.footnote).foregroundStyle(.secondary)
+            if model.pairing == nil {
+                Text("Enter a valid Tailscale address.").foregroundStyle(.orange)
             }
         }
     }
