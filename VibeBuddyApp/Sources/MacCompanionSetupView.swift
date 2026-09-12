@@ -1,4 +1,5 @@
 import SwiftUI
+import VibeBuddyKit
 import UIKit
 
 /// One public destination shared by onboarding, settings, and connection help.
@@ -17,13 +18,13 @@ struct MacCompanionSteps: View {
 
     private func step(_ number: String, _ title: LocalizedStringKey, _ detail: LocalizedStringKey) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            Text(number).font(.subheadline.bold()).foregroundStyle(.tint)
+            Text(number).font(CompanionType.font(15, .bold)).foregroundStyle(.tint)
                 .frame(width: 28, height: 28)
                 .background(Color.accentColor.opacity(0.12), in: Circle())
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.headline)
-                Text(detail).font(.subheadline).foregroundStyle(.secondary)
+                Text(title).font(CompanionType.font(17, .semibold))
+                Text(detail).font(CompanionType.font(15)).foregroundStyle(CompanionPalette.ink2)
             }
         }
         .accessibilityElement(children: .combine)
@@ -57,14 +58,14 @@ struct MacCompanionDownloadActions: View {
                 Label("Share link to your Mac", systemImage: "square.and.arrow.up")
             }
             if copied {
-                Text("Link copied. Open it on your Mac.").font(.caption).foregroundStyle(.secondary)
+                Text("Link copied. Open it on your Mac.").font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
             }
             if openFailed {
                 Text("The link could not be opened. Copy it and open it on your Mac.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
             }
             Text(MacCompanionDownload.url.absoluteString)
-                .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2).textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -75,10 +76,10 @@ struct MacCompanionSetupView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 Text("Your live tasks come from your own Mac. Install the free Mac companion and scan its code to unlock connected features.")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(CompanionPalette.ink2)
                 MacCompanionSteps()
                 Text("For Apple Silicon Macs with macOS 14 or later. Install the companion on your Mac, not your iPhone.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
                 MacCompanionDownloadActions()
             }.padding(24)
         }

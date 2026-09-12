@@ -112,14 +112,14 @@ private struct StatusWidgetView: View {
             TaskStatusIndicator(snapshot.summary.primaryState, size: 10)
             VStack(alignment: .leading, spacing: 2) {
                 Text(CompanionCopy.moodLine(snapshot.summary))
-                    .font(.headline)
+                    .font(CompanionType.font(16, .semibold))
                     .lineLimit(1)
                 // `??` only catches a missing project, not an empty rest line.
                 let caption = snapshot.topProject ?? CompanionCopy.restLine(snapshot.summary)
                 if !caption.isEmpty {
                     Text(caption)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(CompanionType.font(12))
+                        .foregroundStyle(CompanionPalette.ink2)
                         .lineLimit(1)
                 }
             }

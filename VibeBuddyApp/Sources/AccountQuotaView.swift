@@ -31,14 +31,14 @@ struct AccountQuotaView: View {
                             Section("\(provider.displayName) quota") {
                                 if let quota {
                                     if let account = quota.accountLabel {
-                                        Text(account).font(.caption).foregroundStyle(.secondary)
+                                        Text(account).font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
                                     }
                                     let windows = Self.windows(quota)
                                     if windows.isEmpty {
                                         Text("Quota unavailable")
                                         if let observed = quota.observedAt {
                                             Text("Updated: \(observed.formatted(date: .abbreviated, time: .shortened))")
-                                                .font(.caption).foregroundStyle(.secondary)
+                                                .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
                                         }
                                     }
                                     ForEach(Array(windows.enumerated()), id: \.offset) { _, window in
@@ -48,7 +48,7 @@ struct AccountQuotaView: View {
                                         LabeledContent(credits.label ?? "Credits", value: QuotaPresentation.creditsLine(credits))
                                         if let reset = credits.resetsAt {
                                             Text(QuotaPresentation.resetLine(from: reset, now: context.date))
-                                                .font(.caption).foregroundStyle(.secondary)
+                                                .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
                                         }
                                     }
                                     if let spend = quota.spend, !spend.isEmpty {
@@ -57,11 +57,11 @@ struct AccountQuotaView: View {
                                         }
                                     }
                                     if let reason = quota.unavailableReason {
-                                        Text(reason).font(.callout).foregroundStyle(.secondary)
+                                        Text(reason).font(CompanionType.font(16)).foregroundStyle(CompanionPalette.ink2)
                                     }
                                 } else {
                                     Text("Not provided by this Mac")
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(CompanionPalette.ink2)
                                 }
                             }
                         }
@@ -71,26 +71,26 @@ struct AccountQuotaView: View {
                             Section("Token spend · \(window.kind.title)") {
                                 if window.counts.isEmpty {
                                     Text("No spend in this window")
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(CompanionPalette.ink2)
                                 } else {
                                     LabeledContent("Estimated cost", value: TokenConsumptionSnapshot.formatUSD(window.counts.estimatedUSD))
                                     LabeledContent("Tokens", value: TokenConsumptionSnapshot.formatTokens(window.counts.totalTokens))
                                     LabeledContent("Billed / cache", value: "\(TokenConsumptionSnapshot.formatTokens(window.counts.billedTokens)) · \(TokenConsumptionSnapshot.formatTokens(window.counts.cachedInputTokens))")
                                     LabeledContent("Sessions", value: "\(window.counts.sessionCount)")
                                     if !window.byAgent.isEmpty {
-                                        Text("By agent").font(.caption).foregroundStyle(.secondary)
+                                        Text("By agent").font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
                                         ForEach(window.byAgent) { row in
                                             LabeledContent(row.label, value: "\(TokenConsumptionSnapshot.formatTokens(row.counts.totalTokens)) · \(TokenConsumptionSnapshot.formatUSD(row.counts.estimatedUSD))")
                                         }
                                     }
                                     if !window.byModel.isEmpty {
-                                        Text("By model").font(.caption).foregroundStyle(.secondary)
+                                        Text("By model").font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
                                         ForEach(Array(window.byModel.prefix(6))) { row in
                                             LabeledContent(row.label, value: TokenConsumptionSnapshot.formatTokens(row.counts.totalTokens))
                                         }
                                     }
                                     if !window.byProject.isEmpty {
-                                        Text("By project").font(.caption).foregroundStyle(.secondary)
+                                        Text("By project").font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
                                         ForEach(Array(window.byProject.prefix(4))) { row in
                                             LabeledContent(row.label, value: TokenConsumptionSnapshot.formatTokens(row.counts.totalTokens))
                                         }
@@ -101,14 +101,14 @@ struct AccountQuotaView: View {
                         if let observed = dashboard.lastTokenConsumption?.observedAt {
                             Section {
                                 Text("Token spend updated \(observed.formatted(date: .abbreviated, time: .shortened))")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .font(CompanionType.font(12))
+                                    .foregroundStyle(CompanionPalette.ink2)
                             }
                         }
                     } else if connection.pairing != nil || connection.demo {
                         Section("Token consumption") {
                             Text("Not provided by this Mac yet")
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(CompanionPalette.ink2)
                         }
                     }
                 }
@@ -156,13 +156,13 @@ struct AccountQuotaView: View {
         }
         return VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
-                Text(Self.title(window)).font(.subheadline.weight(.semibold))
+                Text(Self.title(window)).font(CompanionType.font(15, .semibold))
                 Spacer(minLength: 8)
                 if let remaining {
                     Text("\(remaining)% left").monospacedDigit()
                         .foregroundStyle(QuotaPresentation.severity(usedPercent: 100 - remaining).tint)
                 } else {
-                    Text("Remaining unknown").foregroundStyle(.secondary)
+                    Text("Remaining unknown").foregroundStyle(CompanionPalette.ink2)
                 }
             }
             if let used {
@@ -185,7 +185,7 @@ struct AccountQuotaView: View {
                    let pace = QuotaPresentation.windowPace(
                     usedPercent: 100 - remaining, resetsAt: reset, windowMinutes: minutes, now: now) {
                     Text(pace.caption)
-                        .foregroundStyle(pace == .ahead ? QuotaPresentation.Severity.warning.tint : Color.secondary)
+                        .foregroundStyle(pace == .ahead ? QuotaPresentation.Severity.warning.tint : CompanionPalette.ink2)
                 }
                 if let observed = window.observedAt {
                     Text("Updated \(observed.formatted(date: .abbreviated, time: .shortened))")
@@ -193,8 +193,8 @@ struct AccountQuotaView: View {
                     Text("Update time unknown")
                 }
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
+            .font(CompanionType.font(12))
+            .foregroundStyle(CompanionPalette.ink2)
         }
         .padding(.vertical, 4)
         .accessibilityElement(children: .combine)

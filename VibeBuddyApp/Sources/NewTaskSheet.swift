@@ -25,7 +25,7 @@ struct NewTaskSheet: View {
             Form {
                 Section("Where") {
                     if dashboard.recentDirectories.isEmpty {
-                        Text("Your Mac has not seen a session run yet.").foregroundStyle(.secondary)
+                        Text("Your Mac has not seen a session run yet.").foregroundStyle(CompanionPalette.ink2)
                     } else {
                         Picker("Directory", selection: $directory) {
                             ForEach(dashboard.recentDirectories, id: \.self) { path in
@@ -33,7 +33,7 @@ struct NewTaskSheet: View {
                             }
                         }
                         if !directory.isEmpty {
-                            Text(directory).font(.caption.monospaced()).foregroundStyle(.secondary)
+                            Text(directory).font(CompanionType.mono(12)).foregroundStyle(CompanionPalette.ink2)
                         }
                     }
                 }
@@ -52,7 +52,7 @@ struct NewTaskSheet: View {
                     Text(agent == .codex
                          ? "Runs as a new Codex thread on your Mac through the app-server daemon, with your usual model, approval and sandbox settings. It appears in Codex Desktop and in Working here."
                          : "Runs as a Claude Code background session on your Mac (claude --bg) with your usual settings. It appears in Working here; Jump opens a terminal attached to it.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
                 }
             }
             .phoneList()
