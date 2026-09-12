@@ -77,17 +77,23 @@ code, and tests — don't drift to synonyms.
   status and resolving an action target stay inside that scope.
 - **Voice companion** — tap the pet to hold a **realtime speech-to-speech**
   conversation; it knows the live sessions and can **approve / answer** for you.
-- **VoiceProvider** — the realtime backend: `qwen`, `openai`, `gemini`, or `doubao`. Each
-  has its own key, model, voice, and input sample rate. Qwen additionally takes
-  an optional Bailian **workspace ID** (workspace-specific `maas.aliyuncs.com`
-  endpoint) and a Beijing/Singapore region switch.
+- **VoiceProvider** — a vendor the companion talks to: `qwen`, `openai`,
+  `gemini`, `doubao` or `deepseek`. Each has its own key. The realtime backends
+  also have a model, voice and input sample rate; `supportsVoice` says which
+  ones those are, and `deepseek` is **text-only** (`voiceProviders` excludes it).
+  Qwen additionally takes an optional Bailian **workspace ID**
+  (workspace-specific `maas.aliyuncs.com` endpoint) and a Beijing/Singapore
+  region switch; those belong to Qwen alone and move no other endpoint.
 - **Purpose provider** — voice conversation, completion summaries and read aloud
   have independent choices. Summary providers must support text generation; Doubao
   is realtime-only. Read-aloud providers must have a `SpeechSynthesizer`, and
   default to following the summary provider until pinned. A valid previous shared
   summary choice is retained before changing the voice provider, and an absent or
   invalid summary choice remains unconfigured — read aloud follows it into that
-  state rather than falling back to Qwen.
+  state rather than falling back to Qwen. A text-only summary provider is the
+  mirror image: read aloud reports that it cannot follow one and waits for a
+  pin, and a stored voice or read-aloud choice naming a text-only vendor is not
+  a choice this build honors.
 - **RealtimeVoiceProvider / RealtimeVoiceEvent** — the provider-agnostic Kit
   protocol + event stream (connected, userTranscript, assistantTranscript,
   audioDelta, speechStarted, responseDone, failed, closed) that the audio + UI

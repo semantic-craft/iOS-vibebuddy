@@ -265,36 +265,46 @@ public enum VoiceSettings {
     public enum ReadAloudStatus: Equatable, Sendable {
         /// Following summaries, which are unconfigured. Not a reason to use Qwen.
         case waitingForSummaryProvider
+        /// Following a summary provider that is text-only, so there is nothing
+        /// to follow it *with*. Pinning a voice provider is the way out; we do
+        /// not silently pick one, for the same reason we never fall back to Qwen.
+        case summaryProviderCannotSpeak(VoiceProvider)
         case ready(VoiceProvider)
 
         public var provider: VoiceProvider? {
             switch self {
-            case .waitingForSummaryProvider: return nil
+            case .waitingForSummaryProvider, .summaryProviderCannotSpeak: return nil
             case .ready(let p): return p
             }
         }
     }
 
     /// The pinned provider, or `nil` when read-aloud follows summaries. A value
-    /// this build cannot parse is treated as no pin: following is the default,
-    /// and inventing a provider for an unknown string would be worse.
+    /// this build cannot parse — or one that cannot speak — is treated as no
+    /// pin: following is the default, and inventing a provider for an unknown
+    /// string would be worse.
     public static func pinnedReadAloudProvider(defaults: UserDefaults = .standard) -> VoiceProvider? {
         let raw = (defaults.string(forKey: readAloudProviderKey) ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return raw.isEmpty ? nil : VoiceProvider(rawValue: raw)
+        guard !raw.isEmpty, let provider = VoiceProvider(rawValue: raw), provider.supportsVoice else { return nil }
+        return provider
     }
 
     /// Follow the summary provider until pinned — including following it into
     /// "not configured". Read-aloud never silently becomes Qwen.
     public static func readAloudStatus(defaults: UserDefaults = .standard) -> ReadAloudStatus {
-        guard let provider = pinnedReadAloudProvider(defaults: defaults)
-                ?? summaryProvider(defaults: defaults) else { return .waitingForSummaryProvider }
-        return .ready(provider)
+        if let pinned = pinnedReadAloudProvider(defaults: defaults) { return .ready(pinned) }
+        guard let summary = summaryProvider(defaults: defaults) else { return .waitingForSummaryProvider }
+        // Following a text-only summary provider is a state, not a fallback.
+        guard summary.supportsVoice else { return .summaryProviderCannotSpeak(summary) }
+        return .ready(summary)
     }
 
     /// Pin read-aloud to one provider, or pass `nil` to follow summaries again.
+    /// A provider that cannot speak is not a pin — it clears one.
     public static func selectReadAloudProvider(_ provider: VoiceProvider?, defaults: UserDefaults = .standard) {
-        defaults.set(provider?.rawValue ?? "", forKey: readAloudProviderKey)
+        let pin = provider.flatMap { $0.supportsVoice ? $0 : nil }
+        defaults.set(pin?.rawValue ?? "", forKey: readAloudProviderKey)
     }
 
     /// The read-aloud model / voice for a provider; blank falls back to the
@@ -302,7 +312,7 @@ public enum VoiceSettings {
     public static func readAloudModel(_ p: VoiceProvider, defaults: UserDefaults = .standard) -> String {
         let v = (defaults.string(forKey: readAloudModelKey(p)) ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return v.isEmpty ? SpeechSynthesis.support(p).defaultModel : v
+        return v.isEmpty ? (SpeechSynthesis.support(p)?.defaultModel ?? "") : v
     }
     /// Blank falls back to a voice that speaks **the conversation language** —
     /// a fresh English setup must not be handed a Chinese voice, which is the
@@ -314,7 +324,7 @@ public enum VoiceSettings {
         guard v.isEmpty else { return v }
         let spoken = language ?? conversationLanguage(defaults: defaults)
         return languageDefault(.readAloud, p, spoken,
-                               curated: SpeechSynthesis.support(p).defaultVoice)
+                               curated: SpeechSynthesis.support(p)?.defaultVoice ?? "")
     }
 
     /// How a blank voice ID becomes a real one, for either purpose.
@@ -395,9 +405,11 @@ public enum VoiceSettings {
     /// for everyone, including existing-key users after an update).
     public static var companionEnabled: Bool { UserDefaults.standard.bool(forKey: companionEnabledKey) }
 
-    /// The active real-time voice provider.
+    /// The active real-time voice provider. A stored value that cannot speak is
+    /// not one, so the conversation path can never reach a text-only vendor.
     public static var provider: VoiceProvider {
-        VoiceProvider(rawValue: UserDefaults.standard.string(forKey: providerKey) ?? "") ?? .qwen
+        let stored = VoiceProvider(rawValue: UserDefaults.standard.string(forKey: providerKey) ?? "")
+        return stored.flatMap { $0.supportsVoice ? $0 : nil } ?? .qwen
     }
 
     /// The model ID for a provider, user-editable (blank → its default).

@@ -92,9 +92,11 @@ public enum SpeechSynthesis {
         }
     }
 
-    /// Every provider speaks, so this is total — there is no "cannot read
-    /// aloud yet" state left for callers to handle.
-    public static func support(_ provider: VoiceProvider) -> Support {
+    /// `nil` for a text-only vendor, which has no speech API to reach. Callers
+    /// that already hold a read-aloud provider (`VoiceProvider.supportsVoice`)
+    /// never see it; the optional exists so no vendor can be handed a
+    /// synthesizer that cannot work.
+    public static func support(_ provider: VoiceProvider) -> Support? {
         switch provider {
         case .qwen:
             return Support(defaultModel: QwenSpeechSynthesizer.defaultModel,
@@ -123,18 +125,20 @@ public enum SpeechSynthesis {
                            supportsStyle: true) {
                 DoubaoSpeechSynthesizer(model: $0.model, voice: $0.voice, persona: $0.persona)
             }
+        case .deepseek:
+            return nil   // Text-only: DeepSeek publishes no speech API.
         }
     }
 
     /// Whether this vendor takes a delivery instruction, as one accessor
     /// rather than four reads of `Support` — the UI, the stored setting and
-    /// their tests all ask the same question, and a vendor that gains or
-    /// loses a speech API should change one line here, not hunt call sites.
+    /// their tests all ask the same question. A text-only vendor has no
+    /// request to carry one, so it does not take a style either.
     public static func supportsStyle(_ provider: VoiceProvider) -> Bool {
-        support(provider).supportsStyle
+        support(provider)?.supportsStyle == true
     }
 
-    public static func synthesizer(_ configuration: SpeechSynthesisConfiguration) -> any SpeechSynthesizer {
-        support(configuration.provider).make(configuration)
+    public static func synthesizer(_ configuration: SpeechSynthesisConfiguration) -> (any SpeechSynthesizer)? {
+        support(configuration.provider)?.make(configuration)
     }
 }

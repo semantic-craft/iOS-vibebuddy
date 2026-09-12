@@ -109,7 +109,7 @@ struct SettingsView: View {
                     VoiceSettings.selectVoiceProvider(selected)
                     provider = raw
                 })) {
-                    ForEach(VoiceProvider.allCases, id: \.rawValue) { p in
+                    ForEach(VoiceProvider.voiceProviders, id: \.rawValue) { p in
                         Text(p.display).tag(p.rawValue)
                     }
                 }
@@ -128,7 +128,7 @@ struct SettingsView: View {
             // Only the selected provider's credentials show — key + editable
             // Model ID + Voice ID — and they swap as the picker changes. `.id`
             // recreates the section so its fields reload for the new provider.
-            if let p = VoiceProvider(rawValue: provider) {
+            if let p = VoiceProvider(rawValue: provider), p.supportsVoice {
                 ProviderSection(provider: p, connectionTest: connectionTest).id(p.rawValue)
             }
         }
@@ -421,6 +421,7 @@ private struct ProviderSection: View {
         case .openai: session = OpenAIVoiceSession.make(apiKey: key, model: effectiveModel)
         case .gemini: session = GeminiRealtimeSession(apiKey: key, model: effectiveModel)
         case .doubao: session = DoubaoRealtimeSession(apiKey: key, model: effectiveModel)
+        case .deepseek: return   // Text-only: never offered as a voice provider.
         }
         connectionTest.start(session, voice: effectiveVoice)
     }
@@ -462,6 +463,7 @@ private struct ProviderSection: View {
         case .openai: return "e.g. marin / cedar"
         case .gemini: return "e.g. Puck / Kore"
         case .doubao: return "zh_female_vv_jupiter_bigtts"
+        case .deepseek: return ""
         }
     }
 }

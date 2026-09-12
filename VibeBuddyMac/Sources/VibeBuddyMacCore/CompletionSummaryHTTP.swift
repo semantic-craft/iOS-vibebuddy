@@ -61,6 +61,13 @@ struct CompletionSummaryHTTP: Sendable {
             endpoint = "https://\(host)/compatible-mode/v1/chat/completions"
             body = ["model": c.modelID, "messages": [["role": "system", "content": instructions], ["role": "user", "content": user]],
                     "stream": false, "max_tokens": conversation ? 2400 : 512, "enable_thinking": false]
+        case .deepseek:
+            // OpenAI-compatible chat completions, one region, no workspace.
+            // Thinking is on by default and would spend a reasoning budget on a
+            // 180-character notification, so this path turns it off explicitly.
+            endpoint = "https://api.deepseek.com/chat/completions"
+            body = ["model": c.modelID, "messages": [["role": "system", "content": instructions], ["role": "user", "content": user]],
+                    "stream": false, "max_tokens": conversation ? 2400 : 512, "thinking": ["type": "disabled"]]
         case .openai:
             endpoint = "https://api.openai.com/v1/responses"
             var openAI: [String: Any] = ["model": c.modelID, "instructions": instructions,
@@ -108,7 +115,8 @@ struct CompletionSummaryHTTP: Sendable {
         var pieces: [String] = []
         switch provider {
         case .doubao: return fail(.missingProvider)
-        case .qwen:
+        // DeepSeek mirrors the OpenAI chat-completions schema Qwen also serves.
+        case .qwen, .deepseek:
             guard let choices = root["choices"] as? [[String: Any]], choices.count == 1,
                   let choice = choices.first, let message = choice["message"] as? [String: Any] else { return fail(.invalidResponse) }
             guard choice["finish_reason"] as? String == "stop" else { return fail(.incompleteOutput) }
@@ -167,7 +175,7 @@ struct CompletionSummaryHTTP: Sendable {
         func number(_ value: Any?) -> Int? { guard let n = value as? Int, n >= 0 else { return nil }; return n }
         switch provider {
         case .doubao: return nil
-        case .qwen:
+        case .qwen, .deepseek:
             return .init(inputTokens: number(u["prompt_tokens"]), outputTokens: number(u["completion_tokens"]), totalTokens: number(u["total_tokens"]),
                          cachedInputTokens: number((u["prompt_tokens_details"] as? [String: Any])?["cached_tokens"]),
                          reasoningTokens: number((u["completion_tokens_details"] as? [String: Any])?["reasoning_tokens"]))

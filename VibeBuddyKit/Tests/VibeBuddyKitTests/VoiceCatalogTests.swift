@@ -14,9 +14,12 @@ struct VoiceCatalogTests {
         // Doubao's realtime and TTS families do not even share ID shapes.
         #expect(VoiceCatalog.voices(.conversation, .doubao).contains { $0.id.contains("_jupiter_") })
         #expect(!VoiceCatalog.voices(.readAloud, .doubao).contains { $0.id.contains("_jupiter_") })
-        // Every (purpose, provider) is populated.
+        // Every (purpose, provider) that can speak is populated; a text-only
+        // vendor has no voices to list for either purpose.
+        #expect(VoiceCatalog.voices(.conversation, .deepseek).isEmpty)
+        #expect(VoiceCatalog.voices(.readAloud, .deepseek).isEmpty)
         for purpose in VoicePurpose.allCases {
-            for provider in VoiceProvider.allCases {
+            for provider in VoiceProvider.voiceProviders {
                 #expect(!VoiceCatalog.voices(purpose, provider).isEmpty, "\(purpose) \(provider)")
             }
         }
@@ -45,7 +48,7 @@ struct VoiceCatalogTests {
         #expect(english.count == VoiceCatalog.voices(.conversation, .qwen).count)
         // And no (purpose, provider, language) combination comes back empty.
         for purpose in VoicePurpose.allCases {
-            for provider in VoiceProvider.allCases {
+            for provider in VoiceProvider.voiceProviders {
                 for language in [VoiceLanguage.english, .chinese] {
                     #expect(!VoiceCatalog.shortlist(purpose, provider, language: language).isEmpty,
                             "\(purpose) \(provider) \(language)")
@@ -85,7 +88,7 @@ struct VoiceCatalogTests {
 @Suite("Runtime defaults exist in the catalog")
 struct VoiceDefaultsInCatalogTests {
     @Test func everyRealtimeDefaultIsACatalogVoice() {
-        for provider in VoiceProvider.allCases {
+        for provider in VoiceProvider.voiceProviders {
             let ids = Set(VoiceCatalog.voices(.conversation, provider).map(\.id))
             for language in [VoiceLanguage.english, .chinese] {
                 let fallback = provider.defaultVoice(language)
@@ -94,9 +97,9 @@ struct VoiceDefaultsInCatalogTests {
         }
     }
 
-    @Test func everySynthesisDefaultIsACatalogVoice() {
-        for provider in VoiceProvider.allCases {
-            let support = SpeechSynthesis.support(provider)
+    @Test func everySynthesisDefaultIsACatalogVoice() throws {
+        for provider in VoiceProvider.voiceProviders {
+            let support = try #require(SpeechSynthesis.support(provider), "\(provider) speech support")
             let ids = Set(VoiceCatalog.voices(.readAloud, provider).map(\.id))
             #expect(ids.contains(support.defaultVoice), "\(provider) → \(support.defaultVoice)")
         }
@@ -143,7 +146,7 @@ struct ConversationDefaultVoiceTests {
     @Test func everyProviderAndLanguageResolvesToACatalogVoice() throws {
         let (defaults, name) = try suite()
         defer { defaults.removePersistentDomain(forName: name) }
-        for provider in VoiceProvider.allCases {
+        for provider in VoiceProvider.voiceProviders {
             for language in [VoiceLanguage.english, .chinese] {
                 let id = VoiceSettings.voice(provider, language, defaults: defaults)
                 let voice = VoiceCatalog.voices(.conversation, provider).first { $0.id == id }
@@ -161,7 +164,7 @@ struct ConversationDefaultVoiceTests {
     @Test func theShortlistLeadsWithTheVoiceTheSessionWillUse() throws {
         let (defaults, name) = try suite()
         defer { defaults.removePersistentDomain(forName: name) }
-        for provider in VoiceProvider.allCases {
+        for provider in VoiceProvider.voiceProviders {
             for language in [VoiceLanguage.english, .chinese] {
                 let id = VoiceSettings.voice(provider, language, defaults: defaults)
                 #expect(VoiceCatalog.shortlist(.conversation, provider, language: language)
@@ -202,7 +205,7 @@ struct ReadAloudDefaultVoiceTests {
     @Test func everyProviderAndLanguageResolvesToACatalogVoice() throws {
         let (defaults, name) = try suite()
         defer { defaults.removePersistentDomain(forName: name) }
-        for provider in VoiceProvider.allCases {
+        for provider in VoiceProvider.voiceProviders {
             for language in [VoiceLanguage.english, .chinese] {
                 let id = VoiceSettings.readAloudVoice(provider, language: language, defaults: defaults)
                 #expect(VoiceCatalog.voices(.readAloud, provider).contains { $0.id == id },

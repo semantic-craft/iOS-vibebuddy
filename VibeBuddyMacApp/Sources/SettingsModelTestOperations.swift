@@ -12,6 +12,9 @@ enum SettingsModelTestOperations {
         let international: Bool
 
         var failure: String? {
+            guard provider.supportsVoice else {
+                return "This provider is text-only. Choose a voice provider for conversation."
+            }
             let allowed = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-".utf8)
             if model.isEmpty || !model.utf8.allSatisfy(allowed.contains) {
                 return "Enter a valid realtime model ID before testing."
@@ -27,12 +30,14 @@ enum SettingsModelTestOperations {
             return nil
         }
 
-        func makeSession(apiKey: String) -> any RealtimeVoiceProvider {
+        /// `nil` for a text-only provider, which `failure` has already refused.
+        func makeSession(apiKey: String) -> (any RealtimeVoiceProvider)? {
             switch provider {
             case .qwen: QwenRealtimeSession(apiKey: apiKey, model: model, workspaceID: workspace, useIntl: international)
             case .openai: OpenAIVoiceSession.make(apiKey: apiKey, model: model)
             case .gemini: GeminiRealtimeSession(apiKey: apiKey, model: model)
             case .doubao: DoubaoRealtimeSession(apiKey: apiKey, model: model)
+            case .deepseek: nil
             }
         }
     }

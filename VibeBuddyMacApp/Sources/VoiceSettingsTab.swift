@@ -381,7 +381,7 @@ private struct ConversationFeatureRow: View {
                    detail: detail, tests: tests, reveal: reveal) {
             ControlLine {
                 ProviderPicker(label: "Voice conversation provider", selection: $selection,
-                               options: VoiceProvider.allCases)
+                               options: VoiceProvider.voiceProviders)
             } model: {
                 if let provider {
                     IDField(label: "Realtime model ID", placeholder: provider.defaultModel, text: $modelID,
@@ -424,7 +424,7 @@ private struct ConversationFeatureRow: View {
               !tests.isBusy, !reader.busy else { return }
         credential.load()
         guard credential.configured else { return tests.reportUnreadableKey(.voice) }
-        let session = configuration.makeSession(apiKey: credential.value)
+        guard let session = configuration.makeSession(apiKey: credential.value) else { return }
         tests.start(.voice, timeout: .seconds(15), operation: {
             await SettingsModelTestOperations.handshake(session: session, voice: configuration.voice)
         }, cleanup: { await session.close() })
@@ -562,7 +562,7 @@ private struct ReadAloudFeatureRow: View {
         _selection = selection
         self.reveal = reveal
         let keyed = status.provider ?? .qwen
-        _modelID = AppStorage(wrappedValue: SpeechSynthesis.support(keyed).defaultModel,
+        _modelID = AppStorage(wrappedValue: SpeechSynthesis.support(keyed)?.defaultModel ?? "",
                               VoiceSettings.readAloudModelKey(keyed))
         // Deliberately empty: a stored voice wins, and everything else is
         // decided by the language-aware fallback below.
@@ -615,6 +615,7 @@ private struct ReadAloudFeatureRow: View {
     private var rowStatus: VoiceFeatureStatus {
         switch status {
         case .waitingForSummaryProvider: return .waitingForSummaries
+        case .summaryProviderCannotSpeak: return .needsAttention
         case .ready(let provider):
             if !credential.configured { return .needsKey(provider) }
             if !summariesEnabled { return .nothingToRead }
@@ -627,6 +628,12 @@ private struct ReadAloudFeatureRow: View {
     private var followTitle: String {
         let target = summaryProvider?.display ?? NSLocalizedString("not set", comment: "No summary provider")
         return String(format: NSLocalizedString("Same as summaries · %@", comment: "Read-aloud follows summaries"), target)
+    }
+    /// The sentence the pill cannot hold: a summary provider that cannot speak.
+    private var detail: String? {
+        guard case .summaryProviderCannotSpeak(let provider) = status else { return nil }
+        return String(format: NSLocalizedString("%@ is text-only, so read-aloud cannot follow it. Pick a read-aloud provider of its own.",
+                                                comment: "Read-aloud follows a text-only summary provider"), provider.display)
     }
     /// One line under the row: what "Same as summaries" currently resolves to.
     private var hint: LocalizedStringKey {
@@ -641,16 +648,16 @@ private struct ReadAloudFeatureRow: View {
 
     var body: some View {
         FeatureRow(feature: .readAloud, dependsOnPrevious: true, enabled: $enabled,
-                   status: rowStatus, hint: hint, tests: tests, reveal: reveal) {
+                   status: rowStatus, detail: detail, hint: hint, tests: tests, reveal: reveal) {
           VStack(alignment: .leading, spacing: 6) {
             ControlLine {
                 ProviderPicker(label: "Read-aloud provider", selection: $selection,
-                               options: VoiceProvider.allCases,
+                               options: VoiceProvider.voiceProviders,
                                leading: ("", followTitle))
             } model: {
                 if case .ready(let provider) = status {
                     IDField(label: "Speech synthesis model",
-                            placeholder: SpeechSynthesis.support(provider).defaultModel,
+                            placeholder: SpeechSynthesis.support(provider)?.defaultModel ?? "",
                             text: $modelID, browse: provider.modelsURL,
                             browseHelp: "Browse available models", identifier: "readAloudModelID")
                 } else { Text(verbatim: "—").foregroundStyle(.secondary) }
