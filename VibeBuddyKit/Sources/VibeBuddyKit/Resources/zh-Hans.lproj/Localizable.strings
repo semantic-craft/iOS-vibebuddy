@@ -86,3 +86,37 @@
 
 /* MARK: VoiceProvider */
 "Doubao (Volcengine)" = "豆包 · 火山引擎";
+
+/* MARK: ToolActivity.label — the state line of every session row */
+"History · read only" = "历史 · 只读";
+"Needs approval" = "待批准";
+"Needs input" = "待输入";
+"Stopped with an issue" = "出错中断";
+"Ready" = "已就绪";
+"Editing…" = "正在编辑…";
+"Reading…" = "正在读取…";
+"Running…" = "正在运行…";
+"Searching…" = "搜索中…";
+"Browsing…" = "联网查询…";
+"Delegating…" = "调度子任务…";
+"Planning…" = "规划中…";
+"Coordinating…" = "协同中…";
+"Waiting…" = "等待中…";
+
+/* MARK: TaskPresentationState.label — the state word on a row, a pill and a filter.
+   The phone's short forms; the Mac read 思考中 / 需输入 before this table. */
+"Idle" = "空闲";
+"Thinking" = "进行中";
+"Complete, unread update" = "完成未读";
+"Requires input" = "待回应";
+"Error" = "异常";
+"No assigned task" = "没有指派任务";
+
+/* MARK: RecentOutput.statusLine */
+"Unknown" = "未知";
+"This session is no longer on the Mac." = "该会话已不在 Mac 上。";
+"No recent output source for this session." = "该会话没有最近输出来源。";
+"The recent output source cannot be read." = "无法读取最近输出来源。";
+"This agent’s output format is not supported yet." = "尚不支持这个代理的输出格式。";
+"No recent output yet." = "暂无最近输出。";
+"Bounded excerpt — not the full history." = "有限摘录——不是完整历史。";

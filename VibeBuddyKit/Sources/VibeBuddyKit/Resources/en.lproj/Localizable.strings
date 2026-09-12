@@ -60,3 +60,34 @@
 "Pairing confirmation" = "Pairing confirmation";
 "Usage and budget" = "Usage and budget";
 "Doubao (Volcengine)" = "Doubao (Volcengine)";
+
+/* ToolActivity.label */
+"History · read only" = "History · read only";
+"Needs approval" = "Needs approval";
+"Needs input" = "Needs input";
+"Stopped with an issue" = "Stopped with an issue";
+"Ready" = "Ready";
+"Editing…" = "Editing…";
+"Reading…" = "Reading…";
+"Running…" = "Running…";
+"Searching…" = "Searching…";
+"Browsing…" = "Browsing…";
+"Delegating…" = "Delegating…";
+"Planning…" = "Planning…";
+"Coordinating…" = "Coordinating…";
+"Waiting…" = "Waiting…";
+
+/* TaskPresentationState.label, RecentOutput.statusLine */
+"Idle" = "Idle";
+"Thinking" = "Thinking";
+"Complete, unread update" = "Complete, unread update";
+"Requires input" = "Requires input";
+"Error" = "Error";
+"No assigned task" = "No assigned task";
+"Unknown" = "Unknown";
+"This session is no longer on the Mac." = "This session is no longer on the Mac.";
+"No recent output source for this session." = "No recent output source for this session.";
+"The recent output source cannot be read." = "The recent output source cannot be read.";
+"This agent’s output format is not supported yet." = "This agent’s output format is not supported yet.";
+"No recent output yet." = "No recent output yet.";
+"Bounded excerpt — not the full history." = "Bounded excerpt — not the full history.";
