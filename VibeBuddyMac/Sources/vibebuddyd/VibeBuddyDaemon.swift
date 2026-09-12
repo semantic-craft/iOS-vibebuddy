@@ -85,6 +85,7 @@ struct VibeBuddyDaemon {
             questionRegistry: questionRegistry,
             cursorACP: cursorACP,
             cursorTranscriptMonitor: CursorTranscriptMonitor(),
+            cursorCloudMonitor: CursorCloudAgentMonitor(),
             cursorFollowups: cursorFollowups)
         FileHandle.standardError.write(Data(
             "vibebuddyd: listening on 0.0.0.0:\(port) (apns: \(pusher != nil ? "on" : "off"), token: \(tokenSource))\n".utf8))

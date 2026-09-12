@@ -49,6 +49,13 @@ final class MenuBarModel: ObservableObject {
         guard let run = E2ERunConfiguration.current else { return CursorTranscriptMonitor() }
         return CursorTranscriptMonitor(root: run.file("agents").appendingPathComponent("cursor/projects", isDirectory: true))
     }()
+    /// Cursor's Cloud Agents API poller. A cloud agent runs on Cursor's
+    /// machines, so it reaches no hook and writes no transcript; this is the
+    /// only live source it has. It does nothing at all until an API key is
+    /// stored, and it is skipped entirely during isolated acceptance so a run
+    /// never talks to Cursor's service.
+    private let cursorCloudMonitor: CursorCloudAgentMonitor? =
+        E2ERunConfiguration.current == nil ? CursorCloudAgentMonitor() : nil
     /// The Codex app-server daemon connection (ADR-0011): on by default, and
     /// the rollout tailer + hooks keep covering Codex whenever it is off or
     /// the daemon is not running.
@@ -410,6 +417,7 @@ final class MenuBarModel: ObservableObject {
                                      cursorLauncher: cursorLauncher,
                                      cursorACP: cursorACP,
                                      cursorTranscriptMonitor: cursorTranscriptMonitor,
+                                     cursorCloudMonitor: cursorCloudMonitor,
                                      onCompletionReminder: { [weak self] session in
                                          guard let self else { return false }
                                          return await self.deliverCompletionReminder(session)

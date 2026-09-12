@@ -138,6 +138,64 @@ public actor SessionStore {
         return changed
     }
 
+    /// Cursor's cloud agents, keyed by agent id, as the Cloud Agents API last
+    /// reported them. Unlike the composer store this *is* the source for these
+    /// conversations: they run on Cursor's machines and appear nowhere on this
+    /// Mac — not in `composerHeaders`, not as a transcript, not as a hook.
+    private var cursorCloudAgents: [String: CursorCloudAgent] = [:]
+
+    /// Take the monitor's view of the account. Rows with no live session become
+    /// quiet history rows; rows the monitor has moved into the three states keep
+    /// whatever the reducer holds.
+    public func applyCursorCloudAgents(_ agents: [CursorCloudAgent]) {
+        let next = Dictionary(agents.filter { $0.status != .archived }.map { ($0.id, $0) },
+                              uniquingKeysWith: { _, last in last })
+        guard next != cursorCloudAgents else { return }
+        cursorCloudAgents = next
+        broadcast()
+    }
+
+    /// Where a cloud agent can actually be opened. It has no window on this Mac
+    /// and no terminal, so its Cursor web page is the only honest jump — the
+    /// same shape as a Codex Desktop thread's.
+    public func cursorCloudAgentURL(for sessionID: String) -> String? {
+        cursorCloudAgents[sessionID]?.url
+    }
+
+    /// The run a stop would cancel. Nil when the agent is not live, which is
+    /// also when there is nothing to cancel.
+    public func cursorCloudLatestRun(for sessionID: String) -> String? {
+        guard let agent = cursorCloudAgents[sessionID], agent.status == .active else { return nil }
+        return agent.latestRunID
+    }
+
+    /// How many cloud agents get a history row, for the same reason
+    /// `cursorHistoryLimit` exists.
+    static let cursorCloudHistoryLimit = 50
+
+    /// A cloud agent vibebuddy has only ever seen finished: a quiet history row
+    /// that never earns a completion cue, exactly like an imported Copilot
+    /// session. Its repository stands in for a project, because it has no folder.
+    private func cursorCloudHistorySessions() -> [AgentSession] {
+        cursorCloudAgents.values
+            .filter { reducer.sessions[$0.id] == nil }
+            .sorted { lhs, rhs in
+                let left = lhs.updatedAt ?? .distantPast, right = rhs.updatedAt ?? .distantPast
+                return left == right ? lhs.id < rhs.id : left > right
+            }
+            .prefix(Self.cursorCloudHistoryLimit)
+            .map { agent in
+                let when = agent.updatedAt ?? Date()
+                var session = AgentSession(
+                    id: agent.id, agent: .cursor,
+                    project: agent.repository ?? String(localized: "Cursor cloud agent"),
+                    status: .done, name: agent.name,
+                    statusSince: when, updatedAt: when)
+                session.historyOnly = true
+                return session
+            }
+    }
+
     /// How many of Cursor's stored conversations get a history row. Cursor keeps
     /// every chat until its own cleanup prunes them, and a dashboard is a list of
     /// work in progress, not an archive.
@@ -964,6 +1022,7 @@ public actor SessionStore {
         snapshot.sessions += cursorHistorySessions().sorted {
             $0.updatedAt == $1.updatedAt ? $0.id < $1.id : $0.updatedAt > $1.updatedAt
         }
+        snapshot.sessions += cursorCloudHistorySessions()
         if copilotReadFailed || !copilotHistory.isEmpty {
             var diagnostics = snapshot.observationDiagnostics ?? []
             diagnostics.removeAll { $0.agent == .copilot }

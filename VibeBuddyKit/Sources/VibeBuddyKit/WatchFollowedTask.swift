@@ -65,7 +65,7 @@ public enum WatchStopBlock: String, Codable, Equatable, Sendable {
         else if session.agent == .cursor {
             // A chat in the IDE (hooks) or one only seen in a transcript has no
             // interrupt; a cloud agent without a key is one Settings step away.
-            self = SessionActionSupport.isCursorCloudConversation(session) ? .macNeedsSetup : .macOnly
+            self = SessionActionSupport.isCursorCloudAgent(session) ? .macNeedsSetup : .macOnly
         }
         else if session.agent != .codex { self = .agentUnsupported }
         else { self = .macNotConnected }

@@ -138,6 +138,10 @@ struct AccountUsageSettings: View {
     @State private var cursorCookie: String = CursorSessionCookieStore.loadManual() ?? ""
     @State private var cursorCookieMode: CursorCookieSourceMode = CursorCookieSourceSettings.mode()
     @State private var cursorImportMessage: String?
+    /// What the user is typing right now — never the stored key, which is
+    /// written once and never read back.
+    @State private var cloudAPIKeyDraft: String = ""
+    @State private var cloudAPIKeySaved = false
     @State private var grokBotAuthorization: String?
     @State private var isAuthorizingGrokBot = false
     @FocusState private var cursorCookieFocused: Bool
@@ -256,6 +260,40 @@ struct AccountUsageSettings: View {
                     .foregroundStyle(.secondary)
             }
 
+            // The third Cursor credential (ADR-0017): a Cloud Agents API key,
+            // separate from the session Cookie above and from the CLI's own
+            // login. Written once, never read back into the field.
+            Section {
+                HStack(spacing: 8) {
+                    SecureField("Cursor API key", text: $cloudAPIKeyDraft)
+                        .textFieldStyle(.roundedBorder)
+                        .labelsHidden()
+                        .frame(width: 170)
+                        .accessibilityLabel("Cursor API key")
+                        .onSubmit { saveCloudAPIKey() }
+                    Button("Save") { saveCloudAPIKey() }
+                        .disabled(cloudAPIKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityIdentifier("save-cursorCloudAPIKey")
+                    Button("Remove") {
+                        CursorCloudAPIKeyStore.save(nil)
+                        cloudAPIKeyDraft = ""
+                        cloudAPIKeySaved = CursorCloudAPIKeyStore.isConfigured()
+                    }
+                    .disabled(!cloudAPIKeySaved)
+                    .accessibilityIdentifier("remove-cursorCloudAPIKey")
+                }
+                Text(cloudKeyDetail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Cursor cloud agents")
+            } footer: {
+                Text("A Cloud Agents API key from cursor.com/dashboard/api. Separate from the session Cookie above and from the cursor-agent CLI's own login — none of the three substitutes for another. Stored in its own Keychain slot and used only to read the live state of cloud agents (bc-… chats), start their next run and cancel one. Without it, cloud agents stay stored-history rows.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .onAppear { cloudAPIKeySaved = CursorCloudAPIKeyStore.isConfigured() }
+
             Section("Quota alert") {
                 Picker("Quota alert", selection: $alertThreshold) {
                     Text("Off").tag(0)
@@ -281,5 +319,27 @@ struct AccountUsageSettings: View {
                 }
             }
         }
+    }
+}
+
+extension AccountUsageSettings {
+    /// Whether a key is stored — asked of the Keychain by **metadata only**, so
+    /// reading this page never decrypts the key and never raises an
+    /// authorization prompt. The key itself is never read back into the field:
+    /// it is written once and thereafter only replaced or removed.
+    var cloudKeyDetail: String {
+        cloudAPIKeySaved
+            ? String(localized: "A key is saved. Type a new one to replace it.")
+            : String(localized: "No key saved. Cloud agents show as stored history only.")
+    }
+
+    func saveCloudAPIKey() {
+        let trimmed = cloudAPIKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        CursorCloudAPIKeyStore.save(trimmed)
+        // Drop the draft the moment it is stored: nothing keeps the key in the
+        // view hierarchy, and nothing prints it.
+        cloudAPIKeyDraft = ""
+        cloudAPIKeySaved = CursorCloudAPIKeyStore.isConfigured()
     }
 }

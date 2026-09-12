@@ -7,6 +7,11 @@ public enum ObservationSource: String, Codable, Sendable, CaseIterable, Comparab
     /// local control socket. Authoritative for Codex when fresh; rollout and
     /// hook evidence for the same thread then only corroborates.
     case appserver
+    /// Cursor's Cloud Agents API. A cloud agent runs on Cursor's machines, so no
+    /// hook fires and no transcript is written for it; this is the only live
+    /// source there is for one, and it speaks for `bc-`-prefixed conversations
+    /// alone. Local Cursor conversations are unaffected by it.
+    case cloud
     case gateway
     case hook
     /// Claude Code's status line JSON, forwarded by vibebuddy's wrapper script
@@ -20,11 +25,6 @@ public enum ObservationSource: String, Codable, Sendable, CaseIterable, Comparab
     /// notifications are the live source for that conversation, and the same
     /// pipe carries the answers.
     case acp
-    /// Cursor's Cloud Agents API, polled for a conversation that runs on
-    /// Cursor's infrastructure rather than this Mac. No hook fires for it and
-    /// no transcript is written for it, so for a cloud conversation this is
-    /// the live source.
-    case cloud
 
     public static func < (lhs: Self, rhs: Self) -> Bool {
         guard let left = allCases.firstIndex(of: lhs),
@@ -35,6 +35,7 @@ public enum ObservationSource: String, Codable, Sendable, CaseIterable, Comparab
     public var displayName: String {
         switch self {
         case .appserver: "App server"
+        case .cloud: "Cursor cloud"
         case .gateway: "Grok Bot gateway"
         case .hook: "Hook"
         case .statusline: "Status line"
@@ -42,7 +43,6 @@ public enum ObservationSource: String, Codable, Sendable, CaseIterable, Comparab
         case .transcript: "Transcript"
         case .recovery: "Recovery"
         case .acp: "Cursor CLI (ACP)"
-        case .cloud: "Cursor cloud"
         }
     }
 }
@@ -86,13 +86,13 @@ public enum ObservationHealth: String, Codable, Sendable, CaseIterable {
             switch source {
             case .gateway: return "The Grok Bot gateway cannot be reached. Open Grok Bot and check its connection."
             case .appserver: return "The Codex app-server control socket cannot be reached."
+            case .cloud: return "Cursor's Cloud Agents API cannot be reached. Check the API key in Settings."
             case .statusline: return "The status line forwarder is not installed in Claude's settings."
             case .rollout: return "The rollout stream cannot be read."
             case .transcript: return "The transcript cannot be read."
             case .hook: return "The hook configuration cannot be read."
             case .recovery: return "The recovery source cannot be read."
             case .acp: return "The Cursor CLI process vibebuddy started is not answering. Check that cursor-agent is installed and signed in."
-            case .cloud: return "Cursor's Cloud Agents API cannot be reached with the saved key."
             }
         case .notInstalled:
             return "The agent is not installed or has no local configuration."

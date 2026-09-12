@@ -78,7 +78,7 @@ public struct SessionActionSupport: Equatable, Sendable {
         // (`turn/interrupt`), a hosted Cursor CLI (`session/cancel`) and a Cursor
         // cloud run (`POST …/cancel`). Everything else is stopped where it runs.
         let channel = ControlChannel.infer(for: session)
-        if session.agent == .cursor, channel == ControlChannel.none, Self.isCursorCloudConversation(session) {
+        if session.agent == .cursor, channel == ControlChannel.none, Self.isCursorCloudAgent(session) {
             return SessionActionSupport(intent: .stop,
                 unsupportedReason: String(localized: "Add a Cursor API key on your Mac to reach cloud agents from here."))
         }
@@ -133,7 +133,7 @@ public struct SessionActionSupport: Equatable, Sendable {
     /// without an API key is the same shape with a different fix.
     private static func unreachableCursorSupport(intent: SessionActionIntent,
                                                  session: AgentSession) -> SessionActionSupport {
-        if isCursorCloudConversation(session) {
+        if isCursorCloudAgent(session) {
             return SessionActionSupport(intent: intent,
                 unsupportedReason: String(localized: "Add a Cursor API key on your Mac to reach cloud agents from here."))
         }
@@ -165,18 +165,20 @@ public struct SessionActionSupport: Equatable, Sendable {
         switch intent {
         case .steer:
             return SessionActionSupport(intent: intent,
-                unsupportedReason: String(localized: "This cloud agent runs one run at a time. It can take a follow-up once this run finishes."))
+                unsupportedReason: String(localized: "This cloud agent is busy. Cursor takes a follow-up once the run finishes."))
         case .continue:
             return SessionActionSupport(intent: intent,
-                note: String(localized: "Starts a new run for this agent in Cursor's cloud."))
+                note: String(localized: "Starts a new run on Cursor's cloud agent."))
         default:
             return SessionActionSupport(intent: intent)
         }
     }
 
-    /// Cursor cloud agents carry `bc-`-prefixed ids everywhere Cursor names
-    /// them: its own database, its API and its hooks.
-    static func isCursorCloudConversation(_ session: AgentSession) -> Bool {
+    /// A Cursor conversation that runs on Cursor's machines rather than this
+    /// Mac. Cursor gives cloud agents a `bc-`-prefixed id and uses it as the
+    /// agent id in its own Cloud Agents API, so the id is the whole test — no
+    /// extra field has to be kept in sync across the wire.
+    public static func isCursorCloudAgent(_ session: AgentSession) -> Bool {
         session.agent == .cursor && session.id.hasPrefix("bc-")
     }
 

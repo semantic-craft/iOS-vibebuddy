@@ -58,6 +58,9 @@ public struct VibeBuddyServer: Sendable {
     /// And the third: a Cursor chat lives inside Cursor's own sidebar, which no
     /// deeplink addresses, so the jump brings Cursor (and its workspace) forward.
     public let onJumpToCursor: @Sendable (String?) async -> JumpOutcome
+    /// And the fourth: a Cursor **cloud** agent has no window here at all, so
+    /// the jump opens the page Cursor hosts for it.
+    public let onJumpToCursorCloud: @Sendable (String) async -> JumpOutcome
     public let onAnswer: @Sendable (TerminalRef, String) -> Void
     public let onDevicePaired: @Sendable (DeviceRegistrationPayload) -> Void
     /// Claude background sessions on this Mac, for jumps into them.
@@ -80,6 +83,13 @@ public struct VibeBuddyServer: Sendable {
     /// Tails Cursor's agent transcripts. Optional so route tests consume no
     /// host state, exactly like the Codex rollout source.
     public let cursorTranscriptMonitor: CursorTranscriptMonitor?
+    /// Cursor's Cloud Agents API: the live source for `bc-` conversations, which
+    /// run on Cursor's machines and so reach no hook and write no transcript.
+    /// Doing nothing until an API key is stored is the client's own business, so
+    /// this is always present.
+    public let cursorCloud: CursorCloudAgentClient
+    /// Polls that API. Optional for the same reason the transcript monitor is.
+    public let cursorCloudMonitor: CursorCloudAgentMonitor?
     /// Deliver one completion reminder for a followed, unread, done session.
     /// Returns whether any channel actually took it, so a reminder every
     /// channel suppressed does not spend one of the session's slots. The
@@ -115,6 +125,7 @@ public struct VibeBuddyServer: Sendable {
                 onJump: @escaping @Sendable (TerminalRef) async -> JumpOutcome = { await TerminalJumper.jump($0) },
                 onJumpToDesktopThread: @escaping @Sendable (String) async -> JumpOutcome = { await CodexDesktopJumper.jump(threadID: $0) },
                 onJumpToCursor: @escaping @Sendable (String?) async -> JumpOutcome = { await CursorJumper.jump(project: $0) },
+                onJumpToCursorCloud: @escaping @Sendable (String) async -> JumpOutcome = { await CursorCloudJumper.jump(page: $0) },
                 onAnswer: @escaping @Sendable (TerminalRef, String) -> Void = { ref, answer in TerminalInjector.inject(answer, into: ref) },
                 onDevicePaired: @escaping @Sendable (DeviceRegistrationPayload) -> Void = { _ in },
                 backgroundSessions: @escaping @Sendable () -> [ClaudeBackgroundSession] = { ClaudeBackgroundSessions.load() },
@@ -126,6 +137,8 @@ public struct VibeBuddyServer: Sendable {
                 cursorLauncher: CursorLauncher = CursorLauncher(),
                 cursorACP: CursorACPMonitor? = nil,
                 cursorTranscriptMonitor: CursorTranscriptMonitor? = nil,
+                cursorCloud: CursorCloudAgentClient = CursorCloudAgentClient(),
+                cursorCloudMonitor: CursorCloudAgentMonitor? = nil,
                 onCompletionReminder: (@Sendable (AgentSession) async -> Bool)? = nil,
                 actionRequests: ActionRequestLog = ActionRequestLog(),
                 cursorFollowups: CursorFollowupQueue = CursorFollowupQueue()) {
@@ -154,6 +167,7 @@ public struct VibeBuddyServer: Sendable {
         self.onJump = onJump
         self.onJumpToDesktopThread = onJumpToDesktopThread
         self.onJumpToCursor = onJumpToCursor
+        self.onJumpToCursorCloud = onJumpToCursorCloud
         self.onAnswer = onAnswer
         self.backgroundSessions = backgroundSessions
         self.onAttach = onAttach
@@ -162,6 +176,8 @@ public struct VibeBuddyServer: Sendable {
         self.cursorLauncher = cursorLauncher
         self.cursorACP = cursorACP
         self.cursorTranscriptMonitor = cursorTranscriptMonitor
+        self.cursorCloud = cursorCloud
+        self.cursorCloudMonitor = cursorCloudMonitor
         self.onDevicePaired = onDevicePaired
         self.onCompletionReminder = onCompletionReminder
         self.actionRequests = actionRequests
@@ -205,6 +221,10 @@ public struct VibeBuddyServer: Sendable {
             Task { await monitor.run(store: store) }
         }
         defer { cursorTask?.cancel() }
+        let cursorCloudTask = cursorCloudMonitor.map { monitor in
+            Task { await monitor.run(store: store) }
+        }
+        defer { cursorCloudTask?.cancel() }
         let monitorTask = codexRolloutMonitor.map { monitor in
             Task { await monitor.run(store: store) }
         }
@@ -520,9 +540,19 @@ public struct VibeBuddyServer: Sendable {
         // fetching never acknowledges a completion or moves Session state.
         let rolloutMonitor = self.codexRolloutMonitor
         let cursorMonitor = self.cursorTranscriptMonitor
+        let cursorCloudReader = self.cursorCloud
         authed.get("recent-output") { request, _ -> Response in
             guard let sessionID = request.uri.queryParameters["sessionId"].map(String.init),
                   !sessionID.isEmpty else { throw HTTPError(.badRequest) }
+            // A cloud agent has no file to read: its conversation lives in
+            // Cursor's runs, one run per turn. v1 dropped v0's `/conversation`,
+            // so the runs list is the conversation.
+            if await store.cursorCloudAgentURL(for: sessionID) != nil {
+                let output = await cursorCloudReader.recentOutput(agentID: sessionID)
+                let data = try JSONEncoder().encode(output)
+                return Response(status: .ok, headers: [.contentType: "application/json"],
+                                body: .init(byteBuffer: ByteBuffer(bytes: data)))
+            }
             var path = await rolloutMonitor?.rolloutPath(for: sessionID)
             if path == nil { path = await cursorMonitor?.transcriptPath(for: sessionID) }
             let output = await store.recentOutput(sessionID: sessionID, rolloutPath: path)
@@ -929,6 +959,12 @@ public struct VibeBuddyServer: Sendable {
                 // Codex Desktop runs no hook, so this session will never have a
                 // ref; its thread id is the target instead.
                 outcome = await onJumpToDesktopThread(thread)
+            } else if let page = await store.cursorCloudAgentURL(for: sid) {
+                // A cloud agent has no window on this Mac and no terminal: it
+                // runs on Cursor's machines. Its own page is the only place the
+                // conversation can be opened — the Codex Desktop shape, with the
+                // URL checked before it is handed to a browser.
+                outcome = await onJumpToCursorCloud(page)
             } else if session?.agent == .cursor {
                 // Cursor publishes no deeplink that opens a chat by id, so the
                 // honest jump is: Cursor forward, with this session's workspace
@@ -1005,6 +1041,7 @@ public struct VibeBuddyServer: Sendable {
         // become steer, and stop is only ever explicit.
         let monitor = self.codexAppServerMonitor
         let cursorTerminal: @Sendable () async -> String? = { await store.preferredTerminalProgram() }
+        let cursorCloud = self.cursorCloud
         let dispatch = AnswerDispatch(store: store, questions: questionRegistry, inject: self.onAnswer,
                                       steer: { sessionID, text in
                                           await monitor?.steer(threadID: sessionID, text: text) ?? false
@@ -1031,6 +1068,15 @@ public struct VibeBuddyServer: Sendable {
                                           return await CursorCLI.resume(conversationID: session.id, text: text,
                                                                         cwd: session.project,
                                                                         preferring: await cursorTerminal())
+                                      },
+                                      continueCursorCloud: { id, text in
+                                          await cursorCloud.continueAgent(id: id, text: text)
+                                      },
+                                      cancelCursorCloud: { id in
+                                          guard let run = await store.cursorCloudLatestRun(for: id) else {
+                                              return .notSent(String(localized: "This run has already finished."))
+                                          }
+                                          return await cursorCloud.cancel(agentID: id, runID: run)
                                       },
                                       requests: self.actionRequests)
         authed.post("answer") { request, _ -> Response in

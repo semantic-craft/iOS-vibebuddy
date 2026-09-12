@@ -36,7 +36,8 @@ code, and tests — don't drift to synonyms.
   or in `cursor-agent`. Its **composer id** is its identity everywhere:
   Cursor's hooks send it as `conversation_id`, its transcript directory is named
   after it, and its row in Cursor's `composerHeaders` table is keyed by it. That
-  one id is what lets the three Cursor sources describe one session.
+  one id is what lets the three Cursor sources describe one session — and, for a
+  cloud agent, the Cloud Agents API too.
 - **Cursor agent transcript** — `~/.cursor/projects/<flattened project path>/
   agent-transcripts/<composer id>/<composer id>.jsonl`, also the file Cursor's
   hooks name in `transcript_path`. Three line shapes and no tool results:
@@ -52,12 +53,28 @@ code, and tests — don't drift to synonyms.
   name, its workspace and branch, its model, its real context-token figures and
   Cursor's own `status`; conversations with no live evidence appear as
   `historyOnly` rows. Never drives the three states.
-- **Cursor follow-up** — text the phone queues for a *running* Cursor turn.
+- **Cursor cloud agent** — a Cursor conversation that runs on Cursor's machines
+  against a **GitHub repository**, not on this Mac against a folder. Cursor gives
+  it a `bc-`-prefixed id and uses that same id as the agent id in its **Cloud
+  Agents API** (`api.cursor.com/v1`). No hook fires for it, no transcript is
+  written for it, and it does not appear in the composer store either, so that
+  API is its *only* source — of its state and of its existence. `ACTIVE` is
+  working, `IDLE` is done, `ARCHIVED` ends it; the repository stands in for the
+  project, the agent's Cursor page is the jump, the runs list is the
+  conversation (v1 has no `/conversation`), and a live run can be cancelled. It
+  replays nothing that was already idle at launch. Needs its own
+  `cursorCloudAPIKey` Keychain slot — separate from the session Cookie and from
+  the CLI's own login. The shape is ADR-0011's Codex Desktop thread, not
+  ADR-0016's local Cursor chat.
+- **Cursor follow-up** — text the phone queues for a *running local* Cursor turn.
   Cursor cannot be interrupted or steered mid-turn, so the supplement waits and
   Cursor's own `stop` hook collects it as `followup_message`, which Cursor
   submits as the next message. One per conversation, replaced by a newer one,
   expired after 30 minutes. Continuing a *finished* Cursor chat is the other
-  direction: `cursor-agent --resume <composer id>` in a terminal.
+  direction: `cursor-agent --resume <composer id>` in a terminal. A **cloud**
+  agent is the mirror image: a running one refuses a follow-up (Cursor allows one
+  run at a time, and answers `409 agent_busy`), and a finished one is continued
+  by starting its next run over the API.
 - **Cursor ACP host** — `CursorACPMonitor`: one `cursor-agent acp` process per
   conversation vibebuddy started, spoken to over stdio JSON-RPC (Agent Client
   Protocol). The live source for that conversation (`ObservationSource.acp`)
