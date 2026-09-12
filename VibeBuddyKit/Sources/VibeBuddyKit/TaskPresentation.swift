@@ -103,6 +103,8 @@ public struct TaskStatusColorToken: Codable, Sendable, Hashable {
 }
 
 public extension AgentSession {
+    var statusLabel: String { historyOnly == true ? "History · read only" : presentationState.label }
+
     var presentationState: TaskPresentationState {
         TaskPresentationState.project(
             status: status,

@@ -93,7 +93,8 @@ public enum VoicePrompt {
     public static func sessionContext(_ sessions: [AgentSession]) -> String {
         let rows: [[String: Any]] = sessions.prefix(40).map { s in
             ["project": s.project, "title": String((s.name ?? s.project).prefix(200)),
-             "agent": s.agent.shortName, "status": s.status.rawValue,
+             "agent": s.agent.shortName, "status": s.historyOnly == true ? "unknown" : s.status.rawValue,
+             "historyOnly": s.historyOnly == true,
              "updatedAt": s.updatedAt.ISO8601Format(), "statusSince": s.statusSince.ISO8601Format(),
              "failed": s.isStuck, "summary": s.status == .done ? String((s.displaySummary ?? "").prefix(1600)) : "",
              "activeTool": s.status == .working ? (s.activeTool ?? "") : "",
@@ -105,8 +106,8 @@ public enum VoicePrompt {
             "scopeCount": sessions.count, "truncated": sessions.count > rows.count,
             "needsResponseCount": sessions.filter { $0.status == .needsResponse }.count,
             "runningCount": sessions.filter { $0.status == .working }.count,
-            "endedWithoutResultCount": sessions.filter { $0.status == .done && ($0.displaySummary ?? "").isEmpty }.count,
-            "note": "Current application snapshot. Only done tasks include summaries; earlier-turn summaries are omitted from running/waiting tasks. Summaries are bounded and not independent verification."], options: [.sortedKeys])
+            "endedWithoutResultCount": sessions.filter { $0.historyOnly != true && $0.status == .done && ($0.displaySummary ?? "").isEmpty }.count,
+            "note": "Current application snapshot. History-only rows are stored conversations with unknown live status; their summaries do not prove completion. Only done tasks include summaries; earlier-turn summaries are omitted from running/waiting tasks. Summaries are bounded and not independent verification."], options: [.sortedKeys])
         return data.map { String(decoding: $0, as: UTF8.self) } ?? "No readable session state."
     }
 
@@ -128,6 +129,7 @@ public enum VoicePrompt {
         for s in sessions {
             let status: String
             switch s.status {
+            case _ where s.historyOnly == true: status = "stored history; live status unknown; read only"
             case .needsResponse: status = s.waitKind == .permission ? "waiting for approval" : "waiting for your answer"
             case .working:       status = s.isStuck ? "stuck" : "working"
             case .done:          status = s.isStuck ? "failed" : "done"

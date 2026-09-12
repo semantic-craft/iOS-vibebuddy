@@ -7,6 +7,29 @@ import VibeBuddyKit
 public actor SessionStore {
     private static let diagnosticStaleAfter: TimeInterval = 10 * 60
     private var reducer = SessionReducer()
+    private var copilotReader: CopilotSessionReader
+    private var copilotReadFailed = false
+    private var copilotHistory: [String: CopilotSessionReader.Record] = [:]
+
+    /// History bypasses the lifecycle reducer: imports never earn completion cues.
+    public func refreshCopilotHistory() {
+        do {
+            guard let records = try copilotReader.refresh() else { return }
+            let next = Dictionary(records.map { ($0.session.id, $0) }, uniquingKeysWith: { _, last in last })
+            let recovered = copilotReadFailed
+            copilotReadFailed = false
+            guard next != copilotHistory || recovered else { return }
+            copilotHistory = next
+            broadcast()
+        } catch {
+            if !copilotReadFailed {
+                copilotReadFailed = true
+                broadcast()
+            }
+            // Retain readable history through a transient lock or incompatible schema.
+            // A failed read never advances the scanner signature; the next poll retries.
+        }
+    }
     private var noticeLedger: CompletionNoticeLedger?
     private var noticeEnabled: (@Sendable () -> Bool)?
     private var noticeHandler: (@Sendable (AgentSession) async -> String?)?
@@ -121,8 +144,10 @@ public actor SessionStore {
         attentionURL: URL? = nil,
         missedURL: URL? = nil,
         grokHome: URL? = nil,
+        copilotDatabase: URL? = nil,
         now: Date = Date()
     ) {
+        self.copilotReader = copilotDatabase.map { CopilotSessionReader(database: $0) } ?? CopilotSessionReader()
         self.sourceID = sourceID
         self.staleAfter = staleAfter
         self.diagnosticsHome = diagnosticsHome
@@ -697,6 +722,17 @@ public actor SessionStore {
     /// from the reducer, allowance from beside it.
     private func currentSnapshot(now: Date) -> Snapshot {
         var snapshot = reducer.snapshot(now: now, observationDiagnostics: diagnostics(now: now))
+        snapshot.sessions += copilotHistory.values.map(\.session).sorted {
+            $0.updatedAt == $1.updatedAt ? $0.id < $1.id : $0.updatedAt > $1.updatedAt
+        }
+        if copilotReadFailed || !copilotHistory.isEmpty {
+            var diagnostics = snapshot.observationDiagnostics ?? []
+            diagnostics.removeAll { $0.agent == .copilot }
+            diagnostics.append(.init(agent: .copilot, sources: [.init(source: .transcript,
+                health: copilotReadFailed ? .sourceUnreadable : .healthy,
+                reasonCode: copilotReadFailed ? "copilotHistoryUnreadable" : "copilotHistoryOnly")]))
+            snapshot.observationDiagnostics = diagnostics
+        }
         snapshot.sourceID = sourceID
         snapshot.providerQuota = providerQuota.isEmpty ? nil : providerQuota
         let directories = recentDirectories()
@@ -763,6 +799,19 @@ public actor SessionStore {
         rolloutPath: String? = nil,
         appServerItems: [[String: Any]]? = nil
     ) -> RecentOutput {
+        if let record = copilotHistory[sessionID] {
+            if copilotReadFailed {
+                return .unavailable(sessionId: sessionID, reason: .unreadable,
+                    source: .transcript, updatedAt: record.output.updatedAt)
+            }
+            let entries = record.output.entries.suffix(max(0, min(limit, 12)))
+            let clipped = entries.map { RecentOutputEntry(role: $0.role,
+                text: String($0.text.prefix(max(0, min(perEntryLimit, 600))))) }
+            return RecentOutput(sessionId: sessionID, source: .transcript,
+                updatedAt: record.output.updatedAt,
+                truncated: record.output.truncated || entries.count < record.output.entries.count
+                    || zip(entries, clipped).contains { $0.text != $1.text }, entries: clipped)
+        }
         guard let session = reducer.sessions[sessionID] else {
             return .unavailable(sessionId: sessionID, reason: .unknownSession)
         }
