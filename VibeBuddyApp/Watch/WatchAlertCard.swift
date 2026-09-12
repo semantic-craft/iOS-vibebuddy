@@ -35,7 +35,7 @@ struct WatchAlertCard: View {
     /// `<project> wants to <verb>` when the tool is known, else the plain kind.
     private var label: String {
         if alert.waitKind == .permission, let tool = alert.tool {
-            return "\(alert.project) wants to \(CompanionCopy.requestVerb(tool: tool))"
+            return String(localized: "\(alert.project) wants to \(CompanionCopy.requestVerb(tool: tool))")
         }
         return alert.waitKind == .permission
             ? String(localized: "\(alert.project) needs approval")
