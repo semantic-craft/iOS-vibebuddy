@@ -6,6 +6,7 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [
         .library(name: "VibeBuddyMacCore", targets: ["VibeBuddyMacCore"]),
+        .executable(name: "vibebuddy-mcp", targets: ["vibebuddy-mcp"]),
         .executable(name: "vibebuddyd", targets: ["vibebuddyd"]),
     ],
     dependencies: [
@@ -28,6 +29,7 @@ let package = Package(
                 .product(name: "SweetCookieKit", package: "SweetCookieKit"),
             ]
         ),
+        .executableTarget(name: "vibebuddy-mcp", dependencies: ["VibeBuddyMacCore"]),
         .executableTarget(
             name: "vibebuddyd",
             dependencies: ["VibeBuddyMacCore"]

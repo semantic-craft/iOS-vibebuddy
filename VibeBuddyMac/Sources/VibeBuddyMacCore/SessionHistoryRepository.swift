@@ -18,7 +18,10 @@ public actor SessionHistoryRepository {
     private var pendingPaths = Set<String>()
     private var loaded = false
     private var indexDirty = false
-    public init(claudeHome: URL? = nil, codexHome: URL? = nil, cacheDirectory: URL? = nil, refreshByteBudget: Int = 256 * 1024 * 1024) {
+    private let readOnly: Bool
+    private var usableIndex = false
+    public init(claudeHome: URL? = nil, codexHome: URL? = nil, cacheDirectory: URL? = nil, refreshByteBudget: Int = 256 * 1024 * 1024, readOnly: Bool = false) {
+        self.readOnly = readOnly
         self.refreshByteBudget = max(1, refreshByteBudget)
         let home = FileManager.default.homeDirectoryForCurrentUser
         let env = ProcessInfo.processInfo.environment
@@ -34,6 +37,7 @@ public actor SessionHistoryRepository {
         if let data = try? Data(contentsOf: directory.appendingPathComponent("pins.json")), let decoded = try? JSONDecoder().decode(Set<String>.self, from: data) { pins = decoded }
         if let data = try? Data(contentsOf: directory.appendingPathComponent("favorites.json")), let decoded = try? JSONDecoder().decode(Set<String>.self, from: data) { favorites = decoded }
         if let data = try? Data(contentsOf: directory.appendingPathComponent("index.json")), let cache = try? JSONDecoder().decode(Cache.self, from: data), [4, 5, 6, 7].contains(cache.version) {
+            usableIndex = true
             // Never reuse another configured source home's cached content.
             let configuredRoots = roots
             entries = cache.entries.filter { path, _ in configuredRoots.contains { URL(fileURLWithPath: path).resolvingSymlinksInPath().path.hasPrefix($0.0.path + "/") } }
@@ -41,6 +45,8 @@ public actor SessionHistoryRepository {
             if cache.version < 7 { pendingPaths.formUnion(entries.keys) }
         }
     }
+    public func hasUsableIndex() -> Bool { ensureLoaded(); return usableIndex }
+
     public func snapshot() -> SessionHistorySnapshot {
         ensureLoaded()
         var byID: [String: SessionHistorySession] = [:]
@@ -58,6 +64,7 @@ public actor SessionHistoryRepository {
         return SessionHistorySnapshot(sessions: byID.values.sorted { if ($0.isPinned == true) != ($1.isPinned == true) { return $0.isPinned == true }; return $0.updatedAt == $1.updatedAt ? $0.id < $1.id : $0.updatedAt > $1.updatedAt }, issues: issues, refreshedAt: refreshedAt)
     }
     public func refresh(rebuild: Bool = false) throws -> SessionHistorySnapshot {
+        guard !readOnly else { throw HistoryToolError.readOnly }
         ensureLoaded()
         let fm = FileManager.default
         issues = []
@@ -174,6 +181,7 @@ public actor SessionHistoryRepository {
     public func search(_ query: String, projectPath: String? = nil, favoritesOnly: Bool = false,
                        agent: SessionHistoryAgent? = nil, archived: Bool? = nil,
                        limit: Int = 200) throws -> [SessionHistorySearchResult] {
+        guard !readOnly else { throw HistoryToolError.readOnly }
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !needle.isEmpty, limit > 0 else { return [] }
         let sessions = snapshot().sessions.filter {
@@ -205,6 +213,7 @@ public actor SessionHistoryRepository {
         try save(summary, name: "summary-" + contentFilename(summary.sessionID))
     }
     private func save<T: Encodable>(_ value: T, name: String) throws {
+        guard !readOnly else { throw HistoryToolError.readOnly }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
         let file = directory.appendingPathComponent(name)
