@@ -209,3 +209,49 @@ public extension Array where Element == AgentSession {
         }
     }
 }
+
+/// Compact Dynamic Island trailing slot and Live Activity ranking for the
+/// single highest-attention session. Aggregate counts stay on expanded /
+/// lock-screen copy — they must not occupy `compactTrailing`.
+public enum LiveActivityPresentation {
+    /// Trailing indicator: the leading session's state, or `unassigned` when none.
+    public static func compactTrailingState(leading: AgentSession?) -> TaskPresentationState {
+        leading?.presentationState ?? .unassigned
+    }
+
+    /// Same selection from the already-reduced summary. `primaryState` matches
+    /// `leadingPresentationSession` because both use the same attention order.
+    public static func compactTrailingState(summary: TaskPresentationSummary) -> TaskPresentationState {
+        summary.primaryState
+    }
+
+    /// ActivityKit `relevanceScore`: needs-you states outrank quieter ones so
+    /// this activity wins the Dynamic Island when several compete.
+    public static func relevanceScore(for state: TaskPresentationState) -> Double {
+        switch state {
+        case .error: return 100
+        case .requiresInput: return 80
+        case .thinking: return 40
+        case .completeUnread: return 20
+        case .idle: return 10
+        case .unassigned: return 0
+        }
+    }
+
+    /// VoiceOver for the compact mark: project + state, never a bare count.
+    public static func compactAccessibilityLabel(project: String?, state: TaskPresentationState) -> String {
+        let spoken: String
+        switch state {
+        case .error: spoken = String(localized: "error")
+        case .requiresInput: spoken = String(localized: "needs input")
+        case .thinking: spoken = String(localized: "thinking")
+        case .completeUnread: spoken = String(localized: "complete, unread update")
+        case .idle: spoken = String(localized: "idle")
+        case .unassigned: return String(localized: "All quiet")
+        }
+        if let project, !project.isEmpty {
+            return "\(project), \(spoken)"
+        }
+        return spoken
+    }
+}

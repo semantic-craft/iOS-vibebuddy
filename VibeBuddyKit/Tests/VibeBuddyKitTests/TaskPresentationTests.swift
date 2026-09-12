@@ -10,12 +10,13 @@ struct TaskPresentationTests {
         waitKind: WaitKind? = nil,
         failed: Bool = false,
         unread: Bool = false,
+        project: String? = nil,
         updatedAt: TimeInterval = 0
     ) -> AgentSession {
         AgentSession(
             id: id,
             agent: .codex,
-            project: id,
+            project: project ?? id,
             status: status,
             waitKind: waitKind,
             failed: failed,
@@ -96,5 +97,65 @@ struct TaskPresentationTests {
         #expect(TaskPresentationSummary().primaryState == .unassigned)
         #expect(TaskPresentationSnapshot(sessions: sessions).summary == summary)
         #expect(TaskPresentationSnapshot(sessions: sessions).topSessionId == "error")
+    }
+
+    @Test("compact trailing follows the leading session, not an aggregate count")
+    func compactTrailingFollowsLeadingSession() {
+        let sessions = [
+            session("idle", status: .done, updatedAt: 9),
+            session("thinking", status: .working, updatedAt: 7),
+            session("input", status: .needsResponse, waitKind: .permission, updatedAt: 6),
+            session("error", status: .done, failed: true, project: "build-fail", updatedAt: 5),
+        ]
+        let leading = sessions.leadingPresentationSession
+        let summary = TaskPresentationSummary(sessions: sessions)
+        #expect(leading?.id == "error")
+        #expect(LiveActivityPresentation.compactTrailingState(leading: leading) == .error)
+        #expect(LiveActivityPresentation.compactTrailingState(summary: summary) == .error)
+        #expect(LiveActivityPresentation.compactAccessibilityLabel(
+            project: leading?.project, state: .error) == "build-fail, error")
+
+        let inputOnly = [
+            session("quiet", status: .done, updatedAt: 2),
+            session("release-check", status: .needsResponse, waitKind: .question, updatedAt: 1),
+        ]
+        let inputLeading = inputOnly.leadingPresentationSession
+        #expect(inputLeading?.id == "release-check")
+        #expect(LiveActivityPresentation.compactTrailingState(leading: inputLeading) == .requiresInput)
+        #expect(LiveActivityPresentation.compactTrailingState(
+            summary: TaskPresentationSummary(sessions: inputOnly)) == .requiresInput)
+        #expect(LiveActivityPresentation.compactAccessibilityLabel(
+            project: inputLeading?.project, state: .requiresInput) == "release-check, needs input")
+    }
+
+    @Test("relevanceScore is higher when the leading session needs you")
+    func relevanceScoreNeedsYouOutranksQuiet() {
+        let needsYou: [TaskPresentationState] = [.error, .requiresInput]
+        let quieter: [TaskPresentationState] = [.thinking, .completeUnread, .idle, .unassigned]
+        for urgent in needsYou {
+            for quiet in quieter {
+                #expect(LiveActivityPresentation.relevanceScore(for: urgent)
+                        > LiveActivityPresentation.relevanceScore(for: quiet))
+            }
+        }
+        #expect(LiveActivityPresentation.relevanceScore(for: .error)
+                > LiveActivityPresentation.relevanceScore(for: .requiresInput))
+        #expect(LiveActivityPresentation.relevanceScore(for: .thinking)
+                > LiveActivityPresentation.relevanceScore(for: .idle))
+    }
+
+    @Test("empty and idle compact trailing stay quiet and unlabeled as a count")
+    func compactTrailingQuietAndEmpty() {
+        #expect(LiveActivityPresentation.compactTrailingState(leading: nil) == .unassigned)
+        #expect(LiveActivityPresentation.compactTrailingState(summary: TaskPresentationSummary()) == .unassigned)
+        #expect(LiveActivityPresentation.relevanceScore(for: .unassigned) == 0)
+        #expect(LiveActivityPresentation.compactAccessibilityLabel(project: nil, state: .unassigned) == "All quiet")
+
+        let idle = [session("release-check", status: .done, updatedAt: 1)]
+        #expect(LiveActivityPresentation.compactTrailingState(leading: idle.leadingPresentationSession) == .idle)
+        #expect(LiveActivityPresentation.relevanceScore(for: .idle) == 10)
+        #expect(LiveActivityPresentation.compactAccessibilityLabel(
+            project: "release-check", state: .idle) == "release-check, idle")
+        #expect(LiveActivityPresentation.compactAccessibilityLabel(project: nil, state: .thinking) == "thinking")
     }
 }
