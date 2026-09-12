@@ -91,3 +91,33 @@
 "This agent’s output format is not supported yet." = "This agent’s output format is not supported yet.";
 "No recent output yet." = "No recent output yet.";
 "Bounded excerpt — not the full history." = "Bounded excerpt — not the full history.";
+
+/* MARK: ObservationSource / ObservationHealth — "Hook · Healthy" on a session's model line */
+"App server" = "App server";
+"Cursor cloud" = "Cursor cloud";
+"Grok Bot gateway" = "Grok Bot gateway";
+"Hook" = "Hook";
+"Status line" = "Status line";
+"Rollout" = "Rollout";
+"Transcript" = "Transcript";
+"Recovery" = "Recovery";
+"Cursor CLI (ACP)" = "Cursor CLI (ACP)";
+"Healthy" = "Healthy";
+"Temporarily silent" = "Temporarily silent";
+"Events missing" = "Events missing";
+"Async incompatible" = "Async incompatible";
+"Unreadable" = "Unreadable";
+"Not installed" = "Not installed";
+"Unknown version" = "Unknown version";
+"Stored conversation · live status unavailable" = "Stored conversation · live status unavailable";
+
+/* MARK: QuotaPresentation — reset countdowns on every quota surface */
+"now" = "now";
+"in %lldd %lldh" = "in %lldd %lldh";
+"in %lldd" = "in %lldd";
+"in %lldh %lldm" = "in %lldh %lldm";
+"in %lldh" = "in %lldh";
+"in %lldm" = "in %lldm";
+"tomorrow, %@" = "tomorrow, %@";
+"Resets now" = "Resets now";
+"Resets %@ · %@" = "Resets %@ · %@";
