@@ -40,7 +40,7 @@ struct SettingsView: View {
     @ViewBuilder private var page: some View {
         switch selection {
         case .general:
-            GeneralPage(model: model, setup: hookSetup, showDiagnostics: showDiagnostics)
+            GeneralPage(model: model, setup: hookSetup)
         case .notifications:
             NotificationsPage(model: model)
         case .voice:
@@ -243,7 +243,6 @@ private struct SettingsSidebar: View {
 private struct GeneralPage: View {
     @ObservedObject var model: MenuBarModel
     @ObservedObject var setup: HookSetup
-    let showDiagnostics: () -> Void
     @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
     @AppStorage("showMenuBarTaskStatus") private var showMenuBarTaskStatus = false
     @State private var showHideIconNote = false
@@ -321,8 +320,6 @@ private struct GeneralPage: View {
                     .accessibilityLabel("Clean up idle sessions after")
                 }
             }
-
-            ConnectionAndDeliverySection(model: model, setup: setup, showDiagnostics: showDiagnostics)
         }
     }
 }
