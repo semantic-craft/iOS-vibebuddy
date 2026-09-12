@@ -249,7 +249,7 @@ struct AccountQuotaView: View {
                    let pace = QuotaPresentation.windowPace(
                     usedPercent: 100 - remaining, resetsAt: reset, windowMinutes: minutes, now: now) {
                     Text(pace.caption)
-                        .foregroundStyle(pace == .ahead ? QuotaPresentation.Severity.warning.tint : CompanionPalette.ink2)
+                        .foregroundStyle(pace == .spendingFaster ? QuotaPresentation.Severity.warning.tint : CompanionPalette.ink2)
                 }
                 if let observed = window.observedAt {
                     Text("Updated \(observed.formatted(date: .abbreviated, time: .shortened))")

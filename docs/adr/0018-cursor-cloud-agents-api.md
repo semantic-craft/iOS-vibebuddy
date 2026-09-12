@@ -1,4 +1,4 @@
-# ADR-0017: A Cursor cloud agent is observed and continued through Cursor's Cloud Agents API
+# ADR-0018: A Cursor cloud agent is observed and continued through Cursor's Cloud Agents API
 
 - Status: accepted
 - Date: 2026-09-12

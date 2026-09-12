@@ -75,7 +75,8 @@ struct ClaudeBackgroundLauncherTests {
         let store = SessionStore()
         await store.ingest(HookEvent(kind: .sessionStart, sessionID: "s0", agent: .claudeCode, cwd: cwd.path, timestamp: Date()))
         let srv = VibeBuddyServer(store: store, token: "t0k", port: 9876,
-                                  claudeLauncher: ClaudeBackgroundLauncher(executable: fake.exe, jobsDirectory: jobs))
+                                  claudeLauncher: ClaudeBackgroundLauncher(executable: fake.exe, jobsDirectory: jobs),
+                                  cursorLauncher: CursorLauncher(executable: nil))
         try await srv.buildApplication().test(.router) { client in
             try await client.execute(uri: "/snapshot", method: .get, headers: [.authorization: "Bearer t0k"]) { res in
                 let snapshot = try JSONDecoder().decode(Snapshot.self, from: Data(buffer: res.body))

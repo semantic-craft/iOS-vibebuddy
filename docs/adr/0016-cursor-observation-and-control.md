@@ -151,7 +151,7 @@ Every session now carries a **control channel** (`ControlChannel`: `hook`,
 and `SessionActionSupport` decides availability and wording from it before the
 agent kind. So an IDE chat (`hook`) still says "Stop this in Cursor on your
 Mac", a hosted CLI conversation (`acp`) offers Stop on the phone and the Watch,
-and a cloud agent (`cloud`, ADR-0017) cancels its run.
+and a cloud agent (`cloud`, ADR-0018) cancels its run.
 
 **Consequences.** A hosted turn ends when vibebuddy quits, and the phone is
 told so at dispatch time. A request nobody answers blocks the turn, as the

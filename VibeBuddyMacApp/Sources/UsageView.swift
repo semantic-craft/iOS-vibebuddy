@@ -138,7 +138,7 @@ struct AccountUsageSummaryView: View {
                ) {
                 Text(pace.caption)
                     .font(MacTheme.font(10))
-                    .foregroundStyle(pace == .ahead ? QuotaPresentation.Severity.warning.tint : MacTheme.ink2)
+                    .foregroundStyle(pace == .spendingFaster ? QuotaPresentation.Severity.warning.tint : MacTheme.ink2)
             }
         }
     }
@@ -494,7 +494,7 @@ struct TokenConsumptionSummaryView: View {
     }
 }
 
-extension AccountUsageSettings {
+extension UsageSourcesPage {
     /// Whether a key is stored — asked of the Keychain by **metadata only**, so
     /// reading this page never decrypts the key and never raises an
     /// authorization prompt. The key itself is never read back into the field:
