@@ -130,7 +130,7 @@ struct AccountUsageSummaryView: View {
             }
             if let minutes = window.windowDurationMinutes, minutes >= 60,
                let reset = window.resetsAt,
-               let pace = QuotaPresentation.weeklyPace(
+               let pace = QuotaPresentation.windowPace(
                 usedPercent: window.usedPercent,
                 resetsAt: reset,
                 windowMinutes: minutes,

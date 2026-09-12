@@ -158,7 +158,10 @@ public enum QuotaPresentation {
         spend.amount.formatted(.currency(code: spend.currencyCode).locale(Locale(identifier: "en_US")))
     }
 
-    public static func weeklyPace(
+    /// Whether spending is ahead of, behind or on even pace for any window of
+    /// an hour or more (weekly, daily, 5-hourly alike). `nil` when the window
+    /// has no measurable elapsed share yet.
+    public static func windowPace(
         usedPercent: Int,
         resetsAt: Date,
         windowMinutes: Int,

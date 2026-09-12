@@ -31,7 +31,8 @@ public enum CompanionPalette {
     /// Soft status tints for Companion surfaces, taken from Cursor's own
     /// light/dark theme values so they sit calmly on a neutral ground. The neon
     /// `TaskStatusColorToken`s stay the source for the menu-bar badge and
-    /// `TaskStatusIndicator`, whose accessibility modes depend on them.
+    /// `TaskStatusIndicator`, whose accessibility modes depend on them — the
+    /// single exception to "every surface reads these tokens" (ADR-0017 §1).
     public static func status(_ state: TaskPresentationState) -> Color {
         switch state {
         case .error:          return dynamic(0xBE1744, 0xE34671)

@@ -29,11 +29,11 @@ struct QuotaPresentationTests {
     }
 
     @Test("weekly pace compares used percent to a linear burn")
-    func weeklyPace() {
+    func windowPace() {
         let reset = now.addingTimeInterval(4 * 24 * 60 * 60)
-        #expect(QuotaPresentation.weeklyPace(usedPercent: 44, resetsAt: reset, windowMinutes: 10_080, now: now) == .onTrack)
-        #expect(QuotaPresentation.weeklyPace(usedPercent: 90, resetsAt: reset, windowMinutes: 10_080, now: now) == .ahead)
-        #expect(QuotaPresentation.weeklyPace(usedPercent: 5, resetsAt: reset, windowMinutes: 10_080, now: now) == .behind)
+        #expect(QuotaPresentation.windowPace(usedPercent: 44, resetsAt: reset, windowMinutes: 10_080, now: now) == .onTrack)
+        #expect(QuotaPresentation.windowPace(usedPercent: 90, resetsAt: reset, windowMinutes: 10_080, now: now) == .ahead)
+        #expect(QuotaPresentation.windowPace(usedPercent: 5, resetsAt: reset, windowMinutes: 10_080, now: now) == .behind)
     }
 
     @Test("status-line keys become scoped titles")

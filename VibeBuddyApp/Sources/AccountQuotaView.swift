@@ -182,7 +182,7 @@ struct AccountQuotaView: View {
                 }
                 if let remaining, let minutes = window.durationMinutes, minutes >= 60,
                    let reset = window.resetsAt,
-                   let pace = QuotaPresentation.weeklyPace(
+                   let pace = QuotaPresentation.windowPace(
                     usedPercent: 100 - remaining, resetsAt: reset, windowMinutes: minutes, now: now) {
                     Text(pace.caption)
                         .foregroundStyle(pace == .ahead ? QuotaPresentation.Severity.warning.tint : Color.secondary)
