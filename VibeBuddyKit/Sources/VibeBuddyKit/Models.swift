@@ -499,6 +499,8 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     public var failed: Bool?
     /// A clean completion result that has not yet been explicitly opened,
     /// selected, or jumped to. The Mac reducer is authoritative for this value.
+    /// Once read, this completion never restarts automatic follow-up reminders.
+    public var acknowledgedCompletionID: String? = nil
     public var hasUnreadCompletion: Bool
     /// Authoritative completion identity, populated by the Mac lifecycle.
     /// Bounded first sentence of the final result, bound to completionID.

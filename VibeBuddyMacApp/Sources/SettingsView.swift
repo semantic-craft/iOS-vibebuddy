@@ -278,6 +278,9 @@ private struct GeneralPage: View {
                             detail: "Works from any app. Hyper (⌃⌥⇧⌘) combos recommended.") {
                     HotkeyRecorderView(current: model.openDashboardHotkey, onRecord: model.setHotkey)
                 }
+                SettingsRow("Next pending task", detail: "Needs you, then unread results.") {
+                    HotkeyRecorderView(current: model.nextPendingHotkey, onRecord: model.setNextPendingHotkey)
+                }
                 SettingsRow("Toggle Glance",
                             detail: "Show or hide the floating glance from the keyboard — handy on a notchless screen where it would otherwise sit on top of your work.") {
                     HotkeyRecorderView(current: model.toggleGlanceHotkey, onRecord: model.setGlanceHotkey)

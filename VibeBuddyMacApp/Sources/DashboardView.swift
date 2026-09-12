@@ -134,8 +134,12 @@ struct DashboardView: View {
             }
             .opacity(0)
         }
-        .onChange(of: selection) { _, id in
-            if let id, filtered.contains(where: { $0.id == id }) { model.acknowledge(id) }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("vibebuddy.selectNextPending"))) { _ in
+            libraryScope = "live"
+            projectScope = .all
+            query = ""
+            statusFilter = nil
+            selection = MenuFeed(model.sessions).nextPending(after: selection)?.id
         }
         .onChange(of: filtered.map(\.id)) { _, ids in
             if let selection, !ids.contains(selection) { self.selection = nil }
@@ -227,7 +231,15 @@ struct DashboardView: View {
                                        included: model.buddySessionIDs.contains(session.id), showInclude: companionEnabled,
                                        onSelect: { selection = session.id },
                                        onToggleInclude: { model.toggleBuddy(session.id) })
-                                .contextMenu { AttentionPicker(session: session, model: model, style: .menu) }
+                                .contextMenu {
+                                    AttentionPicker(session: session, model: model, style: .menu)
+                                    if session.status == .done, session.completionID != nil {
+                                        Button(session.hasUnreadCompletion ? "Mark as read" : "Mark as unread") {
+                                            if session.hasUnreadCompletion { model.acknowledge(session.id, displayedCompletionID: session.completionID) }
+                                            else { model.markUnread(session) }
+                                        }
+                                    }
+                                }
                         }
                     }
                 }
@@ -836,7 +848,7 @@ struct InstructionComposer: View {
 /// The one control for how much a session may interrupt you, in two shapes:
 /// a segmented picker in the detail pane and radio items in a row's context
 /// menu. `nil` is "automatic" — the daemon's own reading of recent interaction.
-private struct AttentionPicker: View {
+struct AttentionPicker: View {
     enum Style { case segmented, menu }
     let session: AgentSession
     @ObservedObject var model: MenuBarModel

@@ -954,6 +954,15 @@ struct MenuContent: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .contextMenu {
+                AttentionPicker(session: session, model: model, style: .menu)
+                if session.status == .done, session.completionID != nil {
+                    Button(session.hasUnreadCompletion ? "Mark as read" : "Mark as unread") {
+                        if session.hasUnreadCompletion { model.acknowledge(session.id, displayedCompletionID: session.completionID) }
+                        else { model.markUnread(session) }
+                    }
+                }
+            }
             .onHover { hoveredSessionID = $0 ? session.id : nil }
             .help("\(session.displayTitle)\n\(session.agent.displayName) · \(session.statusLabel)\n\(session.summary ?? "")")
             // One element: title, state word, activity or summary, age.

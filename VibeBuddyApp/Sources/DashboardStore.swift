@@ -794,9 +794,18 @@ final class DashboardStore: ObservableObject {
         return CompletionReadRequest(sourceID: sourceID, sessionID: session.id, completionID: completionID)
     }
 
+    func markUnread(_ session: AgentSession) {
+        guard let pairing, let request = completionRequest(for: session) else { return }
+        completionReads.forget(request)
+        Task {
+            let result = await decisionClient.acknowledge(pairing, request: CompletionReadRequest(sourceID: request.sourceID, sessionID: request.sessionID, completionID: request.completionID, markUnread: true))
+            if result != .accepted && result != .alreadyAcknowledged { showToast(String(localized: "Couldn’t update unread status")) }
+        }
+    }
+
     func completionReadStatus(for session: AgentSession) -> String? {
         guard let request = completionRequest(for: session) else { return nil }
-        if completionReads.confirmed.contains(request) || !session.hasUnreadCompletion {
+        if !session.hasUnreadCompletion {
             return String(localized: "Read — confirmed by Mac")
         }
         if completionReads.entries.contains(where: { $0.request == request }) {

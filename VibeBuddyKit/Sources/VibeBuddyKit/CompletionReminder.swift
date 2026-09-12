@@ -79,5 +79,6 @@ public struct CompletionReminderSchedule: Sendable, Equatable {
     private static func isEligible(_ session: AgentSession) -> Bool {
         session.effectiveAttention == .followed && session.status == .done && session.hasUnreadCompletion
             && session.probeRetired != true
+            && (session.completionID == nil || session.acknowledgedCompletionID != session.completionID)
     }
 }

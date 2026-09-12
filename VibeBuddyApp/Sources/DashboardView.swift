@@ -180,11 +180,7 @@ struct DashboardView: View {
                                 .background(.regularMaterial)
                         }
                     }
-                    .task(id: displayedCompletion) {
-                        if let id = detailCompletionNotificationID,
-                           !dashboard.matchesCompletionNotification(id, sessionID: session.id) { return }
-                        dashboard.acknowledge(session.id, displayedCompletion: displayedCompletion)
-                    }
+
             }
         }
         .alert("This completion is no longer current", isPresented: $dashboard.completionLinkUnavailable) {
@@ -364,7 +360,15 @@ extension DashboardView {
     /// The long-press shows all three plus Automatic, the current choice checked.
     /// Automatic is the daemon's own inference: followed for ten minutes after
     /// you drove the session, normal otherwise.
+    @ViewBuilder
     fileprivate func attentionMenu(_ session: AgentSession) -> some View {
+        if session.status == .done, session.completionID != nil {
+            Button(session.hasUnreadCompletion ? "Mark as read" : "Mark as unread") {
+                if session.hasUnreadCompletion {
+                    dashboard.acknowledge(session.id, displayedCompletion: dashboard.completionRequest(for: session))
+                } else { dashboard.markUnread(session) }
+            }
+        }
         Picker(selection: Binding(get: { session.attentionOverride },
                                   set: { dashboard.setAttention(session.id, $0) })) {
             Label(String(localized: "Automatic"), systemImage: "wand.and.stars")

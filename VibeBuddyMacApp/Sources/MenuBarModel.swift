@@ -107,6 +107,7 @@ final class MenuBarModel: ObservableObject {
     /// The pointer is on the glance: cards hold instead of timing out.
     private var glanceHeld = false
     @Published var openDashboardHotkey: Hotkey = .openDashboardDefault
+    @Published var nextPendingHotkey: Hotkey = Hotkey.loadNextPending()
     @Published var toggleGlanceHotkey: Hotkey = .toggleGlanceDefault
     /// Idle-cleanup window in hours; 0 means never. Default 2h.
     @Published var idleTimeoutHours: Double = 2
@@ -962,7 +963,6 @@ final class MenuBarModel: ObservableObject {
             }
             return
         }
-        acknowledge(session.id)
         Task { [store] in await store.recordInteraction(sessionID: session.id) }
         if let ref = session.terminalRef {
             Task { [weak self] in
@@ -1026,7 +1026,7 @@ final class MenuBarModel: ObservableObject {
 
     /// Explicitly viewing/selecting a completion clears its authoritative unread
     /// bit. Demo sessions mirror the same transition without touching the store.
-    func acknowledge(_ sessionID: String) {
+    func acknowledge(_ sessionID: String, displayedCompletionID: String? = nil) {
         if (E2ERunConfiguration.current == nil && ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1") {
             guard let index = sessions.firstIndex(where: { $0.id == sessionID }),
                   sessions[index].hasUnreadCompletion else { return }
@@ -1040,8 +1040,15 @@ final class MenuBarModel: ObservableObject {
             Task { [store] in _ = await store.acknowledgeWait(read) }
             return
         }
-        guard session.hasUnreadCompletion, let completionID = session.completionID else { return }
+        guard session.hasUnreadCompletion, let completionID = session.completionID,
+              completionID == displayedCompletionID else { return }
         let request = CompletionReadRequest(sourceID: sourceID, sessionID: sessionID, completionID: completionID)
+        Task { [store] in _ = await store.acknowledgeCompletion(request) }
+    }
+
+    func markUnread(_ session: AgentSession) {
+        guard let sourceID = snapshotSourceID, let completionID = session.completionID else { return }
+        let request = CompletionReadRequest(sourceID: sourceID, sessionID: session.id, completionID: completionID, markUnread: true)
         Task { [store] in _ = await store.acknowledgeCompletion(request) }
     }
 
@@ -1287,6 +1294,12 @@ final class MenuBarModel: ObservableObject {
         openDashboardHotkey = hotkey
         hotkey.saveAsOpenDashboard()
         GlobalHotkey.setHotkey(hotkey)
+    }
+
+    func setNextPendingHotkey(_ hotkey: Hotkey) {
+        nextPendingHotkey = hotkey
+        hotkey.saveAsNextPending()
+        GlobalHotkey.setNextPendingHotkey(hotkey)
     }
 
     func setGlanceHotkey(_ hotkey: Hotkey) {

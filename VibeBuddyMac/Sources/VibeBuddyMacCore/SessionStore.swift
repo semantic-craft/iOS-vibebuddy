@@ -990,16 +990,21 @@ public actor SessionStore {
               !request.completionID.isEmpty else {
             return CompletionReadResponse(outcome: .staleCompletion)
         }
-        guard session.hasUnreadCompletion else {
+        let unread = request.markUnread == true
+        guard session.hasUnreadCompletion != unread else {
             return CompletionReadResponse(outcome: .alreadyAcknowledged)
         }
         let previousReducer = reducer
         let previousJournal = lifecycleJournal
-        guard reducer.acknowledgeCompletion(sessionID: request.sessionID, completionID: request.completionID) else {
-            return CompletionReadResponse(outcome: .staleCompletion)
+        if unread {
+            _ = reducer.markCompletionUnread(sessionID: request.sessionID, completionID: request.completionID)
+        } else {
+            guard reducer.acknowledgeCompletion(sessionID: request.sessionID, completionID: request.completionID) else {
+                return CompletionReadResponse(outcome: .staleCompletion)
+            }
         }
         guard appendJournal(sessionID: request.sessionID, agent: session.agent,
-                            event: "completionAcknowledged", source: .recovery, at: now) else {
+                            event: unread ? "completionMarkedUnread" : "completionAcknowledged", source: .recovery, at: now) else {
             reducer = previousReducer
             lifecycleJournal = previousJournal
             return CompletionReadResponse(outcome: .failed)
@@ -1342,7 +1347,8 @@ public actor SessionStore {
             completionID: result?.completionID,
             hasUnreadCompletion: result?.hasUnreadCompletion,
             statusSince: result?.statusSince,
-            failed: result?.failed
+            failed: result?.failed,
+            acknowledgedCompletionID: result?.acknowledgedCompletionID
         ), now: timestamp)
         lifecycleJournal = journal
         return persisted

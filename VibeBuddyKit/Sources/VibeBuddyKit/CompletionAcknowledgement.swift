@@ -5,7 +5,9 @@ public struct CompletionReadRequest: Codable, Equatable, Hashable, Sendable {
     public let sourceID: String
     public let sessionID: String
     public let completionID: String
-    public init(sourceID: String, sessionID: String, completionID: String) {
+    public let markUnread: Bool?
+    public init(sourceID: String, sessionID: String, completionID: String, markUnread: Bool? = nil) {
+        self.markUnread = markUnread
         self.sourceID = sourceID; self.sessionID = sessionID; self.completionID = completionID
     }
 }

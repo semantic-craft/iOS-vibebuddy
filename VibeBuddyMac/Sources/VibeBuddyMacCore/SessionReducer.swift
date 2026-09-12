@@ -446,6 +446,16 @@ public struct SessionReducer: Sendable {
         sessions[sessionID] = s
     }
 
+    @discardableResult
+    public mutating func markCompletionUnread(sessionID: String, completionID: String) -> Bool {
+        guard var session = sessions[sessionID], session.status == .done,
+              session.completionID == completionID else { return false }
+        session.hasUnreadCompletion = true
+        session.acknowledgedCompletionID = completionID
+        sessions[sessionID] = session
+        return true
+    }
+
     /// Mark a clean completion as read without changing lifecycle timestamps or
     /// list order. Returns whether authoritative state changed.
     @discardableResult
@@ -453,6 +463,7 @@ public struct SessionReducer: Sendable {
         guard var session = sessions[sessionID], session.status == .done,
               session.completionID == completionID, session.hasUnreadCompletion else { return false }
         session.hasUnreadCompletion = false
+        session.acknowledgedCompletionID = completionID
         sessions[sessionID] = session
         return true
     }
