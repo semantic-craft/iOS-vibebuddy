@@ -36,7 +36,12 @@ struct WatchAnswerControl: View {
     }
 
     var body: some View {
-        if let choices {
+        if let questions = alert.questions {
+            // A prompt with several questions is walked one screen at a time
+            // and sent as one set; the one-string path below never sees it.
+            WatchQuestionWalkControl(store: store, alert: alert, questions: questions,
+                                     blocked: blocked, phase: phase)
+        } else if let choices {
             VStack(alignment: .leading, spacing: 6) {
                 // No buttons at all while nothing could travel. A tap that
                 // cannot leave the wrist is worse than no button, and the card
@@ -61,15 +66,7 @@ struct WatchAnswerControl: View {
                     }
                 }
 
-                if let message = statusText {
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        if phase == .sending { ProgressView().controlSize(.mini) }
-                        Text(message)
-                            .font(CompanionType.font(10))
-                            .foregroundStyle(CompanionPalette.ink2)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
+                WatchAnswerStatusLine(phase: phase)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             // One sheet for the whole control: every way in leads to the same
@@ -126,6 +123,24 @@ struct WatchAnswerControl: View {
             draft = WatchAnswerDraft(alert: alert, text: trimmed)
         }
         .buttonStyle(CompanionButtonStyle(kind: .quiet, size: .wide))
+    }
+}
+
+/// What the wrist may say about an answer in flight — one string or a set of
+/// picks, the sentence is the same because what happened to it is the same.
+struct WatchAnswerStatusLine: View {
+    let phase: WatchSessionActionAttempt.Phase?
+
+    var body: some View {
+        if let message = statusText {
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                if phase == .sending { ProgressView().controlSize(.mini) }
+                Text(message)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 
     /// Never "Answered". The wrist knows the Mac took the text; the question

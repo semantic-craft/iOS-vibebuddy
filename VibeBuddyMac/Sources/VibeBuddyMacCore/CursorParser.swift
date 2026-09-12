@@ -45,6 +45,12 @@ public enum CursorParser {
         let aborted = event == "stop" && status == "aborted"
         let succeeded: Bool? = event == "stop" ? (status == nil || status == "completed") : nil
 
+        // `postToolUseFailure` also names a cause. `is_interrupt` is the person
+        // cancelling in Cursor and `permission_denied` is Cursor's own gate (or
+        // the phone) saying no; neither is the tool breaking, so neither may
+        // ring the error cue. `error` and `timeout` remain real failures.
+        let interrupted = event == "postToolUseFailure" && raw.isInterrupt == true
+
         let base = HookEvent(
             kind: kind,
             sessionID: sessionID,
@@ -53,7 +59,7 @@ public enum CursorParser {
             toolName: toolName(for: event, raw: raw),
             message: message(for: event, raw: raw),
             transcriptPath: nonEmpty(raw.transcriptPath),
-            model: nonEmpty(raw.model) ?? nonEmpty(raw.modelId),
+            model: modelDisplay(raw),
             toolError: kind == .postToolUse && isToolFailure(event, raw: raw, data: data),
             timestamp: receivedAt,
             // No `turnID`: Cursor's `generation_id` names one model generation,
@@ -62,9 +68,117 @@ public enum CursorParser {
             // unconditionally, as Claude's and Codex's do.
             enrichment: enrichment(for: event, raw: raw),
             completionText: nil,
-            completionSucceeded: succeeded
+            completionSucceeded: succeeded,
+            // `composer_mode` is `agent`, `ask` or `edit`. Ask and Edit chats are
+            // a question and an answer, not a task with an ending: they must not
+            // enter the three states or ring a cue, so the store drops them.
+            observeOnly: event == "sessionStart" && isObserveOnlyMode(raw.composerMode),
+            toolOutput: toolOutput(for: event, raw: raw, data: data)
         )
-        return .event(aborted ? base.markingUserStop() : base)
+        return .event(aborted || interrupted ? base.markingUserStop() : base)
+    }
+
+    /// `ask` and `edit` are Cursor's non-agentic composer modes.
+    static func isObserveOnlyMode(_ mode: String?) -> Bool {
+        switch nonEmpty(mode) {
+        case "ask", "edit": return true
+        default: return false
+        }
+    }
+
+    // MARK: - Model display
+
+    /// `model_id` is the stable identifier (`claude-opus-4-7`); `model` is the
+    /// display label Cursor shows in its picker and may change wording between
+    /// releases, so the id wins when both are present. `model_params` carries
+    /// the picker's toggles as `[{id, value}]` — `context` (`"1m"`), `effort`
+    /// (`"max"`) and `thinking` (`"true"`) — which are part of what the person
+    /// chose and worth a suffix: `claude-opus-4-7 (1m, max, thinking)`.
+    static func modelDisplay(_ raw: RawCursor) -> String? {
+        guard let name = nonEmpty(raw.modelId) ?? nonEmpty(raw.model) else { return nil }
+        var parts: [String] = []
+        let params = raw.modelParams ?? []
+        func value(_ id: String) -> String? {
+            nonEmpty(params.first { $0.id == id }?.value)
+        }
+        if let context = value("context") { parts.append(context) }
+        if let effort = value("effort") { parts.append(effort) }
+        if value("thinking")?.lowercased() == "true" { parts.append("thinking") }
+        return parts.isEmpty ? name : "\(name) (\(parts.joined(separator: ", ")))"
+    }
+
+    // MARK: - Tool output
+
+    /// How much of a tool result the recent-output pane keeps per entry —
+    /// the same bound `RecentOutputReader` applies to the Claude transcript.
+    static let toolOutputLimit = 600
+
+    /// The result text a tool hook carried. `postToolUse.tool_output` is a
+    /// JSON-*stringified* result payload (`"{\"exitCode\":0,\"stdout\":…}"`)
+    /// for shell tools and free text for others; `afterShellExecution.output`
+    /// is the full terminal output. A structured payload is rendered as
+    /// `exit <code>` / stdout / stderr so the pane reads like a terminal; any
+    /// other string is used as is. Bounded, because a hook must never hand the
+    /// phone a whole build log.
+    static func toolOutput(for event: String, raw: RawCursor, data: Data) -> String? {
+        let text: String?
+        switch event {
+        case "afterShellExecution":
+            text = nonEmpty(raw.output)
+        case "postToolUse":
+            // Read the raw JSON: `tool_output` is a string for some tools and an
+            // object for others, and `Decodable` cannot hold both.
+            let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            switch obj?["tool_output"] {
+            case let string as String:
+                text = normalizedToolOutput(string)
+            case let object as [String: Any]:
+                text = renderedToolOutput(object)
+            default:
+                text = nil
+            }
+        default:
+            return nil
+        }
+        guard let text = nonEmpty(text) else { return nil }
+        return truncatedToolOutput(text)
+    }
+
+    /// The string form: if it parses as a result object with `stdout` /
+    /// `stderr` / `exitCode` (or `exit_code`), render that; else the raw text.
+    static func normalizedToolOutput(_ string: String) -> String? {
+        if let object = (try? JSONSerialization.jsonObject(with: Data(string.utf8))) as? [String: Any],
+           let rendered = renderedToolOutput(object) {
+            return rendered
+        }
+        return string
+    }
+
+    /// `exit <code>\n<stdout>[\n<stderr>]`, the exit line omitted when the
+    /// payload carries no code. Nil when the object is not a result payload.
+    static func renderedToolOutput(_ object: [String: Any]) -> String? {
+        let stdout = (object["stdout"] as? String).flatMap(nonEmpty)
+        let stderr = (object["stderr"] as? String).flatMap(nonEmpty)
+        let code = (object["exitCode"] ?? object["exit_code"]).flatMap(exitCode)
+        guard stdout != nil || stderr != nil || code != nil else { return nil }
+        var lines: [String] = []
+        if let code { lines.append("exit \(code)") }
+        if let stdout { lines.append(stdout) }
+        if let stderr { lines.append(stderr) }
+        return lines.joined(separator: "\n")
+    }
+
+    private static func exitCode(_ value: Any) -> Int? {
+        switch value {
+        case let n as NSNumber: return n.intValue
+        case let s as String: return Int(s)
+        default: return nil
+        }
+    }
+
+    static func truncatedToolOutput(_ text: String) -> String {
+        guard text.count > toolOutputLimit else { return text }
+        return String(text.prefix(toolOutputLimit)) + "…"
     }
 
     // MARK: - Event mapping
@@ -83,13 +197,16 @@ public enum CursorParser {
         case "postToolUse", "postToolUseFailure", "afterShellExecution",
              "afterMCPExecution", "afterFileEdit": return .postToolUse
         case "afterAgentResponse": return .sessionMetadataChanged
+        // A finished thinking block is activity the way a tool call is: the row
+        // reads "Thinking…" until the next tool or the agent's reply replaces
+        // it. It carries no progress transition and never a tool error.
+        case "afterAgentThought": return .preToolUse
         case "stop": return .stop
         case "sessionEnd": return .sessionEnd
-        // Thought deltas, Tab completions and workspace open are understood and
-        // deliberately dropped: they say nothing about the three states and
-        // would only churn the snapshot.
-        case "afterAgentThought", "workspaceOpen",
-             "beforeTabFileRead", "afterTabFileEdit": return nil
+        // Tab completions and workspace open are understood and deliberately
+        // dropped: they say nothing about the three states and would only
+        // churn the snapshot.
+        case "workspaceOpen", "beforeTabFileRead", "afterTabFileEdit": return nil
         default: return nil
         }
     }
@@ -98,6 +215,8 @@ public enum CursorParser {
     /// they borrow the canonical name the vocabulary gives them.
     static func toolName(for event: String, raw: RawCursor) -> String? {
         switch event {
+        case "afterAgentThought":
+            return "Thinking"
         case "beforeShellExecution", "afterShellExecution":
             return "Bash"
         case "beforeMCPExecution", "afterMCPExecution":
@@ -121,6 +240,13 @@ public enum CursorParser {
         case "afterAgentResponse":
             return nonEmpty(raw.text).map { String($0.prefix(220)) }
         case "postToolUseFailure":
+            // The row's line for a failure names the cause. An interrupt is the
+            // person's own doing, so it says so rather than quoting Cursor's
+            // generic "interrupted" text.
+            if raw.isInterrupt == true { return "Stopped by you" }
+            if nonEmpty(raw.failureType) == "permission_denied" {
+                return nonEmpty(raw.errorMessage) ?? "Denied"
+            }
             return nonEmpty(raw.errorMessage) ?? nonEmpty(raw.failureType)
         case "stop":
             switch nonEmpty(raw.status) {
@@ -146,12 +272,19 @@ public enum CursorParser {
         return TranscriptInfo(contextTokens: used, contextWindow: window)
     }
 
-    /// Did this tool call fail? `postToolUseFailure` is explicit; a plain
-    /// `postToolUse` can still carry an error marker inside `tool_output`, and an
+    /// Did this tool call fail? `postToolUseFailure` is explicit, with two
+    /// documented exceptions: `is_interrupt` (the person cancelled) and
+    /// `failure_type == "permission_denied"` (a gate said no) are not the tool
+    /// breaking, so only `error` and `timeout` count. A plain `postToolUse` can
+    /// still carry an error marker inside `tool_output`, and an
     /// `afterShellExecution` can report a non-zero exit. Read `tool_output`
     /// defensively — it is a string for some tools and an object for others.
     static func isToolFailure(_ event: String, raw: RawCursor, data: Data) -> Bool {
-        if event == "postToolUseFailure" { return true }
+        if event == "postToolUseFailure" {
+            if raw.isInterrupt == true { return false }
+            if nonEmpty(raw.failureType) == "permission_denied" { return false }
+            return true
+        }
         guard let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return false }
         if let output = obj["tool_output"] as? [String: Any] {
             if isTruthy(output["is_error"]) { return true }
@@ -210,6 +343,8 @@ public enum CursorParser {
         let generationId: String?
         let model: String?
         let modelId: String?
+        /// `[{id, value}]`: the picker's toggles (`thinking`, `context`, `effort`).
+        let modelParams: [ModelParam]?
         let transcriptPath: String?
         let workspaceRoots: [String]?
         let cursorVersion: String?
@@ -228,6 +363,8 @@ public enum CursorParser {
         let isInterrupt: Bool?
         // shell / MCP / file gates
         let command: String?
+        /// `afterShellExecution`: the full terminal output.
+        let output: String?
         let filePath: String?
         let mcpServerName: String?
         // prompt / response
@@ -248,5 +385,29 @@ public enum CursorParser {
         let description: String?
         let summary: String?
         let agentTranscriptPath: String?
+    }
+
+    /// One `model_params` entry. Cursor sends the value as a string
+    /// (`"true"`, `"1m"`, `"max"`); anything else decodes as nil rather than
+    /// failing the envelope.
+    struct ModelParam: Decodable {
+        let id: String?
+        let value: String?
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try? container.decode(String.self, forKey: .id)
+            if let string = try? container.decode(String.self, forKey: .value) {
+                value = string
+            } else if let bool = try? container.decode(Bool.self, forKey: .value) {
+                value = bool ? "true" : "false"
+            } else if let number = try? container.decode(Double.self, forKey: .value) {
+                value = number == number.rounded() ? String(Int(number)) : String(number)
+            } else {
+                value = nil
+            }
+        }
+
+        private enum CodingKeys: String, CodingKey { case id, value }
     }
 }

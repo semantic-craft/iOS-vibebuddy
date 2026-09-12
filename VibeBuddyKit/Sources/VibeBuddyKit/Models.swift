@@ -183,12 +183,13 @@ public struct PendingQuestion: Codable, Sendable, Equatable, Identifiable {
 
     /// Whether this whole wait is one question taking one answer.
     ///
-    /// A surface that can send only a single string — the Watch — may finish
-    /// this wait and no other. A free-text answer to a three-question prompt
-    /// lands on the first item alone (`QuestionRegistry.normalize`) and the
-    /// agent treats the rest as unanswered, so offering one tap for it would
-    /// under-answer without saying so. Multi-select is the same: one tap
-    /// cannot express two picks.
+    /// A single string finishes this wait and no other. A free-text answer to
+    /// a three-question prompt lands on the first item alone
+    /// (`QuestionRegistry.normalize`) and the agent treats the rest as
+    /// unanswered, so offering one tap for it would under-answer without
+    /// saying so. Multi-select is the same: one tap cannot express two picks.
+    /// The Watch sends its text only for this shape; a longer prompt whose
+    /// every question offers choices it walks instead (`WatchQuestionSet`).
     public var isSinglePart: Bool {
         let list = items
         return list.count == 1 && !list[0].multiSelect
@@ -414,6 +415,51 @@ public struct ChildAgent: Codable, Sendable, Equatable, Identifiable {
     }
 }
 
+/// How a session can be acted on — the write path, as opposed to the
+/// observation sources that are its read paths.
+///
+/// One session, one channel: the daemon stamps whichever it would actually use
+/// to carry an answer, a supplement, a continuation or a stop. The phone's
+/// composer and the Watch's buttons decide availability and wording from this
+/// first and from the agent second, so a Cursor chat in the IDE (hooks: no
+/// interrupt) and a `cursor-agent` vibebuddy hosts over ACP (a real
+/// `session/cancel`) can sit in the same list and each tell the truth.
+public enum ControlChannel: String, Codable, Sendable, CaseIterable {
+    /// The agent's lifecycle hooks: the blocking gates can answer a prompt and
+    /// a `stop` hook can hand over a follow-up, but nothing can interrupt.
+    case hook
+    /// A `cursor-agent acp` process vibebuddy spawned and speaks JSON-RPC to:
+    /// prompt, cancel, permission and question all go through the same pipe.
+    case acp
+    /// The Codex app-server daemon (ADR-0011): `turn/steer`, `turn/start`,
+    /// `turn/interrupt`.
+    case appserver
+    /// Cursor's Cloud Agents API: a run can be cancelled and an idle agent given
+    /// a new run, but a running one cannot be supplemented.
+    case cloud
+    /// Seen but not reachable: a transcript tail or a database row with no live
+    /// channel behind it.
+    case none
+
+    /// The channel to reason about for this session. The Mac's own stamp when
+    /// it has one; otherwise the same rules the clients applied before the
+    /// stamp existed, so a snapshot from an older Mac reads exactly as it did.
+    public static func infer(for session: AgentSession) -> ControlChannel? {
+        if let channel = session.controlChannel { return channel }
+        switch session.agent {
+        case .cursor:
+            let sources = Set((session.observations ?? []).map(\.source))
+            if sources.contains(.cloud) { return .cloud }
+            return sources.contains(.hook) ? .hook : ControlChannel.none
+        case .codex:
+            let live = session.observations?.contains { $0.source == .appserver && $0.health.isHealthy } == true
+            return live ? .appserver : nil
+        default:
+            return nil
+        }
+    }
+}
+
 /// One coding-agent session, as broadcast to the phone.
 public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     public let id: String
@@ -461,6 +507,15 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     /// Stable evidence describing how this session was observed. Optional keeps
     /// snapshots from older Mac builds decodable by newer clients.
     public var observations: [ObservationEvidence]?
+    /// The channel through which this session can be *acted on* right now —
+    /// answered, supplemented, continued or stopped. Distinct from
+    /// `observations`, which say how it is *seen*: a Cursor chat is seen through
+    /// its hooks, its transcript and its database at once, but only the hooks
+    /// can answer it, and a `cursor-agent` vibebuddy hosts over ACP can also be
+    /// stopped. Only the Mac writes it. Optional so snapshots from an older Mac
+    /// decode as "unknown", and `ControlChannel.infer(for:)` then falls back to
+    /// the agent-based rules that predate it.
+    public var controlChannel: ControlChannel?
     /// Live teammate/subagent/task rows for this parent. Optional so older
     /// snapshots decode as "no topology yet"; recovery leaves this empty.
     public var childAgents: [ChildAgent]?
@@ -524,6 +579,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         spentTokens: Int? = nil,
         activeTool: String? = nil,
         observations: [ObservationEvidence]? = nil,
+        controlChannel: ControlChannel? = nil,
         childAgents: [ChildAgent]? = nil,
         childTopologyDegraded: Bool? = nil,
         probeRetired: Bool? = nil,
@@ -560,6 +616,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         self.spentTokens = spentTokens
         self.activeTool = activeTool
         self.observations = observations
+        self.controlChannel = controlChannel
         self.childAgents = childAgents
         self.childTopologyDegraded = childTopologyDegraded
         self.probeRetired = probeRetired
@@ -624,6 +681,9 @@ public struct Snapshot: Codable, Sendable, Equatable {
     /// Local Claude Code / Codex token spend, aggregated beside quota. Optional
     /// so older phones ignore it. Composed outside the session reducer.
     public var tokenConsumption: TokenConsumptionSnapshot?
+    /// Models the signed-in Cursor CLI lists (`cursor-agent --list-models`),
+    /// for a Cursor dispatch's `model`. Nil or empty: offer no choice.
+    public var cursorModels: [String]?
 
     public init(
         sessions: [AgentSession],
@@ -633,7 +693,8 @@ public struct Snapshot: Codable, Sendable, Equatable {
         providerQuota: [ProviderQuota]? = nil,
         recentDirectories: [String]? = nil,
         dispatchAgents: [AgentKind]? = nil,
-        tokenConsumption: TokenConsumptionSnapshot? = nil
+        tokenConsumption: TokenConsumptionSnapshot? = nil,
+        cursorModels: [String]? = nil
     ) {
         self.sessions = sessions
         self.serverTime = serverTime
@@ -643,11 +704,12 @@ public struct Snapshot: Codable, Sendable, Equatable {
         self.recentDirectories = recentDirectories
         self.dispatchAgents = dispatchAgents
         self.tokenConsumption = tokenConsumption
+        self.cursorModels = cursorModels
     }
 
     enum CodingKeys: String, CodingKey {
         case sourceID, sessions, serverTime, observationDiagnostics
-        case providerQuota, recentDirectories, dispatchAgents, tokenConsumption
+        case providerQuota, recentDirectories, dispatchAgents, tokenConsumption, cursorModels
     }
 
     public init(from decoder: Decoder) throws {
@@ -667,6 +729,7 @@ public struct Snapshot: Codable, Sendable, Equatable {
         recentDirectories = try c.decodeIfPresent([String].self, forKey: .recentDirectories)
         dispatchAgents = try c.decodeIfPresent([AgentKind].self, forKey: .dispatchAgents)
         tokenConsumption = try c.decodeIfPresent(TokenConsumptionSnapshot.self, forKey: .tokenConsumption)
+        cursorModels = try c.decodeIfPresent([String].self, forKey: .cursorModels)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -679,6 +742,7 @@ public struct Snapshot: Codable, Sendable, Equatable {
         try c.encodeIfPresent(recentDirectories, forKey: .recentDirectories)
         try c.encodeIfPresent(dispatchAgents, forKey: .dispatchAgents)
         try c.encodeIfPresent(tokenConsumption, forKey: .tokenConsumption)
+        try c.encodeIfPresent(cursorModels, forKey: .cursorModels)
     }
 }
 
@@ -765,12 +829,28 @@ public struct DispatchRequest: Codable, Sendable, Equatable {
     public var cwd: String
     public var prompt: String
     public var name: String?
+    /// Cursor only (`cursor-agent --model <model>`): one of the snapshot's
+    /// `cursorModels`. Nil leaves the CLI's own default. Ignored by every
+    /// other agent.
+    public var model: String?
+    /// Cursor only (`cursor-agent --mode plan|ask`). Nil is the CLI's default
+    /// agent mode, which has no flag of its own.
+    public var mode: String?
+    /// Cursor only (`cursor-agent -w`): run in a fresh Git worktree the CLI
+    /// creates under `~/.cursor/worktrees/<repo>/<name>` instead of `cwd`.
+    /// Nil and false mean the same thing; nil is omitted on the wire so an
+    /// older Mac reads the request exactly as before.
+    public var worktree: Bool?
 
-    public init(agent: AgentKind, cwd: String, prompt: String, name: String? = nil) {
+    public init(agent: AgentKind, cwd: String, prompt: String, name: String? = nil,
+                model: String? = nil, mode: String? = nil, worktree: Bool? = nil) {
         self.agent = agent
         self.cwd = cwd
         self.prompt = prompt
         self.name = name
+        self.model = model
+        self.mode = mode
+        self.worktree = worktree
     }
 }
 

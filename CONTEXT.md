@@ -47,7 +47,8 @@ code, and tests — don't drift to synonyms.
   or in `cursor-agent`. Its **composer id** is its identity everywhere:
   Cursor's hooks send it as `conversation_id`, its transcript directory is named
   after it, and its row in Cursor's `composerHeaders` table is keyed by it. That
-  one id is what lets the three Cursor sources describe one session.
+  one id is what lets the three Cursor sources describe one session — and, for a
+  cloud agent, the Cloud Agents API too.
 - **Cursor agent transcript** — `~/.cursor/projects/<flattened project path>/
   agent-transcripts/<composer id>/<composer id>.jsonl`, also the file Cursor's
   hooks name in `transcript_path`. Three line shapes and no tool results:
@@ -63,12 +64,41 @@ code, and tests — don't drift to synonyms.
   name, its workspace and branch, its model, its real context-token figures and
   Cursor's own `status`; conversations with no live evidence appear as
   `historyOnly` rows. Never drives the three states.
-- **Cursor follow-up** — text the phone queues for a *running* Cursor turn.
+- **Cursor cloud agent** — a Cursor conversation that runs on Cursor's machines
+  against a **GitHub repository**, not on this Mac against a folder. Cursor gives
+  it a `bc-`-prefixed id and uses that same id as the agent id in its **Cloud
+  Agents API** (`api.cursor.com/v1`). No hook fires for it, no transcript is
+  written for it, and it does not appear in the composer store either, so that
+  API is its *only* source — of its state and of its existence. `ACTIVE` is
+  working, `IDLE` is done, `ARCHIVED` ends it; the repository stands in for the
+  project, the agent's Cursor page is the jump, the runs list is the
+  conversation (v1 has no `/conversation`), and a live run can be cancelled. It
+  replays nothing that was already idle at launch. Needs its own
+  `cursorCloudAPIKey` Keychain slot — separate from the session Cookie and from
+  the CLI's own login. The shape is ADR-0011's Codex Desktop thread, not
+  ADR-0016's local Cursor chat.
+- **Cursor follow-up** — text the phone queues for a *running local* Cursor turn.
   Cursor cannot be interrupted or steered mid-turn, so the supplement waits and
   Cursor's own `stop` hook collects it as `followup_message`, which Cursor
   submits as the next message. One per conversation, replaced by a newer one,
   expired after 30 minutes. Continuing a *finished* Cursor chat is the other
-  direction: `cursor-agent --resume <composer id>` in a terminal.
+  direction: `cursor-agent --resume <composer id>` in a terminal. A **cloud**
+  agent is the mirror image: a running one refuses a follow-up (Cursor allows one
+  run at a time, and answers `409 agent_busy`), and a finished one is continued
+  by starting its next run over the API.
+- **Cursor ACP host** — `CursorACPMonitor`: one `cursor-agent acp` process per
+  conversation vibebuddy started, spoken to over stdio JSON-RPC (Agent Client
+  Protocol). The live source for that conversation (`ObservationSource.acp`)
+  and its write path: `session/prompt` continues, `session/cancel` stops,
+  `session/request_permission` and `cursor/ask_question` / `cursor/create_plan`
+  become cards. Dies with the daemon. The IDE's hooks and transcript for the
+  same id only corroborate while it runs (ADR-0016, amendment 1).
+- **Control channel** (`ControlChannel`) — the one write path the daemon would
+  use for a session right now: `hook` (Cursor IDE, follow-ups only), `acp`
+  (hosted CLI), `appserver` (Codex), `cloud` (Cursor cloud agent), `none`
+  (seen, unreachable). Stamped on every snapshot; the phone's composer and the
+  Watch's buttons decide what to offer from it first, from the agent second.
+  Distinct from an observation source, which says how a session is *seen*.
 - **Daemon** — the Mac menu-bar app's embedded HTTP + WebSocket server
   (`:9876`) that ingests hooks, runs the reducer, and broadcasts snapshots.
 - **Glance** — the Mac status surface at the top of the menu-bar screen, drawn
@@ -166,7 +196,10 @@ code, and tests — don't drift to synonyms.
   `userStopped`: Codex words a requested stop and a crash the same
   ("interrupted"), so without that mark the failure heuristic would ring the
   error cue for something the user asked for. An interruption this Mac did not
-  send is unmarked and still reads as a failure.
+  send is unmarked and still reads as a failure. Since 2026-09-13 a Cursor
+  conversation on the `acp` channel is stopped the same way (`session/cancel`,
+  marked `userStopped`) and a cloud agent's run is cancelled through the API;
+  a Cursor chat in the IDE still cannot be stopped from here.
 - **Session action / SessionActionIntent** — what a client asks of an existing
   session: **answer** (bind to the current question), **steer** (supplement the
   running turn), **continue** (open the next turn), **stop** (interrupt the
@@ -190,10 +223,18 @@ code, and tests — don't drift to synonyms.
   <prompt>` in that directory; the job's `state.json` gives the full session
   id the hooks will report). Codex goes through the app-server daemon
   (`thread/start` → `thread/name/set` → `turn/start`, the user's own
-  model/approval/sandbox defaults). Other agents answer 501. The snapshot's
-  `dispatchAgents` says which agents can be started right now (Claude when
-  the CLI lists `--bg`, Codex when the daemon is connected); the "New task"
-  entry offers only those and is disabled when there are none.
+  model/approval/sandbox defaults). Cursor is hosted over ACP by
+  `CursorACPMonitor` when the CLI is signed in, else opened in a terminal; a
+  Cursor request may add `model`, `mode` (`plan` / `ask`; agent is the CLI's
+  default and travels as nil) and `worktree` (a fresh Git worktree the CLI
+  creates under `~/.cursor/worktrees/<repo>/<name>`), which become the CLI's
+  global options `--model`, `--mode` and `-w` in front of `acp` or `--`.
+  Model and mode must be plain tokens or the dispatch is `rejected`. Other
+  agents answer 501. The snapshot's `dispatchAgents` says which agents can
+  be started right now (Claude when the CLI lists `--bg`, Codex when the
+  daemon is connected); its `cursorModels` is the signed-in CLI's
+  `--list-models`, probed once per sign-in verdict. The "New task" entry
+  offers only those agents and is disabled when there are none.
 - **Question relay** — the agent's question answered from the phone or the Mac
   card through the agent's own contract: Claude's `AskUserQuestion` on a
   blocking PreToolUse hook (answered with `updatedInput.answers`, keyed by
@@ -201,7 +242,11 @@ code, and tests — don't drift to synonyms.
   connection (answered per question id). `QuestionRegistry` holds the wait;
   `AnswerDispatch` sends an answer there first and types into a tmux pane only
   when nothing is waiting. A `PendingQuestion` now carries every question
-  (`items`), multi-select and "Other".
+  (`items`), multi-select and "Other". The Watch answers a one-part question
+  with the text it showed; a prompt whose every question offers choices it
+  **walks** — one question per screen, the whole set sent once as
+  `WatchSessionAction.answerAll` and checked by `WatchQuestionSet` on both
+  sides — and a prompt with any free-text question stays on the iPhone.
 - **Status line sample** — one status line JSON from Claude Code, copied to the
   daemon by `hooks/vibebuddy-statusline.sh` on every event (ObservationSource
   `statusline`). It fills a known session's name, effort, cost, context, PR and

@@ -85,6 +85,16 @@ public struct HookEvent: Sendable, Equatable {
     /// nil for progress-only endings with no result evidence.
     public let completionSucceeded: Bool?
     public let sourceCompletionID: String?
+    /// True when the source says this session is a conversation to read, not a
+    /// task to track: a Cursor chat whose `composer_mode` is `ask` or `edit`
+    /// (cursor.com/docs/hooks, `sessionStart`). Such a session must not enter
+    /// the three states or ring a cue; the store drops it before the reducer.
+    public let observeOnly: Bool
+    /// The tool's result text when the hook carried one (Cursor's
+    /// `postToolUse.tool_output`, `afterShellExecution.output`), already
+    /// normalised and bounded. Feeds the recent-output pane only; the
+    /// reducer never reads it.
+    public let toolOutput: String?
 
     public init(
         kind: Kind,
@@ -112,7 +122,9 @@ public struct HookEvent: Sendable, Equatable {
         userStopped: Bool = false,
         completionText: String? = nil,
         completionSucceeded: Bool? = nil,
-        sourceCompletionID: String? = nil
+        sourceCompletionID: String? = nil,
+        observeOnly: Bool = false,
+        toolOutput: String? = nil
     ) {
         self.kind = kind
         self.sessionID = sessionID
@@ -140,6 +152,8 @@ public struct HookEvent: Sendable, Equatable {
         self.completionText = completionText
         self.completionSucceeded = completionSucceeded
         self.sourceCompletionID = sourceCompletionID
+        self.observeOnly = observeOnly
+        self.toolOutput = toolOutput
     }
 
     /// Mark this ending as the answer to a stop the user asked for.
@@ -153,7 +167,7 @@ public struct HookEvent: Sendable, Equatable {
             childAction: childAction, turnID: turnID, enrichment: enrichment,
             desktopThreadID: desktopThreadID, probeRetirement: probeRetirement, userStopped: true,
             completionText: completionText, completionSucceeded: completionSucceeded,
-            sourceCompletionID: sourceCompletionID)
+            sourceCompletionID: sourceCompletionID, observeOnly: observeOnly, toolOutput: toolOutput)
     }
 
     /// Stamp the rollout file this event was tailed from, so a later read-only
@@ -167,6 +181,7 @@ public struct HookEvent: Sendable, Equatable {
             childKind: childKind, childName: childName, childType: childType,
             childAction: childAction, turnID: turnID, enrichment: enrichment,
             desktopThreadID: desktopThreadID, probeRetirement: probeRetirement, userStopped: userStopped,
-            completionText: completionText, completionSucceeded: completionSucceeded, sourceCompletionID: sourceCompletionID)
+            completionText: completionText, completionSucceeded: completionSucceeded, sourceCompletionID: sourceCompletionID,
+            observeOnly: observeOnly, toolOutput: toolOutput)
     }
 }

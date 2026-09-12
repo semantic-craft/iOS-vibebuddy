@@ -27,7 +27,17 @@ Event set (Cursor's own camelCase names; `CursorParser` maps them):
 
 `stop` always runs `hooks/cursor-followup.sh`, which forwards the ending *and*
 hands Cursor any follow-up the phone queued for a running turn
-(`{"followup_message": …}`) — the one remote write Cursor documents.
+(`{"followup_message": …}`) — the one remote write Cursor documents. That entry
+is written with `"loop_limit": null`: Cursor caps the automatic follow-ups it
+accepts from one stop hook per conversation at 5 by default, and `null` removes
+the cap (cursor.com/docs/hooks). Without it the sixth queued message from the
+phone would be silently dropped.
+
+If `~/.claude/settings.json` also carries vibebuddy's Claude Code hooks, Cursor
+calls those too once "Include third-party Plugins, Skills, and other configs" is
+on — with Cursor's own payload (cursor.com/docs/reference/third-party-hooks).
+The daemon recognises that payload and keeps one session identity, so the
+installer only says so; it never edits the Claude file.
 
 `sessionStart` also runs `hooks/capture-terminal.sh cursor`, so a `cursor-agent`
 session started in a terminal can be jumped back to. (An IDE chat has no
@@ -81,13 +91,13 @@ STATUS_EVENTS = [
     "sessionStart", "sessionEnd",
     "beforeSubmitPrompt",
     "postToolUse", "postToolUseFailure", "afterFileEdit",
-    "afterAgentResponse", "preCompact",
+    "afterAgentResponse", "afterAgentThought", "preCompact",
     "subagentStart", "subagentStop",
 ]
 
 
-def entry(command, timeout=5):
-    return {"command": command, "timeout": timeout}
+def entry(command, timeout=5, **options):
+    return {"command": command, "timeout": timeout, **options}
 
 
 def desired(approval=False):
@@ -97,8 +107,10 @@ def desired(approval=False):
     # on its own. In status-only mode the same event is a plain progress report.
     hooks["preToolUse"] = [entry(APPROVAL_COMMAND, timeout=30)] if approval else [entry(COMMAND)]
     # The follow-up collector must finish inside Cursor's patience for a `stop`
-    # hook; it only reads a local queue, so 5 s is generous.
-    hooks["stop"] = [entry(FOLLOWUP_COMMAND)]
+    # hook; it only reads a local queue, so 5 s is generous. `loop_limit: null`
+    # lifts Cursor's default cap of 5 automatic follow-ups per conversation, so
+    # every message the phone queues is handed over, not just the first five.
+    hooks["stop"] = [entry(FOLLOWUP_COMMAND, loop_limit=None)]
     hooks["sessionStart"].append(entry(CAPTURE_COMMAND, timeout=10))
     return hooks
 
@@ -190,6 +202,23 @@ def write(document):
         f.write("\n")
 
 
+def note_third_party_overlap():
+    """One line when Claude Code's settings also carry vibebuddy hooks. Cursor
+    calls Claude Code hooks with its own payload once third-party hooks are
+    enabled; the daemon routes that payload to the Cursor parser, so this is
+    information, not a conflict, and the Claude file is left alone."""
+    path = os.path.join(os.path.expanduser("~"), ".claude", "settings.json")
+    try:
+        with open(path) as f:
+            content = f.read()
+    except OSError:
+        return
+    if "vibebuddy" in content:
+        print("note: ~/.claude/settings.json also carries vibebuddy hooks; if Cursor's "
+              "third-party hooks are enabled, Cursor will call them too — vibebuddy "
+              "recognises the Cursor payload and keeps one session identity.")
+
+
 def main():
     args = sys.argv[1:]
     approval = "--approval" in args
@@ -216,6 +245,7 @@ def main():
         merged = merge(json.loads(json.dumps(document)), desired(approval))
         print("would write:", TARGET)
         print(json.dumps(merged, indent=2))
+        note_third_party_overlap()
         return
 
     if mode == "--install":
@@ -230,6 +260,7 @@ def main():
         if approval:
             print("phone approvals answer Cursor's own permission contract; a timeout "
                   "prints nothing and Cursor asks in its own UI.")
+        note_third_party_overlap()
         return
 
     if mode == "--uninstall":

@@ -116,3 +116,46 @@ a terminal keeps the ordinary terminal jump.
   changes the `composerHeaders` schema degrades one layer at a time rather than
   all three: the parser answers `.undecodable` (reported as an unknown version),
   the tailer finds no files, or the store reports `sourceUnreadable`.
+
+## Amendment 1 (2026-09-13): a hosted CLI conversation is controlled over ACP
+
+**Context.** The decision above says "Stop is refused — Cursor exposes no
+interrupt". That is true of a chat in the IDE, whose only write path is its
+hooks. It is not true of `cursor-agent acp`: the CLI runs as an Agent Client
+Protocol server over stdio (cursor.com/docs/cli/acp) and offers
+`session/prompt`, `session/cancel`, `session/request_permission`
+(`allow-once` / `allow-always` / `reject-once`) and Cursor's own
+`cursor/ask_question` (structured answers by option id), `cursor/create_plan`,
+`cursor/update_todos` and `cursor/task`. The CLI and the IDE share one agent
+runtime and one tool set, so the vocabulary and the question shapes are the
+same on both.
+
+**Decision.** A Cursor conversation vibebuddy starts itself is hosted by
+`CursorACPMonitor`: one `agent acp` process per conversation, alive as long as
+the daemon, observed through its `session/update` notifications
+(`ObservationSource.acp`) and answered on the same pipe. For such a
+conversation stop is `session/cancel` and the ending it produces is marked
+`userStopped`; continue is the next `session/prompt`; a supplement for a
+running turn is still queued (ACP has no mid-turn steer) and sent as the next
+prompt the moment the current one returns — the same `CursorFollowupQueue` the
+hooks drain, and the hook route steps aside for a hosted id so nothing is
+delivered twice. Permission requests become cards through the same
+`ApprovalRegistry` as the hooks; a deny rule or an exact always-allow answers
+without one. Questions and plans are cards whose answers travel back in ACP's
+own shapes; a typed answer Cursor's schema cannot carry travels as the reason
+on a `skipped` outcome. While the host carries a conversation, Cursor's hooks
+and transcript for the same id only corroborate.
+
+Every session now carries a **control channel** (`ControlChannel`: `hook`,
+`acp`, `appserver`, `cloud`, `none`), stamped by the daemon on each snapshot,
+and `SessionActionSupport` decides availability and wording from it before the
+agent kind. So an IDE chat (`hook`) still says "Stop this in Cursor on your
+Mac", a hosted CLI conversation (`acp`) offers Stop on the phone and the Watch,
+and a cloud agent (`cloud`, ADR-0017) cancels its run.
+
+**Consequences.** A hosted turn ends when vibebuddy quits, and the phone is
+told so at dispatch time. A request nobody answers blocks the turn, as the
+protocol says; the card stays until answered or the turn is cancelled. Whether
+`session/load` can take over a conversation the IDE created is still an open
+probe (ticket cursor-integration/11); until it is answered, continuing a
+finished IDE chat keeps going through `cursor-agent --resume` in a terminal.

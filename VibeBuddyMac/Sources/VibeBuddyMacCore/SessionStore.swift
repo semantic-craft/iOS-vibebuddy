@@ -16,6 +16,68 @@ public actor SessionStore {
     /// rows read facts out of it; conversations with no live evidence become
     /// history rows.
     private var cursorComposers: [String: CursorComposer] = [:]
+    /// Cursor conversations whose `sessionStart` said `composer_mode` is `ask`
+    /// or `edit`. Such a chat is a question and an answer, not a task: it must
+    /// not enter the three states, mint a completion or ring a cue, so every
+    /// event for it — from the hook *and* from the transcript tailer, since
+    /// both key on the same conversation id — is dropped before the reducer.
+    /// `sessionEnd` releases the id. The set is memory-only: a chat that was
+    /// Ask before a daemon restart re-announces its mode on its next start.
+    private var cursorObserveOnly: Set<String> = []
+    /// Per Cursor conversation, the dialogue the hooks themselves carried —
+    /// prompts, replies, tool markers and tool *results*. The agent transcript
+    /// records no tool results, so while the hooks are live this is the richer
+    /// recent-output source; bounded like every other slice.
+    private var cursorHookLog: [String: [TranscriptEntry]] = [:]
+    static let cursorHookLogLimit = 24
+    /// Cursor conversations the ACP host is carrying right now. While one is,
+    /// that pipe is the live source and the write path: hook and transcript
+    /// events for the same id only corroborate, the hook gate says nothing, and
+    /// the row is stamped `ControlChannel.acp`. Memory-only: the processes die
+    /// with the daemon, so nothing here outlives it either.
+    private var acpHosted: Set<String> = []
+
+    /// The ACP host took over (or let go of) a conversation.
+    public func setACPHosted(sessionID: String, _ hosted: Bool) {
+        let changed = hosted ? acpHosted.insert(sessionID).inserted : acpHosted.remove(sessionID) != nil
+        if changed { broadcast() }
+    }
+
+    public func isACPHosted(_ sessionID: String) -> Bool { acpHosted.contains(sessionID) }
+
+    /// A queued follow-up left for Cursor: through its `stop` hook (which says
+    /// how many automatic follow-ups this conversation has already taken, so a
+    /// silent drop past a `loop_limit` can be seen in the journal) or as the
+    /// ACP host's next prompt.
+    public func noteCursorFollowupHandoff(sessionID: String, loopCount: Int?, source: ObservationSource, at date: Date) {
+        let event = loopCount.map { "cursorFollowupHandedOver(loop \($0))" } ?? "cursorFollowupHandedOver"
+        _ = appendJournal(sessionID: sessionID, agent: .cursor, event: event, source: source, at: date)
+    }
+
+    /// The write path the daemon would use for this session, stamped on every
+    /// snapshot so the phone and the Watch decide availability from one fact
+    /// (ADR-0016, second amendment). Codex: the app-server while it is fresh.
+    /// Cursor: the ACP host it lives on, else the cloud API that reports it,
+    /// else its hooks while they are fresh, else nothing reachable. Other
+    /// agents carry no stamp and keep their agent-based rules.
+    func controlChannel(for session: AgentSession, now: Date) -> ControlChannel? {
+        func fresh(_ source: ObservationSource, within window: TimeInterval) -> Bool {
+            guard let evidence = session.observations?.first(where: { $0.source == source }),
+                  evidence.health.isHealthy else { return false }
+            return now.timeIntervalSince(evidence.lastObservedAt) < window
+        }
+        switch session.agent {
+        case .codex:
+            return fresh(.appserver, within: Self.appServerAuthorityWindow) ? .appserver : nil
+        case .cursor:
+            if acpHosted.contains(session.id) { return .acp }
+            if session.observations?.contains(where: { $0.source == .cloud && $0.health.isHealthy }) == true { return .cloud }
+            if fresh(.hook, within: Self.cursorHookAuthorityWindow) { return .hook }
+            return ControlChannel.none
+        default:
+            return nil
+        }
+    }
 
     /// History bypasses the lifecycle reducer: imports never earn completion cues.
     public func refreshCopilotHistory() {
@@ -83,6 +145,64 @@ public actor SessionStore {
             if reducer.sessions[composer.id] != before { changed = true }
         }
         return changed
+    }
+
+    /// Cursor's cloud agents, keyed by agent id, as the Cloud Agents API last
+    /// reported them. Unlike the composer store this *is* the source for these
+    /// conversations: they run on Cursor's machines and appear nowhere on this
+    /// Mac — not in `composerHeaders`, not as a transcript, not as a hook.
+    private var cursorCloudAgents: [String: CursorCloudAgent] = [:]
+
+    /// Take the monitor's view of the account. Rows with no live session become
+    /// quiet history rows; rows the monitor has moved into the three states keep
+    /// whatever the reducer holds.
+    public func applyCursorCloudAgents(_ agents: [CursorCloudAgent]) {
+        let next = Dictionary(agents.filter { $0.status != .archived }.map { ($0.id, $0) },
+                              uniquingKeysWith: { _, last in last })
+        guard next != cursorCloudAgents else { return }
+        cursorCloudAgents = next
+        broadcast()
+    }
+
+    /// Where a cloud agent can actually be opened. It has no window on this Mac
+    /// and no terminal, so its Cursor web page is the only honest jump — the
+    /// same shape as a Codex Desktop thread's.
+    public func cursorCloudAgentURL(for sessionID: String) -> String? {
+        cursorCloudAgents[sessionID]?.url
+    }
+
+    /// The run a stop would cancel. Nil when the agent is not live, which is
+    /// also when there is nothing to cancel.
+    public func cursorCloudLatestRun(for sessionID: String) -> String? {
+        guard let agent = cursorCloudAgents[sessionID], agent.status == .active else { return nil }
+        return agent.latestRunID
+    }
+
+    /// How many cloud agents get a history row, for the same reason
+    /// `cursorHistoryLimit` exists.
+    static let cursorCloudHistoryLimit = 50
+
+    /// A cloud agent vibebuddy has only ever seen finished: a quiet history row
+    /// that never earns a completion cue, exactly like an imported Copilot
+    /// session. Its repository stands in for a project, because it has no folder.
+    private func cursorCloudHistorySessions() -> [AgentSession] {
+        cursorCloudAgents.values
+            .filter { reducer.sessions[$0.id] == nil }
+            .sorted { lhs, rhs in
+                let left = lhs.updatedAt ?? .distantPast, right = rhs.updatedAt ?? .distantPast
+                return left == right ? lhs.id < rhs.id : left > right
+            }
+            .prefix(Self.cursorCloudHistoryLimit)
+            .map { agent in
+                let when = agent.updatedAt ?? Date()
+                var session = AgentSession(
+                    id: agent.id, agent: .cursor,
+                    project: agent.repository ?? String(localized: "Cursor cloud agent"),
+                    status: .done, name: agent.name,
+                    statusSince: when, updatedAt: when)
+                session.historyOnly = true
+                return session
+            }
     }
 
     /// How many of Cursor's stored conversations get a history row. Cursor keeps
@@ -178,6 +298,8 @@ public actor SessionStore {
     private var providerQuota: [ProviderQuota] = []
     /// Local token spend, kept beside the reducer rather than inside it.
     private var tokenConsumption: TokenConsumptionSnapshot?
+    /// Models the signed-in Cursor CLI lists, for a Cursor dispatch.
+    private var cursorModels: [String] = []
     private var subscribers: [UUID: AsyncStream<Snapshot>.Continuation] = [:]
     private var needsResponseHandler: (@Sendable (AgentSession) async -> Void)?
     private var staleAfter: TimeInterval
@@ -310,6 +432,7 @@ public actor SessionStore {
             completionResults.runs[id] = nil
             completionResults.candidates[id] = nil
             transcriptPaths[id] = nil
+            cursorHookLog[id] = nil
             grokDirectories[id] = nil
             lastInteractionAt[id] = nil
         }
@@ -447,6 +570,16 @@ public actor SessionStore {
         return true
     }
 
+    /// While the ACP host carries a Cursor conversation, the hooks Cursor still
+    /// fires for it and the transcript it still writes describe the same turn
+    /// a beat later; they may corroborate but must not move the three states
+    /// or mint a second completion. `sessionEnd` passes: a process that has
+    /// really gone is a fact the pipe reports by closing, not by an event.
+    private func acpOutranks(_ event: HookEvent, from source: ObservationSource) -> Bool {
+        event.agent == .cursor && source != .acp && event.kind != .sessionEnd
+            && acpHosted.contains(event.sessionID)
+    }
+
     private func appServerOutranks(_ event: HookEvent, from source: ObservationSource) -> Bool {
         guard event.agent == .codex, source != .appserver, event.kind != .sessionEnd,
               let session = reducer.sessions[event.sessionID],
@@ -463,9 +596,12 @@ public actor SessionStore {
         recordsEvidence: Bool = true,
         announcesWait: Bool = true
     ) {
+        if dropsCursorObserveOnly(event) { return }
+        recordCursorHookLog(event, from: observationSource)
         // A corroborating source may supply the menu's read-only round evidence.
         if let path = event.transcriptPath { transcriptPaths[event.sessionID] = path }
         if appServerOutranks(event, from: observationSource)
+            || acpOutranks(event, from: observationSource)
             || cursorHooksOutrank(event, from: observationSource) {
             // Corroboration cannot drive progress, but evidence of a newer run
             // must prevent returning an older result while authority catches up.
@@ -511,6 +647,7 @@ public actor SessionStore {
         if reducer.sessions[event.sessionID] == nil {
             // Session was removed (e.g. SessionEnd) — forget its side data.
             transcriptPaths[event.sessionID] = nil
+            cursorHookLog[event.sessionID] = nil
             pendingTerminalRefs[event.sessionID] = nil
             grokDirectories[event.sessionID] = nil
             lastInteractionAt[event.sessionID] = nil
@@ -548,6 +685,68 @@ public actor SessionStore {
            session.status == .needsResponse, let handler = needsResponseHandler {
             Task { await handler(session) }
         }
+    }
+
+    /// An Ask or Edit chat in Cursor (`composer_mode` on `sessionStart`,
+    /// cursor.com/docs/hooks) never becomes a row: its `sessionStart` enrols the
+    /// id and is dropped, every later event for that id is dropped, and its
+    /// `sessionEnd` releases the id and is dropped too. Nothing is reduced,
+    /// recorded as evidence or broadcast, so the chat cannot enter the three
+    /// states or ring a cue. Keyed on the conversation id, so the transcript
+    /// tailer's events for the same chat are held back as well.
+    private func dropsCursorObserveOnly(_ event: HookEvent) -> Bool {
+        guard event.agent == .cursor else { return false }
+        if event.kind == .sessionStart, event.observeOnly {
+            cursorObserveOnly.insert(event.sessionID)
+            cursorHookLog[event.sessionID] = nil
+            return true
+        }
+        guard cursorObserveOnly.contains(event.sessionID) else { return false }
+        if event.kind == .sessionEnd { cursorObserveOnly.remove(event.sessionID) }
+        return true
+    }
+
+    /// Append what a Cursor hook said to the conversation's hook log: the
+    /// prompt, the agent's reply, a "⚙ tool" marker for each tool it reaches
+    /// for, and the tool's result when the hook carried one. Only the hook
+    /// source writes here — the transcript has its own reader.
+    private func recordCursorHookLog(_ event: HookEvent, from source: ObservationSource) {
+        guard event.agent == .cursor, source == .hook else { return }
+        let entry: TranscriptEntry?
+        switch event.kind {
+        case .userPromptSubmit:
+            entry = event.message.map { TranscriptEntry(role: "user", text: $0) }
+        case .sessionMetadataChanged:
+            entry = event.message.map { TranscriptEntry(role: "assistant", text: $0) }
+        case .preToolUse:
+            // Thinking blocks are activity, not dialogue: one per model
+            // generation would drown the prompts and results this log is for.
+            entry = event.toolName.flatMap { $0 == "Thinking" ? nil : TranscriptEntry(role: "assistant", text: "⚙ \($0)") }
+        case .postToolUse:
+            entry = event.toolOutput.map { TranscriptEntry(role: "assistant", text: $0) }
+        case .sessionEnd:
+            cursorHookLog[event.sessionID] = nil
+            return
+        default:
+            entry = nil
+        }
+        guard let entry else { return }
+        var log = cursorHookLog[event.sessionID] ?? []
+        log.append(entry)
+        if log.count > Self.cursorHookLogLimit {
+            log.removeFirst(log.count - Self.cursorHookLogLimit)
+        }
+        cursorHookLog[event.sessionID] = log
+    }
+
+    /// Whether Cursor's hooks reported this conversation within
+    /// `cursorHookAuthorityWindow` — the same freshness that lets a hook
+    /// outrank the transcript on progress (`cursorHooksOutrank`).
+    private func hasFreshCursorHookEvidence(sessionID: String, now: Date) -> Bool {
+        guard let session = reducer.sessions[sessionID],
+              let evidence = session.observations?.first(where: { $0.source == .hook }),
+              evidence.health.isHealthy else { return false }
+        return now.timeIntervalSince(evidence.lastObservedAt) < Self.cursorHookAuthorityWindow
     }
 
     /// Wait at most until two seconds after the original ending. Results are
@@ -836,6 +1035,15 @@ public actor SessionStore {
         broadcast()
     }
 
+    /// Replace the Cursor model list the phone may choose from. Account
+    /// state like quota: composed into every snapshot, never near the reducer,
+    /// broadcast on change so a fresh sign-in reaches the sheet.
+    public func setCursorModels(_ models: [String]) {
+        guard models != cursorModels else { return }
+        cursorModels = models
+        broadcast()
+    }
+
     /// The one place a runtime snapshot is assembled: sessions and diagnostics
     /// from the reducer, allowance from beside it.
     private func currentSnapshot(now: Date) -> Snapshot {
@@ -846,6 +1054,7 @@ public actor SessionStore {
         snapshot.sessions += cursorHistorySessions().sorted {
             $0.updatedAt == $1.updatedAt ? $0.id < $1.id : $0.updatedAt > $1.updatedAt
         }
+        snapshot.sessions += cursorCloudHistorySessions()
         if copilotReadFailed || !copilotHistory.isEmpty {
             var diagnostics = snapshot.observationDiagnostics ?? []
             diagnostics.removeAll { $0.agent == .copilot }
@@ -859,12 +1068,14 @@ public actor SessionStore {
         snapshot.tokenConsumption = tokenConsumption
         let directories = recentDirectories()
         snapshot.recentDirectories = directories.isEmpty ? nil : directories
+        snapshot.cursorModels = cursorModels.isEmpty ? nil : cursorModels
         snapshot.sessions = snapshot.sessions.map { session in
             var session = session
             session.attentionOverride = attention[session.id]
             session.attention = attention[session.id]
                 ?? AutoAttention.level(lastInteractionAt: lastInteractionAt[session.id], now: now)
             session.completionNotice = completionNotice(for: session, now: now)
+            session.controlChannel = controlChannel(for: session, now: now)
             return session
         }
         let active = Set(snapshot.sessions.compactMap { $0.completionNotice?.id })
@@ -951,6 +1162,23 @@ public actor SessionStore {
                 sessionID: sessionID, source: .appserver, path: nil,
                 RecentOutputReader.codexAppServer(
                     items: items, limit: limit, perEntryLimit: perEntryLimit))
+        }
+        // Cursor has two dialogue sources and one rule for choosing between
+        // them: the hooks are the live source while their evidence is fresh
+        // within `cursorHookAuthorityWindow`, the transcript otherwise. It is
+        // the same window that decides which source drives progress
+        // (`cursorHooksOutrank`), so the pane and the row never disagree about
+        // who is speaking for the session. The hook log is also the only place
+        // tool *results* exist — the agent transcript records none.
+        if session.agent == .cursor,
+           let log = cursorHookLog[sessionID], !log.isEmpty,
+           hasFreshCursorHookEvidence(sessionID: sessionID, now: Date()) {
+            let bounded = RecentOutputReader.bound(log, limit: limit, perEntryLimit: perEntryLimit)
+            return RecentOutput(
+                sessionId: sessionID, source: .hook,
+                updatedAt: session.observations?.first(where: { $0.source == .hook })?.lastObservedAt,
+                truncated: bounded.truncated,
+                entries: bounded.entries.map { RecentOutputEntry(role: $0.role, text: $0.text) })
         }
         let path = rolloutPath ?? transcriptPaths[sessionID]
         guard let path else {

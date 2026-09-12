@@ -55,15 +55,23 @@ struct VibeBuddyDaemon {
         let sessionAllow = SessionAllowList()
         let approvalContext = ApprovalContextStore()
         let questionRegistry = QuestionRegistry()
+        let store = SessionStore(
+            sourceID: DaemonIdentity.load(),
+            diagnosticsHome: FileManager.default.homeDirectoryForCurrentUser,
+            journalURL: journalURL,
+            attentionURL: AttentionOverrides.defaultURL(),
+            missedURL: env["VIBEBUDDY_MISSED_PATH"].map { URL(fileURLWithPath: $0) }
+                ?? MissedLedgerLocation.defaultURL()
+        )
+        // One follow-up queue for Cursor: the hooks' `stop` drains it for IDE
+        // chats, the ACP host for the conversations it carries.
+        let cursorFollowups = CursorFollowupQueue()
+        let cursorACP = CursorACPMonitor(
+            store: store, approvals: approvalRegistry, approvalContext: approvalContext,
+            questions: questionRegistry, allowStore: allowStore, sessionAllow: sessionAllow,
+            followups: cursorFollowups)
         let server = VibeBuddyServer(
-            store: SessionStore(
-                sourceID: DaemonIdentity.load(),
-                diagnosticsHome: FileManager.default.homeDirectoryForCurrentUser,
-                journalURL: journalURL,
-                attentionURL: AttentionOverrides.defaultURL(),
-                missedURL: env["VIBEBUDDY_MISSED_PATH"].map { URL(fileURLWithPath: $0) }
-                    ?? MissedLedgerLocation.defaultURL()
-            ),
+            store: store,
             token: token, port: port, pusher: pusher, phoneReceipts: phoneReceipts,
             deliveryRecorder: deliveryRecorder,
             deviceTokens: deviceTokens,
@@ -75,7 +83,10 @@ struct VibeBuddyDaemon {
             approvalRegistry: approvalRegistry, allowStore: allowStore,
             sessionAllow: sessionAllow, approvalContext: approvalContext,
             questionRegistry: questionRegistry,
-            cursorTranscriptMonitor: CursorTranscriptMonitor())
+            cursorACP: cursorACP,
+            cursorTranscriptMonitor: CursorTranscriptMonitor(),
+            cursorCloudMonitor: CursorCloudAgentMonitor(),
+            cursorFollowups: cursorFollowups)
         FileHandle.standardError.write(Data(
             "vibebuddyd: listening on 0.0.0.0:\(port) (apns: \(pusher != nil ? "on" : "off"), token: \(tokenSource))\n".utf8))
         try await server.runService()

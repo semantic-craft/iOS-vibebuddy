@@ -53,12 +53,20 @@ public enum WatchStopBlock: String, Codable, Equatable, Sendable {
     /// connection — the rollout tailer and hooks can see a turn, and neither
     /// can end one.
     case macNotConnected
+    /// A Cursor cloud agent this Mac has no API key for: the run can be
+    /// cancelled, but only once the Mac can reach Cursor's API.
+    case macNeedsSetup
 
     /// Derived from the session rather than from the daemon's wording, so the
     /// two can never drift into disagreeing. Only reached for a `working`
-    /// session `resolveStop` refused, which leaves exactly these three causes.
+    /// session `resolveStop` refused, which leaves exactly these causes.
     init(blocking session: AgentSession) {
         if session.agent == .claudeCode { self = .macOnly }
+        else if session.agent == .cursor {
+            // A chat in the IDE (hooks) or one only seen in a transcript has no
+            // interrupt; a cloud agent without a key is one Settings step away.
+            self = SessionActionSupport.isCursorCloudAgent(session) ? .macNeedsSetup : .macOnly
+        }
         else if session.agent != .codex { self = .agentUnsupported }
         else { self = .macNotConnected }
     }
@@ -68,9 +76,12 @@ public enum WatchStopBlock: String, Codable, Equatable, Sendable {
     public func message(agent: AgentKind?) -> String {
         switch self {
         case .macOnly:
+            if agent == .cursor { return String(localized: "Stop this in Cursor on your Mac.", bundle: .module) }
             return String(localized: "Stop this on your Mac.", bundle: .module)
         case .macNotConnected:
             return String(localized: "Your Mac isn't connected to Codex right now.", bundle: .module)
+        case .macNeedsSetup:
+            return String(localized: "Add a Cursor API key on your Mac to reach cloud agents from here.", bundle: .module)
         case .agentUnsupported:
             guard let agent else {
                 return String(localized: "This agent can't take instructions from the phone yet — use the terminal.", bundle: .module)

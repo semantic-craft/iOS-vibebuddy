@@ -43,7 +43,7 @@ USER_CURSOR_HOOK = "./hooks/my-own-audit.sh"
 CURSOR_EVENTS = [
     "sessionStart", "sessionEnd", "beforeSubmitPrompt",
     "postToolUse", "postToolUseFailure", "afterFileEdit",
-    "afterAgentResponse", "preCompact", "subagentStart", "subagentStop",
+    "afterAgentResponse", "afterAgentThought", "preCompact", "subagentStart", "subagentStop",
 ]
 # The grok 1.0.13 event set install-grok-hooks.py registers.
 GROK_EVENTS = [
@@ -437,9 +437,15 @@ def main():
             commands = [entry.get("command", "") for entry in cursor_hooks.get(event, [])]
             if not any('vibebuddy-forward.sh" cursor' in command for command in commands):
                 fails.append(f"install missed the vibebuddy cursor {event} hook")
-        if not any("cursor-followup.sh" in entry.get("command", "")
-                   for entry in cursor_hooks.get("stop", [])):
+        followups = [entry for entry in cursor_hooks.get("stop", [])
+                     if "cursor-followup.sh" in entry.get("command", "")]
+        if not followups:
             fails.append("install missed the cursor stop follow-up collector")
+        # Cursor accepts at most 5 automatic follow-ups per conversation from a
+        # stop hook unless the entry says `loop_limit: null`; the sixth message
+        # the phone queues would otherwise be dropped.
+        if not all("loop_limit" in entry and entry["loop_limit"] is None for entry in followups):
+            fails.append("cursor stop follow-up entry must carry loop_limit: null")
         if not any("capture-terminal.sh" in entry.get("command", "")
                    for entry in cursor_hooks.get("sessionStart", [])):
             fails.append("install missed the cursor sessionStart terminal capture")

@@ -19,7 +19,7 @@ public actor CursorLauncher {
     private let projectsRoot: URL
     private let executable: URL?
     private let terminalProgram: @Sendable () async -> String?
-    private let start: @Sendable (String, String, String?) async -> Bool
+    private let start: @Sendable (String, String, CursorLaunchOptions, String?) async -> Bool
     private let identifyTimeout: TimeInterval
     private var signedIn: Bool?
 
@@ -27,14 +27,14 @@ public actor CursorLauncher {
                 executable: URL? = CursorCLI.resolveExecutable(),
                 terminalProgram: @escaping @Sendable () async -> String? = { nil },
                 identifyTimeout: TimeInterval = 8,
-                start: (@Sendable (String, String, String?) async -> Bool)? = nil) {
+                start: (@Sendable (String, String, CursorLaunchOptions, String?) async -> Bool)? = nil) {
         self.projectsRoot = projectsRoot
         self.executable = executable
         self.terminalProgram = terminalProgram
         self.identifyTimeout = identifyTimeout
         let resolved = executable
-        self.start = start ?? { prompt, cwd, term in
-            await CursorCLI.start(prompt: prompt, executable: resolved, cwd: cwd, preferring: term)
+        self.start = start ?? { prompt, cwd, options, term in
+            await CursorCLI.start(prompt: prompt, executable: resolved, cwd: cwd, options: options, preferring: term)
         }
     }
 
@@ -63,8 +63,13 @@ public actor CursorLauncher {
         guard await isSupported() else {
             return .unavailable("The Cursor CLI is not signed in — run `cursor-agent login` on this Mac")
         }
+        let options: CursorLaunchOptions
+        switch CursorLaunchOptions.from(request) {
+        case .success(let parsed): options = parsed
+        case .failure(let why): return .rejected(why.message)
+        }
         let before = conversationIDs(inProject: request.cwd)
-        guard await start(request.prompt, request.cwd, await terminalProgram()) else {
+        guard await start(request.prompt, request.cwd, options, await terminalProgram()) else {
             return .unavailable("Couldn't open a terminal running cursor-agent")
         }
         let deadline = Date().addingTimeInterval(identifyTimeout)

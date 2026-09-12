@@ -180,8 +180,10 @@ public enum RecentOutputReader {
 
     // MARK: - Shared
 
-    private static func bound(_ entries: [TranscriptEntry], limit: Int,
-                              perEntryLimit: Int) -> RecentOutputSlice {
+    /// Shared bounding for every adapter and for the store's Cursor hook log,
+    /// so a hook-fed slice obeys the same limits as a transcript-fed one.
+    static func bound(_ entries: [TranscriptEntry], limit: Int,
+                      perEntryLimit: Int) -> RecentOutputSlice {
         var truncated = entries.count > limit
         let clipped = entries.suffix(limit).map { entry -> TranscriptEntry in
             if entry.text.count > perEntryLimit {

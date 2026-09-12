@@ -35,8 +35,10 @@ public enum CursorAskQuestionInput {
             return QuestionItem(id: nonEmpty(q["id"] as? String) ?? "q\(index + 1)",
                                 header: nonEmpty(input["title"] as? String),
                                 text: text, options: options,
+                                // `allowMultiple` is the ACP spelling (cursor/ask_question).
                                 multiSelect: (q["multiSelect"] as? Bool)
-                                    ?? (q["multiple"] as? Bool) ?? false,
+                                    ?? (q["multiple"] as? Bool)
+                                    ?? (q["allowMultiple"] as? Bool) ?? false,
                                 allowsOther: true)
         }
         guard let first = items.first else { return nil }
