@@ -125,7 +125,7 @@ enum SettingsPageID: String, CaseIterable, Identifiable {
         case .providerKeys: "One key per provider, shared by every feature"
         case .phone: "Pairing and remote access"
         case .agentCLIs: "Hooks, daemons and who answers first"
-        case .quota: "What each account has left"
+        case .quota: "When an allowance should warn you"
         case .tokenSpend: "What this Mac has spent locally"
         case .usageSources: "Where the numbers are read from"
         case .diagnostics: "Health, delivery and recent transitions"

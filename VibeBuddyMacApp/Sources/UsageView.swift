@@ -180,13 +180,13 @@ struct AccountUsageSummaryView: View {
     }
 }
 
-/// What each account has left. The live meters are the point of the page, so
-/// the only setting on it is the threshold that turns them into an alert.
+/// The threshold that turns a quota window into an alert, and the way to the
+/// readings themselves. The meters are read in one place only — the
+/// dashboard's plinth and its Usage page (ADR-0017 §6) — so this page links
+/// there instead of repeating them.
 struct PlanAndQuotaPage: View {
     @ObservedObject var model: MenuBarModel
     @AppStorage("accountUsageAlertThreshold") private var alertThreshold = 90
-
-    private let columns = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
 
     var body: some View {
         SettingsPageScaffold(SettingsPageID.quota.title, subtitle: SettingsPageID.quota.subtitle) {
@@ -206,35 +206,14 @@ struct PlanAndQuotaPage: View {
             }
 
             SettingsSection("Current usage",
-                            footnote: "Read from each vendor's own local login — nothing is copied to storage or logged.",
-                            boxed: false) {
-                LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
-                    ForEach(AccountUsageProvider.allCases, id: \.self) { provider in
-                        QuotaPanel(provider: provider, state: model.usageState(for: provider))
-                    }
+                            footnote: "Read from each vendor's own local login — nothing is copied to storage or logged.") {
+                SettingsRow("Windows, resets and pace",
+                            detail: "Every provider's live meters are on the dashboard's Usage page.") {
+                    Button("Open Usage") { DashboardRoute.open(.usage) }
+                        .accessibilityIdentifier("open-usage-page")
                 }
             }
         }
-    }
-}
-
-/// One provider's own panel on the quota page.
-private struct QuotaPanel: View {
-    let provider: AccountUsageProvider
-    let state: AccountUsageState
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(verbatim: provider.displayName)
-                .font(SettingsChrome.font(13, .bold))
-                .foregroundStyle(MacTheme.ink)
-            AccountUsageSummaryView(provider: provider, state: state)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(MacTheme.bg2)
-        .clipShape(RoundedRectangle(cornerRadius: SettingsChrome.cardRadius, style: .continuous))
     }
 }
 

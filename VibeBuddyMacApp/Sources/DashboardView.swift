@@ -3,6 +3,24 @@ import AppKit
 import VibeBuddyKit
 import VibeBuddyMacCore
 
+/// The dashboard's library tabs, and the one programmatic way to land on one
+/// of them from elsewhere. Settings › Plan & quota uses it to open the Usage
+/// page rather than repeat its readings (ADR-0017 §6). `@Published` replays
+/// the current value to a new subscriber, so a request made before the
+/// dashboard window has ever been built still reaches the view once it is.
+@MainActor
+final class DashboardRoute: ObservableObject {
+    enum Library: String { case live, history, favorites, usage }
+
+    static let shared = DashboardRoute()
+    @Published fileprivate var requested: Library?
+
+    static func open(_ library: Library) {
+        shared.requested = library
+        NotificationCenter.default.post(name: .openDashboard, object: nil)
+    }
+}
+
 /// Project navigation, the filtered session list, and the existing live detail
 /// surface. These filters never alter the shared snapshot or Buddy scope.
 struct DashboardView: View {
@@ -75,6 +93,13 @@ struct DashboardView: View {
             }
         }
         .background(MacTheme.bg)
+        .onReceive(DashboardRoute.shared.$requested) { library in
+            guard let library else { return }
+            libraryScope = library.rawValue
+            // Clear on the next turn so the request is consumed once and the
+            // publisher is not re-entered from inside its own delivery.
+            DispatchQueue.main.async { DashboardRoute.shared.requested = nil }
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button { showNewTask = true } label: { Image(systemName: "plus.bubble") }
