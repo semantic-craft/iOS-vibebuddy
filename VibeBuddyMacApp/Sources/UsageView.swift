@@ -9,8 +9,17 @@ struct AccountUsageSummaryView: View {
     var compact = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: compact ? 7 : 10) {
-            if let snapshot = state.snapshot?.excludingExpiredGrokWindows(at: Date()) {
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            VStack(alignment: .leading, spacing: compact ? 7 : 10) {
+                summary(now: context.date)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    @ViewBuilder
+    private func summary(now: Date) -> some View {
+            if let snapshot = state.snapshot?.excludingExpiredGrokWindows(at: now) {
                 if let account = snapshot.accountLabel {
                     Text(account).font(.caption).foregroundStyle(.secondary)
                 }
@@ -33,14 +42,30 @@ struct AccountUsageSummaryView: View {
                             .font(.caption2).foregroundStyle(.secondary)
                     }
                 }
-                if snapshot.windows.isEmpty {
+                if snapshot.displayWindows.isEmpty {
                     if provider != .grok && provider != .grokBot {
                         Label("No quota windows supplied", systemImage: "gauge.with.dots.needle.0percent")
                             .foregroundStyle(.secondary)
                     }
                 } else {
-                    ForEach(snapshot.windows) { window in
-                        windowRow(window)
+                    ForEach(snapshot.displayWindows) { window in
+                        windowRow(window, now: now)
+                    }
+                }
+
+                if let credits = snapshot.credits {
+                    LabeledContent(credits.label ?? "Credits", value: QuotaPresentation.creditsLine(credits))
+                        .font(.caption)
+                    if let reset = credits.resetsAt {
+                        Text(QuotaPresentation.resetLine(from: reset, now: now))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if let spend = snapshot.spend, !spend.isEmpty {
+                    ForEach(spend) { row in
+                        LabeledContent(row.label, value: QuotaPresentation.spendLine(row))
+                            .font(.caption)
                     }
                 }
 
@@ -74,34 +99,44 @@ struct AccountUsageSummaryView: View {
                     .font(.caption)
                     .foregroundStyle(reason == .collectionDisabled ? Color.secondary : Color.orange)
                     .fixedSize(horizontal: false, vertical: true)
-                if reason != .collectionDisabled, let retry = state.nextRefreshAt, retry > Date() {
+                if reason != .collectionDisabled, let retry = state.nextRefreshAt, retry > now {
                     Text("Retry \(retry, style: .relative)")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
             }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func windowRow(_ window: AccountUsageWindow) -> some View {
+    private func windowRow(_ window: AccountUsageWindow, now: Date) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(windowTitle(window)).font(.caption.weight(.semibold))
                 Spacer(minLength: 4)
-                Text(provider == .grokBot ? "\(window.usedPercent)% used · \(100 - window.usedPercent)% left" : "\(window.usedPercent)% used")
+                Text(QuotaPresentation.remainingLine(usedPercent: window.usedPercent))
                     .font(.caption.monospacedDigit())
             }
             ProgressView(value: Double(window.usedPercent), total: 100)
                 .tint(window.usedPercent >= 90 ? .orange : .accentColor)
             if let reset = window.resetsAt {
-                Text("Resets \(reset, style: .relative) · \(reset.formatted(date: .abbreviated, time: .shortened))")
+                Text(QuotaPresentation.resetLine(from: reset, now: now))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             } else {
                 Text("Reset time unavailable")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+            }
+            if let minutes = window.windowDurationMinutes, minutes >= 10_080,
+               let reset = window.resetsAt,
+               let pace = QuotaPresentation.weeklyPace(
+                usedPercent: window.usedPercent,
+                resetsAt: reset,
+                windowMinutes: minutes,
+                now: now
+               ) {
+                Text(pace.caption)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
         }
     }
@@ -110,7 +145,11 @@ struct AccountUsageSummaryView: View {
         if provider == .grok, window.kind == .secondary { return "Extra usage" }
         if let label = window.label { return label }
         guard let minutes = window.windowDurationMinutes else {
-            return window.kind == .primary ? "Primary window" : "Secondary window"
+            switch window.kind {
+            case .primary: return "Primary window"
+            case .secondary: return "Secondary window"
+            case .extra: return "Extra window"
+            }
         }
         if minutes % 10_080 == 0 { return "\(minutes / 10_080)-week window" }
         if minutes % 1_440 == 0 { return "\(minutes / 1_440)-day window" }

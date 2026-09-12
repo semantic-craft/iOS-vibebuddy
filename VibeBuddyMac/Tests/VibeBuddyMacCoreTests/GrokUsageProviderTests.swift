@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import Testing
+import VibeBuddyKit
 @testable import VibeBuddyMacCore
 
 @Suite("Grok usage adapter")
@@ -98,6 +99,29 @@ struct GrokUsageProviderTests {
         #expect(snapshot.secondary?.usedPercent == 25)
         #expect(snapshot.secondary?.windowDurationMinutes == 10_080)
         #expect(Self.matches(snapshot.secondary?.resetsAt, "2026-09-06T11:36:49Z"))
+        #expect(snapshot.spend?.first?.amount == 1250)
+        #expect(snapshot.quotaWindows.map(\.kind) == [.primary])
+    }
+
+    @Test("prepaid balance is credits and never a quota-percent window")
+    func prepaidCredits() throws {
+        let response = Data(#"""
+        {"jsonrpc":"2.0","id":2,"result":{"config":{"creditUsagePercent":36.0,
+        "currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","start":"2026-08-30T11:36:49.308758+00:00",
+        "end":"2026-09-06T11:36:49.308758+00:00"},"onDemandCap":{"val":0},"onDemandUsed":{"val":0},
+        "prepaidBalance":{"val":42.5},"isUnifiedBillingUser":true,
+        "billingPeriodStart":"2026-08-30T11:36:49.308758+00:00",
+        "billingPeriodEnd":"2026-09-06T11:36:49.308758+00:00"},"subscription_tier":"SuperGrok Heavy"}}
+        """#.utf8)
+        let snapshot = try GrokUsageResponseDecoder.decode(billingResponse: response, fetchedAt: now)
+        #expect(snapshot.credits?.remaining == 42.5)
+        #expect(snapshot.credits?.label == "Prepaid")
+        #expect(snapshot.primary?.usedPercent == 36)
+        #expect(snapshot.extraWindows == nil)
+        let quota = ProviderQuota(.available(snapshot, nextRefreshAt: nil), provider: .grok)
+        #expect(quota.weeklyRemainingPercent == 64)
+        #expect(quota.credits?.remaining == 42.5)
+        #expect(quota.otherWindows == nil)
     }
 
     @Test("a percentage outside zero through one hundred is rejected")

@@ -82,6 +82,27 @@ public enum CursorUsageSummaryDecoder {
         let end = parseTimestamp(summary.billingCycleEnd)
         let duration = durationMinutes(from: start, to: end)
 
+        var spend: [QuotaSpend]?
+        if let onDemand = summary.individualUsage?.onDemand,
+           let used = onDemand.used, used > 0 {
+            spend = [QuotaSpend(label: "On-demand", amount: Double(used))]
+        }
+        var credits: QuotaCredits?
+        if let remaining = summary.individualUsage?.plan?.remaining {
+            credits = QuotaCredits(
+                remaining: Double(remaining),
+                limit: summary.individualUsage?.plan?.limit.map(Double.init),
+                label: "Plan remaining"
+            )
+        } else if let remaining = summary.individualUsage?.onDemand?.remaining,
+                  (summary.individualUsage?.onDemand?.limit ?? 0) > 0 {
+            credits = QuotaCredits(
+                remaining: Double(remaining),
+                limit: summary.individualUsage?.onDemand?.limit.map(Double.init),
+                label: "On-demand remaining"
+            )
+        }
+
         if let pool = summary.individualUsage?.plan,
            pool.autoPercentUsed != nil || pool.apiPercentUsed != nil {
             func window(_ value: Double?, kind: AccountUsageWindowKind, label: String) throws -> AccountUsageWindow? {
@@ -93,7 +114,8 @@ public enum CursorUsageSummaryDecoder {
             return try AccountUsageSnapshot(provider: .cursor, planType: summary.membershipType,
                 primary: window(pool.autoPercentUsed, kind: .primary, label: "Cursor Models"),
                 secondary: window(pool.apiPercentUsed, kind: .secondary, label: "Other Models"),
-                lifetimeTokens: nil, latestDailyTokens: nil, fetchedAt: fetchedAt)
+                lifetimeTokens: nil, latestDailyTokens: nil, fetchedAt: fetchedAt,
+                credits: credits, spend: spend)
         }
 
         guard let primaryUsed = primaryUsedPercent(from: summary) else {
@@ -138,7 +160,9 @@ public enum CursorUsageSummaryDecoder {
             secondary: secondary,
             lifetimeTokens: nil,
             latestDailyTokens: nil,
-            fetchedAt: fetchedAt
+            fetchedAt: fetchedAt,
+            credits: credits,
+            spend: spend
         )
     }
 

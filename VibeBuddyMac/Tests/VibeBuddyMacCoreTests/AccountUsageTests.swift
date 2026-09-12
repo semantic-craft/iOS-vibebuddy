@@ -48,6 +48,63 @@ struct AccountUsageTests {
         #expect(snapshot.lifetimeTokens == 1_234_567)
         #expect(snapshot.latestDailyTokens == 34_000)
         #expect(snapshot.fetchedAt == now)
+        #expect(snapshot.extraWindows == nil)
+    }
+
+    @Test("Codex additional_rate_limits map Spark extras without stealing weekly remaining")
+    func codexAdditionalRateLimits() throws {
+        let rateLimits = Data(#"""
+        {
+          "result":{
+            "rateLimits":{
+              "planType":"pro",
+              "primary":{"usedPercent":20,"windowDurationMins":300,"resetsAt":1788318000},
+              "secondary":{"usedPercent":10,"windowDurationMins":10080,"resetsAt":1788912000},
+              "additional_rate_limits":[
+                {
+                  "limit_name":"GPT-5.3-Codex-Spark",
+                  "metered_feature":"spark",
+                  "rate_limit":{
+                    "primary_window":{"used_percent":33,"reset_at":1788318000,"limit_window_seconds":18000},
+                    "secondary_window":{"used_percent":44,"reset_at":1788912000,"limit_window_seconds":604800}
+                  }
+                }
+              ],
+              "credits":{"has_credits":true,"balance":12.5}
+            }
+          }
+        }
+        """#.utf8)
+        let usage = Data(#"{"result":{"summary":{"lifetimeTokens":1,"extra_usage_usd":4.2}}}"#.utf8)
+        let snapshot = try CodexUsageResponseDecoder.decode(
+            rateLimitsResponse: rateLimits, usageResponse: usage, fetchedAt: now)
+        #expect(snapshot.primary?.usedPercent == 20)
+        #expect(snapshot.secondary?.usedPercent == 10)
+        #expect(snapshot.extraWindows?.map(\.key) == ["codex-spark", "codex-spark-weekly"])
+        #expect(snapshot.extraWindows?.map(\.label) == ["Codex Spark 5-hour", "Codex Spark Weekly"])
+        #expect(snapshot.extraWindows?.map(\.usedPercent) == [33, 44])
+        #expect(snapshot.credits?.remaining == 12.5)
+        #expect(snapshot.spend?.first?.amount == 4.2)
+        let quota = ProviderQuota(.available(snapshot, nextRefreshAt: nil), provider: .codex)
+        #expect(quota.weeklyRemainingPercent == 90)
+        #expect(quota.shortWindowRemainingPercent == 80)
+        #expect(quota.otherWindows?.map(\.label) == ["Codex Spark 5-hour", "Codex Spark Weekly"])
+        #expect(quota.credits?.remaining == 12.5)
+        #expect(quota.spend?.first?.label == "Extra usage")
+    }
+
+    @Test("Claude extra usage dollars and credits remaining parse beside Fable week")
+    func claudeCreditsAndSpend() throws {
+        let output = """
+        Current session: 9% used · resets Sep 2 at 6:39pm (UTC)
+        Current week (all models): 15% used · resets Sep 5 at 7:59pm (UTC)
+        Extra usage: $6.50
+        Credits remaining: 80
+        """
+        let data = try JSONSerialization.data(withJSONObject: ["is_error": false, "result": output])
+        let snapshot = try ClaudeUsageResponseDecoder.decode(data, fetchedAt: now)
+        #expect(snapshot.spend?.first?.amount == 6.5)
+        #expect(snapshot.credits?.remaining == 80)
     }
 
     @Test("official Claude usage output maps session and weekly windows")
@@ -88,6 +145,14 @@ struct AccountUsageTests {
         #expect(snapshot.secondary?.resetsAt == calendar.date(from: DateComponents(
             year: 2026, month: 9, day: 5, hour: 19, minute: 59
         )))
+        #expect(snapshot.extraWindows?.map(\.key) == ["claude-weekly-scoped-fable"])
+        #expect(snapshot.extraWindows?.first?.label == "Fable only")
+        #expect(snapshot.extraWindows?.first?.usedPercent == 18)
+        #expect(snapshot.extraWindows?.first?.windowDurationMinutes == 10_080)
+        let quota = ProviderQuota(.available(snapshot, nextRefreshAt: nil), provider: .claude)
+        #expect(quota.weeklyRemainingPercent == 85)
+        #expect(quota.otherWindows?.first?.label == "Fable only")
+        #expect(quota.otherWindows?.first?.remainingPercent == 82)
     }
 
     @Test("a Claude window that resets on the hour prints no minutes and still parses")
@@ -123,6 +188,7 @@ struct AccountUsageTests {
         #expect(snapshot.primary?.resetsAt == calendar.date(from: DateComponents(
             year: 2026, month: 9, day: 3, hour: 14, minute: 30
         )))
+        #expect(snapshot.extraWindows?.first?.label == "Fable only")
     }
 
     @Test("provider percentages outside zero through one hundred are rejected")

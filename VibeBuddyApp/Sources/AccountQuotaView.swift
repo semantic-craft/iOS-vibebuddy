@@ -87,6 +87,18 @@ struct AccountQuotaView: View {
                                     ForEach(Array(windows.enumerated()), id: \.offset) { _, window in
                                         reading(window, now: context.date)
                                     }
+                                    if let credits = quota.credits {
+                                        LabeledContent(credits.label ?? "Credits", value: QuotaPresentation.creditsLine(credits))
+                                        if let reset = credits.resetsAt {
+                                            Text(QuotaPresentation.resetLine(from: reset, now: context.date))
+                                                .font(.caption).foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    if let spend = quota.spend, !spend.isEmpty {
+                                        ForEach(spend) { row in
+                                            LabeledContent(row.label, value: QuotaPresentation.spendLine(row))
+                                        }
+                                    }
                                     if let reason = quota.unavailableReason {
                                         Text(reason).font(.callout).foregroundStyle(.secondary)
                                     }
@@ -133,7 +145,7 @@ struct AccountQuotaView: View {
         return VStack(alignment: .leading, spacing: 6) {
             Text(Self.title(window)).font(.headline)
             if let remaining {
-                Text("\(remaining)% remaining").monospacedDigit()
+                Text(QuotaPresentation.remainingLine(remainingPercent: remaining)).monospacedDigit()
                 ProgressView(value: Double(remaining), total: 100)
             } else { Text("Remaining unknown") }
             switch status {
@@ -147,8 +159,14 @@ struct AccountQuotaView: View {
                 Text(dashboard.state == .connected ? "Recent Mac reading" : "Cached · Mac unreachable")
             }
             if let reset = window.resetsAt {
-                Text("Resets: \(reset.formatted(date: .abbreviated, time: .shortened))")
+                Text(QuotaPresentation.resetLine(from: reset, now: now))
             } else { Text("Reset time unknown") }
+            if let remaining, let minutes = window.durationMinutes, minutes >= 10_080,
+               let reset = window.resetsAt,
+               let pace = QuotaPresentation.weeklyPace(
+                usedPercent: 100 - remaining, resetsAt: reset, windowMinutes: minutes, now: now) {
+                Text(pace.caption).font(.caption).foregroundStyle(.secondary)
+            }
             if let observed = window.observedAt {
                 Text("Updated: \(observed.formatted(date: .abbreviated, time: .shortened))")
             } else { Text("Update time unknown") }

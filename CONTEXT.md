@@ -294,9 +294,13 @@ code, and tests — don't drift to synonyms.
   Identified phones can be saved before APNs registration; push counts include
   only records with a token. Expiring a push token retains the phone identity,
   so push availability never decides whether that phone is paired.
-- **AccountUsage** — provider quota (Codex app-server RPC, Claude `/usage` CLI):
-  window, remaining, reset, freshness, `stale` / unavailable reason. Collected by
-  isolated, individually switchable adapters that can never move session state.
+- **AccountUsage** — provider quota (Codex app-server RPC, Claude `/usage` CLI,
+  Cursor/Grok local sources): window, remaining, reset, freshness, `stale` /
+  unavailable reason, plus extra named windows (Claude model-week, Codex Spark),
+  credits remaining, and extra-usage spend when the local source reports them.
+  Collected by isolated, individually switchable adapters that can never move
+  session state. Extra windows never replace the weekly remaining slot.
+  Distinct from **Token consumption** (local spend ledger) and from billed invoices.
 - **Token consumption** — local, read-only aggregation of tokens spent in Claude
   Code transcripts and Codex CLI/Desktop rollouts (input, output, cache-read,
   reasoning), grouped by agent, model and project over today and the last seven

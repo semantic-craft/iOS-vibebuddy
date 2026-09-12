@@ -23,6 +23,22 @@ final class AccountQuotaTests: XCTestCase {
         XCTAssertTrue(AccountQuotaView.windows(.unavailable(.cursor, reason: "Collection disabled")).isEmpty)
     }
 
+    func testRemainingLineAndCreditsStayOnTheQuotaSurface() {
+        var quota = ProviderQuota(provider: .claude, weeklyRemainingPercent: 42,
+                                  weeklyWindowDurationMinutes: 10080, observedAt: Date())
+        quota.credits = QuotaCredits(remaining: 80, label: "Credits")
+        quota.spend = [QuotaSpend(label: "Extra usage", amount: 6.5)]
+        quota.otherWindows = [
+            QuotaWindow(remainingPercent: 82, durationMinutes: 10080, resetsAt: Date().addingTimeInterval(3600),
+                        observedAt: Date(), label: "Fable only")
+        ]
+        let windows = AccountQuotaView.windows(quota)
+        XCTAssertEqual(windows.last?.label, "Fable only")
+        XCTAssertEqual(QuotaPresentation.remainingLine(remainingPercent: 42), "42% left · 58% used")
+        XCTAssertEqual(quota.credits?.remaining, 80)
+        XCTAssertEqual(quota.spend?.first?.amount, 6.5)
+    }
+
     func testSwitchingMacClearsPublishedQuotaBeforeNewSnapshot() async throws {
         let quota = ProviderQuota(provider: .codex, weeklyRemainingPercent: 63, observedAt: Date())
         let store = DashboardStore(streamer: QuotaStreamer(quota: quota), notifier: SilentNotifier(),
