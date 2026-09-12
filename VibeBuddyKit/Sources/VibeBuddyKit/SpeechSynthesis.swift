@@ -8,15 +8,27 @@ public struct SpeechSynthesisConfiguration: Sendable, Equatable {
     public let voice: String
     public let qwenWorkspaceID: String?
     public let qwenUseIntl: Bool
+    /// The persona layered on the voice. `.standard` sends no instruction, so
+    /// the request is byte-for-byte what it was before styles existed.
+    public let style: VoiceStyle
+    /// Which language the style instruction is written in — the summary's own,
+    /// so the vendor reads it as a delivery note and not a language switch.
+    public let language: VoiceLanguage
 
     public init(provider: VoiceProvider, model: String, voice: String,
-                qwenWorkspaceID: String? = nil, qwenUseIntl: Bool = false) {
+                qwenWorkspaceID: String? = nil, qwenUseIntl: Bool = false,
+                style: VoiceStyle = .standard, language: VoiceLanguage = .english) {
         self.provider = provider
         self.model = model
         self.voice = voice
         self.qwenWorkspaceID = qwenWorkspaceID
         self.qwenUseIntl = qwenUseIntl
+        self.style = style
+        self.language = language
     }
+
+    /// The persona each synthesizer frames in its own vendor's words.
+    var persona: VoicePersona? { style.persona(language) }
 }
 
 /// Graded so the UI can say something the user can act on without echoing a
@@ -65,7 +77,19 @@ public enum SpeechSynthesis {
     public struct Support: Sendable {
         public let defaultModel: String
         public let defaultVoice: String
+        /// Whether this vendor documents an instruction channel for delivery.
+        /// The UI offers the style control only where it changes the audio —
+        /// a picker that silently does nothing is worse than no picker.
+        public let supportsStyle: Bool
         let make: @Sendable (SpeechSynthesisConfiguration) -> any SpeechSynthesizer
+
+        init(defaultModel: String, defaultVoice: String, supportsStyle: Bool = false,
+             make: @escaping @Sendable (SpeechSynthesisConfiguration) -> any SpeechSynthesizer) {
+            self.defaultModel = defaultModel
+            self.defaultVoice = defaultVoice
+            self.supportsStyle = supportsStyle
+            self.make = make
+        }
     }
 
     /// Every provider speaks, so this is total — there is no "cannot read
@@ -74,24 +98,30 @@ public enum SpeechSynthesis {
         switch provider {
         case .qwen:
             return Support(defaultModel: QwenSpeechSynthesizer.defaultModel,
-                           defaultVoice: QwenSpeechSynthesizer.defaultVoice) {
+                           defaultVoice: QwenSpeechSynthesizer.defaultVoice,
+                           supportsStyle: true) {
                 QwenSpeechSynthesizer(model: $0.model, voice: $0.voice,
-                                      workspaceID: $0.qwenWorkspaceID, useIntl: $0.qwenUseIntl)
+                                      workspaceID: $0.qwenWorkspaceID, useIntl: $0.qwenUseIntl,
+                                      persona: $0.persona)
             }
         case .openai:
+            // `/v1/audio/speech` does take an `instructions` field; it is left
+            // unwired because this ticket asked for the three vendors below.
             return Support(defaultModel: OpenAISpeechSynthesizer.defaultModel,
                            defaultVoice: OpenAISpeechSynthesizer.defaultVoice) {
                 OpenAISpeechSynthesizer(model: $0.model, voice: $0.voice)
             }
         case .gemini:
             return Support(defaultModel: GeminiSpeechSynthesizer.defaultModel,
-                           defaultVoice: GeminiSpeechSynthesizer.defaultVoice) {
-                GeminiSpeechSynthesizer(model: $0.model, voice: $0.voice)
+                           defaultVoice: GeminiSpeechSynthesizer.defaultVoice,
+                           supportsStyle: true) {
+                GeminiSpeechSynthesizer(model: $0.model, voice: $0.voice, persona: $0.persona)
             }
         case .doubao:
             return Support(defaultModel: DoubaoSpeechSynthesizer.defaultModel,
-                           defaultVoice: DoubaoSpeechSynthesizer.defaultVoice) {
-                DoubaoSpeechSynthesizer(model: $0.model, voice: $0.voice)
+                           defaultVoice: DoubaoSpeechSynthesizer.defaultVoice,
+                           supportsStyle: true) {
+                DoubaoSpeechSynthesizer(model: $0.model, voice: $0.voice, persona: $0.persona)
             }
         }
     }

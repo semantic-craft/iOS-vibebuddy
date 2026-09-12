@@ -252,6 +252,10 @@ public enum VoiceSettings {
     /// Per-provider read-aloud model / voice, mirroring `modelKey` / `voiceKey`.
     public static func readAloudModelKey(_ p: VoiceProvider) -> String { "readAloud.model.\(p.rawValue)" }
     public static func readAloudVoiceKey(_ p: VoiceProvider) -> String { "readAloud.voice.\(p.rawValue)" }
+    /// Per-provider too, and for the same reason the voice is: a persona is
+    /// phrased for one vendor's instruction channel, so it does not follow the
+    /// user across a provider switch.
+    public static func readAloudStyleKey(_ p: VoiceProvider) -> String { "readAloud.style.\(p.rawValue)" }
     /// The Qwen-only keys read-aloud used before it became a purpose provider.
     public static let legacyReadAloudModelKey = "qwenReadAloudModel"
     public static let legacyReadAloudVoiceKey = "qwenReadAloudVoice"
@@ -330,13 +334,22 @@ public enum VoiceSettings {
         return VoiceCatalog.defaultVoice(purpose, p, language: language) ?? curated
     }
 
+    /// The read-aloud persona for a provider. `.standard` for a vendor with no
+    /// instruction channel, whatever is stored — the request has nowhere to
+    /// carry it, and claiming otherwise would make the setting a lie.
+    public static func readAloudStyle(_ p: VoiceProvider, defaults: UserDefaults = .standard) -> VoiceStyle {
+        guard SpeechSynthesis.support(p).supportsStyle else { return .standard }
+        return VoiceStyle(stored: defaults.string(forKey: readAloudStyleKey(p)))
+    }
+
     public static func readAloudConfiguration(_ p: VoiceProvider,
                                               defaults: UserDefaults = .standard) -> SpeechSynthesisConfiguration {
         let workspace = (defaults.string(forKey: qwenWorkspaceIDKey) ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return SpeechSynthesisConfiguration(provider: p,
             model: readAloudModel(p, defaults: defaults), voice: readAloudVoice(p, defaults: defaults),
-            qwenWorkspaceID: workspace.isEmpty ? nil : workspace, qwenUseIntl: defaults.bool(forKey: regionIntlKey))
+            qwenWorkspaceID: workspace.isEmpty ? nil : workspace, qwenUseIntl: defaults.bool(forKey: regionIntlKey),
+            style: readAloudStyle(p, defaults: defaults), language: conversationLanguage(defaults: defaults))
     }
 
     /// The shared conversation language, from an injectable store.

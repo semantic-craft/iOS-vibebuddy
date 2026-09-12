@@ -252,6 +252,14 @@
 "Hello, I’m your work companion. The task is complete, and device verification is still pending." = "你好，我是你的工作伙伴。任务已完成，设备验证仍待进行。";
 "Read-aloud voice" = "朗读音色";
 
+/* Read-aloud voice style — a persona sent as a delivery instruction */
+"Voice style" = "语音风格";
+"Standard" = "标准";
+"Girl next door" = "邻家小妹";
+"Fiery girl" = "火辣少女";
+"Reads the summary with no extra direction." = "按音色本身朗读摘要，不附加风格指令。";
+"Sent to %@ as a delivery instruction alongside each reading." = "每次朗读都会把该风格指令一并发给 %@。";
+
 /* Verified wait handling */
 "Review and respond on your iPhone." = "请在 iPhone 上查看并处理。";
 "Approve or deny on your Watch." = "请在 Watch 上批准或拒绝。";

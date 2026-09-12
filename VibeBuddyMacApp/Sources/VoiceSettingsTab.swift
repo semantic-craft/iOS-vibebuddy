@@ -547,6 +547,7 @@ private struct ReadAloudFeatureRow: View {
     @AppStorage(VoiceSettings.qwenWorkspaceIDKey) private var workspace = ""
     @AppStorage private var modelID: String
     @AppStorage private var voiceID: String
+    @AppStorage private var styleID: String
 
     init(status: VoiceSettings.ReadAloudStatus, summaryProvider: VoiceProvider?,
          reader: ReadAloud, voiceChat: VoiceChat,
@@ -566,6 +567,8 @@ private struct ReadAloudFeatureRow: View {
         // Deliberately empty: a stored voice wins, and everything else is
         // decided by the language-aware fallback below.
         _voiceID = AppStorage(wrappedValue: "", VoiceSettings.readAloudVoiceKey(keyed))
+        _styleID = AppStorage(wrappedValue: VoiceStyle.standard.rawValue,
+                              VoiceSettings.readAloudStyleKey(keyed))
     }
 
     private var spokenLanguage: VoiceLanguage { VoiceLanguage(rawValue: language) ?? .english }
@@ -578,11 +581,19 @@ private struct ReadAloudFeatureRow: View {
             ? VoiceSettings.readAloudVoice(status.provider ?? .qwen, language: spokenLanguage)
             : voiceID
     }
+    /// `.standard` for a vendor with no instruction channel, so a persona left
+    /// behind by an earlier provider cannot follow the user to one that would
+    /// silently drop it.
+    private var effectiveStyle: VoiceStyle {
+        guard SpeechSynthesis.support(status.provider ?? .qwen).supportsStyle else { return .standard }
+        return VoiceStyle(stored: styleID)
+    }
     private var configuration: SpeechSynthesisConfiguration {
         let value = workspace.trimmingCharacters(in: .whitespacesAndNewlines)
         return .init(provider: status.provider ?? .qwen,
                      model: modelID.trimmingCharacters(in: .whitespacesAndNewlines), voice: effectiveVoice,
-                     qwenWorkspaceID: value.isEmpty ? nil : value, qwenUseIntl: intl)
+                     qwenWorkspaceID: value.isEmpty ? nil : value, qwenUseIntl: intl,
+                     style: effectiveStyle, language: spokenLanguage)
     }
     /// Why preview cannot run — the same order the status pill reports.
     private var previewFailure: String? {
@@ -667,6 +678,26 @@ private struct ReadAloudFeatureRow: View {
                 // No trailing button: the ▶ beside the voice is this row's verification.
                 EmptyView()
             }
+            // Its own line, not a fifth column: the persona applies to whatever
+            // voice is chosen above, and ControlLine's three cells are already
+            // at their minimum widths. Shown only where the vendor documents an
+            // instruction channel — see `Support.supportsStyle`.
+            if case .ready(let provider) = status, SpeechSynthesis.support(provider).supportsStyle {
+                HStack(spacing: 8) {
+                    Text("Voice style").font(.caption).foregroundStyle(.secondary)
+                    Picker("Voice style", selection: styleSelection) {
+                        ForEach(VoiceStyle.allCases, id: \.rawValue) { Text(verbatim: $0.display).tag($0.rawValue) }
+                    }
+                    .labelsHidden().fixedSize()
+                    .accessibilityLabel("Voice style")
+                    .accessibilityIdentifier("readAloudStyle")
+                    Text(effectiveStyle == .standard
+                         ? "Reads the summary with no extra direction."
+                         : "Sent to \(provider.display) as a delivery instruction alongside each reading.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                }
+            }
             // A reading that started on its own is stoppable here; the ▶ owns previews only.
             if reader.automaticBusy || !reader.status.isEmpty {
                 HStack(spacing: 8) {
@@ -683,10 +714,10 @@ private struct ReadAloudFeatureRow: View {
           }
         }
         .onAppear { credential.refresh() }
-        .onChange(of: [modelID, voiceID, workspace, String(intl), String(credential.revision),
+        .onChange(of: [modelID, voiceID, styleID, workspace, String(intl), String(credential.revision),
                        String(enabled)]) { _, _ in tests.invalidate() }
         .onChange(of: enabled) { _, on in if !on { reader.stop() } }
-        .onChange(of: [modelID, voiceID]) { _, _ in reader.stop() }
+        .onChange(of: [modelID, voiceID, styleID]) { _, _ in reader.stop() }
         .onChange(of: voiceChat.isActive) { _, active in
             if active, tests.purpose == .readAloud { tests.cancel() }
         }
@@ -694,6 +725,13 @@ private struct ReadAloudFeatureRow: View {
 
     /// This row owns the running test, so its button reads and acts as Stop.
     private var isPreviewing: Bool { tests.purpose == .readAloud && tests.isBusy }
+
+    /// Reads through the same normalisation the request uses, so a stored
+    /// persona this build cannot parse shows as Standard instead of leaving
+    /// the picker with no matching tag.
+    private var styleSelection: Binding<String> {
+        Binding(get: { effectiveStyle.rawValue }, set: { styleID = $0 })
+    }
 
     private func preview() {
         if isPreviewing { tests.cancel(); return }

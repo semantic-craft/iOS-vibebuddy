@@ -11,10 +11,22 @@ public struct GeminiSpeechSynthesizer: SpeechSynthesizer {
 
     let model: String
     let voice: String
+    let persona: VoicePersona?
 
-    public init(model: String = defaultModel, voice: String = defaultVoice) {
+    public init(model: String = defaultModel, voice: String = defaultVoice,
+                persona: VoicePersona? = nil) {
         self.model = model.isEmpty ? Self.defaultModel : model
         self.voice = voice.isEmpty ? Self.defaultVoice : voice
+        self.persona = persona
+    }
+
+    /// Gemini has no instruction field — `speechConfig` carries only the voice
+    /// — so style is controlled from inside the prompt, which is the documented
+    /// way ("Say in a spooky whisper: …"). The lead-in therefore sits ahead of
+    /// the summary, and the model reads it as direction rather than content.
+    func prompt(_ text: String) -> String {
+        guard let persona else { return text }
+        return "\(persona.leadIn)\n\(text)"
     }
 
     public func synthesize(_ text: String, apiKey: String) async throws -> Data {
@@ -24,7 +36,7 @@ public struct GeminiSpeechSynthesizer: SpeechSynthesizer {
         }
         let data = try await SpeechSynthesisHTTP.post(url,
             headers: ["x-goog-api-key": apiKey, "Accept": "application/json"],
-            body: ["contents": [["role": "user", "parts": [["text": text]]]],
+            body: ["contents": [["role": "user", "parts": [["text": prompt(text)]]]],
                    "generationConfig": [
                        "candidateCount": 1,
                        "responseModalities": ["AUDIO"],
