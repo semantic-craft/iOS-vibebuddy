@@ -751,12 +751,38 @@ public actor SessionStore {
 
     /// Wait at most until two seconds after the original ending. Results are
     /// memory-only and must be revalidated again by the eventual notification owner.
-    public func completionResult(sessionID: String, completionID: String) async -> CompletionResultAvailability {
+    public func completionBody(sessionID: String, completionID: String) async -> CompletionBody {
+        let result = await completionResult(sessionID: sessionID, completionID: completionID, forReading: true)
+        switch result {
+        case .ready(let frozen):
+            return CompletionBody(sourceID: frozen.sourceID, sessionID: sessionID, completionID: completionID, text: frozen.finalText)
+        case .cancelled:
+            return CompletionBody(sourceID: sourceID, sessionID: sessionID, completionID: completionID, unavailableReason: "This completion is no longer current.")
+        default:
+            // Reading is allowed after the notification deadline; it must still
+            // prove the same turn against the transcript and recheck identity.
+            if let candidate = completionResults.candidates[sessionID], candidate.completionID == completionID,
+               let path = candidate.transcriptPath {
+                let text = await Task.detached {
+                    ClaudeCompletionReader.read(path: path, sessionID: sessionID, startedAt: candidate.startedAt,
+                        completedAt: candidate.completedAt, expectedText: candidate.expectedText)
+                }.value
+                if let text, text.count <= 12_000, reducer.sessions[sessionID]?.completionID == completionID,
+                   reducer.sessions[sessionID]?.status == .done {
+                    return CompletionBody(sourceID: sourceID, sessionID: sessionID, completionID: completionID, text: text)
+                }
+            }
+            return CompletionBody(sourceID: sourceID, sessionID: sessionID, completionID: completionID,
+                                  unavailableReason: "The final result could not be verified for this completion. Recent output remains available with limited coverage.")
+        }
+    }
+
+    public func completionResult(sessionID: String, completionID: String, forReading: Bool = false) async -> CompletionResultAvailability {
         var waited = false
         while true {
             guard !Task.isCancelled,
                   let session = reducer.sessions[sessionID], session.status == .done,
-                  !session.isStuck, session.probeRetired != true, session.hasUnreadCompletion,
+                  !session.isStuck, session.probeRetired != true, (forReading || session.hasUnreadCompletion),
                   session.completionID == completionID else { return .cancelled }
             guard let sourceID, !sourceID.isEmpty,
                   let candidate = completionResults.candidates[sessionID],

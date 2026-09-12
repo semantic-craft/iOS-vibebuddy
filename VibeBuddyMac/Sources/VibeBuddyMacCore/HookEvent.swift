@@ -30,6 +30,8 @@ public struct HookEvent: Sendable, Equatable {
         case unknown
     }
 
+    /// Explicit provider evidence that this is a new session, not a resume.
+    public var startsNewSession = false
     public let kind: Kind
     public let sessionID: String
     public let agent: AgentKind

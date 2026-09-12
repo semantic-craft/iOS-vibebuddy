@@ -806,6 +806,15 @@ final class DashboardStore: ObservableObject {
     }
 
     /// Fetch the bounded recent-output slice. Does not acknowledge completions.
+    var completionSourceID: String? { sourceID }
+
+    func completionBody(for session: AgentSession) async -> CompletionBody? {
+        guard let pairing, let completionID = session.completionID else { return nil }
+        let body = await decisionClient.completionBody(pairing, sessionId: session.id, completionId: completionID)
+        guard body?.sourceID == sourceID else { return nil }
+        return body
+    }
+
     func loadRecentOutput(_ sessionId: String) async {
         if isDemo {
             recentOutputs[sessionId] = Self.demoRecentOutput(sessionId, from: allSessions)

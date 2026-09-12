@@ -1070,6 +1070,13 @@ final class MenuBarModel: ObservableObject {
         await recentOutput(for: sessionID).entries.map { TranscriptEntry(role: $0.role, text: $0.text) }
     }
 
+    var completionSourceID: String? { snapshotSourceID }
+
+    func completionBody(for session: AgentSession) async -> CompletionBody? {
+        guard let id = session.completionID else { return nil }
+        return await store.completionBody(sessionID: session.id, completionID: id)
+    }
+
     func recentOutput(for sessionID: String) async -> RecentOutput {
         await store.recentOutput(sessionID: sessionID)
     }

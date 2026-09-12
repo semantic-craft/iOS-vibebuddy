@@ -41,7 +41,9 @@ public enum HookParser {
         }
 
         let message: String?
-        if raw.hookEventName == "PermissionRequest" {
+        if raw.hookEventName == "UserPromptSubmit" {
+            message = raw.prompt ?? raw.message
+        } else if raw.hookEventName == "PermissionRequest" {
             message = raw.toolName.map { "Permission required for \($0)" } ?? "Permission required"
         } else if raw.hookEventName == "PermissionDenied" {
             message = raw.toolName.map { "Permission denied for \($0)" } ?? "Permission denied"
@@ -74,7 +76,7 @@ public enum HookParser {
             ? Self.nonEmpty(raw.agentId).map { "subagent:\($0)" }
             : nil
 
-        return HookEvent(
+        var event = HookEvent(
             kind: kind,
             sessionID: sessionID,
             agent: agent,
@@ -94,6 +96,8 @@ public enum HookParser {
             completionText: raw.hookEventName == "Stop" ? raw.lastAssistantMessage : nil,
             completionSucceeded: raw.hookEventName == "Stop"
         )
+        event.startsNewSession = agent == .claudeCode && raw.hookEventName == "SessionStart" && raw.source == "startup"
+        return event
     }
 
     /// Did this tool result report a failure? Read defensively with
@@ -222,11 +226,13 @@ public enum HookParser {
 
     struct RawHook: Decodable {
         let hookEventName: String
+        let source: String?
         let sessionId: String?
         let cwd: String?
         let toolName: String?
         let notificationType: String?
         let message: String?
+        let prompt: String?
         let error: String?
         let lastAssistantMessage: String?
         let transcriptPath: String?

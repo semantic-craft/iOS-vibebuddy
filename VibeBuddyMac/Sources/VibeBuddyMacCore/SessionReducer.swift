@@ -18,6 +18,7 @@ public struct SessionReducer: Sendable {
     /// (`HookEvent.turnID`). Grok dispatches a cancelled turn's report off the
     /// command loop, so it can land after the next turn already started.
     private var currentTurnID: [String: String] = [:]
+    private var awaitingOriginalPrompt: Set<String> = []
 
     public init() {}
 
@@ -40,6 +41,8 @@ public struct SessionReducer: Sendable {
     ) {
         switch event.kind {
         case .sessionStart:
+            if event.startsNewSession { awaitingOriginalPrompt.insert(event.sessionID) }
+            else { awaitingOriginalPrompt.remove(event.sessionID) }
             // Starting or resuming opens a session but does not mean a turn is
             // running yet. Mature monitors call this free/idle; in our three
             // buckets that is `done` until UserPromptSubmit arrives.
@@ -51,6 +54,11 @@ public struct SessionReducer: Sendable {
         case .userPromptSubmit:
             if let turnID = event.turnID { currentTurnID[event.sessionID] = turnID }
             upsert(event, status: .working, waitKind: nil)
+            if awaitingOriginalPrompt.remove(event.sessionID) != nil,
+               sessions[event.sessionID]?.firstUserPrompt == nil,
+               let prompt = event.message?.trimmingCharacters(in: .whitespacesAndNewlines), !prompt.isEmpty {
+                sessions[event.sessionID]?.firstUserPrompt = String(prompt.prefix(4000))
+            }
             sessions[event.sessionID]?.hasUnreadCompletion = false
             sessions[event.sessionID]?.completionID = nil
             sessions[event.sessionID]?.failed = false
@@ -58,6 +66,7 @@ public struct SessionReducer: Sendable {
             sessions[event.sessionID]?.userStopped = nil
             sessions[event.sessionID]?.activeTool = nil
         case .preToolUse, .postToolUse:
+            if event.childID == nil { awaitingOriginalPrompt.remove(event.sessionID) }
             if event.childID != nil {
                 // Nested subagent tools describe the child, not parent progress.
                 applyNestedChildTool(event)
@@ -280,6 +289,7 @@ public struct SessionReducer: Sendable {
             // The per-session side tables outlive nothing: a session id that
             // comes back (grok resumes one) must start its accounting fresh.
             currentTurnID[id] = nil
+            awaitingOriginalPrompt.remove(id)
             lastCountedTurn[id] = nil
         }
     }
