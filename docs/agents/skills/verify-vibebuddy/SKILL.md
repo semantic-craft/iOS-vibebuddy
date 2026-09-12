@@ -14,7 +14,7 @@ Read `features/README.md` before a run. Drive the mapped feature file, not a con
 Helper (executable; invoke only via these paths):
 
 ```bash
-ctrl=".cursor/skills/verify-vibebuddy/helpers/control-vibebuddy"
+ctrl="docs/agents/skills/verify-vibebuddy/helpers/control-vibebuddy"
 ```
 
 ## Launch
@@ -91,13 +91,14 @@ Stable handles:
 "$ctrl" snapshot --pretty
 "$ctrl" approval --session-id vb-verify-ap --cwd /tmp/verify-gateway --tool Bash --command 'rm -rf /tmp/vibebuddy-verify-should-ask'
 "$ctrl" approval --json '{"hook_event_name":"PreToolUse","session_id":"vb-verify-askq","cwd":"/tmp/verify-docs-review","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Which revision style should I use?","options":[{"label":"Short"}]}]}}'
-"$ctrl" decision --approval-id '<pendingApproval.id from snapshot>' --decision allow
+"$ctrl" wait-for --session-id vb-verify-ap --field pendingApproval   # prints the approval id
+"$ctrl" decision --approval-id '<that id>' --decision allow
 "$ctrl" answer --session-id vb-verify-q --text 'use the short revision'
 "$ctrl" device --name 'Verify Phone' --device-id 'verify-phone-1'
 "$ctrl" sim-demo
 ```
 
-`Read` / `Grep` / `Glob` PreToolUse calls are auto-allowed (`ApprovalShortCircuit`) and never become a card. Use `Bash` (or another non-read-only tool) without `bypassPermissions`. `/approval` **holds ~25s**; POST it, then snapshot + decision, as `tools/watch-live-qa.sh` does.
+`Read` / `Grep` / `Glob` PreToolUse calls are auto-allowed (`ApprovalShortCircuit`) and never become a card. Use `Bash` (or another non-read-only tool) without `bypassPermissions`. `AskUserQuestion` is the one tool in `readOnlyTools` that still raises a card — the question branch runs before the short-circuit gate. `/approval` **holds ~25s**, and the card lands a moment *after* the holding POST returns, so use `wait-for` rather than one snapshot, as `tools/watch-live-qa.sh` does with its own sleep.
 
 Recipes live in `features/`. Drive one mapped feature per proof unless a later run is covering the map.
 

@@ -43,7 +43,17 @@ tests, but do not let low-value test expansion displace end-to-end validation.
 Project `.agents/skills/` entries link to originals in `xw-skills`;
 `.claude/skills/` points to those local entries. Both are excluded from Git.
 Edit the original, preserve valid links, and follow global wiring rules only
-when links or names change. This repo owns no skills.
+when links or names change.
+
+This repo owns one skill, tracked in Git because it encodes these routes,
+ports and QA conventions: `docs/agents/skills/verify-vibebuddy/` drives an
+isolated `vibebuddyd` and the iPhone Demo the way a user does. Edit it here,
+not in `xw-skills`. Link it into the machine-local skill face so every agent
+can discover it:
+
+    ln -s ../../docs/agents/skills/verify-vibebuddy .agents/skills/verify-vibebuddy
+
+The link is untracked like the rest of `.agents/`; the skill itself is not.
 
 Use skills for their actual task triggers. Ordinary work does not require a PRD,
 ticket, multiple models, test-first development, or a full suite. Explicitly

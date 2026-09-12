@@ -4,7 +4,7 @@ This directory is the maintained source for verifying user-facing VibeBuddy beha
 
 ## Baseline preconditions
 
-- Launch an isolated `vibebuddyd` with `.cursor/skills/verify-vibebuddy/helpers/control-vibebuddy launch` (add `--pair` only for pairing recipes).
+- Launch an isolated `vibebuddyd` with `docs/agents/skills/verify-vibebuddy/helpers/control-vibebuddy launch` (add `--pair` only for pairing recipes).
 - `VIBEBUDDY_QA_PORT` is set and is **not** `9876` (default `18765`).
 - Disposable `HOME` is the run state dir, not the login home. Production `~/Library/Application Support/vibebuddy/token` is unused.
 - `VERIFY_EVIDENCE_DIR` is outside the scratch state dir so cleanup cannot eat proof.

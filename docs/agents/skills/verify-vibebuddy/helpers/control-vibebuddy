@@ -12,6 +12,8 @@ Usage: control-vibebuddy <command> [args]
   doctor              Read-only: is this instance worth driving?
   hook --agent <kind> --json '<payload>'
   snapshot [--pretty]
+  wait-for --session-id <id> [--field pendingApproval|pendingQuestion] [--timeout <s>]
+                      Poll /snapshot until the card exists; prints its id.
   approval --session-id <id> --cwd <dir> --tool <name> [--command <text>] [--file-path <p>] [--old <s>] [--new <s>]
                       | --json '<PreToolUse or AskUserQuestion payload>'
   decision --approval-id <id> --decision <allow|deny|alwaysAllow|allowSession>
@@ -404,16 +406,16 @@ cmd_hook() {
   done
   [[ -n "$json" ]] || die "hook: --json is required"
   local code
-  code="$(curl -sS -o /tmp/vb-hook-body.$$ -w '%{http_code}' -X POST \
+  code="$(curl -sS -o "$STATE_DIR/hook-body.$$" -w '%{http_code}' -X POST \
     "$(base_url)/hook?agent=${agent}" \
     -H "$(auth_header)" -H 'Content-Type: application/json' \
     --data-binary "$json")"
   if [[ "$code" != "200" ]]; then
-    cat /tmp/vb-hook-body.$$ >&2 || true
-    rm -f /tmp/vb-hook-body.$$
+    cat "$STATE_DIR/hook-body.$$" >&2 || true
+    rm -f "$STATE_DIR/hook-body.$$"
     fail "POST /hook => $code"
   fi
-  rm -f /tmp/vb-hook-body.$$
+  rm -f "$STATE_DIR/hook-body.$$"
   echo "ok POST /hook?agent=$agent"
 }
 
@@ -433,6 +435,53 @@ cmd_snapshot() {
   else
     printf '%s\n' "$body"
   fi
+}
+
+cmd_wait_for() {
+  require_instance
+  local sid="" field="pendingApproval" timeout=15
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --session-id) sid="$2"; shift 2 ;;
+      --field) field="$2"; shift 2 ;;
+      --timeout) timeout="$2"; shift 2 ;;
+      *) die "wait-for: unknown arg $1" ;;
+    esac
+  done
+  [[ -n "$sid" ]] || die "wait-for: --session-id is required"
+  case "$field" in
+    pendingApproval|pendingQuestion) ;;
+    *) die "wait-for: --field must be pendingApproval or pendingQuestion" ;;
+  esac
+  # The card is registered a moment after the holding POST returns, so a single
+  # snapshot right after `approval` legitimately misses it. Poll, do not guess.
+  local deadline=$(( $(date +%s) + timeout ))
+  while :; do
+    local body id
+    body="$(curl_auth GET /snapshot || true)"
+    id="$(printf '%s' "$body" | python3 -c '
+import json, sys
+sid, field = sys.argv[1], sys.argv[2]
+try:
+    snapshot = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(0)
+for session in snapshot.get("sessions", []):
+    if session.get("id") == sid:
+        card = session.get(field) or {}
+        if card.get("id"):
+            print(card["id"])
+        break
+' "$sid" "$field")"
+    if [[ -n "$id" ]]; then
+      printf '%s\n' "$id"
+      return 0
+    fi
+    if (( $(date +%s) >= deadline )); then
+      fail "wait-for: $field never appeared on $sid within ${timeout}s"
+    fi
+    sleep 0.5
+  done
 }
 
 cmd_approval() {
@@ -505,16 +554,16 @@ cmd_decision() {
     *) die "decision: unknown decision '$decision'" ;;
   esac
   local code
-  code="$(curl -sS -o /tmp/vb-dec-body.$$ -w '%{http_code}' -X POST \
+  code="$(curl -sS -o "$STATE_DIR/decision-body.$$" -w '%{http_code}' -X POST \
     "$(base_url)/decision" -H "$(auth_header)" -H 'Content-Type: application/json' \
     --data-binary "$(python3 -c 'import json,sys; print(json.dumps({"approvalId":sys.argv[1],"decision":sys.argv[2]}))' "$id" "$decision")")"
   if [[ "$code" != "200" ]]; then
     echo "POST /decision => $code" >&2
-    cat /tmp/vb-dec-body.$$ >&2 || true
-    rm -f /tmp/vb-dec-body.$$
+    cat "$STATE_DIR/decision-body.$$" >&2 || true
+    rm -f "$STATE_DIR/decision-body.$$"
     fail "decision failed"
   fi
-  rm -f /tmp/vb-dec-body.$$
+  rm -f "$STATE_DIR/decision-body.$$"
   echo "ok POST /decision $decision"
 }
 
@@ -541,13 +590,13 @@ print(json.dumps(body))
 PY
 )"
   local code
-  code="$(curl -sS -o /tmp/vb-ans-body.$$ -w '%{http_code}' -X POST \
+  code="$(curl -sS -o "$STATE_DIR/answer-body.$$" -w '%{http_code}' -X POST \
     "$(base_url)/answer" -H "$(auth_header)" -H 'Content-Type: application/json' \
     --data-binary "$payload")"
   echo "POST /answer => $code"
-  cat /tmp/vb-ans-body.$$
+  cat "$STATE_DIR/answer-body.$$"
   echo
-  rm -f /tmp/vb-ans-body.$$
+  rm -f "$STATE_DIR/answer-body.$$"
   [[ "$code" == "200" ]] || fail "answer failed"
 }
 
@@ -574,13 +623,13 @@ print(json.dumps(body))
 PY
 )"
   local code
-  code="$(curl -sS -o /tmp/vb-dev-body.$$ -w '%{http_code}' -X POST \
+  code="$(curl -sS -o "$STATE_DIR/device-body.$$" -w '%{http_code}' -X POST \
     "$(base_url)/device" -H "$(auth_header)" -H 'Content-Type: application/json' \
     --data-binary "$payload")"
   echo "POST /device => $code"
-  cat /tmp/vb-dev-body.$$ 2>/dev/null || true
+  cat "$STATE_DIR/device-body.$$" 2>/dev/null || true
   echo
-  rm -f /tmp/vb-dev-body.$$
+  rm -f "$STATE_DIR/device-body.$$"
   printf '%s\n' "$code"
 }
 
@@ -625,7 +674,7 @@ cmd_sim_demo() {
     die "$(printf '%s\n' "$blocker" | head -n 1)"
   fi
   command -v xcrun >/dev/null 2>&1 || die "xcrun is required for sim-demo"
-  local phone_name="${WATCH_RELAY_PHONE:-iPhone 16}"
+  local phone_name="${WATCH_RELAY_PHONE:-VibeBuddy Phone QA}"
   local udid
   udid="$(xcrun simctl list devices booted | awk -v n="$phone_name" '$0 ~ n {print}' | sed -n 's/.*(\([A-F0-9-]*\)).*/\1/p' | head -n 1 || true)"
   if [[ -z "$udid" ]]; then
@@ -694,6 +743,7 @@ case "$cmd" in
   doctor) cmd_doctor "$@" ;;
   hook) cmd_hook "$@" ;;
   snapshot) cmd_snapshot "$@" ;;
+  wait-for) cmd_wait_for "$@" ;;
   approval) cmd_approval "$@" ;;
   decision) cmd_decision "$@" ;;
   answer) cmd_answer "$@" ;;
