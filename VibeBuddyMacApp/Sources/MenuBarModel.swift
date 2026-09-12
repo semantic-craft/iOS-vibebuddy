@@ -287,6 +287,7 @@ final class MenuBarModel: ObservableObject {
             sessions = MacDemoData.sessions()
             observationDiagnostics = MacDemoData.observationDiagnostics()
             tokenConsumption = TokenConsumptionSnapshot.demo()
+            usage.seedDemoStates(MacDemoData.usageStates())
         } else if runtimeEnabled {
             notifier.requestAuthorization()
             startServer()

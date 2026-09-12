@@ -114,9 +114,11 @@ struct AccountUsageSummaryView: View {
                 Spacer(minLength: 4)
                 Text(QuotaPresentation.remainingLine(usedPercent: window.usedPercent))
                     .font(.caption.monospacedDigit())
+                    .foregroundStyle(QuotaPresentation.severity(usedPercent: window.usedPercent).tint)
             }
-            ProgressView(value: Double(window.usedPercent), total: 100)
-                .tint(window.usedPercent >= 90 ? .orange : .accentColor)
+            QuotaBullet(usedPercent: window.usedPercent,
+                        pacePercent: Self.pacePercent(window, now: now),
+                        height: compact ? 10 : 12)
             if let reset = window.resetsAt {
                 Text(QuotaPresentation.resetLine(from: reset, now: now))
                     .font(.caption2)
@@ -126,7 +128,7 @@ struct AccountUsageSummaryView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
-            if let minutes = window.windowDurationMinutes, minutes >= 10_080,
+            if let minutes = window.windowDurationMinutes, minutes >= 60,
                let reset = window.resetsAt,
                let pace = QuotaPresentation.weeklyPace(
                 usedPercent: window.usedPercent,
@@ -136,9 +138,15 @@ struct AccountUsageSummaryView: View {
                ) {
                 Text(pace.caption)
                     .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(pace == .ahead ? QuotaPresentation.Severity.warning.tint : Color.secondary)
             }
         }
+    }
+
+    /// Where even spending would have reached by now — the bullet's tick.
+    static func pacePercent(_ window: AccountUsageWindow, now: Date) -> Int? {
+        guard let minutes = window.windowDurationMinutes, let reset = window.resetsAt else { return nil }
+        return QuotaPresentation.pacePercent(resetsAt: reset, windowMinutes: minutes, now: now)
     }
 
     private func windowTitle(_ window: AccountUsageWindow) -> String {

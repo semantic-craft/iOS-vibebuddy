@@ -19,7 +19,6 @@ struct DashboardView: View {
         ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1" ? "demo-edit" : nil
     @FocusState private var searchFocused: Bool
     @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
-    @State private var showTokenConsumption = true
 
     private var projection: DashboardSessionList {
         DashboardSessionList(model.sessions, project: projectScope, status: statusFilter,
@@ -44,8 +43,9 @@ struct DashboardView: View {
                     Text("Current tasks").tag("live")
                     Text("History").tag("history")
                     Text("Favorites").tag("favorites")
+                    Text("Usage").tag("usage")
                 }
-                .pickerStyle(.segmented).frame(maxWidth: 380)
+                .pickerStyle(.segmented).frame(maxWidth: 460)
                 Spacer()
                 if libraryScope != "live" {
                     let waiting = model.sessions.filter { $0.status == .needsResponse }.count
@@ -67,6 +67,8 @@ struct DashboardView: View {
                     sessionsColumn
                     detailColumn
                 }
+            } else if libraryScope == "usage" {
+                UsageWorkbenchView(model: model)
             } else {
                 HistoryWorkbenchView(history: history, model: model, query: query,
                                      favoritesOnly: libraryScope == "favorites")
@@ -116,38 +118,43 @@ struct DashboardView: View {
     }
 
     private var projectSidebar: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Projects").font(MacTheme.font(12, .semibold))
-            Text("Counts include all sessions")
-                .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
-                .fixedSize(horizontal: false, vertical: true)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(projection.projects) { project in
-                        Button { projectScope = project.id } label: {
-                            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                                Text(projectTitle(project.id))
-                                    .fixedSize(horizontal: false, vertical: true)
-                                Spacer(minLength: 0)
-                                Text("\(project.count)").monospacedDigit()
-                                    .foregroundStyle(MacTheme.ink2)
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Projects").font(MacTheme.font(12, .semibold))
+                Text("Counts include all sessions")
+                    .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(projection.projects) { project in
+                            Button { projectScope = project.id } label: {
+                                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                    Text(projectTitle(project.id))
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    Spacer(minLength: 0)
+                                    Text("\(project.count)").monospacedDigit()
+                                        .foregroundStyle(MacTheme.ink2)
+                                }
+                                .padding(8)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(projectScope == project.id ? MacTheme.accent.opacity(0.12) : .clear,
+                                            in: RoundedRectangle(cornerRadius: 8))
+                                .contentShape(Rectangle())
                             }
-                            .padding(8)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(projectScope == project.id ? MacTheme.accent.opacity(0.12) : .clear,
-                                        in: RoundedRectangle(cornerRadius: 8))
-                            .contentShape(Rectangle())
+                            .buttonStyle(.plain)
+                            .accessibilityAddTraits(projectScope == project.id ? .isSelected : [])
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityAddTraits(projectScope == project.id ? .isSelected : [])
                     }
                 }
             }
+            .padding(12)
+            // Account quota is account-level: it stays put while the selection
+            // and the session list change underneath it.
+            QuotaPlinth(model: model)
         }
         .font(MacTheme.font(12))
         .foregroundStyle(MacTheme.ink)
-        .padding(12)
-        .frame(minWidth: 140, idealWidth: 180, maxWidth: 260, maxHeight: .infinity)
+        .frame(minWidth: 160, idealWidth: 204, maxWidth: 280, maxHeight: .infinity)
         .background(MacTheme.bg2)
     }
 
@@ -221,42 +228,12 @@ struct DashboardView: View {
                     }
                 }
                 .companionCard(radius: MacTheme.panelRadius)
-                DisclosureGroup("Token consumption", isExpanded: $showTokenConsumption) { tokenConsumptionCard }
-                    .font(.caption).padding(.horizontal, 4)
-                DisclosureGroup("Account usage") { usageCard }
-                    .font(.caption).padding(.horizontal, 4)
             }
             .padding(12)
         }
         .frame(minWidth: 340, idealWidth: 380, maxWidth: .infinity)
     }
 
-    @ViewBuilder private var usageCard: some View {
-        let providers = AccountUsageProvider.allCases.filter { model.isUsageCollectionEnabled($0) }
-        if !providers.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(providers, id: \.self) { provider in
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("\(provider.displayName) usage").font(MacTheme.font(11, .heavy))
-                            .foregroundStyle(MacTheme.ink3).textCase(.uppercase).kerning(0.6)
-                        AccountUsageSummaryView(provider: provider, state: model.usageState(for: provider), compact: true)
-                    }
-                }
-            }
-            .font(MacTheme.font(12))
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .companionCard(radius: MacTheme.panelRadius)
-        }
-    }
-
-    @ViewBuilder private var tokenConsumptionCard: some View {
-        TokenConsumptionSummaryView(snapshot: model.tokenConsumption, compact: true)
-            .font(MacTheme.font(12))
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .companionCard(radius: MacTheme.panelRadius)
-    }
 }
 
 /// The buddy header: cat + speech bubble on the left, search on the right.

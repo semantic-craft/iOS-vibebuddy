@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 /// Credits remaining on an account pool (prepaid, monthly cap, reset credits).
 /// Optional on the wire so older phones ignore it.
@@ -47,9 +48,9 @@ public enum QuotaPace: String, Sendable {
 
     public var caption: String {
         switch self {
-        case .onTrack: return "On track for this window"
-        case .ahead: return "Ahead of this window's pace"
-        case .behind: return "Behind this window's pace"
+        case .onTrack: return "Tracking with the clock"
+        case .ahead: return "Spending faster than the clock"
+        case .behind: return "Spending slower than the clock"
         }
     }
 }
@@ -173,6 +174,39 @@ public enum QuotaPresentation {
         let delta = Double(usedPercent) - expected
         if abs(delta) <= 6 { return .onTrack }
         return delta > 0 ? .ahead : .behind
+    }
+
+    /// Where even spending would have reached by now, as a percentage of the
+    /// window: the bullet graph's comparative marker. `nil` when the window has
+    /// no duration or reset time to measure against, so a reading that cannot
+    /// place the marker simply draws without one.
+    public static func pacePercent(resetsAt: Date, windowMinutes: Int, now: Date) -> Int? {
+        guard windowMinutes > 0, resetsAt > now else { return nil }
+        let duration = TimeInterval(windowMinutes * 60)
+        let remaining = resetsAt.timeIntervalSince(now)
+        guard remaining <= duration else { return nil }
+        let elapsed = max(0, duration - remaining)
+        return Int((elapsed / duration * 100).rounded())
+    }
+
+    /// One threshold pair for every quota surface: amber once 80% of a window
+    /// is spent, red at 95%. Both the bar and its number take their colour here.
+    public enum Severity: Sendable {
+        case normal, warning, critical
+
+        public var tint: Color {
+            switch self {
+            case .normal: return CompanionPalette.accent
+            case .warning: return CompanionPalette.status(.requiresInput)
+            case .critical: return CompanionPalette.status(.error)
+            }
+        }
+    }
+
+    public static func severity(usedPercent: Int) -> Severity {
+        if usedPercent >= 95 { return .critical }
+        if usedPercent >= 80 { return .warning }
+        return .normal
     }
 
     public static func creditsNumber(_ value: Double) -> String {
