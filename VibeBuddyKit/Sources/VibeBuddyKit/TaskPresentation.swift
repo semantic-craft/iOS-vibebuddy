@@ -158,6 +158,9 @@ public struct TaskPresentationSummary: Codable, Sendable, Hashable {
         self.init(sessions: SessionCurrency.current(sessions, now: now, window: window))
     }
 
+    public var needsYou: Int { requiresInput + error }
+    /// Presentation categories are disjoint, so a failed unread round counts once.
+    public var pendingCount: Int { needsYou + completeUnread }
     public var total: Int { idle + thinking + completeUnread + requiresInput + error }
     public var isEmpty: Bool { total == 0 }
 

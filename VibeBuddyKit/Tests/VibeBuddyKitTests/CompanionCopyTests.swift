@@ -86,4 +86,16 @@ struct CompanionCopyTests {
             }
         }
     }
+    @Test func attentionCountsAreDisjoint() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let failed = AgentSession(id: "failed", agent: .codex, project: "app", status: .done,
+                                  failed: true, hasUnreadCompletion: true, statusSince: now, updatedAt: now)
+        let unread = AgentSession(id: "unread", agent: .codex, project: "app", status: .done,
+                                  hasUnreadCompletion: true, statusSince: now, updatedAt: now)
+        let value = TaskPresentationSummary(currentIn: [failed, unread], now: now)
+        #expect(value.needsYou == 1)
+        #expect(value.completeUnread == 1)
+        #expect(value.pendingCount == 2)
+        #expect(CompanionCopy.attentionLine(value) == "Needs you 1 · Unread results 1")
+    }
 }

@@ -244,7 +244,7 @@ private struct GeneralPage: View {
     @ObservedObject var model: MenuBarModel
     @ObservedObject var setup: HookSetup
     @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
-    @AppStorage("showMenuBarTaskStatus") private var showMenuBarTaskStatus = false
+    @AppStorage("showMenuBarTaskStatus") private var showMenuBarTaskStatus = true
     @State private var showHideIconNote = false
 
     var body: some View {

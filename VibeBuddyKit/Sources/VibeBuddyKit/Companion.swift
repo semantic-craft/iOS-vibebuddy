@@ -157,7 +157,10 @@ public enum CompanionType {
 
 /// What the cat says about the whole snapshot, and how a request is worded.
 public enum CompanionCopy {
-    public static func needsYou(_ s: TaskPresentationSummary) -> Int { s.error + s.requiresInput }
+    public static func needsYou(_ s: TaskPresentationSummary) -> Int { s.needsYou }
+    public static func attentionLine(_ s: TaskPresentationSummary) -> String {
+        String(localized: "Needs you \(s.needsYou) · Unread results \(s.completeUnread)", bundle: .module)
+    }
 
     /// `3 things need you` / `1 thing needs you` / `All quiet — 2 working` / `All quiet`.
     public static func moodLine(_ s: TaskPresentationSummary) -> String {

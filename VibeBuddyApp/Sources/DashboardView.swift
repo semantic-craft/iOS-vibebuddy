@@ -273,8 +273,8 @@ struct DashboardView: View {
     /// line that says what is going on.
     private var statusLine: String {
         let summary = TaskPresentationSummary(currentIn: dashboard.allSessions, now: now)
-        let rest = CompanionCopy.restLine(summary)
-        return [CompanionCopy.moodLine(summary), rest.isEmpty ? nil : rest]
+        let rest = summary.thinking > 0 ? "\(summary.thinking) working" : ""
+        return [CompanionCopy.attentionLine(summary), rest.isEmpty ? nil : rest]
             .compactMap { $0 }.joined(separator: " · ")
     }
 

@@ -223,11 +223,11 @@ enum MenuBarGlyph {
 /// Hiding the label cannot disconnect app commands.
 struct MenuBarLabel: View {
     @ObservedObject var model: MenuBarModel
-    @AppStorage("showMenuBarTaskStatus") private var showTaskStatus = false
+    @AppStorage("showMenuBarTaskStatus") private var showTaskStatus = true
 
     var body: some View {
         let state = model.presentationSummary.primaryState
-        let count = model.presentationSummary.count(for: state)
+        let count = model.presentationSummary.pendingCount
         HStack(spacing: 3) {
             CatHeadIcon()
                 .frame(width: 17, height: 17)
@@ -244,7 +244,7 @@ struct MenuBarLabel: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(showTaskStatus && count > 0
-            ? "VibeBuddy, \(count) \(state.label)" : "VibeBuddy")
+            ? "VibeBuddy, \(CompanionCopy.attentionLine(model.presentationSummary))" : "VibeBuddy")
         .help("Open VibeBuddy menu")
     }
 }
@@ -750,11 +750,11 @@ struct MenuContent: View {
     /// narrows the list below. It sits above the scroller rather than inside
     /// it, so a long list scrolls under an answer that stays put.
     private func summaryRow(_ summary: TaskPresentationSummary) -> some View {
-        let rest = MacSummaryCopy.restLine(summary)
+        let rest = summary.thinking > 0 ? "\(summary.thinking) working" : ""
         return HStack(spacing: 7) {
             statusDot(summary)
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(MacSummaryCopy.moodLine(summary))
+                Text(MacSummaryCopy.attentionLine(summary))
                     .font(MacTheme.font(12.5, .semibold))
                     .foregroundStyle(MacTheme.ink)
                 if !rest.isEmpty {
