@@ -201,20 +201,22 @@ struct QuotaWidgetView: View {
         return "\(Int(ceil(seconds / 60)))m"
     }
 
+    // Every face below is `CompanionType.fixedFont`: the complication's frame
+    // is the watch face's, so the text cannot follow Dynamic Type (ADR-0017 §8).
     @ViewBuilder private var figures: some View {
         VStack(spacing: 0) {
             ForEach(providers) { provider in
                 Text("\(rowLabel(provider)) \(value(window(provider)))")
-                    .font(CompanionType.font(providers.count == 1 ? 15 : 11, .semibold))
+                    .font(CompanionType.fixedFont(providers.count == 1 ? 15 : 11, .semibold))
                     .monospacedDigit().lineLimit(1).minimumScaleFactor(0.65)
             }
             if providers.count == 1, let provider = providers.first {
                 let reading = window(provider)
                 Text(reading.label ?? durationLabel(reading))
-                    .font(CompanionType.font(8)).lineLimit(1).minimumScaleFactor(0.7)
+                    .font(CompanionType.fixedFont(8)).lineLimit(1).minimumScaleFactor(0.7)
             }
             if providers.count > 1, !differentPeriods, let provider = providers.first {
-                Text(periodLabel(window(provider))).font(CompanionType.font(10)).lineLimit(1)
+                Text(periodLabel(window(provider))).font(CompanionType.fixedFont(10)).lineLimit(1)
             }
         }
     }
@@ -267,7 +269,7 @@ struct QuotaWidgetView: View {
                     }
                 }
             }
-        }.font(CompanionType.font(10)).monospacedDigit().lineLimit(1)
+        }.font(CompanionType.fixedFont(10)).monospacedDigit().lineLimit(1)
     }
 
     private var countdowns: some View {
@@ -275,9 +277,9 @@ struct QuotaWidgetView: View {
             ForEach(providers) { provider in
                 let reading = window(provider)
                 Text("\(label(provider)) \(countdown(reading))")
-                    .font(CompanionType.font(providers.count == 1 ? 15 : 12, .semibold))
+                    .font(CompanionType.fixedFont(providers.count == 1 ? 15 : 12, .semibold))
                 Text("\(periodLabel(reading)) \(value(reading))")
-                    .font(CompanionType.font(10))
+                    .font(CompanionType.fixedFont(10))
             }
         }.monospacedDigit().lineLimit(1)
     }

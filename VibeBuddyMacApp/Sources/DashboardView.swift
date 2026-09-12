@@ -292,7 +292,7 @@ private struct MacBuddyBar: View {
     var body: some View {
         HStack(spacing: 12) {
             MenuCircleButton(systemName: micGlyph, size: 30,
-                             tint: voice.phase == .idle ? MacTheme.ink2 : .white,
+                             tint: voice.phase == .idle ? MacTheme.ink2 : .onAccent,
                              ground: voice.phase == .idle ? MacTheme.bg3 : MacTheme.accent) {
                 voice.toggle()
             }

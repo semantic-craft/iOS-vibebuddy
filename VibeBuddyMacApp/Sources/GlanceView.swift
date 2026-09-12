@@ -110,7 +110,9 @@ struct GlanceView: View {
                 .help("\(count) \(state.label)")
             }
         }
-        .font(MacTheme.font(12, .semibold))
+        // Fixed size: the strip lives inside the notch housing, which
+        // cannot grow with Dynamic Type (ADR-0017 §8).
+        .font(CompanionType.fixedFont(12, .semibold))
         .lineLimit(1)
         .padding(.horizontal, 14)
         .padding(.bottom, 4)
@@ -199,12 +201,13 @@ struct GlanceView: View {
 
     private var voiceBadge: some View {
         HStack(spacing: 6) {
+            // Fixed size: sits in the 30pt compact capsule (ADR-0017 §8).
             Image(systemName: voiceSymbol)
-                .font(MacTheme.font(12, .semibold))
+                .font(CompanionType.fixedFont(12, .semibold))
                 .foregroundStyle(voice.isSpeaking ? Color.green : Color.red)
                 .symbolEffect(.variableColor.iterative, options: .repeating, isActive: true)
             Text(voiceLabel)
-                .font(MacTheme.font(12, .semibold))
+                .font(CompanionType.fixedFont(12, .semibold))
                 .foregroundStyle(.white)
                 .lineLimit(1)
         }
@@ -215,8 +218,9 @@ struct GlanceView: View {
     @ViewBuilder private var needsYouBadge: some View {
         let n = MacSummaryCopy.needsYou(summary)
         if n > 0 {
+            // Fixed size: the compact capsule is 30pt tall (ADR-0017 §8).
             Text("\(n)")
-                .font(MacTheme.font(12, .black).monospacedDigit())
+                .font(CompanionType.fixedFont(12, .black).monospacedDigit())
                 .foregroundStyle(.white)
                 .padding(.horizontal, 8).padding(.vertical, 2)
                 .background(MacTheme.status(summary.error > 0 ? .error : .requiresInput), in: Capsule())
@@ -224,7 +228,7 @@ struct GlanceView: View {
                 .accessibilityLabel("\(n) need you")
         } else {
             Text(summary.thinking > 0 ? "\(summary.thinking) working" : "All quiet")
-                .font(MacTheme.font(12, .heavy))
+                .font(CompanionType.fixedFont(12, .heavy))
                 .foregroundStyle(.white.opacity(0.75))
                 .fixedSize()
         }
@@ -431,12 +435,15 @@ private struct GlanceEventCard: View {
                 StateGlyph(state: cardState, size: 24 * s, onDark: true)
                 VStack(alignment: .leading, spacing: 3 * s) {
                     HStack(spacing: 6 * s) {
-                        Text(title).font(MacTheme.font(13 * s, .black)).foregroundStyle(.white)
+                        // Fixed sizes throughout the card: it hangs off the
+                        // notch at the user's `glanceScale`, not the text ramp
+                        // (ADR-0017 §8).
+                        Text(title).font(CompanionType.fixedFont(13 * s, .black)).foregroundStyle(.white)
                         AgentBadge(agent: session.agent, onDark: true)
                     }
                     if !detail.isEmpty {
                         Text(detail)
-                            .font(card.alert.sound == .needsApproval ? MacTheme.mono(11 * s) : MacTheme.font(11 * s))
+                            .font(card.alert.sound == .needsApproval ? CompanionType.fixedMono(11 * s) : CompanionType.fixedFont(11 * s))
                             .foregroundStyle(.white.opacity(0.8))
                             .lineLimit(2)
                     }
@@ -451,7 +458,7 @@ private struct GlanceEventCard: View {
             }
             if live.status == .needsResponse && live.pendingApproval == nil && WaitHandling.resolve(for: live) != .remoteAvailable {
                 Text(WaitHandling.resolve(for: live).message)
-                    .font(MacTheme.font(11 * s)).foregroundStyle(.white.opacity(0.8))
+                    .font(CompanionType.fixedFont(11 * s)).foregroundStyle(.white.opacity(0.8))
                     .fixedSize(horizontal: false, vertical: true)
             }
             if card.isActionable || card.alert.sound == .agentStuck {
@@ -464,7 +471,7 @@ private struct GlanceEventCard: View {
                                 .buttonStyle(GlanceButtonStyle(tint: MacTheme.status(.error), scale: s))
                         } else {
                             Label(WaitHandling.resolve(for: live).message, systemImage: "keyboard")
-                                .font(MacTheme.font(11 * s)).foregroundStyle(.white.opacity(0.8))
+                                .font(CompanionType.fixedFont(11 * s)).foregroundStyle(.white.opacity(0.8))
                         }
                     }
                     if live.canJump {
@@ -602,7 +609,8 @@ struct GlanceButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(MacTheme.font(12 * scale, .semibold))
+            // Fixed size: a 24pt key on the glance card (ADR-0017 §8).
+            .font(CompanionType.fixedFont(12 * scale, .semibold))
             .foregroundStyle(.white)
             .lineLimit(1)
             .padding(.horizontal, 12 * scale)

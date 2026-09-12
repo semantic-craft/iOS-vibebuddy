@@ -485,7 +485,9 @@ private struct TaskRow: View {
             VStack(alignment: .leading, spacing: 8) {
                 Button(action: onOpen) { headline }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("\(session.displayTitle), \(state.label). Open details")
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(accessibilityLabel)
+                    .accessibilityHint("Open details")
                 activity
                 if let approval = session.pendingApproval { approvalBlock(approval) }
                 if let question = session.pendingQuestion { questionBlock(question) }
@@ -509,6 +511,15 @@ private struct TaskRow: View {
             .background(isSelected || isReplyTarget ? CompanionPalette.accent.opacity(0.08) : .clear)
             if showsDivider { PhoneDivider(leading: PhoneMetrics.gutter) }
         }
+    }
+
+    /// Title, state word, activity or summary, and the relative time, read as
+    /// one element; the approve / deny / reply keys below stay separate.
+    private var accessibilityLabel: String {
+        let when = RelativeDateTimeFormatter().localizedString(for: session.updatedAt, relativeTo: Date())
+        return [session.displayTitle, state.label,
+                session.displaySummary ?? ToolActivity.label(for: session), when]
+            .filter { !$0.isEmpty }.joined(separator: ", ")
     }
 
     private var headline: some View {
@@ -566,6 +577,16 @@ private struct TaskRow: View {
             .padding(.leading, 19)
     }
 
+    @ViewBuilder private func approvalKeys(_ approval: PendingApproval) -> some View {
+        PhoneApproveButton(
+            approve: { dashboard.decide(approval.id, .allow) },
+            always: { dashboard.decide(approval.id, .alwaysAllow) },
+            session: { dashboard.decide(approval.id, .allowSession) },
+            allowsPersistentDecision: approval.canPersistDecision)
+        Button("Deny") { dashboard.decide(approval.id, .deny) }
+            .buttonStyle(PhoneButtonStyle(kind: .quiet))
+    }
+
     @ViewBuilder private func approvalBlock(_ approval: PendingApproval) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("wants to \(CompanionCopy.requestVerb(approval)) · \(approval.tool)")
@@ -576,14 +597,10 @@ private struct TaskRow: View {
                 Label(WaitHandling.resolve(for: session).message, systemImage: "keyboard")
                     .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink2)
             } else {
-                HStack(spacing: 8) {
-                    PhoneApproveButton(
-                        approve: { dashboard.decide(approval.id, .allow) },
-                        always: { dashboard.decide(approval.id, .alwaysAllow) },
-                        session: { dashboard.decide(approval.id, .allowSession) },
-                        allowsPersistentDecision: approval.canPersistDecision)
-                    Button("Deny") { dashboard.decide(approval.id, .deny) }
-                        .buttonStyle(PhoneButtonStyle(kind: .quiet))
+                // At large type the two keys stack instead of clipping.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) { approvalKeys(approval) }
+                    VStack(alignment: .leading, spacing: 8) { approvalKeys(approval) }
                 }
                 .disabled(dashboard.phoneActionDisabled(for: session))
                 if let result = dashboard.phoneActionState(for: session) {

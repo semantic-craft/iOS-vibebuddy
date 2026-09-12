@@ -657,7 +657,7 @@ struct MenuContent: View {
     private func commandRow(_ feed: MenuFeed) -> some View {
         HStack(spacing: 9) {
             MenuCircleButton(systemName: voiceGlyph,
-                             tint: voiceIsIdle ? MacTheme.ink2 : .white,
+                             tint: voiceIsIdle ? MacTheme.ink2 : .onAccent,
                              ground: voiceIsIdle ? MacTheme.bg3 : MacTheme.accent) {
                 model.voiceChat.toggle()
             }
@@ -896,8 +896,12 @@ struct MenuContent: View {
             .buttonStyle(.plain)
             .onHover { hoveredSessionID = $0 ? session.id : nil }
             .help("\(session.displayTitle)\n\(session.agent.displayName) · \(session.statusLabel)\n\(session.summary ?? "")")
-            .accessibilityLabel(Text(verbatim: session.displayTitle))
-            .accessibilityValue(Text(verbatim: session.summary ?? session.statusLabel))
+            // One element: title, state word, activity or summary, age.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(verbatim: [session.displayTitle, session.presentationState.label,
+                                                session.displaySummary ?? ToolActivity.label(for: session),
+                                                MenuFeed.age(of: session.updatedAt, now: now)]
+                .filter { !$0.isEmpty }.joined(separator: ", ")))
             .accessibilityHint("Jump to this session")
             if showsHairline {
                 MenuHairline(leading: MenuMetrics.gutter + MenuMetrics.dotLane)

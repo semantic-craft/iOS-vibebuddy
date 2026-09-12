@@ -113,14 +113,16 @@ private struct StatusWidgetView: View {
         HStack(spacing: 8) {
             TaskStatusIndicator(snapshot.summary.primaryState, size: 10)
             VStack(alignment: .leading, spacing: 2) {
+                // Fixed sizes: the accessory rectangle is a system-sized
+                // frame that cannot grow with Dynamic Type (ADR-0017 §8).
                 Text(CompanionCopy.moodLine(snapshot.summary))
-                    .font(CompanionType.font(16, .semibold))
+                    .font(CompanionType.fixedFont(16, .semibold))
                     .lineLimit(1)
                 // `??` only catches a missing project, not an empty rest line.
                 let caption = snapshot.topProject ?? CompanionCopy.restLine(snapshot.summary)
                 if !caption.isEmpty {
                     Text(caption)
-                        .font(CompanionType.font(12))
+                        .font(CompanionType.fixedFont(12))
                         .foregroundStyle(CompanionPalette.ink2)
                         .lineLimit(1)
                 }
@@ -194,8 +196,10 @@ private struct NeedsYouBadge: View {
         let needs = CompanionCopy.needsYou(summary)
         let value = needs > 0 ? needs : summary.thinking
         let state: TaskPresentationState = summary.error > 0 ? .error : (needs > 0 ? .requiresInput : .thinking)
+        // Fixed size: the compact trailing region of the Dynamic Island is
+        // sized by the hardware, not the text ramp (ADR-0017 §8).
         Text("\(value)")
-            .font(CompanionType.font(12, .black).monospacedDigit())
+            .font(CompanionType.fixedFont(12, .black).monospacedDigit())
             .foregroundStyle(.white)
             .padding(.horizontal, 7).padding(.vertical, 1)
             .background(CompanionPalette.status(state), in: Capsule())
