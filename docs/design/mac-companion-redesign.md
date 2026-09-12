@@ -167,9 +167,14 @@ secondary ink when neutral) on a hairline capsule — ADR-0017 §4's "a dot and
 a word", never a tinted fill. Counts and dates are `SettingsValue` text; a
 pill says a state ("No devices"), not a number. Diagnostics shows product
 words for the delivery enums (Allowed / Denied / Not asked yet; Attempted /
-Scheduled / Accepted / Failed / Skipped), not raw cases. Voice's control line
-keeps the provider popup at its natural width and stacks the three cells
-when they would otherwise truncate.
+Scheduled / Accepted / Failed / Skipped), not raw cases. Voice's feature
+rows are two tiers (decision B, 2026-09-13): the provider popup at its
+natural width with the row's own action (Test / Sample) on the first line,
+then **Model** and **Voice** under small labels on the second — two columns
+while both fit (they do at 920 and 1080), stacked otherwise; never a smaller
+face or a wider window. The voice menu shows the name and the vendor's
+character line; the voice ID sits in mono under the control with the
+catalog note, so the long label is layered, not cut.
 
 ## iPhone and Apple Watch
 
