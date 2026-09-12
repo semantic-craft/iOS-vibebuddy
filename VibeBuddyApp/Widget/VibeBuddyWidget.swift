@@ -178,32 +178,28 @@ struct VibeBuddyLiveActivity: Widget {
                 }
             } compactLeading: {
                 StateGlyph(state: context.state.summary.primaryState, size: 18, onDark: true)
+                    .widgetURL(tapTarget(context.state))
             } compactTrailing: {
-                NeedsYouBadge(summary: context.state.summary)
+                CompactTrailingStatus(project: context.state.topProject, summary: context.state.summary)
+                    .widgetURL(tapTarget(context.state))
             } minimal: {
-                TaskStatusIndicator(context.state.summary.primaryState, size: 10)
+                CompactTrailingStatus(project: context.state.topProject, summary: context.state.summary)
+                    .widgetURL(tapTarget(context.state))
             }
         }
     }
 }
 
-/// Round 5, compact: only the needs-you count, in the state colour that
-/// earns it; a quiet snapshot shows the working count in blue instead.
-private struct NeedsYouBadge: View {
+/// Compact / minimal island: the leading session's status mark, not a count.
+private struct CompactTrailingStatus: View {
+    let project: String?
     let summary: TaskPresentationSummary
 
     var body: some View {
-        let needs = CompanionCopy.needsYou(summary)
-        let value = needs > 0 ? needs : summary.thinking
-        let state: TaskPresentationState = summary.error > 0 ? .error : (needs > 0 ? .requiresInput : .thinking)
-        // Fixed size: the compact trailing region of the Dynamic Island is
-        // sized by the hardware, not the text ramp (ADR-0017 §8).
-        Text("\(value)")
-            .font(CompanionType.fixedFont(12, .black).monospacedDigit())
-            .foregroundStyle(.white)
-            .padding(.horizontal, 7).padding(.vertical, 1)
-            .background(CompanionPalette.status(state), in: Capsule())
-            .accessibilityLabel(needs > 0 ? "\(needs) need you" : "\(value) working")
+        let state = LiveActivityPresentation.compactTrailingState(summary: summary)
+        TaskStatusIndicator(state, size: 10)
+            .accessibilityLabel(LiveActivityPresentation.compactAccessibilityLabel(
+                project: project, state: state))
     }
 }
 
