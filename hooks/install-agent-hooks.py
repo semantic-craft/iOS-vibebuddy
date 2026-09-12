@@ -32,13 +32,14 @@ CLIS = [
     ("antigravity", "~/.gemini/antigravity-cli", "install-antigravity-hooks.py"),
     ("kimi",        "~/.kimi-code/config.toml",  "install-kimi-hooks.py"),
     ("opencode",    "~/.config/opencode",        "install-opencode-hooks.py"),
+    ("cursor",      "~/.cursor",                 "install-cursor-hooks.py"),
 ]
 
 
 # CLIs whose installer understands `--approval` (a blocking gate that asks the
-# phone: PermissionRequest for Claude and the Codex CLI, PreToolUse for Grok).
-# Everything else is installed status-only.
-APPROVAL_CAPABLE = {"claude", "codex", "grok"}
+# phone: PermissionRequest for Claude and the Codex CLI, PreToolUse for Grok and
+# Cursor). Everything else is installed status-only.
+APPROVAL_CAPABLE = {"claude", "codex", "grok", "cursor"}
 
 
 def present(path):

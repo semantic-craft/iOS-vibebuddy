@@ -93,6 +93,7 @@ public enum ApprovalPayload {
     }
 
     public static func decode(_ obj: [String: Any], agent: AgentKind) -> Call {
+        if agent == .cursor { return decodeCursor(obj) }
         guard agent == .grok else {
             // Claude-shape envelope. The mode matters only on a `PreToolUse`
             // gate, where it drives the short-circuit; a `PermissionRequest`
@@ -125,6 +126,50 @@ public enum ApprovalPayload {
         return Call(tool: normalized.tool, input: normalized.input,
                     sessionID: obj["sessionId"] as? String ?? "",
                     event: .preToolUse, permissionMode: mode)
+    }
+
+    /// Cursor's three blocking gates, normalized onto one canonical call.
+    ///
+    /// `beforeShellExecution` names no tool — it sends `command` / `cwd` /
+    /// `sandbox` — so it becomes a `Bash` call whose input is the command, which
+    /// is what `PermissionMatcher`, `AllowRule` and the approval card already
+    /// understand. `beforeMCPExecution` names the server separately, so the tool
+    /// becomes `mcp__server__tool`. `preToolUse` (and `beforeReadFile`) carry
+    /// Cursor's own `tool_name` / `tool_input`, which the vocabulary maps.
+    ///
+    /// Cursor has no `PermissionRequest` equivalent: every gate fires before its
+    /// own permission check, so the event is always `.preToolUse` — which is also
+    /// what makes the read-only short circuit apply.
+    static func decodeCursor(_ obj: [String: Any]) -> Call {
+        let event = obj["hook_event_name"] as? String ?? ""
+        let sessionID = nonEmpty(obj["conversation_id"]) ?? nonEmpty(obj["session_id"]) ?? ""
+        let rawInput = obj["tool_input"] as? [String: Any] ?? [:]
+        switch event {
+        case "beforeShellExecution":
+            var input: [String: Any] = [:]
+            if let command = nonEmpty(obj["command"]) { input["command"] = command }
+            if let cwd = nonEmpty(obj["cwd"]) { input["cwd"] = cwd }
+            return Call(tool: "Bash", input: input, sessionID: sessionID,
+                        event: .preToolUse, permissionMode: nil)
+        case "beforeMCPExecution":
+            let tool = CursorToolVocabulary.canonicalMCPTool(
+                server: obj["mcp_server_name"] as? String,
+                tool: nonEmpty(obj["tool_name"]) ?? "tool")
+            return Call(tool: tool, input: CursorToolVocabulary.canonicalInput(rawInput),
+                        sessionID: sessionID, event: .preToolUse, permissionMode: nil)
+        case "beforeReadFile":
+            var input = CursorToolVocabulary.canonicalInput(rawInput)
+            if input["file_path"] == nil, let path = nonEmpty(obj["file_path"]) {
+                input["file_path"] = path
+            }
+            return Call(tool: "Read", input: input, sessionID: sessionID,
+                        event: .preToolUse, permissionMode: nil)
+        default:
+            let normalized = CursorToolVocabulary.normalize(
+                tool: obj["tool_name"] as? String ?? "", input: rawInput)
+            return Call(tool: normalized.tool, input: normalized.input, sessionID: sessionID,
+                        event: .preToolUse, permissionMode: nil)
+        }
     }
 
     private static func nonEmpty(_ value: Any?) -> String? {

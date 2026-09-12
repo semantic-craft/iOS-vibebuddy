@@ -36,6 +36,19 @@ final class MenuBarModel: ObservableObject {
         guard let run = E2ERunConfiguration.current else { return ClaudeBackgroundLauncher() }
         return ClaudeBackgroundLauncher(executable: nil, jobsDirectory: run.file("agents").appendingPathComponent("claude/jobs", isDirectory: true))
     }()
+    /// Cursor's CLI launcher. During isolated acceptance it is given no
+    /// executable, so it reports unsupported and starts nothing.
+    private let cursorLauncher: CursorLauncher = {
+        guard E2ERunConfiguration.current == nil else { return CursorLauncher(executable: nil) }
+        return CursorLauncher(terminalProgram: { await MenuBarModel.shared?.store.preferredTerminalProgram() })
+    }()
+    /// Cursor's agent-transcript tailer: the source that covers a Cursor
+    /// conversation when the hooks are not installed, or when the Cursor CLI
+    /// does not send the event in question.
+    private let cursorTranscriptMonitor: CursorTranscriptMonitor = {
+        guard let run = E2ERunConfiguration.current else { return CursorTranscriptMonitor() }
+        return CursorTranscriptMonitor(root: run.file("agents").appendingPathComponent("cursor/projects", isDirectory: true))
+    }()
     /// The Codex app-server daemon connection (ADR-0011): on by default, and
     /// the rollout tailer + hooks keep covering Codex whenever it is off or
     /// the daemon is not running.
@@ -365,6 +378,10 @@ final class MenuBarModel: ObservableObject {
                                          guard E2ERunConfiguration.current == nil else { return .noTerminal }
                                          return await CodexDesktopJumper.jump(threadID: id)
                                      },
+                                     onJumpToCursor: { project in
+                                         guard E2ERunConfiguration.current == nil else { return .noTerminal }
+                                         return await CursorJumper.jump(project: project)
+                                     },
                                      onDevicePaired: { [weak self] _ in
                                          Task { @MainActor in await self?.refreshPairedPhone(notify: true) }
                                      },
@@ -376,6 +393,8 @@ final class MenuBarModel: ObservableObject {
                                          return await TerminalLauncher.attach(claudeJobID: id, preferring: term)
                                      },
                                      claudeLauncher: claudeLauncher,
+                                     cursorLauncher: cursorLauncher,
+                                     cursorTranscriptMonitor: cursorTranscriptMonitor,
                                      onCompletionReminder: { [weak self] session in
                                          guard let self else { return false }
                                          return await self.deliverCompletionReminder(session)
@@ -426,6 +445,7 @@ final class MenuBarModel: ObservableObject {
                 var agents: [AgentKind] = []
                 if await self.claudeLauncher.isSupported() { agents.append(.claudeCode) }
                 if self.codexAppServerDiagnostics.connected { agents.append(.codex) }
+                if await self.cursorLauncher.isSupported() { agents.append(.cursor) }
                 self.dispatchAgents = agents
                 self.lifecycleTimeline = await self.store.recentLifecycle()
                 self.missedThisWeek = await self.store.missedCounts()
@@ -904,6 +924,7 @@ final class MenuBarModel: ObservableObject {
         switch request.agent {
         case .codex: return await codexAppServerMonitor.dispatch(request)
         case .claudeCode: return await claudeLauncher.dispatch(request)
+        case .cursor: return await cursorLauncher.dispatch(request)
         default: return .unsupported("vibebuddy cannot start \(request.agent.displayName) sessions yet.")
         }
     }

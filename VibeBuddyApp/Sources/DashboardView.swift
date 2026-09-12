@@ -362,6 +362,13 @@ enum ReplyMeaning: Equatable {
     func unsupportedReason(for target: AgentSession?) -> String? {
         target.flatMap { SessionActionSupport.resolve(for: $0).unsupportedReason }
     }
+
+    /// Said when sending works but does not land the way the verb reads — a
+    /// Cursor turn cannot be interrupted, so a supplement waits for the turn to
+    /// end. Shown under the field so nobody taps Send expecting otherwise.
+    func note(for target: AgentSession?) -> String? {
+        target.flatMap { SessionActionSupport.resolve(for: $0).note }
+    }
 }
 
 /// One session as a message from its agent (round 7): avatar with the status
@@ -607,6 +614,9 @@ private struct StreamComposer: View {
             } else if !reachable {
                 Text("Couldn't reach your Mac — not sent")
                     .font(CompanionType.font(11, .bold)).foregroundStyle(CompanionPalette.status(.error))
+            } else if unsupported == nil, let note = meaning.note(for: target) {
+                Text(note)
+                    .font(CompanionType.font(11, .bold)).foregroundStyle(CompanionPalette.ink2)
             }
         }
         .padding(.horizontal, 12).padding(.top, 6).padding(.bottom, 8)

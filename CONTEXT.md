@@ -32,6 +32,32 @@ code, and tests — don't drift to synonyms.
   lifecycle/tool hooks arrived but the tested escalation produced no approval
   card or rollout waiting event. Hook presence alone does not establish
   approval coverage.
+- **Cursor conversation / composer** — one Cursor chat, in the IDE's Agent panel
+  or in `cursor-agent`. Its **composer id** is its identity everywhere:
+  Cursor's hooks send it as `conversation_id`, its transcript directory is named
+  after it, and its row in Cursor's `composerHeaders` table is keyed by it. That
+  one id is what lets the three Cursor sources describe one session.
+- **Cursor agent transcript** — `~/.cursor/projects/<flattened project path>/
+  agent-transcripts/<composer id>/<composer id>.jsonl`, also the file Cursor's
+  hooks name in `transcript_path`. Three line shapes and no tool results:
+  a `user` line, an `assistant` line (prose plus `tool_use` blocks), and
+  `turn_ended` with `success` / `error` / `aborted`. `turn_ended` is the turn
+  boundary, so this is a real progress source and not a guess. vibebuddy
+  **tails** it: a transcript first seen at launch starts at end-of-file and
+  replays nothing.
+- **Cursor composer store** — Cursor's own conversation index in
+  `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`
+  (`composerHeaders` on 3.x, `cursorDiskKV`'s `composerData:<id>` on every
+  version), read from a private read-only snapshot. The only source for a chat's
+  name, its workspace and branch, its model, its real context-token figures and
+  Cursor's own `status`; conversations with no live evidence appear as
+  `historyOnly` rows. Never drives the three states.
+- **Cursor follow-up** — text the phone queues for a *running* Cursor turn.
+  Cursor cannot be interrupted or steered mid-turn, so the supplement waits and
+  Cursor's own `stop` hook collects it as `followup_message`, which Cursor
+  submits as the next message. One per conversation, replaced by a newer one,
+  expired after 30 minutes. Continuing a *finished* Cursor chat is the other
+  direction: `cursor-agent --resume <composer id>` in a terminal.
 - **Daemon** — the Mac menu-bar app's embedded HTTP + WebSocket server
   (`:9876`) that ingests hooks, runs the reducer, and broadcasts snapshots.
 - **Glance** — the Mac status surface at the top of the menu-bar screen, drawn
