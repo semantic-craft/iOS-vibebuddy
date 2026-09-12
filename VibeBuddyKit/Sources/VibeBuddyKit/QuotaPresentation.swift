@@ -40,16 +40,20 @@ public struct QuotaSpend: Codable, Equatable, Sendable, Identifiable {
 }
 
 /// How a weekly window is tracking against a linear burn to reset.
+///
+/// Named for the allowance, not the user: `.spendingFaster` is the one that
+/// runs out early. "Ahead" and "behind" read as praise or blame depending on
+/// who is reading, which is no use to someone deciding whether to keep going.
 public enum QuotaPace: String, Sendable {
     case onTrack
-    case ahead
-    case behind
+    case spendingFaster
+    case spendingSlower
 
     public var caption: String {
         switch self {
         case .onTrack: return "On track for this window"
-        case .ahead: return "Ahead of this window's pace"
-        case .behind: return "Behind this window's pace"
+        case .spendingFaster: return "Using it up faster than this window's pace"
+        case .spendingSlower: return "Using it up slower than this window's pace"
         }
     }
 }
@@ -172,7 +176,7 @@ public enum QuotaPresentation {
         let expected = (elapsed / duration) * 100
         let delta = Double(usedPercent) - expected
         if abs(delta) <= 6 { return .onTrack }
-        return delta > 0 ? .ahead : .behind
+        return delta > 0 ? .spendingFaster : .spendingSlower
     }
 
     public static func creditsNumber(_ value: Double) -> String {

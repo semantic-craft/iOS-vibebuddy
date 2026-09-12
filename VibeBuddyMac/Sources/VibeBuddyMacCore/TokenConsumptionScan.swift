@@ -26,10 +26,56 @@ struct TokenUsageEntry: Equatable, Sendable {
     }
 }
 
+/// What one transcript contributed, remembered so the next scan can skip it.
+struct CachedTranscript: Sendable {
+    var size: Int
+    var mtime: Date
+    var sessionID: String?
+    var project: String
+    var entries: [TokenUsageEntry]
+}
+
+/// Per-file memo for repeated scans, keyed on path + size + mtime.
+///
+/// Without it every refresh re-reads every transcript touched in the window —
+/// on an active machine that is hundreds of files and most of a gigabyte, every
+/// few minutes, for a menu-bar app that is meant to be invisible. JSONL is
+/// append-only, so an unchanged (size, mtime) pair means an unchanged file.
+public struct TokenConsumptionCache: Sendable {
+    fileprivate var files: [String: CachedTranscript] = [:]
+    fileprivate var touched: Set<String> = []
+
+    public init() {}
+
+    /// Files the process no longer sees (rotated, archived, out of the window)
+    /// must not keep their entries alive forever.
+    fileprivate mutating func prune() {
+        files = files.filter { touched.contains($0.key) }
+        touched.removeAll(keepingCapacity: true)
+    }
+
+    fileprivate mutating func parse(
+        _ file: TokenLogFile,
+        _ parse: (TokenLogFile) -> CachedTranscript
+    ) -> CachedTranscript {
+        let path = file.url.standardizedFileURL.path
+        touched.insert(path)
+        if let hit = files[path], hit.size == file.size, hit.mtime == file.mtime {
+            return hit
+        }
+        let parsed = parse(file)
+        files[path] = parsed
+        return parsed
+    }
+}
+
 /// Walks the same Claude Code / Codex homes session history already uses and
 /// folds token usage into today / last-7-day summaries. Read-only.
 public enum TokenConsumptionScan {
-    public static let recency: TimeInterval = 14 * 24 * 60 * 60
+    /// The widest window is today plus the previous six calendar days, so a
+    /// transcript untouched for longer than that cannot hold a countable entry.
+    /// The extra day absorbs time-zone edges and clock skew.
+    public static let recency: TimeInterval = 8 * 24 * 60 * 60
     public static let refreshInterval: TimeInterval = 5 * 60
 
     public static func defaultClaudeHomes(
@@ -56,6 +102,8 @@ public enum TokenConsumptionScan {
         return home.appendingPathComponent(".codex")
     }
 
+    /// One-shot scan with no memo. Every repeated caller should keep a
+    /// `TokenConsumptionCache` and use the overload below instead.
     public static func snapshot(
         claudeHomes: [URL],
         codexHome: URL,
@@ -63,15 +111,32 @@ public enum TokenConsumptionScan {
         calendar: Calendar = .current,
         fileManager: FileManager = .default
     ) -> TokenConsumptionSnapshot {
+        var cache = TokenConsumptionCache()
+        return snapshot(
+            claudeHomes: claudeHomes, codexHome: codexHome, now: now,
+            calendar: calendar, fileManager: fileManager, cache: &cache)
+    }
+
+    public static func snapshot(
+        claudeHomes: [URL],
+        codexHome: URL,
+        now: Date,
+        calendar: Calendar = .current,
+        fileManager: FileManager = .default,
+        cache: inout TokenConsumptionCache
+    ) -> TokenConsumptionSnapshot {
         var warnings: [String] = []
         let since = now.addingTimeInterval(-recency)
         var entries: [TokenUsageEntry] = []
         for home in claudeHomes {
             entries += ClaudeTokenConsumptionParser.parse(
-                home: home, since: since, fileManager: fileManager, warnings: &warnings)
+                home: home, since: since, fileManager: fileManager,
+                cache: &cache, warnings: &warnings)
         }
         entries += CodexTokenConsumptionParser.parse(
-            home: codexHome, since: since, fileManager: fileManager, warnings: &warnings)
+            home: codexHome, since: since, fileManager: fileManager,
+            cache: &cache, warnings: &warnings)
+        cache.prune()
         return TokenConsumptionAggregator.snapshot(
             entries: entries, now: now, calendar: calendar, warnings: warnings)
     }
@@ -174,10 +239,14 @@ enum TokenLogJSON {
 
     /// Stream complete lines instead of slurp-from-start so a large transcript
     /// still contributes its recent `token_count` / assistant usage records.
-    static func objects(url: URL) -> [[String: Any]] {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return [] }
+    ///
+    /// One line at a time, never a materialized array: a 100 MB rollout must not
+    /// become 100 MB of live dictionaries. Each line's bridged NSDictionary is
+    /// drained by its own pool, so a whole-home scan does not grow the app's
+    /// footprint by the size of everything it read.
+    static func forEachObject(url: URL, _ body: ([String: Any]) -> Void) {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return }
         defer { try? handle.close() }
-        var objects: [[String: Any]] = []
         var remainder = Data()
         var total = 0
         while true {
@@ -189,17 +258,20 @@ enum TokenLogJSON {
                 let line = Data(remainder[..<newline])
                 remainder.removeSubrange(...newline)
                 guard !line.isEmpty else { continue }
-                if let obj = try? JSONSerialization.jsonObject(with: line) as? [String: Any] {
-                    objects.append(obj)
+                autoreleasepool {
+                    if let obj = try? JSONSerialization.jsonObject(with: line) as? [String: Any] {
+                        body(obj)
+                    }
                 }
             }
             if total > byteLimit { break }
         }
-        if total <= byteLimit, !remainder.isEmpty,
-           let obj = try? JSONSerialization.jsonObject(with: remainder) as? [String: Any] {
-            objects.append(obj)
+        guard total <= byteLimit, !remainder.isEmpty else { return }
+        autoreleasepool {
+            if let obj = try? JSONSerialization.jsonObject(with: remainder) as? [String: Any] {
+                body(obj)
+            }
         }
-        return objects
     }
 
     static func date(_ raw: Any?, iso: ISO8601DateFormatter, fractional: ISO8601DateFormatter) -> Date? {
@@ -216,7 +288,7 @@ enum TokenLogJSON {
     }
 }
 
-private struct TokenLogFile {
+struct TokenLogFile {
     let url: URL
     let size: Int
     let mtime: Date
@@ -285,6 +357,7 @@ enum ClaudeTokenConsumptionParser {
         home: URL,
         since: Date,
         fileManager: FileManager,
+        cache: inout TokenConsumptionCache,
         warnings: inout [String]
     ) -> [TokenUsageEntry] {
         let projects = home.appendingPathComponent("projects", isDirectory: true)
@@ -295,13 +368,19 @@ enum ClaudeTokenConsumptionParser {
             fallbackProject: { projectFromRelative($0, under: projects) },
             fileManager: fileManager,
             warnings: &warnings))
-        return files.flatMap { file in
+        var entries: [TokenUsageEntry] = []
+        for file in files {
             if file.size > TokenLogJSON.byteLimit {
                 warnings.append("Skipped oversized Claude transcript \(file.url.lastPathComponent)")
-                return []
+                continue
             }
-            return parseFile(file)
+            entries += cache.parse(file) { file in
+                CachedTranscript(
+                    size: file.size, mtime: file.mtime, sessionID: file.sessionID,
+                    project: file.fallbackProject, entries: parseFile(file))
+            }.entries
         }
+        return entries
     }
 
     private static func projectFromRelative(_ url: URL, under projects: URL) -> String {
@@ -323,15 +402,15 @@ enum ClaudeTokenConsumptionParser {
         var sessionProject = file.fallbackProject
         var foundCwd = false
 
-        for obj in TokenLogJSON.objects(url: file.url) {
+        TokenLogJSON.forEachObject(url: file.url) { obj in
             if !foundCwd, let cwd = obj["cwd"] as? String, !cwd.trimmingCharacters(in: .whitespaces).isEmpty {
                 sessionProject = TokenLogJSON.projectName(cwd, fallback: file.fallbackProject)
                 foundCwd = true
             }
-            guard (obj["type"] as? String) == "assistant" else { continue }
+            guard (obj["type"] as? String) == "assistant" else { return }
             let message = obj["message"] as? [String: Any]
-            guard let usage = message?["usage"] as? [String: Any] else { continue }
-            guard let timestamp = TokenLogJSON.date(obj["timestamp"], iso: iso, fractional: fractional) else { continue }
+            guard let usage = message?["usage"] as? [String: Any] else { return }
+            guard let timestamp = TokenLogJSON.date(obj["timestamp"], iso: iso, fractional: fractional) else { return }
 
             let rawModel = (message?["model"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             if !rawModel.isEmpty, rawModel != "<synthetic>" { lastModel = rawModel }
@@ -339,7 +418,7 @@ enum ClaudeTokenConsumptionParser {
             let input = TokenLogJSON.int(usage["input_tokens"]) + cacheCreation(usage)
             let output = TokenLogJSON.int(usage["output_tokens"])
             let cached = TokenLogJSON.int(usage["cache_read_input_tokens"])
-            if input + output + cached == 0 { continue }
+            if input + output + cached == 0 { return }
 
             let entry = TokenUsageEntry(
                 agent: .claudeCode, model: model, project: sessionProject,
@@ -380,6 +459,7 @@ enum CodexTokenConsumptionParser {
         home: URL,
         since: Date,
         fileManager: FileManager,
+        cache: inout TokenConsumptionCache,
         warnings: inout [String]
     ) -> [TokenUsageEntry] {
         let roots = [
@@ -400,7 +480,12 @@ enum CodexTokenConsumptionParser {
                 warnings.append("Skipped oversized Codex rollout \(file.url.lastPathComponent)")
                 continue
             }
-            let parsed = parseFile(file)
+            let parsed = cache.parse(file) { file in
+                let result = parseFile(file)
+                return CachedTranscript(
+                    size: file.size, mtime: file.mtime, sessionID: result.sessionID,
+                    project: result.project, entries: result.entries)
+            }
             let sessionID = parsed.sessionID ?? file.sessionID
             let candidate = TokenLogFile(
                 url: file.url, size: file.size, mtime: file.mtime,
@@ -430,7 +515,7 @@ enum CodexTokenConsumptionParser {
         var prevCumulativeTotal: Int?
         var entries: [TokenUsageEntry] = []
 
-        for obj in TokenLogJSON.objects(url: file.url) {
+        TokenLogJSON.forEachObject(url: file.url) { obj in
             let type = obj["type"] as? String
             if type == "session_meta", let payload = obj["payload"] as? [String: Any] {
                 sessionMetaCount += 1
@@ -440,27 +525,27 @@ enum CodexTokenConsumptionParser {
                 } else {
                     skippingReplay = true
                 }
-                continue
+                return
             }
             if type == "turn_context", let payload = obj["payload"] as? [String: Any],
                let name = payload["model"] as? String, !name.isEmpty {
                 model = name
-                continue
+                return
             }
             guard type == "event_msg", let payload = obj["payload"] as? [String: Any],
-                  let eventType = payload["type"] as? String else { continue }
+                  let eventType = payload["type"] as? String else { return }
             if eventType == "thread_settings_applied",
                let settings = payload["thread_settings"] as? [String: Any],
                let name = settings["model"] as? String, !name.isEmpty {
                 model = name
-                continue
+                return
             }
             if eventType == "task_started" {
                 skippingReplay = false
-                continue
+                return
             }
-            guard eventType == "token_count" else { continue }
-            guard let info = payload["info"] as? [String: Any] else { continue }
+            guard eventType == "token_count" else { return }
+            guard let info = payload["info"] as? [String: Any] else { return }
 
             let currentTotal = info["total_token_usage"] as? [String: Any]
             let cumulative = TokenLogJSON.int(currentTotal?["total_tokens"])
@@ -496,9 +581,9 @@ enum CodexTokenConsumptionParser {
                     "reasoning_output_tokens": TokenLogJSON.int(curr["reasoning_output_tokens"]),
                 ]
             }
-            if skippingReplay || isDuplicate { continue }
-            guard let usage else { continue }
-            guard let timestamp = TokenLogJSON.date(obj["timestamp"], iso: iso, fractional: fractional) else { continue }
+            if skippingReplay || isDuplicate { return }
+            guard let usage else { return }
+            guard let timestamp = TokenLogJSON.date(obj["timestamp"], iso: iso, fractional: fractional) else { return }
             if let named = info["model"] as? String, !named.isEmpty { model = named }
             else if let named = payload["model"] as? String, !named.isEmpty { model = named }
 
@@ -509,7 +594,7 @@ enum CodexTokenConsumptionParser {
             let reasoning = TokenLogJSON.int(usage["reasoning_output_tokens"])
             let input = max(0, TokenLogJSON.int(usage["input_tokens"]) - cached)
             let output = max(0, TokenLogJSON.int(usage["output_tokens"]) - reasoning)
-            if input + output + cached + reasoning == 0 { continue }
+            if input + output + cached + reasoning == 0 { return }
             entries.append(TokenUsageEntry(
                 agent: .codex, model: model, project: project,
                 sessionID: sessionID ?? file.sessionID, timestamp: timestamp,

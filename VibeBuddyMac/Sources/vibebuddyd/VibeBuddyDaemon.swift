@@ -55,15 +55,16 @@ struct VibeBuddyDaemon {
         let sessionAllow = SessionAllowList()
         let approvalContext = ApprovalContextStore()
         let questionRegistry = QuestionRegistry()
+        let store = SessionStore(
+            sourceID: DaemonIdentity.load(),
+            diagnosticsHome: FileManager.default.homeDirectoryForCurrentUser,
+            journalURL: journalURL,
+            attentionURL: AttentionOverrides.defaultURL(),
+            missedURL: env["VIBEBUDDY_MISSED_PATH"].map { URL(fileURLWithPath: $0) }
+                ?? MissedLedgerLocation.defaultURL()
+        )
         let server = VibeBuddyServer(
-            store: SessionStore(
-                sourceID: DaemonIdentity.load(),
-                diagnosticsHome: FileManager.default.homeDirectoryForCurrentUser,
-                journalURL: journalURL,
-                attentionURL: AttentionOverrides.defaultURL(),
-                missedURL: env["VIBEBUDDY_MISSED_PATH"].map { URL(fileURLWithPath: $0) }
-                    ?? MissedLedgerLocation.defaultURL()
-            ),
+            store: store,
             token: token, port: port, pusher: pusher, phoneReceipts: phoneReceipts,
             deliveryRecorder: deliveryRecorder,
             deviceTokens: deviceTokens,
@@ -75,6 +76,29 @@ struct VibeBuddyDaemon {
             approvalRegistry: approvalRegistry, allowStore: allowStore,
             sessionAllow: sessionAllow, approvalContext: approvalContext,
             questionRegistry: questionRegistry)
+        // The phone's Usage sheet reads token spend off the snapshot, so a
+        // headless hub has to fill it too; otherwise that section is
+        // permanently empty for everyone who does not run the menu-bar app.
+        // Same cadence and same memo as the app: reading transcripts must never
+        // hold up a hook or an approval.
+        let consumptionScan = Task {
+            let claudeHomes = TokenConsumptionScan.defaultClaudeHomes()
+            let codexHome = TokenConsumptionScan.defaultCodexHome()
+            var cache = TokenConsumptionCache()
+            while !Task.isCancelled {
+                let scanned = await Task.detached(priority: .utility) { [cache] in
+                    var carried = cache
+                    let snapshot = TokenConsumptionScan.snapshot(
+                        claudeHomes: claudeHomes, codexHome: codexHome,
+                        now: Date(), cache: &carried)
+                    return (snapshot, carried)
+                }.value
+                cache = scanned.1
+                await store.setTokenConsumption(scanned.0)
+                try? await Task.sleep(for: .seconds(TokenConsumptionScan.refreshInterval))
+            }
+        }
+        defer { consumptionScan.cancel() }
         FileHandle.standardError.write(Data(
             "vibebuddyd: listening on 0.0.0.0:\(port) (apns: \(pusher != nil ? "on" : "off"), token: \(tokenSource))\n".utf8))
         try await server.runService()

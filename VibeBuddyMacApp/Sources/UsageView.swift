@@ -341,7 +341,7 @@ struct TokenConsumptionSummaryView: View {
                         .font(.caption2)
                         .foregroundStyle(.orange)
                 }
-                Text("From local Claude Code transcripts and Codex rollouts. Estimates only — not an invoice. Distinct from account quota remaining.")
+                Text("From local Claude Code transcripts and Codex rollouts. Dollars are list price for the tokens read, not what a subscription charges. Distinct from account quota remaining.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -361,7 +361,7 @@ struct TokenConsumptionSummaryView: View {
                 if window.counts.isEmpty {
                     Text("No spend").foregroundStyle(.secondary)
                 } else {
-                    Text("\(TokenConsumptionSnapshot.formatUSD(window.counts.estimatedUSD)) · \(TokenConsumptionSnapshot.formatTokens(window.counts.totalTokens))")
+                    Text("\(TokenConsumptionSnapshot.formatTokens(window.counts.totalTokens)) · \(TokenConsumptionSnapshot.formatUSD(window.counts.estimatedUSD))")
                         .monospacedDigit()
                 }
             }

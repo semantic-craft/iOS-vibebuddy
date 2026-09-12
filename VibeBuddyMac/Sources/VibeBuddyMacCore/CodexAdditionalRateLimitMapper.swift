@@ -161,7 +161,7 @@ struct FlexibleRateWindow: Decodable {
         self = parsed
     }
 
-    init?(container values: KeyedDecodingContainer<CodingKeys>) {
+    private init?(container values: KeyedDecodingContainer<CodingKeys>) {
         usedPercent = Self.flexibleDouble(values, [.usedPercent, .used_percent])
         windowMinutes = Self.flexibleInt(values, [.windowDurationMins, .window_duration_mins])
         if windowMinutes == nil,

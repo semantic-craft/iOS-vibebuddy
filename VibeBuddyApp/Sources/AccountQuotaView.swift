@@ -21,52 +21,7 @@ struct AccountQuotaView: View {
                             }
                         }
                     } footer: {
-                        Text("Token spend is from local Claude Code and Codex logs on the Mac. Account quota is remaining allowance. Neither is a billed invoice.")
-                    }
-                    if let consumption = dashboard.lastTokenConsumption {
-                        ForEach(consumption.windows) { window in
-                            Section(window.kind.title) {
-                                if window.counts.isEmpty {
-                                    Text("No spend in this window")
-                                        .foregroundStyle(.secondary)
-                                } else {
-                                    LabeledContent("Estimated cost", value: TokenConsumptionSnapshot.formatUSD(window.counts.estimatedUSD))
-                                    LabeledContent("Tokens", value: TokenConsumptionSnapshot.formatTokens(window.counts.totalTokens))
-                                    LabeledContent("Billed / cache", value: "\(TokenConsumptionSnapshot.formatTokens(window.counts.billedTokens)) · \(TokenConsumptionSnapshot.formatTokens(window.counts.cachedInputTokens))")
-                                    LabeledContent("Sessions", value: "\(window.counts.sessionCount)")
-                                    if !window.byAgent.isEmpty {
-                                        Text("By agent").font(.caption).foregroundStyle(.secondary)
-                                        ForEach(window.byAgent) { row in
-                                            LabeledContent(row.label, value: "\(TokenConsumptionSnapshot.formatTokens(row.counts.totalTokens)) · \(TokenConsumptionSnapshot.formatUSD(row.counts.estimatedUSD))")
-                                        }
-                                    }
-                                    if !window.byModel.isEmpty {
-                                        Text("By model").font(.caption).foregroundStyle(.secondary)
-                                        ForEach(Array(window.byModel.prefix(6))) { row in
-                                            LabeledContent(row.label, value: TokenConsumptionSnapshot.formatTokens(row.counts.totalTokens))
-                                        }
-                                    }
-                                    if !window.byProject.isEmpty {
-                                        Text("By project").font(.caption).foregroundStyle(.secondary)
-                                        ForEach(Array(window.byProject.prefix(4))) { row in
-                                            LabeledContent(row.label, value: TokenConsumptionSnapshot.formatTokens(row.counts.totalTokens))
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        if let observed = dashboard.lastTokenConsumption?.observedAt {
-                            Section {
-                                Text("Token spend updated \(observed.formatted(date: .abbreviated, time: .shortened))")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    } else if connection.pairing != nil || connection.demo {
-                        Section("Token consumption") {
-                            Text("Not provided by this Mac yet")
-                                .foregroundStyle(.secondary)
-                        }
+                        Text("Account quota is the allowance left on each provider. Token spend is read from local Claude Code and Codex logs on that Mac. Neither is a billed invoice.")
                     }
                     if connection.pairing != nil {
                         ForEach(AccountUsageProvider.allCases) { provider in
@@ -86,6 +41,13 @@ struct AccountQuotaView: View {
                                     }
                                     ForEach(Array(windows.enumerated()), id: \.offset) { _, window in
                                         reading(window, now: context.date)
+                                    }
+                                    let scoped = Self.scopedWindows(quota)
+                                    if !scoped.isEmpty {
+                                        Text("Scoped windows").font(.caption).foregroundStyle(.secondary)
+                                        ForEach(Array(scoped.enumerated()), id: \.offset) { _, window in
+                                            reading(window, now: context.date)
+                                        }
                                     }
                                     if let credits = quota.credits {
                                         LabeledContent(credits.label ?? "Credits", value: QuotaPresentation.creditsLine(credits))
@@ -109,6 +71,7 @@ struct AccountQuotaView: View {
                             }
                         }
                     }
+                    tokenConsumptionSections
                 }
             }
             .navigationTitle("Usage")
@@ -117,11 +80,67 @@ struct AccountQuotaView: View {
         }
     }
 
+    /// Local spend, after the allowance it is not: this sheet answers "how much
+    /// is left" first. Absent entirely when the Mac reports none — an empty
+    /// section is worse than no section.
+    @ViewBuilder private var tokenConsumptionSections: some View {
+        if let consumption = dashboard.lastTokenConsumption {
+            ForEach(consumption.windows) { window in
+                Section(window.kind.title) {
+                    if window.counts.isEmpty {
+                        Text("No spend in this window")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        LabeledContent("Tokens", value: TokenConsumptionSnapshot.formatTokens(window.counts.totalTokens))
+                        LabeledContent("List price", value: TokenConsumptionSnapshot.formatUSD(window.counts.estimatedUSD))
+                        LabeledContent("Billed / cache", value: "\(TokenConsumptionSnapshot.formatTokens(window.counts.billedTokens)) · \(TokenConsumptionSnapshot.formatTokens(window.counts.cachedInputTokens))")
+                        LabeledContent("Sessions", value: "\(window.counts.sessionCount)")
+                        if !window.byAgent.isEmpty {
+                            Text("By agent").font(.caption).foregroundStyle(.secondary)
+                            ForEach(window.byAgent) { row in
+                                LabeledContent(row.label, value: "\(TokenConsumptionSnapshot.formatTokens(row.counts.totalTokens)) · \(TokenConsumptionSnapshot.formatUSD(row.counts.estimatedUSD))")
+                            }
+                        }
+                        if !window.byModel.isEmpty {
+                            Text("By model").font(.caption).foregroundStyle(.secondary)
+                            ForEach(Array(window.byModel.prefix(6))) { row in
+                                LabeledContent(row.label, value: TokenConsumptionSnapshot.formatTokens(row.counts.totalTokens))
+                            }
+                        }
+                        if !window.byProject.isEmpty {
+                            Text("By project").font(.caption).foregroundStyle(.secondary)
+                            ForEach(Array(window.byProject.prefix(4))) { row in
+                                LabeledContent(row.label, value: TokenConsumptionSnapshot.formatTokens(row.counts.totalTokens))
+                            }
+                        }
+                    }
+                }
+            }
+            if let observed = dashboard.lastTokenConsumption?.observedAt {
+                Section {
+                    Text("Token spend updated \(observed.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
     static func windows(_ quota: ProviderQuota) -> [QuotaWindow] {
         let standard = QuotaWindowKind.allCases.map { quota.window($0) }.filter {
             $0.remainingPercent != nil || $0.durationMinutes != nil || $0.resetsAt != nil || $0.label != nil
         }
         return standard + (quota.otherWindows ?? []).map { value in
+            var value = value
+            value.isCached = value.isCached == true || quota.isCached == true
+            return value
+        }
+    }
+
+    /// Subdivisions of the same allowance. Kept apart from `windows` so they
+    /// cannot be mistaken for a provider's headline reading.
+    static func scopedWindows(_ quota: ProviderQuota) -> [QuotaWindow] {
+        (quota.scopedWindows ?? []).map { value in
             var value = value
             value.isCached = value.isCached == true || quota.isCached == true
             return value

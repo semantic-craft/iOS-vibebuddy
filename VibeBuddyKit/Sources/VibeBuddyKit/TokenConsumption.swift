@@ -46,16 +46,6 @@ public struct TokenCountBreakdown: Codable, Equatable, Sendable {
     }
 
     public var isEmpty: Bool { totalTokens == 0 && sessionCount == 0 }
-
-    public static func + (lhs: Self, rhs: Self) -> Self {
-        TokenCountBreakdown(
-            inputTokens: lhs.inputTokens + rhs.inputTokens,
-            outputTokens: lhs.outputTokens + rhs.outputTokens,
-            cachedInputTokens: lhs.cachedInputTokens + rhs.cachedInputTokens,
-            reasoningOutputTokens: lhs.reasoningOutputTokens + rhs.reasoningOutputTokens,
-            estimatedUSD: lhs.estimatedUSD + rhs.estimatedUSD,
-            sessionCount: lhs.sessionCount + rhs.sessionCount)
-    }
 }
 
 /// One slice of a consumption window (an agent, model, or project).

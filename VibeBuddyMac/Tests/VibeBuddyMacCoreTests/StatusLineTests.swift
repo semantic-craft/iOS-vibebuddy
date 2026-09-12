@@ -73,8 +73,9 @@ struct StatusLineTests {
         let usage = try #require(sample.usageSnapshot(fetchedAt: now))
         let quota = ProviderQuota(.available(usage, nextRefreshAt: nil), provider: .claude)
         #expect(quota.weeklyRemainingPercent == 59)
-        #expect(quota.otherWindows?.first?.label == "Fable only")
-        #expect(quota.otherWindows?.first?.remainingPercent == 30)
+        #expect(quota.scopedWindows?.first?.label == "Fable only")
+        #expect(quota.scopedWindows?.first?.remainingPercent == 30)
+        #expect(quota.otherWindows == nil)
     }
 
     @Test("without rate_limits there is no usage snapshot, and without a session id no sample")

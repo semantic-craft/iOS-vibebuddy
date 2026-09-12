@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import VibeBuddyKit
 
 /// Pure mapping from Grok Build's billing payloads onto `AccountUsageSnapshot`.
 ///
