@@ -34,7 +34,7 @@ struct HistoryResumePolicyTests {
     }
 
     @Test func resolvesOnlyUniqueExactLiveIdentity() {
-        let item = history()
+        var item = history()
         var live = AgentSession(id: item.nativeSessionID, agent: .claudeCode, project: "project", status: .done,
                                 terminalRef: TerminalRef(cwd: item.projectPath), statusSince: Date(), updatedAt: Date())
         #expect(HistoryResumePolicy.liveSession(for: item, in: [live]) == live)
@@ -44,7 +44,7 @@ struct HistoryResumePolicyTests {
         live.terminalRef = nil
         #expect(HistoryResumePolicy.liveSession(for: item, in: [live]) == nil)
         live.terminalRef = TerminalRef(cwd: item.projectPath)
-        live.agent = .codex
+        item.agent = .codex
         #expect(HistoryResumePolicy.liveSession(for: item, in: [live]) == nil)
     }
 }
