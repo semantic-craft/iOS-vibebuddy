@@ -533,18 +533,45 @@ struct AccountUsageTests {
         #expect(await provider.callCount() == 3)
     }
 
-    @Test("app-server timeout and cancellation both reap their child process")
+    /// The time limit is only a deadlock guard: every outcome below is decided by
+    /// observable state — which error the fetch throws, which signals the provider
+    /// sent, whether the child is still running or already reaped — never by how
+    /// long a step took. A regression that waits for the child instead of its own
+    /// deadline reads EOF and reports `.providerUnavailable`, so `.timedOut` is
+    /// itself the proof that the deadline fired while the child was still alive.
+    @Test("app-server timeout and cancellation both reap their child process",
+          .timeLimit(.minutes(2)))
     func processCleanup() async {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("vibebuddy-codex-process-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let timeoutPIDFile = directory.appendingPathComponent("timeout.pid")
-        let timeoutProvider = sleepingProvider(pidFile: timeoutPIDFile, timeout: 0.1)
-        let started = ContinuousClock.now
+        let timeoutBarrier = ProcessInstallBarrier()
+        let timeoutSignals = ProcessSignalGate()
+        let timeoutProvider = sleepingProvider(
+            pidFile: timeoutPIDFile,
+            timeout: 0.1,
+            afterProcessInstall: { timeoutBarrier.blockWorker() },
+            signalProcess: { timeoutSignals.send(processID: $0, signal: $1) }
+        )
+        let timeoutFetch = Task { try await timeoutProvider.fetch() }
+        // Hold the worker before its deadline starts, so the child is provably
+        // spawned and running by the time the provider begins counting.
+        await timeoutBarrier.waitUntilInstalled()
+        let timeoutPID = await waitForPID(in: timeoutPIDFile)
+        #expect(timeoutPID != nil)
+        timeoutBarrier.releaseWorker()
+
+        // The gate intercepts the first SIGTERM, so arriving here means the
+        // provider gave up on a child that had not been signalled yet — and the
+        // child only ever stops because the provider stops it.
+        await timeoutSignals.waitUntilTerminationStarts()
+        if let timeoutPID { #expect(Darwin.kill(timeoutPID, 0) == 0) }
+        timeoutSignals.allowTermination()
 
         do {
-            _ = try await timeoutProvider.fetch()
+            _ = try await timeoutFetch.value
             Issue.record("Expected a timeout")
         } catch let error as AccountUsageError {
             #expect(error == .timedOut)
@@ -552,7 +579,7 @@ struct AccountUsageTests {
             Issue.record("Unexpected error: \(error)")
         }
 
-        #expect(ContinuousClock.now - started < .seconds(1))
+        #expect(timeoutSignals.sentSignals().first == SIGTERM)
         await expectProcessExited(pidFile: timeoutPIDFile)
 
         let cancellationPIDFile = directory.appendingPathComponent("cancellation.pid")
@@ -561,10 +588,12 @@ struct AccountUsageTests {
         let cancellationProvider = CodexAppServerUsageProvider(
             executableURL: URL(fileURLWithPath: "/bin/sh"),
             arguments: [
-                "-c", "echo $$ > \"$1\"; exec sleep 5",
+                "-c", "echo $$ > \"$1\"; exec sleep 60",
                 "vibebuddy-test", cancellationPIDFile.path,
             ],
-            timeout: 5,
+            // Both bounds outlive any plausible stall, so a slow host can never
+            // turn cancellation into a timeout or into a self-exiting child.
+            timeout: 60,
             afterProcessInstall: { barrier.blockWorker() },
             signalProcess: { signalGate.send(processID: $0, signal: $1) }
         )
@@ -572,8 +601,8 @@ struct AccountUsageTests {
         await barrier.waitUntilInstalled()
         let cancellationPID = await waitForPID(in: cancellationPIDFile)
         #expect(cancellationPID != nil)
-        let cancellationStarted = ContinuousClock.now
         let cancellationRequest = Task { fetch.cancel() }
+        // Only cancellation can reach the gate here — the deadline is 60s away.
         await signalGate.waitUntilTerminationStarts()
         barrier.releaseWorker()
         try? await Task.sleep(for: .milliseconds(300))
@@ -588,32 +617,37 @@ struct AccountUsageTests {
         } catch {
             #expect(error is CancellationError)
         }
-        #expect(ContinuousClock.now - cancellationStarted < .seconds(1))
         await expectProcessExited(pidFile: cancellationPIDFile)
         #expect(signalGate.sentSignals() == [SIGTERM])
 
         let ignoredPIDFile = directory.appendingPathComponent("ignored-term.pid")
+        let ignoredBarrier = ProcessInstallBarrier()
         let ignoredSignals = ProcessSignalGate(gateFirstTermination: false)
         let ignoredProvider = CodexAppServerUsageProvider(
             executableURL: URL(fileURLWithPath: "/bin/sh"),
             arguments: [
-                "-c", "trap '' TERM; echo $$ > \"$1\"; exec sleep 5",
+                "-c", "trap '' TERM; echo $$ > \"$1\"; exec sleep 60",
                 "vibebuddy-test", ignoredPIDFile.path,
             ],
             timeout: 0.1,
-            afterProcessInstall: {},
+            afterProcessInstall: { ignoredBarrier.blockWorker() },
             signalProcess: { ignoredSignals.send(processID: $0, signal: $1) }
         )
-        let ignoredStarted = ContinuousClock.now
+        let ignoredFetch = Task { try await ignoredProvider.fetch() }
+        // The shell writes its pid only after `trap`, so releasing the worker here
+        // starts the deadline against a child that provably ignores SIGTERM —
+        // which is what makes the escalation to SIGKILL the real judgment.
+        await ignoredBarrier.waitUntilInstalled()
+        #expect(await waitForPID(in: ignoredPIDFile) != nil)
+        ignoredBarrier.releaseWorker()
         do {
-            _ = try await ignoredProvider.fetch()
+            _ = try await ignoredFetch.value
             Issue.record("Expected a timeout")
         } catch let error as AccountUsageError {
             #expect(error == .timedOut)
         } catch {
             Issue.record("Unexpected error: \(error)")
         }
-        #expect(ContinuousClock.now - ignoredStarted < .seconds(1))
         await expectProcessExited(pidFile: ignoredPIDFile)
         #expect(ignoredSignals.sentSignals() == [SIGTERM, SIGKILL])
     }
@@ -820,11 +854,20 @@ struct AccountUsageTests {
         )
     }
 
-    private func sleepingProvider(pidFile: URL, timeout: TimeInterval) -> CodexAppServerUsageProvider {
+    /// The child sleeps far past any timeout a caller passes, so it can only stop
+    /// because the provider stopped it — never because it finished on its own.
+    private func sleepingProvider(
+        pidFile: URL,
+        timeout: TimeInterval,
+        afterProcessInstall: @escaping @Sendable () -> Void = {},
+        signalProcess: @escaping @Sendable (pid_t, Int32) -> Int32 = { Darwin.kill($0, $1) }
+    ) -> CodexAppServerUsageProvider {
         CodexAppServerUsageProvider(
             executableURL: URL(fileURLWithPath: "/bin/sh"),
-            arguments: ["-c", "echo $$ > \"$1\"; exec sleep 5", "vibebuddy-test", pidFile.path],
-            timeout: timeout
+            arguments: ["-c", "echo $$ > \"$1\"; exec sleep 60", "vibebuddy-test", pidFile.path],
+            timeout: timeout,
+            afterProcessInstall: afterProcessInstall,
+            signalProcess: signalProcess
         )
     }
 
@@ -840,7 +883,7 @@ struct AccountUsageTests {
     }
 
     private func waitForPID(in file: URL) async -> Int32? {
-        for _ in 0..<100 {
+        for _ in 0..<500 {
             if let pid = (try? String(contentsOf: file, encoding: .utf8))
                 .flatMap({ Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }) {
                 return pid

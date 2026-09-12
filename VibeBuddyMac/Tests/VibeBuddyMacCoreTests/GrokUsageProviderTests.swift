@@ -8,6 +8,12 @@ import VibeBuddyKit
 struct GrokUsageProviderTests {
     private let now = Date(timeIntervalSince1970: 1_788_314_400)
 
+    /// Handshakes against `writeFakeAgent` finish in milliseconds. The provider
+    /// deadline is only a liveness bound here — kept far above anything a loaded
+    /// host can reach, so a stalled machine cannot turn a scripted reply into
+    /// `.timedOut`. Tests that assert timeout behaviour set their own short one.
+    private let fakeAgentTimeout: TimeInterval = 60
+
     @Test("a valid period-only bill preserves the plan without inventing usage")
     func periodOnlyBill() throws {
         let body = Data(#"{"result":{"subscription_tier":"SuperGrok Heavy","config":{"currentPeriod":{"start":"2026-09-06T11:36:49Z","end":"2026-09-13T11:36:49Z"},"onDemandCap":{"val":0},"onDemandUsed":{"val":0}}}}"#.utf8)
@@ -41,7 +47,7 @@ struct GrokUsageProviderTests {
             return (Data(bytes), HTTPURLResponse(url: request.url!, statusCode: 200,
                 httpVersion: nil, headerFields: ["grpc-status": "0"])!)
         }
-        let provider = GrokUsageProvider(executableURL: executable,
+        let provider = GrokUsageProvider(executableURL: executable, timeout: fakeAgentTimeout,
             logURL: directory.appendingPathComponent("absent"), authFileURL: auth,
             proxyTransport: transport, now: { Date(timeIntervalSince1970: 1_788_750_000) })
         if outcome == "task-cancelled" {
@@ -245,7 +251,7 @@ struct GrokUsageProviderTests {
         let snapshot = try await GrokUsageProvider(
             executableURL: agent,
             arguments: [],
-            timeout: 5,
+            timeout: fakeAgentTimeout,
             logURL: directory.appendingPathComponent("absent.jsonl")
         ).fetch()
 
@@ -307,12 +313,13 @@ struct GrokUsageProviderTests {
 
         await #expect(throws: AccountUsageError.notLoggedIn) {
             try await GrokUsageProvider(
-                executableURL: agent, arguments: [], timeout: 5, logURL: logURL
+                executableURL: agent, arguments: [], timeout: fakeAgentTimeout, logURL: logURL
             ).fetch()
         }
     }
 
-    @Test("a stalled agent times out and its child process is reaped")
+    @Test("a stalled agent times out and its child process is reaped",
+          .timeLimit(.minutes(2)))
     func timeoutReapsChild() async throws {
         let directory = try Self.makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -320,17 +327,22 @@ struct GrokUsageProviderTests {
         let provider = GrokUsageProvider(
             executableURL: URL(fileURLWithPath: "/bin/sh"),
             arguments: [
-                "-c", "trap '' TERM; echo $$ > \"$1\"; exec sleep 5",
+                // Sleeps far past the timeout, so the child can only stop because
+                // the provider stopped it, never because it finished on its own.
+                "-c", "trap '' TERM; echo $$ > \"$1\"; exec sleep 60",
                 "vibebuddy-test", pidFile.path,
             ],
             timeout: 0.2,
             logURL: directory.appendingPathComponent("absent.jsonl"), proxyEnabled: false
         )
 
-        let started = ContinuousClock.now
+        // `.timedOut` is the judgment rather than any elapsed-time bound: waiting
+        // for the child instead of the deadline would read EOF and report
+        // `.providerUnavailable`. The time limit is only a deadlock guard.
         await #expect(throws: AccountUsageError.timedOut) { try await provider.fetch() }
-        #expect(ContinuousClock.now - started < .seconds(2))
 
+        // GrokACPClient reaps the child before `fetch` returns, so the exit below
+        // is settled state and not a race against the host's speed.
         let pid = try #require(Int32(
             try String(contentsOf: pidFile, encoding: .utf8)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -605,7 +617,7 @@ struct GrokUsageProviderTests {
         let snapshot = try await GrokUsageProvider(
             executableURL: agent,
             arguments: [],
-            timeout: 5,
+            timeout: fakeAgentTimeout,
             logURL: logURL,
             authFileURL: auth,
             proxyEndpoint: endpoint,
@@ -650,7 +662,7 @@ struct GrokUsageProviderTests {
             try await GrokUsageProvider(
                 executableURL: agent,
                 arguments: [],
-                timeout: 5,
+                timeout: fakeAgentTimeout,
                 logURL: logURL,
                 authFileURL: auth,
                 proxyEndpoint: endpoint,
