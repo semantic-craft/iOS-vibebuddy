@@ -338,7 +338,7 @@ public enum VoiceSettings {
     /// instruction channel, whatever is stored — the request has nowhere to
     /// carry it, and claiming otherwise would make the setting a lie.
     public static func readAloudStyle(_ p: VoiceProvider, defaults: UserDefaults = .standard) -> VoiceStyle {
-        guard SpeechSynthesis.support(p).supportsStyle else { return .standard }
+        guard SpeechSynthesis.supportsStyle(p) else { return .standard }
         return VoiceStyle(stored: defaults.string(forKey: readAloudStyleKey(p)))
     }
 

@@ -126,6 +126,14 @@ public enum SpeechSynthesis {
         }
     }
 
+    /// Whether this vendor takes a delivery instruction, as one accessor
+    /// rather than four reads of `Support` — the UI, the stored setting and
+    /// their tests all ask the same question, and a vendor that gains or
+    /// loses a speech API should change one line here, not hunt call sites.
+    public static func supportsStyle(_ provider: VoiceProvider) -> Bool {
+        support(provider).supportsStyle
+    }
+
     public static func synthesizer(_ configuration: SpeechSynthesisConfiguration) -> any SpeechSynthesizer {
         support(configuration.provider).make(configuration)
     }

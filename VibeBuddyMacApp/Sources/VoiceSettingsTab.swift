@@ -585,7 +585,7 @@ private struct ReadAloudFeatureRow: View {
     /// behind by an earlier provider cannot follow the user to one that would
     /// silently drop it.
     private var effectiveStyle: VoiceStyle {
-        guard SpeechSynthesis.support(status.provider ?? .qwen).supportsStyle else { return .standard }
+        guard SpeechSynthesis.supportsStyle(status.provider ?? .qwen) else { return .standard }
         return VoiceStyle(stored: styleID)
     }
     private var configuration: SpeechSynthesisConfiguration {
@@ -681,8 +681,8 @@ private struct ReadAloudFeatureRow: View {
             // Its own line, not a fifth column: the persona applies to whatever
             // voice is chosen above, and ControlLine's three cells are already
             // at their minimum widths. Shown only where the vendor documents an
-            // instruction channel — see `Support.supportsStyle`.
-            if case .ready(let provider) = status, SpeechSynthesis.support(provider).supportsStyle {
+            // instruction channel — see `SpeechSynthesis.supportsStyle`.
+            if case .ready(let provider) = status, SpeechSynthesis.supportsStyle(provider) {
                 HStack(spacing: 8) {
                     Text("Voice style").font(.caption).foregroundStyle(.secondary)
                     Picker("Voice style", selection: styleSelection) {

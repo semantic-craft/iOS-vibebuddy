@@ -94,10 +94,10 @@ struct VoiceStyleTests {
     // MARK: Which vendors offer it
 
     @Test func onlyVendorsWithAnInstructionChannelOfferStyle() {
-        #expect(SpeechSynthesis.support(.doubao).supportsStyle)
-        #expect(SpeechSynthesis.support(.qwen).supportsStyle)
-        #expect(SpeechSynthesis.support(.gemini).supportsStyle)
-        #expect(!SpeechSynthesis.support(.openai).supportsStyle)
+        #expect(SpeechSynthesis.supportsStyle(.doubao))
+        #expect(SpeechSynthesis.supportsStyle(.qwen))
+        #expect(SpeechSynthesis.supportsStyle(.gemini))
+        #expect(!SpeechSynthesis.supportsStyle(.openai))
     }
 
     /// A persona stored against one provider must not be claimed by another
