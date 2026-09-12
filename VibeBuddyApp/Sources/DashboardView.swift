@@ -15,8 +15,12 @@ struct DashboardView: View {
     @StateObject private var settingsConnectionTest = VoiceConnectionTest()
     @State private var showSettings = false
     @State private var showQuota = false
-    @State private var showNewTask = false
-    @State private var newTaskDraft = ""
+    /// The New task sheet is presented by item, not by a flag: a sheet
+    /// presented by `isPresented` keeps its content's `@State` across
+    /// presentations, so a draft typed into the composer arrived at an
+    /// empty editor (seen in QA, 2026-09-13). A fresh request is a fresh
+    /// sheet with the draft as its initial prompt.
+    @State private var newTaskRequest: NewTaskRequest?
     @State private var highlightId: String?
     @State private var detailId: String?
     @State private var replyTo: String?
@@ -151,7 +155,7 @@ struct DashboardView: View {
                                receipt: replyTarget.flatMap { dashboard.phoneActionState(for: $0) },
                                voice: voice,
                                clearTarget: { replyTo = nil },
-                               newTask: { newTaskDraft = ""; showNewTask = true },
+                               newTask: { newTaskRequest = NewTaskRequest(draft: "") },
                                send: send(_:target:))
             }
             .background(CompanionPalette.bg)
@@ -172,8 +176,8 @@ struct DashboardView: View {
         .sheet(isPresented: $showQuota) {
             AccountQuotaView().environmentObject(dashboard).environmentObject(connection)
         }
-        .sheet(isPresented: $showNewTask) {
-            NewTaskSheet(dashboard: dashboard, macName: connection.pairing?.macName, initialPrompt: newTaskDraft)
+        .sheet(item: $newTaskRequest) { request in
+            NewTaskSheet(dashboard: dashboard, macName: connection.pairing?.macName, initialPrompt: request.draft)
         }
         .sheet(isPresented: $showSettings) {
             // A sheet doesn't inherit the presenter's environment objects, so
@@ -234,7 +238,7 @@ struct DashboardView: View {
             switch page {
             case "customize": showFilters = true
             case "usage": showQuota = true
-            case "newtask": showNewTask = true
+            case "newtask": newTaskRequest = NewTaskRequest(draft: "")
             default:
                 guard page.hasPrefix("task/") else { return }
                 let needle = String(page.dropFirst("task/".count))
@@ -329,8 +333,7 @@ struct DashboardView: View {
     /// What the composer's text does, decided by the message it replies to.
     private func send(_ text: String, target: AgentSession?) async -> Bool {
         guard let target else {
-            newTaskDraft = text
-            showNewTask = true
+            newTaskRequest = NewTaskRequest(draft: text)
             return true
         }
         let result = await dashboard.answer(target.id, answer: text, expected: target)
@@ -1281,4 +1284,10 @@ private struct VoiceConsentSheet: View {
         .background(CompanionPalette.bg)
         .presentationDetents([.medium])
     }
+}
+
+/// One request to open the New task sheet, carrying the composer's draft.
+private struct NewTaskRequest: Identifiable {
+    let id = UUID()
+    let draft: String
 }
