@@ -125,7 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         windows = AppWindows(
             dashboard: AnyView(DashboardView(model: model)),
-            settings: AnyView(SettingsView(model: model)))
+            settings: AnyView(SettingsView(model: model, initialPage: Self.demoSettingsPage ?? .general)))
         NotificationCenter.default.addObserver(self, selector: #selector(openDashboard), name: .openDashboard, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(openSettings), name: .openAppSettings, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(toggleGlance), name: .toggleGlance, object: nil)
@@ -144,12 +144,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let loginLaunch = NSAppleEventManager.shared().currentAppleEvent?
             .paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
         if !loginLaunch {
-            if ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO_PAGE"] == "settings" {
+            if Self.demoSettingsPage != nil {
                 openSettings()
             } else {
                 openDashboard()
             }
         }
+    }
+
+    /// `VIBEBUDDY_DEMO_PAGE=settings` opens Settings instead of the Dashboard
+    /// on launch; `settings/<page>` (a `SettingsPageID` raw value, e.g.
+    /// `settings/phone`) opens it on that page — for screenshots and QA.
+    private static var demoSettingsPage: SettingsPageID? {
+        guard let value = ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO_PAGE"] else { return nil }
+        let parts = value.split(separator: "/", maxSplits: 1).map(String.init)
+        guard parts.first == "settings" else { return nil }
+        return parts.count > 1 ? SettingsPageID(rawValue: parts[1]) : .general
     }
 
     /// Closing ordinary windows must leave the daemon and Glance running.
