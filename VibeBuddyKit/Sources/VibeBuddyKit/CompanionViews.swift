@@ -51,7 +51,8 @@ public struct PillButtonStyle: ButtonStyle {
     private var hPad: CGFloat { size == .small ? 12 : 16 }
     private var vPad: CGFloat { size == .small ? 5 : (size == .large ? 12 : 8) }
     private var foreground: Color {
-        if case .filled = kind { return .white }
+        // The on-accent label flips to ink on the dark mint (ADR-0017 §8).
+        if case .filled = kind { return .onAccent }
         return CompanionPalette.ink
     }
     private var background: Color {

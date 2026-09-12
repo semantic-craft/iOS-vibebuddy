@@ -20,7 +20,10 @@ public enum CompanionPalette {
     public static let line   = translucent(0x141414, 0.09, 0xF0F0F0, 0.10)
     public static let ink    = dynamic(0x141414, 0xF0F0F0)
     public static let ink2   = translucent(0x141414, 0.74, 0xF0F0F0, 0.70)
-    public static let ink3   = translucent(0x141414, 0.45, 0xF0F0F0, 0.42)
+    /// Tertiary ink is still text (row times, group counts, footnotes), so it
+    /// composites to >= 4.5:1 on every ground in both appearances (ADR-0017 §8;
+    /// the table is in ticket 06 of `.scratch/cursor-visual-language/`).
+    public static let ink3   = translucent(0x141414, 0.59, 0xF0F0F0, 0.50)
     /// The buddy's green stays the action colour: Cursor spends its brand
     /// orange on the brand, not on the product's buttons. Darkened for the
     /// neutral ground so white label text keeps its contrast.
@@ -36,10 +39,14 @@ public enum CompanionPalette {
     public static func status(_ state: TaskPresentationState) -> Color {
         switch state {
         case .error:          return dynamic(0xBE1744, 0xE34671)
-        case .requiresInput:  return dynamic(0xCD4500, 0xF1B467)
-        case .thinking:       return dynamic(0x2778C1, 0x81A1C1)
+        // The light warm and blue are one notch under Cursor's own so the
+        // 11.5pt state word clears 4.5:1 on `bg2` as well as `bg`; the hues
+        // are unchanged.
+        case .requiresInput:  return dynamic(0xC54200, 0xF1B467)
+        case .thinking:       return dynamic(0x2572B7, 0x81A1C1)
         case .completeUnread: return accent
-        case .idle:           return translucent(0x141414, 0.35, 0xF0F0F0, 0.32)
+        // The idle dot is non-text and holds 3:1 against `bg`.
+        case .idle:           return translucent(0x141414, 0.46, 0xF0F0F0, 0.36)
         case .unassigned:     return ink3
         }
     }
@@ -97,15 +104,43 @@ enum CompanionFonts {
 }
 
 public enum CompanionType {
-    /// The packaged Geist face at a size and weight. Sizes stay fixed, as the
-    /// system ramp did, so the dense dashboard keeps its layout.
+    /// The packaged Geist face at a size and weight, registered relative to
+    /// the system text style nearest that size so Dynamic Type scales it
+    /// (ADR-0017 §8). Surfaces whose frame cannot grow use `fixedFont`.
     public static func font(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
         CompanionFonts.register()
-        return .custom(CompanionFonts.sans, fixedSize: size).weight(weight)
+        return .custom(CompanionFonts.sans, size: size, relativeTo: textStyle(for: size)).weight(weight)
     }
     public static func mono(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
         CompanionFonts.register()
+        return .custom(CompanionFonts.mono, size: size, relativeTo: textStyle(for: size)).weight(weight)
+    }
+    /// The same faces at a size that ignores Dynamic Type. Only for a frame
+    /// that is fixed by hardware or the system: the compact Glance strip, the
+    /// Dynamic Island's compact regions, the Watch complications.
+    public static func fixedFont(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        CompanionFonts.register()
+        return .custom(CompanionFonts.sans, fixedSize: size).weight(weight)
+    }
+    public static func fixedMono(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        CompanionFonts.register()
         return .custom(CompanionFonts.mono, fixedSize: size).weight(weight)
+    }
+    /// The system text style a Companion size scales with. Monotonic in size,
+    /// so a larger token never scales with a smaller ramp than a smaller one.
+    public static func textStyle(for size: CGFloat) -> Font.TextStyle {
+        switch size {
+        case ...10: return .caption2
+        case ...11: return .caption
+        case ...12: return .footnote
+        case ...13: return .subheadline
+        case ...15: return .body
+        case ...17: return .headline
+        case ...20: return .title3
+        case ...22: return .title2
+        case ...26: return .title
+        default:    return .largeTitle
+        }
     }
     /// Cursor compresses display sizes (-2.16 pt at 72 pt). Titles apply this
     /// through `.tracking()`; body text and captions stay untracked.
