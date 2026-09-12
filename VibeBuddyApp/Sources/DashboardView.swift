@@ -473,6 +473,7 @@ private struct TaskRow: View {
     let onReply: () -> Void
     @EnvironmentObject private var dashboard: DashboardStore
 
+    private var presentation: RowPresentation { RowPresentation(session: session) }
     private var state: TaskPresentationState { session.presentationState }
     private var canReply: Bool {
         guard session.agent != .grokBot else { return false }
@@ -489,6 +490,14 @@ private struct TaskRow: View {
                     .accessibilityLabel(accessibilityLabel)
                     .accessibilityHint("Open details")
                 activity
+                metaLine.padding(.leading, 19)
+                if let warning = presentation.observationWarning {
+                    Text(warning).font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
+                    if let seen = presentation.lastObservedAt {
+                        Text("Last observed: \(seen.formatted())")
+                            .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
+                    }
+                }
                 if let approval = session.pendingApproval { approvalBlock(approval) }
                 if let question = session.pendingQuestion { questionBlock(question) }
                 if let child = ToolActivity.childSummary(for: session) {
@@ -518,7 +527,8 @@ private struct TaskRow: View {
     private var accessibilityLabel: String {
         let when = RelativeDateTimeFormatter().localizedString(for: session.updatedAt, relativeTo: Date())
         return [session.displayTitle, state.label,
-                session.displaySummary ?? ToolActivity.label(for: session), when]
+                presentation.activityOrResult, presentation.progress ?? "",
+                presentation.unread ? String(localized: "Unread") : "", when]
             .filter { !$0.isEmpty }.joined(separator: ", ")
     }
 
@@ -533,10 +543,12 @@ private struct TaskRow: View {
                     .tracking(CompanionType.tracking(15))
                     .foregroundStyle(CompanionPalette.ink)
                     .lineLimit(1)
-                metaLine
             }
             Spacer(minLength: 6)
-            Text(session.updatedAt, style: .relative)
+            if presentation.unread {
+                Text("Unread").font(CompanionType.font(11)).foregroundStyle(CompanionPalette.status(.completeUnread))
+            }
+            Text(presentation.updatedAt, style: .relative)
                 .font(CompanionType.font(11)).monospacedDigit()
                 .foregroundStyle(CompanionPalette.ink3)
                 .lineLimit(1)
@@ -568,9 +580,9 @@ private struct TaskRow: View {
     }
 
     private var activity: some View {
-        (Text(ToolActivity.label(for: session)).foregroundStyle(CompanionPalette.status(state))
+        (Text(presentation.activityOrResult).foregroundStyle(CompanionPalette.status(state))
          + Text("  ").foregroundStyle(CompanionPalette.ink3)
-         + Text(session.displaySummary ?? "").foregroundStyle(CompanionPalette.ink2))
+         + Text(presentation.progress ?? "").foregroundStyle(CompanionPalette.ink2))
             .font(CompanionType.font(13))
             .lineLimit(3)
             .fixedSize(horizontal: false, vertical: true)

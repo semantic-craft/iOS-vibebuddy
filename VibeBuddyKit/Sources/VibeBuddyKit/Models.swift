@@ -495,6 +495,9 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     /// selected, or jumped to. The Mac reducer is authoritative for this value.
     public var hasUnreadCompletion: Bool
     /// Authoritative completion identity, populated by the Mac lifecycle.
+    /// Bounded first sentence of the final result, bound to completionID.
+    /// The full result remains in the daemon; this excerpt is only a reading aid.
+    public var completionText: String? = nil
     public var completionNotice: CompletionNotice? = nil
     public var completionID: String?
     /// Cumulative tokens spent across this session's turns (input+output),

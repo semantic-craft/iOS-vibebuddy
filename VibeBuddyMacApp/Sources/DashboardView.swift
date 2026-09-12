@@ -377,6 +377,7 @@ private struct SummaryRow: View {
     var onSelect: () -> Void
     var onToggleInclude: () -> Void
 
+    private var presentation: RowPresentation { RowPresentation(session: session) }
     private var state: TaskPresentationState { session.presentationState }
 
     var body: some View {
@@ -389,37 +390,30 @@ private struct SummaryRow: View {
                             .foregroundStyle(MacTheme.ink)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    Text(presentation.activityOrResult)
+                        .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.status(state))
+                        .lineLimit(2)
+                    if let progress = presentation.progress {
+                        Text(progress).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
+                            .lineLimit(2).help(progress)
+                    }
                     HStack(spacing: 6) {
                         AgentBadge(agent: session.agent)
+                        Text(session.project).lineLimit(1).truncationMode(.middle)
                         Spacer(minLength: 0)
+                        if presentation.unread { Text("Unread").foregroundStyle(MacTheme.status(.completeUnread)) }
                         if let glyph = session.effectiveAttention.rowGlyph {
                             Image(systemName: glyph).help(session.effectiveAttention.title)
                         }
-                        Text(session.updatedAt, style: .relative).monospacedDigit()
+                        Text(presentation.updatedAt, style: .relative).monospacedDigit()
                     }
                     .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
-                    Text(LocalizedStringKey(state.label))
-                        .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.status(state))
-                    if session.isStuck {
-                        Label("Stuck", systemImage: "exclamationmark.triangle.fill")
-                            .font(MacTheme.font(10)).foregroundStyle(MacTheme.status(.error))
+                    if let warning = presentation.observationWarning {
+                        Text(warning)
+                        if let seen = presentation.lastObservedAt {
+                            Text("Last observed: \(seen.formatted())")
+                        }
                     }
-                    if let summary = session.summary, !summary.isEmpty {
-                        Text(summary).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
-                            .lineLimit(2).help(summary)
-                    }
-                    Text("Activity: \(ToolActivity.label(for: session))")
-                    Text(session.project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                         ? String(localized: "Unknown project (unassigned)") : session.project)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if let branch = session.branch { Text(branch).font(MacTheme.mono(10)).help(branch) }
-                    if let cost = session.estimatedCostUSD {
-                        Text("\(session.costUSD == nil ? "≈ " : "")$\(cost, specifier: "%.2f")").monospacedDigit()
-                    }
-                    if let effort = session.effort { Text("effort \(effort)") }
-                    if let pr = session.prNumber { Text("PR #\(pr)") }
-                    if let worktree = session.worktree { Text(worktree).font(MacTheme.mono(10)).help(worktree) }
-                    if let observation = session.observationDescription { Text(observation) }
                     if let child = ToolActivity.childSummary(for: session) { Text(child) }
                 }
                 .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)

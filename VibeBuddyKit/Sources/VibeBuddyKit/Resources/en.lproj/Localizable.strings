@@ -91,3 +91,5 @@
 "This agent’s output format is not supported yet." = "This agent’s output format is not supported yet.";
 "No recent output yet." = "No recent output yet.";
 "Bounded excerpt — not the full history." = "Bounded excerpt — not the full history.";
+
+"This turn ended" = "This turn ended";

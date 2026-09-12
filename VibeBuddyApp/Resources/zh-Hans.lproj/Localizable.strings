@@ -441,3 +441,6 @@
 "Answer an approval" = "回应审批";
 "Approval" = "审批";
 "Allow" = "允许";
+
+"Unread" = "未读";
+"Last observed: %@" = "最后观察：%@";

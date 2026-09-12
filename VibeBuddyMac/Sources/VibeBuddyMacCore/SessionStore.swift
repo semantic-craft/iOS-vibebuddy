@@ -1075,6 +1075,15 @@ public actor SessionStore {
             session.attention = attention[session.id]
                 ?? AutoAttention.level(lastInteractionAt: lastInteractionAt[session.id], now: now)
             session.completionNotice = completionNotice(for: session, now: now)
+            if session.status == .done, !session.isStuck,
+               let candidate = completionResults.candidates[session.id],
+               candidate.completionID == session.completionID,
+               case .ready(let result) = candidate.outcome,
+               result.sourceID == sourceID {
+                session.completionText = RowPresentation.firstSentence(result.finalText)
+            } else {
+                session.completionText = nil
+            }
             session.controlChannel = controlChannel(for: session, now: now)
             return session
         }
