@@ -17,10 +17,11 @@ struct CompletionSummaryHTTP: Sendable {
     }
 
     func generate(input: CompletionSummaryInput, configuration: CompletionSummaryConfiguration,
-                  key: String, timeout: TimeInterval, conversation: Bool = false) async -> CompletionSummaryResponse {
+                  key: String, timeout: TimeInterval, conversation: Bool = false,
+                  style: HistorySummaryStyle = .default) async -> CompletionSummaryResponse {
         do {
             try Task.checkCancellation()
-            let request = try Self.request(input: input, configuration: configuration, key: key, timeout: timeout, conversation: conversation)
+            let request = try Self.request(input: input, configuration: configuration, key: key, timeout: timeout, conversation: conversation, style: style)
             // No redirect follow-up: it could disclose result text/key or create a second paid request.
             let (data, response) = try await session.data(for: request, delegate: NoRedirect())
             try Task.checkCancellation()
@@ -43,10 +44,11 @@ struct CompletionSummaryHTTP: Sendable {
     }
 
     static func request(input: CompletionSummaryInput, configuration c: CompletionSummaryConfiguration,
-                        key: String, timeout: TimeInterval, conversation: Bool = false) throws -> URLRequest {
+                        key: String, timeout: TimeInterval, conversation: Bool = false,
+                        style: HistorySummaryStyle = .default) throws -> URLRequest {
         if let failure = c.configurationFailure { throw failure }
         guard let provider = c.provider else { throw CompletionSummaryFailure.missingProvider }
-        let instructions = conversation ? SessionHistorySummaryService.instructions(language: c.language) : Self.instructions(language: c.language)
+        let instructions = conversation ? SessionHistorySummaryService.instructions(style: style, language: c.language) : Self.instructions(language: c.language)
         let userData = try JSONSerialization.data(withJSONObject: ["title": input.title, conversation ? "transcript": "finalText": input.finalText], options: [.sortedKeys])
         let user = String(decoding: userData, as: UTF8.self)
         let endpoint: String

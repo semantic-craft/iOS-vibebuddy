@@ -854,3 +854,19 @@
 "The provider returned no audio for this text." = "服务商没有为这段文本返回音频。";
 
 "The provider returned more audio than a summary should need." = "服务商返回的音频超出一段摘要应有的长度。";
+
+/* Conversation summary styles (History window) */
+
+"Summary style" = "摘要风格";
+
+"Action briefing" = "行动简报";
+
+"Session review" = "会话复盘";
+
+"Archive record" = "归档记录";
+
+"Next action first, then state, numbered next steps with reasons, and a short read on the session." = "先给下一步行动，再列现状、带理由的编号步骤，以及对这次会话的简短看法。";
+
+"An honest assessment: verdict, what went well, problems and risks, and advice for next time." = "坦率评估：结论、做对了什么、问题与风险，以及下次的建议。";
+
+"Neutral notes: goal, key decisions, results and verification, open work." = "中性记录：目标、关键决策、结果与验证、未完成工作。";
