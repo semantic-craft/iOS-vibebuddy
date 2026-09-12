@@ -1,0 +1,706 @@
+#!/usr/bin/env bash
+# Isolated VibeBuddy verification harness.
+# Start, health-check, drive, and tear down a disposable vibebuddyd.
+# Never binds :9876 and never touches the installed menu-bar app.
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Usage: control-vibebuddy <command> [args]
+
+  launch [--pair]     Build (macOS) and start an isolated vibebuddyd.
+  doctor              Read-only: is this instance worth driving?
+  hook --agent <kind> --json '<payload>'
+  snapshot [--pretty]
+  approval --session-id <id> --cwd <dir> --tool <name> [--command <text>] [--file-path <p>] [--old <s>] [--new <s>]
+                      | --json '<PreToolUse or AskUserQuestion payload>'
+  decision --approval-id <id> --decision <allow|deny|alwaysAllow|allowSession>
+  answer --session-id <id> --text <answer> [--question-id <id>]
+  device --name <name> --device-id <id> [--apns-token <t>]
+  evidence --label <id>   Copy health/snapshot/transcripts into VERIFY_EVIDENCE_DIR.
+  sim-demo                Launch iPhone Demo in a simulator (macOS + simctl only).
+  cleanup                 Stop the PID this run started. Keeps evidence.
+
+Environment:
+  VERIFY_RUN_ID           Default: timestamp. Isolates state between runs.
+  VERIFY_STATE_DIR        Process scratch (HOME, logs, pid). Deleted on cleanup.
+  VERIFY_EVIDENCE_DIR     Proof artifacts. Survives cleanup. Default:
+                          <repo>/.scratch/verify-vibebuddy/<VERIFY_RUN_ID>
+  VIBEBUDDY_QA_PORT       Isolated listen port. Default 18765. Must not be 9876.
+  VIBEBUDDY_QA_TOKEN      Isolated bearer token. Default: generated.
+USAGE
+}
+
+die() { echo "control-vibebuddy: $*" >&2; exit 2; }
+fail() { echo "control-vibebuddy: $*" >&2; exit 1; }
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+find_repo() {
+  local d="$script_dir"
+  while [[ "$d" != "/" ]]; do
+    if [[ -f "$d/VibeBuddyMac/Package.swift" && -f "$d/CONTEXT.md" ]]; then
+      printf '%s\n' "$d"
+      return 0
+    fi
+    d="$(dirname "$d")"
+  done
+  return 1
+}
+
+REPO="${VERIFY_REPO:-$(find_repo || true)}"
+[[ -n "$REPO" ]] || die "could not find the iOS-vibebuddy repo (looking for VibeBuddyMac/Package.swift)"
+
+RUN_ID="${VERIFY_RUN_ID:-$(date +%Y%m%dT%H%M%S)}"
+STATE_DIR="${VERIFY_STATE_DIR:-${TMPDIR:-/tmp}/vibebuddy-verify-${RUN_ID}}"
+EVIDENCE_DIR="${VERIFY_EVIDENCE_DIR:-$REPO/.scratch/verify-vibebuddy/$RUN_ID}"
+ENV_FILE="$STATE_DIR/run.env"
+HOST="127.0.0.1"
+
+mkdir -p "$EVIDENCE_DIR/transcripts"
+
+log_transcript() {
+  local name="$1"
+  local dest="$EVIDENCE_DIR/transcripts/${name}.txt"
+  {
+    echo "=== $name $(date -u +%Y-%m-%dT%H:%M:%SZ) run=$RUN_ID ==="
+    cat
+    echo
+  } | tee -a "$dest"
+}
+
+write_env() {
+  umask 077
+  mkdir -p "$STATE_DIR"
+  cat >"$ENV_FILE" <<EOF
+VERIFY_RUN_ID=$RUN_ID
+VERIFY_STATE_DIR=$STATE_DIR
+VERIFY_EVIDENCE_DIR=$EVIDENCE_DIR
+VERIFY_HOST=$HOST
+VIBEBUDDY_PORT=$PORT
+VIBEBUDDY_TOKEN=$TOKEN
+VIBEBUDDY_PID=${DAEMON_PID:-}
+VIBEBUDDY_HOME=$STATE_DIR/home
+VIBEBUDDY_PAIR=${PAIR:-0}
+VIBEBUDDY_BINARY=${BINARY:-}
+EOF
+}
+
+load_env() {
+  [[ -f "$ENV_FILE" ]] || return 1
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  HOST="${VERIFY_HOST:-127.0.0.1}"
+  PORT="${VIBEBUDDY_PORT:-}"
+  TOKEN="${VIBEBUDDY_TOKEN:-}"
+  DAEMON_PID="${VIBEBUDDY_PID:-}"
+  PAIR="${VIBEBUDDY_PAIR:-0}"
+  BINARY="${VIBEBUDDY_BINARY:-}"
+}
+
+base_url() { printf 'http://%s:%s' "$HOST" "$PORT"; }
+
+auth_header() { printf 'Authorization: Bearer %s' "$TOKEN"; }
+
+curl_auth() {
+  local method="$1" path="$2"
+  shift 2
+  curl -sS -X "$method" "$(base_url)$path" \
+    -H "$(auth_header)" \
+    -H 'Content-Type: application/json' \
+    "$@"
+}
+
+host_blocker() {
+  local os
+  os="$(uname -s)"
+  if [[ "$os" != "Darwin" ]]; then
+    cat <<EOF
+blocked: host is $os, not macOS. vibebuddyd is a macOS 14+ executable
+(VibeBuddyMac/Package.swift platforms: [.macOS(.v14)]). The menu-bar app,
+iPhone app, and Watch app also require Xcode and Apple platforms.
+EOF
+    if ! command -v swift >/dev/null 2>&1; then
+      echo "blocked: swift is not on PATH; this checkout cannot be built here."
+    fi
+    if ! command -v xcodebuild >/dev/null 2>&1; then
+      echo "blocked: xcodebuild is not on PATH; VibeBuddyMacApp / VibeBuddyApp cannot be built here."
+    fi
+    if ! command -v xcrun >/dev/null 2>&1; then
+      echo "blocked: xcrun/simctl unavailable; iPhone Demo and Watch QA cannot be launched here."
+    fi
+    echo "Do not invent a web or CLI stand-in. Do not bind :9876. Do not touch an installed app."
+    return 0
+  fi
+  if ! command -v swift >/dev/null 2>&1; then
+    echo "blocked: macOS host but swift is not on PATH (need Swift 6 / Xcode 26.6)."
+    return 0
+  fi
+  return 1
+}
+
+refuse_production_port() {
+  local port="$1"
+  if [[ "$port" == "9876" ]]; then
+    die "refusing port 9876 (the installed menu-bar / production daemon port). Use VIBEBUDDY_QA_PORT."
+  fi
+  if [[ ! "$port" =~ ^[0-9]+$ ]] || (( port < 1024 || port > 65535 )); then
+    die "invalid port '$port' (need 1024-65535, not 9876)"
+  fi
+}
+
+port_listener_pid() {
+  local port="$1"
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null | head -n 1 || true
+    return
+  fi
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltnp 2>/dev/null | python3 -c "
+import re, sys
+port = sys.argv[1]
+for line in sys.stdin:
+    if ':' + port + ' ' in line or line.rstrip().endswith(':' + port):
+        m = re.search(r'pid=(\d+)', line)
+        if m:
+            print(m.group(1))
+            break
+" "$port" || true
+    return
+  fi
+}
+
+pid_alive() {
+  local pid="$1"
+  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
+}
+
+cmd_launch() {
+  PAIR=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --pair) PAIR=1; shift ;;
+      -h|--help) usage; exit 0 ;;
+      *) die "launch: unknown arg $1" ;;
+    esac
+  done
+
+  if blocker="$(host_blocker)"; then
+    printf '%s\n' "$blocker" | log_transcript launch
+    die "$(printf '%s\n' "$blocker" | head -n 1)"
+  fi
+
+  PORT="${VIBEBUDDY_QA_PORT:-18765}"
+  refuse_production_port "$PORT"
+  TOKEN="${VIBEBUDDY_QA_TOKEN:-$(python3 -c 'import secrets; print(secrets.token_hex(16))')}"
+
+  if existing="$(port_listener_pid "$PORT")"; [[ -n "$existing" ]]; then
+    die "port $PORT already has a listener (pid $existing). Pick another VIBEBUDDY_QA_PORT."
+  fi
+
+  mkdir -p "$STATE_DIR/home" "$STATE_DIR/home/Library/Application Support/vibebuddy"
+  umask 077
+
+  local resolved_bak="$STATE_DIR/Package.resolved.bak"
+  if [[ -f "$REPO/VibeBuddyMac/Package.resolved" ]]; then
+    cp "$REPO/VibeBuddyMac/Package.resolved" "$resolved_bak"
+  fi
+  echo "→ building vibebuddyd (isolated; will restore Package.resolved)" | log_transcript launch
+  if ! (cd "$REPO" && swift build --package-path VibeBuddyMac --product vibebuddyd); then
+    [[ -f "$resolved_bak" ]] && cp "$resolved_bak" "$REPO/VibeBuddyMac/Package.resolved"
+    die "swift build of vibebuddyd failed"
+  fi
+  [[ -f "$resolved_bak" ]] && cp "$resolved_bak" "$REPO/VibeBuddyMac/Package.resolved"
+
+  BINARY="$(cd "$REPO" && swift build --package-path VibeBuddyMac --product vibebuddyd --show-bin-path)/vibebuddyd"
+  [[ -x "$BINARY" ]] || die "built binary missing: $BINARY"
+
+  local args=()
+  [[ "$PAIR" == "1" ]] && args+=(--pair)
+
+  echo "→ starting isolated vibebuddyd on :$PORT (HOME=$STATE_DIR/home pair=$PAIR)" | log_transcript launch
+  HOME="$STATE_DIR/home" \
+    VIBEBUDDY_PORT="$PORT" \
+    VIBEBUDDY_TOKEN="$TOKEN" \
+    VIBEBUDDY_JOURNAL_PATH="$STATE_DIR/journal.json" \
+    VIBEBUDDY_DELIVERY_LOG_PATH="$STATE_DIR/delivery.json" \
+    VIBEBUDDY_DEVICE_REGISTRY_PATH="$STATE_DIR/device-registry.json" \
+    VIBEBUDDY_MISSED_PATH="$STATE_DIR/missed.json" \
+    "$BINARY" "${args[@]}" >"$STATE_DIR/daemon.log" 2>&1 &
+  DAEMON_PID=$!
+  write_env
+
+  local i
+  for i in $(seq 1 40); do
+    if curl -fsS "$(base_url)/health" >/dev/null 2>&1; then
+      break
+    fi
+    if ! pid_alive "$DAEMON_PID"; then
+      echo "daemon exited during startup; log:" | log_transcript launch
+      tail -n 80 "$STATE_DIR/daemon.log" | log_transcript launch
+      die "vibebuddyd exited before /health answered"
+    fi
+    sleep 0.25
+  done
+  local health
+  health="$(curl -fsS "$(base_url)/health" || true)"
+  if [[ "$health" != "ok" ]]; then
+    tail -n 80 "$STATE_DIR/daemon.log" | log_transcript launch
+    die "daemon never became ready (GET /health != ok)"
+  fi
+  if ! grep -q "listening on 0.0.0.0:${PORT}" "$STATE_DIR/daemon.log"; then
+    echo "warning: ready via /health but missing the listening log line" | log_transcript launch
+  fi
+  {
+    echo "ready url=$(base_url) pid=$DAEMON_PID pair=$PAIR"
+    echo "token is in $ENV_FILE (do not paste tokens into issues or screenshots)"
+    echo "evidence=$EVIDENCE_DIR"
+  } | log_transcript launch
+}
+
+require_instance() {
+  load_env || fail "no run.env at $ENV_FILE — run launch first"
+  [[ -n "$PORT" && -n "$TOKEN" ]] || fail "run.env is incomplete"
+  refuse_production_port "$PORT"
+}
+
+cmd_doctor() {
+  local issues=0
+  local report
+  report="$(mktemp)"
+  {
+    echo "run_id=$RUN_ID"
+    echo "state_dir=$STATE_DIR"
+    echo "evidence_dir=$EVIDENCE_DIR"
+    echo "host=$(uname -s) $(uname -m)"
+  } >"$report"
+
+  if blocker="$(host_blocker)"; then
+    printf '%s\n' "$blocker" >>"$report"
+    cat "$report" | log_transcript doctor
+    rm -f "$report"
+    fail "instance is not worth driving (host cannot run VibeBuddy)"
+  fi
+
+  if ! load_env; then
+    echo "run.env missing — no isolated instance was started by this run" >>"$report"
+    cat "$report" | log_transcript doctor
+    rm -f "$report"
+    fail "no isolated instance"
+  fi
+
+  refuse_production_port "$PORT"
+  echo "url=$(base_url)" >>"$report"
+  echo "pid=${DAEMON_PID:-none}" >>"$report"
+  echo "pair=$PAIR" >>"$report"
+  echo "home=${VIBEBUDDY_HOME:-}" >>"$report"
+
+  if [[ "${VIBEBUDDY_HOME:-}" != "$STATE_DIR/home" ]]; then
+    echo "FAIL home is not the disposable run home" >>"$report"
+    issues=1
+  else
+    echo "ok disposable HOME" >>"$report"
+  fi
+
+  if [[ -f "$HOME/Library/Application Support/vibebuddy/token" ]] && \
+     [[ "${VIBEBUDDY_HOME:-}" == "$HOME"* ]]; then
+    echo "FAIL isolated HOME collapsed onto the login HOME" >>"$report"
+    issues=1
+  fi
+
+  if ! pid_alive "${DAEMON_PID:-}"; then
+    echo "FAIL pid ${DAEMON_PID:-?} is not running" >>"$report"
+    issues=1
+  else
+    echo "ok pid $DAEMON_PID alive" >>"$report"
+    if [[ -n "${BINARY:-}" && -r "/proc/$DAEMON_PID/cmdline" ]]; then
+      if tr '\0' ' ' <"/proc/$DAEMON_PID/cmdline" | grep -q 'vibebuddyd'; then
+        echo "ok pid command is vibebuddyd" >>"$report"
+      else
+        echo "FAIL pid $DAEMON_PID is not vibebuddyd" >>"$report"
+        issues=1
+      fi
+    elif [[ "$(uname -s)" == "Darwin" ]]; then
+      local cmd
+      cmd="$(ps -p "$DAEMON_PID" -o comm= 2>/dev/null || true)"
+      if [[ "$cmd" == *vibebuddyd* ]]; then
+        echo "ok pid command is $cmd" >>"$report"
+      else
+        echo "FAIL pid $DAEMON_PID command is '$cmd', expected vibebuddyd" >>"$report"
+        issues=1
+      fi
+    fi
+  fi
+
+  local listener
+  listener="$(port_listener_pid "$PORT")"
+  if [[ -z "$listener" ]]; then
+    echo "FAIL nothing listens on $PORT" >>"$report"
+    issues=1
+  elif [[ -n "${DAEMON_PID:-}" && "$listener" != "$DAEMON_PID" ]]; then
+    echo "FAIL port $PORT is owned by pid $listener, not $DAEMON_PID" >>"$report"
+    issues=1
+  else
+    echo "ok port $PORT owned by $listener" >>"$report"
+  fi
+
+  local health
+  health="$(curl -sS --max-time 2 "$(base_url)/health" || true)"
+  if [[ "$health" == "ok" ]]; then
+    echo "ok GET /health => ok" >>"$report"
+  else
+    echo "FAIL GET /health => '${health:-<empty>}'" >>"$report"
+    issues=1
+  fi
+
+  local unauth
+  unauth="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 2 "$(base_url)/snapshot" || true)"
+  if [[ "$unauth" == "401" ]]; then
+    echo "ok GET /snapshot without token => 401" >>"$report"
+  else
+    echo "FAIL GET /snapshot without token => $unauth (expected 401)" >>"$report"
+    issues=1
+  fi
+
+  local snap_code snap
+  snap="$(mktemp)"
+  snap_code="$(curl -sS -o "$snap" -w '%{http_code}' --max-time 4 \
+    "$(base_url)/snapshot" -H "$(auth_header)" || true)"
+  if [[ "$snap_code" == "200" ]] && python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$snap"; then
+    echo "ok GET /snapshot with token => 200 JSON" >>"$report"
+    python3 - "$snap" >>"$report" <<'PY'
+import json, sys
+snap = json.load(open(sys.argv[1]))
+sessions = snap.get("sessions") or []
+print(f"ok snapshot sessions={len(sessions)} sourceID={snap.get('sourceID')}")
+for s in sessions:
+    print("  - {id} status={status} wait={wait} project={project}".format(
+        id=s.get("id"), status=s.get("status"), wait=s.get("waitKind"),
+        project=s.get("project")))
+PY
+  else
+    echo "FAIL GET /snapshot with token => $snap_code" >>"$report"
+    issues=1
+  fi
+  rm -f "$snap"
+
+  cat "$report" | log_transcript doctor
+  rm -f "$report"
+  if [[ "$issues" -ne 0 ]]; then
+    fail "doctor found $issues problem(s) — do not drive this instance"
+  fi
+  echo "doctor: instance is worth driving"
+}
+
+cmd_hook() {
+  require_instance
+  local agent="claude" json=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --agent) agent="$2"; shift 2 ;;
+      --json) json="$2"; shift 2 ;;
+      *) die "hook: unknown arg $1" ;;
+    esac
+  done
+  [[ -n "$json" ]] || die "hook: --json is required"
+  local code
+  code="$(curl -sS -o /tmp/vb-hook-body.$$ -w '%{http_code}' -X POST \
+    "$(base_url)/hook?agent=${agent}" \
+    -H "$(auth_header)" -H 'Content-Type: application/json' \
+    --data-binary "$json")"
+  if [[ "$code" != "200" ]]; then
+    cat /tmp/vb-hook-body.$$ >&2 || true
+    rm -f /tmp/vb-hook-body.$$
+    fail "POST /hook => $code"
+  fi
+  rm -f /tmp/vb-hook-body.$$
+  echo "ok POST /hook?agent=$agent"
+}
+
+cmd_snapshot() {
+  require_instance
+  local pretty=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --pretty) pretty=1; shift ;;
+      *) die "snapshot: unknown arg $1" ;;
+    esac
+  done
+  local body
+  body="$(curl_auth GET /snapshot)"
+  if [[ "$pretty" == "1" ]]; then
+    python3 -c 'import json,sys; print(json.dumps(json.loads(sys.stdin.read()), indent=2))' <<<"$body"
+  else
+    printf '%s\n' "$body"
+  fi
+}
+
+cmd_approval() {
+  require_instance
+  local sid="" cwd="" tool="Bash" command="" file_path="" old="" new="" json=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --session-id) sid="$2"; shift 2 ;;
+      --cwd) cwd="$2"; shift 2 ;;
+      --tool) tool="$2"; shift 2 ;;
+      --command) command="$2"; shift 2 ;;
+      --file-path) file_path="$2"; shift 2 ;;
+      --old) old="$2"; shift 2 ;;
+      --new) new="$2"; shift 2 ;;
+      --json) json="$2"; shift 2 ;;
+      *) die "approval: unknown arg $1" ;;
+    esac
+  done
+  local payload
+  if [[ -n "$json" ]]; then
+    payload="$json"
+    sid="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("session_id",""))' "$json")"
+  else
+  [[ -n "$sid" && -n "$cwd" ]] || die "approval: --session-id and --cwd are required, or pass --json"
+  payload="$(python3 - "$sid" "$cwd" "$tool" "$command" "$file_path" "$old" "$new" <<'PY'
+import json, sys
+sid, cwd, tool, command, file_path, old, new = sys.argv[1:]
+tool_input = {}
+if command:
+    tool_input["command"] = command
+if file_path:
+    tool_input["file_path"] = file_path
+if old:
+    tool_input["old_string"] = old
+if new:
+    tool_input["new_string"] = new
+if not tool_input:
+    tool_input["command"] = "rm -rf /tmp/vibebuddy-verify-should-ask"
+print(json.dumps({
+    "hook_event_name": "PreToolUse",
+    "session_id": sid,
+    "cwd": cwd,
+    "tool_name": tool,
+    "tool_input": tool_input,
+}))
+PY
+)"
+  fi
+  [[ -n "$sid" ]] || sid="held"
+  # Holding POST: the route blocks until /decision or the 25s timeout.
+  curl_auth POST /approval --data-binary "$payload" \
+    >"$STATE_DIR/approval-${sid}.out" 2>"$STATE_DIR/approval-${sid}.err" &
+  echo $! >"$STATE_DIR/approval-${sid}.pid"
+  echo "ok POST /approval holding (pid $(cat "$STATE_DIR/approval-${sid}.pid"))"
+}
+
+cmd_decision() {
+  require_instance
+  local id="" decision=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --approval-id) id="$2"; shift 2 ;;
+      --decision) decision="$2"; shift 2 ;;
+      *) die "decision: unknown arg $1" ;;
+    esac
+  done
+  [[ -n "$id" && -n "$decision" ]] || die "decision: --approval-id and --decision are required"
+  case "$decision" in
+    allow|deny|alwaysAllow|allowSession) ;;
+    *) die "decision: unknown decision '$decision'" ;;
+  esac
+  local code
+  code="$(curl -sS -o /tmp/vb-dec-body.$$ -w '%{http_code}' -X POST \
+    "$(base_url)/decision" -H "$(auth_header)" -H 'Content-Type: application/json' \
+    --data-binary "$(python3 -c 'import json,sys; print(json.dumps({"approvalId":sys.argv[1],"decision":sys.argv[2]}))' "$id" "$decision")")"
+  if [[ "$code" != "200" ]]; then
+    echo "POST /decision => $code" >&2
+    cat /tmp/vb-dec-body.$$ >&2 || true
+    rm -f /tmp/vb-dec-body.$$
+    fail "decision failed"
+  fi
+  rm -f /tmp/vb-dec-body.$$
+  echo "ok POST /decision $decision"
+}
+
+cmd_answer() {
+  require_instance
+  local sid="" text="" qid=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --session-id) sid="$2"; shift 2 ;;
+      --text) text="$2"; shift 2 ;;
+      --question-id) qid="$2"; shift 2 ;;
+      *) die "answer: unknown arg $1" ;;
+    esac
+  done
+  [[ -n "$sid" && -n "$text" ]] || die "answer: --session-id and --text are required"
+  local payload
+  payload="$(python3 - "$sid" "$text" "$qid" <<'PY'
+import json, sys
+sid, text, qid = sys.argv[1:]
+body = {"sessionId": sid, "answer": text}
+if qid:
+    body["expectedQuestionId"] = qid
+print(json.dumps(body))
+PY
+)"
+  local code
+  code="$(curl -sS -o /tmp/vb-ans-body.$$ -w '%{http_code}' -X POST \
+    "$(base_url)/answer" -H "$(auth_header)" -H 'Content-Type: application/json' \
+    --data-binary "$payload")"
+  echo "POST /answer => $code"
+  cat /tmp/vb-ans-body.$$
+  echo
+  rm -f /tmp/vb-ans-body.$$
+  [[ "$code" == "200" ]] || fail "answer failed"
+}
+
+cmd_device() {
+  require_instance
+  local name="" device_id="" apns=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --name) name="$2"; shift 2 ;;
+      --device-id) device_id="$2"; shift 2 ;;
+      --apns-token) apns="$2"; shift 2 ;;
+      *) die "device: unknown arg $1" ;;
+    esac
+  done
+  [[ -n "$name" && -n "$device_id" ]] || die "device: --name and --device-id are required"
+  local payload
+  payload="$(python3 - "$name" "$device_id" "$apns" <<'PY'
+import json, sys
+name, device_id, apns = sys.argv[1:]
+body = {"name": name, "deviceID": device_id, "model": "iPhone", "systemVersion": "iOS 17.0"}
+if apns:
+    body["token"] = apns
+print(json.dumps(body))
+PY
+)"
+  local code
+  code="$(curl -sS -o /tmp/vb-dev-body.$$ -w '%{http_code}' -X POST \
+    "$(base_url)/device" -H "$(auth_header)" -H 'Content-Type: application/json' \
+    --data-binary "$payload")"
+  echo "POST /device => $code"
+  cat /tmp/vb-dev-body.$$ 2>/dev/null || true
+  echo
+  rm -f /tmp/vb-dev-body.$$
+  printf '%s\n' "$code"
+}
+
+cmd_evidence() {
+  local label=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --label) label="$2"; shift 2 ;;
+      *) die "evidence: unknown arg $1" ;;
+    esac
+  done
+  [[ -n "$label" ]] || die "evidence: --label is required"
+  local dest="$EVIDENCE_DIR/$label"
+  mkdir -p "$dest"
+  {
+    echo "run_id=$RUN_ID"
+    echo "captured_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "host=$(uname -s) $(uname -m)"
+    echo "evidence=$dest"
+    if load_env; then
+      echo "url=$(base_url)"
+      echo "pid=${DAEMON_PID:-}"
+      echo "port=$PORT"
+      echo "pair=$PAIR"
+    else
+      echo "instance=none"
+    fi
+  } >"$dest/meta.txt"
+  if load_env && [[ -n "${PORT:-}" ]]; then
+    curl -sS --max-time 2 "$(base_url)/health" >"$dest/health.txt" || echo "health-failed" >"$dest/health.txt"
+    curl -sS --max-time 4 "$(base_url)/snapshot" -H "$(auth_header)" >"$dest/snapshot.json" || \
+      echo '{"error":"snapshot-failed"}' >"$dest/snapshot.json"
+    [[ -f "$STATE_DIR/daemon.log" ]] && tail -n 40 "$STATE_DIR/daemon.log" >"$dest/daemon-tail.txt" || true
+    [[ -f "$STATE_DIR/device-registry.json" ]] && cp "$STATE_DIR/device-registry.json" "$dest/device-registry.json" || true
+  fi
+  echo "ok evidence at $dest"
+}
+
+cmd_sim_demo() {
+  if blocker="$(host_blocker)"; then
+    printf '%s\n' "$blocker" | log_transcript sim-demo
+    die "$(printf '%s\n' "$blocker" | head -n 1)"
+  fi
+  command -v xcrun >/dev/null 2>&1 || die "xcrun is required for sim-demo"
+  local phone_name="${WATCH_RELAY_PHONE:-iPhone 16}"
+  local udid
+  udid="$(xcrun simctl list devices booted | awk -v n="$phone_name" '$0 ~ n {print}' | sed -n 's/.*(\([A-F0-9-]*\)).*/\1/p' | head -n 1 || true)"
+  if [[ -z "$udid" ]]; then
+    udid="$(xcrun simctl list devices booted | sed -n 's/.*(\([A-F0-9-]*\)) *(Booted).*/\1/p' | head -n 1 || true)"
+  fi
+  [[ -n "$udid" ]] || die "no booted iOS Simulator. Boot one, then retry."
+  local app="$REPO/.build/watch-live-qa/Build/Products/Debug-iphonesimulator/VibeBuddyApp.app"
+  if [[ ! -d "$app" ]]; then
+    die "VibeBuddyApp.app not built at $app. On a Mac: xcodegen generate --spec VibeBuddyApp/project.yml && xcodebuild -project VibeBuddyApp/VibeBuddyApp.xcodeproj -scheme VibeBuddyApp -destination 'generic/platform=iOS Simulator' -derivedDataPath .build/watch-live-qa build CODE_SIGNING_ALLOWED=NO"
+  fi
+  xcrun simctl install "$udid" "$app"
+  xcrun simctl terminate "$udid" com.vibebuddy.app 2>/dev/null || true
+  SIMCTL_CHILD_VIBEBUDDY_DEMO=1 SIMCTL_CHILD_VIBEBUDDY_SKIP_NOTIFICATIONS=1 \
+    xcrun simctl launch "$udid" com.vibebuddy.app >/dev/null
+  echo "ok launched Demo on simulator $udid"
+}
+
+cmd_cleanup() {
+  local killed=0
+  if load_env && [[ -n "${DAEMON_PID:-}" ]]; then
+    if pid_alive "$DAEMON_PID"; then
+      kill "$DAEMON_PID" 2>/dev/null || true
+      local i
+      for i in $(seq 1 20); do
+        pid_alive "$DAEMON_PID" || break
+        sleep 0.1
+      done
+      if pid_alive "$DAEMON_PID"; then
+        kill -9 "$DAEMON_PID" 2>/dev/null || true
+      fi
+      killed=1
+      echo "ok sent signal to pid $DAEMON_PID"
+    else
+      echo "ok pid ${DAEMON_PID} already gone"
+    fi
+    shopt -s nullglob
+    for hold in "$STATE_DIR"/approval-*.pid; do
+      local hpid
+      hpid="$(cat "$hold" 2>/dev/null || true)"
+      if pid_alive "$hpid"; then
+        kill "$hpid" 2>/dev/null || true
+      fi
+    done
+    shopt -u nullglob
+  else
+    echo "ok no run.env — nothing this run started"
+  fi
+
+  if [[ -d "$STATE_DIR" ]]; then
+    case "$EVIDENCE_DIR" in
+      "$STATE_DIR"|"$STATE_DIR"/*)
+        die "refusing to delete STATE_DIR because evidence lives inside it ($EVIDENCE_DIR). Set VERIFY_EVIDENCE_DIR outside the scratch dir."
+        ;;
+    esac
+    rm -rf "$STATE_DIR"
+    echo "ok removed scratch $STATE_DIR"
+  fi
+  echo "ok evidence kept at $EVIDENCE_DIR (killed=$killed)"
+  echo "cleanup complete" | log_transcript cleanup
+}
+
+cmd="${1:-}"
+shift || true
+case "$cmd" in
+  launch) cmd_launch "$@" ;;
+  doctor) cmd_doctor "$@" ;;
+  hook) cmd_hook "$@" ;;
+  snapshot) cmd_snapshot "$@" ;;
+  approval) cmd_approval "$@" ;;
+  decision) cmd_decision "$@" ;;
+  answer) cmd_answer "$@" ;;
+  device) cmd_device "$@" ;;
+  evidence) cmd_evidence "$@" ;;
+  sim-demo) cmd_sim_demo "$@" ;;
+  cleanup) cmd_cleanup "$@" ;;
+  -h|--help|help|"") usage; [[ -n "$cmd" ]] || exit 2 ;;
+  *) usage; die "unknown command: $cmd" ;;
+esac
