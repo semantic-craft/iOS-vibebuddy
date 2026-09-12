@@ -32,6 +32,25 @@ struct VoicePurposeSettingsTests {
         #expect(!VoiceProvider.summaryProviders.contains(.doubao))
         #expect(VoiceProvider.doubao.keychainAccount != VoiceProvider.qwen.keychainAccount)
     }
+
+    /// The mirror of Doubao: a vendor that summarizes but cannot speak. It has
+    /// to stay out of the realtime path even if a stored default names it.
+    @Test func aTextOnlyProviderSummarizesButIsNeverTheVoiceProvider() throws {
+        #expect(VoiceProvider.summaryProviders.contains(.deepseek))
+        #expect(!VoiceProvider.voiceProviders.contains(.deepseek))
+        #expect(VoiceProvider.voiceProviders.contains(.doubao))
+        #expect(VoiceProvider.deepseek.keychainAccount == "deepseek.apiKey")
+        #expect(Set(VoiceProvider.allCases.map(\.keychainAccount)).count == VoiceProvider.allCases.count)
+
+        let defaults = UserDefaults.standard
+        let saved = defaults.string(forKey: VoiceSettings.providerKey)
+        defer {
+            if let saved { defaults.set(saved, forKey: VoiceSettings.providerKey) }
+            else { defaults.removeObject(forKey: VoiceSettings.providerKey) }
+        }
+        defaults.set(VoiceProvider.deepseek.rawValue, forKey: VoiceSettings.providerKey)
+        #expect(VoiceSettings.provider == .qwen)
+    }
 }
 
 @Suite("Read-aloud purpose provider")
@@ -94,14 +113,36 @@ struct ReadAloudPurposeSettingsTests {
         #expect(VoiceSettings.readAloudVoice(.qwen, defaults: defaults) == "kept-voice")
     }
 
-    @Test func everyProviderCanReadAloud() throws {
+    @Test func everyVoiceProviderCanReadAloud() throws {
         // Doubao stays out of summaries, but read-aloud is a separate question:
         // it speaks, so it can be picked here — only never inherited.
         #expect(!VoiceProvider.summaryProviders.contains(.doubao))
-        for provider in VoiceProvider.allCases {
-            let support = SpeechSynthesis.support(provider)
+        for provider in VoiceProvider.voiceProviders {
+            let support = try #require(SpeechSynthesis.support(provider), "\(provider) speech support")
             #expect(!support.defaultModel.isEmpty, "\(provider) model")
             #expect(!support.defaultVoice.isEmpty, "\(provider) voice")
         }
+        // The other direction: a text-only vendor has no speech API to hand out.
+        #expect(SpeechSynthesis.support(.deepseek) == nil)
+        #expect(SpeechSynthesis.synthesizer(.init(provider: .deepseek, model: "deepseek-flash", voice: "")) == nil)
+    }
+
+    @Test func readAloudReportsATextOnlySummaryProviderInsteadOfFollowingIt() throws {
+        let (defaults, name) = try suite()
+        defer { defaults.removePersistentDomain(forName: name) }
+        defaults.set(VoiceProvider.deepseek.rawValue, forKey: VoiceSettings.summaryProviderKey)
+        // Following a text-only summary provider is its own state, not Qwen.
+        #expect(VoiceSettings.summaryProvider(defaults: defaults) == .deepseek)
+        #expect(VoiceSettings.readAloudStatus(defaults: defaults) == .summaryProviderCannotSpeak(.deepseek))
+        #expect(VoiceSettings.readAloudStatus(defaults: defaults).provider == nil)
+        // It cannot be pinned either, by picker or by a hand-edited default.
+        VoiceSettings.selectReadAloudProvider(.deepseek, defaults: defaults)
+        #expect(VoiceSettings.pinnedReadAloudProvider(defaults: defaults) == nil)
+        defaults.set(VoiceProvider.deepseek.rawValue, forKey: VoiceSettings.readAloudProviderKey)
+        #expect(VoiceSettings.pinnedReadAloudProvider(defaults: defaults) == nil)
+        #expect(VoiceSettings.readAloudStatus(defaults: defaults) == .summaryProviderCannotSpeak(.deepseek))
+        // Pinning a vendor that speaks still works while summaries stay text-only.
+        VoiceSettings.selectReadAloudProvider(.qwen, defaults: defaults)
+        #expect(VoiceSettings.readAloudStatus(defaults: defaults) == .ready(.qwen))
     }
 }

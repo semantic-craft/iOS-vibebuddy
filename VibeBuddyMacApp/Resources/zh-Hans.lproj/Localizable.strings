@@ -329,6 +329,10 @@
 
 "Read-aloud is waiting for a completion summary provider. Choose one, or pick a read-aloud provider of its own." = "朗读正在等待完成摘要服务商。请先设置摘要服务商，或为朗读单独选择一家。";
 
+"%@ is text-only, so read-aloud cannot follow it. Pick a read-aloud provider of its own." = "%@ 只提供文本，朗读无法跟随它。请为朗读单独选择一家服务商。";
+
+"This provider is text-only. Choose a voice provider for conversation." = "该服务商只提供文本。请为语音对话选择一家语音服务商。";
+
 "API key" = "API 密钥";
 
 "Enter a speech synthesis model before previewing." = "试听前请输入语音合成模型。";

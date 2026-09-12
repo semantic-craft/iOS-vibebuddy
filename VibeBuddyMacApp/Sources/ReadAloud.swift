@@ -11,7 +11,7 @@ final class ReadAloud: ObservableObject {
     @Published private(set) var status = ""
     @Published private(set) var previewStatus = ""
     enum PreviewResult: Sendable { case completed, cancelled, failed(String) }
-    private let makeSynthesizer: @Sendable (SpeechSynthesisConfiguration) -> any SpeechSynthesizer
+    private let makeSynthesizer: @Sendable (SpeechSynthesisConfiguration) -> (any SpeechSynthesizer)?
     private let automaticKey: @MainActor (VoiceProvider) -> String?
     private var previewTask: Task<PreviewResult, Never>?
     private var previewGeneration = UUID()
@@ -20,7 +20,7 @@ final class ReadAloud: ObservableObject {
     var automaticBusy: Bool { queueBusy }
 
     init(automaticKey: @escaping @MainActor (VoiceProvider) -> String? = { $0.apiKey },
-         makeSynthesizer: @escaping @Sendable (SpeechSynthesisConfiguration) -> any SpeechSynthesizer = SpeechSynthesis.synthesizer) {
+         makeSynthesizer: @escaping @Sendable (SpeechSynthesisConfiguration) -> (any SpeechSynthesizer)? = SpeechSynthesis.synthesizer) {
         self.automaticKey = automaticKey
         self.makeSynthesizer = makeSynthesizer
     }
@@ -55,6 +55,8 @@ final class ReadAloud: ObservableObject {
         switch status {
         case .waitingForSummaryProvider:
             return NSLocalizedString("Read-aloud is waiting for a completion summary provider. Choose one, or pick a read-aloud provider of its own.", comment: "Read-aloud follows an unconfigured summary provider")
+        case .summaryProviderCannotSpeak(let provider):
+            return String(format: NSLocalizedString("%@ is text-only, so read-aloud cannot follow it. Pick a read-aloud provider of its own.", comment: "Read-aloud follows a text-only summary provider"), provider.display)
         case .ready:
             return nil
         }
@@ -79,7 +81,9 @@ final class ReadAloud: ObservableObject {
                     self.status = String(format: NSLocalizedString("Save your %@ API key first.", comment: "Read-aloud needs a key"), provider.display); return
                 }
                 self.status = "Generating speech…"
-                let synthesizer = self.makeSynthesizer(VoiceSettings.readAloudConfiguration(provider))
+                guard let synthesizer = self.makeSynthesizer(VoiceSettings.readAloudConfiguration(provider)) else {
+                    self.status = SpeechSynthesisFailure.configuration.message; return
+                }
                 let data = try await synthesizer.synthesize(text, apiKey: key)
                 guard !Task.isCancelled, self.generation == current, self.canSpeak() else { return }
                 guard await validate(), !Task.isCancelled, self.generation == current, self.canSpeak() else { return }
@@ -122,7 +126,9 @@ final class ReadAloud: ObservableObject {
         guard E2ERunConfiguration.current?.audioEnabled ?? true else { return .cancelled }
         guard !Task.isCancelled else { return .cancelled }
         guard !busy, canSpeak() else { return .failed("Stop the current voice conversation or reading before previewing.") }
-        let synthesizer = makeSynthesizer(configuration)
+        guard let synthesizer = makeSynthesizer(configuration) else {
+            return .failed(SpeechSynthesisFailure.configuration.message)
+        }
         let id = UUID()
         previewGeneration = id
         let task = Task { @MainActor [self] in

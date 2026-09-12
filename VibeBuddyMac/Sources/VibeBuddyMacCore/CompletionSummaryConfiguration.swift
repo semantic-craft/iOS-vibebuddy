@@ -26,6 +26,7 @@ public struct CompletionSummaryConfiguration: Sendable, Equatable {
         switch provider {
         case .qwen: "qwen3.8-flash"
         case .openai: "gpt-5.6-luna"
+        case .deepseek: "deepseek-flash"
         case .gemini, .doubao: ""
         }
     }
