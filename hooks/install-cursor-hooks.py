@@ -91,7 +91,7 @@ STATUS_EVENTS = [
     "sessionStart", "sessionEnd",
     "beforeSubmitPrompt",
     "postToolUse", "postToolUseFailure", "afterFileEdit",
-    "afterAgentResponse", "preCompact",
+    "afterAgentResponse", "afterAgentThought", "preCompact",
     "subagentStart", "subagentStop",
 ]
 

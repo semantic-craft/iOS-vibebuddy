@@ -823,6 +823,8 @@ public struct VibeBuddyServer: Sendable {
                   let text = await cursorFollowups.take(conversationID: id) else {
                 return Response(status: .ok)
             }
+            await store.noteCursorFollowupHandoff(sessionID: id, loopCount: (obj["loop_count"] as? NSNumber)?.intValue,
+                                                  source: .hook, at: Date())
             let body: [String: Any] = ["followup_message": text]
             guard let data = try? JSONSerialization.data(withJSONObject: body) else {
                 return Response(status: .ok)

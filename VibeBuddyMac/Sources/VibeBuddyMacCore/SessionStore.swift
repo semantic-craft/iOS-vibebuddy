@@ -45,6 +45,15 @@ public actor SessionStore {
 
     public func isACPHosted(_ sessionID: String) -> Bool { acpHosted.contains(sessionID) }
 
+    /// A queued follow-up left for Cursor: through its `stop` hook (which says
+    /// how many automatic follow-ups this conversation has already taken, so a
+    /// silent drop past a `loop_limit` can be seen in the journal) or as the
+    /// ACP host's next prompt.
+    public func noteCursorFollowupHandoff(sessionID: String, loopCount: Int?, source: ObservationSource, at date: Date) {
+        let event = loopCount.map { "cursorFollowupHandedOver(loop \($0))" } ?? "cursorFollowupHandedOver"
+        _ = appendJournal(sessionID: sessionID, agent: .cursor, event: event, source: source, at: date)
+    }
+
     /// The write path the daemon would use for this session, stamped on every
     /// snapshot so the phone and the Watch decide availability from one fact
     /// (ADR-0016, second amendment). Codex: the app-server while it is fresh.
@@ -706,7 +715,9 @@ public actor SessionStore {
         case .sessionMetadataChanged:
             entry = event.message.map { TranscriptEntry(role: "assistant", text: $0) }
         case .preToolUse:
-            entry = event.toolName.map { TranscriptEntry(role: "assistant", text: "⚙ \($0)") }
+            // Thinking blocks are activity, not dialogue: one per model
+            // generation would drown the prompts and results this log is for.
+            entry = event.toolName.flatMap { $0 == "Thinking" ? nil : TranscriptEntry(role: "assistant", text: "⚙ \($0)") }
         case .postToolUse:
             entry = event.toolOutput.map { TranscriptEntry(role: "assistant", text: $0) }
         case .sessionEnd:

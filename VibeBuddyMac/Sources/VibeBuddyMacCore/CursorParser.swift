@@ -197,13 +197,16 @@ public enum CursorParser {
         case "postToolUse", "postToolUseFailure", "afterShellExecution",
              "afterMCPExecution", "afterFileEdit": return .postToolUse
         case "afterAgentResponse": return .sessionMetadataChanged
+        // A finished thinking block is activity the way a tool call is: the row
+        // reads "Thinking…" until the next tool or the agent's reply replaces
+        // it. It carries no progress transition and never a tool error.
+        case "afterAgentThought": return .preToolUse
         case "stop": return .stop
         case "sessionEnd": return .sessionEnd
-        // Thought deltas, Tab completions and workspace open are understood and
-        // deliberately dropped: they say nothing about the three states and
-        // would only churn the snapshot.
-        case "afterAgentThought", "workspaceOpen",
-             "beforeTabFileRead", "afterTabFileEdit": return nil
+        // Tab completions and workspace open are understood and deliberately
+        // dropped: they say nothing about the three states and would only
+        // churn the snapshot.
+        case "workspaceOpen", "beforeTabFileRead", "afterTabFileEdit": return nil
         default: return nil
         }
     }
@@ -212,6 +215,8 @@ public enum CursorParser {
     /// they borrow the canonical name the vocabulary gives them.
     static func toolName(for event: String, raw: RawCursor) -> String? {
         switch event {
+        case "afterAgentThought":
+            return "Thinking"
         case "beforeShellExecution", "afterShellExecution":
             return "Bash"
         case "beforeMCPExecution", "afterMCPExecution":

@@ -122,9 +122,22 @@ struct CursorHookAdapterTests {
     /// Cursor fires events that say nothing about progress on every session.
     /// Treating those as an unknown envelope would report the hook source as an
     /// unrecognised Cursor version after every turn.
+    @Test func aThoughtIsActivityNotAToolError() async {
+        let result = CursorParser.parse(cursorHook("afterAgentThought", extra: #","text":"hm","duration_ms":10"#),
+                                        receivedAt: Date())
+        #expect(result.event?.kind == .preToolUse)
+        #expect(result.event?.toolName == "Thinking")
+        #expect(result.event?.toolError == false)
+        let store = SessionStore()
+        await store.ingest(result.event!)
+        let session = await store.snapshot(now: Date()).sessions.first { $0.id == "c1" }
+        #expect(session?.status == .working)
+        #expect(ToolActivity.label(for: session!) == "Thinking…")
+        // A heartbeat, not dialogue: the hook log stays empty.
+        #expect(await store.recentOutput(sessionID: "c1", rolloutPath: nil).entries.isEmpty)
+    }
+
     @Test func understoodButSilentEventsAreIgnoredNotUndecodable() {
-        #expect(CursorParser.parse(cursorHook("afterAgentThought", extra: #","text":"hm","duration_ms":10"#),
-                                   receivedAt: Date()) == .ignored)
         #expect(CursorParser.parse(cursorHook("workspaceOpen"), receivedAt: Date()) == .ignored)
         #expect(CursorParser.parse(cursorHook("beforeTabFileRead", extra: #","file_path":"/a""#),
                                    receivedAt: Date()) == .ignored)

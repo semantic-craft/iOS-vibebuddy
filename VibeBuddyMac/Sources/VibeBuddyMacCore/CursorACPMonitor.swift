@@ -289,6 +289,7 @@ public actor CursorACPMonitor {
         // the next prompt — the same moment the hooks' `stop` would have
         // handed it to Cursor.
         if !cancelled, let next = await followups.take(conversationID: sessionID, now: now) {
+            await store.noteCursorFollowupHandoff(sessionID: sessionID, loopCount: nil, source: .acp, at: now)
             startTurn(sessionID: sessionID, text: next)
         }
     }

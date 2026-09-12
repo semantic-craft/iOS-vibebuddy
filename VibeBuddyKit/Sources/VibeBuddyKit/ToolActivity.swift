@@ -52,6 +52,8 @@ public enum ToolActivity {
             return "Coordinating"
         case "wait", "wait_agent", "wait_threads":
             return "Waiting"
+        case "thinking", "think":
+            return "Thinking"
         default:
             return nil
         }

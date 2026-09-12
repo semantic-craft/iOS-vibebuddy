@@ -43,7 +43,7 @@ USER_CURSOR_HOOK = "./hooks/my-own-audit.sh"
 CURSOR_EVENTS = [
     "sessionStart", "sessionEnd", "beforeSubmitPrompt",
     "postToolUse", "postToolUseFailure", "afterFileEdit",
-    "afterAgentResponse", "preCompact", "subagentStart", "subagentStop",
+    "afterAgentResponse", "afterAgentThought", "preCompact", "subagentStart", "subagentStop",
 ]
 # The grok 1.0.13 event set install-grok-hooks.py registers.
 GROK_EVENTS = [
