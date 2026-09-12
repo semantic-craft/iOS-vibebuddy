@@ -216,7 +216,7 @@ enum TokenLogJSON {
     }
 }
 
-private struct TokenLogFile {
+struct TokenLogFile {
     let url: URL
     let size: Int
     let mtime: Date
@@ -295,7 +295,7 @@ enum ClaudeTokenConsumptionParser {
             fallbackProject: { projectFromRelative($0, under: projects) },
             fileManager: fileManager,
             warnings: &warnings))
-        return files.flatMap { file in
+        return files.flatMap { file -> [TokenUsageEntry] in
             if file.size > TokenLogJSON.byteLimit {
                 warnings.append("Skipped oversized Claude transcript \(file.url.lastPathComponent)")
                 return []
