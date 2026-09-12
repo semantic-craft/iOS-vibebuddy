@@ -52,6 +52,13 @@ struct DashboardView: View {
         DashboardSidebar.title(scope)
     }
 
+    /// The search field lives in the live and history list heads; Usage has
+    /// none, so searching from there lands on Current tasks.
+    private func focusSearch() {
+        if libraryScope == "usage" { libraryScope = "live" }
+        searchFocused = true
+    }
+
     /// History's projects with a conversation count each, for the sidebar.
     private var historyProjects: [(path: String, count: Int)] {
         let counts = Dictionary(grouping: history.snapshot.sessions, by: \.projectPath).mapValues(\.count)
@@ -64,10 +71,7 @@ struct DashboardView: View {
                              projectScope: $projectScope, historyProject: $historyProject,
                              liveProjects: projection.projects, historyProjects: historyProjects,
                              onNewTask: { showNewTask = true },
-                             onSearch: {
-                                 if libraryScope == "usage" { libraryScope = "live" }
-                                 searchFocused = true
-                             })
+                             onSearch: focusSearch)
             Rectangle().fill(MacTheme.line).frame(width: CompanionType.hairline)
             Group {
                 if libraryScope == "live" {
@@ -115,8 +119,8 @@ struct DashboardView: View {
                 Button("") { statusFilter = .completeUnread }.keyboardShortcut("4", modifiers: .command)
                 Button("") { statusFilter = .idle }.keyboardShortcut("5", modifiers: .command)
                 Button("") { statusFilter = nil }.keyboardShortcut("0", modifiers: .command)
-                // ⌘F focuses the sessions search field.
-                Button("") { searchFocused = true }.keyboardShortcut("f", modifiers: .command)
+                // ⌘F focuses the search field, leaving Usage first if needed.
+                Button("", action: focusSearch).keyboardShortcut("f", modifiers: .command)
                 // ⏎ jumps to the selected session's terminal. Ignored while typing in
                 // search so it doesn't shadow the field's own Return.
                 Button("") {

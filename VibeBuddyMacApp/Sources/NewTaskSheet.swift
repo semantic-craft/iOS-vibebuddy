@@ -161,7 +161,7 @@ struct NewTaskSheet: View {
                                       prompt: prompt.trimmingCharacters(in: .whitespacesAndNewlines),
                                       name: name.isEmpty ? nil : name)
         Task {
-            let outcome = await model.dispatch(request)
+            let outcome = await model.dispatch(request, userChoseDirectory: chosenDirectories.contains(directory))
             busy = false
             switch outcome {
             case .started: dismiss()

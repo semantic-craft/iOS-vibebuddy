@@ -993,9 +993,19 @@ final class MenuBarModel: ObservableObject {
 
     /// Start a new task from the Mac, the same way `/dispatch` does for the
     /// phone: Codex through the app-server daemon; other agents once they have
-    /// a launcher. The directory must be one a session has run in.
-    func dispatch(_ request: DispatchRequest) async -> DispatchOutcome {
-        guard await store.isKnownDirectory(request.cwd) else {
+    /// a launcher. The directory must be one a session has run in, unless the
+    /// user picked it in this Mac's open panel just now (`userChoseDirectory`):
+    /// that choice is the authorization the known-directory rule stands in
+    /// for when a request arrives from the phone.
+    func dispatch(_ request: DispatchRequest, userChoseDirectory: Bool = false) async -> DispatchOutcome {
+        if userChoseDirectory {
+            var isDirectory: ObjCBool = false
+            guard request.cwd.hasPrefix("/"),
+                  FileManager.default.fileExists(atPath: request.cwd, isDirectory: &isDirectory),
+                  isDirectory.boolValue else {
+                return .rejected("That folder is no longer available.")
+            }
+        } else if !(await store.isKnownDirectory(request.cwd)) {
             return .rejected("Pick a directory a session has already run in.")
         }
         switch request.agent {
