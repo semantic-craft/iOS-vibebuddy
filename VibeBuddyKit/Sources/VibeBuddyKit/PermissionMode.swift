@@ -14,9 +14,10 @@ public enum PermissionMode: String, Codable, Sendable, CaseIterable {
 public extension AgentSession {
     var permissionDescription: String {
         if agent == .codex {
-            return "Approval: \(approvalPolicyRaw ?? "Unknown") · Sandbox: \(sandboxPolicyRaw ?? "Unknown")"
+            let unknown = String(localized: "Unknown", bundle: .module)
+            return String(localized: "Approval: \(approvalPolicyRaw ?? unknown) · Sandbox: \(sandboxPolicyRaw ?? unknown)", bundle: .module)
         }
         let mode = agent == .cursor ? PermissionMode.unknown : (permissionMode ?? .unknown)
-        return mode == .unknown ? "Unknown" : mode.rawValue
+        return mode == .unknown ? String(localized: "Unknown", bundle: .module) : mode.rawValue
     }
 }

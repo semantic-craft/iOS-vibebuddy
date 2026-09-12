@@ -88,3 +88,12 @@ counts at 99+, and exposes the exact count and state through accessibility and
 help text. Active voice uses a bounded symbol with the full state in accessibility
 and expanded content. A clipped voice outline cannot paint outside the shape.
 The stable transparent panel and the notchless pill remain the existing model.
+
+## New decision (2026-09-13): keep the task list while a decision waits
+
+ADR-0020 revises approval placement: the expanded Glance always retains its task
+list. A waiting row expands an inline decision with the available actions; it
+does not replace the entire list. This is a new decision, not a description of
+what the original ADR already guaranteed. Event-card timing and geometry remain.
+The menu badge defaults on absent an explicit saved choice and counts Needs you
+plus unread Done; the original default-off decision above is superseded.

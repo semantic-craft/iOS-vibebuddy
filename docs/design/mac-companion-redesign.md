@@ -199,3 +199,10 @@ task, from the target's state; instructions only reach Codex sessions and the
 banner says so otherwise), `SessionDetailSheet` (the numbers behind the
 avatar, the attention picker, jump). A composer send with no target opens the
 existing new-task sheet with the draft filled in.
+
+## 2026-09-13 decision
+
+[ADR-0020](../adr/0020-autonomous-task-progress-desk.md) supersedes approval-first
+placement: keep the task list, lead details with goal and result, place decisions
+inline, and distinguish unread results from verified work. Use the existing
+Cursor tokens. Only confirmed terminal failures enter Needs you.
