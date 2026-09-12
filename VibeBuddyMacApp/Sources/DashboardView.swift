@@ -11,6 +11,8 @@ struct DashboardView: View {
     @State private var projectScope: DashboardSessionList.ProjectScope = .all
     @State private var query: String = ""
     @State private var showNewTask = false
+    @State private var libraryScope = "live"
+    @StateObject private var history = HistoryLibraryModel()
     // Demo instance pre-selects the approval session so the detail pane (diff +
     // Approve/Deny) is shown for screenshots; nil in normal use.
     @State private var selection: String? =
@@ -36,10 +38,37 @@ struct DashboardView: View {
     var body: some View {
         VStack(spacing: 0) {
             MacBuddyBar(model: model, voice: model.voiceChat, query: $query, searchFocused: $searchFocused)
-            HSplitView {
-                projectSidebar
-                sessionsColumn
-                detailColumn
+            HStack(spacing: 12) {
+                Picker("Library", selection: $libraryScope) {
+                    Text("Current tasks").tag("live")
+                    Text("History").tag("history")
+                    Text("Favorites").tag("favorites")
+                }
+                .pickerStyle(.segmented).frame(maxWidth: 380)
+                Spacer()
+                if libraryScope != "live" {
+                    let waiting = model.sessions.filter { $0.status == .needsResponse }.count
+                    if waiting > 0 {
+                        Button("\(waiting) need a response") {
+                            libraryScope = "live"
+                            statusFilter = .requiresInput
+                            projectScope = .all
+                            query = ""
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 16).padding(.bottom, 8)
+            Divider()
+            if libraryScope == "live" {
+                HSplitView {
+                    projectSidebar
+                    sessionsColumn
+                    detailColumn
+                }
+            } else {
+                HistoryWorkbenchView(history: history, model: model, query: query,
+                                     favoritesOnly: libraryScope == "favorites")
             }
         }
         .background(MacTheme.bg)
@@ -70,7 +99,7 @@ struct DashboardView: View {
                 Button("") {
                     // Text editors (including detail composers/questions) own
                     // Return while editing; a selected row must not steal it.
-                    if !searchFocused, !(NSApp.keyWindow?.firstResponder is NSTextView),
+                    if libraryScope == "live", !searchFocused, !(NSApp.keyWindow?.firstResponder is NSTextView),
                        let s = selectedSession { model.jump(s) }
                 }
                     .keyboardShortcut(.return, modifiers: [])
@@ -172,7 +201,7 @@ struct DashboardView: View {
                 .padding(.horizontal, 12).padding(.bottom, 12)
             }
         }
-        .frame(minWidth: 240, idealWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
+        .frame(minWidth: 220, idealWidth: 280, maxWidth: 360, maxHeight: .infinity)
     }
 
     private var detailColumn: some View {
@@ -180,14 +209,19 @@ struct DashboardView: View {
             VStack(spacing: 12) {
                 Group {
                     if let s = selectedSession {
-                        DetailCard(session: s, model: model)
+                        VStack(spacing: 0) {
+                            DetailCard(session: s, model: model)
+                            Divider()
+                            RecentOutputPane(session: s, model: model)
+                        }.id(s.id)
                     } else {
                         ContentUnavailableView("Select a session", systemImage: "sidebar.right")
                             .frame(maxWidth: .infinity, minHeight: 200)
                     }
                 }
                 .companionCard(radius: MacTheme.panelRadius)
-                usageCard
+                DisclosureGroup("Account usage") { usageCard }
+                    .font(.caption).padding(.horizontal, 4)
             }
             .padding(12)
         }
@@ -243,9 +277,9 @@ private struct MacBuddyBar: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            PetFace(state: model.buddyState, voice: .init(voice.phase), greet: greet, bare: true, scale: 0.9)
+            PetFace(state: model.buddyState, voice: .init(voice.phase), greet: greet, bare: true, scale: 0.55)
                 .onTapGesture { greet += 1; voice.toggle() }
-            SpeechBubble {
+            Group {
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 6) {
                         if !companionEnabled {
@@ -275,7 +309,7 @@ private struct MacBuddyBar: View {
             Spacer(minLength: 12)
             SearchPill(query: $query, focused: searchFocused)
         }
-        .padding(.horizontal, 20).padding(.top, 6).padding(.bottom, 12)
+        .padding(.horizontal, 16).padding(.vertical, 6)
         .sheet(isPresented: $voice.showConsent) { VoiceConsentSheet(voice: voice) }
     }
 }
@@ -650,6 +684,52 @@ private struct TranscriptSheet: View {
                 .padding()
             }
         }
+    }
+}
+
+/// Bounded live output in the main reading pane; never described as full history.
+private struct RecentOutputPane: View {
+    let session: AgentSession
+    @ObservedObject var model: MenuBarModel
+    @State private var output: RecentOutput?
+    @State private var loading = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("Recent output").font(.headline)
+                Spacer()
+                Button("Refresh") { Task { await reload() } }.disabled(loading)
+            }
+            if let output {
+                Text(output.sourceLabel).font(.caption).foregroundStyle(.secondary)
+                if !output.statusLine.isEmpty {
+                    Text(output.statusLine).font(.caption).foregroundStyle(.secondary)
+                }
+                Text("A limited recent excerpt. Open History to read indexed local conversations.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if output.entries.isEmpty {
+                    Text("No recent output is available from this source.")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(Array(output.entries.enumerated()), id: \.offset) { _, entry in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(entry.role == "assistant" ? "Assistant" : "You")
+                            .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        Text(entry.text).font(.body).textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            } else { ProgressView() }
+        }
+        .padding(20)
+        .task(id: session.id) { await reload() }
+    }
+
+    private func reload() async {
+        loading = true
+        output = await model.recentOutput(for: session.id)
+        loading = false
     }
 }
 

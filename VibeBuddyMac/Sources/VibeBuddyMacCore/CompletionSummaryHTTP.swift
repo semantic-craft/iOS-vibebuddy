@@ -5,22 +5,22 @@ import VibeBuddyKit
 struct CompletionSummaryHTTP: Sendable {
     let session: URLSession
 
-    static func session() -> URLSession {
+    static func session(timeout: TimeInterval = 12) -> URLSession {
         let config = URLSessionConfiguration.ephemeral
         config.urlCache = nil
         config.httpCookieStorage = nil
         config.urlCredentialStorage = nil
         config.httpShouldSetCookies = false
-        config.timeoutIntervalForRequest = 12
-        config.timeoutIntervalForResource = 12
+        config.timeoutIntervalForRequest = timeout
+        config.timeoutIntervalForResource = timeout
         return URLSession(configuration: config)
     }
 
     func generate(input: CompletionSummaryInput, configuration: CompletionSummaryConfiguration,
-                  key: String, timeout: TimeInterval) async -> CompletionSummaryResponse {
+                  key: String, timeout: TimeInterval, conversation: Bool = false) async -> CompletionSummaryResponse {
         do {
             try Task.checkCancellation()
-            let request = try Self.request(input: input, configuration: configuration, key: key, timeout: timeout)
+            let request = try Self.request(input: input, configuration: configuration, key: key, timeout: timeout, conversation: conversation)
             // No redirect follow-up: it could disclose result text/key or create a second paid request.
             let (data, response) = try await session.data(for: request, delegate: NoRedirect())
             try Task.checkCancellation()
@@ -34,7 +34,7 @@ struct CompletionSummaryHTTP: Sendable {
                 return .init(failure: failure)
             }
             guard let provider = configuration.provider else { return .init(failure: .missingProvider) }
-            return Self.decode(data, provider: provider)
+            return Self.decode(data, provider: provider, conversation: conversation)
         } catch is CancellationError { return .init(failure: .cancelled)
         } catch let error as URLError {
             return .init(failure: error.code == .timedOut ? .expired : error.code == .cancelled ? .cancelled : .network)
@@ -43,11 +43,11 @@ struct CompletionSummaryHTTP: Sendable {
     }
 
     static func request(input: CompletionSummaryInput, configuration c: CompletionSummaryConfiguration,
-                        key: String, timeout: TimeInterval) throws -> URLRequest {
+                        key: String, timeout: TimeInterval, conversation: Bool = false) throws -> URLRequest {
         if let failure = c.configurationFailure { throw failure }
         guard let provider = c.provider else { throw CompletionSummaryFailure.missingProvider }
-        let instructions = Self.instructions(language: c.language)
-        let userData = try JSONSerialization.data(withJSONObject: ["title": input.title, "finalText": input.finalText], options: [.sortedKeys])
+        let instructions = conversation ? SessionHistorySummaryService.instructions(language: c.language) : Self.instructions(language: c.language)
+        let userData = try JSONSerialization.data(withJSONObject: ["title": input.title, conversation ? "transcript": "finalText": input.finalText], options: [.sortedKeys])
         let user = String(decoding: userData, as: UTF8.self)
         let endpoint: String
         let body: [String: Any]
@@ -60,13 +60,13 @@ struct CompletionSummaryHTTP: Sendable {
             } else { host = c.qwenUseIntl ? "dashscope-intl.aliyuncs.com" : "dashscope.aliyuncs.com" }
             endpoint = "https://\(host)/compatible-mode/v1/chat/completions"
             body = ["model": c.modelID, "messages": [["role": "system", "content": instructions], ["role": "user", "content": user]],
-                    "stream": false, "max_tokens": 512, "enable_thinking": false]
+                    "stream": false, "max_tokens": conversation ? 2400 : 512, "enable_thinking": false]
         case .openai:
             endpoint = "https://api.openai.com/v1/responses"
             var openAI: [String: Any] = ["model": c.modelID, "instructions": instructions,
                     "input": [["role": "user", "content": [["type": "input_text", "text": user]]]],
                     "store": false, "stream": false, "tools": [], "tool_choice": "none",
-                    "max_output_tokens": 1024, "text": ["format": ["type": "text"]], "truncation": "disabled"]
+                    "max_output_tokens": conversation ? 3000 : 1024, "text": ["format": ["type": "text"]], "truncation": "disabled"]
             if c.modelID == "gpt-5.6-luna" {
                 openAI["reasoning"] = ["effort": "none"]
             }
@@ -75,7 +75,7 @@ struct CompletionSummaryHTTP: Sendable {
             endpoint = "https://generativelanguage.googleapis.com/v1beta/models/\(c.modelID):generateContent"
             body = ["systemInstruction": ["parts": [["text": instructions]]],
                     "contents": [["role": "user", "parts": [["text": user]]]],
-                    "generationConfig": ["candidateCount": 1, "maxOutputTokens": 1024, "responseMimeType": "text/plain", "responseModalities": ["TEXT"]]]
+                    "generationConfig": ["candidateCount": 1, "maxOutputTokens": conversation ? 3000 : 1024, "responseMimeType": "text/plain", "responseModalities": ["TEXT"]]]
         }
         guard let url = URL(string: endpoint), timeout > 0 else { throw CompletionSummaryFailure.expired }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)
@@ -101,7 +101,7 @@ struct CompletionSummaryHTTP: Sendable {
         """
     }
 
-    static func decode(_ data: Data, provider: VoiceProvider) -> CompletionSummaryResponse {
+    static func decode(_ data: Data, provider: VoiceProvider, conversation: Bool = false) -> CompletionSummaryResponse {
         guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return .init(failure: .invalidResponse) }
         let usage = usage(root, provider: provider)
         func fail(_ reason: CompletionSummaryFailure) -> CompletionSummaryResponse { .init(usage: usage, failure: reason) }
@@ -143,6 +143,10 @@ struct CompletionSummaryHTTP: Sendable {
         }
         let text = pieces.joined().trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return fail(.emptyOutput) }
+        if conversation {
+            guard text.count <= 6000 else { return fail(.outputTooLong) }
+            return .init(text: text, usage: usage)
+        }
         guard text.count <= 180 else { return fail(.outputTooLong) }
         guard let end = text.last, ".!?。！？".contains(end), !text.hasSuffix("..."), !text.hasSuffix("…") else { return fail(.incompleteOutput) }
         guard !text.contains("\n"), !text.contains("\r"), !text.contains("`"), !text.contains("**"), !text.hasPrefix("#"), !text.hasPrefix("- ") else { return fail(.invalidOutput) }

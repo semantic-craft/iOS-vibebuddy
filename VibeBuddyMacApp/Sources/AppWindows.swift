@@ -18,7 +18,7 @@ final class AppWindows: NSObject, NSWindowDelegate {
         if dashboardWindow == nil {
             dashboardWindow = makeWindow(
                 content: dashboardContent, title: "vibebuddy", id: "dashboard",
-                size: NSSize(width: 1000, height: 660), minimum: NSSize(width: 760, height: 480),
+                size: NSSize(width: 1180, height: 760), minimum: NSSize(width: 940, height: 620),
                 resizable: true)
         }
         present(dashboardWindow!)
