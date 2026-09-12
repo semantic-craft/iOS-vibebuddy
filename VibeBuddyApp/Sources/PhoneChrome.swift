@@ -20,6 +20,9 @@ struct PhoneCircleButton<Glyph: View>: View {
     let action: () -> Void
     @ViewBuilder var glyph: Glyph
 
+    /// The smallest touch target; the circle keeps its drawn size inside it.
+    static var touchTarget: CGFloat { 44 }
+
     var body: some View {
         Button(action: action) {
             glyph
@@ -28,7 +31,11 @@ struct PhoneCircleButton<Glyph: View>: View {
                 .frame(width: size, height: size)
                 .background(ground, in: Circle())
                 .overlay(Circle().strokeBorder(CompanionPalette.line, lineWidth: CompanionType.hairline))
-                .contentShape(Circle())
+                // The tappable area is 44pt even when the circle is 30; the
+                // extra is invisible and does not move the layout.
+                .frame(width: max(size, Self.touchTarget), height: max(size, Self.touchTarget))
+                .contentShape(Rectangle())
+                .padding(-max(0, (Self.touchTarget - size) / 2))
         }
         .buttonStyle(.plain)
     }
@@ -107,10 +114,12 @@ struct PhoneApproveButton: View {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(Color.onAccent)
-                        .frame(width: 30, height: 32)
+                        .frame(width: 30, height: PhoneApproveHalf.height)
+                        // 44pt of touch around the 32pt key, drawn no larger.
+                        .frame(height: PhoneApproveHalf.touchHeight)
                         .contentShape(Rectangle())
                 }
-                .frame(width: 30, height: 32)
+                .frame(width: 30, height: PhoneApproveHalf.height)
                 .background(green, in: UnevenRoundedRectangle(
                     topLeadingRadius: 0, bottomLeadingRadius: 0,
                     bottomTrailingRadius: PhoneMetrics.controlRadius,
@@ -124,18 +133,26 @@ struct PhoneApproveButton: View {
 private struct PhoneApproveHalf: ButtonStyle {
     let color: Color
     let leading: Bool
+    /// The drawn height, and the touch height around it (invisible; the row
+    /// keeps its 32pt key, the finger gets 44).
+    static let height: CGFloat = 32
+    static let touchHeight: CGFloat = 44
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(CompanionType.font(13, .medium))
             .foregroundStyle(Color.onAccent)
+            .lineLimit(1)
             .padding(.horizontal, 14)
-            .frame(height: 32)
+            .frame(minHeight: Self.height)
             .background(color, in: UnevenRoundedRectangle(
                 topLeadingRadius: PhoneMetrics.controlRadius,
                 bottomLeadingRadius: PhoneMetrics.controlRadius,
                 bottomTrailingRadius: 0, topTrailingRadius: 0, style: .continuous))
             .opacity(configuration.isPressed ? 0.85 : 1)
+            .frame(minHeight: Self.touchHeight)
+            .contentShape(Rectangle())
+            .padding(.vertical, -(Self.touchHeight - Self.height) / 2)
     }
 }
 
