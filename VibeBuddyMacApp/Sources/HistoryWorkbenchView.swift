@@ -150,9 +150,11 @@ final class HistoryLibraryModel: ObservableObject {
 struct HistoryWorkbenchView: View {
     @ObservedObject var history: HistoryLibraryModel
     @ObservedObject var model: MenuBarModel
-    let query: String
+    @Binding var query: String
     let favoritesOnly: Bool
-    @State private var project: String?
+    /// The sidebar owns the project choice (shared with the live library).
+    @Binding var project: String?
+    var searchFocused: FocusState<Bool>.Binding
     @State private var agent: SessionHistoryAgent?
     @State private var archiveScope = "all"
     private var archived: Bool? { archiveScope == "all" ? nil : archiveScope == "archived" }
@@ -160,15 +162,19 @@ struct HistoryWorkbenchView: View {
     @State private var targetMessage: String?
     @State private var exportError: String?
 
+    private var archiveTitle: String {
+        switch archiveScope {
+        case "unarchived": String(localized: "Unarchived")
+        case "archived": String(localized: "Archived")
+        default: String(localized: "All history")
+        }
+    }
     private var isSearching: Bool { !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     private var sessions: [SessionHistorySession] {
         history.snapshot.sessions.filter {
             (project == nil || $0.projectPath == project) && (!favoritesOnly || $0.isFavorite)
                 && (agent == nil || $0.agent == agent) && (archived == nil || $0.isArchived == archived)
         }
-    }
-    private var projects: [String] {
-        Array(Set(history.snapshot.sessions.map(\.projectPath))).sorted()
     }
     private var selected: SessionHistorySession? {
         guard let selection else { return nil }
@@ -184,7 +190,6 @@ struct HistoryWorkbenchView: View {
 
     var body: some View {
         HSplitView {
-            sidebar
             sessionList
             readingPane
         }
@@ -210,74 +215,56 @@ struct HistoryWorkbenchView: View {
         } message: { Text(exportError ?? "") }
     }
 
-    private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Local library").font(MacTheme.font(13, .semibold))
-            Text("Claude Code · Codex\nIncludes archived Codex sessions")
-                .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
-            Picker("Agent", selection: $agent) {
-                Text("All agents").tag(nil as SessionHistoryAgent?)
-                ForEach(SessionHistoryAgent.allCases, id: \.self) { value in
-                    Text(value.displayName).tag(Optional(value))
-                }
-            }
-            Picker("Archive", selection: $archiveScope) {
-                Text("All history").tag("all")
-                Text("Unarchived").tag("unarchived")
-                Text("Archived").tag("archived")
-            }
-            Button { project = nil } label: {
-                Label("All projects", systemImage: "tray.full")
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(8)
-                    .background(project == nil ? Color.accentColor.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 6))
-            }.buttonStyle(.plain)
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 4) {
-                    ForEach(projects, id: \.self) { path in
-                        Button { project = path } label: {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Label(path.isEmpty ? "Unknown project" : URL(fileURLWithPath: path).lastPathComponent,
-                                      systemImage: "folder")
-                                Text(path).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2).lineLimit(2)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading).padding(8)
-                            .background(project == path ? Color.accentColor.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 6))
-                        }.buttonStyle(.plain).help(path)
-                    }
-                }
-            }
-            Divider()
-            if history.loading { ProgressView("Updating library…").font(MacTheme.font(10)) }
-            if let date = history.snapshot.refreshedAt {
-                Text("Updated \(date.formatted(date: .omitted, time: .shortened))")
-                    .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
-            }
-            HStack {
-                Button("Refresh") { Task { await history.refresh() } }
-                Menu {
-                    Button("Rebuild index") { Task { await history.refresh(rebuild: true) } }
-                } label: { Image(systemName: "ellipsis.circle") }
-                .menuStyle(.borderlessButton).frame(width: 24)
-            }.disabled(history.loading)
-            if let error = history.error { Text(error).font(MacTheme.font(10)).foregroundStyle(.red).textSelection(.enabled) }
-            if !history.snapshot.issues.isEmpty {
-                DisclosureGroup("Source notices (\(history.snapshot.issues.count))") {
-                    ScrollView { Text(history.snapshot.issues.joined(separator: "\n")).font(MacTheme.font(10)).textSelection(.enabled) }
-                        .frame(maxHeight: 130)
-                }.font(MacTheme.font(10))
-            }
-        }
-        .padding(12).frame(minWidth: 170, idealWidth: 210, maxWidth: 270)
-        .frame(maxHeight: .infinity).background(Color(nsColor: .controlBackgroundColor))
-    }
-
     private var sessionList: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(isSearching ? "Message matches" : favoritesOnly ? "Favorites" : "History").font(MacTheme.font(13, .semibold))
-                Spacer()
-                Text("\(isSearching ? history.results.count : sessions.count)").foregroundStyle(MacTheme.ink2)
-            }.padding(12)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(isSearching ? "Message matches" : favoritesOnly ? "Favorites" : "History")
+                        .font(MacTheme.font(13, .semibold)).foregroundStyle(MacTheme.ink)
+                    Spacer(minLength: 8)
+                    Text("\(isSearching ? history.results.count : sessions.count)")
+                        .font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink3)
+                }
+                // The dashboard's one query; the sidebar's Search row and ⌘F
+                // land here while a history library is showing.
+                SearchPill(query: $query, focused: searchFocused)
+                HStack(spacing: 6) {
+                    MenuPill(title: agent?.displayName ?? String(localized: "All agents")) {
+                        Button("All agents") { agent = nil }
+                        ForEach(SessionHistoryAgent.allCases, id: \.self) { value in
+                            Button(value.displayName) { agent = value }
+                        }
+                    }
+                    MenuPill(title: archiveTitle) {
+                        Button("All history") { archiveScope = "all" }
+                        Button("Unarchived") { archiveScope = "unarchived" }
+                        Button("Archived") { archiveScope = "archived" }
+                    }
+                    Spacer(minLength: 4)
+                    if history.loading {
+                        ProgressView().controlSize(.mini)
+                    } else if let date = history.snapshot.refreshedAt {
+                        Text(date, style: .time).font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink3)
+                            .help(String(localized: "Updated \(date.formatted(date: .omitted, time: .shortened))"))
+                    }
+                    MenuPill(title: "···") {
+                        Button("Refresh") { Task { await history.refresh() } }
+                        Button("Rebuild index") { Task { await history.refresh(rebuild: true) } }
+                        if !history.snapshot.issues.isEmpty {
+                            Divider()
+                            Section("Source notices (\(history.snapshot.issues.count))") {
+                                ForEach(history.snapshot.issues, id: \.self) { issue in Text(issue) }
+                            }
+                        }
+                    }
+                    .disabled(history.loading)
+                }
+                if let error = history.error {
+                    Text(error).font(MacTheme.font(10)).foregroundStyle(MacTheme.status(.error)).textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.horizontal, 12).padding(.top, 12)
             if isSearching && history.searching { ProgressView("Searching…") }
             if isSearching, let error = history.searchError {
                 Text("Search could not complete: \(error)").font(MacTheme.font(10)).foregroundStyle(.red).padding(12)
@@ -302,8 +289,10 @@ struct HistoryWorkbenchView: View {
                         }
                     }
                     if !history.loading && !(isSearching && history.searching) && (isSearching ? history.results.isEmpty && history.searchError == nil : sessions.isEmpty) {
-                        ContentUnavailableView(isSearching ? "No matching messages" : "No sessions in this view", systemImage: "text.magnifyingglass",
-                                               description: Text("Check the project filter and source notices, or refresh the library."))
+                        QuietEmptyState(title: isSearching ? "No matching messages" : "No sessions in this view",
+                                        message: "Check the project filter and source notices, or refresh the library.",
+                                        systemName: "text.magnifyingglass")
+                            .padding(.top, 40)
                     }
                 }.padding(.horizontal, 8)
             }
@@ -328,7 +317,7 @@ struct HistoryWorkbenchView: View {
             else if !session.warnings.isEmpty { Label("Partial or limited record", systemImage: "info.circle").font(MacTheme.font(10)) }
         }
         .frame(maxWidth: .infinity, alignment: .leading).padding(10)
-        .background(active ? Color.accentColor.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 8))
+        .background(active ? MacTheme.ink.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .contentShape(Rectangle())
     }
 
@@ -370,8 +359,8 @@ struct HistoryWorkbenchView: View {
             .frame(minWidth: 340, maxWidth: .infinity, maxHeight: .infinity)
             .id(session.id)
         } else {
-            ContentUnavailableView("Select a conversation", systemImage: "text.book.closed",
-                                   description: Text("Read local history without changing a task's live state."))
+            QuietEmptyState(title: "Select a conversation", message: "Pick a conversation on the left to read it.",
+                            systemName: "text.book.closed")
                 .frame(minWidth: 340, maxWidth: .infinity, maxHeight: .infinity)
         }
     }

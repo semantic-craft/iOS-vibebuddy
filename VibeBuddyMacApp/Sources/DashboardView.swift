@@ -30,6 +30,9 @@ struct DashboardView: View {
     @State private var query: String = ""
     @State private var showNewTask = false
     @State private var libraryScope = "live"
+    /// History and Favorites filter by project path; the sidebar owns the
+    /// choice so both libraries share one project list.
+    @State private var historyProject: String?
     @StateObject private var history = HistoryLibraryModel()
     // Demo instance pre-selects the approval session so the detail pane (diff +
     // Approve/Deny) is shown for screenshots; nil in normal use.
@@ -46,51 +49,45 @@ struct DashboardView: View {
     private var selectedSession: AgentSession? { projection.selected }
 
     private func projectTitle(_ scope: DashboardSessionList.ProjectScope) -> String {
-        switch scope {
-        case .all: String(localized: "All projects")
-        case .unknown: String(localized: "Unknown project (unassigned)")
-        case .project(let name): name
-        }
+        DashboardSidebar.title(scope)
+    }
+
+    /// The search field lives in the live and history list heads; Usage has
+    /// none, so searching from there lands on Current tasks.
+    private func focusSearch() {
+        if libraryScope == "usage" { libraryScope = "live" }
+        searchFocused = true
+    }
+
+    /// History's projects with a conversation count each, for the sidebar.
+    private var historyProjects: [(path: String, count: Int)] {
+        let counts = Dictionary(grouping: history.snapshot.sessions, by: \.projectPath).mapValues(\.count)
+        return counts.keys.sorted().map { (path: $0, count: counts[$0] ?? 0) }
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            MacBuddyBar(model: model, voice: model.voiceChat, query: $query, searchFocused: $searchFocused)
-            HStack(spacing: 12) {
-                Picker("Library", selection: $libraryScope) {
-                    Text("Current tasks").tag("live")
-                    Text("History").tag("history")
-                    Text("Favorites").tag("favorites")
-                    Text("Usage").tag("usage")
-                }
-                .pickerStyle(.segmented).frame(maxWidth: 460)
-                Spacer()
-                if libraryScope != "live" {
-                    let waiting = model.sessions.filter { $0.status == .needsResponse }.count
-                    if waiting > 0 {
-                        Button("\(waiting) need a response") {
-                            libraryScope = "live"
-                            statusFilter = .requiresInput
-                            projectScope = .all
-                            query = ""
-                        }
+        HStack(spacing: 0) {
+            DashboardSidebar(model: model, voice: model.voiceChat, library: $libraryScope,
+                             projectScope: $projectScope, historyProject: $historyProject,
+                             liveProjects: projection.projects, historyProjects: historyProjects,
+                             onNewTask: { showNewTask = true },
+                             onSearch: focusSearch)
+            Rectangle().fill(MacTheme.line).frame(width: CompanionType.hairline)
+            Group {
+                if libraryScope == "live" {
+                    HSplitView {
+                        sessionsColumn
+                        detailColumn
                     }
+                } else if libraryScope == "usage" {
+                    UsageWorkbenchView(model: model)
+                } else {
+                    HistoryWorkbenchView(history: history, model: model, query: $query,
+                                         favoritesOnly: libraryScope == "favorites",
+                                         project: $historyProject, searchFocused: $searchFocused)
                 }
             }
-            .padding(.horizontal, 16).padding(.bottom, 8)
-            Divider()
-            if libraryScope == "live" {
-                HSplitView {
-                    projectSidebar
-                    sessionsColumn
-                    detailColumn
-                }
-            } else if libraryScope == "usage" {
-                UsageWorkbenchView(model: model)
-            } else {
-                HistoryWorkbenchView(history: history, model: model, query: query,
-                                     favoritesOnly: libraryScope == "favorites")
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(MacTheme.bg)
         .onReceive(DashboardRoute.shared.$requested) { library in
@@ -100,28 +97,30 @@ struct DashboardView: View {
             // publisher is not re-entered from inside its own delivery.
             DispatchQueue.main.async { DashboardRoute.shared.requested = nil }
         }
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button { showNewTask = true } label: { Image(systemName: "plus.bubble") }
-                    .help("Start a new task in a directory a session has run in")
-                    .disabled(model.recentDirectories.isEmpty || model.dispatchAgents.isEmpty)
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Button { NotificationCenter.default.post(name: .openAppSettings, object: nil) } label: { Image(systemName: "gearshape") }
-                    .help("Settings")
+        .sheet(isPresented: $showNewTask) { NewTaskSheet(model: model) }
+        .onAppear {
+            // `VIBEBUDDY_DEMO_PAGE=dashboard/<live|history|favorites|usage|newtask>`
+            // lands on that library, or opens New task, for screenshots and QA.
+            guard let page = ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO_PAGE"],
+                  page.hasPrefix("dashboard/") else { return }
+            let target = String(page.dropFirst("dashboard/".count))
+            if target == "newtask" { showNewTask = true } else if let library = DashboardRoute.Library(rawValue: target) {
+                libraryScope = library.rawValue
             }
         }
-        .sheet(isPresented: $showNewTask) { NewTaskSheet(model: model) }
         .background {
             Group {
+                // ⌘N opens New task; the sheet itself explains when no agent
+                // can start yet, so the entry is never disabled.
+                Button("") { showNewTask = true }.keyboardShortcut("n", modifiers: .command)
                 Button("") { statusFilter = .error }.keyboardShortcut("1", modifiers: .command)
                 Button("") { statusFilter = .requiresInput }.keyboardShortcut("2", modifiers: .command)
                 Button("") { statusFilter = .thinking }.keyboardShortcut("3", modifiers: .command)
                 Button("") { statusFilter = .completeUnread }.keyboardShortcut("4", modifiers: .command)
                 Button("") { statusFilter = .idle }.keyboardShortcut("5", modifiers: .command)
                 Button("") { statusFilter = nil }.keyboardShortcut("0", modifiers: .command)
-                // ⌘F focuses the sessions search field.
-                Button("") { searchFocused = true }.keyboardShortcut("f", modifiers: .command)
+                // ⌘F focuses the search field, leaving Usage first if needed.
+                Button("", action: focusSearch).keyboardShortcut("f", modifiers: .command)
                 // ⏎ jumps to the selected session's terminal. Ignored while typing in
                 // search so it doesn't shadow the field's own Return.
                 Button("") {
@@ -142,85 +141,48 @@ struct DashboardView: View {
         }
     }
 
-    private var projectSidebar: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Projects").font(MacTheme.font(12, .semibold))
-                Text("Counts include all sessions")
-                    .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
-                    .fixedSize(horizontal: false, vertical: true)
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(projection.projects) { project in
-                            Button { projectScope = project.id } label: {
-                                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                                    Text(projectTitle(project.id))
-                                        .fixedSize(horizontal: false, vertical: true)
-                                    Spacer(minLength: 0)
-                                    Text("\(project.count)").monospacedDigit()
-                                        .foregroundStyle(MacTheme.ink2)
-                                }
-                                .padding(8)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(projectScope == project.id ? MacTheme.accent.opacity(0.12) : .clear,
-                                            in: RoundedRectangle(cornerRadius: 8))
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityAddTraits(projectScope == project.id ? .isSelected : [])
-                        }
-                    }
-                }
-            }
-            .padding(12)
-            // Account quota is account-level: it stays put while the selection
-            // and the session list change underneath it.
-            QuotaPlinth(model: model)
-        }
-        .font(MacTheme.font(12))
-        .foregroundStyle(MacTheme.ink)
-        .frame(minWidth: 160, idealWidth: 204, maxWidth: 280, maxHeight: .infinity)
-        .background(MacTheme.bg2)
-    }
-
+    /// The list column's head, as Cursor lays out a list page: the scope as
+    /// the title, the search field, then a row of filter chips. ⌘1–5 and ⌘0
+    /// still drive the same filter.
     private var sessionsColumn: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(projectTitle(projectScope)).font(MacTheme.font(13, .semibold))
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack {
-                    Picker("State", selection: $statusFilter) {
-                        Text("All states").tag(TaskPresentationState?.none)
-                        ForEach([TaskPresentationState.error, .requiresInput, .thinking, .completeUnread, .idle], id: \.self) { state in
-                            Text(LocalizedStringKey(state.label)).tag(TaskPresentationState?.some(state))
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(projectTitle(projectScope)).font(MacTheme.font(13, .semibold)).foregroundStyle(MacTheme.ink)
+                        .lineLimit(1).truncationMode(.middle)
+                    Spacer(minLength: 8)
+                    Text(filtered.count == 1 ? String(localized: "1 session") : String(localized: "\(filtered.count) sessions"))
+                        .font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink3)
+                }
+                SearchPill(query: $query, focused: $searchFocused)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        FilterChip(title: "All", selected: statusFilter == nil) { statusFilter = nil }
+                        ForEach([TaskPresentationState.requiresInput, .error, .thinking, .completeUnread, .idle], id: \.self) { state in
+                            FilterChip(title: Self.chipTitle(state), selected: statusFilter == state) { statusFilter = state }
+                        }
+                        if projectScope != .all || !query.isEmpty {
+                            Button("Reset") {
+                                projectScope = .all
+                                statusFilter = nil
+                                query = ""
+                            }
+                            .buttonStyle(.plain).font(MacTheme.font(10.5)).foregroundStyle(MacTheme.ink3)
                         }
                     }
-                    .labelsHidden()
-                    .accessibilityLabel("Filter sessions by state")
-                    Spacer(minLength: 0)
-                    Text(filtered.count == 1 ? String(localized: "1 session") : String(localized: "\(filtered.count) sessions"))
-                        .font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
                 }
-                if projectScope != .all || statusFilter != nil || !query.isEmpty {
-                    Button("Reset view filters") {
-                        projectScope = .all
-                        statusFilter = nil
-                        query = ""
-                    }
-                    .buttonStyle(.borderless)
-                    .font(MacTheme.font(11))
-                }
+                .accessibilityLabel("Filter sessions by state")
             }
             .padding(.horizontal, 12).padding(.top, 12)
             ScrollView {
                 LazyVStack(spacing: 8) {
                     if filtered.isEmpty {
-                        ContentUnavailableView(
-                            model.sessions.isEmpty ? "No sessions reporting" : "No matching sessions",
-                            systemImage: "waveform.path.ecg",
-                            description: Text(model.sessions.isEmpty
-                                ? "Start a Claude Code or Codex turn. If nothing appears, repair hooks in Settings."
-                                : "Clear a filter or try another search."))
+                        QuietEmptyState(title: model.sessions.isEmpty ? "No sessions reporting" : "No matching sessions",
+                                        message: model.sessions.isEmpty
+                                            ? "Start a Claude Code or Codex turn. If nothing appears, repair hooks in Settings."
+                                            : "Clear a filter or try another search.",
+                                        systemName: "waveform.path.ecg")
+                            .padding(.top, 40)
                     } else {
                         ForEach(filtered) { session in
                             SummaryRow(session: session, isSelected: selection == session.id,
@@ -234,118 +196,44 @@ struct DashboardView: View {
                 .padding(.horizontal, 12).padding(.bottom, 12)
             }
         }
-        .frame(minWidth: 220, idealWidth: 280, maxWidth: 360, maxHeight: .infinity)
+        .frame(minWidth: 240, idealWidth: 300, maxWidth: 380, maxHeight: .infinity)
     }
 
-    private var detailColumn: some View {
-        ScrollView {
-            VStack(spacing: 12) {
-                Group {
-                    if let s = selectedSession {
-                        VStack(spacing: 0) {
-                            DetailCard(session: s, model: model)
-                            Divider()
-                            RecentOutputPane(session: s, model: model)
-                        }.id(s.id)
-                    } else {
-                        ContentUnavailableView("Select a session", systemImage: "sidebar.right")
-                            .frame(maxWidth: .infinity, minHeight: 200)
-                    }
+    /// The chips use the menu panel's group words (Needs you / Working / Done),
+    /// not the long state labels, so six of them fit on one line.
+    static func chipTitle(_ state: TaskPresentationState) -> LocalizedStringKey {
+        switch state {
+        case .requiresInput: "Needs you"
+        case .error: "Errors"
+        case .thinking: "Working"
+        case .completeUnread: "Done"
+        case .idle: "Idle"
+        case .unassigned: "Unassigned"
+        }
+    }
+
+    @ViewBuilder private var detailColumn: some View {
+        if let s = selectedSession {
+            ScrollView {
+                VStack(spacing: 0) {
+                    DetailCard(session: s, model: model)
+                    Divider()
+                    RecentOutputPane(session: s, model: model)
                 }
+                .id(s.id)
                 .companionCard(radius: MacTheme.panelRadius)
+                .padding(12)
             }
-            .padding(12)
+            .frame(minWidth: 340, idealWidth: 380, maxWidth: .infinity)
+        } else {
+            QuietEmptyState(title: "Select a session", message: "Pick a task on the left to see its details.")
+                .frame(minWidth: 340, idealWidth: 380, maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(minWidth: 340, idealWidth: 380, maxWidth: .infinity)
     }
 
 }
 
-/// The top bar: the voice companion's mic and its status line on the left,
-/// search on the right. The cat appears beside the mic only while a
-/// conversation is live (ADR-0017 §2–3).
-private struct MacBuddyBar: View {
-    @ObservedObject var model: MenuBarModel
-    @ObservedObject var voice: VoiceChat
-    @Binding var query: String
-    var searchFocused: FocusState<Bool>.Binding
-    @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
-
-    /// The buddy header reads "off" until the companion is opted in; otherwise the
-    /// live Listening/Speaking/idle status.
-    private var headline: LocalizedStringKey {
-        if !companionEnabled { return "Voice companion off" }
-        if voice.phase == .recovering { return "Recovering audio… tap the mic to end" }
-        if voice.phase == .connecting { return "Connecting — wait to speak" }
-        if voice.phase == .thinking { return "Thinking…" }
-        if voice.isListening { return "Listening…" }
-        if voice.isSpeaking { return "Speaking…" }
-        return "Tap the mic to talk"
-    }
-
-    /// "Buddy: all sessions" when nothing is scoped, else "Buddy: N selected".
-    private var scopeLine: LocalizedStringKey {
-        let n = model.buddySessionIDs.count
-        return n == 0 ? "Buddy: all sessions" : "Buddy: \(n) selected"
-    }
-
-    var body: some View {
-        HStack(spacing: 12) {
-            MenuCircleButton(systemName: micGlyph, size: 30,
-                             tint: voice.phase == .idle ? MacTheme.ink2 : .onAccent,
-                             ground: voice.phase == .idle ? MacTheme.bg3 : MacTheme.accent) {
-                voice.toggle()
-            }
-            .help(voice.phase == .idle ? "Start voice conversation" : "End voice conversation")
-            .accessibilityLabel("Toggle voice companion")
-            if voice.isActive {
-                PetFace(state: model.buddyState, voice: .init(voice.phase), plain: true, scale: 0.5)
-            }
-            Group {
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 6) {
-                        if !companionEnabled {
-                            Image(systemName: "mic.slash").font(.system(size: 10)).foregroundStyle(MacTheme.ink2)
-                        }
-                        Text(headline).font(MacTheme.font(13, .heavy)).foregroundStyle(MacTheme.ink)
-                        if companionEnabled {
-                            Text((voice.activeProvider ?? VoiceSettings.provider).display)
-                                .font(MacTheme.font(10, .heavy))
-                                .foregroundStyle(MacTheme.ink2)
-                                .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(MacTheme.bg2, in: Capsule())
-                        }
-                    }
-                    if let err = voice.errorText {
-                        Text(err).font(MacTheme.font(11)).foregroundStyle(MacTheme.status(.error)).lineLimit(2)
-                    } else if !voice.lastReply.isEmpty {
-                        Text(voice.lastReply).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2).lineLimit(2)
-                    } else if !voice.lastUserText.isEmpty {
-                        Text(voice.lastUserText).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2).lineLimit(1)
-                    } else {
-                        Text(companionEnabled ? scopeLine : "Enable it in Settings › Voice, or tap the mic.")
-                            .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink2)
-                    }
-                }
-            }
-            Spacer(minLength: 12)
-            SearchPill(query: $query, focused: searchFocused)
-        }
-        .padding(.horizontal, 16).padding(.vertical, 6)
-        .sheet(isPresented: $voice.showConsent) { VoiceConsentSheet(voice: voice) }
-    }
-
-    private var micGlyph: String {
-        switch voice.phase {
-        case .idle: "mic"
-        case .listening: "mic.fill"
-        case .speaking: "waveform"
-        case .connecting, .recovering, .thinking: "ellipsis"
-        }
-    }
-}
-
-private struct SearchPill: View {
+struct SearchPill: View {
     @Binding var query: String
     var focused: FocusState<Bool>.Binding
     var body: some View {
@@ -362,8 +250,8 @@ private struct SearchPill: View {
                     .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, 12).frame(width: 220, height: 30)
-        .companionCard(radius: 15)
+        .padding(.horizontal, 10).frame(maxWidth: .infinity).frame(height: 28)
+        .companionCard(radius: 14)
     }
 }
 
@@ -439,11 +327,11 @@ private struct SummaryRow: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .companionCard()
+        .companionCard(isSelected ? MacTheme.bg2 : MacTheme.bg3)
         .overlay {
             if isSelected {
                 RoundedRectangle(cornerRadius: MacTheme.cardRadius, style: .continuous)
-                    .strokeBorder(MacTheme.accent, lineWidth: 2)
+                    .strokeBorder(MacTheme.ink.opacity(0.28), lineWidth: CompanionType.hairline)
                     .allowsHitTesting(false)
             }
         }
@@ -622,7 +510,7 @@ private struct RequestCard: View {
 
 }
 
-private struct VoiceConsentSheet: View {
+struct VoiceConsentSheet: View {
     @ObservedObject var voice: VoiceChat
     @Environment(\.dismiss) private var dismiss
 
@@ -679,12 +567,10 @@ private struct TranscriptSheet: View {
         if !loaded {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let output, output.entries.isEmpty {
-            ContentUnavailableView(
-                "No recent output", systemImage: "text.alignleft",
-                description: Text(output.statusLine.isEmpty
-                                  ? "This session hasn't reported a transcript yet."
-                                  : output.statusLine))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            QuietEmptyState(title: "No recent output",
+                            message: output.statusLine.isEmpty
+                                ? "This session hasn't reported a transcript yet." : LocalizedStringKey(output.statusLine),
+                            systemName: "text.alignleft")
         } else if let output {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {

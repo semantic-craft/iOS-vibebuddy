@@ -45,7 +45,8 @@ closed the same way.
    Glance, the Mac dashboard's top bar, the Live Activity and the widgets.
    Empty states use `moon.zzz`.
 3. **The voice companion's entry is a mic circle, everywhere.** The iPhone
-   composer (always visible), the panel's command row, the dashboard's top bar,
+   composer (always visible), the panel's command row, the dashboard's sidebar
+   (Voice row, since 2026-09-13; the top bar before that),
    the expanded Glance and the Watch home carry the same control, whose glyph
    follows the voice phase. It is explained once, the first time it appears.
 4. **Status is a dot and a word.** One status dot per row plus the

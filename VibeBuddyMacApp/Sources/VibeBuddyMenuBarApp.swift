@@ -153,6 +153,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// `VIBEBUDDY_DEMO_PAGE=settings` opens Settings instead of the Dashboard
+    /// (`dashboard/<library|newtask>` is read by `DashboardView` itself);
     /// on launch; `settings/<page>` (a `SettingsPageID` raw value, e.g.
     /// `settings/phone`) opens it on that page — for screenshots and QA.
     private static var demoSettingsPage: SettingsPageID? {

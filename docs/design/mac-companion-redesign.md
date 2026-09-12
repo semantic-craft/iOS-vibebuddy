@@ -89,12 +89,29 @@ selection is still a 2 pt accent ring.
 ## Panels
 
 ### Dashboard window
-Top bar: cat (44 pt) + speech bubble (voice headline, provider badge, scope
-line) + search field. Below: groups column (flexible) + detail column (360 pt).
-Groups: three `bg2` panels with the title row; "Needs you" gets a warm tint
-(10 % requiresInput over bg2). Rows are summary-first cards on `bg3`; the
-selected row wears the accent ring. Empty groups are hidden; an empty snapshot
-shows the existing `ContentUnavailableView` text.
+*Revised 2026-09-13 to Cursor's main-window skeleton (`DashboardSidebar.swift`).*
+One sidebar (216 pt, `bg2`) on the left, nothing in the title bar. Top rows:
+**New task** (⌘N, always enabled — the sheet says which agent needs what when
+none can start), **Search** (⌘F, focuses the list's search field) and
+**Voice** (the mic circle from ADR-0017 §3 on its own row; the trailing word is
+the phase, a second line carries the last exchange, the error or the one-time
+hint). Then **Library** — Current tasks (with the needs-a-response count),
+History, Favorites, Usage — and **Projects** with a count per row, shared by the
+live and history libraries; only this list scrolls, the rows above stay put.
+At the bottom the account-quota plinth, collapsed by default to one line (the
+provider with the least left, its reset, and any source that cannot be read)
+and expanded to the per-provider rows on click, remembered across launches;
+under it a **Settings** row, where Cursor keeps its gear. Selection and hover
+are an ink wash (7 % / 4 %), never the accent.
+
+Content: list column (240–380 pt) + detail column. The list head is the scope
+title, the search pill and a row of filter chips (All / Needs you / Errors /
+Working / Done / Idle; the selected chip is ink-filled). Rows are summary-first
+cards on `bg3`; the selected row sits on `bg2` with a hairline. History uses
+the same head with agent / archive dropdown pills and a `···` menu (Refresh,
+Rebuild index, source notices). Empty panes are `QuietEmptyState`: a 22 pt
+glyph, a body-size title and one line of guidance, centred, no card — never
+the system `ContentUnavailableView`.
 
 Detail is one `bg3` card. Approval: request card (agent avatar CC/CX/GK, header,
 path label, diff or command block, then `Approve ▾` split button whose menu
