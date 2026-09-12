@@ -170,20 +170,25 @@ struct CursorBrowserCookieImporterTests {
         }
     }
 
-    @Test("browserAuto import timeout surfaces timedOut")
+    @Test("browserAuto import timeout surfaces timedOut", .timeLimit(.minutes(1)))
     func importTimeout() async {
-        let started = ContinuousClock.now
+        // The import blocks until this test releases it, so `fetch()` returning
+        // at all is the proof that the timeout ended the wait instead of the
+        // import finishing. No wall-clock budget for machine load to blow.
+        let importer = BlockingImporter()
+        defer { importer.release() }
         let provider = CursorUsageProvider(
             cookie: "",
             cookieMode: { .browserAuto },
-            cookieImporter: SlowImporter(delayNanoseconds: 500_000_000),
+            cookieImporter: importer,
             transport: MissingTransport(),
             importTimeout: 0.05
         )
         await #expect(throws: AccountUsageError.timedOut) {
             try await provider.fetch()
         }
-        #expect(started.duration(to: .now) < .milliseconds(300))
+        #expect(await importer.waitUntilStarted(), "browser import should have been attempted")
+        #expect(!importer.didFinish, "fetch must not wait out the outstanding import")
     }
 
     private struct ScriptedImporter: CursorBrowserCookieImporting {
@@ -197,12 +202,44 @@ struct CursorBrowserCookieImporterTests {
         }
     }
 
-    private struct SlowImporter: CursorBrowserCookieImporting {
-        let delayNanoseconds: UInt64
+    /// Stands in for a browser import that outlives the provider's timeout: it
+    /// blocks until `release()`, so "did the provider wait for it?" is decided
+    /// by the gate rather than by how fast the machine happens to be.
+    private final class BlockingImporter: CursorBrowserCookieImporting, @unchecked Sendable {
+        private let started = DispatchSemaphore(value: 0)
+        private let proceed = DispatchSemaphore(value: 0)
+        private let lock = NSLock()
+        private var finished = false
+
+        var didFinish: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return finished
+        }
+
+        /// Bounded so a provider that never starts the import fails instead of
+        /// hanging; the wait returns immediately on every healthy run. Puts the
+        /// signal back so this stays a query rather than a one-shot consumer.
+        func waitUntilStarted(timeout: DispatchTimeInterval = .seconds(30)) async -> Bool {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.global(qos: .utility).async {
+                    let didStart = self.started.wait(timeout: .now() + timeout) == .success
+                    if didStart { self.started.signal() }
+                    continuation.resume(returning: didStart)
+                }
+            }
+        }
+
+        func release() { proceed.signal() }
+
         func importSessionCookieHeader(allowKeychainPrompt: Bool) throws -> String {
-            // Sleep past the provider importTimeout, then fail — never returns a
-            // cookie that could be persisted into the user's real Keychain.
-            Thread.sleep(forTimeInterval: Double(delayNanoseconds) / 1_000_000_000)
+            started.signal()
+            proceed.wait()
+            lock.lock()
+            finished = true
+            lock.unlock()
+            // Fails instead of returning a header, so a late result can never
+            // persist a cookie into the user's real Keychain.
             throw AccountUsageError.notLoggedIn
         }
     }

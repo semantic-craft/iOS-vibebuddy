@@ -26,7 +26,7 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
         case .qwen:   return "Qwen (DashScope)"
         case .openai: return "OpenAI"
         case .gemini: return "Gemini (Google)"
-        case .doubao: return NSLocalizedString("Doubao (Volcengine)", comment: "Realtime provider")
+        case .doubao: return String(localized: "Doubao (Volcengine)", bundle: .module)
         case .deepseek: return "DeepSeek"
         }
     }

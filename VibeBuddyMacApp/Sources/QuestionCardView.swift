@@ -23,16 +23,16 @@ struct QuestionCardView: View {
                 .foregroundStyle(MacTheme.status(.requiresInput))
             if question.isBlocking == false, let expires = question.expiresAt {
                 Text("Codex moves on by itself in \(expires, style: .timer)")
-                    .font(.caption2).foregroundStyle(.secondary).monospacedDigit()
+                    .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2).monospacedDigit()
             }
             ForEach(items) { item in
                 VStack(alignment: .leading, spacing: 6) {
                     if let header = item.header, items.count > 1 {
-                        Text(header).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        Text(header).font(MacTheme.font(10, .semibold)).foregroundStyle(MacTheme.ink2)
                     }
                     Text(item.text).font(MacTheme.font(14, .heavy)).foregroundStyle(MacTheme.ink)
                         .fixedSize(horizontal: false, vertical: true)
-                    if item.multiSelect { Text("Choose any").font(.caption2).foregroundStyle(.tertiary) }
+                    if item.multiSelect { Text("Choose any").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink3) }
                     ForEach(item.options) { option in
                         Button { choose(option, in: item) } label: {
                             HStack(spacing: 8) {
@@ -41,7 +41,7 @@ struct QuestionCardView: View {
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(option.label).fontWeight(.semibold)
                                     if let description = option.description {
-                                        Text(description).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                                        Text(description).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2).lineLimit(2)
                                     }
                                 }
                                 Spacer(minLength: 8)

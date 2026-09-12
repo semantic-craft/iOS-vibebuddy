@@ -269,6 +269,33 @@ final class WatchStateStore: NSObject, ObservableObject {
         return true
     }
 
+    /// Ask the iPhone to answer every question of the prompt these picks were
+    /// made for.
+    ///
+    /// Same binding as `submitAnswer`: the prompt's identity comes from the
+    /// walk, captured when it began, and is matched against the alert the
+    /// *current* state holds. A walk left open while the Mac answered the
+    /// prompt and the agent asked the next one sends nothing, and says so.
+    /// The set is checked here as the iPhone will check it, so nothing partial
+    /// ever leaves the wrist.
+    @discardableResult
+    func submitAnswers(sessionId: String, pendingId: String, answers: QuestionAnswers) -> Bool {
+        guard let state, !pendingId.isEmpty,
+              let current = state.alerts.first(where: {
+                  $0.sessionId == sessionId && $0.isAnswerable && $0.pendingId == pendingId
+              })
+        else { return false }
+        guard let request = pendingAction.begin(alert: current, answers: answers,
+                                                attemptId: UUID().uuidString)
+        else { return false }
+        guard isLive(state) else {
+            pendingAction.fail(attemptId: request.attemptId)
+            return true
+        }
+        send(request)
+        return true
+    }
+
     /// Ask the iPhone to end the turn this confirmation was opened about.
     ///
     /// The turn is the argument, not the screen. `statusSince` comes from the
@@ -391,7 +418,8 @@ final class WatchStateStore: NSObject, ObservableObject {
             switch request.action {
             case .approval(let id, _): self.install(current.resolvingApproval(id))
             case .stop: self.install(current.resolvingStop(request.sessionId))
-            case .answer(let pendingId, _): self.install(current.resolvingAnswer(pendingId))
+            case .answer(let pendingId, _), .answerAll(let pendingId, _):
+                self.install(current.resolvingAnswer(pendingId))
             }
         }
     }

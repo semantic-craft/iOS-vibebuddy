@@ -94,7 +94,9 @@ struct TaskPresentationTests {
         #expect(summary.primaryState == .error)
         #expect(sessions.leadingPresentationSession?.id == "error")
         #expect(TaskPresentationSummary().primaryState == .unassigned)
-        #expect(TaskPresentationSnapshot(sessions: sessions).summary == summary)
-        #expect(TaskPresentationSnapshot(sessions: sessions).topSessionId == "error")
+        // The snapshot judges currency at `updatedAt`; these rows are seconds old then.
+        let snapshot = TaskPresentationSnapshot(sessions: sessions, updatedAt: Date(timeIntervalSince1970: 10))
+        #expect(snapshot.summary == summary)
+        #expect(snapshot.topSessionId == "error")
     }
 }

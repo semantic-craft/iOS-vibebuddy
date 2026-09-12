@@ -34,23 +34,23 @@ struct ObservationDiagnosticRow: View {
                 Text("\(source.source.displayName) · \(source.diagnosticTitle)")
                     .fontWeight(.semibold)
                 Text(source.diagnosticExplanation)
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
                 if let version = source.sourceVersion, source.reasonCode != "versionUnverified" {
                     Text("Source version \(version)")
-                        .font(.caption2).foregroundStyle(.tertiary)
+                        .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
                 }
                 if let nextStep = source.phoneNextStep {
-                    Text(nextStep).font(.caption).foregroundStyle(.secondary)
+                    Text(nextStep).font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
                 }
                 if let last = source.lastObservedAt {
                     Text("Last signal \(last, style: .relative)")
-                        .font(.caption2).foregroundStyle(.tertiary)
+                        .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
                 }
                 Group {
                     let configured = source.source == .hook ? source.configuredCoverageDescription : "not applicable"
                     let observed = source.observedCoverageDescription
                     Text("Coverage: configured \(configured.isEmpty ? "none" : configured); received this launch \(observed.isEmpty ? "none" : observed)")
-                        .font(.caption2).foregroundStyle(.tertiary)
+                        .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
                 }
             }
         }

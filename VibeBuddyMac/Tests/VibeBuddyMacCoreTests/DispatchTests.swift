@@ -43,9 +43,22 @@ struct DispatchRouteTests {
                 #expect(res.status == .ok)
                 #expect(String(buffer: res.body).contains(#""sessionId":"thr-new""#))
             }
+            // Cursor's model, mode and worktree ride the same body; an empty
+            // model is no model.
+            try await client.execute(uri: "/dispatch", method: .post, headers: [.authorization: "Bearer t0k"],
+                                     body: ByteBuffer(string: #"{"agent":"cursor","cwd":"/x/one","prompt":"fix it","model":"gpt-5","mode":"plan","worktree":true}"#)) { res in
+                #expect(res.status == .ok)
+            }
+            try await client.execute(uri: "/dispatch", method: .post, headers: [.authorization: "Bearer t0k"],
+                                     body: ByteBuffer(string: #"{"agent":"cursor","cwd":"/x/one","prompt":"fix it","model":"","worktree":false}"#)) { res in
+                #expect(res.status == .ok)
+            }
         }
-        #expect(box.requests.count == 1)
+        #expect(box.requests.count == 3)
         #expect(box.requests.first == DispatchRequest(agent: .codex, cwd: "/x/one", prompt: "list files", name: "listing"))
+        #expect(box.requests[1] == DispatchRequest(agent: .cursor, cwd: "/x/one", prompt: "fix it",
+                                                   model: "gpt-5", mode: "plan", worktree: true))
+        #expect(box.requests[2] == DispatchRequest(agent: .cursor, cwd: "/x/one", prompt: "fix it", worktree: false))
         // The snapshot tells the phone where it may start tasks.
         #expect(await store.snapshot(now: Date()).recentDirectories == ["/x/two", "/x/one"])
     }

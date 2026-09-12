@@ -74,7 +74,7 @@ VibeBuddy 连接你已经在用的 Agent。能否操作，取决于当前连接�
 | **Codex Desktop** | 观测本地任务进展和完成结果，跳回应用。 | Desktop 可能使用独立 app-server；原生审批覆盖不完整，没有可回应请求时需使用 Mac 提示。 |
 | **Grok Build** | CLI 生命周期 hooks、任务状态、账户额度与配置后的审批通道。 | 远程批准能否解除原生提示，取决于 Grok 的权限模式。 |
 | **Grok Bot** | 可选的只读任务观测、可核实的普通对话完成摘要与独立账户额度。 | 回复和审批在官方 App 中处理；问题续接、自动化任务及跨断线轮次尚未支持。 |
-| **Cursor** | 从支持的登录来源读取账户额度，包括 Cursor App 与 Cursor CLI，分别显示 **Cursor Models** 和 **Other Models**。 | 已支持额度；尚不支持任务追踪和远程审批。 |
+| **Cursor** | Agent 面板与 Cursor CLI 的任务状态、可处理的审批与提问、为进行中的 turn 排队补充一句、用 Cursor CLI 继续已结束的会话，以及账户额度（分别显示 **Cursor Models** 和 **Other Models**）。 | 任务状态与远程回应需要装好 Cursor hooks；没装时仍可由 agent transcript 报告进展。Cursor 没有打断进行中 turn 的接口，也没有直接打开某个会话的链接——跳转只把 Cursor 带到前台。 |
 
 详见 [Codex 集成契约](docs/codex-integration.md)和 [Agent hook 配置](docs/multi-cli-hook-setup.md)。Qwen、Kimi、OpenCode、Antigravity 编码 Agent 适配器属于实验性社区集成；其验证状态与已支持的千问语音服务不同。
 

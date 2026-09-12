@@ -201,20 +201,22 @@ struct QuotaWidgetView: View {
         return "\(Int(ceil(seconds / 60)))m"
     }
 
+    // Every face below is `CompanionType.fixedFont`: the complication's frame
+    // is the watch face's, so the text cannot follow Dynamic Type (ADR-0017 §8).
     @ViewBuilder private var figures: some View {
         VStack(spacing: 0) {
             ForEach(providers) { provider in
                 Text("\(rowLabel(provider)) \(value(window(provider)))")
-                    .font(.system(size: providers.count == 1 ? 15 : 11, weight: .semibold, design: .rounded))
+                    .font(CompanionType.fixedFont(providers.count == 1 ? 15 : 11, .semibold))
                     .monospacedDigit().lineLimit(1).minimumScaleFactor(0.65)
             }
             if providers.count == 1, let provider = providers.first {
                 let reading = window(provider)
                 Text(reading.label ?? durationLabel(reading))
-                    .font(.system(size: 8)).lineLimit(1).minimumScaleFactor(0.7)
+                    .font(CompanionType.fixedFont(8)).lineLimit(1).minimumScaleFactor(0.7)
             }
             if providers.count > 1, !differentPeriods, let provider = providers.first {
-                Text(periodLabel(window(provider))).font(.system(size: 10)).lineLimit(1)
+                Text(periodLabel(window(provider))).font(CompanionType.fixedFont(10)).lineLimit(1)
             }
         }
     }
@@ -224,12 +226,15 @@ struct QuotaWidgetView: View {
             let reading = window(provider)
             let inset = CGFloat(index) * 5 + 2
             let remaining = CGFloat(reading.currentRemainingPercent(now: now) ?? 0) / 100
-            let tint = color(provider).opacity(reading.status(now: now) == .stale ? 0.4 : 1)
+            let tint = QuotaPresentation
+                .tint(identity: color(provider),
+                      usedPercent: reading.currentRemainingPercent(now: now).map { 100 - $0 })
+                .opacity(reading.status(now: now) == .stale ? 0.4 : 1)
             if segmented {
                 ForEach(0..<10) { segment in
                     let start = CGFloat(segment) / 10 + 0.012
                     let end = CGFloat(segment + 1) / 10 - 0.012
-                    Circle().trim(from: start, to: end).stroke(.secondary.opacity(0.2), lineWidth: 3)
+                    Circle().trim(from: start, to: end).stroke(CompanionPalette.ink3.opacity(0.4), lineWidth: 3)
                         .rotationEffect(.degrees(-90)).padding(inset)
                     let fraction = min(1, max(0, remaining * 10 - CGFloat(segment)))
                     if fraction > 0 {
@@ -238,7 +243,7 @@ struct QuotaWidgetView: View {
                     }
                 }
             } else {
-                Circle().stroke(.secondary.opacity(0.2), style: StrokeStyle(
+                Circle().stroke(CompanionPalette.ink3.opacity(0.4), style: StrokeStyle(
                     lineWidth: 3, dash: reading.currentRemainingPercent(now: now) == nil ? [2, 4] : []))
                     .padding(inset)
                 if remaining > 0 {
@@ -264,7 +269,7 @@ struct QuotaWidgetView: View {
                     }
                 }
             }
-        }.font(.system(size: 10, design: .rounded)).monospacedDigit().lineLimit(1)
+        }.font(CompanionType.fixedFont(10)).monospacedDigit().lineLimit(1)
     }
 
     private var countdowns: some View {
@@ -272,9 +277,9 @@ struct QuotaWidgetView: View {
             ForEach(providers) { provider in
                 let reading = window(provider)
                 Text("\(label(provider)) \(countdown(reading))")
-                    .font(.system(size: providers.count == 1 ? 15 : 12, weight: .semibold, design: .rounded))
+                    .font(CompanionType.fixedFont(providers.count == 1 ? 15 : 12, .semibold))
                 Text("\(periodLabel(reading)) \(value(reading))")
-                    .font(.system(size: 10, design: .rounded))
+                    .font(CompanionType.fixedFont(10))
             }
         }.monospacedDigit().lineLimit(1)
     }

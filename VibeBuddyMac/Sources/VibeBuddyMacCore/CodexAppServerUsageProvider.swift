@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import VibeBuddyKit
 
 public enum CodexUsageResponseDecoder {
     /// The same mapping for results already received on a live app-server
@@ -52,7 +53,12 @@ public enum CodexUsageResponseDecoder {
                 secondary: limits.secondary.flatMap { $0.model(kind: .secondary) },
                 lifetimeTokens: usage.summary.lifetimeTokens,
                 latestDailyTokens: usage.dailyUsageBuckets?.max(by: { $0.startDate < $1.startDate })?.tokens,
-                fetchedAt: fetchedAt
+                fetchedAt: fetchedAt,
+                extraWindows: CodexAdditionalRateLimitMapper.windows(
+                    from: limits.additionalRateLimits ?? result.additionalRateLimits
+                ),
+                credits: limits.credits?.model ?? result.credits?.model,
+                spend: usage.summary.spend
             )
         } catch let error as AccountUsageError {
             throw error
@@ -563,6 +569,23 @@ private struct RateLimitsEnvelope: Decodable {
 private struct RateLimitsResultDTO: Decodable {
     var rateLimits: RateLimitsDTO?
     var rateLimitsByLimitId: [String: RateLimitsDTO]?
+    var additionalRateLimits: [AdditionalRateLimitDTO]?
+    var credits: CreditDetailsDTO?
+
+    private enum CodingKeys: String, CodingKey {
+        case rateLimits, rateLimitsByLimitId
+        case additionalRateLimits
+        case additionalRateLimitsSnake = "additional_rate_limits"
+        case credits
+    }
+
+    init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        rateLimits = try? values.decode(RateLimitsDTO.self, forKey: .rateLimits)
+        rateLimitsByLimitId = try? values.decode([String: RateLimitsDTO].self, forKey: .rateLimitsByLimitId)
+        additionalRateLimits = LossyAdditionalRateLimit.decodeArray(values, keys: [.additionalRateLimits, .additionalRateLimitsSnake])
+        credits = try? values.decode(CreditDetailsDTO.self, forKey: .credits)
+    }
 }
 
 private struct RateLimitsDTO: Decodable {
@@ -570,14 +593,23 @@ private struct RateLimitsDTO: Decodable {
     var planType: String?
     var primary: RateLimitWindowDTO?
     var secondary: RateLimitWindowDTO?
+    var additionalRateLimits: [AdditionalRateLimitDTO]?
+    var credits: CreditDetailsDTO?
 
-    private enum CodingKeys: String, CodingKey { case limitId, planType, primary, secondary }
+    private enum CodingKeys: String, CodingKey {
+        case limitId, planType, primary, secondary, credits
+        case additionalRateLimits
+        case additionalRateLimitsSnake = "additional_rate_limits"
+    }
+
     init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         limitId = try values.decodeIfPresent(String.self, forKey: .limitId)
         planType = try? values.decode(String.self, forKey: .planType)
         primary = try? values.decode(RateLimitWindowDTO.self, forKey: .primary)
         secondary = try? values.decode(RateLimitWindowDTO.self, forKey: .secondary)
+        additionalRateLimits = LossyAdditionalRateLimit.decodeArray(values, keys: [.additionalRateLimits, .additionalRateLimitsSnake])
+        credits = try? values.decode(CreditDetailsDTO.self, forKey: .credits)
     }
 }
 
@@ -617,6 +649,29 @@ private struct UsageResultDTO: Decodable {
 
 private struct UsageSummaryDTO: Decodable {
     var lifetimeTokens: Int?
+    var extraUsageUsd: Double?
+    var extraUsage: Double?
+
+    private enum CodingKeys: String, CodingKey {
+        case lifetimeTokens
+        case extraUsageUsd, extra_usage_usd
+        case extraUsage, extra_usage
+    }
+
+    init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        lifetimeTokens = try? values.decode(Int.self, forKey: .lifetimeTokens)
+        extraUsageUsd = (try? values.decode(Double.self, forKey: .extraUsageUsd))
+            ?? (try? values.decode(Double.self, forKey: .extra_usage_usd))
+        extraUsage = (try? values.decode(Double.self, forKey: .extraUsage))
+            ?? (try? values.decode(Double.self, forKey: .extra_usage))
+    }
+
+    var spend: [QuotaSpend]? {
+        let amount = extraUsageUsd ?? extraUsage
+        guard let amount, amount.isFinite, amount > 0 else { return nil }
+        return [QuotaSpend(label: "Extra usage", amount: amount)]
+    }
 }
 
 private struct DailyUsageBucketDTO: Decodable {

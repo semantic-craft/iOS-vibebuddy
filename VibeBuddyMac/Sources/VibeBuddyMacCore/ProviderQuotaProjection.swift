@@ -21,12 +21,15 @@ public extension ProviderQuota {
         AccountUsageProvider.allCases.map { ProviderQuota(states[$0] ?? .disabled, provider: $0) }
     }
 
-    init(_ state: AccountUsageState, provider: AccountUsageProvider) {
+    /// `now` decides which Grok windows have already expired. It is injectable
+    /// so a fixture with a fixed period does not start failing the day it ages
+    /// past the wall clock.
+    init(_ state: AccountUsageState, provider: AccountUsageProvider, now: Date = Date()) {
         guard state.collectionEnabled else {
             self = .unavailable(provider, reason: AccountUsageUnavailableReason.collectionDisabled.displayText(provider: provider))
             return
         }
-        guard let snapshot = state.snapshot?.excludingExpiredGrokWindows(at: Date()) else {
+        guard let snapshot = state.snapshot?.excludingExpiredGrokWindows(at: now) else {
             self = .unavailable(provider,
                 reason: (state.unavailableReason ?? .notYetLoaded).displayText(provider: provider))
             return
@@ -36,23 +39,35 @@ public extension ProviderQuota {
             guard let minutes = $0.windowDurationMinutes else { return false }
             return minutes > 0 && minutes < 1440
         }.max { ($0.windowDurationMinutes ?? 0) < ($1.windowDurationMinutes ?? 0) }
+        let project: (AccountUsageWindow) -> QuotaWindow = { window in
+            QuotaWindow(remainingPercent: Self.remaining(fromUsedPercent: window.usedPercent),
+                        durationMinutes: window.windowDurationMinutes, resetsAt: window.resetsAt,
+                        observedAt: snapshot.fetchedAt, isCached: state.isStale, label: window.label)
+        }
         let others = snapshot.quotaWindows.filter {
             // Preserve independent pools even when they share a duration.
             $0.kind != weekly?.kind && $0.kind != short?.kind
-        }.map {
-            QuotaWindow(remainingPercent: Self.remaining(fromUsedPercent: $0.usedPercent),
-                        durationMinutes: $0.windowDurationMinutes, resetsAt: $0.resetsAt,
-                        observedAt: snapshot.fetchedAt, isCached: state.isStale, label: $0.label)
-        }
+        }.map(project)
+        // A model-scoped week or a Spark window is a subdivision of the same
+        // allowance, not a pool of its own, so it stays out of `otherWindows`:
+        // that slot is what the Watch strip and the widgets fall back to when
+        // weekly and short are missing, and "Fable only" must never become the
+        // number the wrist reads as Claude's remaining.
+        let scoped = (snapshot.extraWindows ?? []).map(project)
         let weeklyRemaining = Self.remaining(fromUsedPercent: weekly?.usedPercent)
         let shortRemaining = Self.remaining(fromUsedPercent: short?.usedPercent)
-        let usable = weeklyRemaining != nil || shortRemaining != nil || others.contains { $0.remainingPercent != nil }
+        let usable = weeklyRemaining != nil || shortRemaining != nil
+            || others.contains { $0.remainingPercent != nil }
+            || scoped.contains { $0.remainingPercent != nil }
         self.init(provider: provider, accountLabel: snapshot.accountLabel,
                   weeklyRemainingPercent: weeklyRemaining, weeklyResetsAt: weekly?.resetsAt,
                   weeklyWindowDurationMinutes: weekly?.windowDurationMinutes,
                   shortWindowRemainingPercent: shortRemaining, shortWindowResetsAt: short?.resetsAt,
                   shortWindowDurationMinutes: short?.windowDurationMinutes,
                   otherWindows: others.isEmpty ? nil : others,
+                  scopedWindows: scoped.isEmpty ? nil : scoped,
+                  credits: snapshot.credits,
+                  spend: snapshot.spend,
                   observedAt: usable || provider == .grokBot ? snapshot.fetchedAt : nil,
                   unavailableReason: state.unavailableReason?.displayText(provider: provider)
                     ?? (usable ? nil : snapshot.usageDetail)

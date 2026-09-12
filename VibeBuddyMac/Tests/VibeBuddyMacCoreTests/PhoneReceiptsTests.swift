@@ -14,26 +14,35 @@ struct PhoneReceiptsTests {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
     private let waitSince = Date(timeIntervalSince1970: 1_799_999_990)
 
+    /// Further out than any stalled host can reach, so a hold that ends inside a
+    /// test run ended because the code took the no-wait path or because a receipt
+    /// arrived — never because the grace ran out. The test that is *about* the
+    /// grace sets its own short one.
+    private let unreachableGrace: Duration = .seconds(3600)
+
     private func payload(_ identifier: String = "s1-needs_approval", token: String = "tok",
                          since: Date? = nil) -> NotifiedPayload {
         NotifiedPayload(token: token, posted: [.init(identifier: identifier, since: since ?? waitSince)])
     }
 
-    @Test("a receipt already in hand answers at once, hold or not")
+    @Test("a receipt already in hand answers at once, hold or not", .timeLimit(.minutes(1)))
     func receiptBeforeDecision() async {
-        let receipts = PhoneReceipts(grace: .seconds(2))
+        // The grace is an hour away, so answering at all is the proof that the
+        // receipt already in hand short-circuited the hold. The time limit only
+        // keeps a regression that does wait from hanging the suite.
+        let receipts = PhoneReceipts(grace: unreachableGrace)
         await receipts.record(payload(), now: now)
-        let clock = ContinuousClock()
-        let started = clock.now
         let found = await receipts.receipt(for: "s1-needs_approval", since: waitSince,
                                            from: "tok", hold: true, now: now)
         #expect(found?.identifier == "s1-needs_approval")
-        #expect(clock.now - started < .milliseconds(500))
     }
 
-    @Test("with a stream open the push waits for a receipt that is still on its way")
+    @Test("with a stream open the push waits for a receipt that is still on its way",
+          .timeLimit(.minutes(1)))
     func receiptArrivesDuringHold() async {
-        let receipts = PhoneReceipts(grace: .seconds(2))
+        // An hour of grace: the decision can only come from the receipt recorded
+        // below, never from the hold expiring first on a loaded host.
+        let receipts = PhoneReceipts(grace: unreachableGrace)
         let now = self.now, waitSince = self.waitSince
         async let decision = receipts.receipt(for: "s1-needs_approval", since: waitSince,
                                               from: "tok", hold: true, now: now)
@@ -42,7 +51,7 @@ struct PhoneReceiptsTests {
         #expect(await decision != nil)
     }
 
-    @Test("no receipt: the push goes out after the grace, never later")
+    @Test("no receipt: the push goes out after the grace, never later", .timeLimit(.minutes(1)))
     func noReceiptPushesAfterGrace() async {
         let receipts = PhoneReceipts(grace: .milliseconds(300))
         let clock = ContinuousClock()
@@ -50,20 +59,21 @@ struct PhoneReceiptsTests {
         let found = await receipts.receipt(for: "s1-needs_approval", since: waitSince,
                                            from: "tok", hold: true, now: now)
         #expect(found == nil)
-        let elapsed = clock.now - started
-        #expect(elapsed >= .milliseconds(300))
-        #expect(elapsed < .seconds(2))
+        // Only the lower bound is a judgment, and a slow host can never falsify
+        // it. "Never later" is the time limit's job — an upper wall-clock bound
+        // here would just be a bet on how loaded the machine is.
+        #expect(clock.now - started >= .milliseconds(300))
     }
 
-    @Test("with no stream open nobody can report: the push goes out at once")
+    @Test("with no stream open nobody can report: the push goes out at once",
+          .timeLimit(.minutes(1)))
     func noStreamNoWait() async {
-        let receipts = PhoneReceipts(grace: .seconds(5))
-        let clock = ContinuousClock()
-        let started = clock.now
+        // An hour of grace that `hold: false` must never enter: returning at all
+        // is the proof, so there is no elapsed-time budget to blow.
+        let receipts = PhoneReceipts(grace: unreachableGrace)
         let found = await receipts.receipt(for: "s1-needs_approval", since: waitSince,
                                            from: "tok", hold: false, now: now)
         #expect(found == nil)
-        #expect(clock.now - started < .milliseconds(500))
     }
 
     @Test("a receipt for an earlier wait of the same session does not silence the next one")

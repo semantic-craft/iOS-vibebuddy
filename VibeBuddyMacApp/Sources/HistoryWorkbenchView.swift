@@ -100,11 +100,12 @@ final class HistoryLibraryModel: ObservableObject {
         guard !summarizing, let selected = transcript else { return }
         let generation = readGeneration
         let config = CompletionSummaryConfiguration.load()
+        let style = HistorySummaryStyle.load()
         summarizing = true; summaryError = nil
         summaryTask = Task {
             defer { if generation == readGeneration { summarizing = false } }
             do {
-                let result = try await summaryService.generate(selected, configuration: config)
+                let result = try await summaryService.generate(selected, configuration: config, style: style)
                 guard generation == readGeneration, !Task.isCancelled else { return }
                 try await repository.saveSummary(result)
                 guard generation == readGeneration, !Task.isCancelled else { return }
@@ -211,9 +212,9 @@ struct HistoryWorkbenchView: View {
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Local library").font(.headline)
+            Text("Local library").font(MacTheme.font(13, .semibold))
             Text("Claude Code · Codex\nIncludes archived Codex sessions")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
             Picker("Agent", selection: $agent) {
                 Text("All agents").tag(nil as SessionHistoryAgent?)
                 ForEach(SessionHistoryAgent.allCases, id: \.self) { value in
@@ -237,7 +238,7 @@ struct HistoryWorkbenchView: View {
                             VStack(alignment: .leading, spacing: 3) {
                                 Label(path.isEmpty ? "Unknown project" : URL(fileURLWithPath: path).lastPathComponent,
                                       systemImage: "folder")
-                                Text(path).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                                Text(path).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2).lineLimit(2)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading).padding(8)
                             .background(project == path ? Color.accentColor.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 6))
@@ -246,10 +247,10 @@ struct HistoryWorkbenchView: View {
                 }
             }
             Divider()
-            if history.loading { ProgressView("Updating library…").font(.caption) }
+            if history.loading { ProgressView("Updating library…").font(MacTheme.font(10)) }
             if let date = history.snapshot.refreshedAt {
                 Text("Updated \(date.formatted(date: .omitted, time: .shortened))")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
             }
             HStack {
                 Button("Refresh") { Task { await history.refresh() } }
@@ -258,12 +259,12 @@ struct HistoryWorkbenchView: View {
                 } label: { Image(systemName: "ellipsis.circle") }
                 .menuStyle(.borderlessButton).frame(width: 24)
             }.disabled(history.loading)
-            if let error = history.error { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
+            if let error = history.error { Text(error).font(MacTheme.font(10)).foregroundStyle(.red).textSelection(.enabled) }
             if !history.snapshot.issues.isEmpty {
                 DisclosureGroup("Source notices (\(history.snapshot.issues.count))") {
-                    ScrollView { Text(history.snapshot.issues.joined(separator: "\n")).font(.caption).textSelection(.enabled) }
+                    ScrollView { Text(history.snapshot.issues.joined(separator: "\n")).font(MacTheme.font(10)).textSelection(.enabled) }
                         .frame(maxHeight: 130)
-                }.font(.caption)
+                }.font(MacTheme.font(10))
             }
         }
         .padding(12).frame(minWidth: 170, idealWidth: 210, maxWidth: 270)
@@ -273,13 +274,13 @@ struct HistoryWorkbenchView: View {
     private var sessionList: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(isSearching ? "Message matches" : favoritesOnly ? "Favorites" : "History").font(.headline)
+                Text(isSearching ? "Message matches" : favoritesOnly ? "Favorites" : "History").font(MacTheme.font(13, .semibold))
                 Spacer()
-                Text("\(isSearching ? history.results.count : sessions.count)").foregroundStyle(.secondary)
+                Text("\(isSearching ? history.results.count : sessions.count)").foregroundStyle(MacTheme.ink2)
             }.padding(12)
             if isSearching && history.searching { ProgressView("Searching…") }
             if isSearching, let error = history.searchError {
-                Text("Search could not complete: \(error)").font(.caption).foregroundStyle(.red).padding(12)
+                Text("Search could not complete: \(error)").font(MacTheme.font(10)).foregroundStyle(.red).padding(12)
             }
             ScrollView {
                 LazyVStack(spacing: 2) {
@@ -307,7 +308,7 @@ struct HistoryWorkbenchView: View {
                 }.padding(.horizontal, 8)
             }
             if isSearching && history.results.count == 200 {
-                Text("Showing the first 200 matches. Narrow your query or project.").font(.caption).padding(8)
+                Text("Showing the first 200 matches. Narrow your query or project.").font(MacTheme.font(10)).padding(8)
             }
         }.frame(minWidth: 230, idealWidth: 300, maxWidth: 380)
     }
@@ -315,16 +316,16 @@ struct HistoryWorkbenchView: View {
     private func row(_ session: SessionHistorySession, excerpt: String?, active: Bool) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .top) {
-                Text(session.title).font(.body.weight(.medium)).lineLimit(2)
-                if session.isPinned == true { Image(systemName: "pin.fill").foregroundStyle(.secondary) }
+                Text(session.title).font(MacTheme.font(13, .medium)).lineLimit(2)
+                if session.isPinned == true { Image(systemName: "pin.fill").foregroundStyle(MacTheme.ink2) }
                 if session.isFavorite { Image(systemName: "star.fill").foregroundStyle(.yellow) }
             }
             Text("\(session.agent.displayName) · \(session.updatedAt.formatted(date: .abbreviated, time: .shortened))")
-                .font(.caption).foregroundStyle(.secondary)
-            if session.isArchived { Label(session.sourceArchived == true ? "Archived in Codex" : "Archived in library", systemImage: "archivebox").font(.caption) }
-            if let excerpt { Text(excerpt).font(.caption).lineLimit(3) }
-            if !session.isAvailable { Label("Source unavailable", systemImage: "exclamationmark.triangle").font(.caption) }
-            else if !session.warnings.isEmpty { Label("Partial or limited record", systemImage: "info.circle").font(.caption) }
+                .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
+            if session.isArchived { Label(session.sourceArchived == true ? "Archived in Codex" : "Archived in library", systemImage: "archivebox").font(MacTheme.font(10)) }
+            if let excerpt { Text(excerpt).font(MacTheme.font(10)).lineLimit(3) }
+            if !session.isAvailable { Label("Source unavailable", systemImage: "exclamationmark.triangle").font(MacTheme.font(10)) }
+            else if !session.warnings.isEmpty { Label("Partial or limited record", systemImage: "info.circle").font(MacTheme.font(10)) }
         }
         .frame(maxWidth: .infinity, alignment: .leading).padding(10)
         .background(active ? Color.accentColor.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 8))
@@ -336,18 +337,18 @@ struct HistoryWorkbenchView: View {
             let session = readingSession(metadata)
             VStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text(session.title).font(.title2.weight(.semibold)).textSelection(.enabled).lineLimit(3)
-                    Text("\(session.agent.displayName) · \(session.projectPath)").font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                    Text(session.title).font(MacTheme.font(17, .semibold)).textSelection(.enabled).lineLimit(3)
+                    Text("\(session.agent.displayName) · \(session.projectPath)").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2).textSelection(.enabled)
                     ViewThatFits(in: .horizontal) {
                         HStack { sessionActions(session) }
                         VStack(alignment: .leading) { sessionActions(session) }
                     }
                     HistorySessionActions(session: session, model: model)
                     ForEach(session.warnings, id: \.self) { warning in
-                        Text(warning).font(.caption).foregroundStyle(.secondary)
+                        Text(warning).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                     }
                     if !session.isAvailable {
-                        Text("The source is unavailable. Showing the last indexed copy.").font(.caption).foregroundStyle(.secondary)
+                        Text("The source is unavailable. Showing the last indexed copy.").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                     }
                 }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
                 Divider()
@@ -355,7 +356,7 @@ struct HistoryWorkbenchView: View {
                     ProgressView("Reading conversation…").frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let error = history.readingError {
                     VStack(spacing: 12) {
-                        Text(error).foregroundStyle(.secondary)
+                        Text(error).foregroundStyle(MacTheme.ink2)
                         Button("Retry") { Task { await history.read(metadata.id) } }
                     }.frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {

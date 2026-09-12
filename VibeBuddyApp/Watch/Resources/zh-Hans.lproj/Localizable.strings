@@ -164,3 +164,13 @@
 "Could not send. The question changed or another action is still pending." = "未发送。问题已变化，或另一个操作仍在等待结果。";
 
 "Followed tasks" = "关注的任务";
+
+/* MARK: Flat Watch language (ADR-0017 §7, tickets 05 / 08) */
+"Needs you" = "需要你";
+"Approve" = "批准";
+"Deny" = "拒绝";
+"%@ needs approval" = "%@ 需要批准";
+"%@ asked a question" = "%@ 问了一个问题";
+"%@ wants to %@" = "%@ 想要%@";
+"Your iPhone can't reach your Mac, so this can't be sent." = "你的 iPhone 连不上 Mac，所以无法发送。";
+"Enable quota collection for your signed-in account on your Mac to see allowance here." = "在 Mac 上为已登录账号开启额度收集，这里就会显示额度。";

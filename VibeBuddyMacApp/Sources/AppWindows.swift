@@ -28,7 +28,13 @@ final class AppWindows: NSObject, NSWindowDelegate {
         if settingsWindow == nil {
             settingsWindow = makeWindow(
                 content: settingsContent, title: "Settings", id: "settings",
-                size: NSSize(width: 820, height: 640), minimum: NSSize(width: 720, height: 560),
+                // Ten pages that each fit without scrolling need the room:
+                // the tallest (Notifications) measures 727pt of content at
+                // 1080 wide; Phone & remote carries the Connection & delivery
+                // section and grows 50pt per diagnostic row. Narrowing past
+                // ~920 wraps the row explanations into more lines than that,
+                // and a taller minimum would not fit a 1440×900 13" display.
+                size: NSSize(width: 1080, height: 780), minimum: NSSize(width: 920, height: 760),
                 resizable: true)
         }
         present(settingsWindow!)

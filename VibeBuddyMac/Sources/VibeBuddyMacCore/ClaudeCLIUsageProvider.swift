@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import VibeBuddyKit
 
 public enum ClaudeUsageResponseDecoder {
     private struct Envelope: Decodable {
@@ -35,15 +36,14 @@ public enum ClaudeUsageResponseDecoder {
             now: fetchedAt,
             calendar: calendar
         )
-        let secondary = try window(
-            named: "Current week (all models)",
-            kind: .secondary,
-            durationMinutes: 7 * 24 * 60,
+        let weekWindows = try scopedWeekWindows(
             in: envelope.result,
             now: fetchedAt,
             calendar: calendar
         )
-        guard primary != nil || secondary != nil else {
+        let secondary = weekWindows.allModels
+        let extras = weekWindows.extras
+        guard primary != nil || secondary != nil || !extras.isEmpty else {
             throw AccountUsageError.incompatibleFormat
         }
 
@@ -54,8 +54,83 @@ public enum ClaudeUsageResponseDecoder {
             secondary: secondary,
             lifetimeTokens: nil,
             latestDailyTokens: nil,
-            fetchedAt: fetchedAt
+            fetchedAt: fetchedAt,
+            extraWindows: extras.isEmpty ? nil : extras,
+            credits: credits(in: envelope.result),
+            spend: spend(in: envelope.result)
         )
+    }
+
+    private struct ScopedWeeks {
+        var allModels: AccountUsageWindow?
+        var extras: [AccountUsageWindow]
+    }
+
+    /// Every `Current week (NAME):` line. All-models stays the weekly slot;
+    /// Sonnet/Opus/Fable and friends become extras so they cannot steal it.
+    private static func scopedWeekWindows(
+        in output: String,
+        now: Date,
+        calendar: Calendar
+    ) throws -> ScopedWeeks {
+        let pattern = #"(?m)^Current week \(([^)]+)\):\s*([0-9]+(?:\.[0-9]+)?)% used([^\n]*)$"#
+        let expression = try NSRegularExpression(pattern: pattern)
+        let range = NSRange(output.startIndex..<output.endIndex, in: output)
+        var allModels: AccountUsageWindow?
+        var extras: [AccountUsageWindow] = []
+        var seen: Set<String> = []
+        for match in expression.matches(in: output, range: range) {
+            guard let nameRange = Range(match.range(at: 1), in: output),
+                  let percentRange = Range(match.range(at: 2), in: output),
+                  let percent = Double(output[percentRange]), percent.isFinite,
+                  (0...100).contains(percent) else { continue }
+            let name = String(output[nameRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { continue }
+            var reset: Date?
+            if let suffixRange = Range(match.range(at: 3), in: output) {
+                reset = try parseResetSuffix(String(output[suffixRange]), now: now, calendar: calendar, durationMinutes: 7 * 24 * 60)
+            }
+            if QuotaPresentation.isAllModelsScope(name) {
+                allModels = AccountUsageWindow(
+                    kind: .secondary,
+                    usedPercent: Int(percent.rounded()),
+                    windowDurationMinutes: 7 * 24 * 60,
+                    resetsAt: reset
+                )
+                continue
+            }
+            let slug = QuotaPresentation.slug(name)
+            guard !slug.isEmpty, seen.insert(slug).inserted else { continue }
+            extras.append(.extra(
+                key: "claude-weekly-scoped-\(slug)",
+                label: QuotaPresentation.scopedOnlyTitle(name),
+                usedPercent: Int(percent.rounded()),
+                windowDurationMinutes: 7 * 24 * 60,
+                resetsAt: reset
+            ))
+        }
+        return ScopedWeeks(allModels: allModels, extras: extras)
+    }
+
+    private static func credits(in output: String) -> QuotaCredits? {
+        let pattern = #"(?im)^Credits remaining:\s*\$?([0-9]+(?:\.[0-9]+)?)\b"#
+        guard let match = try? firstDouble(pattern, in: output) else { return nil }
+        return QuotaCredits(remaining: match, label: "Credits")
+    }
+
+    private static func spend(in output: String) -> [QuotaSpend]? {
+        let pattern = #"(?im)^Extra usage:\s*\$([0-9]+(?:\.[0-9]+)?)\b"#
+        guard let amount = try? firstDouble(pattern, in: output) else { return nil }
+        return [QuotaSpend(label: "Extra usage", amount: amount)]
+    }
+
+    private static func firstDouble(_ pattern: String, in output: String) throws -> Double? {
+        let expression = try NSRegularExpression(pattern: pattern)
+        let range = NSRange(output.startIndex..<output.endIndex, in: output)
+        guard let match = expression.firstMatch(in: output, range: range),
+              let valueRange = Range(match.range(at: 1), in: output),
+              let value = Double(output[valueRange]), value.isFinite else { return nil }
+        return value
     }
 
     private static func window(
@@ -77,15 +152,7 @@ public enum ClaudeUsageResponseDecoder {
         // A missing or malformed date cannot erase an independently valid percentage.
         var reset: Date?
         if let suffixRange = Range(match.range(at: 2), in: output) {
-            let suffix = String(output[suffixRange])
-            let datePattern = #"resets\s+(.+?)\s+\(([^()]+)\)\s*$"#
-            let regex = try NSRegularExpression(pattern: datePattern)
-            if let dateMatch = regex.firstMatch(in: suffix, range: NSRange(suffix.startIndex..<suffix.endIndex, in: suffix)),
-               let dateRange = Range(dateMatch.range(at: 1), in: suffix),
-               let zoneRange = Range(dateMatch.range(at: 2), in: suffix) {
-                reset = parseReset(String(suffix[dateRange]), timeZoneID: String(suffix[zoneRange]),
-                                   now: now, calendar: calendar, durationMinutes: durationMinutes)
-            }
+            reset = try parseResetSuffix(String(output[suffixRange]), now: now, calendar: calendar, durationMinutes: durationMinutes)
         }
         return AccountUsageWindow(
             kind: kind,
@@ -93,6 +160,21 @@ public enum ClaudeUsageResponseDecoder {
             windowDurationMinutes: durationMinutes,
             resetsAt: reset
         )
+    }
+
+    private static func parseResetSuffix(
+        _ suffix: String,
+        now: Date,
+        calendar: Calendar,
+        durationMinutes: Int
+    ) throws -> Date? {
+        let datePattern = #"resets\s+(.+?)\s+\(([^()]+)\)\s*$"#
+        let regex = try NSRegularExpression(pattern: datePattern)
+        guard let dateMatch = regex.firstMatch(in: suffix, range: NSRange(suffix.startIndex..<suffix.endIndex, in: suffix)),
+              let dateRange = Range(dateMatch.range(at: 1), in: suffix),
+              let zoneRange = Range(dateMatch.range(at: 2), in: suffix) else { return nil }
+        return parseReset(String(suffix[dateRange]), timeZoneID: String(suffix[zoneRange]),
+                          now: now, calendar: calendar, durationMinutes: durationMinutes)
     }
 
     /// `/usage` drops the minutes when a window resets on the hour — "Sep 5 at

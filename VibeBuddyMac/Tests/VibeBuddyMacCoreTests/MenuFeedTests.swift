@@ -3,9 +3,11 @@ import Testing
 import VibeBuddyKit
 @testable import VibeBuddyMacCore
 
-@Suite("Mac menu feed — pinned attention over a time-ordered stream")
+@Suite("Mac menu feed — the Companion's three groups, newest first inside each")
 struct MenuFeedTests {
     private let epoch = Date(timeIntervalSince1970: 1_780_000_000)
+    /// A day and a bit: past `SessionCurrency.window`.
+    private let stale: TimeInterval = 26 * 3600
 
     private func session(_ id: String, project: String = "app", ago: TimeInterval = 0,
                          _ status: SessionStatus = .working, summary: String? = nil) -> AgentSession {
@@ -28,37 +30,48 @@ struct MenuFeedTests {
         return s
     }
 
-    // MARK: ordering and the pinned/feed split
+    /// Every row in the order the panel draws them.
+    private func rows(_ feed: MenuFeed) -> [AgentSession] { feed.sections.flatMap(\.sessions) }
+    private func sessions(_ feed: MenuFeed, _ kind: MenuFeed.Section.Kind) -> [AgentSession] {
+        feed.sections.first { $0.kind == kind }?.sessions ?? []
+    }
+    private func make(_ input: [AgentSession], query: String = "") -> MenuFeed {
+        MenuFeed(input, query: query, now: epoch)
+    }
 
-    @Test func attentionIsPinnedNewestFirstAndTheRestFollowByTime() {
-        let feed = MenuFeed([session("old", ago: 600), failed("broke", ago: 300),
+    // MARK: grouping and ordering
+
+    @Test func attentionLeadsTheGroupsAndEachIsNewestFirst() {
+        let feed = make([session("old", ago: 600), failed("broke", ago: 300),
                              session("fresh", ago: 10), session("ask", ago: 400, .needsResponse),
                              session("mid", ago: 120)])
-        #expect(feed.pinned.map(\.id) == ["broke", "ask"])
-        #expect(feed.feed.map(\.id) == ["fresh", "mid", "old"])
+        #expect(feed.sections.map(\.kind) == [.needsYou, .working])
+        #expect(sessions(feed, .needsYou).map(\.id) == ["broke", "ask"])
+        #expect(sessions(feed, .working).map(\.id) == ["fresh", "mid", "old"])
         #expect(feed.emptyState == nil)
     }
 
-    @Test func noSessionAppearsInBothGroups() {
+    @Test func everySessionLandsInExactlyOneGroup() {
         let input = [session("a", ago: 5), failed("b", ago: 6), session("c", ago: 7, .needsResponse),
                      unread("d", ago: 8), session("e", ago: 9, .done)]
-        let feed = MenuFeed(input)
-        #expect(Set(feed.pinned.map(\.id)).isDisjoint(with: Set(feed.feed.map(\.id))))
-        #expect(feed.pinned.count + feed.feed.count == input.count)
+        let feed = make(input)
+        #expect(feed.sections.map(\.kind) == [.needsYou, .working, .done])
+        #expect(rows(feed).count == input.count)
+        #expect(Set(rows(feed).map(\.id)).count == input.count)
     }
 
     @Test func everyRowIsOrderedNewestFirstWithinItsGroup() {
-        let feed = MenuFeed([session("a", ago: 100), session("b", ago: 50), session("c", ago: 200),
+        let feed = make([session("a", ago: 100), session("b", ago: 50), session("c", ago: 200),
                              failed("x", ago: 30), failed("y", ago: 90)])
-        #expect(feed.feed.map(\.id) == ["b", "a", "c"])
-        #expect(feed.pinned.map(\.id) == ["x", "y"])
+        #expect(sessions(feed, .working).map(\.id) == ["b", "a", "c"])
+        #expect(sessions(feed, .needsYou).map(\.id) == ["x", "y"])
     }
 
     @Test func sessionsSharingATimestampKeepTheSnapshotOrder() {
         let same = [session("first"), session("second"), session("third")]
-        #expect(MenuFeed(same).feed.map(\.id) == ["first", "second", "third"])
+        #expect(rows(make(same)).map(\.id) == ["first", "second", "third"])
         // Reversing the input reverses the output: nothing else is deciding.
-        #expect(MenuFeed(same.reversed()).feed.map(\.id) == ["third", "second", "first"])
+        #expect(rows(make(same.reversed())).map(\.id) == ["third", "second", "first"])
     }
 
     // MARK: the summary is always the whole snapshot
@@ -66,21 +79,57 @@ struct MenuFeedTests {
     @Test func narrowingTheListLeavesTheSummaryAlone() {
         let input = [session("a", project: "api", .needsResponse), session("b", project: "docs"),
                      unread("c"), session("d", project: "web", .done)]
-        let whole = MenuFeed(input)
-        let narrowed = MenuFeed(input, query: "api")
+        let whole = make(input)
+        let narrowed = make(input, query: "api")
         #expect(narrowed.summary == whole.summary)
-        #expect(narrowed.summary == TaskPresentationSummary(sessions: input))
-        #expect(narrowed.feed.count + narrowed.pinned.count == 1)
+        #expect(narrowed.summary == TaskPresentationSummary(currentIn: input, now: epoch))
+        #expect(rows(narrowed).count == 1)
     }
 
     @Test func countsReportMatchesAgainstTheWholeSnapshot() {
         let input = [session("a", project: "api"), session("b", project: "api"), session("c", project: "web")]
-        let narrowed = MenuFeed(input, query: "api")
+        let narrowed = make(input, query: "api")
         #expect(narrowed.matchCount == 2)
         #expect(narrowed.totalCount == 3)
-        let whole = MenuFeed(input)
+        let whole = make(input)
         #expect(whole.matchCount == 3)
         #expect(whole.totalCount == 3)
+    }
+
+    // MARK: what is current
+
+    @Test func finishedWorkOlderThanADayFoldsIntoOlderAndLeavesTheSummary() {
+        let input = [session("today", ago: 600, .done), session("lastWeek", ago: stale, .done),
+                     unread("readLater", ago: stale - 60), session("run")]
+        let f = make(input)
+        #expect(f.sections.map(\.kind) == [.working, .done, .older])
+        #expect(sessions(f, .done).map(\.id) == ["today"])
+        #expect(sessions(f, .older).map(\.id) == ["readLater", "lastWeek"])
+        // The panel's line counts what is current, like the phone and the Watch.
+        #expect(f.summary.idle == 1)
+        #expect(f.summary.completeUnread == 0)
+        #expect(f.summary.thinking == 1)
+        #expect(f.totalCount == 4)
+    }
+
+    @Test func aWaitAFailureARunAndAFollowedUnreadNeverFold() {
+        var followed = unread("followed", ago: stale)
+        followed.attention = .followed
+        let input = [session("wait", ago: stale, .needsResponse), failed("broke", ago: stale),
+                     session("stalled", ago: stale), followed]
+        let f = make(input)
+        #expect(sessions(f, .older).isEmpty)
+        #expect(sessions(f, .needsYou).map(\.id) == ["wait", "broke"])
+        #expect(sessions(f, .working).map(\.id) == ["stalled"])
+        #expect(sessions(f, .done).map(\.id) == ["followed"])
+    }
+
+    @Test func returnNeverLandsInOlderWhileSomethingCurrentMatches() {
+        let input = [session("old", ago: stale, .done), session("new", ago: 5, .done)]
+        #expect(make(input).topResult?.id == "new")
+        // With only old work matching, Older is the whole list and Return goes there.
+        var namedOld = session("old", ago: stale, .done); namedOld.name = "nightly"
+        #expect(make([namedOld, session("new", ago: 5, .done)], query: "nightly").topResult?.id == "old")
     }
 
     // MARK: querying
@@ -89,20 +138,20 @@ struct MenuFeedTests {
         let input = [session("byProject", project: "payments-api"),
                      session("bySummary", project: "web", summary: "Retry the failing upload"),
                      session("neither", project: "docs", summary: "Rewrote the intro")]
-        #expect(MenuFeed(input, query: "payments").feed.map(\.id) == ["byProject"])
-        #expect(MenuFeed(input, query: "upload").feed.map(\.id) == ["bySummary"])
-        #expect(MenuFeed(input, query: "nothing here").feed.isEmpty)
+        #expect(rows(make(input, query: "payments")).map(\.id) == ["byProject"])
+        #expect(rows(make(input, query: "upload")).map(\.id) == ["bySummary"])
+        #expect(rows(make(input, query: "nothing here")).isEmpty)
     }
 
     @Test func queryIgnoresCase() {
         let input = [session("a", project: "Payments-API", summary: "Fix the Upload")]
-        #expect(MenuFeed(input, query: "payments").matchCount == 1)
-        #expect(MenuFeed(input, query: "UPLOAD").matchCount == 1)
+        #expect(make(input, query: "payments").matchCount == 1)
+        #expect(make(input, query: "UPLOAD").matchCount == 1)
     }
 
     @Test func aQueryOfOnlyWhitespaceIsNoQueryAtAll() {
         let input = [session("a"), session("b", .done)]
-        let blank = MenuFeed(input, query: "   \n ")
+        let blank = make(input, query: "   \n ")
         #expect(blank.query.isEmpty)
         #expect(blank.matchCount == 2)
         #expect(blank.emptyState == nil)
@@ -111,45 +160,62 @@ struct MenuFeedTests {
     @Test func aNamedSessionIsStillFoundByItsProject() {
         var named = session("named", project: "payments-api")
         named.name = "nightly deploy"
-        #expect(MenuFeed([named], query: "payments").matchCount == 1)
-        #expect(MenuFeed([named], query: "nightly").matchCount == 1)
+        #expect(make([named], query: "payments").matchCount == 1)
+        #expect(make([named], query: "nightly").matchCount == 1)
     }
 
     // MARK: empty states
 
     @Test func nothingReportingAndNothingMatchingReadDifferently() {
-        #expect(MenuFeed([]).emptyState == .noSessions)
-        #expect(MenuFeed([], query: "api").emptyState == .noSessions)
-        #expect(MenuFeed([session("a", project: "web")], query: "api").emptyState == .noMatches("api"))
-        #expect(MenuFeed([session("a", project: "web")], query: "  api  ").emptyState == .noMatches("api"))
+        #expect(make([]).emptyState == .noSessions)
+        #expect(make([], query: "api").emptyState == .noSessions)
+        #expect(make([session("a", project: "web")], query: "api").emptyState == .noMatches("api"))
+        #expect(make([session("a", project: "web")], query: "  api  ").emptyState == .noMatches("api"))
     }
 
     // MARK: edges
 
     @Test func anEmptyProjectNameIsJustAnEmptyName() {
-        let feed = MenuFeed([session("blank", project: "   "), session("named", project: "app")])
-        #expect(feed.feed.count == 2)
-        #expect(MenuFeed([session("blank", project: "   ")], query: "app").emptyState == .noMatches("app"))
+        let feed = make([session("blank", project: "   "), session("named", project: "app")])
+        #expect(rows(feed).count == 2)
+        #expect(make([session("blank", project: "   ")], query: "app").emptyState == .noMatches("app"))
     }
 
+    /// An absent group draws no heading, so the panel shortens instead of
+    /// showing three titles over one row.
     @Test func aSnapshotOfOneStateFillsExactlyOneGroup() {
         let waiting = (0..<3).map { session("w\($0)", ago: TimeInterval($0), .needsResponse) }
-        #expect(MenuFeed(waiting).pinned.count == 3)
-        #expect(MenuFeed(waiting).feed.isEmpty)
+        #expect(make(waiting).sections.map(\.kind) == [.needsYou])
+        #expect(sessions(make(waiting), .needsYou).count == 3)
         let calm = (0..<3).map { session("c\($0)", ago: TimeInterval($0), .done) }
-        #expect(MenuFeed(calm).pinned.isEmpty)
-        #expect(MenuFeed(calm).feed.count == 3)
+        #expect(make(calm).sections.map(\.kind) == [.done])
+        #expect(sessions(make(calm), .done).count == 3)
     }
 
-    @Test func returnGoesToTheMostUrgentRowAndOtherwiseTheNewest() {
-        #expect(MenuFeed([session("new", ago: 1), session("old", ago: 90)]).topResult?.id == "new")
-        #expect(MenuFeed([session("new", ago: 1), failed("broke", ago: 90)]).topResult?.id == "broke")
-        #expect(MenuFeed([]).topResult == nil)
+    @Test func returnGoesToTheFirstRowOfTheFirstGroup() {
+        #expect(make([session("new", ago: 1), session("old", ago: 90)]).topResult?.id == "new")
+        #expect(make([session("new", ago: 1), failed("broke", ago: 90)]).topResult?.id == "broke")
+        // A finished task is never the target while something is still running,
+        // however recently it finished.
+        #expect(make([unread("just done", ago: 1), session("running", ago: 90)]).topResult?.id == "running")
+        #expect(make([]).topResult == nil)
     }
 
-    // MARK: the time column
+    /// `Needs you` cannot be folded away (ADR-0015), and it leads the list, so
+    /// Return lands there however much newer the other groups are.
+    @Test func returnLandsInNeedsYouEvenWhenEveryOtherGroupIsNewer() {
+        let input = [unread("finished", ago: 1), session("running", ago: 5),
+                     session("ask", ago: 3 * 3600, .needsResponse), failed("broke", ago: 2 * 3600)]
+        let feed = make(input)
+        #expect(feed.sections.first?.kind == .needsYou)
+        #expect(feed.topResult?.id == "broke")
+        // Narrowing keeps the rule: the newest matching row that needs a person.
+        #expect(make(input, query: "app").topResult?.id == "broke")
+    }
 
-    @Test func ageStaysShortEnoughForA52ptColumn() {
+    // MARK: the row's timestamp
+
+    @Test func ageStaysShortEnoughToRideAtTheEndOfARow() {
         let now = epoch
         #expect(MenuFeed.age(of: now, now: now) == "now")
         #expect(MenuFeed.age(of: now - 4, now: now) == "now")

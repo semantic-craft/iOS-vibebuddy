@@ -226,6 +226,16 @@ struct SessionStoreTests {
         #expect(snap.providerQuota?.map(\.provider) == AccountUsageProvider.allCases)
         #expect(snap.providerQuota?.contains { $0.provider == .cursor } == true)
     }
+
+    @Test("Token consumption rides the snapshot without creating sessions")
+    func includesTokenConsumptionInWireSnapshot() async {
+        let store = SessionStore(sourceID: "test")
+        let consumption = TokenConsumptionSnapshot.demo(now: Date(timeIntervalSince1970: 1_700_000_000))
+        await store.setTokenConsumption(consumption)
+        let snap = await store.snapshot(now: Date(timeIntervalSince1970: 1_700_000_000))
+        #expect(snap.sessions.isEmpty)
+        #expect(snap.tokenConsumption == consumption)
+    }
 }
 
 private extension Array where Element == AgentObservationDiagnostic {

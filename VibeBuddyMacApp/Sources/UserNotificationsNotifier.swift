@@ -130,7 +130,7 @@ final class UserNotificationsNotifier: NSObject, AttentionNotifier, UNUserNotifi
         return (
             title: String(localized: "\(provider.displayName) usage reached \(threshold)%"),
             body: String(localized: "\(window.usedPercent)% used in the \(duration) window.\(reset)"),
-            id: "\(provider.rawValue)-usage-\(window.kind.rawValue)-\(window.resetsAt?.timeIntervalSince1970 ?? 0)"
+            id: "\(provider.rawValue)-usage-\(window.id)-\(window.resetsAt?.timeIntervalSince1970 ?? 0)"
         )
     }
 

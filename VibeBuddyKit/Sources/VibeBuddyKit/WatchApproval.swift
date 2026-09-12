@@ -57,6 +57,13 @@ public enum WatchSessionAction: Codable, Equatable, Sendable {
     /// Answer this exact question. The Watch UI for it is ticket 03; the
     /// contract is here so both sides speak one grammar.
     case answer(pendingId: String, text: String)
+    /// Answer every question of this exact prompt at once, keyed by item id
+    /// with the option values picked (`WatchQuestionSet`). A separate case
+    /// rather than an optional on `answer`: an iPhone that predates it fails
+    /// to decode the payload and refuses it, which is the right answer for a
+    /// set of picks it could not have checked — and the old case keeps its
+    /// wire shape for every Watch still sending one string.
+    case answerAll(pendingId: String, answers: QuestionAnswers)
     /// End the turn that began at this moment. A stop carries no text, and
     /// `statusSince` is the only thing standing between a stale tap and the
     /// next turn.
@@ -218,6 +225,9 @@ public struct WatchSessionActionGate: Equatable, Sendable {
         case decide(approvalId: String, decision: ApprovalDecision)
         /// Forward this to the Mac's `/answer` as an answer.
         case answer(pendingId: String, text: String)
+        /// Forward this to the Mac's `/answer` as structured answers, one per
+        /// question, already checked against the live prompt.
+        case answerAll(pendingId: String, answers: QuestionAnswers)
         /// Forward this to the Mac's `/answer` as `intent: stop`, carrying the
         /// same `statusSince` the daemon will re-check for itself.
         case stop(statusSince: Date)
@@ -265,6 +275,20 @@ public struct WatchSessionActionGate: Equatable, Sendable {
                   question.isSinglePart,
                   question.id == pendingId else { return .refused }
             return .answer(pendingId: pendingId, text: trimmed)
+        case .answerAll(let pendingId, let answers):
+            guard WaitHandling.resolve(for: session) == .remoteAvailable,
+                  session.waitKind == .question,
+                  let question = session.pendingQuestion,
+                  question.id == pendingId,
+                  // The same rule the projection ran, against the live prompt:
+                  // every question must be pickable, and the set must cover
+                  // every one of them with nothing but its own choices. A
+                  // forged or stale payload cannot half-answer, and cannot
+                  // answer with words the agent never offered.
+                  let items = WatchQuestionSet.enumerable(question),
+                  let checked = WatchQuestionSet.validate(answers, against: items)
+            else { return .refused }
+            return .answerAll(pendingId: pendingId, answers: checked)
         case .stop(let statusSince):
             // The agent rule and the running-turn rule are the same ones the
             // daemon applies; running them here means a stop the Mac would
@@ -324,14 +348,22 @@ public struct WatchSessionActionAttempt: Equatable, Sendable {
     /// carry an approval, an answer and a stop; each control needs to know
     /// whether the attempt in flight is the one it drew.
     public var pendingId: String? {
-        if case .answer(let id, _) = action { return id }
-        return nil
+        switch action {
+        case .answer(let id, _), .answerAll(let id, _): return id
+        case .approval, .stop: return nil
+        }
     }
 
     /// The text on its way to the agent, when there is any. Shown so the wrist
     /// can say *what* it is sending while it is still in flight.
     public var answerText: String? {
         if case .answer(_, let text) = action { return text }
+        return nil
+    }
+
+    /// The picks on their way to the agent, when the answer is a set of them.
+    public var answers: QuestionAnswers? {
+        if case .answerAll(_, let answers) = action { return answers }
         return nil
     }
 
@@ -383,6 +415,25 @@ public struct WatchSessionActionState: Equatable, Sendable {
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         return begin(sessionId: alert.sessionId,
                      action: .answer(pendingId: pendingId, text: text),
+                     attemptId: attemptId)
+    }
+
+    /// Start an answer to every question of this alert's prompt at once.
+    ///
+    /// Checked here with the rule the iPhone will re-run, so the wrist never
+    /// sends a set that misses a question or names a choice it was not shown.
+    /// `nil` also when the alert is not one the wrist walks — a one-question
+    /// wait takes its text through `begin(alert:answer:attemptId:)`.
+    public mutating func begin(
+        alert: WatchAlert,
+        answers: QuestionAnswers,
+        attemptId: String
+    ) -> WatchSessionActionRequest? {
+        guard alert.isAnswerable, let pendingId = alert.pendingId,
+              let items = alert.questions,
+              let checked = WatchQuestionSet.validate(answers, against: items) else { return nil }
+        return begin(sessionId: alert.sessionId,
+                     action: .answerAll(pendingId: pendingId, answers: checked),
                      attemptId: attemptId)
     }
 
@@ -457,7 +508,7 @@ public struct WatchSessionActionState: Equatable, Sendable {
         switch current.action {
         case .approval(let id, _):
             stillThere = state.alerts.contains { $0.isDecidable && $0.approvalId == id }
-        case .answer(let pendingId, _):
+        case .answer(let pendingId, _), .answerAll(let pendingId, _):
             stillThere = state.alerts.contains {
                 $0.sessionId == current.sessionId && $0.isAnswerable && $0.pendingId == pendingId
             }

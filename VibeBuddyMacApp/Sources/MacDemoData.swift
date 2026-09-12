@@ -1,10 +1,57 @@
 import Foundation
 import VibeBuddyKit
+import VibeBuddyMacCore
 
 /// Sample sessions for screenshots / exploration, gated behind `VIBEBUDDY_DEMO=1`.
 /// A demo instance seeds these and skips the server/polling entirely, so it never
 /// binds the port, pushes to a phone, or touches real session data (privacy-safe).
 enum MacDemoData {
+    /// Sample account readings for the quota plinth and the Usage tab. One
+    /// provider burns faster than its window's clock (Claude's Opus week), one
+    /// is quiet, one is signed out, one carries credits and one carries spend —
+    /// the four shapes the readings have to survive.
+    static func usageStates(now: Date = Date()) -> [AccountUsageProvider: AccountUsageState] {
+        func window(_ kind: AccountUsageWindowKind, used: Int, minutes: Int, elapsed: Double,
+                    label: String? = nil, key: String? = nil) -> AccountUsageWindow {
+            AccountUsageWindow(kind: kind, usedPercent: used, windowDurationMinutes: minutes,
+                               resetsAt: now.addingTimeInterval(Double(minutes) * 60 * (1 - elapsed)),
+                               label: label, key: key)
+        }
+        let codex = AccountUsageSnapshot(
+            provider: .codex, planType: "pro",
+            primary: window(.primary, used: 32, minutes: 300, elapsed: 0.55),
+            secondary: window(.secondary, used: 59, minutes: 10_080, elapsed: 0.62),
+            lifetimeTokens: nil, latestDailyTokens: nil, fetchedAt: now.addingTimeInterval(-180),
+            credits: QuotaCredits(remaining: 18.4, limit: 25, resetsAt: nil, label: "Credits"))
+        let claude = AccountUsageSnapshot(
+            provider: .claude, planType: "Max 20×",
+            primary: window(.primary, used: 47, minutes: 300, elapsed: 0.40),
+            secondary: window(.secondary, used: 52, minutes: 10_080, elapsed: 0.43),
+            lifetimeTokens: nil, latestDailyTokens: nil, fetchedAt: now.addingTimeInterval(-240),
+            extraWindows: [window(.extra, used: 73, minutes: 10_080, elapsed: 0.43,
+                                  label: "Opus week", key: "opus-week")])
+        let grok = AccountUsageSnapshot(
+            provider: .grok, planType: "SuperGrok Heavy",
+            primary: window(.primary, used: 38, minutes: 10_080, elapsed: 0.70),
+            secondary: nil, lifetimeTokens: nil, latestDailyTokens: nil,
+            fetchedAt: now.addingTimeInterval(-900),
+            spend: [QuotaSpend(label: "Extra usage", amount: 4.2)])
+        let cursor = AccountUsageSnapshot(
+            provider: .cursor, planType: "Pro",
+            primary: window(.primary, used: 64, minutes: 43_200, elapsed: 0.40),
+            secondary: nil, lifetimeTokens: nil, latestDailyTokens: nil,
+            fetchedAt: now.addingTimeInterval(-420),
+            spend: [QuotaSpend(label: "This month", amount: 41.2)])
+        return [
+            .codex: .available(codex, nextRefreshAt: now.addingTimeInterval(600)),
+            .claude: .available(claude, nextRefreshAt: now.addingTimeInterval(600)),
+            .grok: .available(grok, nextRefreshAt: now.addingTimeInterval(900)),
+            .cursor: .available(cursor, nextRefreshAt: now.addingTimeInterval(900)),
+            .grokBot: .unavailable(.notLoggedIn, lastAttemptAt: now.addingTimeInterval(-900),
+                                   nextRefreshAt: now.addingTimeInterval(480)),
+        ]
+    }
+
     static func observationDiagnostics(now: Date = Date()) -> [AgentObservationDiagnostic] {
         [
             AgentObservationDiagnostic(agent: .claudeCode, sources: [

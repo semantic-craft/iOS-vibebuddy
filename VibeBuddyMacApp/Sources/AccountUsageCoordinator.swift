@@ -16,6 +16,14 @@ final class AccountUsageCoordinator: ObservableObject {
     }
     @Published private(set) var collectionEnabled: [AccountUsageProvider: Bool] = [:]
 
+    /// Screenshot / exploration instance only: fill in sample readings so the
+    /// quota plinth and the Usage tab have something to draw. Never called on a
+    /// real launch, where the collectors own `states`.
+    func seedDemoStates(_ demo: [AccountUsageProvider: AccountUsageState]) {
+        states = demo
+        for (provider, state) in demo { collectionEnabled[provider] = state.collectionEnabled }
+    }
+
     private let store: SessionStore
     private let notifier: UserNotificationsNotifier
     /// Set after `MenuBarModel` has its delivery recorder. Local post, push and

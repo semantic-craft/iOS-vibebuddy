@@ -18,6 +18,23 @@ public enum Pricing {
         guard let tokens, tokens > 0 else { return nil }
         return Double(tokens) / 1_000_000 * blendedRatePerMTok(model)
     }
+
+    /// List-price estimate for a vibe-usage-style token split. Cache reads are
+    /// billed at a tenth of the blended rate; reasoning counts as output.
+    /// Zero when nothing is billable. Estimates only.
+    public static func estimatedUSD(
+        inputTokens: Int,
+        outputTokens: Int,
+        cachedInputTokens: Int,
+        reasoningOutputTokens: Int,
+        model: String?
+    ) -> Double {
+        let billed = max(0, inputTokens) + max(0, outputTokens) + max(0, reasoningOutputTokens)
+        let cached = max(0, cachedInputTokens)
+        guard billed > 0 || cached > 0 else { return 0 }
+        let rate = blendedRatePerMTok(model)
+        return Double(billed) / 1_000_000 * rate + Double(cached) / 1_000_000 * rate * 0.1
+    }
 }
 
 /// Watches per-session cumulative spend and fires once when a session crosses the

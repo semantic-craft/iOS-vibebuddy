@@ -3,9 +3,10 @@ import VibeBuddyKit
 
 /// The Mac buddy: the same icon cat as iPhone and Watch, drawn by the Kit's
 /// `BuddyCatFace` and moved by `BuddyCatMotion` (ADR-0007, second amendment).
-/// This view owns the clock and the two Mac-only decisions: `bare` for the
-/// black notch glance (no card, no shadow) and `scale` for the glance's
-/// collapsed / expanded sizes. Under 34 pt wide the cat drops its body and
+/// This view owns the clock and the Mac-only decisions: `bare` for the black
+/// notch glance (no card, no shadow), `plain` for a light-aware avatar with no
+/// card, and `scale` for the sizes. Since ADR-0017 the cat is drawn only while
+/// a voice conversation is live; the status surfaces show a status dot. Under 34 pt wide the cat drops its body and
 /// mouth, and under 28 pt only the jump survives of the motion, so the head
 /// still reads at menu-bar height instead of shimmering.
 struct PetFace: View {
@@ -14,6 +15,9 @@ struct PetFace: View {
     /// Bump to make the cat wave (tap, panel opened).
     var greet: Int = 0
     var bare: Bool = false
+    /// No card behind the cat, but light/dark aware: the conversation avatar
+    /// in the panel and the dashboard (ADR-0017 §2).
+    var plain: Bool = false
     var scale: CGFloat = 1
 
     @Environment(\.colorScheme) private var colorScheme
@@ -47,7 +51,7 @@ struct PetFace: View {
         }
         .frame(width: 54 * scale, height: 60 * scale)
         .background {
-            if !bare {
+            if !bare && !plain {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(Color(nsColor: .controlBackgroundColor))
             }

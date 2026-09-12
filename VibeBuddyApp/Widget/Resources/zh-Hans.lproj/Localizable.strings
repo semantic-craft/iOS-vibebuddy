@@ -1,0 +1,14 @@
+/* VibeBuddy iOS widget / Live Activity — Simplified Chinese (zh-Hans).
+   The extension is its own bundle, so the keys the island and the home-screen
+   widget draw need their own table (ticket 08). Same wording as the app. */
+"All quiet" = "一切安静";
+"Start a task to see its status." = "启动一个任务，这里就会显示它的状态。";
+"%lld need you" = "%lld 个需要你";
+"%lld working" = "%lld 个进行中";
+"Approve" = "批准";
+"Deny" = "拒绝";
+"Sent · waiting for your Mac" = "已发出 · 等待你的 Mac";
+"Couldn't reach your Mac — open the app." = "连不上你的 Mac——请打开 app。";
+"Answer an approval" = "回应审批";
+"Approval" = "审批";
+"Allow" = "允许";

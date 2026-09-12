@@ -3,6 +3,24 @@ import AppKit
 import VibeBuddyKit
 import VibeBuddyMacCore
 
+/// The dashboard's library tabs, and the one programmatic way to land on one
+/// of them from elsewhere. Settings › Plan & quota uses it to open the Usage
+/// page rather than repeat its readings (ADR-0017 §6). `@Published` replays
+/// the current value to a new subscriber, so a request made before the
+/// dashboard window has ever been built still reaches the view once it is.
+@MainActor
+final class DashboardRoute: ObservableObject {
+    enum Library: String { case live, history, favorites, usage }
+
+    static let shared = DashboardRoute()
+    @Published fileprivate var requested: Library?
+
+    static func open(_ library: Library) {
+        shared.requested = library
+        NotificationCenter.default.post(name: .openDashboard, object: nil)
+    }
+}
+
 /// Project navigation, the filtered session list, and the existing live detail
 /// surface. These filters never alter the shared snapshot or Buddy scope.
 struct DashboardView: View {
@@ -43,8 +61,9 @@ struct DashboardView: View {
                     Text("Current tasks").tag("live")
                     Text("History").tag("history")
                     Text("Favorites").tag("favorites")
+                    Text("Usage").tag("usage")
                 }
-                .pickerStyle(.segmented).frame(maxWidth: 380)
+                .pickerStyle(.segmented).frame(maxWidth: 460)
                 Spacer()
                 if libraryScope != "live" {
                     let waiting = model.sessions.filter { $0.status == .needsResponse }.count
@@ -66,12 +85,21 @@ struct DashboardView: View {
                     sessionsColumn
                     detailColumn
                 }
+            } else if libraryScope == "usage" {
+                UsageWorkbenchView(model: model)
             } else {
                 HistoryWorkbenchView(history: history, model: model, query: query,
                                      favoritesOnly: libraryScope == "favorites")
             }
         }
         .background(MacTheme.bg)
+        .onReceive(DashboardRoute.shared.$requested) { library in
+            guard let library else { return }
+            libraryScope = library.rawValue
+            // Clear on the next turn so the request is consumed once and the
+            // publisher is not re-entered from inside its own delivery.
+            DispatchQueue.main.async { DashboardRoute.shared.requested = nil }
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button { showNewTask = true } label: { Image(systemName: "plus.bubble") }
@@ -115,38 +143,43 @@ struct DashboardView: View {
     }
 
     private var projectSidebar: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Projects").font(MacTheme.font(12, .semibold))
-            Text("Counts include all sessions")
-                .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
-                .fixedSize(horizontal: false, vertical: true)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(projection.projects) { project in
-                        Button { projectScope = project.id } label: {
-                            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                                Text(projectTitle(project.id))
-                                    .fixedSize(horizontal: false, vertical: true)
-                                Spacer(minLength: 0)
-                                Text("\(project.count)").monospacedDigit()
-                                    .foregroundStyle(MacTheme.ink2)
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Projects").font(MacTheme.font(12, .semibold))
+                Text("Counts include all sessions")
+                    .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(projection.projects) { project in
+                            Button { projectScope = project.id } label: {
+                                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                    Text(projectTitle(project.id))
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    Spacer(minLength: 0)
+                                    Text("\(project.count)").monospacedDigit()
+                                        .foregroundStyle(MacTheme.ink2)
+                                }
+                                .padding(8)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(projectScope == project.id ? MacTheme.accent.opacity(0.12) : .clear,
+                                            in: RoundedRectangle(cornerRadius: 8))
+                                .contentShape(Rectangle())
                             }
-                            .padding(8)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(projectScope == project.id ? MacTheme.accent.opacity(0.12) : .clear,
-                                        in: RoundedRectangle(cornerRadius: 8))
-                            .contentShape(Rectangle())
+                            .buttonStyle(.plain)
+                            .accessibilityAddTraits(projectScope == project.id ? .isSelected : [])
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityAddTraits(projectScope == project.id ? .isSelected : [])
                     }
                 }
             }
+            .padding(12)
+            // Account quota is account-level: it stays put while the selection
+            // and the session list change underneath it.
+            QuotaPlinth(model: model)
         }
         .font(MacTheme.font(12))
         .foregroundStyle(MacTheme.ink)
-        .padding(12)
-        .frame(minWidth: 140, idealWidth: 180, maxWidth: 260, maxHeight: .infinity)
+        .frame(minWidth: 160, idealWidth: 204, maxWidth: 280, maxHeight: .infinity)
         .background(MacTheme.bg2)
     }
 
@@ -220,53 +253,34 @@ struct DashboardView: View {
                     }
                 }
                 .companionCard(radius: MacTheme.panelRadius)
-                DisclosureGroup("Account usage") { usageCard }
-                    .font(.caption).padding(.horizontal, 4)
             }
             .padding(12)
         }
         .frame(minWidth: 340, idealWidth: 380, maxWidth: .infinity)
     }
 
-    @ViewBuilder private var usageCard: some View {
-        let providers = AccountUsageProvider.allCases.filter { model.isUsageCollectionEnabled($0) }
-        if !providers.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(providers, id: \.self) { provider in
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("\(provider.displayName) usage").font(MacTheme.font(11, .heavy))
-                            .foregroundStyle(MacTheme.ink3).textCase(.uppercase).kerning(0.6)
-                        AccountUsageSummaryView(provider: provider, state: model.usageState(for: provider), compact: true)
-                    }
-                }
-            }
-            .font(MacTheme.font(12))
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .companionCard(radius: MacTheme.panelRadius)
-        }
-    }
 }
 
-/// The buddy header: cat + speech bubble on the left, search on the right.
+/// The top bar: the voice companion's mic and its status line on the left,
+/// search on the right. The cat appears beside the mic only while a
+/// conversation is live (ADR-0017 §2–3).
 private struct MacBuddyBar: View {
     @ObservedObject var model: MenuBarModel
     @ObservedObject var voice: VoiceChat
     @Binding var query: String
     var searchFocused: FocusState<Bool>.Binding
     @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
-    @State private var greet = 0
 
     /// The buddy header reads "off" until the companion is opted in; otherwise the
     /// live Listening/Speaking/idle status.
     private var headline: LocalizedStringKey {
         if !companionEnabled { return "Voice companion off" }
-        if voice.phase == .recovering { return "Recovering audio… tap the pet to end" }
+        if voice.phase == .recovering { return "Recovering audio… tap the mic to end" }
         if voice.phase == .connecting { return "Connecting — wait to speak" }
         if voice.phase == .thinking { return "Thinking…" }
         if voice.isListening { return "Listening…" }
         if voice.isSpeaking { return "Speaking…" }
-        return "Tap the pet to talk"
+        return "Tap the mic to talk"
     }
 
     /// "Buddy: all sessions" when nothing is scoped, else "Buddy: N selected".
@@ -277,13 +291,21 @@ private struct MacBuddyBar: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            PetFace(state: model.buddyState, voice: .init(voice.phase), greet: greet, bare: true, scale: 0.55)
-                .onTapGesture { greet += 1; voice.toggle() }
+            MenuCircleButton(systemName: micGlyph, size: 30,
+                             tint: voice.phase == .idle ? MacTheme.ink2 : .onAccent,
+                             ground: voice.phase == .idle ? MacTheme.bg3 : MacTheme.accent) {
+                voice.toggle()
+            }
+            .help(voice.phase == .idle ? "Start voice conversation" : "End voice conversation")
+            .accessibilityLabel("Toggle voice companion")
+            if voice.isActive {
+                PetFace(state: model.buddyState, voice: .init(voice.phase), plain: true, scale: 0.5)
+            }
             Group {
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 6) {
                         if !companionEnabled {
-                            Image(systemName: "mic.slash").font(.caption).foregroundStyle(MacTheme.ink2)
+                            Image(systemName: "mic.slash").font(.system(size: 10)).foregroundStyle(MacTheme.ink2)
                         }
                         Text(headline).font(MacTheme.font(13, .heavy)).foregroundStyle(MacTheme.ink)
                         if companionEnabled {
@@ -301,7 +323,7 @@ private struct MacBuddyBar: View {
                     } else if !voice.lastUserText.isEmpty {
                         Text(voice.lastUserText).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2).lineLimit(1)
                     } else {
-                        Text(companionEnabled ? scopeLine : "Enable it in Settings › Voice, or tap the cat.")
+                        Text(companionEnabled ? scopeLine : "Enable it in Settings › Voice, or tap the mic.")
                             .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink2)
                     }
                 }
@@ -311,6 +333,15 @@ private struct MacBuddyBar: View {
         }
         .padding(.horizontal, 16).padding(.vertical, 6)
         .sheet(isPresented: $voice.showConsent) { VoiceConsentSheet(voice: voice) }
+    }
+
+    private var micGlyph: String {
+        switch voice.phase {
+        case .idle: "mic"
+        case .listening: "mic.fill"
+        case .speaking: "waveform"
+        case .connecting, .recovering, .thinking: "ellipsis"
+        }
     }
 }
 
@@ -443,7 +474,7 @@ private struct DetailCard: View {
             .background(MacTheme.status(session.presentationState).opacity(0.14), in: Capsule())
 
             if session.status == .needsResponse && session.pendingApproval == nil && session.pendingQuestion == nil {
-                Text(WaitHandling.resolve(for: session).message).font(.caption)
+                Text(WaitHandling.resolve(for: session).message).font(MacTheme.font(10))
             }
             if let approval = session.pendingApproval {
                 RequestCard(session: session, approval: approval, model: model)
@@ -597,12 +628,12 @@ private struct VoiceConsentSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Label("Voice companion", systemImage: "waveform").font(.headline)
+            Label("Voice companion", systemImage: "waveform").font(MacTheme.font(13, .semibold))
             Text("Tap the buddy to talk — it knows your sessions and can approve / answer for you. Pick the provider whose key you've filled in below. Switching applies instantly if the buddy is already listening.")
-                .font(.callout).foregroundStyle(.secondary)
+                .font(MacTheme.font(12)).foregroundStyle(MacTheme.ink2)
                 .fixedSize(horizontal: false, vertical: true)
             Text("Enabling opens the mic on the next tap and shares your live sessions with your selected provider, using your own key.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 .fixedSize(horizontal: false, vertical: true)
             HStack {
                 Spacer()
@@ -626,8 +657,8 @@ private struct TranscriptSheet: View {
         VStack(spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Recent output").font(.headline)
-                    Text(session.project).font(.caption).foregroundStyle(.secondary)
+                    Text("Recent output").font(MacTheme.font(13, .semibold))
+                    Text(session.project).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 }
                 Spacer()
                 Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
@@ -664,18 +695,18 @@ private struct TranscriptSheet: View {
                             Text(updatedAt, style: .relative).monospacedDigit()
                         }
                     }
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .font(MacTheme.font(10, .semibold))
+                    .foregroundStyle(MacTheme.ink2)
                     if !output.statusLine.isEmpty {
-                        Text(output.statusLine).font(.caption).foregroundStyle(.secondary)
+                        Text(output.statusLine).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                     }
                     ForEach(Array(output.entries.enumerated()), id: \.offset) { _, entry in
                         VStack(alignment: .leading, spacing: 3) {
                             Text(entry.role == "assistant" ? "Assistant" : "You")
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(entry.role == "assistant" ? Color.blue : Color.secondary)
+                                .font(MacTheme.font(10, .semibold))
+                                .foregroundStyle(entry.role == "assistant" ? Color.blue : MacTheme.ink2)
                             Text(entry.text)
-                                .font(.callout)
+                                .font(MacTheme.font(12))
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
@@ -697,26 +728,26 @@ private struct RecentOutputPane: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text("Recent output").font(.headline)
+                Text("Recent output").font(MacTheme.font(13, .semibold))
                 Spacer()
                 Button("Refresh") { Task { await reload() } }.disabled(loading)
             }
             if let output {
-                Text(output.sourceLabel).font(.caption).foregroundStyle(.secondary)
+                Text(output.sourceLabel).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 if !output.statusLine.isEmpty {
-                    Text(output.statusLine).font(.caption).foregroundStyle(.secondary)
+                    Text(output.statusLine).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 }
                 Text("A limited recent excerpt. Open History to read indexed local conversations.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 if output.entries.isEmpty {
                     Text("No recent output is available from this source.")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(MacTheme.ink2)
                 }
                 ForEach(Array(output.entries.enumerated()), id: \.offset) { _, entry in
                     VStack(alignment: .leading, spacing: 6) {
                         Text(entry.role == "assistant" ? "Assistant" : "You")
-                            .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                        Text(entry.text).font(.body).textSelection(.enabled)
+                            .font(MacTheme.font(10, .semibold)).foregroundStyle(MacTheme.ink2)
+                        Text(entry.text).font(MacTheme.font(13)).textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }

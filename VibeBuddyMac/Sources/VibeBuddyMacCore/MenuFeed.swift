@@ -1,9 +1,11 @@
 import Foundation
 import VibeBuddyKit
 
-/// Mac menu projection: one feed ordered by when something last happened, with
-/// the sessions that need a person pinned above it. The view consumes this and
-/// does no sorting, grouping or filtering of its own.
+/// Mac menu projection: the snapshot cut into the Companion's three attention
+/// groups (`StateGroups`, the Kit's own rule), each ordered by
+/// when something last happened, with everything that is no longer current
+/// (`SessionCurrency`) folded into a fourth group, `older`. The view consumes
+/// this and does no sorting, grouping or filtering of its own.
 ///
 /// Narrowing is the search field's job and nothing else's — there is no state
 /// or agent filter, and no locally cleared round.
@@ -15,12 +17,23 @@ public struct MenuFeed: Sendable {
         case noMatches(String)
     }
 
-    /// `.error` and `.requiresInput`, newest first. Disjoint from `feed`.
-    public let pinned: [AgentSession]
-    /// Everything else that matched, newest first.
-    public let feed: [AgentSession]
-    /// Always the whole snapshot. Typing narrows the list; it must not change
-    /// what the panel says is going on, nor the dot on the pet's head.
+    /// One collapsible group of the panel's list. The kind is the identity, not
+    /// the heading: a group keeps the state the user collapsed it into across
+    /// snapshots, and across a change of language.
+    public struct Section: Identifiable, Equatable, Sendable {
+        public enum Kind: String, Sendable { case needsYou, working, done, older }
+        public let kind: Kind
+        public let sessions: [AgentSession]
+        public var id: String { kind.rawValue }
+    }
+
+    /// The non-empty groups in attention order — `needsYou`, `working`, `done`,
+    /// then `older` — newest first inside each. An empty group is absent, not
+    /// empty, so the panel shortens instead of showing a heading over nothing.
+    public let sections: [Section]
+    /// Always the whole snapshot's current sessions (`SessionCurrency`), the
+    /// same numbers the phone, the Watch and the island say. Typing narrows the
+    /// list; it must not change what the panel says is going on.
     public let summary: TaskPresentationSummary
     /// How many sessions the query matched, and how many there are in total.
     public let matchCount: Int
@@ -29,10 +42,10 @@ public struct MenuFeed: Sendable {
     public let query: String
     public let emptyState: EmptyState?
 
-    public init(_ sessions: [AgentSession], query: String = "") {
+    public init(_ sessions: [AgentSession], query: String = "", now: Date = Date()) {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         self.query = trimmed
-        summary = TaskPresentationSummary(sessions: sessions)
+        summary = TaskPresentationSummary(currentIn: sessions, now: now)
         totalCount = sessions.count
 
         let matched = trimmed.isEmpty ? sessions : sessions.filter { Self.matches($0, trimmed) }
@@ -46,8 +59,12 @@ public struct MenuFeed: Sendable {
                 : $0.element.updatedAt > $1.element.updatedAt
         }.map(\.element)
 
-        pinned = ordered.filter(Self.needsYou)
-        feed = ordered.filter { !Self.needsYou($0) }
+        let groups = StateGroups(SessionCurrency.current(ordered, now: now))
+        sections = [Section(kind: .needsYou, sessions: groups.needsYou),
+                    Section(kind: .working, sessions: groups.working),
+                    Section(kind: .done, sessions: groups.done),
+                    Section(kind: .older, sessions: SessionCurrency.older(ordered, now: now))]
+            .filter { !$0.sessions.isEmpty }
 
         if sessions.isEmpty {
             emptyState = .noSessions
@@ -59,12 +76,9 @@ public struct MenuFeed: Sendable {
     }
 
     /// The row Return jumps to: the most urgent one when something is waiting,
-    /// otherwise the newest.
-    public var topResult: AgentSession? { pinned.first ?? feed.first }
-
-    private static func needsYou(_ session: AgentSession) -> Bool {
-        session.presentationState == .error || session.presentationState == .requiresInput
-    }
+    /// otherwise the newest of whatever group leads the list — which is `older`
+    /// only when nothing current matched.
+    public var topResult: AgentSession? { sections.first?.sessions.first }
 
     /// Matches what the row actually shows — its title and the agent's own
     /// summary — plus the project behind a named session, so searching by
@@ -74,8 +88,8 @@ public struct MenuFeed: Sendable {
             .contains { $0.range(of: query, options: .caseInsensitive) != nil }
     }
 
-    /// The feed's time column: `now`, `44s`, `12m`, `3h`, `2d`. Deliberately
-    /// terse — the column is 52pt and the row's own words are the point.
+    /// The list's time column: `now`, `44s`, `12m`, `3h`, `2d`. Deliberately
+    /// terse — it rides at the end of a row whose own words are the point.
     public static func age(of date: Date, now: Date = Date()) -> String {
         let seconds = max(0, Int(now.timeIntervalSince(date)))
         switch seconds {

@@ -32,10 +32,32 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var recentDirectories: [String] = []
     /// Agents a new task can be started for from this Mac.
     @Published private(set) var dispatchAgents: [AgentKind] = []
+    /// Local Claude Code / Codex token spend, beside quota. Nil until the first scan.
+    @Published private(set) var tokenConsumption: TokenConsumptionSnapshot?
     private let claudeLauncher: ClaudeBackgroundLauncher = {
         guard let run = E2ERunConfiguration.current else { return ClaudeBackgroundLauncher() }
         return ClaudeBackgroundLauncher(executable: nil, jobsDirectory: run.file("agents").appendingPathComponent("claude/jobs", isDirectory: true))
     }()
+    /// Cursor's CLI launcher. During isolated acceptance it is given no
+    /// executable, so it reports unsupported and starts nothing.
+    private let cursorLauncher: CursorLauncher = {
+        guard E2ERunConfiguration.current == nil else { return CursorLauncher(executable: nil) }
+        return CursorLauncher(terminalProgram: { await MenuBarModel.shared?.store.preferredTerminalProgram() })
+    }()
+    /// Cursor's agent-transcript tailer: the source that covers a Cursor
+    /// conversation when the hooks are not installed, or when the Cursor CLI
+    /// does not send the event in question.
+    private let cursorTranscriptMonitor: CursorTranscriptMonitor = {
+        guard let run = E2ERunConfiguration.current else { return CursorTranscriptMonitor() }
+        return CursorTranscriptMonitor(root: run.file("agents").appendingPathComponent("cursor/projects", isDirectory: true))
+    }()
+    /// Cursor's Cloud Agents API poller. A cloud agent runs on Cursor's
+    /// machines, so it reaches no hook and writes no transcript; this is the
+    /// only live source it has. It does nothing at all until an API key is
+    /// stored, and it is skipped entirely during isolated acceptance so a run
+    /// never talks to Cursor's service.
+    private let cursorCloudMonitor: CursorCloudAgentMonitor? =
+        E2ERunConfiguration.current == nil ? CursorCloudAgentMonitor() : nil
     /// The Codex app-server daemon connection (ADR-0011): on by default, and
     /// the rollout tailer + hooks keep covering Codex whenever it is off or
     /// the daemon is not running.
@@ -99,6 +121,15 @@ final class MenuBarModel: ObservableObject {
     private let approvalContext = ApprovalContextStore()
     private let questionRegistry = QuestionRegistry()
     private let codexAppServerMonitor: CodexAppServerMonitor
+    /// Follow-ups queued for Cursor conversations; the hooks' `stop` collects
+    /// them for an IDE chat, the ACP host for one it carries. One queue so a
+    /// supplement can never be delivered twice.
+    private let cursorFollowups = CursorFollowupQueue()
+    /// Hosts `cursor-agent acp` conversations (ticket cursor-integration/11):
+    /// the phone's dispatch, stop, continue, permission and question for a
+    /// Cursor task all travel this pipe. Given no executable during isolated
+    /// acceptance, so it reports unsupported and spawns nothing.
+    private let cursorACP: CursorACPMonitor
     private let grokBotMonitor: GrokBotMonitor
     /// Live account usage from Claude's status line and the Codex daemon,
     /// consumed by the usage coordinator ahead of its spawning collectors.
@@ -161,6 +192,7 @@ final class MenuBarModel: ObservableObject {
         actionHandler: { [weak self] action in await self?.performVoiceAction(action) ?? "" },
         onStart: { [weak self] in self?.readAloud.stop() })
     private var pollTask: Task<Void, Never>?
+    private var tokenScanTask: Task<Void, Never>?
     private var glance: GlanceWindow?
     @Published private(set) var pairingInProgress = false
     @Published private(set) var changingPairing = false
@@ -231,6 +263,11 @@ final class MenuBarModel: ObservableObject {
         openDashboardHotkey = Hotkey.loadOpenDashboard()
         toggleGlanceHotkey = Hotkey.loadToggleGlance()
         usage = AccountUsageCoordinator(store: store, notifier: notifier, liveFeed: usageFeed)
+        cursorACP = CursorACPMonitor(
+            store: store, approvals: approvalRegistry, approvalContext: approvalContext,
+            questions: questionRegistry, allowStore: allowStore, sessionAllow: sessionAllow,
+            followups: cursorFollowups,
+            executable: E2ERunConfiguration.current == nil ? CursorCLI.resolveExecutable() : nil)
         let apnsConfig = APNsConfig.load()
         let deliveryURL = (E2ERunConfiguration.current == nil ? ProcessInfo.processInfo.environment["VIBEBUDDY_DELIVERY_LOG_PATH"] : nil).map {
             URL(fileURLWithPath: $0)
@@ -283,12 +320,15 @@ final class MenuBarModel: ObservableObject {
         if isDemo {
             sessions = MacDemoData.sessions()
             observationDiagnostics = MacDemoData.observationDiagnostics()
+            tokenConsumption = TokenConsumptionSnapshot.demo()
+            usage.seedDemoStates(MacDemoData.usageStates())
         } else if runtimeEnabled {
             notifier.requestAuthorization()
             startServer()
             preparePairing()
             startPolling()
             usage.start()
+            startTokenConsumptionScan()
         }
         // Create the glance on the next main-runloop tick — NOT synchronously here.
         // Hosting/displaying a SwiftUI view that observes `self` while `init` is
@@ -327,7 +367,9 @@ final class MenuBarModel: ObservableObject {
         NotificationQuietMode.isEffective(now: now)
     }
 
-    var presentationSummary: TaskPresentationSummary { TaskPresentationSummary(sessions: sessions) }
+    /// The counts every Mac surface states (menu-bar badge, Glance, panel):
+    /// current sessions only (`SessionCurrency`), like the phone and the Watch.
+    var presentationSummary: TaskPresentationSummary { TaskPresentationSummary(currentIn: sessions, now: Date()) }
     /// The buddy's mood, shared with the menu-bar icon and the glance so the Mac
     /// reads the same as the phone.
     var buddyState: BuddyState { BuddyState.from(SessionGroups(sessions), now: Date()) }
@@ -365,6 +407,10 @@ final class MenuBarModel: ObservableObject {
                                          guard E2ERunConfiguration.current == nil else { return .noTerminal }
                                          return await CodexDesktopJumper.jump(threadID: id)
                                      },
+                                     onJumpToCursor: { project in
+                                         guard E2ERunConfiguration.current == nil else { return .noTerminal }
+                                         return await CursorJumper.jump(project: project)
+                                     },
                                      onDevicePaired: { [weak self] _ in
                                          Task { @MainActor in await self?.refreshPairedPhone(notify: true) }
                                      },
@@ -376,10 +422,15 @@ final class MenuBarModel: ObservableObject {
                                          return await TerminalLauncher.attach(claudeJobID: id, preferring: term)
                                      },
                                      claudeLauncher: claudeLauncher,
+                                     cursorLauncher: cursorLauncher,
+                                     cursorACP: cursorACP,
+                                     cursorTranscriptMonitor: cursorTranscriptMonitor,
+                                     cursorCloudMonitor: cursorCloudMonitor,
                                      onCompletionReminder: { [weak self] session in
                                          guard let self else { return false }
                                          return await self.deliverCompletionReminder(session)
-                                     })
+                                     },
+                                     cursorFollowups: cursorFollowups)
         Task.detached(priority: .utility) {
             do {
                 try await server.runService()
@@ -406,6 +457,40 @@ final class MenuBarModel: ObservableObject {
         }
     }
 
+    /// Independent of the 2s session poll: reading transcripts is slow and must
+    /// not stall approvals. Isolated from the reducer the same way quota is.
+    private func startTokenConsumptionScan() {
+        tokenScanTask?.cancel()
+        let claudeHomes: [URL]
+        let codexHome: URL
+        if let run = E2ERunConfiguration.current {
+            claudeHomes = [run.file("agents").appendingPathComponent("claude", isDirectory: true)]
+            codexHome = run.file("agents").appendingPathComponent("codex", isDirectory: true)
+        } else {
+            claudeHomes = TokenConsumptionScan.defaultClaudeHomes()
+            codexHome = TokenConsumptionScan.defaultCodexHome()
+        }
+        tokenScanTask = Task { [weak self, store] in
+            // The memo lives across refreshes: only transcripts whose size or
+            // mtime moved are read again, so the steady-state scan costs a few
+            // files instead of every file in the window.
+            var cache = TokenConsumptionCache()
+            while !Task.isCancelled {
+                let scanned = await Task.detached(priority: .utility) { [cache] in
+                    var carried = cache
+                    let snapshot = TokenConsumptionScan.snapshot(
+                        claudeHomes: claudeHomes, codexHome: codexHome,
+                        now: Date(), cache: &carried)
+                    return (snapshot, carried)
+                }.value
+                cache = scanned.1
+                await store.setTokenConsumption(scanned.0)
+                self?.tokenConsumption = scanned.0
+                try? await Task.sleep(for: .seconds(TokenConsumptionScan.refreshInterval))
+            }
+        }
+    }
+
     private func startPolling() {
         pollTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -426,7 +511,12 @@ final class MenuBarModel: ObservableObject {
                 var agents: [AgentKind] = []
                 if await self.claudeLauncher.isSupported() { agents.append(.claudeCode) }
                 if self.codexAppServerDiagnostics.connected { agents.append(.codex) }
+                var cursorReady = await self.cursorACP.isSupported()
+                await self.store.setCursorModels(cursorReady ? await self.cursorACP.models() : [])
+                if !cursorReady { cursorReady = await self.cursorLauncher.isSupported() }
+                if cursorReady { agents.append(.cursor) }
                 self.dispatchAgents = agents
+                self.tokenConsumption = snapshot.tokenConsumption
                 self.lifecycleTimeline = await self.store.recentLifecycle()
                 self.missedThisWeek = await self.store.missedCounts()
                 self.buddySessionIDs = BuddyScope.pruned(self.buddySessionIDs, toLive: snapshot.sessions)
@@ -582,8 +672,11 @@ final class MenuBarModel: ObservableObject {
         guard let pusher else { return }
         let tokens = await activityTokens.all()
         guard !tokens.isEmpty else { return }
-        let summary = TaskPresentationSummary(sessions: sessions)
-        let leading = sessions.leadingPresentationSession
+        // The island shows current sessions (`SessionCurrency`); the approval
+        // target below still looks at all of them — a wait is always current.
+        let current = SessionCurrency.current(sessions, now: Date())
+        let summary = TaskPresentationSummary(sessions: current)
+        let leading = current.leadingPresentationSession
         let topProject = leading?.project
         let topSession = leading?.id
         // The first pending approval, not necessarily the leading session (an
@@ -894,6 +987,10 @@ final class MenuBarModel: ObservableObject {
         }
     }
 
+    /// End every `cursor-agent acp` process this app is hosting. Called on quit:
+    /// the CLI has no detached mode over ACP, so a turn cannot outlive the host.
+    func shutdownCursorHosts() async { await cursorACP.shutdown() }
+
     /// Start a new task from the Mac, the same way `/dispatch` does for the
     /// phone: Codex through the app-server daemon; other agents once they have
     /// a launcher. The directory must be one a session has run in.
@@ -904,6 +1001,11 @@ final class MenuBarModel: ObservableObject {
         switch request.agent {
         case .codex: return await codexAppServerMonitor.dispatch(request)
         case .claudeCode: return await claudeLauncher.dispatch(request)
+        case .cursor:
+            // Hosted over ACP when the CLI is signed in, so the task can be
+            // stopped and answered from the phone; a terminal window otherwise.
+            if await cursorACP.isSupported() { return await cursorACP.dispatch(request) }
+            return await cursorLauncher.dispatch(request)
         default: return .unsupported("vibebuddy cannot start \(request.agent.displayName) sessions yet.")
         }
     }
@@ -1197,6 +1299,7 @@ final class MenuBarModel: ObservableObject {
 
     deinit {
         pollTask?.cancel()
+        tokenScanTask?.cancel()
         glanceCardTicker?.cancel()
     }
 }

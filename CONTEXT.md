@@ -8,6 +8,17 @@ code, and tests — don't drift to synonyms.
 - **Session** (`AgentSession`) — one coding-agent run on the Mac (Claude Code or
   Codex), tracked over its lifetime. Carries project, branch, model, tokens,
   context-window usage, and a **state**.
+- **Current session** — a session a summary line counts and a list shows
+  without being asked (`SessionCurrency` in the Kit, ADR-0017): every
+  `needsResponse`, `working` or `failed` session, a followed session whose
+  completion is unread, and any other session that moved within the last 24
+  hours. The rest is **older**: the Mac panel folds it into an `Older` group,
+  the phone offers it back with "Show N older", the Watch, the Live Activity
+  and the widget leave it out. The mood line, rest line and counts on every
+  surface are computed over current sessions only, so no device says "All
+  quiet" while another still counts or reminds. The rule is presentation only:
+  notifications, deep links, acknowledgements and the buddy's scope resolve
+  against the complete set (`DashboardStore.allSessions`).
 - **The three states** — every session is in exactly one, by priority
   **`needsResponse` > `working` > `done`**:
   - **needsResponse** — blocked on the user (a permission prompt or a question).
@@ -32,23 +43,81 @@ code, and tests — don't drift to synonyms.
   lifecycle/tool hooks arrived but the tested escalation produced no approval
   card or rollout waiting event. Hook presence alone does not establish
   approval coverage.
+- **Cursor conversation / composer** — one Cursor chat, in the IDE's Agent panel
+  or in `cursor-agent`. Its **composer id** is its identity everywhere:
+  Cursor's hooks send it as `conversation_id`, its transcript directory is named
+  after it, and its row in Cursor's `composerHeaders` table is keyed by it. That
+  one id is what lets the three Cursor sources describe one session — and, for a
+  cloud agent, the Cloud Agents API too.
+- **Cursor agent transcript** — `~/.cursor/projects/<flattened project path>/
+  agent-transcripts/<composer id>/<composer id>.jsonl`, also the file Cursor's
+  hooks name in `transcript_path`. Three line shapes and no tool results:
+  a `user` line, an `assistant` line (prose plus `tool_use` blocks), and
+  `turn_ended` with `success` / `error` / `aborted`. `turn_ended` is the turn
+  boundary, so this is a real progress source and not a guess. vibebuddy
+  **tails** it: a transcript first seen at launch starts at end-of-file and
+  replays nothing.
+- **Cursor composer store** — Cursor's own conversation index in
+  `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`
+  (`composerHeaders` on 3.x, `cursorDiskKV`'s `composerData:<id>` on every
+  version), read from a private read-only snapshot. The only source for a chat's
+  name, its workspace and branch, its model, its real context-token figures and
+  Cursor's own `status`; conversations with no live evidence appear as
+  `historyOnly` rows. Never drives the three states.
+- **Cursor cloud agent** — a Cursor conversation that runs on Cursor's machines
+  against a **GitHub repository**, not on this Mac against a folder. Cursor gives
+  it a `bc-`-prefixed id and uses that same id as the agent id in its **Cloud
+  Agents API** (`api.cursor.com/v1`). No hook fires for it, no transcript is
+  written for it, and it does not appear in the composer store either, so that
+  API is its *only* source — of its state and of its existence. `ACTIVE` is
+  working, `IDLE` is done, `ARCHIVED` ends it; the repository stands in for the
+  project, the agent's Cursor page is the jump, the runs list is the
+  conversation (v1 has no `/conversation`), and a live run can be cancelled. It
+  replays nothing that was already idle at launch. Needs its own
+  `cursorCloudAPIKey` Keychain slot — separate from the session Cookie and from
+  the CLI's own login. The shape is ADR-0011's Codex Desktop thread, not
+  ADR-0016's local Cursor chat.
+- **Cursor follow-up** — text the phone queues for a *running local* Cursor turn.
+  Cursor cannot be interrupted or steered mid-turn, so the supplement waits and
+  Cursor's own `stop` hook collects it as `followup_message`, which Cursor
+  submits as the next message. One per conversation, replaced by a newer one,
+  expired after 30 minutes. Continuing a *finished* Cursor chat is the other
+  direction: `cursor-agent --resume <composer id>` in a terminal. A **cloud**
+  agent is the mirror image: a running one refuses a follow-up (Cursor allows one
+  run at a time, and answers `409 agent_busy`), and a finished one is continued
+  by starting its next run over the API.
+- **Cursor ACP host** — `CursorACPMonitor`: one `cursor-agent acp` process per
+  conversation vibebuddy started, spoken to over stdio JSON-RPC (Agent Client
+  Protocol). The live source for that conversation (`ObservationSource.acp`)
+  and its write path: `session/prompt` continues, `session/cancel` stops,
+  `session/request_permission` and `cursor/ask_question` / `cursor/create_plan`
+  become cards. Dies with the daemon. The IDE's hooks and transcript for the
+  same id only corroborate while it runs (ADR-0016, amendment 1).
+- **Control channel** (`ControlChannel`) — the one write path the daemon would
+  use for a session right now: `hook` (Cursor IDE, follow-ups only), `acp`
+  (hosted CLI), `appserver` (Codex), `cloud` (Cursor cloud agent), `none`
+  (seen, unreachable). Stamped on every snapshot; the phone's composer and the
+  Watch's buttons decide what to offer from it first, from the agent second.
+  Distinct from an observation source, which says how a session is *seen*.
 - **Daemon** — the Mac menu-bar app's embedded HTTP + WebSocket server
   (`:9876`) that ingests hooks, runs the reducer, and broadcasts snapshots.
 - **Glance** — the Mac status surface at the top of the menu-bar screen, drawn
   with the Dynamic Island's grammar (ADR-0011). On a notch Mac it never draws
   into the camera housing: **idle** (nothing), **compact** (a strip below the camera, no wider than
-  the housing: pet left, the one primary count right), **card** (a cue unfolded below the
-  housing), **expanded** (hover/click: counts + approval or session list).
+  the housing: the status dot left, the one primary count right), **card** (a cue unfolded below the
+  housing), **expanded** (hover/click: mic + mood line, then approval or session list).
   Without a notch the same content is a **pill** hanging under the menu bar.
 - **Glance card** — the glance's event layer: one `SoundPolicy` cue at a time
   shown under the housing with its actions (Approve / Deny / Jump), timed by
   `GlanceCardQueue`. While the glance is on screen the card *replaces* the
   macOS banner for session cues; hidden glance → banner as before.
 - **Menu-bar entry** — a fixed cat icon that opens a panel centred under it: a
-  command row you type into to narrow the list, one summary line for the whole
-  snapshot, the sessions that need a person pinned above a time-ordered feed of
-  the rest, and a footer row of controls (Dashboard, the Glance toggle,
-  Settings, phone state, updates and quit). "Show task status in menu bar"
+  command row you type into to narrow the list, with the voice companion's mic
+  at its head; one summary line for the whole snapshot, led by the status dot
+  for the most urgent state present; the snapshot in three collapsible groups —
+  **Needs you / Working / Done**, newest first inside each, the phone's own list
+  at panel scale (ADR-0015); and a footer row of controls (Dashboard, the Glance
+  toggle, Settings, phone state, updates and quit). "Show task status in menu bar"
   optionally adds a state dot and the primary state count to the icon; it is off
   by default. The Glance owns ambient status and actionable alerts. Both
   surfaces are enabled by default and can be hidden independently.
@@ -62,9 +131,13 @@ code, and tests — don't drift to synonyms.
 ## Buddy / pet
 
 - **Buddy / Pet** — the companion character (the app icon's white cat, drawn in
-  code by the Kit's `BuddyCatFace` on iOS, watchOS and macOS per ADR-0007's
-  second amendment) that reflects overall status and hosts the voice companion.
-  Zero third-party art.
+  code by the Kit's `BuddyCatFace` per ADR-0007's second amendment). Since
+  ADR-0017 it is a brand mark and the voice companion's avatar, not a status
+  surface: it draws as the app icon, the menu-bar mark, and — only while a
+  voice conversation is live — beside the mic in the phone's voice strip, the
+  Mac panel, dashboard and Glance. Every status surface shows a **status
+  dot** (or `moon.zzz` when empty) where the cat used to sit. Zero
+  third-party art.
 - **BuddyState** — the mood enum driving the pet's face and the sound pack:
   `approval`, `question`, `longWait`, `working`, `stuck`, `done`, `sleeping`.
 
@@ -75,8 +148,11 @@ code, and tests — don't drift to synonyms.
   selects tools. Interrupting speech does not cancel a coding task.
 - **Voice scope** — the sessions the user included in a conversation. Reading
   status and resolving an action target stay inside that scope.
-- **Voice companion** — tap the pet to hold a **realtime speech-to-speech**
-  conversation; it knows the live sessions and can **approve / answer** for you.
+- **Voice companion** — a **realtime speech-to-speech** conversation that knows
+  the live sessions and can **approve / answer** for you. Started by the same
+  **mic circle** on every surface (ADR-0017 §3): the iPhone composer (always
+  visible, explained once), the Mac panel's command row, the Mac dashboard's
+  top bar and the expanded Glance. Its glyph follows the voice phase.
 - **VoiceProvider** — a vendor the companion talks to: `qwen`, `openai`,
   `gemini`, `doubao` or `deepseek`. Each has its own key. The realtime backends
   also have a model, voice and input sample rate; `supportsVoice` says which
@@ -120,7 +196,10 @@ code, and tests — don't drift to synonyms.
   `userStopped`: Codex words a requested stop and a crash the same
   ("interrupted"), so without that mark the failure heuristic would ring the
   error cue for something the user asked for. An interruption this Mac did not
-  send is unmarked and still reads as a failure.
+  send is unmarked and still reads as a failure. Since 2026-09-13 a Cursor
+  conversation on the `acp` channel is stopped the same way (`session/cancel`,
+  marked `userStopped`) and a cloud agent's run is cancelled through the API;
+  a Cursor chat in the IDE still cannot be stopped from here.
 - **Session action / SessionActionIntent** — what a client asks of an existing
   session: **answer** (bind to the current question), **steer** (supplement the
   running turn), **continue** (open the next turn), **stop** (interrupt the
@@ -144,10 +223,18 @@ code, and tests — don't drift to synonyms.
   <prompt>` in that directory; the job's `state.json` gives the full session
   id the hooks will report). Codex goes through the app-server daemon
   (`thread/start` → `thread/name/set` → `turn/start`, the user's own
-  model/approval/sandbox defaults). Other agents answer 501. The snapshot's
-  `dispatchAgents` says which agents can be started right now (Claude when
-  the CLI lists `--bg`, Codex when the daemon is connected); the "New task"
-  entry offers only those and is disabled when there are none.
+  model/approval/sandbox defaults). Cursor is hosted over ACP by
+  `CursorACPMonitor` when the CLI is signed in, else opened in a terminal; a
+  Cursor request may add `model`, `mode` (`plan` / `ask`; agent is the CLI's
+  default and travels as nil) and `worktree` (a fresh Git worktree the CLI
+  creates under `~/.cursor/worktrees/<repo>/<name>`), which become the CLI's
+  global options `--model`, `--mode` and `-w` in front of `acp` or `--`.
+  Model and mode must be plain tokens or the dispatch is `rejected`. Other
+  agents answer 501. The snapshot's `dispatchAgents` says which agents can
+  be started right now (Claude when the CLI lists `--bg`, Codex when the
+  daemon is connected); its `cursorModels` is the signed-in CLI's
+  `--list-models`, probed once per sign-in verdict. The "New task" entry
+  offers only those agents and is disabled when there are none.
 - **Question relay** — the agent's question answered from the phone or the Mac
   card through the agent's own contract: Claude's `AskUserQuestion` on a
   blocking PreToolUse hook (answered with `updatedInput.answers`, keyed by
@@ -155,7 +242,11 @@ code, and tests — don't drift to synonyms.
   connection (answered per question id). `QuestionRegistry` holds the wait;
   `AnswerDispatch` sends an answer there first and types into a tmux pane only
   when nothing is waiting. A `PendingQuestion` now carries every question
-  (`items`), multi-select and "Other".
+  (`items`), multi-select and "Other". The Watch answers a one-part question
+  with the text it showed; a prompt whose every question offers choices it
+  **walks** — one question per screen, the whole set sent once as
+  `WatchSessionAction.answerAll` and checked by `WatchQuestionSet` on both
+  sides — and a prompt with any free-text question stays on the iPhone.
 - **Status line sample** — one status line JSON from Claude Code, copied to the
   daemon by `hooks/vibebuddy-statusline.sh` on every event (ObservationSource
   `statusline`). It fills a known session's name, effort, cost, context, PR and
@@ -300,9 +391,27 @@ code, and tests — don't drift to synonyms.
   Identified phones can be saved before APNs registration; push counts include
   only records with a token. Expiring a push token retains the phone identity,
   so push availability never decides whether that phone is paired.
-- **AccountUsage** — provider quota (Codex app-server RPC, Claude `/usage` CLI):
-  window, remaining, reset, freshness, `stale` / unavailable reason. Collected by
-  isolated, individually switchable adapters that can never move session state.
+- **AccountUsage** — provider quota (Codex app-server RPC, Claude `/usage` CLI,
+  Cursor/Grok local sources): window, remaining, reset, freshness, `stale` /
+  unavailable reason, plus extra named windows (Claude model-week, Codex Spark),
+  credits remaining, and extra-usage spend when the local source reports them.
+  Collected by isolated, individually switchable adapters that can never move
+  session state. A **scoped window** (Claude model-week, Codex Spark) is a
+  subdivision of the same allowance, not a pool of its own: it rides
+  `scopedWindows`, shows only in the Mac Account usage list and the iPhone
+  Usage sheet, and is deliberately absent from `otherWindows` — the slot the
+  Watch strip and the widgets fall back to — and from threshold alerts, which
+  stay on the weekly and short windows (one cue per event, ADR-0012).
+  Distinct from **Token consumption** (local spend ledger) and from billed invoices.
+- **Token consumption** — local, read-only aggregation of tokens spent in Claude
+  Code transcripts and Codex CLI/Desktop rollouts (input, output, cache-read,
+  reasoning), grouped by agent, model and project over today and the last seven
+  days. Distinct from **AccountUsage** (quota remaining) and from a Session's
+  current-turn `tokens` / cumulative `spentTokens`. Composed into the snapshot
+  beside quota by both the menu-bar app and headless `vibebuddyd`; never feeds
+  the session reducer and never leaves the machine. Transcripts are read on a
+  utility task behind a size+mtime memo, so a refresh costs the files that
+  actually changed.
 - **Grok Bot** — the cloud bot product opened by `com.anysphere.sand`, distinct
   from Grok Build CLI (`grok`). Its account quota has the independent `grokBot`
   provider identity. The optional Mac observer uses the official client's
@@ -327,9 +436,18 @@ code, and tests — don't drift to synonyms.
 - **Conversation summary** — a user-requested reading aid for one historical
   conversation, separate from a Completion notice. It summarizes bounded readable
   history through the configured BYO text provider, excludes injected Meta and
-  Thinking, and records coverage and source revision. A changed source marks the
-  persisted result stale. Generating or reading it establishes no live completion
+  Thinking, and records coverage, source revision and the **summary style** that
+  wrote it. A changed source marks the persisted result stale; a changed style
+  preference does not. Generating or reading it establishes no live completion
   identity, notification or task control capability.
+- **Summary style** — a per-Mac preference (`historySummaryStyle`) choosing the
+  conversation summary's system prompt: *action briefing* (default: next action
+  first, state tagged by stage, numbered next steps with reasons, the model's
+  read on the session), *session review* (verdict, what went well, problems and
+  risks, advice) or *archive record* (goal, decisions, results, open work). Every
+  style shares the same evidence rules: transcript is untrusted data, claims stay
+  graded, coverage is stated. Summaries saved before styles existed decode as
+  archive record. Completion notices do not use styles.
 - **Completion notice** — the Mac's durable wording decision for one
   source/session/completion: pending, plain, summary, or cancelled. Only the
   final assistant result bound to that completion may be summarized. Pending
@@ -355,4 +473,6 @@ Mac presence suppresses ordinary cues only while the verdict is current; leaving
   History rows bypass SessionReducer, carry `historyOnly: true`, and use the
   existing quiet `.done` wire value with no completion identity or unread flag.
   They do not establish live status or generate completion notices; clients
-  label them History. RecentOutput carries a bounded dialogue slice.
+  label them History. RecentOutput carries a bounded dialogue slice. As `done`
+  rows dated by their history time they are current for a day and then older,
+  like any other finished session.
