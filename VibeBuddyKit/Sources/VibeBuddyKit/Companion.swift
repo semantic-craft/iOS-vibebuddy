@@ -162,10 +162,10 @@ public enum CompanionCopy {
     /// `3 things need you` / `1 thing needs you` / `All quiet — 2 working` / `All quiet`.
     public static func moodLine(_ s: TaskPresentationSummary) -> String {
         let n = needsYou(s)
-        if n == 1 { return String(localized: "1 thing needs you") }
-        if n > 1 { return String(localized: "\(n) things need you") }
-        if s.thinking > 0 { return String(localized: "All quiet — \(s.thinking) working") }
-        return String(localized: "All quiet")
+        if n == 1 { return String(localized: "1 thing needs you", bundle: .module) }
+        if n > 1 { return String(localized: "\(n) things need you", bundle: .module) }
+        if s.thinking > 0 { return String(localized: "All quiet — \(s.thinking) working", bundle: .module) }
+        return String(localized: "All quiet", bundle: .module)
     }
 
     /// `3 working · 1 done · 1 idle`, zeros omitted; empty when nothing else runs.
@@ -176,21 +176,21 @@ public enum CompanionCopy {
     /// in that case the rest line keeps the working count.
     public static func restLine(_ s: TaskPresentationSummary, moodLineIsVisible: Bool = true) -> String {
         let moodCarriesWorking = moodLineIsVisible && needsYou(s) == 0 && s.thinking > 0
-        return [s.thinking > 0 && !moodCarriesWorking ? String(localized: "\(s.thinking) working") : nil,
-                s.completeUnread > 0 ? String(localized: "\(s.completeUnread) done") : nil,
-                s.idle > 0 ? String(localized: "\(s.idle) idle") : nil]
+        return [s.thinking > 0 && !moodCarriesWorking ? String(localized: "\(s.thinking) working", bundle: .module) : nil,
+                s.completeUnread > 0 ? String(localized: "\(s.completeUnread) done", bundle: .module) : nil,
+                s.idle > 0 ? String(localized: "\(s.idle) idle", bundle: .module) : nil]
             .compactMap { $0 }.joined(separator: " · ")
     }
 
     /// The verb in `<project> wants to <verb>`, from the tool name.
     public static func requestVerb(tool: String) -> String {
         switch tool.lowercased() {
-        case "edit", "multiedit", "notebookedit": return String(localized: "edit")
-        case "write": return String(localized: "write")
-        case "bash", "shell", "exec": return String(localized: "run")
-        case "read": return String(localized: "read")
-        case "webfetch", "web_fetch", "websearch", "web_search": return String(localized: "fetch")
-        default: return String(localized: "use \(tool)")
+        case "edit", "multiedit", "notebookedit": return String(localized: "edit", bundle: .module)
+        case "write": return String(localized: "write", bundle: .module)
+        case "bash", "shell", "exec": return String(localized: "run", bundle: .module)
+        case "read": return String(localized: "read", bundle: .module)
+        case "webfetch", "web_fetch", "websearch", "web_search": return String(localized: "fetch", bundle: .module)
+        default: return String(localized: "use \(tool)", bundle: .module)
         }
     }
     public static func requestVerb(_ approval: PendingApproval) -> String { requestVerb(tool: approval.tool) }
@@ -219,9 +219,9 @@ public struct StateGroups: Equatable, Sendable {
 
     /// Non-empty buckets in attention order.
     public var buckets: [Bucket] {
-        [Bucket(title: String(localized: "Needs you"), sessions: needsYou, warm: true),
-         Bucket(title: String(localized: "Working"), sessions: working, warm: false),
-         Bucket(title: String(localized: "Done"), sessions: done, warm: false)]
+        [Bucket(title: String(localized: "Needs you", bundle: .module), sessions: needsYou, warm: true),
+         Bucket(title: String(localized: "Working", bundle: .module), sessions: working, warm: false),
+         Bucket(title: String(localized: "Done", bundle: .module), sessions: done, warm: false)]
             .filter { !$0.sessions.isEmpty }
     }
 }

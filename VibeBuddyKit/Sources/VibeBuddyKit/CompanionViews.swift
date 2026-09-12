@@ -150,7 +150,7 @@ public struct BucketTitle: View {
         HStack(spacing: 8) {
             Text(title).font(CompanionType.font(14, .black))
                 .foregroundStyle(onDark ? .white : CompanionPalette.ink)
-            Text("\(count)").font(CompanionType.font(12, .heavy)).monospacedDigit()
+            Text(verbatim: "\(count)").font(CompanionType.font(12, .heavy)).monospacedDigit()
                 .foregroundStyle(onDark ? .white.opacity(0.6) : CompanionPalette.ink2)
             Spacer(minLength: 0)
         }
@@ -179,12 +179,12 @@ public struct SplitApproveButton: View {
 
     public var body: some View {
         HStack(spacing: 1) {
-            Button(String(localized: "Approve"), action: approve)
+            Button(String(localized: "Approve", bundle: .module), action: approve)
                 .buttonStyle(SplitHalfStyle(color: green))
             if allowsPersistentDecision {
             Menu {
-                Button(String(localized: "Always allow this"), action: always)
-                Button(String(localized: "Allow all this session"), action: session)
+                Button(String(localized: "Always allow this", bundle: .module), action: always)
+                Button(String(localized: "Allow all this session", bundle: .module), action: session)
             } label: {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 10, weight: .black))
@@ -200,7 +200,7 @@ public struct SplitApproveButton: View {
             .background(green, in: UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 0,
                                                           bottomTrailingRadius: 17, topTrailingRadius: 17,
                                                           style: .continuous))
-            .accessibilityLabel(String(localized: "More approval options"))
+            .accessibilityLabel(String(localized: "More approval options", bundle: .module))
             }
         }
     }
@@ -286,7 +286,7 @@ public struct ApprovalBody: View {
                     diffLine("+", l, CompanionPalette.status(.completeUnread))
                 }
                 if oldLines.truncated || newLines.truncated {
-                    Text("… (truncated)").font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink3).padding(.leading, 6)
+                    Text("… (truncated)", bundle: .module).font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink3).padding(.leading, 6)
                 }
             }
         }

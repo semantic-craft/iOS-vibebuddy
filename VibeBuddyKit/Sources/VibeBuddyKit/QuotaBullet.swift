@@ -64,8 +64,8 @@ public struct QuotaBullet: View {
     }
 
     private var label: String {
-        guard let pace = pacePercent else { return String(localized: "\(used)% used") }
-        return String(localized: "\(used)% used, \(pace)% of the window elapsed")
+        guard let pace = pacePercent else { return String(localized: "\(used)% used", bundle: .module) }
+        return String(localized: "\(used)% used, \(pace)% of the window elapsed", bundle: .module)
     }
 }
 

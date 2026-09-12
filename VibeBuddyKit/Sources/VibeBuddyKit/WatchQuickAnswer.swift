@@ -38,11 +38,11 @@ public enum WatchAnswerPhrase: String, Codable, Equatable, Sendable, CaseIterabl
     /// read, so a Chinese Watch sends Chinese and an English one sends English.
     public var text: String {
         switch self {
-        case .goAhead: return String(localized: "Yes, go ahead.")
-        case .decline: return String(localized: "No, don't do that.")
-        case .firstOption: return String(localized: "Use the first option.")
-        case .testFirst: return String(localized: "Run the tests first.")
-        case .later: return String(localized: "Hold off for now — I'll look at this later.")
+        case .goAhead: return String(localized: "Yes, go ahead.", bundle: .module)
+        case .decline: return String(localized: "No, don't do that.", bundle: .module)
+        case .firstOption: return String(localized: "Use the first option.", bundle: .module)
+        case .testFirst: return String(localized: "Run the tests first.", bundle: .module)
+        case .later: return String(localized: "Hold off for now — I'll look at this later.", bundle: .module)
         }
     }
 }

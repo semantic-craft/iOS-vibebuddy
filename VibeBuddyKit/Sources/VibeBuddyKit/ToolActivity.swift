@@ -12,14 +12,21 @@ public enum ToolActivity {
     /// session. Unlike a prose transcript summary, this always tells the user
     /// whether the agent is active, blocked, or ready.
     public static func label(for session: AgentSession) -> String {
-        if session.historyOnly == true { return "History · read only" }
+        if session.historyOnly == true { return String(localized: "History · read only", bundle: .module) }
         switch session.status {
         case .needsResponse:
-            return session.waitKind == .permission ? "Needs approval" : "Needs input"
+            return session.waitKind == .permission
+                ? String(localized: "Needs approval", bundle: .module)
+                : String(localized: "Needs input", bundle: .module)
         case .working:
-            return phrase(for: session.activeTool).map { $0 + "…" } ?? "Working"
+            // `phrase` stays the English base; the table keys are `Editing…` etc.
+            return phrase(for: session.activeTool)
+                .map { String(localized: String.LocalizationValue($0 + "…"), bundle: .module) }
+                ?? String(localized: "Working", bundle: .module)
         case .done:
-            return session.isStuck ? "Stopped with an issue" : "Ready"
+            return session.isStuck
+                ? String(localized: "Stopped with an issue", bundle: .module)
+                : String(localized: "Ready", bundle: .module)
         }
     }
 

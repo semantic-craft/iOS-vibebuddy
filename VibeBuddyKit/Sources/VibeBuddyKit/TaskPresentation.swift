@@ -27,12 +27,12 @@ public enum TaskPresentationState: String, Codable, Sendable, CaseIterable, Hash
 
     public var label: String {
         switch self {
-        case .idle: return "Idle"
-        case .thinking: return "Thinking"
-        case .completeUnread: return "Complete, unread update"
-        case .requiresInput: return "Requires input"
-        case .error: return "Error"
-        case .unassigned: return "No assigned task"
+        case .idle: return String(localized: "Idle", bundle: .module)
+        case .thinking: return String(localized: "Thinking", bundle: .module)
+        case .completeUnread: return String(localized: "Complete, unread update", bundle: .module)
+        case .requiresInput: return String(localized: "Requires input", bundle: .module)
+        case .error: return String(localized: "Error", bundle: .module)
+        case .unassigned: return String(localized: "No assigned task", bundle: .module)
         }
     }
 
@@ -103,7 +103,9 @@ public struct TaskStatusColorToken: Codable, Sendable, Hashable {
 }
 
 public extension AgentSession {
-    var statusLabel: String { historyOnly == true ? "History · read only" : presentationState.label }
+    var statusLabel: String {
+        historyOnly == true ? String(localized: "History · read only", bundle: .module) : presentationState.label
+    }
 
     var presentationState: TaskPresentationState {
         TaskPresentationState.project(

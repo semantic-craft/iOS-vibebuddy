@@ -72,7 +72,7 @@ public struct CompanionSectionHeader: View {
             }
             .buttonStyle(.plain)
             .accessibilityElement(children: .combine)
-            .accessibilityHint(expanded.wrappedValue ? Text("Collapse") : Text("Expand"))
+            .accessibilityHint(expanded.wrappedValue ? Text("Collapse", bundle: .module) : Text("Expand", bundle: .module))
         } else {
             label(chevron: nil)
                 .accessibilityElement(children: .combine)
@@ -85,7 +85,7 @@ public struct CompanionSectionHeader: View {
                 .font(CompanionType.font(titleSize, .medium))
                 .textCase(nil)   // a list style must not shout a group's name
                 .foregroundStyle(CompanionPalette.ink2)
-            Text("\(count)")
+            Text(verbatim: "\(count)")
                 .font(CompanionType.font(countSize, .medium)).monospacedDigit()
                 .foregroundStyle(CompanionPalette.ink3)
             if let expanded {

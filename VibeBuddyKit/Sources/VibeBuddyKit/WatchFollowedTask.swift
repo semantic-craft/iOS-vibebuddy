@@ -68,17 +68,17 @@ public enum WatchStopBlock: String, Codable, Equatable, Sendable {
     public func message(agent: AgentKind?) -> String {
         switch self {
         case .macOnly:
-            return String(localized: "Stop this on your Mac.")
+            return String(localized: "Stop this on your Mac.", bundle: .module)
         case .macNotConnected:
-            return String(localized: "Your Mac isn't connected to Codex right now.")
+            return String(localized: "Your Mac isn't connected to Codex right now.", bundle: .module)
         case .agentUnsupported:
             guard let agent else {
-                return String(localized: "This agent can't take instructions from the phone yet — use the terminal.")
+                return String(localized: "This agent can't take instructions from the phone yet — use the terminal.", bundle: .module)
             }
             if agent == .grokBot {
-                return String(localized: "Respond in Grok Bot on your Mac. Remote instructions are unavailable.")
+                return String(localized: "Respond in Grok Bot on your Mac. Remote instructions are unavailable.", bundle: .module)
             }
-            return String(localized: "\(agent.displayName) sessions can't take instructions from the phone yet — use the terminal.")
+            return String(localized: "\(agent.displayName) sessions can't take instructions from the phone yet — use the terminal.", bundle: .module)
         }
     }
 }
@@ -131,7 +131,7 @@ public struct WatchFollowedTask: Codable, Equatable, Sendable, Identifiable {
         statusSince = session.statusSince
     }
 
-    public var sourceName: String { agent?.displayName ?? String(localized: "Unknown source") }
+    public var sourceName: String { agent?.displayName ?? String(localized: "Unknown source", bundle: .module) }
 
     public var complicationTask: Self {
         var compact = self
