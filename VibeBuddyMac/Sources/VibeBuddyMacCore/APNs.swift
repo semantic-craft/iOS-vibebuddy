@@ -350,6 +350,8 @@ public actor APNsPusher {
 
     /// The `liveactivity` push body. `content-state` keys mirror
     /// `VibeBuddyActivityAttributes.ContentState`; optional strings are omitted when nil.
+    /// `relevance-score` follows the leading session so a needs-you update wins
+    /// the Dynamic Island the same way a local `ActivityContent` update does.
     nonisolated static func activityPayload(summary: TaskPresentationSummary,
                                             topProject: String?, topSessionId: String?,
                                             approvalId: String? = nil, approvalTitle: String? = nil,
@@ -363,7 +365,8 @@ public actor APNsPusher {
         if let a = approvalId { state += #","approvalId":"\#(escape(a))""# }
         if let t = approvalTitle { state += #","approvalTitle":"\#(escape(t))""# }
         if let d = approvalDetail { state += #","approvalDetail":"\#(escape(d))""# }
-        return #"{"aps":{"timestamp":\#(timestamp),"event":"update","content-state":{\#(state)}}}"#
+        let score = Int(LiveActivityPresentation.relevanceScore(for: summary.primaryState))
+        return #"{"aps":{"timestamp":\#(timestamp),"event":"update","relevance-score":\#(score),"content-state":{\#(state)}}}"#
     }
 
     private func providerToken(now: Date) throws -> String {

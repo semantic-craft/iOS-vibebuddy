@@ -76,7 +76,13 @@ final class LiveActivityManager {
             // A decision already sent from the island stays shown while the Mac
             // still reports the same request; a new request starts clean.
             decisionSent: target != nil && previous?.approvalId == target?.approvalID ? previous?.decisionSent : nil)
-        let content = ActivityContent(state: state, staleDate: nil)
+        // Needs-you sessions outrank quieter ones when several Live Activities compete
+        // (ActivityKit `relevanceScore`; Apple Adventure / Live Activities docs).
+        let leadingState = LiveActivityPresentation.compactTrailingState(leading: leading)
+        let content = ActivityContent(
+            state: state,
+            staleDate: nil,
+            relevanceScore: LiveActivityPresentation.relevanceScore(for: leadingState))
 
         if let activity {
             await activity.update(content)   // local update (foreground); push covers background
