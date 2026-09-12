@@ -21,7 +21,16 @@
 "Browsing…" = "联网查询…";
 "Delegating…" = "调度子任务…";
 "Planning…" = "规划中…";
-"Tap the pet to talk" = "点一下宠物开始说话";
+"Coordinating…" = "协同中…";
+"Waiting…" = "等待中…";
+"Needs approval" = "待批准";
+"Needs input" = "待输入";
+"Ready" = "已就绪";
+"Stopped with an issue" = "出错中断";
+"History · read only" = "历史 · 只读";
+"Tap the mic to talk" = "点一下麦克风开始说话";
+"Recovering audio… tap the mic to end" = "正在恢复音频…点一下麦克风结束";
+"Enable it in Settings › Voice, or tap the mic." = "在设置 › 语音中开启，或点一下麦克风。";
 "Listening…" = "聆听中…";
 "Speaking…" = "说话中…";
 /* Buddy scope (which sessions the voice companion sees) */
@@ -49,7 +58,11 @@
 "%lld of %lld" = "%lld / %lld";
 "· matching “%@”" = "· 匹配“%@”";
 "%lld still need you" = "还有 %lld 件等你";
-"Needs you" = "等你处理";
+"Needs you" = "需要你";
+"Collapse" = "收起";
+"Expand" = "展开";
+"Start voice conversation" = "开始语音对话";
+"End voice conversation" = "结束语音对话";
 "No matches for “%@”" = "没有匹配“%@”的任务";
 "Try another word, or ⌘K for commands." = "换个词试试，或按 ⌘K 输入命令。";
 "Dashboard" = "仪表盘";
@@ -252,6 +265,14 @@
 "Hello, I’m your work companion. The task is complete, and device verification is still pending." = "你好，我是你的工作伙伴。任务已完成，设备验证仍待进行。";
 "Read-aloud voice" = "朗读音色";
 
+/* Read-aloud voice style — a persona sent as a delivery instruction */
+"Voice style" = "语音风格";
+"Standard" = "标准";
+"Girl next door" = "邻家小妹";
+"Fiery girl" = "火辣少女";
+"Reads the summary with no extra direction." = "按音色本身朗读摘要，不附加风格指令。";
+"Sent to %@ as a delivery instruction alongside each reading." = "每次朗读都会把该风格指令一并发给 %@。";
+
 /* Verified wait handling */
 "Review and respond on your iPhone." = "请在 iPhone 上查看并处理。";
 "Approve or deny on your Watch." = "请在 Watch 上批准或拒绝。";
@@ -262,7 +283,7 @@
 "Connection to your Mac is unavailable. Reconnect to verify this request." = "Mac 连接不可用。请恢复连接以验证此请求。";
 
 /* Native Settings sidebar */
-"Everyday" = "日常设置";
+"Everyday" = "日常";
 "Models & Voice" = "模型与语音";
 "Devices & Integrations" = "设备与接入";
 "Usage & Limits" = "用量与额度";
@@ -320,6 +341,10 @@
 "not set" = "未设置";
 
 "Read-aloud is waiting for a completion summary provider. Choose one, or pick a read-aloud provider of its own." = "朗读正在等待完成摘要服务商。请先设置摘要服务商，或为朗读单独选择一家。";
+
+"%@ is text-only, so read-aloud cannot follow it. Pick a read-aloud provider of its own." = "%@ 只提供文本，朗读无法跟随它。请为朗读单独选择一家服务商。";
+
+"This provider is text-only. Choose a voice provider for conversation." = "该服务商只提供文本。请为语音对话选择一家语音服务商。";
 
 "API key" = "API 密钥";
 
@@ -501,6 +526,321 @@
 
 "No match" = "没有匹配项";
 
+/* MARK: Settings — sidebar groups and pages (ADR-0017, ticket 08) */
+"Voice & models" = "语音与模型";
+"Connections" = "连接";
+"Usage" = "用量";
+"Advanced" = "高级";
+"Provider keys" = "服务商密钥";
+"Phone & remote" = "手机与远程";
+"Agent CLIs" = "代理 CLI";
+"Plan & quota" = "套餐与配额";
+"Token spend" = "Token 花费";
+"Usage sources" = "用量来源";
+"Diagnostics" = "诊断";
+"Startup, shortcuts and the Glance" = "启动、快捷键与速览";
+"What rings, and when it stays quiet" = "何时响，何时安静";
+"Conversation, summaries and reading aloud" = "对话、摘要与朗读";
+"One key per provider, shared by every feature" = "每家服务商一把密钥，所有功能共用";
+"Pairing and remote access" = "配对与远程访问";
+"Hooks, daemons and who answers first" = "Hook、守护进程与谁先应答";
+"When an allowance should warn you" = "额度何时该提醒你";
+"What this Mac has spent locally" = "这台 Mac 的本地花费";
+"Where the numbers are read from" = "数字从哪里读取";
+"Health, delivery and recent transitions" = "健康、投递与近期变化";
+
+/* MARK: Settings — General (ADR-0017) */
+"Startup & menu bar" = "启动与菜单栏";
+"A fixed shortcut to the Dashboard and Settings. Live status and alerts appear in the Glance." = "固定的仪表盘与设置入口。实时状态和提醒显示在速览里。";
+"Show task status in menu bar" = "在菜单栏显示任务状态";
+"Add a status dot and the primary task count beside the cat icon." = "在猫图标旁加一个状态点和主要任务数。";
+"Shortcuts" = "快捷键";
+"Works from any app. Hyper (⌃⌥⇧⌘) combos recommended." = "在任何 app 里都能用。推荐 Hyper（⌃⌥⇧⌘）组合键。";
+"Show or hide the floating glance from the keyboard — handy on a notchless screen where it would otherwise sit on top of your work." = "用键盘显示或隐藏悬浮速览——在无刘海的屏幕上很方便，否则它会挡住你的工作。";
+"The floating status card that sits near the notch." = "贴着刘海的悬浮状态卡片。";
+"Glance size" = "速览大小";
+"Sessions" = "会话";
+"Idle sessions leave the Dashboard once this much time passes." = "空闲会话超过这个时长后会从仪表盘移除。";
+
+/* MARK: Settings — Notifications (ADR-0017) */
+"Delivery" = "投递";
+"Quiet" = "安静";
+"Quiet mode" = "安静模式";
+"Approvals and questions stay silent; other session alerts are suppressed." = "审批和提问静默显示；其他会话提醒被抑制。";
+"Enter Quiet mode automatically each night." = "每晚自动进入安静模式。";
+"Window" = "时段";
+"Quiet hours start" = "免打扰开始时间";
+"Quiet hours end" = "免打扰结束时间";
+
+/* MARK: Settings — Phone & remote (ADR-0017) */
+"Pairing" = "配对";
+"Scan the QR code in the vibebuddy iOS app." = "在 vibebuddy iOS app 里扫描二维码。";
+"Cancel pairing" = "取消配对";
+"Scan this in the vibebuddy iOS app within 2 minutes." = "请在 2 分钟内用 vibebuddy iOS app 扫描。";
+"Saved pairing. Live connection status unavailable." = "已保存配对。无法获知当前在线状态。";
+"Registered before pairing confirmation was recorded. Choose Pair a phone to confirm, or forget it." = "在记录配对确认之前就已注册。选择“配对手机”确认，或忘记它。";
+"Forget" = "忘记";
+"Stops pushes and forgets all registered phones until you choose Pair a phone again." = "停止推送并忘记所有已注册的手机，直到你再次选择“配对手机”。";
+"Connection" = "连接";
+"Connect Mac and iPhone to the same tailnet. For Headscale, use this Mac’s 100.x.x.x address." = "把 Mac 和 iPhone 连到同一个 tailnet。使用 Headscale 时，填这台 Mac 的 100.x.x.x 地址。";
+"Use Tailscale for remote access" = "用 Tailscale 远程访问";
+"Tailscale address" = "Tailscale 地址";
+"Enter a valid Tailscale address." = "请输入有效的 Tailscale 地址。";
+"100.x.x.x or Mac name.ts.net" = "100.x.x.x 或 Mac 名称.ts.net";
+
+/* MARK: Settings — Agent CLIs (ADR-0017) */
+"Hooks" = "Hook";
+"No agent CLIs detected yet" = "尚未检测到代理 CLI";
+"hooked" = "已接入";
+"not hooked" = "未接入";
+"not installed" = "未安装";
+"Maintenance" = "维护";
+"Wires (or removes) the vibebuddy hook in every detected CLI's config (~/.claude/settings.json …) via the bundled installer. Reversible. Re-run after installing a new CLI. Codex Desktop is monitored automatically from its local rollout stream; Codex CLI hooks still require explicit trust — start a fresh CLI session, run /hooks, review the VibeBuddy entries, and trust them." = "通过内置安装器，把 vibebuddy 的 hook 写入（或移出）每个已检测到的 CLI 的配置（~/.claude/settings.json 等）。可逆；安装新 CLI 后请重新运行。Codex Desktop 会从其本地 rollout 流自动监控；Codex CLI 的 hook 仍需明确信任——新开一个 CLI 会话，运行 /hooks，检查 VibeBuddy 条目并信任它们。";
+"Hook installation" = "Hook 安装";
+"Touches the CLI configs on this Mac, so it only ever runs from this button." = "会改动这台 Mac 上的 CLI 配置，所以只会由这个按钮触发。";
+"Install / repair" = "安装／修复";
+"Uninstall" = "卸载";
+"Behaviour" = "行为";
+"Always ask the phone first" = "总是先问手机";
+"Off: while you are at the Mac the agent's own prompt takes the answer and the phone shows a read-only card. On: every prompt waits for the phone even at the desk." = "关闭：你在 Mac 前时，由代理自己的提示接收回答，手机只显示只读卡片。开启：即使你在桌前，每个提示也都等手机回答。";
+"Use the Codex app-server daemon" = "使用 Codex app-server 守护进程";
+"Reads every Codex thread (Desktop, CLI, agents) from the shared local app-server over its unix control socket, read-only. When off, the rollout stream and hooks cover Codex as before." = "通过 unix 控制套接字，从共享的本地 app-server 只读读取每个 Codex 线程（Desktop、CLI、代理）。关闭后，仍像以前一样由 rollout 流和 hook 覆盖 Codex。";
+"Observe Grok Bot tasks" = "观察 Grok Bot 任务";
+"Read task status from the signed-in Grok Bot app. Replies and approvals stay in Grok Bot. Off by default." = "从已登录的 Grok Bot app 读取任务状态。回复和审批仍在 Grok Bot 里完成。默认关闭。";
+
+/* MARK: Settings — Diagnostics (ADR-0017) */
+"Observation health" = "观测健康";
+"Sources" = "来源";
+"Checking Claude and Codex sources…" = "正在检查 Claude 与 Codex 来源…";
+"Codex daemon" = "Codex 守护进程";
+"Delivery health" = "投递健康";
+"Honest outcomes only: attempted, scheduled, accepted, failed, skipped. A local banner is scheduled; APNs 2xx is accepted by Apple's servers. Neither is proof the device showed it." = "只记录真实结果：已尝试、已排程、已接受、失败、已跳过。本地横幅为“已排程”；APNs 2xx 表示 Apple 服务器已接受。两者都不能证明设备显示了通知。";
+"Local authorization" = "本地授权";
+"APNs" = "APNs";
+"configured" = "已配置";
+"not configured" = "未配置";
+"Registered devices" = "已注册设备";
+"Missed this week" = "本周漏投";
+"Last attempt" = "最近一次尝试";
+"No attempts yet" = "尚无尝试";
+"Latched failure" = "持续失败";
+"Stored locally for up to 7 days (maximum 250 transitions). Normalized state and source metadata only — never prompts, reasoning, message text, tool input, or tool output." = "仅在本机保存最多 7 天（上限 250 条变化）。只包含规范化状态和来源元数据——绝不保存提示词、推理、消息正文、工具输入或工具输出。";
+"Timeline" = "时间线";
+"No recent lifecycle transitions" = "暂无近期生命周期变化";
+"%@ · Session …%@ · %@" = "%@ · 会话 …%@ · %@";
+"Journal" = "日志";
+"Clear timeline" = "清除时间线";
+"Last signal %@" = "最近信号 %@";
+"Enable status line information" = "启用状态栏信息";
+"Preserves your current status line and its backup." = "保留你当前的状态栏及其备份。";
+"Repair" = "修复";
+"Runs the bundled idempotent installer and preserves your other hooks." = "运行内置的幂等安装器，保留你的其他 hook。";
+
+/* MARK: Settings — Voice & Provider keys (ADR-0017) */
+"Accounts" = "账号";
+"A key belongs to the provider, not to a feature: every feature that selects a provider uses the same key. Kept in the Keychain, once per provider." = "密钥属于服务商，而不属于某个功能：选择同一家的所有功能共用这把密钥。保存在钥匙串中，每家服务商一份。";
+"English" = "English";
+"Task reasoning model" = "任务推理模型";
+"Live handles conversation; this model checks tasks and selects actions. Voice time and task reasoning are billed separately." = "Live 负责对话；这个模型负责检查任务并选择操作。语音时长与任务推理分别计费。";
+
+/* MARK: Settings — Plan & quota, Token spend, Usage sources (ADR-0017) */
+"Alerts" = "提醒";
+"One threshold applies to every provider. Alerts identify the provider, respect Quiet mode and Quiet hours, and are not repeated after restart." = "一个阈值适用于所有服务商。提醒会标明服务商，遵循安静模式与免打扰时段，重启后不会重复。";
+"Quota alert" = "配额提醒";
+"Warn me when any window crosses this much of its allowance." = "任一窗口用掉这么多额度时提醒我。";
+"Quota alert threshold" = "配额提醒阈值";
+"Current usage" = "当前用量";
+"Read from each vendor's own local login — nothing is copied to storage or logged." = "从各家自己的本地登录读取——不复制到存储，也不写日志。";
+"Windows, resets and pace" = "窗口、重置与节奏";
+"Every provider's live meters are on the dashboard's Usage page." = "所有服务商的实时读数都在仪表盘的“用量”页。";
+"Open Usage" = "打开用量";
+"Local spend" = "本地花费";
+"Collect usage from" = "收集用量来源";
+"Codex reads its official local app-server. Claude runs the official read-only /usage command. Grok asks its own agent process for the billing summary. Cursor reads its selected CLI login, local app login, or browser/manual Cookie. Turning a source off leaves session monitoring and notifications running." = "Codex 读取其官方本地 app-server。Claude 运行官方只读的 /usage 命令。Grok 向其代理进程询问账单摘要。Cursor 读取所选的 CLI 登录、本地 app 登录或浏览器／手动 Cookie。关闭某个来源不影响会话监控和通知。";
+"Grok Bot" = "Grok Bot";
+"Account access" = "账号访问";
+"Reads the active official Grok Bot account. Background refresh never opens a Keychain prompt. Expired login must be renewed in Grok Bot." = "读取当前登录的官方 Grok Bot 账号。后台刷新不会弹出钥匙串提示。登录过期后需在 Grok Bot 中重新登录。";
+"Authorize…" = "授权…";
+"Access authorized. Enable collection and refresh Grok Bot usage." = "已授权访问。开启收集并刷新 Grok Bot 用量。";
+"Background access unavailable. Sign in to Grok Bot and authorize Keychain access for future reads." = "后台访问不可用。请登录 Grok Bot 并授权钥匙串访问，以便后续读取。";
+"Cursor session" = "Cursor 会话";
+"Paste mode stores the Cookie in a Keychain slot separate from browser import. Browser import reads Safari/Chrome/Firefox cookies for cursor.com (may prompt for Keychain or Full Disk Access); refresh writes the imported slot only when the value changes and falls back to the manual Cookie." = "粘贴模式把 Cookie 存在与浏览器导入分开的钥匙串槽位。浏览器导入读取 Safari／Chrome／Firefox 的 cursor.com cookie（可能请求钥匙串或完全磁盘访问权限）；刷新只在值变化时写入导入槽位，失败时回退到手动 Cookie。";
+"Login source" = "登录来源";
+"Cursor login source" = "Cursor 登录来源";
+"Uses only Cursor CLI login; the desktop app is not required. Run cursor-agent login if signed out or expired." = "只使用 Cursor CLI 登录，不需要桌面 app。若已登出或过期，运行 cursor-agent login。";
+"Uses the account signed in to Cursor on this Mac. If the session expires, sign in again in Cursor and refresh." = "使用这台 Mac 上 Cursor 已登录的账号。会话过期后，在 Cursor 里重新登录并刷新。";
+"Stored in a Keychain slot separate from browser import." = "存在与浏览器导入分开的钥匙串槽位。";
+"Reads Safari/Chrome/Firefox cookies for cursor.com, with the manual Cookie as a fallback." = "读取 Safari／Chrome／Firefox 的 cursor.com cookie，并以手动 Cookie 作为回退。";
+"Cookie header from cursor.com" = "来自 cursor.com 的 Cookie 头";
+"Browser import" = "浏览器导入";
+"Import now" = "立即导入";
+"Could not save the imported session (Keychain error %d)." = "无法保存导入的会话（钥匙串错误 %d）。";
+"Imported a Cursor session cookie from the browser." = "已从浏览器导入 Cursor 会话 cookie。";
+"No usable Cursor session found in the browser. Paste a Cookie header, or sign in at cursor.com and try again." = "浏览器里没有可用的 Cursor 会话。请粘贴 Cookie 头，或在 cursor.com 登录后重试。";
+"Manual fallback Cookie" = "手动回退 Cookie";
+
+/* MARK: Dashboard — Usage page and the sidebar plinth (ADR-0017 §6) */
+"Account quota" = "账号配额";
+"Today's spend" = "今日花费";
+"%lld-week" = "%lld 周";
+"%lld-day" = "%lld 天";
+"%lld-hour" = "%lld 小时";
+"%lld-minute" = "%lld 分钟";
+"No reading" = "无读数";
+"Signed out" = "已登出";
+"Offline" = "离线";
+"Rate-limited" = "被限流";
+"Loading" = "加载中";
+"Unavailable" = "不可用";
+"stale" = "已过期";
+"No usage sources are on" = "没有开启任何用量来源";
+"Turn a provider on in Settings › Usage to collect its account quota." = "在设置 › 用量中开启某个服务商，以收集其账号配额。";
+"Estimated from local Claude Code and Codex logs — not an invoice, and not the same thing as account allowance." = "根据本地 Claude Code 与 Codex 日志估算——不是账单，也不等于账号额度。";
+"Usage available" = "有可用用量";
+"No usage available" = "无可用用量";
+"Weekly percentage unavailable" = "周百分比不可用";
+"Usage is temporarily unavailable" = "用量暂时不可用";
+"Period ends %@" = "周期结束于 %@";
+"No quota windows supplied" = "未提供配额窗口";
+"Latest day" = "最近一天";
+"Lifetime" = "累计";
+"Updated %@" = "更新于 %@";
+"· Stale" = "· 已过期";
+"Retry %@" = "重试：%@";
+"Reset time unavailable" = "重置时间不可用";
+"From local Claude Code transcripts and Codex rollouts. Estimates only — not an invoice. Distinct from account quota remaining." = "来自本地 Claude Code 记录与 Codex rollout。仅为估算，不是账单；与账号剩余配额是两回事。";
+"Waiting for the first local scan" = "等待首次本地扫描";
+"No spend" = "无花费";
+"%@ billed · %@ cache · %lld sessions" = "计费 %@ · 缓存 %@ · %lld 个会话";
+
+/* MARK: Dashboard — library, rows and detail (ADR-0017) */
+"Library" = "资料库";
+"Current tasks" = "当前任务";
+"History" = "历史";
+"Favorites" = "收藏";
+"%lld need a response" = "%lld 个需要回应";
+"State" = "状态";
+"Start a new task in a directory a session has run in" = "在某个会话运行过的目录里新建任务";
+"⌘F" = "⌘F";
+"effort %@" = "推理强度 %@";
+"PR #%lld" = "PR #%lld";
+" wants to %@" = " 想要%@";
+"Jump ⏎" = "跳转 ⏎";
+"Open thread" = "打开线程";
+"Open Grok Bot" = "打开 Grok Bot";
+"Open thread in ChatGPT" = "在 ChatGPT 中打开线程";
+"Open this thread in ChatGPT" = "在 ChatGPT 中打开此线程";
+"Open Grok Bot and select the task" = "打开 Grok Bot 并选中该任务";
+"Always allow adds %@ to Claude's own permission rules — the same rule the terminal dialog offers." = "“总是允许”会把 %@ 加入 Claude 自己的权限规则——与终端对话框提供的规则相同。";
+"Always allow this exact command in future" = "以后总是允许这条完全相同的命令";
+"Stop asking for the rest of this run" = "本次运行接下来不再询问";
+"A limited recent excerpt. Open History to read indexed local conversations." = "仅为最近的有限摘录。打开“历史”阅读已索引的本地对话。";
+"No recent output is available from this source." = "该来源暂无最近输出。";
+"Refresh" = "刷新";
+"Send" = "发送";
+"%lld questions" = "%lld 个问题";
+"Question" = "问题";
+"Choose any" = "可多选";
+"Codex moves on by itself in %@" = "Codex 将在 %@ 后自行继续";
+"Your answer" = "你的回答";
+"Other…" = "其他…";
+"Send answer%@" = "发送回答";
+"New task" = "新建任务";
+"Directory" = "目录";
+"Task name (optional)" = "任务名称（可选）";
+"Start" = "开始";
+"Starting…" = "正在开始…";
+
+/* MARK: Menu panel and Glance (ADR-0015 / ADR-0017) */
+"Older" = "更早";
+"%lld need you" = "%lld 个需要你";
+"%lld working" = "%lld 个进行中";
+"All quiet" = "一切安静";
+"%@ wants to %@" = "%@ 想要%@";
+"%@ needs approval" = "%@ 需要批准";
+"%@ finished" = "%@ 已完成";
+"Paired" = "已配对";
+"Open VibeBuddy menu" = "打开 VibeBuddy 菜单";
+"Check for Updates…" = "检查更新…";
+"Registered: %@" = "已注册：%@";
+"Jump to this session" = "跳到这个会话";
+
+/* MARK: History workbench */
+"Local library" = "本地资料库";
+"Claude Code · Codex\nIncludes archived Codex sessions" = "Claude Code · Codex\n含已归档的 Codex 会话";
+"All agents" = "全部代理";
+"Archive" = "归档";
+"All history" = "全部历史";
+"Unarchived" = "未归档";
+"Archived" = "已归档";
+"Updating library…" = "正在更新资料库…";
+"Rebuild index" = "重建索引";
+"Source notices (%lld)" = "来源通知（%lld）";
+"Search could not complete: %@" = "搜索未能完成：%@";
+"No matching messages" = "没有匹配的消息";
+"No sessions in this view" = "此视图下没有会话";
+"Check the project filter and source notices, or refresh the library." = "检查项目筛选和来源通知，或刷新资料库。";
+"Showing the first 200 matches. Narrow your query or project." = "只显示前 200 条匹配。请缩小查询范围或项目。";
+"Archived in Codex" = "已在 Codex 归档";
+"Archived in library" = "已在资料库归档";
+"Source unavailable" = "来源不可用";
+"Partial or limited record" = "记录不完整或有限";
+"The source is unavailable. Showing the last indexed copy." = "来源不可用，显示最后一次索引的副本。";
+"Reading conversation…" = "正在读取对话…";
+"Retry" = "重试";
+"Select a conversation" = "选择一段对话";
+"Read local history without changing a task's live state." = "阅读本地历史，不会改变任务的实时状态。";
+"Favorite" = "收藏";
+"Unfavorite" = "取消收藏";
+"Pin" = "置顶";
+"Unpin" = "取消置顶";
+"Archive in library" = "在资料库归档";
+"Unarchive in library" = "在资料库取消归档";
+"Organizes this library only; the original agent and current tasks are unchanged." = "只整理这个资料库；原始代理和当前任务不受影响。";
+"Export Markdown…" = "导出 Markdown…";
+"Show source" = "显示来源文件";
+"Could not export" = "无法导出";
+"OK" = "好";
+"Copy resume command" = "复制恢复命令";
+"Jump to current session" = "跳到当前会话";
+"Earlier messages" = "更早的消息";
+"Later messages" = "更晚的消息";
+"Messages %lld–%lld of %lld" = "消息 %lld–%lld / 共 %lld";
+"This match is no longer in the current record. Search again." = "该匹配已不在当前记录中，请重新搜索。";
+"No dialogue to display." = "没有可显示的对话。";
+"Context compacted" = "上下文已压缩";
+"Injected context · search match" = "注入的上下文 · 搜索匹配";
+"Copy message" = "复制消息";
+"Failed" = "失败";
+"%lld failed" = "%lld 个失败";
+"Copy %@" = "复制%@";
+"Preview · %lld characters. Copy to read all indexed text." = "预览 · %lld 个字符。复制以阅读全部已索引文本。";
+"Copy code" = "复制代码";
+"Conversation summary" = "对话摘要";
+"Generate summary" = "生成摘要";
+"Regenerate" = "重新生成";
+"Out of date — the conversation has changed. Regenerate to update." = "已过时——对话已变化。重新生成以更新。";
+"On request, sends readable dialogue to %@. Injected context and thinking are excluded." = "按需把可读的对话发送给 %@。不包含注入的上下文和思考过程。";
+
+/* MARK: Notifications — quota alerts and actions */
+"Reply" = "回复";
+"Answer" = "回答";
+" Resets %@." = " %@ 重置。";
+"%lld week" = "%lld 周";
+"%lld day" = "%lld 天";
+"%lld hour" = "%lld 小时";
+"%lld minute" = "%lld 分钟";
+"quota" = "配额";
+"%@ usage reached %lld%%" = "%@ 用量已达 %lld%%";
+"%lld%% used in the %@ window.%@" = "%2$@ 窗口已用 %1$lld%%。%3$@";
+
+/* MARK: MacCore — Codex control and Cursor sessions */
+"Codex refused the stop: %@" = "Codex 拒绝了停止：%@";
+"This Mac cannot stop Codex tasks." = "这台 Mac 无法停止 Codex 任务。";
+"This Mac isn't watching Codex." = "这台 Mac 没有在监视 Codex。";
+"Your Mac isn't following this task's current turn." = "你的 Mac 没有跟踪这个任务的当前轮次。";
+"Cursor chat" = "Cursor 对话";
+
 /* Read-aloud synthesis failures — graded, never the provider's own words */
 
 "Check the read-aloud model and voice before speaking." = "朗读前请检查朗读模型和音色。";
@@ -514,3 +854,19 @@
 "The provider returned no audio for this text." = "服务商没有为这段文本返回音频。";
 
 "The provider returned more audio than a summary should need." = "服务商返回的音频超出一段摘要应有的长度。";
+
+/* Conversation summary styles (History window) */
+
+"Summary style" = "摘要风格";
+
+"Action briefing" = "行动简报";
+
+"Session review" = "会话复盘";
+
+"Archive record" = "归档记录";
+
+"Next action first, then state, numbered next steps with reasons, and a short read on the session." = "先给下一步行动，再列现状、带理由的编号步骤，以及对这次会话的简短看法。";
+
+"An honest assessment: verdict, what went well, problems and risks, and advice for next time." = "坦率评估：结论、做对了什么、问题与风险，以及下次的建议。";
+
+"Neutral notes: goal, key decisions, results and verification, open work." = "中性记录：目标、关键决策、结果与验证、未完成工作。";

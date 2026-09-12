@@ -14,9 +14,9 @@ A native **Mac, iPhone & Apple Watch** companion for your AI workflow.<br>**Clau
 
 **Free & open source · No VibeBuddy account · No analytics · Bring your own AI key**
 
-<img src="docs/app-store-screenshots/1.3/macos/en-US/01-dashboard-approval.jpg" width="960" alt="Mac dashboard showing Claude Code and Codex tasks, a pending file edit, and Approve, Deny and Jump controls" />
+<img src="docs/app-store-screenshots/1.3.14/macos/en-US/01-dashboard-approval.jpg" width="960" alt="Mac dashboard showing Claude Code and Codex tasks, a pending file edit, and Approve, Deny and Jump controls" />
 
-<sub>Real app, sample tasks: the 1.3 demo dashboard. Screenshots illustrate the interface, not live agent results.</sub>
+<sub>Real app, sample tasks: the 1.3.14 demo dashboard. Screenshots illustrate the interface, not live agent results.</sub>
 
 </div>
 
@@ -37,15 +37,15 @@ Start a refactor in Claude Code, a test run in Codex and a build in Grok Build. 
 <th>Glance at your wrist</th>
 </tr>
 <tr>
-<td align="center" valign="top"><img src="docs/app-store-screenshots/1.3/ios/en-US/01-dashboard.jpg" width="270" alt="iPhone demo dashboard with Claude edit approval and a question" /></td>
-<td align="center" valign="top"><img src="docs/app-store-screenshots/1.3/ios/en-US/02-codex-task.jpg" width="270" alt="iPhone demo Codex task detail with model, context usage, notification preferences and Reply" /></td>
-<td align="center" valign="top"><img src="docs/app-store-screenshots/1.3/watchos/en-US/02-quota.jpg" width="208" alt="Apple Watch demo showing Codex weekly and short-window remaining quota" /><br><br>Followed tasks<br>Quick answers<br>Completion summaries<br>Quota at a glance</td>
+<td align="center" valign="top"><img src="docs/app-store-screenshots/1.3.14/ios/en-US/01-dashboard.jpg" width="270" alt="iPhone demo dashboard with Claude edit approval and a question" /></td>
+<td align="center" valign="top"><img src="docs/app-store-screenshots/1.3.14/ios/en-US/02-codex-task.jpg" width="270" alt="iPhone demo Codex task detail with model, context usage, notification preferences and Reply" /></td>
+<td align="center" valign="top"><img src="docs/app-store-screenshots/1.3.14/watchos/en-US/02-quota.jpg" width="208" alt="Apple Watch demo showing Codex weekly and short-window remaining quota" /><br><br>Followed tasks<br>Quick answers<br>Completion summaries<br>Quota at a glance</td>
 </tr>
 </table>
 
-<sub>Captured from the actual 1.3 apps in Demo mode. Watch image shows the in-app quota page. <a href="docs/app-store-screenshots/1.3/README.md">Screenshot provenance</a>.</sub>
+<sub>Captured from the actual 1.3.14 apps in Demo mode. Watch image shows the in-app quota page. <a href="docs/app-store-screenshots/1.3.14/README.md">Screenshot provenance</a>.</sub>
 
-- **On Mac:** a searchable menu-bar activity feed, full dashboard, notch Glance and jump back to the originating terminal or app.
+- **On Mac:** a searchable menu-bar task list grouped by attention, full dashboard, notch Glance and jump back to the originating terminal or app.
 - **On iPhone:** task details, recent dialogue, supported approvals and replies, Live Activity and Dynamic Island counts.
 - **On Apple Watch:** followed tasks, quick answers, completion summaries, task and quota complications, and Smart Stack relevance. A paired iPhone is required; watchOS controls background refresh.
 
@@ -74,7 +74,7 @@ VibeBuddy connects to the agents you already run. Available controls follow the 
 | **Codex Desktop** | Observe local task progress and completions; jump back to the app. | Desktop may own a separate app-server. Native Desktop approval coverage is incomplete; use the Mac prompt when no answerable request is available. |
 | **Grok Build** | CLI lifecycle hooks, task state, account usage and configured approval gates. | Whether a remote approval resolves the native prompt depends on Grok's permission mode. |
 | **Grok Bot** | Optional read-only task observation, summaries of verified ordinary completions and separate account usage. | Replies and approvals stay in the official app. Question continuations, automated tasks and turns spanning a disconnect are not yet supported. |
-| **Cursor** | Account usage from supported login sources, including the Cursor app and Cursor CLI, with separate **Cursor Models** and **Other Models** pools. | Quota integration is available; task tracking and remote approval are not yet supported. |
+| **Cursor** | Task state for the Agent panel and the Cursor CLI, supported approvals and questions, queued follow-ups for a running turn, continuation of a finished chat through the Cursor CLI, and account usage with separate **Cursor Models** and **Other Models** pools. | Task state and remote responses need the Cursor hooks; without them the agent transcript still reports progress. Cursor exposes no way to interrupt a running turn, and no link that opens a specific chat — a jump brings Cursor forward. |
 
 See the [Codex integration contract](docs/codex-integration.md) and [agent hook setup](docs/multi-cli-hook-setup.md). Qwen, Kimi, OpenCode and Antigravity coding-agent adapters are experimental community integrations; their verification is separate from Qwen's supported voice-provider integration.
 

@@ -52,3 +52,6 @@ docs/qa-screenshots/
 
 # Local lint / audit artifacts
 .brooks-lint-history.json
+
+# Playwright MCP page dumps (local tooling noise)
+.playwright-mcp/

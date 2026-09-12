@@ -24,6 +24,10 @@ struct CostTests {
         #expect(oneM == 30)
         #expect(Pricing.estimatedUSD(tokens: 0, model: "claude-opus-4-8") == nil)
         #expect(Pricing.estimatedUSD(tokens: nil, model: "claude-opus-4-8") == nil)
+        let split = Pricing.estimatedUSD(inputTokens: 1_000_000, outputTokens: 0,
+                                         cachedInputTokens: 1_000_000, reasoningOutputTokens: 0,
+                                         model: "claude-opus-4-8")
+        #expect(split == 33) // 30 billed + 3 cache-read
     }
 
     @Test("budget fires once when a session crosses, not again while it stays over")

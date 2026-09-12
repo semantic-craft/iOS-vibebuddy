@@ -55,17 +55,19 @@ enum VoiceFeatureStatus: Equatable {
 
 // MARK: - The page
 
-struct VoiceSettingsTab: View {
+/// The three feature rows and the language they share. Keys live on their own
+/// page now, so a row that needs one links across instead of scrolling down.
+struct VoiceFeaturesPage: View {
     @ObservedObject var model: MenuBarModel
     @ObservedObject var tests: SettingsTestCoordinator
-    /// Lets a feature row's "no API key" status reveal the account it needs.
-    let scroll: ScrollViewProxy?
-    @StateObject private var credentials = SettingsCredentials()
+    @ObservedObject var credentials: SettingsCredentials
+    /// "No API key yet · Add it" — opens that provider on the keys page.
+    let reveal: (VoiceProvider) -> Void
+
     @AppStorage(VoiceSettings.providerKey) private var conversationChoice = VoiceProvider.qwen.rawValue
     @AppStorage(VoiceSettings.summaryProviderKey) private var summaryChoice: String?
     @AppStorage(VoiceSettings.readAloudProviderKey) private var readAloudChoice = ""
     @AppStorage(VoiceSettings.conversationLanguageKey) private var language = VoiceLanguage.english.rawValue
-    @State private var expandedAccount: VoiceProvider?
 
     private var conversationProvider: VoiceProvider? { VoiceProvider(rawValue: conversationChoice) }
     private var summaryProvider: VoiceProvider? {
@@ -77,59 +79,47 @@ struct VoiceSettingsTab: View {
         _ = summaryChoice
         return VoiceSettings.readAloudStatus()
     }
-    /// Which features currently point at a provider, for the account rows.
-    private func features(using provider: VoiceProvider) -> [VoiceFeature] {
-        var used: [VoiceFeature] = []
-        if conversationProvider == provider { used.append(.conversation) }
-        if summaryProvider == provider { used.append(.summaries) }
-        if readAloud.provider == provider { used.append(.readAloud) }
-        return used
-    }
-    private func reveal(_ provider: VoiceProvider) {
-        expandedAccount = provider
-        credentials[provider].load() // The user is about to edit it.
-        withAnimation { scroll?.scrollTo(provider, anchor: .center) }
-    }
 
     var body: some View {
-        Group {
-            Section("Features") {
-                ConversationFeatureRow(provider: conversationProvider, menuModel: model, tests: tests,
-                    credentials: credentials, selection: conversationSelection, reveal: reveal)
-                    // Identity per row, not per provider: three siblings sharing an
-                    // id collapse into one repeated row.
-                    .id("conversation-\(conversationChoice)")
-                SummaryFeatureRow(provider: summaryProvider, tests: tests, credentials: credentials,
-                    reader: model.readAloud, language: language,
-                    selection: summarySelection, reveal: reveal)
-                    .id("summaries-\(summaryProvider?.rawValue ?? "")")
-                ReadAloudFeatureRow(status: readAloud, summaryProvider: summaryProvider,
-                    reader: model.readAloud, voiceChat: model.voiceChat,
-                    tests: tests, credentials: credentials, selection: readAloudSelection, reveal: reveal)
-                    .id("readAloud-\(readAloud.provider?.rawValue ?? "")")
+        SettingsPageScaffold(SettingsPageID.voice.title, subtitle: SettingsPageID.voice.subtitle) {
+            SettingsSection("Features") {
+                SettingsBlockRow {
+                    ConversationFeatureRow(provider: conversationProvider, menuModel: model, tests: tests,
+                                           credentials: credentials, selection: conversationSelection,
+                                           reveal: reveal)
+                        // Identity per row, not per provider: three siblings
+                        // sharing an id collapse into one repeated row.
+                        .id("conversation-\(conversationChoice)")
+                }
+                SettingsBlockRow {
+                    SummaryFeatureRow(provider: summaryProvider, tests: tests, credentials: credentials,
+                                      reader: model.readAloud, language: language,
+                                      selection: summarySelection, reveal: reveal)
+                        .id("summaries-\(summaryProvider?.rawValue ?? "")")
+                }
+                SettingsBlockRow {
+                    ReadAloudFeatureRow(status: readAloud, summaryProvider: summaryProvider,
+                                        reader: model.readAloud, voiceChat: model.voiceChat,
+                                        tests: tests, credentials: credentials,
+                                        selection: readAloudSelection, reveal: reveal)
+                        .id("readAloud-\(readAloud.provider?.rawValue ?? "")")
+                }
             }
-            Section("Provider accounts") {
-                ForEach(VoiceProvider.allCases, id: \.rawValue) { provider in
-                    AccountRow(provider: provider, credential: credentials[provider], tests: tests,
-                        usedBy: features(using: provider),
-                        expanded: Binding(get: { expandedAccount == provider },
-                                          set: { expandedAccount = $0 ? provider : nil }))
-                        .id(provider)
+
+            SettingsSection("Shared",
+                            footnote: "Shared by all three features, and it decides which voice each provider defaults to.") {
+                SettingsRow("Conversation language") {
+                    Picker("", selection: $language) {
+                        Text("English").tag(VoiceLanguage.english.rawValue)
+                        Text(verbatim: "中文").tag(VoiceLanguage.chinese.rawValue)
+                    }
+                    .labelsHidden().pickerStyle(.segmented).fixedSize()
+                    .accessibilityLabel("Conversation language")
+                    .onChange(of: language) { _, _ in
+                        tests.invalidate()
+                        model.voiceChat.reloadProviderIfActive()
+                    }
                 }
-                Text("A key belongs to the provider, not to a feature: every feature that selects a provider uses the same key.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Section("Shared") {
-                Picker("Conversation language", selection: $language) {
-                    Text("English").tag(VoiceLanguage.english.rawValue)
-                    Text("中文").tag(VoiceLanguage.chinese.rawValue)
-                }
-                .onChange(of: language) { _, _ in
-                    tests.invalidate()
-                    model.voiceChat.reloadProviderIfActive()
-                }
-                Text("Shared by all three features, and it decides which voice each provider defaults to.")
-                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .onChange(of: conversationChoice) { _, _ in tests.invalidate(); model.voiceChat.reloadProviderIfActive() }
@@ -159,6 +149,45 @@ struct VoiceSettingsTab: View {
     }
     private var readAloudSelection: Binding<String> {
         Binding(get: { readAloudChoice }, set: { readAloudChoice = $0 })
+    }
+}
+
+/// One key per provider — the only place on any page that holds them.
+struct ProviderKeysPage: View {
+    @ObservedObject var tests: SettingsTestCoordinator
+    @ObservedObject var credentials: SettingsCredentials
+    @Binding var expanded: VoiceProvider?
+
+    @AppStorage(VoiceSettings.providerKey) private var conversationChoice = VoiceProvider.qwen.rawValue
+    @AppStorage(VoiceSettings.summaryProviderKey) private var summaryChoice: String?
+    @AppStorage(VoiceSettings.readAloudProviderKey) private var readAloudChoice = ""
+
+    var body: some View {
+        SettingsPageScaffold(SettingsPageID.providerKeys.title,
+                             subtitle: SettingsPageID.providerKeys.subtitle) {
+            SettingsSection("Accounts",
+                            footnote: "A key belongs to the provider, not to a feature: every feature that selects a provider uses the same key. Kept in the Keychain, once per provider.") {
+                ForEach(VoiceProvider.allCases, id: \.rawValue) { provider in
+                    SettingsBlockRow {
+                        AccountRow(provider: provider, credential: credentials[provider], tests: tests,
+                                   usedBy: features(using: provider),
+                                   expanded: Binding(get: { expanded == provider },
+                                                     set: { expanded = $0 ? provider : nil }))
+                    }
+                }
+            }
+        }
+    }
+
+    /// Which features currently point at a provider, for the account rows.
+    private func features(using provider: VoiceProvider) -> [VoiceFeature] {
+        _ = summaryChoice
+        _ = readAloudChoice
+        var used: [VoiceFeature] = []
+        if VoiceProvider(rawValue: conversationChoice) == provider { used.append(.conversation) }
+        if VoiceSettings.summaryProvider() == provider { used.append(.summaries) }
+        if VoiceSettings.readAloudStatus().provider == provider { used.append(.readAloud) }
+        return used
     }
 }
 
@@ -202,16 +231,16 @@ private struct FeatureRow<Controls: View>: View {
             VStack(alignment: .leading, spacing: 7) {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Label(LocalizedStringKey(feature.rawValue), systemImage: feature.symbol)
-                        .font(.headline).labelStyle(.titleAndIcon)
+                        .font(MacTheme.font(13, .semibold)).labelStyle(.titleAndIcon)
                     Spacer(minLength: 0)
                     StatusPill(status: status, reveal: reveal)
                 }
                 controls
                 if let detail {
                     Label(LocalizedStringKey(detail), systemImage: "exclamationmark.circle")
-                        .font(.caption).foregroundStyle(.orange)
+                        .font(MacTheme.font(10)).foregroundStyle(.orange)
                 }
-                Text(hint ?? feature.hint).font(.caption).foregroundStyle(.secondary)
+                Text(hint ?? feature.hint).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 SettingsTestFeedback(tests: tests, purpose: feature.testPurpose)
             }
         }
@@ -226,9 +255,9 @@ private struct StatusPill: View {
     var body: some View {
         switch status {
         case .unconfigured:
-            pill("Not configured", .secondary)
+            pill("Not configured", MacTheme.ink2)
         case .waitingForSummaries:
-            pill("Waiting for a summary provider", .secondary)
+            pill("Waiting for a summary provider", MacTheme.ink2)
         case .needsAttention:
             pill("Needs attention", .orange)
         case .needsKey(let provider):
@@ -240,14 +269,14 @@ private struct StatusPill: View {
         case .verified(let text):
             pill(LocalizedStringKey(text), .green)
         case .unverified:
-            pill("Unverified", .secondary)
+            pill("Unverified", MacTheme.ink2)
         }
     }
 
     private func pill(_ text: LocalizedStringKey, _ tint: Color) -> some View {
         HStack(spacing: 5) {
             Circle().frame(width: 6, height: 6).accessibilityHidden(true)
-            Text(text).font(.caption)
+            Text(text).font(MacTheme.font(10))
         }
         .foregroundStyle(tint)
         .padding(.horizontal, 8).padding(.vertical, 2)
@@ -291,7 +320,7 @@ private struct IDField: View {
         HStack(spacing: 4) {
             TextField(label, text: $text, prompt: Text(verbatim: placeholder))
                 .labelsHidden().textFieldStyle(.roundedBorder)
-                .font(.caption.monospaced()).autocorrectionDisabled()
+                .font(MacTheme.mono(10)).autocorrectionDisabled()
                 .accessibilityLabel(label)
                 .accessibilityIdentifier(identifier ?? "")
             Link(destination: browse) {
@@ -381,13 +410,13 @@ private struct ConversationFeatureRow: View {
                    detail: detail, tests: tests, reveal: reveal) {
             ControlLine {
                 ProviderPicker(label: "Voice conversation provider", selection: $selection,
-                               options: VoiceProvider.allCases)
+                               options: VoiceProvider.voiceProviders)
             } model: {
                 if let provider {
                     IDField(label: "Realtime model ID", placeholder: provider.defaultModel, text: $modelID,
                             browse: provider.modelsURL, browseHelp: "Browse available models",
                             identifier: "voiceModelID")
-                } else { Text(verbatim: "—").foregroundStyle(.secondary) }
+                } else { Text(verbatim: "—").foregroundStyle(MacTheme.ink2) }
             } voice: {
                 if let provider {
                     VoicePicker(label: "Conversation voice", purpose: .conversation, provider: provider,
@@ -395,7 +424,7 @@ private struct ConversationFeatureRow: View {
                                 fallback: VoiceSettings.voice(provider,
                                     VoiceLanguage(rawValue: language) ?? .english),
                                 voiceID: $voiceID)
-                } else { Text(verbatim: "—").foregroundStyle(.secondary) }
+                } else { Text(verbatim: "—").foregroundStyle(MacTheme.ink2) }
             } trailing: {
                 Button("Test", action: test)
                     .disabled(tests.isBusy || provider == nil || !credential.configured
@@ -404,13 +433,13 @@ private struct ConversationFeatureRow: View {
             }
             if provider == .openai, OpenAIVoiceSession.usesLive(configuration?.model ?? "") {
                 HStack {
-                    Text("Task reasoning model").font(.caption).foregroundStyle(.secondary)
+                    Text("Task reasoning model").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                     IDField(label: "Task reasoning model", placeholder: OpenAILiveSession.defaultBackendModel,
                             text: $liveBackendModel, browse: VoiceProvider.openai.modelsURL,
                             browseHelp: "Browse available models", identifier: "liveBackendModelID")
                 }
                 Text("Live handles conversation; this model checks tasks and selects actions. Voice time and task reasoning are billed separately.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
             }
         }
         .onAppear { credential.refresh() }
@@ -424,7 +453,7 @@ private struct ConversationFeatureRow: View {
               !tests.isBusy, !reader.busy else { return }
         credential.load()
         guard credential.configured else { return tests.reportUnreadableKey(.voice) }
-        let session = configuration.makeSession(apiKey: credential.value)
+        guard let session = configuration.makeSession(apiKey: credential.value) else { return }
         tests.start(.voice, timeout: .seconds(15), operation: {
             await SettingsModelTestOperations.handshake(session: session, voice: configuration.voice)
         }, cleanup: { await session.close() })
@@ -498,10 +527,10 @@ private struct SummaryFeatureRow: View {
                             placeholder: CompletionSummaryConfiguration.recommendedModel(provider),
                             text: $modelID, browse: provider.modelsURL,
                             browseHelp: "Browse available models", identifier: "completionSummaryModelID")
-                } else { Text(verbatim: "—").foregroundStyle(.secondary) }
+                } else { Text(verbatim: "—").foregroundStyle(MacTheme.ink2) }
             } voice: {
                 // Summaries are text; the voice column stays empty on purpose.
-                Text(verbatim: "—").foregroundStyle(.secondary)
+                Text(verbatim: "—").foregroundStyle(MacTheme.ink2)
                     .accessibilityLabel("No voice — summaries are text")
             } trailing: {
                 Button("Sample", action: test)
@@ -547,6 +576,7 @@ private struct ReadAloudFeatureRow: View {
     @AppStorage(VoiceSettings.qwenWorkspaceIDKey) private var workspace = ""
     @AppStorage private var modelID: String
     @AppStorage private var voiceID: String
+    @AppStorage private var styleID: String
 
     init(status: VoiceSettings.ReadAloudStatus, summaryProvider: VoiceProvider?,
          reader: ReadAloud, voiceChat: VoiceChat,
@@ -561,11 +591,13 @@ private struct ReadAloudFeatureRow: View {
         _selection = selection
         self.reveal = reveal
         let keyed = status.provider ?? .qwen
-        _modelID = AppStorage(wrappedValue: SpeechSynthesis.support(keyed).defaultModel,
+        _modelID = AppStorage(wrappedValue: SpeechSynthesis.support(keyed)?.defaultModel ?? "",
                               VoiceSettings.readAloudModelKey(keyed))
         // Deliberately empty: a stored voice wins, and everything else is
         // decided by the language-aware fallback below.
         _voiceID = AppStorage(wrappedValue: "", VoiceSettings.readAloudVoiceKey(keyed))
+        _styleID = AppStorage(wrappedValue: VoiceStyle.standard.rawValue,
+                              VoiceSettings.readAloudStyleKey(keyed))
     }
 
     private var spokenLanguage: VoiceLanguage { VoiceLanguage(rawValue: language) ?? .english }
@@ -578,11 +610,19 @@ private struct ReadAloudFeatureRow: View {
             ? VoiceSettings.readAloudVoice(status.provider ?? .qwen, language: spokenLanguage)
             : voiceID
     }
+    /// `.standard` for a vendor with no instruction channel, so a persona left
+    /// behind by an earlier provider cannot follow the user to one that would
+    /// silently drop it.
+    private var effectiveStyle: VoiceStyle {
+        guard SpeechSynthesis.supportsStyle(status.provider ?? .qwen) else { return .standard }
+        return VoiceStyle(stored: styleID)
+    }
     private var configuration: SpeechSynthesisConfiguration {
         let value = workspace.trimmingCharacters(in: .whitespacesAndNewlines)
         return .init(provider: status.provider ?? .qwen,
                      model: modelID.trimmingCharacters(in: .whitespacesAndNewlines), voice: effectiveVoice,
-                     qwenWorkspaceID: value.isEmpty ? nil : value, qwenUseIntl: intl)
+                     qwenWorkspaceID: value.isEmpty ? nil : value, qwenUseIntl: intl,
+                     style: effectiveStyle, language: spokenLanguage)
     }
     /// Why preview cannot run — the same order the status pill reports.
     private var previewFailure: String? {
@@ -604,6 +644,7 @@ private struct ReadAloudFeatureRow: View {
     private var rowStatus: VoiceFeatureStatus {
         switch status {
         case .waitingForSummaryProvider: return .waitingForSummaries
+        case .summaryProviderCannotSpeak: return .needsAttention
         case .ready(let provider):
             if !credential.configured { return .needsKey(provider) }
             if !summariesEnabled { return .nothingToRead }
@@ -616,6 +657,12 @@ private struct ReadAloudFeatureRow: View {
     private var followTitle: String {
         let target = summaryProvider?.display ?? NSLocalizedString("not set", comment: "No summary provider")
         return String(format: NSLocalizedString("Same as summaries · %@", comment: "Read-aloud follows summaries"), target)
+    }
+    /// The sentence the pill cannot hold: a summary provider that cannot speak.
+    private var detail: String? {
+        guard case .summaryProviderCannotSpeak(let provider) = status else { return nil }
+        return String(format: NSLocalizedString("%@ is text-only, so read-aloud cannot follow it. Pick a read-aloud provider of its own.",
+                                                comment: "Read-aloud follows a text-only summary provider"), provider.display)
     }
     /// One line under the row: what "Same as summaries" currently resolves to.
     private var hint: LocalizedStringKey {
@@ -630,19 +677,19 @@ private struct ReadAloudFeatureRow: View {
 
     var body: some View {
         FeatureRow(feature: .readAloud, dependsOnPrevious: true, enabled: $enabled,
-                   status: rowStatus, hint: hint, tests: tests, reveal: reveal) {
+                   status: rowStatus, detail: detail, hint: hint, tests: tests, reveal: reveal) {
           VStack(alignment: .leading, spacing: 6) {
             ControlLine {
                 ProviderPicker(label: "Read-aloud provider", selection: $selection,
-                               options: VoiceProvider.allCases,
+                               options: VoiceProvider.voiceProviders,
                                leading: ("", followTitle))
             } model: {
                 if case .ready(let provider) = status {
                     IDField(label: "Speech synthesis model",
-                            placeholder: SpeechSynthesis.support(provider).defaultModel,
+                            placeholder: SpeechSynthesis.support(provider)?.defaultModel ?? "",
                             text: $modelID, browse: provider.modelsURL,
                             browseHelp: "Browse available models", identifier: "readAloudModelID")
-                } else { Text(verbatim: "—").foregroundStyle(.secondary) }
+                } else { Text(verbatim: "—").foregroundStyle(MacTheme.ink2) }
             } voice: {
                 if case .ready(let provider) = status {
                     VoicePicker(label: "Read-aloud voice", purpose: .readAloud, provider: provider,
@@ -662,10 +709,30 @@ private struct ReadAloudFeatureRow: View {
                         .accessibilityLabel("Preview the read-aloud voice")
                         .accessibilityIdentifier("readAloudPreview")
                     }
-                } else { Text(verbatim: "—").foregroundStyle(.secondary) }
+                } else { Text(verbatim: "—").foregroundStyle(MacTheme.ink2) }
             } trailing: {
                 // No trailing button: the ▶ beside the voice is this row's verification.
                 EmptyView()
+            }
+            // Its own line, not a fifth column: the persona applies to whatever
+            // voice is chosen above, and ControlLine's three cells are already
+            // at their minimum widths. Shown only where the vendor documents an
+            // instruction channel — see `SpeechSynthesis.supportsStyle`.
+            if case .ready(let provider) = status, SpeechSynthesis.supportsStyle(provider) {
+                HStack(spacing: 8) {
+                    Text("Voice style").font(.caption).foregroundStyle(.secondary)
+                    Picker("Voice style", selection: styleSelection) {
+                        ForEach(VoiceStyle.allCases, id: \.rawValue) { Text(verbatim: $0.display).tag($0.rawValue) }
+                    }
+                    .labelsHidden().fixedSize()
+                    .accessibilityLabel("Voice style")
+                    .accessibilityIdentifier("readAloudStyle")
+                    Text(effectiveStyle == .standard
+                         ? "Reads the summary with no extra direction."
+                         : "Sent to \(provider.display) as a delivery instruction alongside each reading.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                }
             }
             // A reading that started on its own is stoppable here; the ▶ owns previews only.
             if reader.automaticBusy || !reader.status.isEmpty {
@@ -673,7 +740,7 @@ private struct ReadAloudFeatureRow: View {
                     Text(reader.automaticBusy && tests.purpose == .readAloud && tests.isBusy
                          ? "Automatic reading is queued until the preview finishes."
                          : LocalizedStringKey(reader.status))
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                     Spacer(minLength: 0)
                     Button("Stop automatic reading") { reader.stopAutomaticReading() }
                         .disabled(!reader.automaticBusy)
@@ -683,10 +750,10 @@ private struct ReadAloudFeatureRow: View {
           }
         }
         .onAppear { credential.refresh() }
-        .onChange(of: [modelID, voiceID, workspace, String(intl), String(credential.revision),
+        .onChange(of: [modelID, voiceID, styleID, workspace, String(intl), String(credential.revision),
                        String(enabled)]) { _, _ in tests.invalidate() }
         .onChange(of: enabled) { _, on in if !on { reader.stop() } }
-        .onChange(of: [modelID, voiceID]) { _, _ in reader.stop() }
+        .onChange(of: [modelID, voiceID, styleID]) { _, _ in reader.stop() }
         .onChange(of: voiceChat.isActive) { _, active in
             if active, tests.purpose == .readAloud { tests.cancel() }
         }
@@ -694,6 +761,13 @@ private struct ReadAloudFeatureRow: View {
 
     /// This row owns the running test, so its button reads and acts as Stop.
     private var isPreviewing: Bool { tests.purpose == .readAloud && tests.isBusy }
+
+    /// Reads through the same normalisation the request uses, so a stored
+    /// persona this build cannot parse shows as Standard instead of leaving
+    /// the picker with no matching tag.
+    private var styleSelection: Binding<String> {
+        Binding(get: { effectiveStyle.rawValue }, set: { styleID = $0 })
+    }
 
     private func preview() {
         if isPreviewing { tests.cancel(); return }
@@ -741,15 +815,15 @@ private struct AccountRow: View {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(provider.display)
-                    Text(verbatim: usage).font(.caption).foregroundStyle(.secondary)
+                    Text(verbatim: usage).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 }
                 Spacer(minLength: 0)
                 if credential.saveFailed {
-                    Text("Key not saved").font(.caption).foregroundStyle(.orange)
+                    Text("Key not saved").font(MacTheme.font(10)).foregroundStyle(.orange)
                 } else if credential.configured {
-                    Text("Key saved").font(.caption).foregroundStyle(.green)
+                    Text("Key saved").font(MacTheme.font(10)).foregroundStyle(.green)
                 } else {
-                    Text("No key").font(.caption).foregroundStyle(.secondary)
+                    Text("No key").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 }
                 Button(expanded ? "Done" : (credential.configured ? "Edit" : "Add key")) {
                     expanded.toggle()
@@ -775,7 +849,7 @@ private struct AccountRow: View {
                     }
                     if credential.saveFailed {
                         Text("API key could not be saved. Your edit is not stored; edit or paste it again to retry.")
-                            .font(.caption).foregroundStyle(.orange)
+                            .font(MacTheme.font(10)).foregroundStyle(.orange)
                     }
                     if provider == .qwen {
                         Toggle("Use Singapore (international) region", isOn: $intl)
@@ -783,7 +857,7 @@ private struct AccountRow: View {
                             TextField("Workspace ID", text: $workspaceID,
                                       prompt: Text(verbatim: "optional · llm-xxxxxxxx"))
                                 .labelsHidden().textFieldStyle(.roundedBorder)
-                                .font(.caption.monospaced()).autocorrectionDisabled()
+                                .font(MacTheme.mono(10)).autocorrectionDisabled()
                                 .accessibilityLabel("Workspace ID")
                                 .accessibilityIdentifier("qwenWorkspaceID")
                             Link(destination: VoiceProvider.qwenWorkspaceIDURL) {
@@ -792,13 +866,13 @@ private struct AccountRow: View {
                             .help("Find your workspace ID")
                         }
                         Text("Optional. When set, Qwen connects through the workspace endpoint.")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                     }
                     HStack {
-                        Link("Get an API key", destination: provider.apiKeyURL).font(.caption)
+                        Link("Get an API key", destination: provider.apiKeyURL).font(MacTheme.font(10))
                         Spacer(minLength: 8)
                         Text("Kept in the Keychain, once per provider.")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                     }
                 }
                 .padding(.leading, 2)

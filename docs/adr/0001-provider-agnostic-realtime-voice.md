@@ -75,3 +75,29 @@ two-sentence/180-character contract. Voice time and backend requests have separa
 billing; no new server, credentials, consent defaults or installation are implied.
 
 Official contracts and validation are recorded in [GPT-Live assessment](../gpt-live-1.md).
+
+## A text-only summary provider (2026-09-13)
+
+DeepSeek joins as the first vendor with **no voice side**: it serves completion
+summaries only. `VoiceProvider` therefore stops meaning "a realtime backend" and
+means "a vendor we talk to", with two capability flags deciding what each one may
+be picked for — `supportsCompletionSummaries` (already excluded Doubao) and the
+new `supportsVoice` (excludes DeepSeek). Voice conversation and read-aloud offer
+`voiceProviders`; summaries offer `summaryProviders`; accounts list every vendor,
+because a key belongs to the vendor rather than to a feature.
+
+`SpeechSynthesis.support` is no longer total: it returns `nil` for a text-only
+vendor rather than handing back a synthesizer that cannot work. Read-aloud gains a
+third state for following a summary provider that cannot speak — it says so and
+waits for a pin, the same refusal to invent a vendor that keeps it from falling
+back to Qwen when summaries are unconfigured. A stored conversation or read-aloud
+choice naming a text-only vendor is treated as no choice.
+
+The summary request is OpenAI-compatible chat completions, so it shares Qwen's
+request shape, response decoding and usage mapping. It differs in three ways: a
+single endpoint (`https://api.deepseek.com/chat/completions` — Qwen's region
+switch and workspace ID do not apply), the recommended model `deepseek-flash`
+(DeepSeek-V4.1-Flash), and `"thinking": {"type": "disabled"}`, because DeepSeek
+defaults to thinking at high effort and a 180-character spoken notification has
+no use for a reasoning budget. No new consent default, credential path or server
+is implied: it is one more BYO key in the Keychain (ADR-0002).

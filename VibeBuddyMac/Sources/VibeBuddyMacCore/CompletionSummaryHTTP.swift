@@ -17,10 +17,11 @@ struct CompletionSummaryHTTP: Sendable {
     }
 
     func generate(input: CompletionSummaryInput, configuration: CompletionSummaryConfiguration,
-                  key: String, timeout: TimeInterval, conversation: Bool = false) async -> CompletionSummaryResponse {
+                  key: String, timeout: TimeInterval, conversation: Bool = false,
+                  style: HistorySummaryStyle = .default) async -> CompletionSummaryResponse {
         do {
             try Task.checkCancellation()
-            let request = try Self.request(input: input, configuration: configuration, key: key, timeout: timeout, conversation: conversation)
+            let request = try Self.request(input: input, configuration: configuration, key: key, timeout: timeout, conversation: conversation, style: style)
             // No redirect follow-up: it could disclose result text/key or create a second paid request.
             let (data, response) = try await session.data(for: request, delegate: NoRedirect())
             try Task.checkCancellation()
@@ -43,10 +44,11 @@ struct CompletionSummaryHTTP: Sendable {
     }
 
     static func request(input: CompletionSummaryInput, configuration c: CompletionSummaryConfiguration,
-                        key: String, timeout: TimeInterval, conversation: Bool = false) throws -> URLRequest {
+                        key: String, timeout: TimeInterval, conversation: Bool = false,
+                        style: HistorySummaryStyle = .default) throws -> URLRequest {
         if let failure = c.configurationFailure { throw failure }
         guard let provider = c.provider else { throw CompletionSummaryFailure.missingProvider }
-        let instructions = conversation ? SessionHistorySummaryService.instructions(language: c.language) : Self.instructions(language: c.language)
+        let instructions = conversation ? SessionHistorySummaryService.instructions(style: style, language: c.language) : Self.instructions(language: c.language)
         let userData = try JSONSerialization.data(withJSONObject: ["title": input.title, conversation ? "transcript": "finalText": input.finalText], options: [.sortedKeys])
         let user = String(decoding: userData, as: UTF8.self)
         let endpoint: String
@@ -61,6 +63,13 @@ struct CompletionSummaryHTTP: Sendable {
             endpoint = "https://\(host)/compatible-mode/v1/chat/completions"
             body = ["model": c.modelID, "messages": [["role": "system", "content": instructions], ["role": "user", "content": user]],
                     "stream": false, "max_tokens": conversation ? 2400 : 512, "enable_thinking": false]
+        case .deepseek:
+            // OpenAI-compatible chat completions, one region, no workspace.
+            // Thinking is on by default and would spend a reasoning budget on a
+            // 180-character notification, so this path turns it off explicitly.
+            endpoint = "https://api.deepseek.com/chat/completions"
+            body = ["model": c.modelID, "messages": [["role": "system", "content": instructions], ["role": "user", "content": user]],
+                    "stream": false, "max_tokens": conversation ? 2400 : 512, "thinking": ["type": "disabled"]]
         case .openai:
             endpoint = "https://api.openai.com/v1/responses"
             var openAI: [String: Any] = ["model": c.modelID, "instructions": instructions,
@@ -108,7 +117,8 @@ struct CompletionSummaryHTTP: Sendable {
         var pieces: [String] = []
         switch provider {
         case .doubao: return fail(.missingProvider)
-        case .qwen:
+        // DeepSeek mirrors the OpenAI chat-completions schema Qwen also serves.
+        case .qwen, .deepseek:
             guard let choices = root["choices"] as? [[String: Any]], choices.count == 1,
                   let choice = choices.first, let message = choice["message"] as? [String: Any] else { return fail(.invalidResponse) }
             guard choice["finish_reason"] as? String == "stop" else { return fail(.incompleteOutput) }
@@ -167,7 +177,7 @@ struct CompletionSummaryHTTP: Sendable {
         func number(_ value: Any?) -> Int? { guard let n = value as? Int, n >= 0 else { return nil }; return n }
         switch provider {
         case .doubao: return nil
-        case .qwen:
+        case .qwen, .deepseek:
             return .init(inputTokens: number(u["prompt_tokens"]), outputTokens: number(u["completion_tokens"]), totalTokens: number(u["total_tokens"]),
                          cachedInputTokens: number((u["prompt_tokens_details"] as? [String: Any])?["cached_tokens"]),
                          reasoningTokens: number((u["completion_tokens_details"] as? [String: Any])?["reasoning_tokens"]))

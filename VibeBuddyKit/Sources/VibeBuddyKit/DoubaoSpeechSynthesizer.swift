@@ -16,10 +16,13 @@ public struct DoubaoSpeechSynthesizer: SpeechSynthesizer {
 
     let model: String
     let voice: String
+    let persona: VoicePersona?
 
-    public init(model: String = defaultModel, voice: String = defaultVoice) {
+    public init(model: String = defaultModel, voice: String = defaultVoice,
+                persona: VoicePersona? = nil) {
         self.model = model.isEmpty ? Self.defaultModel : model
         self.voice = voice.isEmpty ? Self.defaultVoice : voice
+        self.persona = persona
     }
 
     public func synthesize(_ text: String, apiKey: String) async throws -> Data {
@@ -32,9 +35,28 @@ public struct DoubaoSpeechSynthesizer: SpeechSynthesizer {
                       "X-Api-Resource-Id": model,
                       "X-Api-Request-Id": UUID().uuidString,
                       "Accept": "application/json"],
-            body: ["req_params": ["text": text, "speaker": voice,
-                                  "audio_params": ["format": "mp3", "sample_rate": 24_000]]])
+            body: requestBody(text))
         return try Self.audio(from: data)
+    }
+
+    /// Volcengine's style lever is 语音指令 — `additions.context_texts`, which
+    /// the docs describe as an aid to 对话式合成 and illustrate with requests
+    /// ("你可以用特别特别痛心的语气说话吗?"), so the persona goes in as one.
+    /// Only the list's first value takes effect, and its text is not billed.
+    ///
+    /// Two documented limits shape this: `additions` is a **jsonstring**, not
+    /// an object, and `context_texts` is TTS-2.0-only — which the read-aloud
+    /// catalog satisfies (every voice in it is `_uranus_bigtts` / `ICL_uranus_`,
+    /// tagged 指令遵循), but a hand-typed 1.0 voice ID would not. That is left
+    /// to the vendor to ignore rather than guessed at from the ID's shape.
+    func requestBody(_ text: String) -> [String: Any] {
+        var params: [String: Any] = ["text": text, "speaker": voice,
+                                     "audio_params": ["format": "mp3", "sample_rate": 24_000]]
+        if let persona,
+           let additions = try? JSONSerialization.data(withJSONObject: ["context_texts": [persona.request]]) {
+            params["additions"] = String(decoding: additions, as: UTF8.self)
+        }
+        return ["req_params": params]
     }
 
     /// Every frame carries a status: `0` on each audio chunk and `20000000`

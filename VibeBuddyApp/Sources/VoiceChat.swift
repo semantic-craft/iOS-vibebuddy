@@ -100,6 +100,12 @@ final class VoiceChat: ObservableObject {
 
     private func beginRealtimeSession() {
         let provider = VoiceSettings.provider
+        // `VoiceSettings.provider` only yields vendors that speak; this keeps the
+        // switch below honest rather than inventing a session for a text model.
+        guard provider.supportsVoice else {
+            errorText = "\(provider.display) is text-only. Choose a voice provider in Settings."
+            phase = .idle; return
+        }
         guard let key = provider.apiKey, !key.isEmpty else {
             errorText = "Add your \(provider.display) API key in Settings first."
             phase = .idle; return
@@ -117,6 +123,7 @@ final class VoiceChat: ObservableObject {
         case .openai: session = OpenAIVoiceSession.make(apiKey: key, model: model, language: language)
         case .gemini: session = GeminiRealtimeSession(apiKey: key, model: model)
         case .doubao: session = DoubaoRealtimeSession(apiKey: key, model: model)
+        case .deepseek: return   // Unreachable: guarded above.
         }
         let io = RealtimeAudioIO(inputSampleRate: provider.inputSampleRate)
         realtime = session

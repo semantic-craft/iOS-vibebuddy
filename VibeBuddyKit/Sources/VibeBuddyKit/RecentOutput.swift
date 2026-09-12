@@ -62,21 +62,21 @@ public struct RecentOutput: Codable, Equatable, Sendable {
                      unavailable: reason)
     }
 
-    public var sourceLabel: String { source?.displayName ?? "Unknown" }
+    public var sourceLabel: String { source?.displayName ?? String(localized: "Unknown", bundle: .module) }
 
     /// Empty when the slice is ready and untruncated. Used as the status line
     /// under the entries — never as a substitute for a pending question.
     public var statusLine: String {
         if let unavailable {
             switch unavailable {
-            case .unknownSession: return "This session is no longer on the Mac."
-            case .noSource: return "No recent output source for this session."
-            case .unreadable: return "The recent output source cannot be read."
-            case .unsupported: return "This agent’s output format is not supported yet."
+            case .unknownSession: return String(localized: "This session is no longer on the Mac.", bundle: .module)
+            case .noSource: return String(localized: "No recent output source for this session.", bundle: .module)
+            case .unreadable: return String(localized: "The recent output source cannot be read.", bundle: .module)
+            case .unsupported: return String(localized: "This agent’s output format is not supported yet.", bundle: .module)
             }
         }
-        if entries.isEmpty { return "No recent output yet." }
-        if truncated { return "Bounded excerpt — not the full history." }
+        if entries.isEmpty { return String(localized: "No recent output yet.", bundle: .module) }
+        if truncated { return String(localized: "Bounded excerpt — not the full history.", bundle: .module) }
         return ""
     }
 }

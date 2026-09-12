@@ -46,7 +46,7 @@ struct VoicePicker<Trailing: View>: View {
                 HStack(spacing: 6) {
                     TextField("Voice ID", text: $voiceID, prompt: Text("voice ID from the provider’s docs"))
                         .labelsHidden().textFieldStyle(.roundedBorder)
-                        .font(.caption.monospaced()).autocorrectionDisabled()
+                        .font(MacTheme.mono(10)).autocorrectionDisabled()
                         .accessibilityLabel(label)
                         .accessibilityIdentifier("customVoiceID")
                     trailing
@@ -54,7 +54,7 @@ struct VoicePicker<Trailing: View>: View {
                 // The list keeps a row for an off-catalog value, so returning to
                 // it must not discard the ID the user just typed.
                 Button("Back to the list") { custom = false }
-                .buttonStyle(.link).font(.caption)
+                .buttonStyle(.link).font(MacTheme.font(10))
             } else {
                 HStack(spacing: 6) {
                     Picker(label, selection: selection) {
@@ -77,11 +77,11 @@ struct VoicePicker<Trailing: View>: View {
                 }
                 if VoiceCatalog.isTiered(purpose, provider) {
                     Button("Show all \(all.count) voices…") { query = ""; showingAll = true }
-                        .buttonStyle(.link).font(.caption)
+                        .buttonStyle(.link).font(MacTheme.font(10))
                         .popover(isPresented: $showingAll, arrowEdge: .bottom) { fullList }
                 } else {
                     Text("\(shortlist.count) voices from \(provider.display)")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 }
             }
         }
@@ -96,7 +96,7 @@ struct VoicePicker<Trailing: View>: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2, pinnedViews: .sectionHeaders) {
                     if matches.isEmpty {
-                        Text("No match").font(.caption).foregroundStyle(.secondary).padding(.vertical, 6)
+                        Text("No match").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2).padding(.vertical, 6)
                     }
                     ForEach(VoiceCatalog.grouped(matches)) { group in
                         Section {
@@ -108,7 +108,7 @@ struct VoicePicker<Trailing: View>: View {
                                     HStack(spacing: 6) {
                                         Text(verbatim: voice.name)
                                         Text(verbatim: voice.trait.isEmpty ? voice.id : voice.trait)
-                                            .foregroundStyle(.secondary)
+                                            .foregroundStyle(MacTheme.ink2)
                                         Spacer(minLength: 0)
                                         if voice.id == effectiveID {
                                             Image(systemName: "checkmark").foregroundStyle(.tint)
@@ -124,12 +124,12 @@ struct VoicePicker<Trailing: View>: View {
                                 Spacer(minLength: 0)
                                 Text(verbatim: "\(group.voices.count)")
                             }
-                            .font(.caption.bold()).foregroundStyle(.secondary)
+                            .font(MacTheme.font(10, .bold)).foregroundStyle(MacTheme.ink2)
                             .padding(.vertical, 2).background(.background)
                         }
                     }
                 }
-                .font(.callout)
+                .font(MacTheme.font(12))
             }
             .frame(width: 320, height: 260)
         }

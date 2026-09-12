@@ -17,8 +17,13 @@ struct WatchAlertsView: View {
             ScrollView {
                 VStack(spacing: 8) {
                     WatchConnectionBanner(connection: connection)
-                    ForEach(Array(state.alerts.enumerated()), id: \.element.id) { index, alert in
-                        row(alert, isTop: index == 0)
+                    VStack(spacing: 0) {
+                        ForEach(Array(state.alerts.enumerated()), id: \.element.id) { index, alert in
+                            row(alert)
+                            if index < state.alerts.count - 1 {
+                                CompanionHairline(leading: WatchMetrics.dotLane)
+                            }
+                        }
                     }
                     WatchFooter(state: state, connection: connection, now: now)
                 }
@@ -29,12 +34,13 @@ struct WatchAlertsView: View {
         }
     }
 
-    private func row(_ alert: WatchAlert, isTop: Bool) -> some View {
+    /// The home card's grammar in one row: dot, who is waiting and for how
+    /// long, the summary, and the kind of wait. Order says which is on top.
+    private func row(_ alert: WatchAlert) -> some View {
         let accent = CompanionPalette.status(.requiresInput)
         return HStack(alignment: .top, spacing: 6) {
-            Capsule()
-                .fill(isTop ? accent : Color.secondary)
-                .frame(width: 2)
+            StatusDot(state: .requiresInput)
+                .padding(.top, 3)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
                     if alert.agent == .grokBot {
@@ -52,19 +58,22 @@ struct WatchAlertsView: View {
                     Text(WatchFormat.duration(alert.waitedFor(now: now)))
                         .monospacedDigit()
                 }
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+                .font(CompanionType.font(10))
+                .foregroundStyle(CompanionPalette.ink2)
 
                 Text(alert.summary ?? alert.request
                      ?? (alert.waitKind == .permission ? String(localized: "Needs approval") : String(localized: "Asked a question")))
-                    .font(CompanionType.font(13, .heavy))
+                    .font(CompanionType.font(13, .semibold))
+                    .foregroundStyle(CompanionPalette.ink)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
                 Text(alert.waitKind == .permission ? "Needs approval" : "Asked a question")
-                    .font(CompanionType.font(9, .heavy)).textCase(.uppercase).kerning(0.4)
-                    .foregroundStyle(isTop ? accent : .secondary)
+                    .font(CompanionType.font(10, .medium))
+                    .foregroundStyle(accent)
             }
         }
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
     }
 }

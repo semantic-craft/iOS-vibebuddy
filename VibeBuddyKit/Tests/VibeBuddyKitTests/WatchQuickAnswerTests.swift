@@ -52,40 +52,197 @@ final class WatchQuickAnswerTests: XCTestCase {
         XCTAssertFalse(choices.replies.contains { if case .phrase = $0 { return true }; return false })
     }
 
-    func testAMultiPartOrMultiSelectQuestionIsNotTheWristsToFinish() throws {
+    func testAPromptWithAFreeTextQuestionIsNotTheWristsToFinish() throws {
         // A free-text answer lands on the first item alone, so a wrist that
         // offered one tap would answer one question out of three and say
-        // nothing about the other two.
+        // nothing about the other two — and a wrist cannot type the essay
+        // the second question wants, so the whole prompt stays on the phone.
         var session = asking()
         session.pendingQuestion = PendingQuestion(
             id: "q-1", prompt: "Which tone?",
-            questions: [QuestionItem(id: "a", text: "Which tone?"),
+            questions: [QuestionItem(id: "a", text: "Which tone?",
+                                     options: [QuestionOption(id: "t", label: "Tighten")]),
                         QuestionItem(id: "b", text: "Ship it today?")])
         let card = try alert(session)
         XCTAssertNil(card.pendingId)
+        XCTAssertNil(card.questions)
         XCTAssertFalse(card.isAnswerable)
         XCTAssertNil(WatchQuickAnswers.resolve(for: card))
         // The wait is still remotely answerable, just not from a wrist.
         XCTAssertEqual(card.handling, .remoteAvailable)
 
-        // Multi-select is the same problem: one tap cannot express two picks.
-        var multi = asking()
-        multi.pendingQuestion = PendingQuestion(
-            id: "q-1", prompt: "Which files?",
-            questions: [QuestionItem(id: "a", text: "Which files?",
-                                     options: [QuestionOption(id: "x", label: "One")],
-                                     multiSelect: true)])
-        XCTAssertNil(WatchQuickAnswers.resolve(for: try alert(multi)))
-
         // And the rule runs again on the tap, so a forged payload naming the
-        // real question id is refused rather than half-answering.
+        // real question id is refused rather than half-answering — whether it
+        // sends one string or a set of picks for the questions it can pick.
         var gate = WatchSessionActionGate()
         let forged = WatchSessionActionRequest(attemptId: "t-1", sessionId: "s-ask",
                                                action: .answer(pendingId: "q-1", text: "Tighten"))
         XCTAssertEqual(gate.admit(forged, sessions: [session]), .refused)
+        let picked = WatchSessionActionRequest(attemptId: "t-2", sessionId: "s-ask",
+                                               action: .answerAll(pendingId: "q-1",
+                                                                  answers: ["a": ["Tighten"]]))
+        XCTAssertEqual(gate.admit(picked, sessions: [session]), .refused)
 
         // One single-select question is still the ordinary case.
         XCTAssertNotNil(WatchQuickAnswers.resolve(for: try alert(asking())))
+    }
+
+    // MARK: walking a prompt one question at a time
+
+    /// Cursor's usual `AskQuestion`: two questions, each with its own choices,
+    /// the second taking several.
+    private var twoPickable: AgentSession {
+        var session = asking()
+        session.pendingQuestion = PendingQuestion(
+            id: "q-1", prompt: "Which tone?",
+            questions: [QuestionItem(id: "tone", text: "Which tone?",
+                                     options: [QuestionOption(id: "t", label: "Tighten"),
+                                               QuestionOption(id: "p", label: "Plain language",
+                                                              value: "plain")]),
+                        QuestionItem(id: "files", text: "Which files?",
+                                     options: [QuestionOption(id: "x", label: "README"),
+                                               QuestionOption(id: "y", label: "CHANGELOG")],
+                                     multiSelect: true)])
+        return session
+    }
+
+    func testAPromptWhoseEveryQuestionOffersChoicesIsWalkedAndSentOnce() throws {
+        let session = twoPickable
+        let card = try alert(session)
+
+        // The wrist gets the identity and every question — text, choices with
+        // their values, and which ones take several picks.
+        XCTAssertEqual(card.pendingId, "q-1")
+        XCTAssertTrue(card.isAnswerable)
+        XCTAssertEqual(card.handling, .remoteAvailable)
+        let items = try XCTUnwrap(card.questions)
+        XCTAssertEqual(items.map(\.id), ["tone", "files"])
+        XCTAssertEqual(items.map(\.text), ["Which tone?", "Which files?"])
+        XCTAssertEqual(items.map(\.multiSelect), [false, true])
+        XCTAssertEqual(items[0].options.map(\.label), ["Tighten", "Plain language"])
+        XCTAssertEqual(items[0].options.map(\.value), ["Tighten", "plain"])
+        // Not one string: the first question's choices are not the answer.
+        XCTAssertNil(WatchQuickAnswers.resolve(for: card))
+        // The card still captions the first question, as every card does.
+        XCTAssertEqual(card.options, ["Tighten", "Plain language"])
+
+        // The whole set goes in one action, bound to the prompt.
+        var action = WatchSessionActionState()
+        let request = try XCTUnwrap(action.begin(
+            alert: card, answers: ["tone": ["plain"], "files": ["CHANGELOG", "README"]],
+            attemptId: "t-1"))
+        XCTAssertEqual(request.action, .answerAll(pendingId: "q-1",
+                                                  answers: ["tone": ["plain"],
+                                                            "files": ["README", "CHANGELOG"]]))
+        XCTAssertEqual(action.action?.pendingId, "q-1")
+        XCTAssertNil(action.action?.answerText)
+        XCTAssertEqual(action.action?.answers?["files"], ["README", "CHANGELOG"])
+
+        // The iPhone re-runs the rule and forwards exactly what was checked.
+        let gate = WatchSessionActionGate()
+        XCTAssertEqual(gate.admit(request, sessions: [session]),
+                       .answerAll(pendingId: "q-1", answers: ["tone": ["plain"],
+                                                              "files": ["README", "CHANGELOG"]]))
+
+        // Accepted is not answered: the attempt stays until a snapshot says
+        // the prompt is gone, exactly as a one-string answer does.
+        action.apply(WatchSessionActionResult(attemptId: "t-1", outcome: .accepted))
+        let asking = WatchDashboardProjection.make(
+            snapshot: Snapshot(sessions: [session], serverTime: now), quotas: [], relay: .live, now: now)
+        action.reconcile(with: asking)
+        XCTAssertNotNil(action.action)
+        XCTAssertNotNil(asking.resolvingAnswer("q-1"))
+        action.reconcile(with: asking.resolvingAnswer("q-1"))
+        XCTAssertNil(action.action)
+
+        // A restored cache keeps neither the identity nor the questions.
+        let cached = WatchStoredState(state: asking, queue: WatchCompletionQueue()).state
+        XCTAssertNil(cached.alerts.first?.questions)
+        XCTAssertFalse(cached.alerts.first?.isAnswerable ?? true)
+    }
+
+    func testAPartialOrInventedAnswerSetNeverLeavesTheWristAndIsRefusedAnyway() throws {
+        let session = twoPickable
+        let card = try alert(session)
+        var action = WatchSessionActionState()
+        let gate = WatchSessionActionGate()
+        func forged(_ answers: QuestionAnswers, _ attempt: String) -> WatchSessionActionRequest {
+            WatchSessionActionRequest(attemptId: attempt, sessionId: "s-ask",
+                                      action: .answerAll(pendingId: "q-1", answers: answers))
+        }
+
+        let incomplete: [(String, QuestionAnswers)] = [
+            ("one question missing", ["tone": ["Tighten"]]),
+            ("an empty pick", ["tone": [], "files": ["README"]]),
+            ("a choice the agent never offered", ["tone": ["Loosen"], "files": ["README"]]),
+            ("a question the agent never asked", ["tone": ["Tighten"], "files": ["README"], "x": ["y"]]),
+            ("two picks for a single-select", ["tone": ["Tighten", "plain"], "files": ["README"]]),
+        ]
+        for (why, answers) in incomplete {
+            XCTAssertNil(action.begin(alert: card, answers: answers, attemptId: "t-1"), why)
+            XCTAssertEqual(gate.admit(forged(answers, "t-1"), sessions: [session]), .refused, why)
+        }
+
+        // Ids are accepted for values and normalized, so an agent that keeps
+        // the two apart still gets the value it will read.
+        XCTAssertEqual(gate.admit(forged(["tone": ["p"], "files": ["y", "y"]], "t-2"), sessions: [session]),
+                       .answerAll(pendingId: "q-1", answers: ["tone": ["plain"], "files": ["CHANGELOG"]]))
+        // The wrong prompt is the wrong prompt.
+        var moved = session
+        moved.pendingQuestion = PendingQuestion(id: "q-2", prompt: "Still?", questions: session.pendingQuestion?.questions)
+        XCTAssertEqual(gate.admit(forged(["tone": ["p"], "files": ["y"]], "t-3"), sessions: [moved]), .refused)
+        // A one-string answer to a walked prompt is still one answer for two
+        // questions, and still refused.
+        let text = WatchSessionActionRequest(attemptId: "t-4", sessionId: "s-ask",
+                                             action: .answer(pendingId: "q-1", text: "Tighten"))
+        XCTAssertEqual(gate.admit(text, sessions: [session]), .refused)
+    }
+
+    func testOneMultiSelectQuestionIsWalkedRatherThanRefused() throws {
+        var multi = asking()
+        multi.pendingQuestion = PendingQuestion(
+            id: "q-1", prompt: "Which files?",
+            questions: [QuestionItem(id: "a", text: "Which files?",
+                                     options: [QuestionOption(id: "x", label: "One"),
+                                               QuestionOption(id: "y", label: "Two")],
+                                     multiSelect: true)])
+        let card = try alert(multi)
+        XCTAssertEqual(card.questions?.count, 1)
+        XCTAssertEqual(card.questions?.first?.multiSelect, true)
+        XCTAssertNil(WatchQuickAnswers.resolve(for: card), "two picks are not one string")
+        let gate = WatchSessionActionGate()
+        let both = WatchSessionActionRequest(attemptId: "t-1", sessionId: "s-ask",
+                                             action: .answerAll(pendingId: "q-1", answers: ["a": ["Two", "One"]]))
+        XCTAssertEqual(gate.admit(both, sessions: [multi]),
+                       .answerAll(pendingId: "q-1", answers: ["a": ["One", "Two"]]))
+
+        // One single-select question with choices keeps the one-string path:
+        // no `questions`, the choices as quick replies, nothing new on screen.
+        let single = try alert(asking(options: [QuestionOption(id: "t", label: "Tighten")]))
+        XCTAssertNil(single.questions)
+        XCTAssertEqual(WatchQuickAnswers.resolve(for: single)?.source, .options)
+    }
+
+    func testTheAnswerSetRoundTripsAndTheOneStringFormStillDecodes() throws {
+        let request = WatchSessionActionRequest(
+            attemptId: "t-1", sessionId: "s-ask",
+            action: .answerAll(pendingId: "q-1", answers: ["tone": ["plain"], "files": ["README", "CHANGELOG"]]))
+        let payload = try JSONEncoder().encode(request)
+        XCTAssertEqual(try JSONDecoder().decode(WatchSessionActionRequest.self, from: payload), request)
+        let json = String(decoding: payload, as: UTF8.self)
+        XCTAssertTrue(json.contains("\"answerAll\""))
+        XCTAssertFalse(json.contains("token"))
+
+        // What an older Watch sends, byte for byte, still means what it meant.
+        let legacy = Data(#"{"attemptId":"t-2","sessionId":"s-ask","action":{"answer":{"pendingId":"q-1","text":"yes"}}}"#.utf8)
+        XCTAssertEqual(try JSONDecoder().decode(WatchSessionActionRequest.self, from: legacy),
+                       WatchSessionActionRequest(attemptId: "t-2", sessionId: "s-ask",
+                                                 action: .answer(pendingId: "q-1", text: "yes")))
+        // And a relay that predates the walk reads as a one-string alert.
+        let old = Data(#"{"sessionId":"s","agent":"codex","project":"p","waitKind":"question","options":[],"waitingSince":0}"#.utf8)
+        let alert = try JSONDecoder().decode(WatchAlert.self, from: old)
+        XCTAssertNil(alert.questions)
+        XCTAssertNil(alert.pendingId)
     }
 
     func testOptionsThatDidNotFitAreCountedRatherThanDropped() throws {

@@ -718,6 +718,52 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertTrue(answers.isEmpty)
     }
 
+    func testAWalkedPromptIsForwardedOnceAsStructuredAnswers() async throws {
+        // Cursor's usual AskQuestion: every question offers choices, so the
+        // wrist walks them and the phone forwards the set the way its own
+        // card would — structured, keyed by question, never as one string.
+        let transport = FakeWatchTransport()
+        let client = AnsweringDecisionClient(answer: .received)
+        var walked = askingCodex(at: now)
+        walked.pendingQuestion = PendingQuestion(
+            id: "q-1", prompt: "Which tone?",
+            questions: [QuestionItem(id: "tone", text: "Which tone?",
+                                     options: [QuestionOption(id: "t", label: "Tighten"),
+                                               QuestionOption(id: "p", label: "Plain language", value: "plain")]),
+                        QuestionItem(id: "files", text: "Which files?",
+                                     options: [QuestionOption(id: "x", label: "README"),
+                                               QuestionOption(id: "y", label: "CHANGELOG")],
+                                     multiSelect: true)])
+        let store = try await answeringStore(transport, sessions: [walked], client: client)
+
+        let alert = try XCTUnwrap(transport.states.last?.alerts.first)
+        XCTAssertEqual(alert.pendingId, "q-1")
+        XCTAssertTrue(alert.isAnswerable)
+        XCTAssertEqual(alert.questions?.map(\.id), ["tone", "files"])
+        XCTAssertNil(WatchQuickAnswers.resolve(for: alert), "not one string")
+
+        var action = WatchSessionActionState()
+        let request = try XCTUnwrap(action.begin(
+            alert: alert, answers: ["tone": ["plain"], "files": ["CHANGELOG", "README"]], attemptId: "t-1"))
+        let result = await transport.tap(request)
+
+        XCTAssertEqual(result.outcome, .accepted)
+        let answers = await client.answers
+        XCTAssertEqual(answers.count, 1)
+        XCTAssertEqual(answers.first?.questionID, "q-1")
+        XCTAssertNil(answers.first?.text)
+        XCTAssertEqual(answers.first?.answers, ["tone": ["plain"], "files": ["README", "CHANGELOG"]])
+        XCTAssertEqual(store.allSessions.first?.status, .needsResponse, "accepted is not answered")
+
+        // A set missing a question never gets past the gate, even hand-made.
+        let partial = WatchSessionActionRequest(attemptId: "t-2", sessionId: "task-ask",
+                                                action: .answerAll(pendingId: "q-1", answers: ["tone": ["plain"]]))
+        let refused = await transport.tap(partial)
+        XCTAssertEqual(refused.outcome, .refused)
+        let still = await client.answers
+        XCTAssertEqual(still.count, 1)
+    }
+
     func testADemoAnswerClearsTheSampleQuestionThroughTheSameRelay() async throws {
         let transport = FakeWatchTransport()
         let store = demoStore(transport)

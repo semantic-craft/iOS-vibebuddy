@@ -14,7 +14,7 @@
 
 **免费开源 · 无需 VibeBuddy 账号 · 无行为分析 · AI 功能使用自己的密钥**
 
-<img src="docs/app-store-screenshots/1.3/macos/zh-Hans/01-dashboard-approval.jpg" width="960" alt="Mac 任务看板：Claude Code、Codex 任务与文件编辑审批" />
+<img src="docs/app-store-screenshots/1.3.14/macos/zh-Hans/01-dashboard-approval.jpg" width="960" alt="Mac 任务看板：Claude Code、Codex 任务与文件编辑审批" />
 
 <sub>真实 App 的 1.3 演示界面，使用样例任务。截图展示界面，不代表真实 Agent 的运行结果。</sub>
 
@@ -37,13 +37,13 @@
 <th>抬腕查看额度</th>
 </tr>
 <tr>
-<td align="center" valign="top"><img src="docs/app-store-screenshots/1.3/ios/zh-Hans/01-dashboard.jpg" width="270" alt="iPhone 演示看板中的 Claude 编辑审批与问题" /></td>
-<td align="center" valign="top"><img src="docs/app-store-screenshots/1.3/ios/zh-Hans/02-codex-task.jpg" width="270" alt="iPhone 演示中的 Codex 任务详情、上下文用量与回复入口" /></td>
-<td align="center" valign="top"><img src="docs/app-store-screenshots/1.3/watchos/zh-Hans/02-quota.jpg" width="208" alt="Apple Watch 演示中的 Codex 周额度与短窗口剩余额度" /><br><br>关注中的任务<br>快捷回答<br>完成摘要<br>剩余额度</td>
+<td align="center" valign="top"><img src="docs/app-store-screenshots/1.3.14/ios/zh-Hans/01-dashboard.jpg" width="270" alt="iPhone 演示看板中的 Claude 编辑审批与问题" /></td>
+<td align="center" valign="top"><img src="docs/app-store-screenshots/1.3.14/ios/zh-Hans/02-codex-task.jpg" width="270" alt="iPhone 演示中的 Codex 任务详情、上下文用量与回复入口" /></td>
+<td align="center" valign="top"><img src="docs/app-store-screenshots/1.3.14/watchos/zh-Hans/02-quota.jpg" width="208" alt="Apple Watch 演示中的 Codex 周额度与短窗口剩余额度" /><br><br>关注中的任务<br>快捷回答<br>完成摘要<br>剩余额度</td>
 </tr>
 </table>
 
-<sub>以上均来自实际运行的 1.3 App 演示模式。Watch 图片为 App 内额度页。<a href="docs/app-store-screenshots/1.3/README.md">截图来源说明</a>。</sub>
+<sub>以上均来自实际运行的 1.3.14 App 演示模式。Watch 图片为 App 内额度页。<a href="docs/app-store-screenshots/1.3.14/README.md">截图来源说明</a>。</sub>
 
 - **Mac：** 可搜索的菜单栏活动列表、完整任务看板、刘海 Glance，以及返回原终端或应用的快捷入口。
 - **iPhone：** 任务详情、近期对话、支持的审批与回复、实时活动和灵动岛计数。
@@ -74,7 +74,7 @@ VibeBuddy 连接你已经在用的 Agent。能否操作，取决于当前连接�
 | **Codex Desktop** | 观测本地任务进展和完成结果，跳回应用。 | Desktop 可能使用独立 app-server；原生审批覆盖不完整，没有可回应请求时需使用 Mac 提示。 |
 | **Grok Build** | CLI 生命周期 hooks、任务状态、账户额度与配置后的审批通道。 | 远程批准能否解除原生提示，取决于 Grok 的权限模式。 |
 | **Grok Bot** | 可选的只读任务观测、可核实的普通对话完成摘要与独立账户额度。 | 回复和审批在官方 App 中处理；问题续接、自动化任务及跨断线轮次尚未支持。 |
-| **Cursor** | 从支持的登录来源读取账户额度，包括 Cursor App 与 Cursor CLI，分别显示 **Cursor Models** 和 **Other Models**。 | 已支持额度；尚不支持任务追踪和远程审批。 |
+| **Cursor** | Agent 面板与 Cursor CLI 的任务状态、可处理的审批与提问、为进行中的 turn 排队补充一句、用 Cursor CLI 继续已结束的会话，以及账户额度（分别显示 **Cursor Models** 和 **Other Models**）。 | 任务状态与远程回应需要装好 Cursor hooks；没装时仍可由 agent transcript 报告进展。Cursor 没有打断进行中 turn 的接口，也没有直接打开某个会话的链接——跳转只把 Cursor 带到前台。 |
 
 详见 [Codex 集成契约](docs/codex-integration.md)和 [Agent hook 配置](docs/multi-cli-hook-setup.md)。Qwen、Kimi、OpenCode、Antigravity 编码 Agent 适配器属于实验性社区集成；其验证状态与已支持的千问语音服务不同。
 

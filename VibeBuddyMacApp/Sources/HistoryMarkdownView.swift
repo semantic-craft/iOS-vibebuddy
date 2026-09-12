@@ -28,26 +28,26 @@ private struct HistoryMarkdownBlocks: View {
     @ViewBuilder private func render(_ block: HistoryMarkdownBlock) -> some View {
         switch block {
         case .paragraph(let text): inline(text).textSelection(.enabled)
-        case .heading(let level, let text): inline(text).font(level == 1 ? .title2 : level == 2 ? .title3 : .headline).textSelection(.enabled)
+        case .heading(let level, let text): inline(text).font(level == 1 ? MacTheme.font(17, .semibold) : level == 2 ? MacTheme.font(15, .semibold) : MacTheme.font(13, .semibold)).textSelection(.enabled)
         case .code(let language, let code):
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Text(language.isEmpty ? "Code" : language).font(.caption).foregroundStyle(.secondary)
+                    Text(language.isEmpty ? "Code" : language).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                     Spacer()
-                    Button("Copy code") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(code, forType: .string) }.font(.caption)
+                    Button("Copy code") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(code, forType: .string) }.font(MacTheme.font(10))
                 }
-                ScrollView(.horizontal) { Text(code).font(.system(.callout, design: .monospaced)).textSelection(.enabled).fixedSize(horizontal: true, vertical: false) }
+                ScrollView(.horizontal) { Text(code).font(MacTheme.mono(12)).textSelection(.enabled).fixedSize(horizontal: true, vertical: false) }
             }.padding(12).background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
         case .quote(let children):
             HStack(alignment: .top) {
-                Rectangle().fill(.secondary.opacity(0.4)).frame(width: 3)
-                AnyView(HistoryMarkdownBlocks(blocks: children)).foregroundStyle(.secondary)
+                Rectangle().fill(MacTheme.line).frame(width: 3)
+                AnyView(HistoryMarkdownBlocks(blocks: children)).foregroundStyle(MacTheme.ink2)
             }.fixedSize(horizontal: false, vertical: true)
         case .list(let start, let items):
             VStack(alignment: .leading, spacing: 7) {
                 ForEach(items.indices, id: \.self) { index in
                     HStack(alignment: .top, spacing: 8) {
-                        Text(start.map { "\($0 + index)." } ?? "•").foregroundStyle(.secondary)
+                        Text(start.map { "\($0 + index)." } ?? "•").foregroundStyle(MacTheme.ink2)
                         AnyView(HistoryMarkdownBlocks(blocks: items[index]))
                     }
                 }

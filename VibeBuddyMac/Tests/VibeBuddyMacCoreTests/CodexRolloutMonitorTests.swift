@@ -1264,7 +1264,9 @@ struct CodexRolloutMonitorTests {
         )
         let monitor = CodexRolloutMonitor(root: fixture.root)
         let server = VibeBuddyServer(
-            store: SessionStore(), token: "monitor-lifecycle", port: 0,
+            store: SessionStore(copilotDatabase: fixture.root.appendingPathComponent("no-copilot.db"),
+                                cursorDatabase: fixture.root.appendingPathComponent("no-cursor.db")),
+            token: "monitor-lifecycle", port: 0,
             codexRolloutMonitor: monitor
         )
         let serverTask = Task { try await server.runService() }

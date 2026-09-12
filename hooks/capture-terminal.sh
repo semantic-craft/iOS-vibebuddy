@@ -132,10 +132,16 @@ json_str() {  # json_str <key>  — first string value of "key" in $INPUT
 }
 
 # Claude/Codex/Qwen/Kimi/OpenCode send `session_id`; the Grok CLI sends `sessionId`.
+# Cursor sends both `conversation_id` and `session_id` and the daemon keys Cursor
+# sessions on the conversation (the composer id its transcript and its database
+# row are named after), so `capture-terminal.sh cursor` must prefer that one — a
+# ref filed under the other id would belong to no row.
 # $GROK_SESSION_ID is only the last resort, because grok exports it to every
 # process it spawns: a Claude session started from a shell inside grok would
 # otherwise report its terminal under grok's session id.
-SID=$(json_str session_id)
+SID=""
+[ "${1:-}" = "cursor" ] && SID=$(json_str conversation_id)
+[ -z "$SID" ] && SID=$(json_str session_id)
 [ -z "$SID" ] && SID=$(json_str sessionId)
 [ -z "$SID" ] && SID="${GROK_SESSION_ID:-}"
 EVENT=$(json_str hook_event_name)

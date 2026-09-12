@@ -23,6 +23,7 @@ public struct StatusLineSample: Sendable, Equatable {
     /// The claude.ai rate-limit windows, when the CLI reports them.
     public var fiveHour: AccountUsageWindow?
     public var sevenDay: AccountUsageWindow?
+    public var extraWindows: [AccountUsageWindow] = []
 
     public init(sessionID: String) { self.sessionID = sessionID }
 
@@ -61,6 +62,7 @@ public struct StatusLineSample: Sendable, Equatable {
         if let limits = obj["rate_limits"] as? [String: Any] {
             sample.fiveHour = Self.window(limits["five_hour"], kind: .primary, minutes: 5 * 60)
             sample.sevenDay = Self.window(limits["seven_day"], kind: .secondary, minutes: 7 * 24 * 60)
+            sample.extraWindows = Self.extraWindows(from: limits)
         }
         return sample
     }
@@ -68,12 +70,53 @@ public struct StatusLineSample: Sendable, Equatable {
     /// The subscription allowance this sample carries, in the collectors'
     /// shape, or nil when the CLI sent no `rate_limits`.
     public func usageSnapshot(fetchedAt: Date) -> AccountUsageSnapshot? {
-        guard fiveHour != nil || sevenDay != nil else { return nil }
+        guard fiveHour != nil || sevenDay != nil || !extraWindows.isEmpty else { return nil }
         return AccountUsageSnapshot(
             provider: .claude, planType: nil,
             primary: fiveHour, secondary: sevenDay,
             lifetimeTokens: nil, latestDailyTokens: nil,
-            fetchedAt: fetchedAt)
+            fetchedAt: fetchedAt,
+            extraWindows: extraWindows.isEmpty ? nil : extraWindows)
+    }
+
+    private static let reservedRateLimitKeys: Set<String> = ["five_hour", "seven_day"]
+
+    private static func extraWindows(from limits: [String: Any]) -> [AccountUsageWindow] {
+        var extras: [AccountUsageWindow] = []
+        var seen: Set<String> = []
+        for (rawKey, value) in limits.sorted(by: { $0.key < $1.key }) where !reservedRateLimitKeys.contains(rawKey) {
+            let minutes: Int?
+            let lowered = rawKey.lowercased()
+            if lowered.contains("five_hour") || lowered.contains("five-hour") {
+                minutes = 5 * 60
+            } else if lowered.contains("seven_day") || lowered.contains("seven-day") {
+                minutes = 7 * 24 * 60
+            } else {
+                minutes = nil
+            }
+            guard let window = Self.window(value, kind: .extra, minutes: minutes ?? 0) else { continue }
+            let slug: String
+            let key: String
+            if lowered.hasPrefix("seven_day_") || lowered.hasPrefix("five_hour_")
+                || lowered.hasPrefix("seven-day-") || lowered.hasPrefix("five-hour-") {
+                let stripped = QuotaPresentation.extraWindowTitle(fromStatusLineKey: rawKey)
+                    .replacingOccurrences(of: " only", with: "")
+                slug = QuotaPresentation.slug(stripped)
+                key = "claude-weekly-scoped-\(slug)"
+            } else {
+                slug = QuotaPresentation.slug(rawKey)
+                key = "claude-status-\(slug)"
+            }
+            guard !slug.isEmpty, seen.insert(key).inserted else { continue }
+            extras.append(.extra(
+                key: key,
+                label: QuotaPresentation.extraWindowTitle(fromStatusLineKey: rawKey),
+                usedPercent: window.usedPercent,
+                windowDurationMinutes: minutes,
+                resetsAt: window.resetsAt
+            ))
+        }
+        return extras
     }
 
     private static func window(_ value: Any?, kind: AccountUsageWindowKind, minutes: Int) -> AccountUsageWindow? {

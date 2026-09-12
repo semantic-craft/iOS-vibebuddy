@@ -139,6 +139,22 @@ public struct AnswerDispatch: Sendable {
     /// (with the reason), or sent without an answer — never retried here, and
     /// never followed by another method.
     public let interrupt: @Sendable (String) async -> CodexAppServerMonitor.InterruptOutcome
+    /// Queue a supplement for a running Cursor turn. Cursor has no mid-turn
+    /// write, so this is held until its `stop` hook collects it.
+    public let queueCursorFollowup: @Sendable (String, String) async -> Bool
+    /// Continue a finished Cursor chat by resuming it in a terminal
+    /// (`cursor-agent --resume <id>`). False when the CLI is unavailable.
+    public let resumeCursor: @Sendable (AgentSession, String) async -> Bool
+    /// Continue a Cursor **cloud** agent by starting its next run over the Cloud
+    /// Agents API. Returns the delivery verdict directly because the interesting
+    /// failure is Cursor's own `409 agent_busy` — a run started between the
+    /// snapshot the phone saw and this call — and that is a different sentence
+    /// from "the key is missing".
+    public let continueCursorCloud: @Sendable (String, String) async -> SessionActionDelivery
+    /// Cancel the live run on a Cursor cloud agent. Answers in the same three
+    /// outcomes a Codex interrupt does, because they mean the same three things
+    /// to the person who tapped Stop.
+    public let cancelCursorCloud: @Sendable (String) async -> CodexAppServerMonitor.InterruptOutcome
     public let requests: ActionRequestLog
 
     public init(store: SessionStore, questions: QuestionRegistry,
@@ -147,6 +163,12 @@ public struct AnswerDispatch: Sendable {
                 startTurn: @escaping @Sendable (String, String) async -> Bool = { _, _ in false },
                 interrupt: @escaping @Sendable (String) async -> CodexAppServerMonitor.InterruptOutcome
                     = { _ in .notSent(String(localized: "This Mac cannot stop Codex tasks.")) },
+                queueCursorFollowup: @escaping @Sendable (String, String) async -> Bool = { _, _ in false },
+                resumeCursor: @escaping @Sendable (AgentSession, String) async -> Bool = { _, _ in false },
+                continueCursorCloud: @escaping @Sendable (String, String) async -> SessionActionDelivery
+                    = { _, _ in .failed(String(localized: "Add a Cursor API key on your Mac to reach cloud agents from here.")) },
+                cancelCursorCloud: @escaping @Sendable (String) async -> CodexAppServerMonitor.InterruptOutcome
+                    = { _ in .notSent(String(localized: "Add a Cursor API key on your Mac to reach cloud agents from here.")) },
                 requests: ActionRequestLog = ActionRequestLog()) {
         self.store = store
         self.questions = questions
@@ -154,6 +176,10 @@ public struct AnswerDispatch: Sendable {
         self.steer = steer
         self.startTurn = startTurn
         self.interrupt = interrupt
+        self.queueCursorFollowup = queueCursorFollowup
+        self.resumeCursor = resumeCursor
+        self.continueCursorCloud = continueCursorCloud
+        self.cancelCursorCloud = cancelCursorCloud
         self.requests = requests
     }
 
@@ -208,6 +234,22 @@ public struct AnswerDispatch: Sendable {
         guard !typed.isEmpty else { return .failed("Empty instruction") }
 
         if intent == .steer {
+            // Cursor cannot be interrupted: the supplement is queued and its
+            // `stop` hook submits it when the turn ends. Accepted means queued
+            // for that moment, which is what the composer's note says.
+            if let session, session.agent == .cursor {
+                guard session.status != .done else {
+                    return .failed("This turn has already ended")
+                }
+                let support = SessionActionSupport.resolve(for: session)
+                guard support.isAvailable else {
+                    return .failed(support.unsupportedReason ?? "This agent can't take that action from here")
+                }
+                guard await queueCursorFollowup(session.id, typed) else {
+                    return .failed("Nothing was queued for Cursor")
+                }
+                return .accepted
+            }
             guard session?.agent == .codex else {
                 return .failed("\(session?.agent.displayName ?? "This agent") sessions can't take instructions from here")
             }
@@ -221,6 +263,24 @@ public struct AnswerDispatch: Sendable {
         }
 
         if intent == .continue {
+            // A finished Cursor chat is reopened by the CLI against the same
+            // conversation id, in a terminal the person can watch.
+            if let session, session.agent == .cursor {
+                guard session.status == .done else {
+                    return .failed("This session is still running")
+                }
+                // A cloud agent has no terminal to resume into and no local
+                // conversation for the CLI to open. Continuing it means asking
+                // Cursor to start the next run on the same agent, which is what
+                // v1 replaced the old `followup` verb with.
+                if SessionActionSupport.isCursorCloudAgent(session) {
+                    return await continueCursorCloud(session.id, typed)
+                }
+                guard await resumeCursor(session, typed) else {
+                    return .failed("This Mac can't resume Cursor chats — the Cursor CLI isn't available.")
+                }
+                return .accepted
+            }
             guard session?.agent == .codex else {
                 return .failed("\(session?.agent.displayName ?? "This agent") sessions can't continue from here")
             }
@@ -273,7 +333,12 @@ public struct AnswerDispatch: Sendable {
         guard abs(session.statusSince.timeIntervalSince1970 - expected) < 0.001 else {
             return .refused("This task has changed")
         }
-        switch await interrupt(request.sessionID) {
+        // A cloud run is cancelled through Cursor's own API; a local Codex turn
+        // through the app-server daemon. Both answer the same three outcomes.
+        let outcome = SessionActionSupport.isCursorCloudAgent(session)
+            ? await cancelCursorCloud(request.sessionID)
+            : await interrupt(request.sessionID)
+        switch outcome {
         case .sent: return .accepted
         case .notSent(let why): return .failed(why)
         case .unconfirmed: return .unknown
@@ -285,7 +350,7 @@ public struct AnswerDispatch: Sendable {
     /// everything else falls through to tmux.
     private func inferredIntent(session: AgentSession?, waiting: Bool, pending: PendingQuestion?) -> SessionActionIntent? {
         if waiting || pending != nil { return .answer }
-        guard session?.agent == .codex else { return nil }
+        guard session?.agent == .codex || session?.agent == .cursor else { return nil }
         return session?.status == .done ? .continue : .steer
     }
 

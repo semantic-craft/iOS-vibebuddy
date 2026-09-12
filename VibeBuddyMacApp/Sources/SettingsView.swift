@@ -3,259 +3,696 @@ import AppKit
 import VibeBuddyKit
 import VibeBuddyMacCore
 
-/// Retained Settings content. Each category owns one independently scrolling form.
+/// Settings. Ten pages under five sidebar groups, each page sized to be read
+/// without scrolling at the window's default size — the five broad categories
+/// this replaced had grown long enough (quota and token spend arrived in one
+/// tab) that every one of them scrolled. Chrome lives in `SettingsChrome.swift`.
 struct SettingsView: View {
     @ObservedObject var model: MenuBarModel
     @StateObject private var hookSetup = HookSetup()
     @StateObject private var tests = SettingsTestCoordinator()
-    @State private var selection: SettingsCategory = .everyday
+    /// Lifted out of the voice page so the feature rows and the key rows —
+    /// now two separate pages — read the same saved credentials.
+    @StateObject private var credentials = SettingsCredentials()
+    @State private var selection: SettingsPageID
+    /// Which provider's key row is open on the Provider keys page. A feature
+    /// row's "No API key yet" pill sets both this and `selection`.
+    @State private var expandedAccount: VoiceProvider?
 
-    private enum SettingsCategory: String, CaseIterable {
-        case everyday = "Everyday"
-        case voice = "Models & Voice"
-        case devices = "Devices & Integrations"
-        case usage = "Usage & Limits"
-        case diagnostics = "Advanced & Diagnostics"
-
-        var symbol: String {
-            switch self {
-            case .everyday: "gearshape"
-            case .voice: "waveform"
-            case .devices: "iphone.gen3"
-            case .usage: "gauge.with.dots.needle.50percent"
-            case .diagnostics: "stethoscope"
-            }
-        }
+    init(model: MenuBarModel, initialPage: SettingsPageID = .general) {
+        self.model = model
+        _selection = State(initialValue: initialPage)
     }
 
     var body: some View {
         HStack(spacing: 0) {
-            List(SettingsCategory.allCases, id: \.self, selection: Binding<SettingsCategory?>(
-                get: { selection },
-                set: { if let category = $0 { selection = category } }
-            )) { category in
-                Label(LocalizedStringKey(category.rawValue), systemImage: category.symbol)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.vertical, 5)
-                    .tag(category)
-            }
-            .listStyle(.sidebar)
-            .frame(width: 196)
-            .accessibilityLabel("Settings categories")
-            Divider()
-            VStack(alignment: .leading, spacing: 0) {
-                Text(LocalizedStringKey(selection.rawValue))
-                    .font(.title2.bold())
-                    .padding(20)
-                    .accessibilityAddTraits(.isHeader)
-                ScrollViewReader { scroll in
-                  Form {
-                    switch selection {
-                    case .everyday:
-                        GeneralSettings(model: model)
-                        GlanceSettings(model: model)
-                        NotificationSettings(model: model)
-                        diagnosticsLink
-                    case .voice:
-                        VoiceSettingsTab(model: model, tests: tests, scroll: scroll)
-                    case .devices:
-                        DeviceSettings(model: model)
-                        SetupSettings(model: model, setup: hookSetup, diagnostics: false)
-                        diagnosticsLink
-                    case .usage:
-                        AccountUsageSettings(model: model)
-                        SessionBudgetSettings()
-                    case .diagnostics:
-                        SetupSettings(model: model, setup: hookSetup, diagnostics: true)
-                        NotificationDiagnostics(model: model)
-                    }
-                  }
-                  .formStyle(.grouped)
-                  .id(selection)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            SettingsSidebar(selection: $selection)
+            Rectangle().fill(MacTheme.line).frame(width: 1).accessibilityHidden(true)
+            page
         }
-        .frame(minWidth: 720, minHeight: 560)
+        .frame(minWidth: 920, minHeight: 760)
+        // The buddy's green is the action colour everywhere else; without this
+        // every switch and segmented selection falls back to the system accent.
+        .tint(MacTheme.accent)
         .modifier(SettingsTestLifecycle(tests: tests))
     }
 
-    private var diagnosticsLink: some View {
-        Section("Connection & delivery") {
-            if let failure = model.notificationDeliveryHealth.latchedFailure {
-                Text("Notification delivery failed: \(failure.failureReason ?? "unknown")")
-                    .foregroundStyle(.orange)
-            }
-            ForEach(model.observationDiagnostics) { agent in
-                ForEach(agent.sources.filter { !$0.health.isHealthy && !$0.isInformational }) { source in
-                    Label("\(agent.agent.displayName) · \(source.source.displayName): \(source.diagnosticTitle)",
-                          systemImage: source.diagnosticIcon)
-                        .foregroundStyle(source.diagnosticColor)
-                }
-            }
-            if !hookSetup.running && !hookSetup.lastOutput.isEmpty {
-                Text("Hook operation finished. Review its output in diagnostics.")
-                    .foregroundStyle(.secondary)
-            }
-            Button("Show advanced diagnostics") { selection = .diagnostics }
+    @ViewBuilder private var page: some View {
+        switch selection {
+        case .general:
+            GeneralPage(model: model, setup: hookSetup)
+        case .notifications:
+            NotificationsPage(model: model)
+        case .voice:
+            VoiceFeaturesPage(model: model, tests: tests, credentials: credentials, reveal: reveal)
+        case .providerKeys:
+            ProviderKeysPage(tests: tests, credentials: credentials, expanded: $expandedAccount)
+        case .phone:
+            PhonePage(model: model, setup: hookSetup, showDiagnostics: showDiagnostics)
+        case .agentCLIs:
+            AgentCLIsPage(model: model, setup: hookSetup)
+        case .quota:
+            PlanAndQuotaPage(model: model)
+        case .tokenSpend:
+            TokenSpendPage(model: model)
+        case .usageSources:
+            UsageSourcesPage(model: model)
+        case .diagnostics:
+            DiagnosticsPage(model: model, setup: hookSetup)
+        }
+    }
+
+    /// A feature row asking for a key it does not have: go to the key, opened.
+    private func reveal(_ provider: VoiceProvider) {
+        credentials[provider].load()
+        expandedAccount = provider
+        selection = .providerKeys
+    }
+
+    /// The cross-link at the foot of General and Phone & remote.
+    private func showDiagnostics() { selection = .diagnostics }
+}
+
+// MARK: - Pages and navigation
+
+enum SettingsGroupID: String, CaseIterable, Identifiable {
+    case everyday, voice, connections, usage, advanced
+
+    var id: String { rawValue }
+
+    var title: LocalizedStringKey {
+        switch self {
+        case .everyday: "Everyday"
+        case .voice: "Voice & models"
+        case .connections: "Connections"
+        case .usage: "Usage"
+        case .advanced: "Advanced"
         }
     }
 }
 
-/// Onboarding / hook setup (issues 05 + 06): shows which agent CLIs are configured
-/// and whether the vibebuddy hook is wired, with install/uninstall (shells out to the
-/// bundled, tested Python installers). The actual install touches the user's real CLI
-/// configs — so it's only ever an explicit button click here.
-private struct SetupSettings: View {
-    @ObservedObject var model: MenuBarModel
-    @ObservedObject var setup: HookSetup
-    let diagnostics: Bool
+enum SettingsPageID: String, CaseIterable, Identifiable {
+    case general, notifications
+    case voice, providerKeys
+    case phone, agentCLIs
+    case quota, tokenSpend, usageSources
+    case diagnostics
+
+    var id: String { rawValue }
+
+    var group: SettingsGroupID {
+        switch self {
+        case .general, .notifications: .everyday
+        case .voice, .providerKeys: .voice
+        case .phone, .agentCLIs: .connections
+        case .quota, .tokenSpend, .usageSources: .usage
+        case .diagnostics: .advanced
+        }
+    }
+
+    var title: LocalizedStringKey {
+        switch self {
+        case .general: "General"
+        case .notifications: "Notifications"
+        case .voice: "Voice"
+        case .providerKeys: "Provider keys"
+        case .phone: "Phone & remote"
+        case .agentCLIs: "Agent CLIs"
+        case .quota: "Plan & quota"
+        case .tokenSpend: "Token spend"
+        case .usageSources: "Usage sources"
+        case .diagnostics: "Diagnostics"
+        }
+    }
+
+    var subtitle: LocalizedStringKey {
+        switch self {
+        case .general: "Startup, shortcuts and the Glance"
+        case .notifications: "What rings, and when it stays quiet"
+        case .voice: "Conversation, summaries and reading aloud"
+        case .providerKeys: "One key per provider, shared by every feature"
+        case .phone: "Pairing and remote access"
+        case .agentCLIs: "Hooks, daemons and who answers first"
+        case .quota: "When an allowance should warn you"
+        case .tokenSpend: "What this Mac has spent locally"
+        case .usageSources: "Where the numbers are read from"
+        case .diagnostics: "Health, delivery and recent transitions"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .general: "gearshape"
+        case .notifications: "bell"
+        case .voice: "waveform"
+        case .providerKeys: "key"
+        case .phone: "iphone.gen3"
+        case .agentCLIs: "terminal"
+        case .quota: "gauge.with.dots.needle.50percent"
+        case .tokenSpend: "chart.bar"
+        case .usageSources: "dot.radiowaves.left.and.right"
+        case .diagnostics: "stethoscope"
+        }
+    }
+}
+
+/// The page list. Hand-drawn rather than a `List(selection:)` so the rows keep
+/// the Cursor chrome; the column itself takes keyboard focus so ↑ / ↓ still
+/// walk the pages in sidebar order, as the `List` used to.
+private struct SettingsSidebar: View {
+    @Binding var selection: SettingsPageID
+    @FocusState private var focused: Bool
 
     var body: some View {
-        Group {
-            if diagnostics {
-                Section("Observation health") {
-                    if model.observationDiagnostics.isEmpty {
-                        Text("Checking Claude and Codex sources…")
-                            .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(SettingsGroupID.allCases) { group in
+                        Text(group.title)
+                            .font(SettingsChrome.font(10.5, .bold))
+                            .tracking(0.7)
+                            .textCase(.uppercase)
+                            .foregroundStyle(MacTheme.ink3)
+                            .padding(.horizontal, 8)
+                            .padding(.top, 12)
+                            .padding(.bottom, 5)
+                        ForEach(SettingsPageID.allCases.filter { $0.group == group }) { page in
+                            item(page)
+                        }
                     }
+                }
+                .padding(.horizontal, 10)
+                .padding(.top, 10)
+                .padding(.bottom, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .frame(width: SettingsChrome.sidebarWidth)
+        .background(MacTheme.bg2)
+        .focusable()
+        .focused($focused)
+        // The selected row is the focus cue; a ring around the whole column
+        // would be the system's chrome, not this window's.
+        .focusEffectDisabled()
+        .onMoveCommand(perform: move)
+        .onAppear { focused = true }
+        .accessibilityLabel("Settings categories")
+    }
+
+    /// ↓ and ↑ step through the pages in the order the sidebar draws them,
+    /// stopping at either end; ← and → have no meaning in a single column.
+    private func move(_ direction: MoveCommandDirection) {
+        let pages = SettingsPageID.allCases
+        guard let index = pages.firstIndex(of: selection) else { return }
+        switch direction {
+        case .down where index < pages.count - 1: selection = pages[index + 1]
+        case .up where index > 0: selection = pages[index - 1]
+        default: break
+        }
+    }
+
+    private func item(_ page: SettingsPageID) -> some View {
+        let selected = page == selection
+        return Button { selection = page; focused = true } label: {
+            HStack(spacing: 9) {
+                Image(systemName: page.symbol)
+                    .font(MacTheme.font(13))
+                    .frame(width: 16)
+                    .foregroundStyle(selected ? MacTheme.accent : MacTheme.ink2)
+                Text(page.title)
+                    .font(SettingsChrome.font(13, selected ? .semibold : .medium))
+                    .foregroundStyle(selected ? MacTheme.accent : MacTheme.ink)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 9)
+            .frame(height: 31)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(selected ? MacTheme.accent.opacity(0.14) : .clear))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
+// MARK: - Everyday
+
+private struct GeneralPage: View {
+    @ObservedObject var model: MenuBarModel
+    @ObservedObject var setup: HookSetup
+    @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
+    @AppStorage("showMenuBarTaskStatus") private var showMenuBarTaskStatus = false
+    @State private var showHideIconNote = false
+
+    var body: some View {
+        SettingsPageScaffold(SettingsPageID.general.title, subtitle: SettingsPageID.general.subtitle) {
+            SettingsSection("Startup & menu bar",
+                            footnote: showHideIconNote
+                            ? "Hidden. You can still open the Dashboard with \(model.openDashboardHotkey.displayString) — it has a Settings button."
+                            : nil) {
+                SettingsRow("Launch at Login") {
+                    Toggle("", isOn: Binding(get: { model.launchAtLogin },
+                                             set: { model.setLaunchAtLogin($0) }))
+                        .labelsHidden().toggleStyle(.switch)
+                }
+                SettingsRow("Show icon in menu bar",
+                            detail: "A fixed shortcut to the Dashboard and Settings. Live status and alerts appear in the Glance.") {
+                    Toggle("", isOn: Binding(
+                        get: { showMenuBarIcon },
+                        set: { on in showMenuBarIcon = on; if !on { showHideIconNote = true } }))
+                        .labelsHidden().toggleStyle(.switch)
+                }
+                SettingsRow("Show task status in menu bar",
+                            detail: "Add a status dot and the primary task count beside the cat icon.") {
+                    Toggle("", isOn: $showMenuBarTaskStatus)
+                        .labelsHidden().toggleStyle(.switch)
+                        .disabled(!showMenuBarIcon)
+                }
+            }
+
+            SettingsSection("Shortcuts") {
+                SettingsRow("Open Dashboard",
+                            detail: "Works from any app. Hyper (⌃⌥⇧⌘) combos recommended.") {
+                    HotkeyRecorderView(current: model.openDashboardHotkey, onRecord: model.setHotkey)
+                }
+                SettingsRow("Toggle Glance",
+                            detail: "Show or hide the floating glance from the keyboard — handy on a notchless screen where it would otherwise sit on top of your work.") {
+                    HotkeyRecorderView(current: model.toggleGlanceHotkey, onRecord: model.setGlanceHotkey)
+                }
+            }
+
+            SettingsSection("Glance") {
+                SettingsRow("Show glance", detail: "The floating status card that sits near the notch.") {
+                    Toggle("", isOn: Binding(get: { model.showGlance },
+                                             set: { model.setShowGlance($0) }))
+                        .labelsHidden().toggleStyle(.switch)
+                }
+                SettingsRow("Size") {
+                    Picker("", selection: Binding(get: { model.glanceScale },
+                                                  set: { model.setGlanceScale($0) })) {
+                        Text("Small").tag(CGFloat(0.8))
+                        Text("Medium").tag(CGFloat(1.0))
+                        Text("Large").tag(CGFloat(1.2))
+                    }
+                    .labelsHidden().pickerStyle(.segmented).fixedSize()
+                    .disabled(!model.showGlance)
+                    .accessibilityLabel("Glance size")
+                }
+            }
+
+            SettingsSection("Sessions") {
+                SettingsRow("Clean up idle sessions after",
+                            detail: "Idle sessions leave the Dashboard once this much time passes.") {
+                    Picker("", selection: Binding(get: { model.idleTimeoutHours },
+                                                  set: { model.setIdleTimeout($0) })) {
+                        Text("30 min").tag(0.5)
+                        Text("1 hour").tag(1.0)
+                        Text("2 hours").tag(2.0)
+                        Text("4 hours").tag(4.0)
+                        Text("8 hours").tag(8.0)
+                        Text("24 hours").tag(24.0)
+                        Text("Never").tag(0.0)
+                    }
+                    .labelsHidden().fixedSize()
+                    .accessibilityLabel("Clean up idle sessions after")
+                }
+            }
+        }
+    }
+}
+
+private struct NotificationsPage: View {
+    @ObservedObject var model: MenuBarModel
+    @AppStorage("notifyOnNeedsResponse") private var notify = true
+    @AppStorage("playNotificationSound") private var sound = true
+    @AppStorage("quietMode") private var quiet = false
+    @State private var quietHours = NotificationsPage.loadQuietHours()
+    @State private var categories = NotificationCategoryPrefs.loadMac()
+
+    var body: some View {
+        SettingsPageScaffold(SettingsPageID.notifications.title,
+                             subtitle: SettingsPageID.notifications.subtitle) {
+            SettingsSection("Delivery",
+                            footnote: "A short, built-in cue for each state change — needs you, approval, finished, or stuck. Only boundaries ring; ongoing work stays silent.") {
+                SettingsRow("Show notifications") {
+                    Toggle("", isOn: $notify).labelsHidden().toggleStyle(.switch)
+                }
+                SettingsRow("Play sound") {
+                    Toggle("", isOn: $sound).labelsHidden().toggleStyle(.switch).disabled(!notify)
+                }
+            }
+
+            SettingsSection("Notify me about",
+                            footnote: "Disabled categories never notify. Quiet mode and Quiet hours silence session alerts except silent approvals and questions. Enabled quota alerts are unaffected.") {
+                SettingsGrid(items: NotificationCategoryPrefs.displayOrder.map { category in
+                    SettingsGrid.Item(id: category.rawValue, text: Text(category.categoryTitle)) {
+                        Toggle("", isOn: Binding(
+                            get: { categories.isEnabled(category) },
+                            set: { categories.set(category, enabled: $0) }))
+                            .labelsHidden().toggleStyle(.switch)
+                    }
+                })
+                .disabled(!notify)
+            }
+
+            SettingsSection("Quiet",
+                            footnote: "Quiet mode keeps approvals and questions silent and suppresses other session alerts. Enabled quota alerts still follow the Sound setting.") {
+                SettingsRow("Quiet mode",
+                            detail: "Approvals and questions stay silent; other session alerts are suppressed.") {
+                    Toggle("", isOn: $quiet).labelsHidden().toggleStyle(.switch).disabled(!notify)
+                }
+                SettingsRow("Quiet hours", detail: "Enter Quiet mode automatically each night.") {
+                    Toggle("", isOn: $quietHours.enabled).labelsHidden().toggleStyle(.switch).disabled(!notify)
+                }
+                if quietHours.enabled {
+                    SettingsRow("Window") {
+                        HStack(spacing: 8) {
+                            Picker("", selection: $quietHours.startHour) { hourTags }
+                                .labelsHidden().fixedSize().accessibilityLabel("Quiet hours start")
+                            Text(verbatim: "→").foregroundStyle(MacTheme.ink3)
+                            Picker("", selection: $quietHours.endHour) { hourTags }
+                                .labelsHidden().fixedSize().accessibilityLabel("Quiet hours end")
+                        }
+                        .disabled(!notify)
+                    }
+                }
+            }
+        }
+        .onChange(of: quietHours) { _, q in NotificationsPage.saveQuietHours(q) }
+        .onChange(of: categories) { _, c in c.save() }
+    }
+
+    private var hourTags: some View {
+        ForEach(0..<24, id: \.self) { h in Text(String(format: "%02d:00", h)).tag(h) }
+    }
+
+    private static func loadQuietHours() -> QuietHours {
+        guard let data = UserDefaults.standard.data(forKey: "quietHours"),
+              let q = try? JSONDecoder().decode(QuietHours.self, from: data) else { return QuietHours() }
+        return q
+    }
+
+    private static func saveQuietHours(_ q: QuietHours) {
+        if let data = try? JSONEncoder().encode(q) { UserDefaults.standard.set(data, forKey: "quietHours") }
+    }
+}
+
+// MARK: - Connections
+
+private struct PhonePage: View {
+    @ObservedObject var model: MenuBarModel
+    @ObservedObject var setup: HookSetup
+    let showDiagnostics: () -> Void
+
+    var body: some View {
+        SettingsPageScaffold(SettingsPageID.phone.title, subtitle: SettingsPageID.phone.subtitle) {
+            SettingsSection("Pairing") {
+                SettingsRow("Pair a phone", detail: "Scan the QR code in the vibebuddy iOS app.") {
+                    Button(model.pairingInProgress ? "Cancel pairing" : "Pair a phone") {
+                        if model.pairingInProgress { model.endPairing() } else { model.beginPairing() }
+                    }
+                    .disabled(model.changingPairing || (!model.pairingInProgress && model.pairing == nil))
+                }
+                if model.pairingInProgress {
+                    SettingsBlockRow {
+                        if let qr = model.qrImage {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Image(nsImage: qr).interpolation(.none).resizable()
+                                    .frame(width: 176, height: 176).padding(12).background(.white)
+                                    .accessibilityLabel("Pairing QR code")
+                                Text("Scan this in the vibebuddy iOS app within 2 minutes.")
+                                    .font(SettingsChrome.font(12.5)).foregroundStyle(MacTheme.ink2)
+                            }
+                        } else {
+                            Text("Pairing is not ready.")
+                                .font(SettingsChrome.font(12.5)).foregroundStyle(MacTheme.ink2)
+                        }
+                    }
+                }
+                if let phone = model.pairedPhone {
+                    SettingsRow(verbatim: phone.name,
+                                detail: phone.confirmed
+                                ? String(localized: "Saved pairing. Live connection status unavailable.")
+                                : String(localized: "Registered before pairing confirmation was recorded. Choose Pair a phone to confirm, or forget it.")) {
+                        HStack(spacing: 8) {
+                            SettingsPill(phone.pushRegistered ? "Push registered" : "Push pending",
+                                         tone: phone.pushRegistered ? .ok : .neutral)
+                            Button(role: .destructive) { model.forgetPairedPhone() } label: {
+                                Text("Forget")
+                            }
+                            .disabled(model.changingPairing)
+                            .help("Stops pushes and forgets all registered phones until you choose Pair a phone again.")
+                        }
+                    }
+                    if !phone.subtitle.isEmpty {
+                        SettingsRow("Device") { SettingsValue(verbatim: phone.subtitle) }
+                    }
+                    SettingsRow("Last seen") {
+                        SettingsValue(Text(phone.lastSeen, style: .relative))
+                    }
+                } else {
+                    SettingsRow("Paired phone") {
+                        SettingsValue("No phone paired")
+                    }
+                }
+            }
+
+            SettingsSection("Connection",
+                            footnote: "Connect Mac and iPhone to the same tailnet. For Headscale, use this Mac’s 100.x.x.x address.") {
+                SettingsRow("Use Tailscale for remote access") {
+                    Toggle("", isOn: $model.useTailscale)
+                        .labelsHidden().toggleStyle(.switch)
+                        .disabled(model.pairingInProgress || model.changingPairing)
+                }
+                if model.useTailscale {
+                    SettingsRow("Tailscale address",
+                                detailText: model.pairing == nil
+                                ? String(localized: "Enter a valid Tailscale address.") : nil) {
+                        TextField("100.x.x.x or Mac name.ts.net", text: $model.tailscaleHost)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 176)
+                            .disabled(model.pairingInProgress || model.changingPairing)
+                            .accessibilityLabel("Tailscale address")
+                    }
+                }
+                SettingsRow("This Mac") { SettingsValue(verbatim: model.macDisplayName) }
+                SettingsRow("Pairing address") {
+                    SettingsValue(verbatim: model.pairingAddress, monospaced: true)
+                }
+            }
+
+            ConnectionAndDeliverySection(model: model, setup: setup, showDiagnostics: showDiagnostics)
+        }
+    }
+}
+
+/// The foot of General and Phone & remote: what Diagnostics would say if it
+/// had something to say — a latched delivery failure, a source that is not
+/// healthy, a hook operation whose output is waiting — and the way there. The
+/// jump is always present so the advanced page is never only a sidebar item;
+/// the summary rows appear only when there is something to report, as they did
+/// in the grouped form this replaced.
+private struct ConnectionAndDeliverySection: View {
+    @ObservedObject var model: MenuBarModel
+    @ObservedObject var setup: HookSetup
+    let showDiagnostics: () -> Void
+
+    var body: some View {
+        SettingsSection("Connection & delivery",
+                        footnote: !setup.running && !setup.lastOutput.isEmpty
+                        ? "Hook operation finished. Review its output in diagnostics." : nil) {
+            if let failure = model.notificationDeliveryHealth.latchedFailure {
+                SettingsRow(verbatim: String(localized: "Notification delivery failed: \(failure.failureReason ?? "unknown")")) {
+                    SettingsPill("Latched failure", tone: .critical)
+                }
+            }
+            ForEach(model.observationDiagnostics) { agent in
+                ForEach(agent.sources.filter { !$0.health.isHealthy && !$0.isInformational }) { source in
+                    SettingsRow(verbatim: "\(agent.agent.displayName) · \(source.source.displayName)") {
+                        SettingsPill(verbatim: source.diagnosticTitle, tone: .warn)
+                    }
+                }
+            }
+            SettingsRow(SettingsPageID.diagnostics.title, detail: SettingsPageID.diagnostics.subtitle) {
+                Button("Show advanced diagnostics", action: showDiagnostics)
+                    .buttonStyle(SettingsQuietButtonStyle())
+            }
+        }
+    }
+}
+
+private struct AgentCLIsPage: View {
+    @ObservedObject var model: MenuBarModel
+    @ObservedObject var setup: HookSetup
+
+    var body: some View {
+        SettingsPageScaffold(SettingsPageID.agentCLIs.title, subtitle: SettingsPageID.agentCLIs.subtitle) {
+            SettingsSection("Hooks") {
+                if setup.statuses.isEmpty {
+                    SettingsRow("Agent CLIs") { SettingsValue("No agent CLIs detected yet") }
+                } else {
+                    SettingsGrid(items: setup.statuses.map { status in
+                        SettingsGrid.Item(id: status.name, verbatim: status.name) {
+                            SettingsPill(status.hookInjected ? "hooked"
+                                         : (status.configured ? "not hooked" : "not installed"),
+                                         tone: status.hookInjected ? .ok
+                                         : (status.configured ? .warn : .neutral))
+                        }
+                    })
+                }
+            }
+
+            SettingsSection("Maintenance",
+                            footnote: "Wires (or removes) the vibebuddy hook in every detected CLI's config (~/.claude/settings.json …) via the bundled installer. Reversible. Re-run after installing a new CLI. Codex Desktop is monitored automatically from its local rollout stream; Codex CLI hooks still require explicit trust — start a fresh CLI session, run /hooks, review the VibeBuddy entries, and trust them.") {
+                SettingsRow("Hook installation",
+                            detail: "Touches the CLI configs on this Mac, so it only ever runs from this button.") {
+                    HStack(spacing: 8) {
+                        if setup.running { ProgressView().controlSize(.small) }
+                        Button("Install / repair") { setup.install() }.disabled(setup.running)
+                        Button("Uninstall") { setup.uninstall() }.disabled(setup.running)
+                    }
+                }
+            }
+
+            SettingsSection("Behaviour") {
+                SettingsRow("Always ask the phone first",
+                            detail: "Off: while you are at the Mac the agent's own prompt takes the answer and the phone shows a read-only card. On: every prompt waits for the phone even at the desk.") {
+                    Toggle("", isOn: Binding(get: { model.alwaysAskPhone },
+                                             set: { model.setAlwaysAskPhone($0) }))
+                        .labelsHidden().toggleStyle(.switch)
+                }
+                SettingsRow("Use the Codex app-server daemon",
+                            detail: "Reads every Codex thread (Desktop, CLI, agents) from the shared local app-server over its unix control socket, read-only. When off, the rollout stream and hooks cover Codex as before.") {
+                    Toggle("", isOn: Binding(get: { model.codexAppServerEnabled },
+                                             set: { model.setCodexAppServerEnabled($0) }))
+                        .labelsHidden().toggleStyle(.switch)
+                }
+                SettingsRow("Observe Grok Bot tasks",
+                            detail: "Read task status from the signed-in Grok Bot app. Replies and approvals stay in Grok Bot. Off by default.") {
+                    Toggle("", isOn: Binding(get: { model.grokBotEnabled },
+                                             set: { model.setGrokBotEnabled($0) }))
+                        .labelsHidden().toggleStyle(.switch)
+                }
+            }
+        }
+        .onAppear { setup.refresh() }
+    }
+}
+
+// MARK: - Advanced
+
+private struct DiagnosticsPage: View {
+    @ObservedObject var model: MenuBarModel
+    @ObservedObject var setup: HookSetup
+
+    var body: some View {
+        SettingsPageScaffold(SettingsPageID.diagnostics.title,
+                             subtitle: SettingsPageID.diagnostics.subtitle) {
+            SettingsSection("Observation health") {
+                if model.observationDiagnostics.isEmpty {
+                    SettingsRow("Sources") { SettingsValue("Checking Claude and Codex sources…") }
+                } else {
                     ForEach(model.observationDiagnostics) { agent in
-                        VStack(alignment: .leading, spacing: 7) {
-                            Text(agent.agent.displayName).font(.headline)
-                            ForEach(agent.sources) { source in
+                        ForEach(agent.sources) { source in
+                            SettingsBlockRow {
                                 observationRow(agent: agent.agent, source: source)
                             }
                         }
-                        .padding(.vertical, 3)
                     }
                 }
+            }
 
-                Section {
-                    if model.lifecycleTimeline.isEmpty {
-                        Text("No recent lifecycle transitions.")
-                            .foregroundStyle(.secondary)
+            SettingsSection("Codex daemon") {
+                SettingsBlockRow {
+                    Text(verbatim: codexAppServerStatus)
+                        .font(SettingsChrome.font(12.5))
+                        .foregroundStyle(MacTheme.ink2)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            SettingsSection("Delivery health",
+                            footnote: "Honest outcomes only: attempted, scheduled, accepted, failed, skipped. A local banner is scheduled; APNs 2xx is accepted by Apple's servers. Neither is proof the device showed it.") {
+                SettingsGrid(items: [
+                    SettingsGrid.Item(id: "auth", title: "Local authorization") {
+                        SettingsValue(verbatim: model.notificationDeliveryHealth.authorization.rawValue)
+                    },
+                    SettingsGrid.Item(id: "apns", title: "APNs") {
+                        SettingsValue(model.notificationDeliveryHealth.apnsConfigured
+                                      ? "configured" : "not configured")
+                    },
+                    SettingsGrid.Item(id: "devices", title: "Registered devices") {
+                        let count = model.deviceRegistry.count
+                        let dead = count == 0 && model.notificationDeliveryHealth.apnsConfigured
+                        SettingsPill(verbatim: count == 0 ? "none" : "\(count)",
+                                     tone: dead ? .warn : .neutral)
+                    },
+                    SettingsGrid.Item(id: "missed", title: "Missed this week") {
+                        SettingsValue(verbatim: "\(model.missedThisWeek.count)")
+                    }
+                ])
+                if let last = model.notificationDeliveryHealth.lastAttempt {
+                    SettingsRow("Last attempt",
+                                detailText: lastAttemptDetail(last)) {
+                        SettingsPill(verbatim: last.outcome.rawValue,
+                                     tone: last.outcome == .failed ? .warn : .neutral)
+                    }
                 } else {
-                    ForEach(model.lifecycleTimeline.prefix(20)) { entry in
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                HStack(spacing: 4) {
-                                    Text(entry.agent.displayName)
-                                    Text("·")
-                                    Text(LocalizedStringKey(entry.eventDisplayName))
-                                }
-                                .fontWeight(.semibold)
-                                HStack(spacing: 4) {
-                                    Text(entry.source.displayName)
-                                    Text("·")
-                                    Text("Session …\(entry.sessionSuffix)")
-                                    Text("·")
-                                    Text(LocalizedStringKey(entry.resultDisplayName))
-                                }
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            }
-                            Spacer(minLength: 4)
-                            Text(entry.timestamp, style: .relative)
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
+                    SettingsRow("Last attempt") { SettingsValue("No attempts yet") }
+                }
+                if let failure = model.notificationDeliveryHealth.latchedFailure {
+                    SettingsRow("Latched failure") {
+                        SettingsPill(verbatim: failure.failureReason ?? "unknown", tone: .critical)
+                    }
+                }
+            }
+
+            SettingsSection("Recent lifecycle",
+                            footnote: "Stored locally for up to 7 days (maximum 250 transitions). Normalized state and source metadata only — never prompts, reasoning, message text, tool input, or tool output.") {
+                if model.lifecycleTimeline.isEmpty {
+                    SettingsRow("Timeline") { SettingsValue("No recent lifecycle transitions") }
+                } else {
+                    ForEach(model.lifecycleTimeline.prefix(6)) { entry in
+                        SettingsRow(verbatim: "\(entry.agent.displayName) · \(String(localized: entry.eventDisplayName))",
+                                    detail: "\(entry.source.displayName) · Session …\(entry.sessionSuffix) · \(String(localized: entry.resultDisplayName))") {
+                            SettingsValue(Text(entry.timestamp, style: .relative))
                         }
                     }
                 }
-                HStack {
-                    Button("Clear lifecycle timeline", role: .destructive) {
-                        model.clearLifecycleJournal()
+                SettingsRow("Journal",
+                            detailText: model.lifecycleJournalClearFailed
+                            ? String(localized: "Could not remove the journal from disk.") : nil) {
+                    Button(role: .destructive) { model.clearLifecycleJournal() } label: {
+                        Text("Clear timeline")
                     }
                     .disabled(model.lifecycleTimeline.isEmpty && !model.lifecycleJournalClearFailed)
-                    if model.lifecycleJournalClearFailed {
-                        Text("Could not remove the journal from disk.")
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                    }
                 }
-            } header: {
-                Text("Recent lifecycle")
-            } footer: {
-                Text("Stored locally for up to 7 days (maximum 250 transitions). Includes normalized state and source metadata only — never prompts, reasoning, message text, tool input, or tool output.")
-                    .font(.caption)
             }
 
-            } else {
-                Section {
-                    if setup.statuses.isEmpty {
-                        Text("No agent CLIs detected yet.").foregroundStyle(.secondary)
-                    }
-                    ForEach(setup.statuses, id: \.name) { s in
-                        HStack(spacing: 8) {
-                            Image(systemName: s.hookInjected ? "checkmark.circle.fill"
-                                  : (s.configured ? "exclamationmark.triangle.fill" : "minus.circle"))
-                                .foregroundStyle(s.hookInjected ? .green : (s.configured ? .orange : .secondary))
-                            Text(s.name).bold()
-                            Spacer()
-                            Text(s.hookInjected ? "hooked"
-                                 : (s.configured ? "configured · not hooked" : "not installed"))
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                } header: { Text("Agent CLIs") }
-
-                HStack {
-                    Button("Install / repair hooks") { setup.install() }.disabled(setup.running)
-                    Button("Uninstall") { setup.uninstall() }.disabled(setup.running)
-                    if setup.running { ProgressView().controlSize(.small) }
-                }
-                DisclosureGroup("Hook setup details") {
-                    Text("Wires (or removes) the vibebuddy hook in every detected CLI's config (~/.claude/settings.json …) via the bundled installer. Reversible. Re-run after installing a new CLI.")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text("Codex Desktop is monitored automatically from its local rollout stream. Codex CLI hooks still require explicit trust: start a fresh CLI session, run /hooks, review the VibeBuddy entries, and trust them.")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                }
-
-                Section {
-                    Toggle("Always ask the phone first", isOn: Binding(
-                        get: { model.alwaysAskPhone },
-                        set: { model.setAlwaysAskPhone($0) }))
-                } header: { Text("Approvals and questions") } footer: {
-                    Text("Off: while you are at the Mac — the session's terminal or Codex Desktop in front, screen unlocked, input within the last two minutes — the agent's own prompt takes the answer, the phone shows a read-only card, and ordinary reminders stay on the Mac. Leaving, locking, or going idle restores the reminder; the card stays read-only. On: every prompt waits for the phone even at the desk.")
-                        .font(.caption)
-                }
-
-                Section {
-                    Toggle("Use the Codex app-server daemon", isOn: Binding(
-                        get: { model.codexAppServerEnabled },
-                        set: { model.setCodexAppServerEnabled($0) }))
-                    Text(codexAppServerStatus)
-                        .font(.caption).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                } header: { Text("Codex daemon") } footer: {
-                    Text("Reads every Codex thread (Desktop, CLI, agents) from the shared local app-server over its unix control socket, read-only. When off or unavailable, the rollout stream and hooks cover Codex as before.")
-                        .font(.caption)
-                }
-
-                Section {
-                    Toggle("Observe Grok Bot tasks", isOn: Binding(
-                        get: { model.grokBotEnabled },
-                        set: { model.setGrokBotEnabled($0) }))
-                } header: { Text("Grok Bot") } footer: {
-                    Text("Read task status from the signed-in Grok Bot app. Completion alerts support ordinary conversations submitted after connecting. Question continuations, automated tasks, and turns spanning a disconnect are not yet supported; check their final status in Grok Bot. Replies and approvals stay in Grok Bot. Summaries and Mac reading use your existing optional settings. This source is off by default.")
-                }
-
-            }
-            if diagnostics {
-                Section("Codex daemon") { Text(codexAppServerStatus).textSelection(.enabled) }
-                if !setup.lastOutput.isEmpty {
-                    Section("Hook operation output") {
-                        Text(setup.lastOutput)
-                            .font(.system(.caption, design: .monospaced))
+            if !setup.lastOutput.isEmpty {
+                SettingsSection("Hook operation output") {
+                    SettingsBlockRow {
+                        Text(verbatim: setup.lastOutput)
+                            .font(MacTheme.mono(11.5))
                             .textSelection(.enabled)
+                            .foregroundStyle(MacTheme.ink2)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
             }
         }
         .onAppear { setup.refresh() }
+    }
+
+    private func lastAttemptDetail(_ last: NotificationDeliveryRecord) -> String {
+        var parts = [last.channel.rawValue]
+        if let sound = last.sound { parts.append(sound) }
+        if let session = last.sessionID { parts.append("Session …\(session.suffix(8))") }
+        return parts.joined(separator: " · ")
     }
 
     private var codexAppServerStatus: String {
@@ -282,42 +719,35 @@ private struct SetupSettings: View {
     }
 
     @ViewBuilder
-    private func observationRow(
-        agent: AgentKind,
-        source: ObservationSourceDiagnostic
-    ) -> some View {
+    private func observationRow(agent: AgentKind, source: ObservationSourceDiagnostic) -> some View {
         let issue = agent == .codex && source.source == .hook
             ? ObservationHealthDetector.codexHookConfigurationIssue(
                 home: E2ERunConfiguration.current?.file("agents") ?? FileManager.default.homeDirectoryForCurrentUser,
                 hook: source, now: Date(),
                 hookTrust: model.codexAppServerDiagnostics.hookTrust) : nil
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: 9) {
             Image(systemName: issue != nil ? "exclamationmark.triangle.fill" : source.diagnosticIcon)
                 .foregroundStyle(issue != nil ? .orange : source.diagnosticColor)
                 .frame(width: 16)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 5) {
-                    Text(source.source.displayName).fontWeight(.semibold)
-                    Text("· \(issue?.displayName ?? source.diagnosticTitle)")
-                        .foregroundStyle(.secondary)
+                    Text(verbatim: agent.displayName)
+                        .font(SettingsChrome.font(13, .semibold))
+                    Text(verbatim: "· \(source.source.displayName)")
+                        .font(SettingsChrome.font(13))
+                        .foregroundStyle(MacTheme.ink2)
+                    Text(verbatim: "· \(issue?.displayName ?? source.diagnosticTitle)")
+                        .font(SettingsChrome.font(12.5))
+                        .foregroundStyle(MacTheme.ink2)
                 }
-                Text(issue?.explanation ?? source.diagnosticExplanation)
-                    .font(.caption).foregroundStyle(.secondary)
+                Text(verbatim: issue?.explanation ?? source.diagnosticExplanation)
+                    .font(SettingsChrome.font(11.5))
+                    .foregroundStyle(MacTheme.ink3)
                     .fixedSize(horizontal: false, vertical: true)
-                if let version = source.sourceVersion, source.reasonCode != "versionUnverified" {
-                    Text("Source version \(version)")
-                        .font(.caption2).foregroundStyle(.tertiary)
-                }
                 if let last = source.lastObservedAt {
-                    Text("Last signal \(last, style: .relative)")
-                        .font(.caption2).foregroundStyle(.tertiary)
-                }
-                Group {
-                    let configured = source.source == .hook ? source.configuredCoverageDescription : "not applicable"
-                    let observed = source.observedCoverageDescription
-                    Text("Coverage: configured \(configured.isEmpty ? "none" : configured); received this launch \(observed.isEmpty ? "none" : observed)")
-                        .font(.caption2).foregroundStyle(.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Text("Last signal \(Text(last, style: .relative))")
+                        .font(SettingsChrome.font(11.5))
+                        .foregroundStyle(MacTheme.ink3)
                 }
                 if source.source == .statusline, source.reasonCode == "optionalSourceNotConfigured" {
                     Button("Enable status line information") { setup.enableStatusLine() }
@@ -338,7 +768,7 @@ private struct SetupSettings: View {
 private extension LifecycleJournalEntry {
     var sessionSuffix: String { String(sessionID.suffix(8)) }
 
-    var resultDisplayName: String {
+    var resultDisplayName: String.LocalizationValue {
         guard let status else { return "Removed" }
         switch status {
         case .needsResponse:
@@ -348,7 +778,7 @@ private extension LifecycleJournalEntry {
         }
     }
 
-    var eventDisplayName: String {
+    var eventDisplayName: String.LocalizationValue {
         switch event {
         case "sessionStart": return "Session started"
         case "userPromptSubmit": return "Turn started"
@@ -367,368 +797,8 @@ private extension LifecycleJournalEntry {
     }
 }
 
-private struct GeneralSettings: View {
-    @ObservedObject var model: MenuBarModel
-    @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
-    @AppStorage("showMenuBarTaskStatus") private var showMenuBarTaskStatus = false
-    @State private var showHideIconNote = false
-
-    var body: some View {
-        Group {
-            Section("Open & display") {
-                Toggle("Launch at Login", isOn: Binding(
-                    get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
-
-                Toggle("Show icon in menu bar", isOn: Binding(
-                    get: { showMenuBarIcon },
-                    set: { on in showMenuBarIcon = on; if !on { showHideIconNote = true } }))
-                Text("A fixed shortcut to the Dashboard and Settings. Live status and alerts appear in the Glance.")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Toggle("Show task status in menu bar", isOn: $showMenuBarTaskStatus)
-                    .disabled(!showMenuBarIcon)
-                Text("Add a status dot and the primary task count beside the cat icon.")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if showHideIconNote {
-                    Text("Hidden. You can still open the Dashboard with \(model.openDashboardHotkey.displayString) — it has a Settings button.")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-            }
-            Section("Shortcuts & cleanup") {
-
-                LabeledContent("Open Dashboard") {
-                    HotkeyRecorderView(current: model.openDashboardHotkey, onRecord: model.setHotkey)
-                }
-                Text("A global shortcut that opens the Dashboard from anywhere. Hyper (⌃⌥⇧⌘) combos recommended.")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                LabeledContent("Toggle Glance") {
-                    HotkeyRecorderView(current: model.toggleGlanceHotkey, onRecord: model.setGlanceHotkey)
-                }
-                Text("Show/hide the floating glance from the keyboard — handy on a notchless screen where it would otherwise sit on top of your work.")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Picker("Clean up idle sessions after", selection: Binding(
-                    get: { model.idleTimeoutHours }, set: { model.setIdleTimeout($0) })) {
-                    Text("30 min").tag(0.5)
-                    Text("1 hour").tag(1.0)
-                    Text("2 hours").tag(2.0)
-                    Text("4 hours").tag(4.0)
-                    Text("8 hours").tag(8.0)
-                    Text("24 hours").tag(24.0)
-                    Text("Never").tag(0.0)
-                }
-            }
-        }
-    }
-}
-
-private struct GlanceSettings: View {
-    @ObservedObject var model: MenuBarModel
-    var body: some View {
-        Section("Glance") {
-            Toggle("Show glance", isOn: Binding(
-                get: { model.showGlance }, set: { model.setShowGlance($0) }))
-            Picker("Size", selection: Binding(
-                get: { model.glanceScale }, set: { model.setGlanceScale($0) })) {
-                Text("Small").tag(CGFloat(0.8))
-                Text("Medium").tag(CGFloat(1.0))
-                Text("Large").tag(CGFloat(1.2))
-            }
-            .pickerStyle(.segmented)
-            .disabled(!model.showGlance)
-        }
-    }
-}
-
-private struct NotificationDiagnostics: View {
-    @ObservedObject var model: MenuBarModel
-    var body: some View {
-        Group {
-            Section {
-                LabeledContent("Local authorization") {
-                    Text(model.notificationDeliveryHealth.authorization.rawValue)
-                        .foregroundStyle(.secondary)
-                }
-                LabeledContent("APNs") {
-                    Text(model.notificationDeliveryHealth.apnsConfigured ? "configured" : "not configured")
-                        .foregroundStyle(.secondary)
-                }
-                // Configured but with nothing registered is the silent failure:
-                // every push goes nowhere and only the missing `apns` rows below
-                // would ever say so. Call it out where it is read.
-                LabeledContent("Registered devices") {
-                    let count = model.deviceRegistry.count
-                    let dead = count == 0 && model.notificationDeliveryHealth.apnsConfigured
-                    Text(count == 0 ? "none" : "\(count)")
-                        .foregroundStyle(dead ? Color.orange : .secondary)
-                }
-                if let last = model.deviceRegistry.lastRegisteredAt {
-                    HStack(spacing: 4) {
-                        Text("Last registered")
-                        Text(last, style: .relative)
-                            .monospacedDigit()
-                    }
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                } else if model.notificationDeliveryHealth.apnsConfigured {
-                    Text("No phone has uploaded a push token. Open the iPhone app on the same network; it re-registers on every connection.")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
-                if let last = model.notificationDeliveryHealth.lastAttempt {
-                    LabeledContent("Last attempt") {
-                        Text(last.outcome.rawValue)
-                            .foregroundStyle(last.outcome == .failed ? Color.orange : .secondary)
-                    }
-                    HStack(spacing: 4) {
-                        Text(last.channel.rawValue)
-                        if let sound = last.sound {
-                            Text("·")
-                            Text(sound)
-                        }
-                        if let session = last.sessionID {
-                            Text("·")
-                            Text("Session …\(session.suffix(8))")
-                        }
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    Text(last.timestamp, style: .relative)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .monospacedDigit()
-                } else {
-                    Text("No attempts yet.")
-                        .foregroundStyle(.secondary)
-                }
-                if let failure = model.notificationDeliveryHealth.latchedFailure {
-                    Text("failed · \(failure.failureReason ?? "unknown")")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
-                ForEach(model.recentNotificationDeliveries.prefix(5)) { entry in
-                    HStack(spacing: 6) {
-                        Text(entry.outcome.rawValue)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(entry.outcome == .skipped ? Color.secondary : .primary)
-                        Text(entry.channel.rawValue)
-                            .foregroundStyle(.secondary)
-                        if let sound = entry.sound {
-                            Text("·")
-                            Text(sound)
-                                .foregroundStyle(.secondary)
-                        }
-                        // A skip is only useful if it says which switch, or which
-                        // missing phone, kept the cue from going out.
-                        if let reason = entry.failureReason {
-                            Text("·")
-                            Text(reason)
-                                .foregroundStyle(entry.outcome == .failed ? Color.orange : .secondary)
-                        }
-                        Spacer(minLength: 4)
-                        Text(entry.timestamp, style: .relative)
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                            .monospacedDigit()
-                    }
-                    .font(.caption)
-                }
-            } header: {
-                Text("Delivery health")
-            } footer: {
-                Text("Honest outcomes only: attempted, scheduled, accepted, failed, skipped. A local banner is scheduled; APNs 2xx is accepted by Apple's servers. Neither is proof the device showed it. Skipped means the cue was earned and deliberately not said here — the reason beside it says which switch, which missing phone, or which attention level; phonePosted means the phone had already shown it itself, and phone rows are what the phone reported.")
-                    .font(.caption)
-            }
-
-            Section {
-                LabeledContent("Missed this week") {
-                    Text("\(model.missedThisWeek.count)")
-                        .monospacedDigit()
-                }
-                ForEach(model.missedThisWeek.agentRows, id: \.agent) { row in
-                    LabeledContent(row.agent.displayName) {
-                        Text("\(row.count)")
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            } header: {
-                Text("Reliability")
-            } footer: {
-                Text("A needs-response wait with no acknowledgement, decision, answer, or jump on any device for five minutes. Muted sessions count. This week's number is the 1.2 ship gate.")
-                    .font(.caption)
-            }
-
-        }
-    }
-}
-
-private struct NotificationSettings: View {
-    @ObservedObject var model: MenuBarModel
-    @AppStorage("notifyOnNeedsResponse") private var notify = true
-    @AppStorage("playNotificationSound") private var sound = true
-    @AppStorage("quietMode") private var quiet = false
-    @State private var quietHours = NotificationSettings.loadQuietHours()
-    @State private var categories = NotificationCategoryPrefs.loadMac()
-
-    var body: some View {
-        Group {
-            Section {
-                Toggle("Show notifications", isOn: $notify)
-                Toggle("Play sound", isOn: $sound).disabled(!notify)
-            } footer: {
-                Text("A short, built-in cue for each state change — needs you, approval, finished, or stuck. Only boundaries ring; ongoing work stays silent.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Section {
-                ForEach(NotificationCategoryPrefs.displayOrder, id: \.rawValue) { category in
-                    Toggle(category.categoryTitle, isOn: Binding(
-                        get: { categories.isEnabled(category) },
-                        set: { categories.set(category, enabled: $0) }))
-                }
-            } header: {
-                Text("Notify me about")
-            } footer: {
-                Text("Disabled categories never notify. Quiet mode and Quiet hours silence session alerts except silent approvals and questions. Enabled quota alerts are unaffected.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            .disabled(!notify)
-            Section {
-                Toggle("Quiet mode (quota unaffected)", isOn: $quiet).disabled(!notify)
-            } footer: {
-                Text("Quiet mode keeps approvals and questions silent and suppresses other session alerts. Enabled quota alerts still follow the Sound setting.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Section {
-                Toggle("Quiet hours", isOn: $quietHours.enabled).disabled(!notify)
-                if quietHours.enabled {
-                    Picker("From", selection: $quietHours.startHour) { hourTags }
-                    Picker("To", selection: $quietHours.endHour) { hourTags }
-                }
-            } footer: {
-                Text("Automatically enter Quiet mode during this nightly window.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-        }
-        .onChange(of: quietHours) { _, q in NotificationSettings.saveQuietHours(q) }
-        .onChange(of: categories) { _, c in c.save() }
-    }
-
-    private var hourTags: some View {
-        ForEach(0..<24, id: \.self) { h in Text(String(format: "%02d:00", h)).tag(h) }
-    }
-
-    private static func loadQuietHours() -> QuietHours {
-        guard let data = UserDefaults.standard.data(forKey: "quietHours"),
-              let q = try? JSONDecoder().decode(QuietHours.self, from: data) else { return QuietHours() }
-        return q
-    }
-
-    private static func saveQuietHours(_ q: QuietHours) {
-        if let data = try? JSONEncoder().encode(q) { UserDefaults.standard.set(data, forKey: "quietHours") }
-    }
-}
-
-private struct SessionBudgetSettings: View {
-    @AppStorage("notifyOnNeedsResponse") private var notify = true
-    @AppStorage("sessionBudgetUSD") private var budgetUSD = 0.0
-    var body: some View {
-        Section {
-            Picker("Budget alert per session", selection: $budgetUSD) {
-                Text("Off").tag(0.0)
-                Text("$1").tag(1.0)
-                Text("$2").tag(2.0)
-                Text("$5").tag(5.0)
-                Text("$10").tag(10.0)
-                Text("$20").tag(20.0)
-            }.disabled(!notify)
-        } footer: {
-            Text("A gentle heads-up when a session's estimated spend crosses this amount. Cost is a rough estimate from token usage.")
-                .font(.caption).foregroundStyle(.secondary)
-        }
-    }
-}
-
-private struct DeviceSettings: View {
-    @ObservedObject var model: MenuBarModel
-
-    var body: some View {
-        Group {
-            Section {
-                TailscalePairingSettings(model: model)
-                Button(model.pairingInProgress ? "Cancel pairing" : "Pair a phone") {
-                    if model.pairingInProgress { model.endPairing() } else { model.beginPairing() }
-                }
-                .disabled(model.changingPairing || (!model.pairingInProgress && model.pairing == nil))
-                if model.pairingInProgress {
-                    if let qr = model.qrImage {
-                        Image(nsImage: qr).interpolation(.none).resizable()
-                            .frame(width: 176, height: 176).padding(12).background(.white)
-                        Text("Scan this in the vibebuddy iOS app within 2 minutes.")
-                    } else {
-                        Text("Pairing is not ready.").foregroundStyle(.secondary)
-                    }
-                }
-            }
-            Section {
-                LabeledContent("This Mac") {
-                    Text(model.macDisplayName)
-                        .font(.body.weight(.medium))
-                }
-                LabeledContent("Pairing address") {
-                    Text(model.pairingAddress)
-                        .font(.body.monospaced())
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Section {
-                if let phone = model.pairedPhone {
-                    LabeledContent(phone.confirmed ? "Paired phone" : "Previously registered phone") {
-                        Text(phone.name)
-                            .font(.body.weight(.medium))
-                    }
-                    if !phone.subtitle.isEmpty {
-                        LabeledContent("Device") {
-                            Text(phone.subtitle)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    Text(phone.confirmed ? "Saved pairing. Live connection status unavailable." : "This phone was registered before pairing confirmation was recorded. Choose Pair a phone to confirm, or forget it.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                    LabeledContent("Last seen") {
-                        Text(phone.lastSeen, style: .relative)
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                    }
-                    LabeledContent("Push") {
-                        Label(phone.pushRegistered ? "Registered" as LocalizedStringKey : "Pending",
-                              systemImage: phone.pushRegistered ? "bell.badge.fill" : "bell.slash")
-                            .foregroundStyle(phone.pushRegistered ? .green : .secondary)
-                    }
-                    Button(role: .destructive) {
-                        model.forgetPairedPhone()
-                    } label: {
-                        Label("Forget all phones", systemImage: "iphone.slash")
-                    }
-                    .disabled(model.changingPairing)
-                    .help("Stops pushes and forgets all registered phones until you choose Pair a phone again.")
-                } else {
-                    Label("No phone paired", systemImage: "iphone.slash")
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-}
-
-/// Both device settings surfaces edit the same saved companion endpoint.
+/// Both device settings surfaces edit the same saved companion endpoint. The
+/// menu-bar popover still shows it as a plain stack of controls.
 struct TailscalePairingSettings: View {
     @ObservedObject var model: MenuBarModel
 
@@ -740,7 +810,7 @@ struct TailscalePairingSettings: View {
                 .textFieldStyle(.roundedBorder)
                 .disabled(model.pairingInProgress || model.changingPairing)
             Text("Connect Mac and iPhone to the same tailnet. For Headscale, use this Mac’s 100.x.x.x address.")
-                .font(.footnote).foregroundStyle(.secondary)
+                .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
             if model.pairing == nil {
                 Text("Enter a valid Tailscale address.").foregroundStyle(.orange)
             }
@@ -761,17 +831,17 @@ struct HotkeyRecorderView: View {
 
     var body: some View {
         HStack(spacing: 8) {
+            if hint {
+                Text("needs a modifier").font(MacTheme.font(10)).foregroundStyle(.red)
+            }
             (recording ? Text("Press a combo…") : Text(verbatim: current.displayString))
-                .font(.system(.body, design: .rounded).weight(.medium))
+                .font(MacTheme.mono(12.5))
                 .frame(minWidth: 84)
                 .padding(.horizontal, 10).padding(.vertical, 5)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .controlColor)))
-                .overlay(RoundedRectangle(cornerRadius: 6)
-                    .stroke(recording ? Color.accentColor : Color(nsColor: .separatorColor), lineWidth: 1))
+                .background(RoundedRectangle(cornerRadius: 7).fill(MacTheme.bg3))
+                .overlay(RoundedRectangle(cornerRadius: 7)
+                    .stroke(recording ? MacTheme.accent : MacTheme.line, lineWidth: 1))
             Button(recording ? "Cancel" as LocalizedStringKey : "Record") { recording ? stop() : start() }
-            if hint {
-                Text("needs a modifier").font(.caption2).foregroundStyle(.red)
-            }
         }
         .onDisappear { stop() }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in

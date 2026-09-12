@@ -20,10 +20,10 @@ struct HistoryMessageReader: View {
                     }
                     if !rows.isEmpty {
                         Text("Messages \(pageStart + 1)–\(min(pageStart + pageSize, rows.count)) of \(rows.count)")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                     }
                     if let targetMessage, !rows.contains(where: { $0.contains(targetMessage) }) {
-                        Text("This match is no longer in the current record. Search again.").font(.caption).foregroundStyle(.secondary)
+                        Text("This match is no longer in the current record. Search again.").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                     }
                     ForEach(Array(rows.dropFirst(pageStart).prefix(pageSize))) { row in
                         message(row).padding(10)
@@ -33,7 +33,7 @@ struct HistoryMessageReader: View {
                     if pageStart + pageSize < rows.count {
                         Button("Later messages") { pageStart += pageSize; proxy.scrollTo("page-top", anchor: .top) }
                     }
-                    if rows.isEmpty { Text("No dialogue to display.").foregroundStyle(.secondary) }
+                    if rows.isEmpty { Text("No dialogue to display.").foregroundStyle(MacTheme.ink2) }
                 }.padding(16)
             }
             .task(id: "\(session.sourceRevision ?? "")|\(session.messages.count)|\(targetMessage ?? "")") {
@@ -52,15 +52,15 @@ struct HistoryMessageReader: View {
     }
     @ViewBuilder private func message(_ row: HistoryMessageRow) -> some View {
         if row.kind == .compactSummary {
-            Text("Context compacted").font(.caption).foregroundStyle(.secondary)
+            Text("Context compacted").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 .padding(.horizontal, 12).padding(.vertical, 5)
                 .background(.quaternary, in: Capsule()).frame(maxWidth: .infinity)
         } else if row.kind == .meta {
             DisclosureGroup("Injected context · search match", isExpanded: .constant(true)) {
-                Text(row.text).font(.caption).textSelection(.enabled)
+                Text(row.text).font(MacTheme.font(10)).textSelection(.enabled)
             }
         } else if row.role == .system {
-            Text(row.text).font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity)
+            Text(row.text).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2).frame(maxWidth: .infinity)
         } else if row.role == .user {
             HStack {
                 Spacer(minLength: 30)
@@ -71,17 +71,17 @@ struct HistoryMessageReader: View {
             VStack(alignment: .leading, spacing: 12) {
                 if !row.thinking.isEmpty {
                     DisclosureGroup(isExpanded: binding(row.id, in: $thinkingOpen)) {
-                        Text(row.thinking).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+                        Text(row.thinking).font(MacTheme.font(12)).foregroundStyle(MacTheme.ink2).textSelection(.enabled)
                     } label: {
                         HStack {
-                            Text("Thinking").font(.caption.weight(.medium))
-                            if !thinkingOpen.contains(row.id) { Text(row.thinking.replacingOccurrences(of: "\n", with: " ")).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                            Text("Thinking").font(MacTheme.font(10, .medium))
+                            if !thinkingOpen.contains(row.id) { Text(row.thinking.replacingOccurrences(of: "\n", with: " ")).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2).lineLimit(1) }
                         }
                     }
                 }
                 if !row.text.isEmpty {
                     HistoryMarkdownView(text: row.text)
-                    Button("Copy message") { copy(row.text) }.font(.caption).buttonStyle(.borderless)
+                    Button("Copy message") { copy(row.text) }.font(MacTheme.font(10)).buttonStyle(.borderless)
                 }
                 if !row.tools.isEmpty {
                     DisclosureGroup(isExpanded: binding(row.id, in: $toolsOpen)) {
@@ -98,10 +98,10 @@ struct HistoryMessageReader: View {
                     } label: {
                         HStack(spacing: 8) {
                             Text(row.tools.count == 1 ? row.tools[0].name : "\(row.tools.count) tool calls").fontWeight(.medium)
-                            Text(row.tools.count == 1 ? row.tools[0].preview : row.tools.map(\.name).joined(separator: " · ")).lineLimit(1).foregroundStyle(.secondary)
+                            Text(row.tools.count == 1 ? row.tools[0].preview : row.tools.map(\.name).joined(separator: " · ")).lineLimit(1).foregroundStyle(MacTheme.ink2)
                             let failures = row.tools.filter(\.isError).count
                             if failures > 0 { Text("\(failures) failed").foregroundStyle(.red) }
-                        }.font(.caption)
+                        }.font(MacTheme.font(10))
                     }.padding(10).background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
                 }
             }
@@ -110,12 +110,12 @@ struct HistoryMessageReader: View {
     private func toolSection(_ label: String, text: String) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack {
-                Text(label).font(.caption).foregroundStyle(.secondary)
+                Text(label).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 Spacer()
-                Button("Copy \(label.lowercased())") { copy(text) }.font(.caption)
+                Button("Copy \(label.lowercased())") { copy(text) }.font(MacTheme.font(10))
             }
-            Text(String(text.prefix(600))).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-            if text.count > 600 { Text("Preview · \(text.count) characters. Copy to read all indexed text.").font(.caption2).foregroundStyle(.secondary) }
+            Text(String(text.prefix(600))).font(MacTheme.mono(10)).textSelection(.enabled)
+            if text.count > 600 { Text("Preview · \(text.count) characters. Copy to read all indexed text.").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2) }
         }
     }
     private func binding(_ id: String, in values: Binding<Set<String>>) -> Binding<Bool> {

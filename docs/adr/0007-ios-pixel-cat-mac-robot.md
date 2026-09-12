@@ -1,7 +1,27 @@
 # iOS pet is a pixel cat; Mac keeps the robot
 
-**Status:** Superseded in part (2026-06-06, 2026-09-05) — see the *Amendments*
-below. Originally Accepted (2026-06-05), amends ADR-0006.
+**Status:** Superseded in part (2026-06-06, 2026-09-05, 2026-09-12, 2026-09-13) — see
+the *Amendments* below. Originally Accepted (2026-06-05), amends ADR-0006.
+
+> **Amendment 5 (2026-09-13, ADR-0017): the cat leaves every status surface.**
+> Cursor has no mascot, and the product now follows Cursor's visual language on
+> every surface. The cat keeps three places: the app icon, the menu-bar mark,
+> and the voice companion's avatar while a conversation is live (the phone's
+> voice strip, the Mac panel, dashboard and Glance). The Watch home, the Glance,
+> the Mac dashboard's top bar, the Live Activity and the widgets show a status
+> dot or glyph instead; the mic circle is the voice entry everywhere.
+
+> **Amendment 4 (2026-09-12): the menu-bar panel drops the pet too.** The panel
+> is now the phone's flat, grouped list at panel scale (ADR-0015): the mic leads
+> the command row where the cat did, and the panel's status light is the dot on
+> its summary line. The cat keeps the **menu-bar mark** right above the panel,
+> the Glance, the Mac dashboard, the Live Activity, the Watch and the app icon.
+
+> **Amendment 3 (2026-09-12): the iPhone dashboard drops the pet.** The phone's
+> list is a flat, grouped task list with the mic as the voice entry point
+> (ADR-0014). `BuddyView` and the iOS `PetFace` are gone; the cat still renders
+> on the Live Activity, the Watch, the Mac glance and dashboard, the menu-bar
+> mark and the app icon.
 
 > **Amendment 2 (2026-09-05): the pixel cat retires; the pet is the icon's cat.**
 > The app icon was redesigned as a white cat with green inner ears and eyes on

@@ -9,13 +9,30 @@ public struct QwenSpeechSynthesizer: SpeechSynthesizer {
     let voice: String
     let workspaceID: String?
     let useIntl: Bool
+    let persona: VoicePersona?
 
     public init(model: String = defaultModel, voice: String = defaultVoice,
-                workspaceID: String?, useIntl: Bool) {
+                workspaceID: String?, useIntl: Bool, persona: VoicePersona? = nil) {
         self.model = model.isEmpty ? Self.defaultModel : model
         self.voice = voice.isEmpty ? Self.defaultVoice : voice
         self.workspaceID = workspaceID
         self.useIntl = useIntl
+        self.persona = persona
+    }
+
+    /// `run-task` parameters. Alibaba's style lever is 指令控制 — the
+    /// `instruction` field, which controls 方言、情感或角色 and which
+    /// `qwen-audio-3.0-tts-plus` / `-flash` accept for any voice, system or
+    /// cloned. Their examples are directives ("请用河南话表达。"), so the
+    /// persona goes in as one. The name matters: `instruction` is the
+    /// Qwen-Audio-TTS / CosyVoice spelling, while the older Qwen-TTS family
+    /// spells it `instructions` — the docs warn against mixing them.
+    func parameters() -> [String: Any] {
+        var parameters: [String: Any] = ["text_type": "PlainText", "voice": voice, "format": "mp3",
+                                         "sample_rate": 22050, "volume": 50, "rate": 1, "pitch": 1,
+                                         "enable_ssml": false]
+        if let persona { parameters["instruction"] = persona.directive }
+        return parameters
     }
 
     public func synthesize(_ text: String, apiKey: String) async throws -> Data {
@@ -41,8 +58,7 @@ public struct QwenSpeechSynthesizer: SpeechSynthesizer {
             }
             do {
                 try await send("run-task", ["task_group": "audio", "task": "tts", "function": "SpeechSynthesizer",
-                    "model": model, "parameters": ["text_type": "PlainText", "voice": voice, "format": "mp3",
-                        "sample_rate": 22050, "volume": 50, "rate": 1, "pitch": 1, "enable_ssml": false], "input": [:]])
+                    "model": model, "parameters": parameters(), "input": [:]])
                 var output = Data()
                 var sentText = false
                 while !Task.isCancelled {

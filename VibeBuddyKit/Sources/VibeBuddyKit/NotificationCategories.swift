@@ -38,13 +38,13 @@ public enum NotificationCategory: String, Sendable, CaseIterable, Equatable, Cod
     /// The switch label on iPhone and Mac Settings.
     public var categoryTitle: LocalizedStringResource {
         switch self {
-        case .needsApproval: return "Permission requests"
-        case .needsAnswer:   return "Questions and waiting for input"
-        case .agentStuck:    return "Errors and stuck sessions"
-        case .agentDone:     return "Task completed"
-        case .longWaitNudge: return "Still-waiting reminders"
-        case .pairSuccess:   return "Pairing confirmation"
-        case .quota:         return "Usage and budget"
+        case .needsApproval: return LocalizedStringResource("Permission requests", bundle: .atURL(Bundle.module.bundleURL))
+        case .needsAnswer:   return LocalizedStringResource("Questions and waiting for input", bundle: .atURL(Bundle.module.bundleURL))
+        case .agentStuck:    return LocalizedStringResource("Errors and stuck sessions", bundle: .atURL(Bundle.module.bundleURL))
+        case .agentDone:     return LocalizedStringResource("Task completed", bundle: .atURL(Bundle.module.bundleURL))
+        case .longWaitNudge: return LocalizedStringResource("Still-waiting reminders", bundle: .atURL(Bundle.module.bundleURL))
+        case .pairSuccess:   return LocalizedStringResource("Pairing confirmation", bundle: .atURL(Bundle.module.bundleURL))
+        case .quota:         return LocalizedStringResource("Usage and budget", bundle: .atURL(Bundle.module.bundleURL))
         }
     }
 }

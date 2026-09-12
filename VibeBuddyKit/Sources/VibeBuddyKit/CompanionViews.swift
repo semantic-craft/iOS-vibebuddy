@@ -2,20 +2,17 @@ import SwiftUI
 
 // MARK: - Cards
 
-private struct CompanionCardShadow: ViewModifier {
-    @Environment(\.colorScheme) private var scheme
-    func body(content: Content) -> some View {
-        content.shadow(color: scheme == .dark ? .black.opacity(0.2) : Color(hex: 0x2B3247).opacity(0.05),
-                       radius: 2, y: 1)
-    }
-}
-
 public extension View {
-    /// A Companion card: `bg3` ground, continuous corners, one soft shadow.
+    /// A Companion card: `bg3` ground, continuous corners, one hairline edge.
+    /// Depth comes from the edge, not a shadow — the same way Cursor separates
+    /// its panes — so a dense column of cards stays flat and quiet.
     func companionCard(_ ground: Color = CompanionPalette.bg3,
                        radius: CGFloat = CompanionType.cardRadius) -> some View {
         background(ground, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
-            .modifier(CompanionCardShadow())
+            .overlay {
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .strokeBorder(CompanionPalette.line, lineWidth: CompanionType.hairline)
+            }
     }
 }
 
@@ -42,9 +39,8 @@ public struct PillButtonStyle: ButtonStyle {
             .frame(maxWidth: size == .large ? .infinity : nil)
             .background(background, in: Capsule())
             .overlay {
-                if case .ghost = kind { Capsule().strokeBorder(CompanionPalette.line, lineWidth: 2) }
+                if case .ghost = kind { Capsule().strokeBorder(CompanionPalette.line, lineWidth: CompanionType.hairline) }
             }
-            .shadow(color: shadowColor, radius: 6, y: 3)
             .opacity(configuration.isPressed ? 0.85 : 1)
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .animation(.smooth(duration: 0.12), value: configuration.isPressed)
@@ -55,7 +51,8 @@ public struct PillButtonStyle: ButtonStyle {
     private var hPad: CGFloat { size == .small ? 12 : 16 }
     private var vPad: CGFloat { size == .small ? 5 : (size == .large ? 12 : 8) }
     private var foreground: Color {
-        if case .filled = kind { return .white }
+        // The on-accent label flips to ink on the dark mint (ADR-0017 §8).
+        if case .filled = kind { return .onAccent }
         return CompanionPalette.ink
     }
     private var background: Color {
@@ -64,10 +61,6 @@ public struct PillButtonStyle: ButtonStyle {
         case .ghost: return .clear
         case .soft: return CompanionPalette.bg2
         }
-    }
-    private var shadowColor: Color {
-        if case .filled(let c) = kind { return c.opacity(0.28) }
-        return .clear
     }
 }
 
@@ -157,7 +150,7 @@ public struct BucketTitle: View {
         HStack(spacing: 8) {
             Text(title).font(CompanionType.font(14, .black))
                 .foregroundStyle(onDark ? .white : CompanionPalette.ink)
-            Text("\(count)").font(CompanionType.font(12, .heavy)).monospacedDigit()
+            Text(verbatim: "\(count)").font(CompanionType.font(12, .heavy)).monospacedDigit()
                 .foregroundStyle(onDark ? .white.opacity(0.6) : CompanionPalette.ink2)
             Spacer(minLength: 0)
         }
@@ -186,12 +179,12 @@ public struct SplitApproveButton: View {
 
     public var body: some View {
         HStack(spacing: 1) {
-            Button(String(localized: "Approve"), action: approve)
+            Button(String(localized: "Approve", bundle: .module), action: approve)
                 .buttonStyle(SplitHalfStyle(color: green))
             if allowsPersistentDecision {
             Menu {
-                Button(String(localized: "Always allow this"), action: always)
-                Button(String(localized: "Allow all this session"), action: session)
+                Button(String(localized: "Always allow this", bundle: .module), action: always)
+                Button(String(localized: "Allow all this session", bundle: .module), action: session)
             } label: {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 10, weight: .black))
@@ -207,10 +200,9 @@ public struct SplitApproveButton: View {
             .background(green, in: UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 0,
                                                           bottomTrailingRadius: 17, topTrailingRadius: 17,
                                                           style: .continuous))
-            .accessibilityLabel(String(localized: "More approval options"))
+            .accessibilityLabel(String(localized: "More approval options", bundle: .module))
             }
         }
-        .shadow(color: green.opacity(0.28), radius: 6, y: 3)
     }
 }
 
@@ -294,7 +286,7 @@ public struct ApprovalBody: View {
                     diffLine("+", l, CompanionPalette.status(.completeUnread))
                 }
                 if oldLines.truncated || newLines.truncated {
-                    Text("… (truncated)").font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink3).padding(.leading, 6)
+                    Text("… (truncated)", bundle: .module).font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink3).padding(.leading, 6)
                 }
             }
         }

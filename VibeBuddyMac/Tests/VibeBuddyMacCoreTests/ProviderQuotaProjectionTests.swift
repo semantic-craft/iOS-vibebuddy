@@ -290,6 +290,8 @@ struct ProviderQuotaProjectionTests {
         #expect(result.observedAt == observed)
         #expect(result.freshness(now: observed) == .live)
         #expect(result.unavailableReason == nil)
+        #expect(result.credits?.remaining == 1200)
+        #expect(result.credits?.limit == 2000)
         // Watch/home surfaces must not show "Window unavailable" while live.
         let display = result.displayWindow(preferring: .weekly)
         #expect(display.remainingPercent == 60)

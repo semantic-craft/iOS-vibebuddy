@@ -20,6 +20,7 @@ public struct WatchStoredState: Codable, Equatable, Sendable {
             // to answer, and an id kept past its words is an actionable card
             // nobody can read.
             redacted.pendingId = nil
+            redacted.questions = nil
             return redacted
         }
         self.state = cached

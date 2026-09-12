@@ -1,11 +1,18 @@
 import Darwin
 import Foundation
 import Testing
+import VibeBuddyKit
 @testable import VibeBuddyMacCore
 
 @Suite("Grok usage adapter")
 struct GrokUsageProviderTests {
     private let now = Date(timeIntervalSince1970: 1_788_314_400)
+
+    /// Handshakes against `writeFakeAgent` finish in milliseconds. The provider
+    /// deadline is only a liveness bound here — kept far above anything a loaded
+    /// host can reach, so a stalled machine cannot turn a scripted reply into
+    /// `.timedOut`. Tests that assert timeout behaviour set their own short one.
+    private let fakeAgentTimeout: TimeInterval = 60
 
     @Test("a valid period-only bill preserves the plan without inventing usage")
     func periodOnlyBill() throws {
@@ -40,7 +47,7 @@ struct GrokUsageProviderTests {
             return (Data(bytes), HTTPURLResponse(url: request.url!, statusCode: 200,
                 httpVersion: nil, headerFields: ["grpc-status": "0"])!)
         }
-        let provider = GrokUsageProvider(executableURL: executable,
+        let provider = GrokUsageProvider(executableURL: executable, timeout: fakeAgentTimeout,
             logURL: directory.appendingPathComponent("absent"), authFileURL: auth,
             proxyTransport: transport, now: { Date(timeIntervalSince1970: 1_788_750_000) })
         if outcome == "task-cancelled" {
@@ -98,6 +105,29 @@ struct GrokUsageProviderTests {
         #expect(snapshot.secondary?.usedPercent == 25)
         #expect(snapshot.secondary?.windowDurationMinutes == 10_080)
         #expect(Self.matches(snapshot.secondary?.resetsAt, "2026-09-06T11:36:49Z"))
+        #expect(snapshot.spend?.first?.amount == 1250)
+        #expect(snapshot.quotaWindows.map(\.kind) == [.primary])
+    }
+
+    @Test("prepaid balance is credits and never a quota-percent window")
+    func prepaidCredits() throws {
+        let response = Data(#"""
+        {"jsonrpc":"2.0","id":2,"result":{"config":{"creditUsagePercent":36.0,
+        "currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","start":"2026-08-30T11:36:49.308758+00:00",
+        "end":"2026-09-06T11:36:49.308758+00:00"},"onDemandCap":{"val":0},"onDemandUsed":{"val":0},
+        "prepaidBalance":{"val":42.5},"isUnifiedBillingUser":true,
+        "billingPeriodStart":"2026-08-30T11:36:49.308758+00:00",
+        "billingPeriodEnd":"2026-09-06T11:36:49.308758+00:00"},"subscription_tier":"SuperGrok Heavy"}}
+        """#.utf8)
+        let snapshot = try GrokUsageResponseDecoder.decode(billingResponse: response, fetchedAt: now)
+        #expect(snapshot.credits?.remaining == 42.5)
+        #expect(snapshot.credits?.label == "Prepaid")
+        #expect(snapshot.primary?.usedPercent == 36)
+        #expect(snapshot.extraWindows == nil)
+        let quota = ProviderQuota(.available(snapshot, nextRefreshAt: nil), provider: .grok, now: now)
+        #expect(quota.weeklyRemainingPercent == 64)
+        #expect(quota.credits?.remaining == 42.5)
+        #expect(quota.otherWindows == nil)
     }
 
     @Test("a percentage outside zero through one hundred is rejected")
@@ -221,7 +251,7 @@ struct GrokUsageProviderTests {
         let snapshot = try await GrokUsageProvider(
             executableURL: agent,
             arguments: [],
-            timeout: 5,
+            timeout: fakeAgentTimeout,
             logURL: directory.appendingPathComponent("absent.jsonl")
         ).fetch()
 
@@ -283,12 +313,13 @@ struct GrokUsageProviderTests {
 
         await #expect(throws: AccountUsageError.notLoggedIn) {
             try await GrokUsageProvider(
-                executableURL: agent, arguments: [], timeout: 5, logURL: logURL
+                executableURL: agent, arguments: [], timeout: fakeAgentTimeout, logURL: logURL
             ).fetch()
         }
     }
 
-    @Test("a stalled agent times out and its child process is reaped")
+    @Test("a stalled agent times out and its child process is reaped",
+          .timeLimit(.minutes(2)))
     func timeoutReapsChild() async throws {
         let directory = try Self.makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -296,17 +327,22 @@ struct GrokUsageProviderTests {
         let provider = GrokUsageProvider(
             executableURL: URL(fileURLWithPath: "/bin/sh"),
             arguments: [
-                "-c", "trap '' TERM; echo $$ > \"$1\"; exec sleep 5",
+                // Sleeps far past the timeout, so the child can only stop because
+                // the provider stopped it, never because it finished on its own.
+                "-c", "trap '' TERM; echo $$ > \"$1\"; exec sleep 60",
                 "vibebuddy-test", pidFile.path,
             ],
             timeout: 0.2,
             logURL: directory.appendingPathComponent("absent.jsonl"), proxyEnabled: false
         )
 
-        let started = ContinuousClock.now
+        // `.timedOut` is the judgment rather than any elapsed-time bound: waiting
+        // for the child instead of the deadline would read EOF and report
+        // `.providerUnavailable`. The time limit is only a deadlock guard.
         await #expect(throws: AccountUsageError.timedOut) { try await provider.fetch() }
-        #expect(ContinuousClock.now - started < .seconds(2))
 
+        // GrokACPClient reaps the child before `fetch` returns, so the exit below
+        // is settled state and not a race against the host's speed.
         let pid = try #require(Int32(
             try String(contentsOf: pidFile, encoding: .utf8)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -581,7 +617,7 @@ struct GrokUsageProviderTests {
         let snapshot = try await GrokUsageProvider(
             executableURL: agent,
             arguments: [],
-            timeout: 5,
+            timeout: fakeAgentTimeout,
             logURL: logURL,
             authFileURL: auth,
             proxyEndpoint: endpoint,
@@ -626,7 +662,7 @@ struct GrokUsageProviderTests {
             try await GrokUsageProvider(
                 executableURL: agent,
                 arguments: [],
-                timeout: 5,
+                timeout: fakeAgentTimeout,
                 logURL: logURL,
                 authFileURL: auth,
                 proxyEndpoint: endpoint,

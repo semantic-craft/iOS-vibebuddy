@@ -8,7 +8,7 @@ struct SettingsTestFeedback: View {
         Group {
             if tests.isBusy && tests.phase != .running {
                 Label("Finishing the previous test…", systemImage: "hourglass")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(MacTheme.ink2)
             }
             if tests.purpose == purpose {
                 switch tests.phase {
@@ -19,7 +19,7 @@ struct SettingsTestFeedback: View {
                         Text("Testing…")
                         Button("Cancel") { tests.cancel() }
                     }
-                case .cancelled: Text("Test cancelled.").foregroundStyle(.secondary)
+                case .cancelled: Text("Test cancelled.").foregroundStyle(MacTheme.ink2)
                 case .succeeded, .failed:
                     if let outcome = tests.outcome {
                         switch outcome {
@@ -34,7 +34,7 @@ struct SettingsTestFeedback: View {
                                 Text(text).textSelection(.enabled)
                                     .accessibilityIdentifier("completionSummaryTestResult")
                                 Text("Check that the summary still says device verification is pending.")
-                                    .font(.caption).foregroundStyle(.secondary)
+                                    .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                             }
                             if !output.details.isEmpty {
                                 DisclosureGroup("Test details") {
