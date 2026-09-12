@@ -362,7 +362,7 @@ private struct NotificationsPage: View {
             }
 
             SettingsSection("Quiet",
-                            footnote: "Quiet mode keeps approvals and questions silent and suppresses other session alerts. Enabled quota alerts still follow the Sound setting.") {
+                            footnote: "Quiet mode keeps questions, plan decisions and approvals visible but silent. Failures stay in the list; completions are quiet. Enabled quota alerts still follow the Sound setting.") {
                 SettingsRow("Quiet mode",
                             detail: "Approvals and questions stay silent; other session alerts are suppressed.") {
                     Toggle("", isOn: $quiet).labelsHidden().toggleStyle(.switch).disabled(!notify)

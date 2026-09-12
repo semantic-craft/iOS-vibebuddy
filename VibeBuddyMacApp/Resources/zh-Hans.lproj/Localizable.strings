@@ -883,3 +883,5 @@
 "More results remain in the unread list" = "还有更多结果可在未读列表查看";
 "Read-aloud paused" = "播报已暂停";
 "Skipped; result remains unread" = "已跳过；结果仍未读";
+
+"Quiet mode keeps questions, plan decisions and approvals visible but silent. Failures stay in the list; completions are quiet. Enabled quota alerts still follow the Sound setting." = "静默模式下，提问、计划决定和审批仍显示但不响铃；失败保留在列表，完成不打扰。已开启的配额提醒仍遵循声音设置。";
