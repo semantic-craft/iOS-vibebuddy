@@ -404,7 +404,7 @@
 "Token spend · %@" = "Token 花费 · %@";
 "No spend in this window" = "此窗口无花费";
 "Estimated cost" = "预估费用";
-"Tokens" = "Token";
+"Tokens" = "Token 数";
 "Billed / cache" = "计费／缓存";
 "Sessions" = "会话数";
 "By agent" = "按 Agent";
@@ -441,3 +441,11 @@
 "Answer an approval" = "回应审批";
 "Approval" = "审批";
 "Allow" = "允许";
+
+/* MARK: Ticket 10 — style residue. Task sheet facts and the pairing steps */
+"Model" = "模型";
+"Cost" = "费用";
+"Effort" = "推理强度";
+"PR" = "PR";
+"Worktree" = "工作树";
+"Open “Pair a phone” in the Mac menu bar. Use the same LAN, or connect both devices to Tailscale for remote access." = "在 Mac 菜单栏打开“配对手机”（Pair a phone）。使用同一局域网，或把两台设备都连到 Tailscale 以便远程访问。";

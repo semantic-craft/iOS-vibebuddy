@@ -208,6 +208,26 @@ struct DashboardView: View {
             if let pairing = connection.pairing { dashboard.start(pairing) }
         }
         .task { if connection.demo { dashboard.startDemo() } }
+        .task {
+            // `VIBEBUDDY_DEMO_PAGE=customize|usage|newtask|task/<title>` opens
+            // that sheet once the demo has seeded, for screenshots and QA —
+            // the Mac (`dashboard/<library>`) and the Watch (`WATCH_PAGE`)
+            // carry the same switch.
+            guard connection.demo,
+                  let page = ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO_PAGE"] else { return }
+            try? await Task.sleep(for: .seconds(1))
+            switch page {
+            case "customize": showFilters = true
+            case "usage": showQuota = true
+            case "newtask": showNewTask = true
+            default:
+                guard page.hasPrefix("task/") else { return }
+                let needle = String(page.dropFirst("task/".count))
+                detailId = dashboard.allSessions.first {
+                    $0.id == needle || $0.displayTitle.localizedCaseInsensitiveContains(needle)
+                }?.id
+            }
+        }
         .onDisappear { dashboard.stop() }
         }
     }
@@ -848,9 +868,12 @@ private struct SessionDetailSheet: View {
                             .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink2)
                         }
                     }
+                    // The same word the row carries (`ToolActivity.label`), so
+                    // the sheet never says "Requires input" for a row that said
+                    // "Needs approval".
                     HStack(spacing: 6) {
                         Image(systemName: state.symbolName).font(.system(size: 10, weight: .semibold))
-                        Text(state.label)
+                        Text(ToolActivity.label(for: session))
                     }
                     .font(CompanionType.font(12, .medium))
                     .foregroundStyle(CompanionPalette.status(state))
@@ -882,14 +905,18 @@ private struct SessionDetailSheet: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Notifications").font(CompanionType.font(11, .medium)).textCase(.uppercase).kerning(0.5)
                             .foregroundStyle(CompanionPalette.ink3)
-                        Picker("Attention", selection: Binding(get: { session.attentionOverride },
-                                                               set: { dashboard.setAttention(session.id, $0) })) {
-                            Text("Auto").tag(SessionAttention?.none)
+                        HStack(spacing: 6) {
+                            PhoneChip(title: String(localized: "Auto"), selected: session.attentionOverride == nil) {
+                                dashboard.setAttention(session.id, nil)
+                            }
                             ForEach(SessionAttention.allCases, id: \.self) { level in
-                                Text(level.stateTitle).tag(SessionAttention?.some(level))
+                                PhoneChip(title: level.stateTitle, selected: session.attentionOverride == level) {
+                                    dashboard.setAttention(session.id, level)
+                                }
                             }
                         }
-                        .pickerStyle(.segmented)
+                        .accessibilityElement(children: .contain)
+                        .accessibilityLabel("Attention")
                     }
                     HStack(spacing: 8) {
                         if session.canJump {
@@ -1061,9 +1088,11 @@ private struct ContextBar: View {
         .padding(.top, 2)
     }
 
+    /// The quota bars' rule: the accent while there is room, the severity
+    /// tints past 70 % and 90 %.
     private func color(_ f: Double) -> Color {
         f > 0.9 ? CompanionPalette.status(.error)
-            : f > 0.7 ? CompanionPalette.status(.requiresInput) : CompanionPalette.status(.thinking)
+            : f > 0.7 ? CompanionPalette.status(.requiresInput) : CompanionPalette.accent
     }
     private func short(_ n: Int) -> String { n >= 1000 ? "\(n / 1000)k" : "\(n)" }
 }

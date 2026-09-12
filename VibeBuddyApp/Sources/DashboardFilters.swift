@@ -170,6 +170,11 @@ struct DashboardCustomizeSheet: View {
                 }
             }
             .listStyle(.insetGrouped)
+            // The same row as Settings: the phone's face on the card ground,
+            // so the system pickers and switch sit in the list's own type.
+            .font(CompanionType.font(15))
+            .foregroundStyle(CompanionPalette.ink)
+            .listRowBackground(CompanionPalette.bg3)
             .phoneList()
         }
         .background(CompanionPalette.bg)
