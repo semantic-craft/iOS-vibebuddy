@@ -14,7 +14,12 @@ public extension ObservationSourceDiagnostic {
         health.isHealthy ? "checkmark.circle.fill"
             : isInformational ? "info.circle" : "exclamationmark.triangle.fill"
     }
-    var diagnosticColor: Color { health.isHealthy ? .green : isInformational ? .gray : .orange }
+    /// Token colours, not the system's: the accent for healthy, tertiary ink
+    /// for information, the needs-you tint for a problem.
+    var diagnosticColor: Color {
+        health.isHealthy ? CompanionPalette.accent
+            : isInformational ? CompanionPalette.ink3 : CompanionPalette.status(.requiresInput)
+    }
     var diagnosticTitle: String {
         if isOptionalStatusLineNotConfigured { return "Status line information not enabled" }
         return switch reasonCode {
