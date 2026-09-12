@@ -40,44 +40,19 @@ struct MenuCircleButton: View {
 
 /// The head of a collapsible group: name, count, and a chevron that turns.
 /// Never shouts — the rows' own status dots carry urgency, so the heading is
-/// quiet ink on the panel's ground.
+/// quiet ink on the panel's ground. The Kit's `CompanionSectionHeader` at the
+/// panel's sizes, with the panel's gutter inside the tappable area.
 struct MenuSectionHeader: View {
     let title: LocalizedStringKey
     let count: Int
     @Binding var expanded: Bool
 
     var body: some View {
-        Button { withAnimation(.smooth(duration: 0.18)) { expanded.toggle() } } label: {
-            HStack(spacing: 5) {
-                Text(title)
-                    .font(MacTheme.font(12, .medium))
-                    .foregroundStyle(MacTheme.ink2)
-                Text("\(count)")
-                    .font(MacTheme.font(11, .medium)).monospacedDigit()
-                    .foregroundStyle(MacTheme.ink3)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(MacTheme.ink3)
-                    .rotationEffect(.degrees(expanded ? 0 : -90))
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, MenuMetrics.gutter)
-            .padding(.top, 9).padding(.bottom, 4)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityHint(expanded ? "Collapse" : "Expand")
+        CompanionSectionHeader(title: Text(title), count: count, expanded: $expanded,
+                               insets: EdgeInsets(top: 9, leading: MenuMetrics.gutter,
+                                                  bottom: 4, trailing: MenuMetrics.gutter))
     }
 }
 
 /// The hairline between rows, inset past the status dot like a settings list.
-struct MenuHairline: View {
-    var leading: CGFloat = 0
-    var body: some View {
-        Rectangle()
-            .fill(MacTheme.line)
-            .frame(height: CompanionType.hairline)
-            .padding(.leading, leading)
-    }
-}
+typealias MenuHairline = CompanionHairline

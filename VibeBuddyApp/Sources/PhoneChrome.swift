@@ -11,14 +11,6 @@ enum PhoneMetrics {
     static let controlRadius: CGFloat = 10
 }
 
-extension Color {
-    /// A label on the accent. The dark accent is a mint, and white on mint
-    /// fails contrast, so the label flips to ink there instead.
-    static let onAccent = Color(uiColor: UIColor { trait in
-        trait.userInterfaceStyle == .dark ? UIColor(white: 0.07, alpha: 1) : .white
-    })
-}
-
 /// A glyph in a circle: the phone's toolbar unit. Sits on the page, not in a
 /// bar, so the list scrolls under it.
 struct PhoneCircleButton<Glyph: View>: View {
@@ -51,36 +43,21 @@ extension PhoneCircleButton where Glyph == Image {
 }
 
 /// The head of a collapsible group: name, count, and a chevron that turns.
+/// The Kit's `CompanionSectionHeader` at the phone's sizes.
 struct PhoneSectionHeader: View {
     let title: String
     let count: Int
     @Binding var expanded: Bool
 
     var body: some View {
-        Button { withAnimation(.smooth(duration: 0.2)) { expanded.toggle() } } label: {
-            HStack(spacing: 6) {
-                Text(title)
-                    .font(CompanionType.font(15, .medium))
-                    .textCase(nil)   // a list style must not shout a group's name
-                    .foregroundStyle(CompanionPalette.ink2)
-                Text("\(count)")
-                    .font(CompanionType.font(13, .medium)).monospacedDigit()
-                    .foregroundStyle(CompanionPalette.ink3)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(CompanionPalette.ink3)
-                    .rotationEffect(.degrees(expanded ? 0 : -90))
-                Spacer(minLength: 0)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(title), \(count)")
-        .accessibilityHint(expanded ? "Collapse" : "Expand")
+        CompanionSectionHeader(title: title, count: count, expanded: $expanded,
+                               titleSize: 15, countSize: 13, chevronSize: 11, spacing: 6)
+            .accessibilityLabel("\(title), \(count)")
     }
 }
 
-/// Rounded-rect buttons, the phone's answer to `PillButtonStyle`.
+/// Rounded-rect buttons, the phone's answer to `PillButtonStyle`: the Kit's
+/// `CompanionButtonStyle` at the phone's control radius.
 struct PhoneButtonStyle: ButtonStyle {
     enum Kind { case primary(Color), quiet, ghost }
     enum Size { case small, regular, wide }
@@ -88,33 +65,22 @@ struct PhoneButtonStyle: ButtonStyle {
     var size: Size = .regular
 
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(CompanionType.font(fontSize, .medium))
-            .foregroundStyle(foreground)
-            .padding(.horizontal, hPad).padding(.vertical, vPad)
-            .frame(maxWidth: size == .wide ? .infinity : nil)
-            .background(ground, in: RoundedRectangle(cornerRadius: PhoneMetrics.controlRadius, style: .continuous))
-            .overlay {
-                if !isPrimary {
-                    RoundedRectangle(cornerRadius: PhoneMetrics.controlRadius, style: .continuous)
-                        .strokeBorder(CompanionPalette.line, lineWidth: CompanionType.hairline)
-                }
-            }
-            .opacity(configuration.isPressed ? 0.7 : 1)
-            .animation(.smooth(duration: 0.12), value: configuration.isPressed)
-            .contentShape(RoundedRectangle(cornerRadius: PhoneMetrics.controlRadius, style: .continuous))
+        CompanionButtonStyle(kind: sharedKind, size: sharedSize, radius: PhoneMetrics.controlRadius)
+            .makeBody(configuration: configuration)
     }
 
-    private var isPrimary: Bool { if case .primary = kind { return true } else { return false } }
-    private var fontSize: CGFloat { size == .small ? 12 : (size == .wide ? 15 : 13) }
-    private var hPad: CGFloat { size == .small ? 10 : 14 }
-    private var vPad: CGFloat { size == .small ? 6 : (size == .wide ? 11 : 8) }
-    private var foreground: Color { isPrimary ? .onAccent : CompanionPalette.ink }
-    private var ground: Color {
+    private var sharedKind: CompanionButtonStyle.Kind {
         switch kind {
-        case .primary(let c): return c
-        case .quiet: return CompanionPalette.bg3
-        case .ghost: return .clear
+        case .primary(let c): return .filled(c)
+        case .quiet: return .quiet
+        case .ghost: return .ghost
+        }
+    }
+    private var sharedSize: CompanionButtonStyle.Size {
+        switch size {
+        case .small: return .small
+        case .regular: return .regular
+        case .wide: return .wide
         }
     }
 }
@@ -174,15 +140,7 @@ private struct PhoneApproveHalf: ButtonStyle {
 }
 
 /// The hairline between rows, inset past the status dot like a settings list.
-struct PhoneDivider: View {
-    var leading: CGFloat = 0
-    var body: some View {
-        Rectangle()
-            .fill(CompanionPalette.line)
-            .frame(height: CompanionType.hairline)
-            .padding(.leading, leading)
-    }
-}
+typealias PhoneDivider = CompanionHairline
 
 /// A sheet's head: a round close button on the left, the title centred.
 struct PhoneSheetHeader: View {
