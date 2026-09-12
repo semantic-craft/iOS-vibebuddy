@@ -35,7 +35,7 @@ struct TaskPresentationTests {
             for waitKind in waitKinds {
                 for failed in [false, true] {
                     for unread in [false, true] {
-                        let expected: TaskPresentationState = if failed {
+                        let expected: TaskPresentationState = if failed && status == .done {
                             .error
                         } else {
                             switch status {
@@ -59,7 +59,7 @@ struct TaskPresentationTests {
     @Test("priority is error, input, thinking, unread completion, idle")
     func conflictPriority() {
         #expect(session("failed-wait", status: .needsResponse, waitKind: .permission,
-                        failed: true, unread: true).presentationState == .error)
+                        failed: true, unread: true).presentationState == .requiresInput)
         #expect(session("wait-unread", status: .needsResponse, waitKind: .question,
                         unread: true).presentationState == .requiresInput)
         #expect(session("work-unread", status: .working,
@@ -68,6 +68,30 @@ struct TaskPresentationTests {
         #expect(TaskPresentationState.requiresInput.attentionRank < TaskPresentationState.thinking.attentionRank)
         #expect(TaskPresentationState.thinking.attentionRank < TaskPresentationState.completeUnread.attentionRank)
         #expect(TaskPresentationState.completeUnread.attentionRank < TaskPresentationState.idle.attentionRank)
+    }
+
+    @Test("only terminal failure needs intervention; question and approval precede it")
+    func terminalFailureGrouping() {
+        let recovering = session("recovering", status: .working, failed: true, updatedAt: 10)
+        let failure = session("failed", status: .done, failed: true, updatedAt: 9)
+        let approval = session("approval", status: .needsResponse, waitKind: .permission, updatedAt: 8)
+        let question = session("question", status: .needsResponse, waitKind: .question, updatedAt: 7)
+        var plan = session("plan", status: .needsResponse, waitKind: .permission, updatedAt: 5)
+        plan.pendingApproval = PendingApproval(id: "plan-decision", tool: "ExitPlanMode", commandPreview: "Review plan")
+        var disconnected = session("disconnected", status: .working, updatedAt: 6)
+        disconnected.observations = [.init(source: .rollout,
+            lastObservedAt: Date(timeIntervalSince1970: 6), health: .sourceUnreadable)]
+        let unread = session("unread", status: .done, unread: true, updatedAt: 3)
+        let read = session("read", status: .done, updatedAt: 4)
+        let sessions = [recovering, failure, approval, question, plan, disconnected, read, unread]
+        let groups = StateGroups(sessions)
+        #expect(groups.needsYou.map(\.id) == ["question", "plan", "approval", "failed"])
+        #expect(groups.working.map(\.id) == ["recovering", "disconnected"])
+        #expect(groups.done.map(\.id) == ["unread", "read"])
+        let summary = TaskPresentationSummary(currentIn: sessions, now: Date(timeIntervalSince1970: 11))
+        #expect(summary.requiresInput + summary.error == groups.needsYou.count)
+        #expect(summary.thinking == groups.working.count)
+        #expect(summary.completeUnread + summary.idle == groups.done.count)
     }
 
     @Test("exact implementation color tokens stay centralized")

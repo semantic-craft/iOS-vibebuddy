@@ -116,7 +116,8 @@ public struct CodexAppServerReducer: Sendable, Equatable {
             return [event(.stop, threadID: id, receivedAt: receivedAt, message: message?.trimmingCharacters(in: .whitespacesAndNewlines),
                           turnID: turn["id"] as? String,
                           completionText: status == "completed" && turn["status"] != nil
-                            ? message : nil, completionSucceeded: turn["status"] as? String == "completed")]
+                            ? message : nil, completionSucceeded: (turn["status"] as? String).flatMap { value in
+                                value == "completed" ? true : (["failed", "interrupted"].contains(value) ? false : nil) })]
         case "item/started", "item/completed":
             if method == "item/completed", let id = params["threadId"] as? String,
                let turnID = params["turnId"] as? String,

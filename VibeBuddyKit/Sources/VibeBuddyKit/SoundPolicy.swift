@@ -251,9 +251,8 @@ public final class SoundPolicy {
         // exactly as asked.
         if session.userStopped == true { return nil }
 
-        // Real signal first (a tool/turn error reported by the hook), then the
-        // prose heuristic as a fallback. Either way failures ring regardless of runtime.
-        if session.isStuck || FailureHeuristic.looksFailed(session.summary) {
+        // Only the reducer's confirmed terminal outcome can raise a failure cue.
+        if session.isStuck {
             return .agentStuck
         }
         guard input.now.timeIntervalSince(prev.statusSince) >= config.doneMinRuntime else { return nil }

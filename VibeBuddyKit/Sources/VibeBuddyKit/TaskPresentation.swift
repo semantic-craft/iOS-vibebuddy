@@ -65,7 +65,8 @@ public enum TaskPresentationState: String, Codable, Sendable, CaseIterable, Hash
         failed: Bool,
         hasUnreadCompletion: Bool
     ) -> TaskPresentationState {
-        if failed { return .error }
+        // A tool error during a live turn is recovery, not a terminal failure.
+        if status == .done, failed { return .error }
         if status == .needsResponse { return .requiresInput }
         if status == .working { return .thinking }
         if status == .done, hasUnreadCompletion { return .completeUnread }

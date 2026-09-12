@@ -56,7 +56,8 @@ public enum GrokParser {
             model: nonEmpty(raw.modelId),
             toolError: kind == .postToolUse && (isFailureEvent || detectToolError(data)),
             timestamp: receivedAt,
-            turnID: nonEmpty(raw.promptId)
+            turnID: nonEmpty(raw.promptId),
+            completionSucceeded: kind == .stop ? event != "stop_failure" : nil
         ))
     }
 

@@ -125,9 +125,9 @@ public struct SessionReducer: Sendable {
                 sessions[event.sessionID]?.completionID = nil
                 break
             }
-            // Carry the last tool's outcome; also treat a failure-looking stop
-            // message as stuck even when no tool error was reported.
-            if FailureHeuristic.looksFailed(event.message) { sessions[event.sessionID]?.failed = true }
+            // Only a terminal outcome confirms failure. A tool error or words in
+            // the final prose cannot establish that autonomous recovery failed.
+            sessions[event.sessionID]?.failed = event.completionSucceeded == false || event.toolError
             // A clean result remains green until an explicit read acknowledgement.
             // Failed endings stay red and do not manufacture a completion unread.
             let cleanCompletion = sessions[event.sessionID]?.isStuck == false
