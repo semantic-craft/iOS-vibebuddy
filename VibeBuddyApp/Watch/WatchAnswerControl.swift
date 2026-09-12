@@ -55,8 +55,8 @@ struct WatchAnswerControl: View {
                     // what was asked.
                     if choices.omittedOptions > 0 {
                         Text("\(choices.omittedOptions) more choices — see them on your iPhone.")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .font(CompanionType.font(10))
+                            .foregroundStyle(CompanionPalette.ink2)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -65,8 +65,8 @@ struct WatchAnswerControl: View {
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
                         if phase == .sending { ProgressView().controlSize(.mini) }
                         Text(message)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .font(CompanionType.font(10))
+                            .foregroundStyle(CompanionPalette.ink2)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -102,13 +102,11 @@ struct WatchAnswerControl: View {
             draft = WatchAnswerDraft(alert: alert, text: reply.text)
         } label: {
             Text(reply.text)
-                .font(CompanionType.font(13, .heavy))
                 .lineLimit(2)
                 .minimumScaleFactor(0.7)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .buttonStyle(.bordered)
-        .buttonBorderShape(.roundedRectangle(radius: 12))
+        .buttonStyle(CompanionButtonStyle(kind: .quiet, size: .wide))
     }
 
     /// The system text input controller — dictation, Scribble and the keyboard,
@@ -119,7 +117,6 @@ struct WatchAnswerControl: View {
         TextFieldLink(prompt: Text(alert.request ?? String(localized: "Your answer"))) {
             Label(source == .options ? "Something else" : "Dictate an answer",
                   systemImage: "mic.fill")
-                .font(CompanionType.font(13, .heavy))
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -128,8 +125,7 @@ struct WatchAnswerControl: View {
             guard !trimmed.isEmpty else { return }
             draft = WatchAnswerDraft(alert: alert, text: trimmed)
         }
-        .buttonStyle(.bordered)
-        .buttonBorderShape(.roundedRectangle(radius: 12))
+        .buttonStyle(CompanionButtonStyle(kind: .quiet, size: .wide))
     }
 
     /// Never "Answered". The wrist knows the Mac took the text; the question
@@ -220,7 +216,8 @@ struct WatchAnswerConfirmView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Send this answer?")
-                    .font(CompanionType.font(15, .black))
+                    .font(CompanionType.font(15, .semibold))
+                    .foregroundStyle(CompanionPalette.ink)
                     .fixedSize(horizontal: false, vertical: true)
 
                 // Which Mac, which project, which agent — the same caption the
@@ -229,29 +226,29 @@ struct WatchAnswerConfirmView: View {
                 Text(SessionActionSupport.targetCaption(macName: macName,
                                                         project: project,
                                                         agent: agent))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(CompanionType.font(10))
+                    .foregroundStyle(CompanionPalette.ink2)
                     .lineLimit(2)
                     .minimumScaleFactor(0.8)
 
                 if let question, !question.isEmpty {
                     Text(question)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .font(CompanionType.font(10))
+                        .foregroundStyle(CompanionPalette.ink2)
                         .lineLimit(3)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
                 TextField("Your answer", text: $text, axis: .vertical)
-                    .font(CompanionType.font(14, .heavy))
+                    .font(CompanionType.font(14, .medium))
                     .lineLimit(1...4)
                     .accessibilityLabel(Text("Your answer"))
                     .onChange(of: text) { refused = false }
 
                 if refused {
                     Text("Could not send. The question changed or another action is still pending.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .font(CompanionType.font(10))
+                        .foregroundStyle(CompanionPalette.ink2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
@@ -259,18 +256,14 @@ struct WatchAnswerConfirmView: View {
                     if onSend(trimmed) { dismiss() } else { refused = true }
                 } label: {
                     Text("Send")
-                        .font(CompanionType.font(14, .heavy))
                         .frame(maxWidth: .infinity)
                 }
-                .tint(CompanionPalette.status(.completeUnread))
-                .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.capsule)
+                .buttonStyle(CompanionButtonStyle(kind: .filled(CompanionPalette.accent), size: .wide))
                 .disabled(trimmed.isEmpty)
                 .handGestureShortcut(.primaryAction)
 
                 Button("Cancel") { dismiss() }
-                    .buttonStyle(.bordered)
-                    .buttonBorderShape(.capsule)
+                    .buttonStyle(CompanionButtonStyle(kind: .quiet, size: .wide))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 2)
