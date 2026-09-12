@@ -1,0 +1,152 @@
+{
+  "captured": "2026-09-13",
+  "sourceHead": "29dabd5fd101ae855da0f9365ec37b6f1a93b744",
+  "sampleData": true,
+  "uploaded": false,
+  "images": [
+    {
+      "file": "ios/en-US/01-dashboard.jpg",
+      "width": 1320,
+      "height": 2868,
+      "mode": "RGB",
+      "bytes": 343525,
+      "sha256": "c6c0e236b6b7715d2beba58d82d16752ef554159ac5e10da9a9a27b0bb61110a",
+      "sourceHead": "29dabd5fd101ae855da0f9365ec37b6f1a93b744",
+      "sourceVersion": "1.3.13(27) source tree, pre-1.3.14 bump",
+      "sourceNote": "Captured 2026-09-13 from a Release simulator build of source HEAD 29dabd5 (iOS/watchOS 26.5 runtime, demo mode, no post-processing). Launched with simctl; no taps.",
+      "uploaded": false
+    },
+    {
+      "file": "ios/en-US/02-codex-task.jpg",
+      "width": 1320,
+      "height": 2868,
+      "mode": "RGB",
+      "bytes": 302101,
+      "sha256": "8360544037ede01e8b282a8f781a4f86721e9c5df3b3c306474d4bbf75064e41",
+      "sourceHead": "29dabd5fd101ae855da0f9365ec37b6f1a93b744",
+      "sourceVersion": "1.3.13(27) source tree, pre-1.3.14 bump",
+      "sourceNote": "Captured 2026-09-13 from a Release simulator build of source HEAD 29dabd5 (iOS/watchOS 26.5 runtime, demo mode, no post-processing). Sheet opened by a temporary XCUITest driver; image taken with simctl.",
+      "uploaded": false
+    },
+    {
+      "file": "ios/zh-Hans/01-dashboard.jpg",
+      "width": 1320,
+      "height": 2868,
+      "mode": "RGB",
+      "bytes": 331396,
+      "sha256": "3db4ddc28569cf319f9672ec847690e6a68407dfd786334a1524b98020e29bc5",
+      "sourceHead": "29dabd5fd101ae855da0f9365ec37b6f1a93b744",
+      "sourceVersion": "1.3.13(27) source tree, pre-1.3.14 bump",
+      "sourceNote": "Captured 2026-09-13 from a Release simulator build of source HEAD 29dabd5 (iOS/watchOS 26.5 runtime, demo mode, no post-processing). Launched with simctl; no taps.",
+      "uploaded": false
+    },
+    {
+      "file": "ios/zh-Hans/02-codex-task.jpg",
+      "width": 1320,
+      "height": 2868,
+      "mode": "RGB",
+      "bytes": 290922,
+      "sha256": "39cb05fa5e1a8ceb408d8a31ddc5541e7eb38c68f4dc253d42a9e0f4589ae417",
+      "sourceHead": "29dabd5fd101ae855da0f9365ec37b6f1a93b744",
+      "sourceVersion": "1.3.13(27) source tree, pre-1.3.14 bump",
+      "sourceNote": "Captured 2026-09-13 from a Release simulator build of source HEAD 29dabd5 (iOS/watchOS 26.5 runtime, demo mode, no post-processing). Sheet opened by a temporary XCUITest driver; image taken with simctl.",
+      "uploaded": false
+    },
+    {
+      "file": "macos/en-US/01-dashboard-approval.jpg",
+      "width": 2560,
+      "height": 1600,
+      "mode": "RGB",
+      "bytes": 369637,
+      "sha256": "e1059c1eab38a57e0db5363f5763483009c088e68c0b67dbc67edc38e925691c",
+      "sourceNote": "Captured by the separate Mac round (commit 136239f7 'docs: 1.3.14 Mac store screenshot'); provenance is recorded by that round, not verified here.",
+      "uploaded": false
+    },
+    {
+      "file": "macos/zh-Hans/01-dashboard-approval.jpg",
+      "width": 2560,
+      "height": 1600,
+      "mode": "RGB",
+      "bytes": 343717,
+      "sha256": "e6dd519b9c5379edda5293c5364535e58d1129fa36c826e5b382980daa2df101",
+      "sourceNote": "Captured by the separate Mac round (commit 136239f7 'docs: 1.3.14 Mac store screenshot'); provenance is recorded by that round, not verified here.",
+      "uploaded": false
+    },
+    {
+      "file": "reviewer/en-US/ios-pairing.jpg",
+      "width": 1320,
+      "height": 2868,
+      "mode": "RGB",
+      "bytes": 500453,
+      "sha256": "75e32da12a6be8124565f7c5b6c8147ca748b37385293f8a43d8471572bff6e5",
+      "sourceHead": "29dabd5fd101ae855da0f9365ec37b6f1a93b744",
+      "sourceVersion": "1.3.13(27) source tree, pre-1.3.14 bump",
+      "sourceNote": "Captured 2026-09-13 from a Release simulator build of source HEAD 29dabd5 (iOS/watchOS 26.5 runtime, demo mode, no post-processing). Connect screen without demo mode; the demo entry is the last line.",
+      "uploaded": false
+    },
+    {
+      "file": "reviewer/zh-Hans/ios-pairing.jpg",
+      "width": 1320,
+      "height": 2868,
+      "mode": "RGB",
+      "bytes": 495935,
+      "sha256": "1914a4d1813e8652a3d77092b459983c725dfa152c1c643231f03d84a6aab86d",
+      "sourceHead": "29dabd5fd101ae855da0f9365ec37b6f1a93b744",
+      "sourceVersion": "1.3.13(27) source tree, pre-1.3.14 bump",
+      "sourceNote": "Captured 2026-09-13 from a Release simulator build of source HEAD 29dabd5 (iOS/watchOS 26.5 runtime, demo mode, no post-processing). Connect screen without demo mode; the demo entry is the last line.",
+      "uploaded": false
+    },
+    {
+      "file": "watchos/en-US/01-task-overview.jpg",
+      "width": 416,
+      "height": 496,
+      "mode": "RGB",
+      "bytes": 38982,
+      "sha256": "550c984945838a77b81778fba2588cc2feb3ecc32d5199f8464170d7b67d6616",
+      "sourceHead": "29dabd5fd101ae855da0f9365ec37b6f1a93b744",
+      "sourceVersion": "1.3.13(27) source tree, pre-1.3.14 bump",
+      "sourceNote": "Captured 2026-09-13 from a Release simulator build of source HEAD 29dabd5 (iOS/watchOS 26.5 runtime, demo mode, no post-processing). Apple Watch Series 11 (46mm) simulator, VIBEBUDDY_WATCH_SCENARIO=normal.",
+      "uploaded": false
+    },
+    {
+      "file": "watchos/en-US/02-quota.jpg",
+      "width": 416,
+      "height": 496,
+      "mode": "RGB",
+      "bytes": 41169,
+      "sha256": "e6063d624be91923db1f21a8cfc6580c5f7358722ee3c26f2abce72cc59cc7ae",
+      "sourceHead": "29dabd5fd101ae855da0f9365ec37b6f1a93b744",
+      "sourceVersion": "1.3.13(27) source tree, pre-1.3.14 bump",
+      "sourceNote": "Captured 2026-09-13 from a Release simulator build of source HEAD 29dabd5 (iOS/watchOS 26.5 runtime, demo mode, no post-processing). Apple Watch Series 11 (46mm) simulator, VIBEBUDDY_WATCH_SCENARIO=normal.",
+      "uploaded": false
+    },
+    {
+      "file": "watchos/zh-Hans/01-task-overview.jpg",
+      "width": 416,
+      "height": 496,
+      "mode": "RGB",
+      "bytes": 39399,
+      "sha256": "0821d0fa2edde65cb455be7d7206c4e5f18ecd65f5e1f5bdda89aa3ed6860988",
+      "sourceHead": "29dabd5fd101ae855da0f9365ec37b6f1a93b744",
+      "sourceVersion": "1.3.13(27) source tree, pre-1.3.14 bump",
+      "sourceNote": "Captured 2026-09-13 from a Release simulator build of source HEAD 29dabd5 (iOS/watchOS 26.5 runtime, demo mode, no post-processing). Apple Watch Series 11 (46mm) simulator, VIBEBUDDY_WATCH_SCENARIO=normal.",
+      "uploaded": false
+    },
+    {
+      "file": "watchos/zh-Hans/02-quota.jpg",
+      "width": 416,
+      "height": 496,
+      "mode": "RGB",
+      "bytes": 41061,
+      "sha256": "da0916600e4b64d843deea7f7a0bb7b55286044710b04991a3132dfb8d03faeb",
+      "sourceHead": "29dabd5fd101ae855da0f9365ec37b6f1a93b744",
+      "sourceVersion": "1.3.13(27) source tree, pre-1.3.14 bump",
+      "sourceNote": "Captured 2026-09-13 from a Release simulator build of source HEAD 29dabd5 (iOS/watchOS 26.5 runtime, demo mode, no post-processing). Apple Watch Series 11 (46mm) simulator, VIBEBUDDY_WATCH_SCENARIO=normal.",
+      "uploaded": false
+    }
+  ],
+  "status": "captured-not-uploaded",
+  "sourceNote": "10 mobile/reviewer images captured from a Release simulator build of 29dabd5 (feat/cursor-visual-language, PR #161); 2 Mac images come from the separate Mac round (136239f7).",
+  "uploadedImageCount": 0,
+  "uploadScope": "none yet; ios and watchos are the marketing set, reviewer and macos are reference only"
+}
