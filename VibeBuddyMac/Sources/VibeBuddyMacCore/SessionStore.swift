@@ -300,6 +300,11 @@ public actor SessionStore {
     private var tokenConsumption: TokenConsumptionSnapshot?
     /// Models the signed-in Cursor CLI lists, for a Cursor dispatch.
     private var cursorModels: [String] = []
+    /// The agents `/dispatch` can start, as last computed by the server. Kept
+    /// here so the WebSocket snapshots carry it too — without it the phone
+    /// received the list only from `GET /snapshot`, and every push afterwards
+    /// emptied it, so the New task sheet lost its agent switcher.
+    private var dispatchAgents: [AgentKind] = []
     private var subscribers: [UUID: AsyncStream<Snapshot>.Continuation] = [:]
     private var needsResponseHandler: (@Sendable (AgentSession) async -> Void)?
     private var staleAfter: TimeInterval
@@ -1044,6 +1049,14 @@ public actor SessionStore {
         broadcast()
     }
 
+    /// Replace the agent list the New task sheet may choose from; composed
+    /// into every snapshot like the Cursor models, broadcast on change.
+    public func setDispatchAgents(_ agents: [AgentKind]) {
+        guard agents != dispatchAgents else { return }
+        dispatchAgents = agents
+        broadcast()
+    }
+
     /// The one place a runtime snapshot is assembled: sessions and diagnostics
     /// from the reducer, allowance from beside it.
     private func currentSnapshot(now: Date) -> Snapshot {
@@ -1069,6 +1082,7 @@ public actor SessionStore {
         let directories = recentDirectories()
         snapshot.recentDirectories = directories.isEmpty ? nil : directories
         snapshot.cursorModels = cursorModels.isEmpty ? nil : cursorModels
+        snapshot.dispatchAgents = dispatchAgents.isEmpty ? nil : dispatchAgents
         snapshot.sessions = snapshot.sessions.map { session in
             var session = session
             session.attentionOverride = attention[session.id]
