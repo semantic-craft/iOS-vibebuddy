@@ -8,7 +8,7 @@ import Foundation
 public enum VoiceCloseIntent {
     /// Completed transcripts act immediately; Live captions must settle first.
     public static func isExplicitCallEnd(_ transcript: String) -> Bool {
-        guard !transcript.contains(where: { "?？\"'“”‘’".contains($0) }) else { return false }
+        guard !transcript.contains(where: { "?？\"'“”‘’「」『』《》〈〉«»‹›＂＇".contains($0) }) else { return false }
         let clean = transcript.lowercased().unicodeScalars.filter {
             !CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters).contains($0)
         }.map(String.init).joined()

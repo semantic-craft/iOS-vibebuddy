@@ -136,3 +136,21 @@ and pending results explicitly unconfirmed, because stopping the coordinator
 cancels result collection but cannot undo a previously dispatched action.
 Delivery failure terminates without replay. Socket completion is not proof of
 server-side business acknowledgement.
+
+## Pending action cancellation and final transcription (2026-09-12)
+
+Qwen/OpenAI Realtime track response-to-call identity. Speech-start retires pending
+old calls and cancels their coordinator tasks. Cancellation propagates through
+async action execution to the last available boundary before approval resolution,
+answer injection, HTTP submission or Codex RPC send. Current task/scope checks and
+call-ID deduplication remain in place. Already submitted work is not rolled back,
+replayed, or reported as cancelled successfully. Hardware recovery alone does not
+invalidate a tool turn, and Live captions remain non-authoritative for cancelling
+backend work.
+
+Final user transcripts use only the explicit whole-call hangup matcher; there is
+no farewell/substring fallback. Doubao final transcription selects nonblank
+`transcript`, then nonblank `text`. Deltas remain partial and do not hang up. The
+750 ms Live caption settling heuristic and structured end-call tool are retained.
+Conditional response-ID reuse or nonconforming event reordering are documented
+separately from reproduced failures; they do not justify weakening identity checks.

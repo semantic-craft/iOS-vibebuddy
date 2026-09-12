@@ -9,6 +9,8 @@ final class FakeConnection: CodexAppServerConnecting, @unchecked Sendable {
     private let sink: AsyncStream<Data>.Continuation
     private let lock = NSLock()
     private var results: [String: [String: Any]]
+    private var pausedReplies: Set<String> = []
+    private var replyGates: [String: CheckedContinuation<Void, Never>] = [:]
     private(set) var calls: [String] = []
     private var sent: [(method: String, params: [String: Any])] = []
     private(set) var responses: [(id: JSONRPCID, result: [String: Any])] = []
@@ -24,8 +26,28 @@ final class FakeConnection: CodexAppServerConnecting, @unchecked Sendable {
 
     func request(_ method: String, params: [String: Any], timeout: Duration) async throws -> [String: Any] {
         lock.withLock { calls.append(method); sent.append((method, params)) }
+        if lock.withLock({ pausedReplies.contains(method) }) {
+            await withCheckedContinuation { continuation in
+                let pause = lock.withLock {
+                    guard pausedReplies.contains(method) else { return false }
+                    replyGates[method] = continuation
+                    return true
+                }
+                if !pause { continuation.resume() }
+            }
+        }
         if let result = lock.withLock({ results[method] }) { return result }
         throw CodexAppServerClient.ClientError.rpc(code: -32601, message: "no such method \(method)")
+    }
+
+    func pauseReply(_ method: String) { _ = lock.withLock { pausedReplies.insert(method) } }
+    func replyIsPaused(_ method: String) -> Bool { lock.withLock { replyGates[method] != nil } }
+    func resumeReply(_ method: String) {
+        let continuation = lock.withLock {
+            pausedReplies.remove(method)
+            return replyGates.removeValue(forKey: method)
+        }
+        continuation?.resume()
     }
 
     func notify(_ method: String, params: [String: Any]?) {}

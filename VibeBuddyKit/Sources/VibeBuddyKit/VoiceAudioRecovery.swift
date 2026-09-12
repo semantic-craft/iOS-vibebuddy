@@ -5,9 +5,12 @@ import Foundation
 @MainActor
 public final class VoiceAudioRecovery {
     public var onStateChanged: ((VoiceCallAudioState) -> Void)?
+    public var beforeRecovery: (@MainActor () async throws -> Void)?
+    public var afterRebuild: (@MainActor () async throws -> Void)?
     public var canResume = true
     public private(set) var isRecovering = false
     private var active = false
+    private var revision: UInt64 = 0
     private var attempt: Task<Void, Never>?
     private var timeout: Task<Void, Never>?
     private let rebuild: @MainActor () async throws -> Void
@@ -16,7 +19,7 @@ public final class VoiceAudioRecovery {
     private let interval: Duration
 
     public convenience init(rebuild: @escaping @MainActor () async throws -> Void, release: @escaping () -> Void) {
-        self.init(budget: .seconds(5), interval: .milliseconds(200), rebuild: rebuild, release: release)
+        self.init(budget: .seconds(8), interval: .milliseconds(200), rebuild: rebuild, release: release)
     }
 
     init(budget: Duration, interval: Duration, rebuild: @escaping @MainActor () async throws -> Void,
@@ -36,7 +39,9 @@ public final class VoiceAudioRecovery {
     }
 
     public func request() {
-        guard active, !isRecovering else { return }
+        guard active else { return }
+        revision &+= 1
+        if isRecovering { return }
         isRecovering = true
         let deadline = ContinuousClock.now.advanced(by: budget)
         release()
@@ -49,27 +54,59 @@ public final class VoiceAudioRecovery {
             self.onStateChanged?(.failed("Audio device recovery timed out. Tap the pet to start a new call."))
         }
         attempt = Task { [weak self] in
+            guard let self else { return }
+            // Suspend the provider even while a system interruption withholds
+            // permission to rebuild hardware.
+            do { try await self.beforeRecovery?() }
+            catch {
+                guard self.active, !Task.isCancelled else { return }
+                self.stop(); self.onStateChanged?(.failed(error.localizedDescription)); return
+            }
+            var attempts = 0
+            var needsSuspension = false
             while !Task.isCancelled {
-                guard let self else { return }
                 do { try await Task.sleep(for: self.interval) } catch { return }
                 guard self.active, !Task.isCancelled else { return }
                 guard self.canResume else { continue }
-                do {
-                    try await self.rebuild()
-                    guard self.active, !Task.isCancelled else { return }
-                    guard self.canResume, ContinuousClock.now < deadline else {
-                        self.release()
-                        continue
-                    }
-                    self.isRecovering = false
-                    self.attempt = nil
-                    self.timeout?.cancel(); self.timeout = nil
-                    self.onStateChanged?(.running)
+                guard attempts < 3 else {
+                    self.stop()
+                    self.onStateChanged?(.failed("Audio recovery failed after three attempts. Tap the pet to start a new call."))
                     return
-                } catch {
-                    guard self.active, !Task.isCancelled else { return }
-                    self.release()
                 }
+                attempts += 1
+                let revision = self.revision
+                // Provider failures are terminal; retries are for local hardware.
+                do { if needsSuspension { try await self.beforeRecovery?() } }
+                catch {
+                    guard self.active, !Task.isCancelled else { return }
+                    self.stop(); self.onStateChanged?(.failed(error.localizedDescription)); return
+                }
+                guard self.active, !Task.isCancelled else { return }
+                needsSuspension = false
+                do { try await self.rebuild() }
+                catch {
+                    guard self.active, !Task.isCancelled else { return }
+                    self.release(); continue
+                }
+                guard self.active, !Task.isCancelled else { return }
+                guard self.canResume, revision == self.revision, ContinuousClock.now < deadline else {
+                    self.release(); continue
+                }
+                needsSuspension = true
+                do { try await self.afterRebuild?() }
+                catch {
+                    guard self.active, !Task.isCancelled else { return }
+                    self.stop(); self.onStateChanged?(.failed(error.localizedDescription)); return
+                }
+                guard self.active, !Task.isCancelled else { return }
+                guard self.canResume, revision == self.revision, ContinuousClock.now < deadline else {
+                    self.release(); continue
+                }
+                self.isRecovering = false
+                self.attempt = nil
+                self.timeout?.cancel(); self.timeout = nil
+                self.onStateChanged?(.running)
+                return
             }
         }
     }

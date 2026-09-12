@@ -100,7 +100,7 @@ public final class VoiceCallCoordinator {
         defer { if recoveringAudio, !stopped { phase = .recovering } }
         switch event {
         case .connected:
-            phase = .listening
+            phase = !recoveringAudio ? .listening : .recovering
         case .userTranscript(let text, let final):
             lastUserText = text
             if final, VoiceCloseIntent.isExplicitCallEnd(text) {
@@ -143,6 +143,7 @@ public final class VoiceCallCoordinator {
             guard !recoveringAudio else { return }
             turnComplete = continuousPlayback
             audio.enqueue(pcm, item: item)
+            guard !recoveringAudio, !stopped else { return }
             if !continuousPlayback || audio.isAudiblePlaybackPending { phase = .speaking }
             else { updatePlaybackPhase() }
         case .responseDone:
@@ -152,7 +153,7 @@ public final class VoiceCallCoordinator {
             let action = VoiceTools.action(name: name, arguments: arguments)
             guard !stopped, handledToolIDs.insert(callID).inserted else { return }
             let playing = continuousPlayback ? audio.isAudiblePlaybackPending : audio.isPlaybackPending
-            phase = playing ? .speaking : .thinking
+            phase = !recoveringAudio ? (playing ? .speaking : .thinking) : .recovering
             toolTasks[callID] = Task { [weak self] in
                 guard let self, !Task.isCancelled else { return }
                 let result: String
@@ -187,10 +188,12 @@ public final class VoiceCallCoordinator {
         case .closed:
             stop()
         case .speechStarted:
+            toolTasks.values.forEach { $0.cancel() }
+            toolTasks.removeAll()
             truncatePlayback(audio.flushPlayback())
             assistantBuffer = ""
             turnComplete = true
-            phase = .listening
+            phase = !recoveringAudio ? .listening : .recovering
         }
     }
 
@@ -213,6 +216,7 @@ public final class VoiceCallCoordinator {
     }
 
     private func updatePlaybackPhase() {
+        guard !recoveringAudio else { phase = .recovering; return }
         let pending = continuousPlayback ? audio.isAudiblePlaybackPending : audio.isPlaybackPending
         if turnComplete, !pending, phase == .speaking {
             phase = toolTasks.isEmpty ? .listening : .thinking

@@ -175,6 +175,7 @@ public struct AnswerDispatch: Sendable {
     }
 
     private func execute(_ request: SessionActionRequest) async -> SessionActionDelivery {
+        guard !Task.isCancelled else { return .failed("Cancelled before sending") }
         let session = await store.snapshot(now: Date()).sessions.first { $0.id == request.sessionID }
         let pending = session?.pendingQuestion
         let waiting = await questions.isWaiting(sessionID: request.sessionID)
