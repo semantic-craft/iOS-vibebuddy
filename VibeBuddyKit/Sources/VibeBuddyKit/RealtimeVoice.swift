@@ -97,44 +97,61 @@ struct RealtimeResponseFilter {
     private var currentID: String?
     private var interruptedIDs: Set<String> = []
     private var itemResponses: [String: String] = [:]
-    private var calls: [String: String] = [:]
-    private(set) var cancelledCallIDs: [String] = []
-    private var hasInterrupted = false
+    private var callResponses: [String: String] = [:]
+    private var pendingCalls: Set<String> = []
+
+    mutating func completed(callID: String) { pendingCalls.remove(callID) }
+    private(set) var cancelledCalls: [String] = []
+    private(set) var rejection: String?
 
     mutating func accept(_ event: [String: Any]) -> Bool {
-        cancelledCallIDs = []
+        cancelledCalls = []; rejection = nil
         let type = event["type"] as? String ?? ""
         if type == "input_audio_buffer.speech_started" {
-            hasInterrupted = true
-            if let currentID { interruptedIDs.insert(currentID) }
-            // Every released but unresolved tool belongs to the interrupted input turn.
-            cancelledCallIDs = Array(calls.keys)
-            interruptedIDs.formUnion(calls.values)
-            calls.removeAll()
+            if let currentID {
+                interruptedIDs.insert(currentID)
+            }
+            cancelledCalls = pendingCalls.sorted()
+            for callID in pendingCalls {
+                if let response = callResponses[callID] { interruptedIDs.insert(response) }
+            }
+            pendingCalls.removeAll()
+            currentID = nil
             return true
         }
+        guard type.hasPrefix("response.") else { return true }
+        let explicit = event["response_id"] as? String
+            ?? (event["response"] as? [String: Any])?["id"] as? String
         let item = event["item"] as? [String: Any]
         let itemID = event["item_id"] as? String ?? item?["id"] as? String
-        let explicitID = event["response_id"] as? String
-            ?? (event["response"] as? [String: Any])?["id"] as? String
-        let id = explicitID ?? itemID.flatMap { itemResponses[$0] }
-        if type.hasPrefix("response."), let id {
-            guard !interruptedIDs.contains(id) else { return false }
-            currentID = id
-            if let itemID { itemResponses[itemID] = id }
+        let known = itemID.flatMap { itemResponses[$0] }
+        if let explicit, let known, explicit != known {
+            rejection = "Realtime tool identity conflicted. No action was executed."
+            return false
         }
+        let id = explicit ?? known
+        if let id, interruptedIDs.contains(id) { return false }
+        if let itemID, let id { itemResponses[itemID] = id }
+        if type == "response.created" { currentID = id }
+        // Some servers begin output before response.created. Only adopt an
+        // identity when no active response is known; late packets cannot move it.
+        if currentID == nil, let id { currentID = id }
         if type == "response.function_call_arguments.done" {
-            // After interruption an unattributed call cannot borrow the newest response.
-            guard let id = id ?? (hasInterrupted ? nil : currentID),
-                  !interruptedIDs.contains(id), let call = event["call_id"] as? String else { return false }
-            calls[call] = id
+            guard let id, !id.isEmpty, let callID = event["call_id"] as? String, !callID.isEmpty else {
+                rejection = "Realtime tool had no verifiable response identity. No action was executed."
+                return false
+            }
+            if let previous = callResponses[callID], previous != id {
+                rejection = "Realtime reused a tool identity. No action was executed."
+                return false
+            }
+            callResponses[callID] = id
+            pendingCalls.insert(callID)
         }
         return true
     }
 
-    func canDeliverCall(_ callID: String) -> Bool { calls[callID] != nil }
-
-    mutating func completedCall(_ callID: String) { calls.removeValue(forKey: callID) }
+    func canDeliverCall(_ callID: String) -> Bool { pendingCalls.contains(callID) }
 }
 
 /// Alibaba Bailian / DashScope **Qwen-Audio 3.0 Realtime** over its
@@ -270,7 +287,7 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
                 return
             }
         }
-        responseFilter.completedCall(callID)
+        responseFilter.completed(callID: callID)
     }
 
     // Qwen smart_turn handles server interruption; its current API does not
@@ -335,7 +352,13 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
         guard let data = text.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = obj["type"] as? String else { return }
-        guard responseFilter.accept(obj) else { return }
+        guard responseFilter.accept(obj) else {
+            if let rejection = responseFilter.rejection { continuation?.yield(.failed(rejection)) }
+            return
+        }
+        if !responseFilter.cancelledCalls.isEmpty {
+            continuation?.yield(.toolCallsCancelled(responseFilter.cancelledCalls))
+        }
         switch type {
         case "session.created":
             configureSession(instructions: instructions, voice: voice)
@@ -356,7 +379,6 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
         case "conversation.item.input_audio_transcription.completed":
             if let t = obj["transcript"] as? String { continuation?.yield(.userTranscript(text: t, final: true)) }
         case "input_audio_buffer.speech_started":
-            continuation?.yield(.toolCallsCancelled(responseFilter.cancelledCallIDs))
             continuation?.yield(.speechStarted)
         case "response.function_call_arguments.done":
             let name = obj["name"] as? String ?? ""

@@ -41,7 +41,6 @@ final class VoiceChat: ObservableObject {
     private var audioStarted = false
     private var eventTask: Task<Void, Never>?
     private var coordinator: VoiceCallCoordinator?
-    private var audioCleanupError: String?
 
     init(contextProvider: @escaping () -> [AgentSession],
          actionHandler: @escaping (VoiceAction) async -> String, onStart: @escaping () -> Void = {}) {
@@ -72,7 +71,6 @@ final class VoiceChat: ObservableObject {
     private func startRealtime() {
         guard E2ERunConfiguration.current?.audioEnabled ?? true else { return }
         errorText = nil
-        audioCleanupError = nil
         guard isAvailable else { errorText = "Add your Qwen (DashScope) key in Settings first."; return }
         let id = UUID(); startID = id; phase = .connecting
         onStart()
@@ -96,8 +94,7 @@ final class VoiceChat: ObservableObject {
         let language = VoiceSettings.conversationLanguage
         let model = VoiceSettings.model(provider)
         let usesLive = provider == .openai && OpenAIVoiceSession.usesLive(model)
-        let instructions = usesLive ? VoicePrompt.liveBackend(language: language) : VoicePrompt.realtimeConversation(language: language)
-            + "\n\nThis is a live voice call. Stay silent until the user actually speaks — never start talking on your own or fill silence, and never reply to your own voice. Answer in one short, natural sentence unless asked for more, and don't repeat yourself. Speak in a calm, gentle, even tone at a steady volume; never suddenly raise your pitch, shout, or get loud."
+        let instructions = usesLive ? VoicePrompt.liveBackend(language: language) : VoicePrompt.realtimeConversation(language: language, provider: provider)
         let voice = VoiceSettings.voice(provider, language)
         voiceLog.info("realtime start provider=\(provider.rawValue, privacy: .public) model=\(model, privacy: .public) voice=\(voice, privacy: .public)")
 
@@ -131,14 +128,23 @@ final class VoiceChat: ObservableObject {
         syncFromCoordinator(coordinator)
 
         let id = startID
+        audioOwnerID = id
+        io.onRelease = { [weak self] released, reportID, gate in
+            guard !released else { return }
+            Task { @MainActor in
+                guard let self, self.audioOwnerID == id, gate.accepts(reportID) else { return }
+                self.stopRealtime()
+                self.errorText = "Audio could not be fully released. If background volume stays low, quit the app."
+            }
+        }
         eventTask = Task { [weak self] in
             let stream = await session.start(instructions: instructions, voice: voice, tools: VoiceTools.conversation)
             for await event in stream {
                 guard !Task.isCancelled, let self, self.startID == id else { return }
-                self.handleRealtime(event)
+                await self.handleRealtime(event)
             }
         }
-        io.onAudioFrame = { @Sendable [weak io] data, generation in
+        io.onAudioFrame = { [weak io] data, generation in
             Task {
                 await session.appendAudio(data, ifCurrent: { [weak io] in
                     io?.isCaptureCurrent(generation) == true
@@ -148,17 +154,10 @@ final class VoiceChat: ObservableObject {
         io.onInputSuspensionChanged = { suspended in
             try await session.setInputAudioSuspended(suspended)
         }
-        io.onAvailabilityChanged = { [weak self] state in
+        io.onStateChanged = { [weak self] state in
             guard let self, self.startID == id, let coordinator = self.coordinator else { return }
-            coordinator.audioAvailabilityChanged(state)
+            coordinator.audioStateChanged(state)
             self.syncFromCoordinator(coordinator)
-        }
-        io.onCleanupError = { [weak self] message in
-            guard let self else { return }
-            // stop has already invalidated startID; this synchronous callback
-            // still belongs to the currently retained audio instance.
-            self.audioCleanupError = message
-            self.errorText = message
         }
         io.onPlaybackDrained = { [weak self] in
             Task { @MainActor in
@@ -170,7 +169,8 @@ final class VoiceChat: ObservableObject {
         }
     }
 
-    private func handleRealtime(_ event: RealtimeVoiceEvent) {
+    private func handleRealtime(_ event: RealtimeVoiceEvent) async {
+        let connectionID = startID
         // Ignore events that arrive after teardown (e.g. the model's farewell audio
         // still streaming in when a close phrase ended the call) — otherwise a late
         // .audioDelta re-sets phase=.speaking with audioIO already gone → stuck.
@@ -182,18 +182,22 @@ final class VoiceChat: ObservableObject {
             if !audioStarted {
                 guard let audioIO else { return }
                 do {
-                    try audioIO.start()
+                    try await audioIO.start()
+                    guard startID == connectionID, self.coordinator === coordinator else { return }
                     audioStarted = true
                     NSSound(named: "Tink")?.play()
                 } catch {
+                    guard startID == connectionID else { return }
                     errorText = "Couldn't start audio: \(error.localizedDescription)"
                     stopRealtime()
                     return
                 }
             }
             voiceLog.info("realtime connected; microphone ready")
-        case .userTranscript:
-            break
+        case .userTranscript(let text, let final):
+            if final, VoiceCloseIntent.isExplicitCallEnd(text) {
+                voiceLog.info("voice close phrase heard — ending call")
+            }
         case .assistantTranscript, .transcriptFragment, .audioDelta:
             break
         case .speechStarted:           // server detected real user speech
@@ -220,6 +224,8 @@ final class VoiceChat: ObservableObject {
         if coordinator.phase == .idle { self.coordinator = nil }
     }
 
+    private var audioOwnerID = UUID()
+
     private func stopRealtime() {
         startID = UUID()
         if let coordinator {
@@ -235,7 +241,6 @@ final class VoiceChat: ObservableObject {
     private func closeRealtimeSession(completingTool: VoiceToolResult? = nil) {
         phase = .idle
         coordinator = nil
-        startID = UUID()
         eventTask?.cancel(); eventTask = nil
         audioIO = nil
         audioStarted = false
@@ -254,7 +259,7 @@ final class VoiceChat: ObservableObject {
         phase = Self.phase(from: coordinator.phase)
         lastUserText = coordinator.lastUserText
         lastReply = coordinator.lastReply
-        errorText = audioCleanupError ?? coordinator.errorText
+        errorText = coordinator.errorText
     }
 
     private static func phase(from coordinatorPhase: VoiceCallPhase) -> Phase {

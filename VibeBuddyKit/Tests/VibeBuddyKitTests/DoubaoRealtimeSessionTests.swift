@@ -4,6 +4,26 @@ import Testing
 
 @Suite("Doubao protocol boundaries")
 struct DoubaoRealtimeSessionTests {
+    @Test("Final ASR fields follow the duplex demo; failed and empty input are not final text")
+    func finalTranscriptionFields() {
+        let type = "conversation.item.input_audio_transcription.completed"
+        for (fields, expected) in [
+            (["transcript": "first", "text": "second"], "first"),
+            (["transcript": " \n", "text": "second"], "second"),
+            (["text": "second"], "second"),
+        ] {
+            let event = DoubaoRealtimeSession.userTranscriptionEvent(fields.merging(["type": type]) { _, new in new })
+            guard case .userTranscript(let text, let final) = event else {
+                Issue.record("Expected a completed user transcript"); continue
+            }
+            #expect(text == expected && final)
+        }
+        #expect(DoubaoRealtimeSession.userTranscriptionEvent(["type": type, "transcript": "", "text": " "]) == nil)
+        #expect(DoubaoRealtimeSession.userTranscriptionEvent([
+            "type": "conversation.item.input_audio_transcription.failed", "text": "failed hypothesis",
+        ]) == nil)
+    }
+
     @Test("PCM capture blocks become complete 20ms frames without changing bytes")
     func frames() {
         var frames = DoubaoPCMFrames()
@@ -60,6 +80,28 @@ struct DoubaoRealtimeSessionTests {
         #expect(state.accept(["question_id": "q1"]) == .cancelled)
         #expect(state.accept(["type": "response.function_call_arguments.done"]) == .ambiguous)
         #expect(state.accept(["response_id": "", "question_id": "q2"]) == .accepted)
+    }
+
+    @Test("Interrupted media resumes only inside a fresh identified audio segment")
+    func identifiedAudioSegmentAfterInterruption() {
+        var state = DoubaoResponseState()
+        _ = state.accept(["type": "response.output_audio.started", "response_id": "old"])
+        state.interrupt()
+        #expect(state.accept(["type": "response.output_audio.delta"]) == .cancelled)
+        #expect(state.accept(["type": "response.output_audio.started", "response_id": "old"]) == .cancelled)
+        #expect(state.accept(["type": "response.output_audio.started", "response_id": "new", "question_id": "q2"]) == .accepted)
+        #expect(state.accept(["type": "response.output_audio.delta"]) == .accepted)
+        #expect(state.accept(["type": "response.output_audio.delta", "response_id": "old"]) == .cancelled)
+        #expect(state.accept(["type": "response.output_audio.done", "response_id": "new"]) == .accepted)
+        #expect(state.accept(["type": "response.output_audio.delta"]) == .cancelled)
+        #expect(state.accept(["type": "response.done"]) == .accepted)
+        #expect(!state.hasActiveResponse)
+        let status: [String: Any] = ["name": "get_session_status", "call_id": "read", "arguments": "{}"]
+        #expect(state.accept(["type": "response.function_call_arguments.done", "items": [status]]) == .accepted)
+        let action: [String: Any] = ["name": "approve_session", "call_id": "act", "arguments": "{}"]
+        #expect(state.accept(["type": "response.function_call_arguments.done", "items": [status, action]]) == .ambiguous)
+        state.interrupt()
+        #expect(state.accept(["type": "response.output_audio.delta"]) == .cancelled)
     }
 
     @Test("Audio completion followed by response completion does not reactivate a finished response")
@@ -128,7 +170,7 @@ struct DoubaoFinalTranscriptTests {
         var closes = 0
         let coordinator = VoiceCallCoordinator(audio: audio, actionHandler: { _ in "" }, closeSession: { _ in closes += 1 })
         coordinator.handle(.connected)
-        let event = try #require(DoubaoRealtimeSession.finalTranscription([
+        let event = try #require(DoubaoRealtimeSession.userTranscriptionEvent([
             "type": "conversation.item.input_audio_transcription.completed", "text": "请立即挂断这次语音通话"]))
         coordinator.handle(event)
         #expect(coordinator.lastUserText == "请立即挂断这次语音通话")
@@ -145,12 +187,18 @@ struct DoubaoFinalTranscriptTests {
         for fields in [["transcript": "ordinary", "text": "请立即挂断这次语音通话"],
                        ["transcript": "  ", "text": "ordinary"], ["text": "ordinary"]] {
             let object = fields.merging(["type": "conversation.item.input_audio_transcription.completed"]) { first, _ in first }
-            coordinator.handle(try #require(DoubaoRealtimeSession.finalTranscription(object)))
+            coordinator.handle(try #require(DoubaoRealtimeSession.userTranscriptionEvent(object)))
             #expect(coordinator.lastUserText == "ordinary")
             #expect(coordinator.phase == .listening && audio.stops == 0)
         }
-        #expect(DoubaoRealtimeSession.finalTranscription(["type": "conversation.item.input_audio_transcription.completed", "transcript": " ", "text": ""]) == nil)
-        #expect(DoubaoRealtimeSession.finalTranscription(["type": "conversation.item.input_audio_transcription.failed", "text": "请立即挂断这次语音通话"]) == nil)
+        for hypothesis in ["ord", "ordinary updated"] {
+            coordinator.handle(try #require(DoubaoRealtimeSession.userTranscriptionEvent([
+                "type": "conversation.item.input_audio_transcription.delta", "delta": hypothesis])))
+            #expect(coordinator.lastUserText == hypothesis)
+            #expect(coordinator.phase == .listening && audio.stops == 0)
+        }
+        #expect(DoubaoRealtimeSession.userTranscriptionEvent(["type": "conversation.item.input_audio_transcription.completed", "transcript": " ", "text": ""]) == nil)
+        #expect(DoubaoRealtimeSession.userTranscriptionEvent(["type": "conversation.item.input_audio_transcription.failed", "text": "请立即挂断这次语音通话"]) == nil)
         coordinator.stop()
     }
 }

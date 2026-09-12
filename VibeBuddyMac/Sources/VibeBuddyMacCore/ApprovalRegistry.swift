@@ -26,6 +26,13 @@ public actor ApprovalRegistry {
         return true
     }
 
+    /// Voice decisions commit atomically in this actor: cancellation cannot
+    /// leave a claimed approval stranded before resolution.
+    public func resolveVoice(id: String, with outcome: Outcome) -> Bool {
+        guard !Task.isCancelled, outcome != .pass, claim(id: id) else { return false }
+        return resolve(id: id, with: outcome)
+    }
+
     public func wait(id: String, timeout: Duration) async -> Outcome {
         prepare(id: id)
         if let outcome = pending[id]?.outcome {
@@ -41,13 +48,9 @@ public actor ApprovalRegistry {
         }
     }
 
-    /// Voice one-shot decisions use `unlessCancelled` at the submission boundary;
-    /// they cannot steal a wait already claimed by another decision.
     @discardableResult
-    public func resolve(id: String, with outcome: Outcome, unlessCancelled: Bool = false) -> Bool {
-        guard !unlessCancelled || !Task.isCancelled else { return false }
+    public func resolve(id: String, with outcome: Outcome) -> Bool {
         guard var entry = pending[id], entry.outcome == nil,
-              !unlessCancelled || !entry.claimed,
               !(outcome == .pass && entry.claimed) else { return false }
         if let continuation = entry.continuation {
             pending[id] = nil

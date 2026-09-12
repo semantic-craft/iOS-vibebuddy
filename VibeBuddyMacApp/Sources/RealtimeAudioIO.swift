@@ -6,25 +6,96 @@ import VibeBuddyKit
 
 private let rtAudioLog = Logger(subsystem: "com.vibebuddy.mac", category: "realtime-audio")
 
-/// Full-duplex audio with system voice processing (AEC). Hardware runs at its
-/// negotiated format; only the provider boundary is resampled to 16/24 kHz.
-/// Control methods run on the main actor; the tap and completion callbacks run
-/// on audio threads. Playback bookkeeping is lock guarded.
-final class RealtimeAudioIO: @unchecked Sendable {
+@MainActor
+final class RealtimeAudioIO: VoiceCallAudio {
+    nonisolated private let hardware: RealtimeAudioEngine
+    private var wantsAudio = false
+    private var callID = UUID()
+    var onAudioFrame: ((Data, UUID) -> Void)?
+    var onInputSuspensionChanged: ((Bool) async throws -> Void)?
+    var onPlaybackDrained: (@Sendable () -> Void)?
+    var onStateChanged: ((VoiceCallAudioState) -> Void)?
+    var onRelease: (@Sendable (Bool, UUID, VoiceAudioReleaseGate) -> Void)? {
+        didSet { hardware.onRelease = onRelease }
+    }
+    private let recovery: VoiceAudioRecovery
+
+    init(inputSampleRate: Double = 16000) {
+        let hardware = RealtimeAudioEngine(inputSampleRate: inputSampleRate)
+        self.hardware = hardware
+        recovery = VoiceAudioRecovery(rebuild: {
+            let id = hardware.authorize()
+            try await hardware.rebuild(id)
+        }, release: { hardware.release() })
+        hardware.onAudioFrame = { [weak self] data, generation in
+            Task { @MainActor in
+                guard let self, self.wantsAudio, !self.recovery.isRecovering,
+                      self.hardware.acceptsCapture(generation) else { return }
+                self.onAudioFrame?(data, generation)
+            }
+        }
+        hardware.onPlaybackDrained = { [weak self] in
+            Task { @MainActor in self?.onPlaybackDrained?() }
+        }
+        hardware.onConfigurationChange = { [weak self] generation in
+            Task { @MainActor in
+                guard let self, self.hardware.accepts(generation) else { return }
+                self.hardware.revoke()
+                self.recovery.request()
+            }
+        }
+    }
+
+    nonisolated func isCaptureCurrent(_ generation: UUID) -> Bool { hardware.acceptsCapture(generation) }
+
+    var isPlaybackPending: Bool { hardware.isPlaybackPending }
+    var isAudiblePlaybackPending: Bool { hardware.isAudiblePlaybackPending }
+
+    func start() async throws {
+        guard !wantsAudio else { return }
+        wantsAudio = true
+        callID = UUID()
+        let call = callID
+        recovery.canResume = true
+        recovery.beforeRecovery = { [weak self] in try await self?.onInputSuspensionChanged?(true) }
+        recovery.afterRebuild = { [weak self] in try await self?.onInputSuspensionChanged?(false) }
+        recovery.onStateChanged = { [weak self] state in
+            guard let self, self.wantsAudio else { return }
+            if state == .running { self.hardware.enableCapture() }
+            if case .failed = state { self.stop() }
+            self.onStateChanged?(state)
+        }
+        recovery.activate()
+        let id = hardware.authorize()
+        do {
+            try await hardware.rebuild(id)
+            guard wantsAudio, callID == call, hardware.accepts(id) else { throw CancellationError() }
+            hardware.enableCapture()
+        } catch {
+            if callID == call { stop() }
+            throw error
+        }
+    }
+
+    func stop() {
+        wantsAudio = false
+        callID = UUID()
+        recovery.stop()
+    }
+
+    func flushPlayback() -> [VoicePlaybackCheckpoint] { hardware.takePlaybackCheckpoints() }
+
+    func enqueue(_ pcm: Data, item: VoiceAudioItem? = nil) {
+        guard wantsAudio, !recovery.isRecovering, let id = hardware.currentGeneration else { return }
+        hardware.enqueue(pcm, item: item, leaseID: id)
+    }
+}
+
+/// AVFoundation graph access is confined to queue; bookkeeping and capture
+/// leases use locks so hangup never waits for a synchronous hardware operation.
+private final class RealtimeAudioEngine: @unchecked Sendable {
     private var engine = AVAudioEngine()
     private var player = AVAudioPlayerNode()
-    @MainActor var onCleanupError: ((String) -> Void)?
-    @MainActor var onAvailabilityChanged: ((VoiceAudioAvailability) -> Void)?
-    @MainActor var onInputSuspensionChanged: ((Bool) async throws -> Void)?
-    @MainActor private var active = false
-    @MainActor private var lifecycle: UInt64 = 0
-    @MainActor private var graphGeneration: UInt64 = 0
-    @MainActor private var recoveryTask: Task<Void, Never>?
-    @MainActor private var recoveryDirty = false
-    @MainActor private var configurationObserver: NSObjectProtocol?
-    @MainActor private var deviceListeners: [(AudioObjectPropertyAddress, AudioObjectPropertyListenerBlock)] = []
-    private var captureGeneration: UInt64 = 0
-    private var captureEnabled = false
 
     private let captureFormat: AVAudioFormat
     private let playFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32,
@@ -39,11 +110,69 @@ final class RealtimeAudioIO: @unchecked Sendable {
 
     /// Called from the audio render thread with one 16 kHz mono PCM16 chunk —
     /// `@Sendable` so it stays non-isolated (never hops to the main actor).
-    var onAudioFrame: (@Sendable (Data, UInt64) -> Void)?
+    var onAudioFrame: (@Sendable (Data, UUID) -> Void)?
 
     /// Fired (on a background thread) when all queued playback buffers have drained
     /// — i.e. the queued audio has finished playing (also fires in network gaps).
     var onPlaybackDrained: (@Sendable () -> Void)?
+
+    let queue = DispatchQueue(label: "com.vibebuddy.voice.audio-engine")
+    private let lease = OSAllocatedUnfairLock<UUID?>(initialState: nil)
+    private let captureLease = OSAllocatedUnfairLock<UUID?>(initialState: nil)
+    func enableCapture() { captureLease.withLock { $0 = currentGeneration } }
+    func acceptsCapture(_ id: UUID) -> Bool { captureLease.withLock { $0 == id } && accepts(id) }
+    var onConfigurationChange: (@Sendable (UUID) -> Void)?
+    private var observer: NSObjectProtocol?
+    private var deviceListeners: [(AudioObjectPropertyAddress, AudioObjectPropertyListenerBlock)] = []
+
+    private let releaseGate = VoiceAudioReleaseGate()
+
+    func authorize() -> UUID {
+        captureLease.withLock { $0 = nil }
+        releaseGate.advance()
+        let id = UUID()
+        lease.withLock { $0 = id }
+        return id
+    }
+    var currentGeneration: UUID? { lease.withLock { $0 } }
+    func revoke() { captureLease.withLock { $0 = nil }; lease.withLock { $0 = nil } }
+    func accepts(_ id: UUID) -> Bool { lease.withLock { $0 == id } }
+
+    func rebuild(_ id: UUID) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            queue.async {
+                guard self.accepts(id) else { continuation.resume(throwing: CancellationError()); return }
+                guard self.stop() else {
+                    continuation.resume(throwing: NSError(domain: "VoiceAudioRelease", code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: "Audio resources could not be released."]))
+                    return
+                }
+                self.engine = AVAudioEngine()
+                self.player = AVAudioPlayerNode()
+                do {
+                    try self.start(id)
+                    guard self.accepts(id) else { throw CancellationError() }
+                    continuation.resume()
+                } catch {
+                    self.stop()
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    var onRelease: (@Sendable (Bool, UUID, VoiceAudioReleaseGate) -> Void)?
+
+    func release() {
+        revoke()
+        invalidatePlayback()
+        let completion = onRelease
+        let reportID = releaseGate.advance()
+        queue.async {
+            let released = self.stop()
+            if self.releaseGate.accepts(reportID) { completion?(released, reportID, self.releaseGate) }
+        }
+    }
 
     private let pendingLock = NSLock()
     private var pendingBuffers = 0
@@ -65,226 +194,107 @@ final class RealtimeAudioIO: @unchecked Sendable {
         return pendingBuffers > 0
     }
 
-    func isCaptureCurrent(_ generation: UInt64) -> Bool {
-        pendingLock.lock(); defer { pendingLock.unlock() }
-        return captureEnabled && captureGeneration == generation
-    }
-
-    private func closeCaptureGate() {
-        pendingLock.lock(); defer { pendingLock.unlock() }
-        captureEnabled = false
-        captureGeneration &+= 1
-    }
-
-    private func openCaptureGate() {
-        pendingLock.lock(); defer { pendingLock.unlock() }
-        captureEnabled = true
-    }
-
-    private func currentCaptureGeneration() -> UInt64 {
-        pendingLock.lock(); defer { pendingLock.unlock() }
-        return captureGeneration
-    }
-
-    @MainActor
-    func start() throws {
-        guard !active else { return }
-        lifecycle &+= 1
-        active = true
-        closeCaptureGate()
-        do {
-            try tearDownGraph()
-            engine = AVAudioEngine()
-            player = AVAudioPlayerNode()
-            try buildGraph()
-            try observeDevices()
-            openCaptureGate()
-            onAvailabilityChanged?(.available)
-        } catch {
-            stop()
-            throw error
-        }
-    }
-
-    @MainActor
-    private func buildGraph() throws {
+    func start(_ generation: UUID) throws {
+        guard accepts(generation) else { throw CancellationError() }
         let input = engine.inputNode
+        // Materialize both I/O nodes before switching to voice processing.
         let output = engine.outputNode
+        // Enable VPIO before reading formats or connecting the graph: changing
+        // it replaces both I/O units and can change their processing formats.
+        guard accepts(generation) else { throw CancellationError() }
         try input.setVoiceProcessingEnabled(true)
+        guard accepts(generation) else { throw CancellationError() }
         let nativeFormat = input.outputFormat(forBus: 0)
-        // Save before connecting the player: the automatic mixer connection can
-        // otherwise change the VPIO output client rate independently of input.
+        // Save this BEFORE connecting the player. AVAudioEngine's automatic
+        // mixer connection can replace the output client rate with 44.1 kHz;
+        // VPIO then fails with -10875 when its capture side is still 48 kHz.
         let outputFormat = output.inputFormat(forBus: 0)
         guard nativeFormat.sampleRate > 0, nativeFormat.channelCount > 0,
               outputFormat.sampleRate > 0, outputFormat.channelCount > 0,
               let tapFormat = AVAudioFormat(standardFormatWithSampleRate: nativeFormat.sampleRate, channels: 1),
               let converter = AVAudioConverter(from: tapFormat, to: captureFormat) else {
             throw NSError(domain: "RealtimeAudio", code: 1,
-                          userInfo: [NSLocalizedDescriptionKey: "No usable input/output audio format. Please reconnect your audio device."])
+                          userInfo: [NSLocalizedDescriptionKey: "No usable microphone format for voice processing."])
         }
+        nonisolated(unsafe) let captureConverter = converter
+
         engine.attach(player)
         engine.connect(player, to: engine.mainMixerNode, format: playFormat)
-        engine.connect(engine.mainMixerNode, to: output, format: outputFormat)
-        let generation = currentCaptureGeneration()
-        let frameHandler = onAudioFrame
-        // A tap owns its converter; replacing the graph never mutates the
-        // converter an old render callback may still be using.
+        // Let the mixer resample 24 kHz model audio into the VPIO output format.
+        engine.connect(engine.mainMixerNode, to: output,
+                       format: outputFormat)
+
+        // AVFoundation invokes this off the main actor; do not inherit start() isolation.
+        guard accepts(generation) else { throw CancellationError() }
         input.installTap(onBus: 0, bufferSize: 2048, format: tapFormat) { @Sendable [weak self] buffer, _ in
-            self?.captureAndForward(buffer, converter: converter, generation: generation, frameHandler: frameHandler)
+            self?.captureAndForward(buffer, converter: captureConverter, generation: generation)
         }
         tapInstalled = true
+        guard accepts(generation) else { throw CancellationError() }
         engine.prepare()
+        guard accepts(generation) else { throw CancellationError() }
         try engine.start()
-        player.play()
-        graphGeneration &+= 1
-        let graph = graphGeneration
-        let call = lifecycle
-        configurationObserver = NotificationCenter.default.addObserver(
-            forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self, self.lifecycle == call, self.graphGeneration == graph else { return }
-                self.requestRecovery()
-            }
+        guard accepts(generation), engine.isRunning, input.isVoiceProcessingEnabled else {
+            throw CancellationError()
         }
-        rtAudioLog.info("audio engine started (native \(nativeFormat.sampleRate, privacy: .public)Hz)")
-    }
-
-    @MainActor
-    private func observeDevices() throws {
-        let call = lifecycle
+        player.play()
+        observer = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange,
+            object: engine, queue: nil) { [weak self] _ in
+            guard let self else { return }
+            self.onConfigurationChange?(generation)
+        }
         for selector in [kAudioHardwarePropertyDefaultInputDevice, kAudioHardwarePropertyDefaultOutputDevice] {
             var address = AudioObjectPropertyAddress(mSelector: selector,
                 mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
             let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-                Task { @MainActor [weak self] in
-                    guard let self, self.lifecycle == call else { return }
-                    self.requestRecovery()
-                }
+                self?.onConfigurationChange?(generation)
             }
-            let result = AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, nil, block)
-            guard result == noErr else {
-                throw NSError(domain: NSOSStatusErrorDomain, code: Int(result),
-                    userInfo: [NSLocalizedDescriptionKey: "Unable to monitor audio device changes."])
-            }
+            let status = AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, nil, block)
+            guard status == noErr else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status)) }
             deviceListeners.append((address, block))
         }
+        rtAudioLog.info("audio engine started (native \(nativeFormat.sampleRate, privacy: .public)Hz)")
     }
 
-    @MainActor
-    private func requestRecovery() {
-        guard active else { return }
-        closeCaptureGate()
-        onAvailabilityChanged?(.recovering)
-        guard active else { return }
-        invalidatePlayback()
-        player.stop()
-        recoveryDirty = true
-        guard recoveryTask == nil else { return }
-        let call = lifecycle
-        recoveryTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            let deadline = ContinuousClock.now.advanced(by: .seconds(8))
-            do {
-                try self.tearDownGraph()
-                guard ContinuousClock.now.advanced(by: .seconds(2)) < deadline else {
-                    throw NSError(domain: "RealtimeAudio", code: 2,
-                        userInfo: [NSLocalizedDescriptionKey: "Audio recovery budget exhausted. Start a new call."])
-                }
-                try await self.onInputSuspensionChanged?(true)
-                guard self.isActive(call) else { return }
-                var lastError: Error?
-                for delay in [100, 250, 500] {
-                    guard ContinuousClock.now < deadline else { break }
-                    try await Task.sleep(for: .milliseconds(delay))
-                    guard self.isActive(call) else { return }
-                    self.recoveryDirty = false
-                    do {
-                        try self.tearDownGraph()
-                        self.engine = AVAudioEngine()
-                        self.player = AVAudioPlayerNode()
-                        try self.buildGraph()
-                    } catch {
-                        lastError = error
-                        continue
-                    }
-                    // Yield so queued device notifications invalidate this attempt.
-                    await Task.yield()
-                    guard self.isActive(call) else { return }
-                    if self.recoveryDirty || !self.engine.isRunning { continue }
-                    guard ContinuousClock.now.advanced(by: .seconds(2)) < deadline else { break }
-                    try await self.onInputSuspensionChanged?(false)
-                    guard self.isActive(call) else { return }
-                    if self.recoveryDirty || !self.engine.isRunning {
-                        guard ContinuousClock.now.advanced(by: .seconds(2)) < deadline else { break }
-                        try await self.onInputSuspensionChanged?(true)
-                        continue
-                    }
-                    guard ContinuousClock.now < deadline else { break }
-                    self.openCaptureGate()
-                    self.recoveryTask = nil
-                    self.onAvailabilityChanged?(.available)
-                    return
-                }
-                throw lastError ?? NSError(domain: "RealtimeAudio", code: 2,
-                    userInfo: [NSLocalizedDescriptionKey: "Audio recovery did not finish. Please start a new call."])
-            } catch {
-                guard self.isActive(call) else { return }
-                let message = "Audio recovery failed: " + error.localizedDescription
-                self.stop()
-                self.onAvailabilityChanged?(.failed(message))
+    @discardableResult
+    func stop() -> Bool {
+        var released = true
+        var remaining: [(AudioObjectPropertyAddress, AudioObjectPropertyListenerBlock)] = []
+        for (var address, block) in deviceListeners {
+            let status = AudioObjectRemovePropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, nil, block)
+            if status != noErr {
+                released = false
+                remaining.append((address, block))
+                rtAudioLog.error("remove device listener failed code=\(status, privacy: .public)")
             }
         }
-    }
-
-    @MainActor
-    private func isActive(_ call: UInt64) -> Bool {
-        active && lifecycle == call && !Task.isCancelled
-    }
-
-    @MainActor
-    private func tearDownGraph() throws {
-        graphGeneration &+= 1
-        if let configurationObserver {
-            NotificationCenter.default.removeObserver(configurationObserver)
-            self.configurationObserver = nil
-        }
+        deviceListeners = remaining
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+        observer = nil
         if tapInstalled {
             engine.inputNode.removeTap(onBus: 0)
             tapInstalled = false
         }
         invalidatePlayback()
         player.stop()
-        engine.stop()
+        if engine.isRunning { engine.stop() }
+        // Stopping rendering alone can leave VPIO ducking other applications.
+        // Disable both I/O units while stopped, even if this object is retained.
         if engine.inputNode.isVoiceProcessingEnabled {
-            try engine.inputNode.setVoiceProcessingEnabled(false)
-        }
-    }
-
-    @MainActor
-    func stop() {
-        active = false
-        lifecycle &+= 1
-        closeCaptureGate()
-        recoveryTask?.cancel()
-        recoveryTask = nil
-        for (var address, block) in deviceListeners {
-            let result = AudioObjectRemovePropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, nil, block)
-            if result != noErr { rtAudioLog.error("remove device listener: \(result, privacy: .public)") }
-        }
-        deviceListeners.removeAll()
-        do { try tearDownGraph() }
-        catch {
-            rtAudioLog.error("disable voice processing: \(error.localizedDescription, privacy: .public)")
-            onCleanupError?("Audio stopped, but voice processing could not be released: " + error.localizedDescription)
+            do {
+                try engine.inputNode.setVoiceProcessingEnabled(false)
+            } catch {
+                released = false
+                rtAudioLog.error("disable voice processing failed code=\((error as NSError).code, privacy: .public)")
+            }
         }
         rtAudioLog.info("audio stopped voiceProcessing=\(self.engine.inputNode.isVoiceProcessingEnabled, privacy: .public)")
+        return released
     }
 
     /// Barge-in / reset: drop everything queued so the model stops talking.
-    @MainActor
     @discardableResult
-    func flushPlayback() -> [VoicePlaybackCheckpoint] {
+    func takePlaybackCheckpoints() -> [VoicePlaybackCheckpoint] {
         pendingLock.lock()
         var interruptedItems = Set(pendingItems.keys)
         if let latestItem { interruptedItems.insert(latestItem) }
@@ -296,8 +306,10 @@ final class RealtimeAudioIO: @unchecked Sendable {
         // stop() can deliver callbacks for discarded buffers. Invalidate those
         // before stopping, so they cannot drain a subsequent response's queue.
         invalidatePlayback()
-        player.stop()
-        if engine.isRunning { player.play() }
+        queue.async {
+            self.player.stop()
+            if self.engine.isRunning { self.player.play() }
+        }
         return checkpoints
     }
 
@@ -312,10 +324,8 @@ final class RealtimeAudioIO: @unchecked Sendable {
     }
 
     /// Queue one 24 kHz mono PCM16 chunk for playback.
-    @MainActor
-    func enqueue(_ pcm16: Data, item: VoiceAudioItem? = nil) {
-        guard active, recoveryTask == nil else { return }
-        guard engine.isRunning else { requestRecovery(); return }
+    func enqueue(_ pcm16: Data, item: VoiceAudioItem? = nil, leaseID: UUID) {
+        guard accepts(leaseID) else { return }
         let frames = AVAudioFrameCount(pcm16.count / 2)
         guard frames > 0,
               let buffer = AVAudioPCMBuffer(pcmFormat: playFormat, frameCapacity: frames),
@@ -335,38 +345,46 @@ final class RealtimeAudioIO: @unchecked Sendable {
         }
         let generation = playbackGeneration
         pendingLock.unlock()
-        // Playback callbacks also run off the main actor.
-        player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { @Sendable [weak self] _ in
-            guard let self else { return }
-            self.pendingLock.lock()
-            guard self.playbackGeneration == generation else {
-                self.pendingLock.unlock()
+        // Reserve pending frames synchronously so flush/truncate sees queued
+        // items too. Only graph scheduling crosses onto the audio queue.
+        nonisolated(unsafe) let scheduledBuffer = buffer
+        queue.async { [self] in
+            guard accepts(leaseID) else { return }
+            guard engine.isRunning else {
+                onConfigurationChange?(leaseID)
                 return
             }
-            self.pendingBuffers -= 1
-            if audible { self.audibleBuffers -= 1 }
-            if let item {
-                self.playedItemFrames[item, default: 0] += Int(frames)
-                self.pendingItems[item, default: 0] -= 1
-                if self.pendingItems[item] == 0 { self.pendingItems[item] = nil }
+            pendingLock.lock()
+            let current = playbackGeneration == generation
+            pendingLock.unlock()
+            guard current else { return }
+            player.scheduleBuffer(scheduledBuffer, completionCallbackType: .dataPlayedBack) { @Sendable [weak self] _ in
+                guard let self else { return }
+                self.pendingLock.lock()
+                guard self.playbackGeneration == generation else {
+                    self.pendingLock.unlock()
+                    return
+                }
+                self.pendingBuffers -= 1
+                if audible { self.audibleBuffers -= 1 }
+                if let item {
+                    self.playedItemFrames[item, default: 0] += Int(frames)
+                    self.pendingItems[item, default: 0] -= 1
+                    if self.pendingItems[item] == 0 { self.pendingItems[item] = nil }
+                }
+                let drained = self.pendingBuffers == 0 || (audible && self.audibleBuffers == 0)
+                self.pendingLock.unlock()
+                if drained { self.onPlaybackDrained?() }
             }
-            let drained = self.pendingBuffers == 0 || (audible && self.audibleBuffers == 0)
-            self.pendingLock.unlock()
-            if drained { self.onPlaybackDrained?() }
+            if !player.isPlaying { player.play() }
         }
-        if !player.isPlaying { player.play() }
     }
 
-    private func captureAndForward(_ buffer: AVAudioPCMBuffer, converter: AVAudioConverter,
-                                   generation: UInt64, frameHandler: (@Sendable (Data, UInt64) -> Void)?) {
-        guard isCaptureCurrent(generation), let frameHandler else { return }
+    private func captureAndForward(_ buffer: AVAudioPCMBuffer, converter: AVAudioConverter, generation: UUID) {
+        guard acceptsCapture(generation), let onAudioFrame else { return }
         guard buffer.format.sampleRate == converter.inputFormat.sampleRate,
               buffer.format.channelCount == converter.inputFormat.channelCount else {
-            Task { @MainActor [weak self] in
-                guard let self, self.isCaptureCurrent(generation) else { return }
-                self.requestRecovery()
-            }
-            return
+            onConfigurationChange?(generation); return
         }
         let ratio = captureFormat.sampleRate / buffer.format.sampleRate
         let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 1
@@ -392,19 +410,9 @@ final class RealtimeAudioIO: @unchecked Sendable {
             status.pointee = .haveData
             return inputBuffer
         }
-        if let error {
-            rtAudioLog.error("convert: \(error.localizedDescription, privacy: .public)")
-            Task { @MainActor [weak self] in
-                guard let self, self.isCaptureCurrent(generation) else { return }
-                self.requestRecovery()
-            }
-            return
-        }
+        if let error { rtAudioLog.error("convert: \(error.localizedDescription, privacy: .public)"); onConfigurationChange?(generation); return }
         guard out.frameLength > 0, let chan = out.int16ChannelData?[0] else { return }
         let data = Data(bytes: chan, count: Int(out.frameLength) * 2)
-        guard isCaptureCurrent(generation) else { return }
-        frameHandler(data, generation)
+        if acceptsCapture(generation) { onAudioFrame(data, generation) }
     }
 }
-
-extension RealtimeAudioIO: VoiceCallAudio {}

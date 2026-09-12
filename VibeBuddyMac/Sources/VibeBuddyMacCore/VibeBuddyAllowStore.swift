@@ -128,6 +128,7 @@ public actor ApprovalContextStore {
     public func set(id: String, sessionID: String, rule: String?, nativeSuggestions: Data? = nil) {
         contexts[id] = Context(sessionID: sessionID, rule: rule, nativeSuggestions: nativeSuggestions)
     }
+    public func context(id: String) -> Context? { contexts[id] }
     public func take(id: String) -> Context? { contexts.removeValue(forKey: id) }
     public func grant(id: String, updatedPermissions: Data) { grants[id] = updatedPermissions }
     public func takeGrant(id: String) -> Data? { grants.removeValue(forKey: id) }

@@ -93,7 +93,7 @@ public actor OpenAIRealtimeSession: RealtimeVoiceProvider {
                 return
             }
         }
-        responseFilter.completedCall(callID)
+        responseFilter.completed(callID: callID)
     }
 
     public func truncatePlayback(_ checkpoints: [VoicePlaybackCheckpoint]) {
@@ -156,7 +156,13 @@ public actor OpenAIRealtimeSession: RealtimeVoiceProvider {
         guard let data = text.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = obj["type"] as? String else { return }
-        guard responseFilter.accept(obj) else { return }
+        guard responseFilter.accept(obj) else {
+            if let rejection = responseFilter.rejection { continuation?.yield(.failed(rejection)) }
+            return
+        }
+        if !responseFilter.cancelledCalls.isEmpty {
+            continuation?.yield(.toolCallsCancelled(responseFilter.cancelledCalls))
+        }
         switch type {
         case "session.updated":
             // Only the server can confirm the requested model/voice configuration.
@@ -179,7 +185,6 @@ public actor OpenAIRealtimeSession: RealtimeVoiceProvider {
         case "conversation.item.input_audio_transcription.completed":
             if let t = obj["transcript"] as? String { continuation?.yield(.userTranscript(text: t, final: true)) }
         case "input_audio_buffer.speech_started":
-            continuation?.yield(.toolCallsCancelled(responseFilter.cancelledCallIDs))
             continuation?.yield(.speechStarted)
         case "response.function_call_arguments.done":
             let name = obj["name"] as? String ?? ""

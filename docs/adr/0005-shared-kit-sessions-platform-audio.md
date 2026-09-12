@@ -11,7 +11,7 @@ only adds its own audio I/O + UI, keeping the wire/protocol logic in one place.
 
 ## Availability contract (2026-09-12)
 
-The shared coordinator consumes `VoiceAudioAvailability` independently of
+The shared coordinator consumes `VoiceCallAudioState` independently of
 provider events. During recovering/interrupted hardware states it drops playback
 and cannot publish listening or speaking; a terminal failure stops the call.
 Platform controllers bind callbacks to the current call, show recovery explicitly,

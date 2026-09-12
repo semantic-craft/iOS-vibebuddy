@@ -6,6 +6,88 @@ import Testing
 @MainActor
 struct VoiceCallCoordinatorTests {
 
+    @Test("Live phase follows audible buffers arriving after asynchronous enqueue")
+    func asynchronousPlaybackState() {
+        let audio = FakeVoiceCallAudio()
+        let coordinator = VoiceCallCoordinator(audio: audio, actionHandler: { _ in "" }, continuousPlayback: true)
+        coordinator.handle(.connected)
+        // The hardware queue reports actual pending audio after enqueue returns.
+        audio.isPlaybackPending = true
+        coordinator.playbackDrained()
+        #expect(coordinator.phase == .speaking)
+        audio.isPlaybackPending = false
+        coordinator.playbackDrained()
+        #expect(coordinator.phase == .listening)
+        coordinator.stop()
+    }
+
+    @Test("Recovery stays visible across provider events and hangup defeats late recovery")
+    func audioRecoveryHangup() {
+        let audio = FakeVoiceCallAudio()
+        var closes = 0
+        let coordinator = VoiceCallCoordinator(audio: audio, actionHandler: { _ in "" },
+                                               closeSession: { _ in closes += 1 })
+        coordinator.handle(.connected)
+        coordinator.audioStateChanged(.recovering)
+        coordinator.handle(.audioDelta(Data([1, 2])))
+        coordinator.handle(.speechStarted)
+        coordinator.handle(.responseDone)
+        #expect(coordinator.phase == .recovering)
+        #expect(audio.enqueuedAudio.isEmpty)
+        coordinator.handle(.userTranscript(text: "结束通话", final: true))
+        coordinator.audioStateChanged(.running)
+        coordinator.handle(.audioDelta(Data([3, 4])))
+        #expect(coordinator.phase == .idle && audio.stopped && closes == 1)
+        #expect(audio.enqueuedAudio.isEmpty)
+    }
+
+    @Test("Recovered audio accepts new playback; recovery failure closes with an actionable error")
+    func audioRecoveryResult() {
+        let audio = FakeVoiceCallAudio()
+        var closes = 0
+        let coordinator = VoiceCallCoordinator(audio: audio, actionHandler: { _ in "" },
+                                               closeSession: { _ in closes += 1 })
+        coordinator.handle(.connected)
+        coordinator.audioStateChanged(.recovering)
+        coordinator.audioStateChanged(.running)
+        #expect(coordinator.phase == .listening)
+        coordinator.handle(.audioDelta(Data([1, 2])))
+        #expect(audio.enqueuedAudio == [Data([1, 2])])
+        coordinator.audioStateChanged(.recovering)
+        coordinator.audioStateChanged(.failed("Audio device recovery timed out. Start a new call."))
+        #expect(coordinator.phase == .idle && audio.stopped && closes == 1)
+        #expect(coordinator.errorText == "Audio device recovery timed out. Start a new call.")
+    }
+
+    @Test("Doubao final transcription reaches local hangup", arguments: ["transcript", "text"])
+    func doubaoFinalHangup(field: String) throws {
+        let audio = FakeVoiceCallAudio()
+        var closes = 0
+        let coordinator = VoiceCallCoordinator(audio: audio, actionHandler: { _ in
+            Issue.record("Transcription must not authorize a coding action")
+            return ""
+        }, closeSession: { _ in closes += 1 })
+        coordinator.handle(.connected)
+        // Field shape from the official duplex demo; text is synthetic.
+        for hypothesis in ["请立即", "请立即挂断这次语音通话"] {
+            let partial = try #require(DoubaoRealtimeSession.userTranscriptionEvent([
+                "type": "conversation.item.input_audio_transcription.delta", "delta": hypothesis,
+            ]))
+            coordinator.handle(partial)
+            #expect(coordinator.lastUserText == hypothesis)
+            #expect(coordinator.phase == .listening && !audio.stopped)
+        }
+        let event = try #require(DoubaoRealtimeSession.userTranscriptionEvent([
+            "type": "conversation.item.input_audio_transcription.completed",
+            field: "请立即挂断这次语音通话",
+        ]))
+        coordinator.handle(event)
+        coordinator.handle(event)
+        #expect(coordinator.lastUserText == "请立即挂断这次语音通话")
+        #expect(coordinator.phase == .idle)
+        #expect(audio.stopped && closes == 1)
+    }
+
     @Test("final Qwen and Doubao transcripts end locally without a model tool")
     func finalTranscriptHangup() {
         let audio = FakeVoiceCallAudio()
@@ -31,7 +113,7 @@ struct VoiceCallCoordinatorTests {
         let audio = FakeVoiceCallAudio()
         let coordinator = VoiceCallCoordinator(audio: audio, actionHandler: { _ in "" })
         coordinator.handle(.connected)
-        for text in ["不要说再见", "请解释‘拜拜’的意思", "goodbye是什么意思", "done", "关闭？", "不要挂断通话", "“挂断通话”", "挂断通话？", "结束这个会话之前先跑测试"] {
+        for text in ["不要说再见", "请解释‘拜拜’的意思", "goodbye是什么意思", "done", "关闭？", "你为什么说拜拜？", "“goodbye”", "stop", "不要挂断通话", "“挂断通话”", "挂断通话？", "结束这个会话之前先跑测试"] {
             coordinator.handle(.userTranscript(text: text, final: true))
             #expect(!audio.stopped)
         }
@@ -209,6 +291,23 @@ struct VoiceCallCoordinatorTests {
         #expect(coordinator.phase == .idle)
     }
 
+    @Test("provider response identity cancels a queued action before execution")
+    func filteredSpeechCancelsQueuedAction() async {
+        var calls = 0
+        var filter = RealtimeResponseFilter()
+        let coordinator = VoiceCallCoordinator(audio: FakeVoiceCallAudio(), actionHandler: { _ in calls += 1; return "done" })
+        _ = filter.accept(["type": "response.created", "response": ["id": "r1"]])
+        let accepted = filter.accept(["type": "response.function_call_arguments.done", "response_id": "r1", "call_id": "queued"])
+        #expect(accepted)
+        coordinator.handle(.toolCall(name: "approve_session", arguments: #"{"project":"fixture"}"#, callID: "queued"))
+        _ = filter.accept(["type": "input_audio_buffer.speech_started"])
+        coordinator.handle(.toolCallsCancelled(filter.cancelledCalls))
+        coordinator.handle(.speechStarted)
+        for _ in 0..<100 { await Task.yield() }
+        #expect(calls == 0)
+        coordinator.stop()
+    }
+
     @Test("provider cancellation prevents queued actions and suppresses an in-flight receipt")
     func cancellationSuppressesTools() async {
         var calls = 0
@@ -280,7 +379,7 @@ struct VoiceCallCoordinatorTests {
         })
         coordinator.handle(.toolCall(name: "approve_session", arguments: #"{"project":"fixture"}"#, callID: "one"))
         for _ in 0..<100 where gate == nil { await Task.yield() }
-        coordinator.audioAvailabilityChanged(.recovering)
+        coordinator.audioStateChanged(.recovering)
         coordinator.handle(.audioDelta(Data([1, 2])))
         coordinator.handle(.connected)
         #expect(coordinator.phase == .recovering)
@@ -288,12 +387,12 @@ struct VoiceCallCoordinatorTests {
         gate?.resume()
         for _ in 0..<100 where !submitted { await Task.yield() }
         #expect(submitted)
-        coordinator.audioAvailabilityChanged(.available)
+        coordinator.audioStateChanged(.running)
         #expect(coordinator.phase == .listening)
-        coordinator.audioAvailabilityChanged(.failed("Recovery failed"))
+        coordinator.audioStateChanged(.failed("Recovery failed"))
         #expect(coordinator.phase == .idle)
         #expect(coordinator.errorText == "Recovery failed")
-        coordinator.audioAvailabilityChanged(.available)
+        coordinator.audioStateChanged(.running)
         #expect(coordinator.phase == .idle)
     }
 
@@ -301,7 +400,7 @@ struct VoiceCallCoordinatorTests {
     func enqueueRecoveryIsReentrant() {
         let audio = FakeVoiceCallAudio()
         let coordinator = VoiceCallCoordinator(audio: audio, actionHandler: { _ in "" })
-        audio.onEnqueue = { coordinator.audioAvailabilityChanged(.recovering) }
+        audio.onEnqueue = { coordinator.audioStateChanged(.recovering) }
         coordinator.handle(.audioDelta(Data([1, 2])))
         #expect(coordinator.phase == .recovering)
         audio.onEnqueue = nil
@@ -315,12 +414,17 @@ struct VoiceCallCoordinatorTests {
         #expect(accepts(["type": "response.created", "response": ["id": "old"]]))
         #expect(accepts(["type": "response.output_item.added", "response_id": "old", "item": ["id": "item-old"]]))
         #expect(accepts(["type": "response.function_call_arguments.done", "response_id": "old", "call_id": "call-old"]))
+        #expect(filter.canDeliverCall("call-old"))
         #expect(accepts(["type": "input_audio_buffer.speech_started"]))
-        #expect(filter.cancelledCallIDs == ["call-old"])
+        #expect(!filter.canDeliverCall("call-old"))
+        #expect(filter.cancelledCalls == ["call-old"])
         #expect(accepts(["type": "response.created", "response": ["id": "new"]]))
         #expect(!accepts(["type": "response.function_call_arguments.done", "item_id": "item-old", "call_id": "late"]))
         #expect(!accepts(["type": "response.function_call_arguments.done", "call_id": "unattributed"]))
         #expect(accepts(["type": "response.function_call_arguments.done", "response_id": "new", "call_id": "call-new"]))
+        #expect(filter.canDeliverCall("call-new"))
+        filter.completed(callID: "call-new")
+        #expect(!filter.canDeliverCall("call-new"))
     }
 
     @Test("barge-in forwards the audible checkpoint to provider history")

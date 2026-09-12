@@ -145,8 +145,11 @@ therefore replaces just that group with a blocking `hooks/approval-hook.sh codex
 `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"|"deny"}}}`,
 and a phone decision is final. Silence (no phone answer in 25s) falls back to
 Codex's own prompt. `apply_patch` is decided as `Edit`, with a `file_path` from
-the patch when it names one file. **Codex Desktop never runs `hooks.json`**, so
-this covers the CLI only.
+the patch when it names one file. This describes the CLI approval path.
+Desktop lifecycle/tool hooks arrived in the 0.153.4 acceptance, but the tested
+native escalation did not produce an answerable approval card. Hook delivery
+does not establish Desktop approval coverage; see the
+[Codex integration contract](codex-integration.md).
 
 ### Grok Build (`~/.grok/hooks/vibebuddy.json`)
 

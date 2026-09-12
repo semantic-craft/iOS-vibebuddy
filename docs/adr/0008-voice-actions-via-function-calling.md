@@ -40,10 +40,28 @@ Doubao uses `response.function_call_arguments.done.items` and aggregates every
 call ID's result into one `conversation.item.create` tool-items message. It
 never sends OpenAI `response.create` or truncate events. ASR-start interrupts
 local playback and cancels outstanding tool work. After a real interruption,
-packets belonging to a known cancelled response are dropped. If the service
-omits the identity needed to associate a later response or tool call safely,
-the session ends with an explicit instruction to reopen the conversation;
-local turn counters are not accepted as evidence of server response identity.
+packets belonging to a known cancelled response are dropped.
+
+### Doubao ordered media and read-only status after interruption (2026-09-11)
+
+The real endpoint sends an identified `response.output_audio.started` followed
+by `response.output_audio.delta` carrying only delta/event_id/type. Applying
+mandatory per-packet response identity to this format disconnected normal new
+speech after an interrupted tool wait. Media now follows that server segment:
+only a fresh, non-retired started event opens the identity-free audio stream;
+interruption and completion close it. Explicit retired identities still lose.
+Identity-free deltas outside an open segment are discarded. This is an ordered
+media association, not proof of a tool's origin; the protocol cannot distinguish
+an untagged packet violating its segment order. Missing-identity partial text is
+suppressed after interruption; identified final text remains available.
+
+Unidentified tool batches after interruption may contain only get_session_status:
+this reads the current selected scope and cannot mutate a coding task. Existing
+batch validation and call-ID deduplication still apply. Mixed batches, approvals,
+denials, answers and other unidentified tools still end the call explicitly;
+local counters and an audio segment never authorize a task action. Completion
+events do not reset this action restriction. This narrows the earlier blanket
+missing-identity shutdown rule to retain ordinary speech and read-only queries.
 
 ## GPT-Live Responses delegation (2026-09-11)
 

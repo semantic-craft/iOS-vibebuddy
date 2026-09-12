@@ -55,8 +55,7 @@ public actor QuestionRegistry {
 
     /// Exact phone answers cannot spill into a later wait or a terminal.
     public func resolveExact(sessionID: String, questionID: String, answers: QuestionAnswers) -> Bool {
-        guard !Task.isCancelled else { return false }
-        guard let waiter = waiters[sessionID], waiter.questionID == questionID else { return false }
+        guard !Task.isCancelled, let waiter = waiters[sessionID], waiter.questionID == questionID else { return false }
         waiters.removeValue(forKey: sessionID)
         waiter.continuation.resume(returning: answers)
         return true
@@ -168,6 +167,7 @@ public struct AnswerDispatch: Sendable {
     }
 
     public func deliver(_ request: SessionActionRequest) async -> SessionActionDelivery {
+        guard !Task.isCancelled else { return .failed("Action cancelled before submission") }
         if let prior = await requests.claim(request.requestID) { return prior }
         let result = await execute(request)
         await requests.remember(request.requestID, result)
@@ -179,7 +179,7 @@ public struct AnswerDispatch: Sendable {
         let session = await store.snapshot(now: Date()).sessions.first { $0.id == request.sessionID }
         let pending = session?.pendingQuestion
         let waiting = await questions.isWaiting(sessionID: request.sessionID)
-        guard !Task.isCancelled else { return .failed("Cancelled before sending") }
+        guard !Task.isCancelled else { return .failed("Action cancelled before submission") }
         let structured = Self.normalize(answers: request.answers, text: request.text, for: pending)
         let typed = request.text ?? Self.flatten(structured)
         let intent = request.intent ?? inferredIntent(session: session, waiting: waiting, pending: pending)
@@ -245,7 +245,7 @@ public struct AnswerDispatch: Sendable {
         guard E2ERunConfiguration.current == nil else {
             return .failed("Terminal injection is disabled during isolated acceptance")
         }
-        guard !Task.isCancelled else { return .failed("Cancelled before sending") }
+        guard !Task.isCancelled else { return .failed("Action cancelled before submission") }
         inject(ref, typed)
         return .accepted
     }

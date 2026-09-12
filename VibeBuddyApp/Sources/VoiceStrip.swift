@@ -14,13 +14,13 @@ struct VoiceStrip: View {
             VStack(alignment: .leading, spacing: 1) {
                 if let err = voice.errorText {
                     Text(err).font(.caption).foregroundStyle(.red)
+                } else if voice.phase == .recovering {
+                    Text("Recovering audio… tap the pet to end").font(.caption)
                 } else {
                     if !voice.lastUserText.isEmpty {
                         Text(voice.lastUserText).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
-                    if voice.phase == .recovering {
-                        Text("Restoring audio… tap the pet to end").font(.caption).foregroundStyle(.secondary)
-                    } else if !voice.lastReply.isEmpty {
+                    if !voice.lastReply.isEmpty {
                         Text(voice.lastReply).font(.caption.weight(.medium)).lineLimit(2)
                     } else if voice.phase == .listening {
                         Text("Listening… tap the pet to end").font(.caption).foregroundStyle(.secondary)

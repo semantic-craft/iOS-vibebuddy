@@ -55,7 +55,7 @@ public struct VoiceTool: Sendable {
 /// empty, or unrecognized resolves to `.none` and nothing executes.
 public enum VoiceTools {
     public static let status = VoiceTool(name: "get_session_status",
-        description: "Read the current status and available summaries of only the sessions the user included in this voice conversation. Read-only; call before answering a task-status question or selecting an action target.",
+        description: "Call afresh for every new current-task question, including repeated questions and follow-ups after interruption. Do not reuse a previous snapshot for a new status request. Read the current status and available summaries of only the sessions the user included in this voice conversation. Read-only; call before answering a task-status question or selecting an action target.",
         parameters: [], required: [])
     public static let endCall = VoiceTool(name: "end_voice_call",
         description: "End this voice conversation only when the user explicitly asks to hang up. This does not stop any coding-agent task.",

@@ -328,7 +328,8 @@ struct LiveResponseTools {
             guard responseID == nil, pending.isEmpty else { return .init(failure: "OpenAI Live returned overlapping tool work. Reopen the conversation; no action was retried.") }
             responseID = id; delegationID = delegation; calls = []
         case "response.output_item.done":
-            guard responseID != nil, delegationID == delegation,
+            guard let responseID, delegationID == delegation,
+                  event["response_id"] == nil || event["response_id"] as? String == responseID,
                   let item = event["item"] as? [String: Any], item["type"] as? String == "function_call" else { return .init() }
             guard let id = item["call_id"] as? String, !id.isEmpty,
                   let name = item["name"] as? String, allowedTools.contains(name),

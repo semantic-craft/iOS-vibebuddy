@@ -963,43 +963,43 @@ final class MenuBarModel: ObservableObject {
 
     /// Execute a voice action against the matching session; returns a spoken confirmation.
     func performVoiceAction(_ action: VoiceAction) async -> String {
-        guard !Task.isCancelled else { return "Cancelled before sending." }
+        guard !Task.isCancelled else { return "Action cancelled before submission." }
         switch action {
         case .approve(let project), .deny(let project):
-            guard let s = match(project), let ap = s.pendingApproval else { return "No matching pending approval." }
-            let snapshot = await store.snapshot(now: Date())
+            guard let s = match(project), let ap = s.pendingApproval else { return "No pending approval." }
+            let live = await store.snapshot(now: Date())
+            let choice: ApprovalDecision
+            if case .approve = action { choice = .allow } else { choice = .deny }
             guard !Task.isCancelled,
-                  let current = snapshot.sessions.first(where: { $0.id == s.id }),
-                  current.pendingApproval?.id == ap.id, current.pendingApproval?.isAnswerable == true else { return "Approval is no longer current; no action was sent." }
+                  let pending = live.sessions.first(where: { $0.id == s.id })?.pendingApproval,
+                  pending.id == ap.id, pending.supports(choice),
+                  let context = await approvalContext.context(id: ap.id), context.sessionID == s.id else {
+                return "The approval changed or the action was cancelled."
+            }
             let outcome: ApprovalRegistry.Outcome
             if case .approve = action { outcome = .allow } else { outcome = .deny }
-            // Resolve and cancellation check share one actor turn. Do not consume
-            // the context or claim the wait before this actual submission boundary.
-            guard await approvalRegistry.resolve(id: ap.id, with: outcome, unlessCancelled: true) else {
-                return "Approval was cancelled or expired; no action was sent."
+            guard await approvalRegistry.resolveVoice(id: ap.id, with: outcome) else {
+                return "The approval was not submitted."
             }
             _ = await approvalContext.take(id: ap.id)
             await store.recordInteraction(sessionID: s.id)
-            return "Decision submitted for \(s.project); execution is not yet confirmed."
+            return "Decision submitted for \(s.project); command execution is not yet confirmed."
         case .answer(let project, let text):
-            guard let s = match(project), s.pendingQuestion != nil || s.terminalRef != nil else {
-                return "No matching session, or it has nothing waiting and no terminal."
-            }
+            guard let s = match(project) else { return "No matching session." }
             let monitor = codexAppServerMonitor
-            let dispatch = AnswerDispatch(
-                store: store, questions: questionRegistry,
-                inject: { ref, answer in TerminalInjector.inject(answer, into: ref) },
-                steer: { id, answer in await monitor.steer(threadID: id, text: answer) },
-                startTurn: { id, answer in await monitor.startTurn(threadID: id, text: answer) })
-            let result = await dispatch.deliver(SessionActionRequest(
-                sessionID: s.id, intent: SessionActionSupport.resolve(for: s).intent,
+            let dispatch = AnswerDispatch(store: store, questions: questionRegistry,
+                inject: { ref, text in TerminalInjector.inject(text, into: ref) },
+                steer: { id, text in await monitor.steer(threadID: id, text: text) },
+                startTurn: { id, text in await monitor.startTurn(threadID: id, text: text) })
+            let result = await dispatch.deliver(SessionActionRequest(sessionID: s.id,
+                intent: SessionActionSupport.resolve(for: s).intent,
                 questionID: s.pendingQuestion?.id, expectedStatusSince: s.statusSince.timeIntervalSince1970, text: text))
             switch result {
             case .accepted:
                 await store.recordInteraction(sessionID: s.id)
                 return "Answer submitted for \(s.project); execution is not yet confirmed."
-            case .unknown: return "Answer result unknown; check the task before sending again."
             case .failed(let reason), .refused(let reason): return reason
+            default: return "Result unknown. Check the task before sending again."
             }
         case .none: return ""
         }

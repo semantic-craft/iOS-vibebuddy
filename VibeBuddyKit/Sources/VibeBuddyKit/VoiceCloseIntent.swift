@@ -3,10 +3,10 @@ import Foundation
 /// Decides whether something the user just said should end the live voice call,
 /// so they can close it hands-free instead of tapping the pet.
 ///
+/// Only a whole explicit call-ending command controls local voice. Ordinary
+/// farewells and task-ending words do not establish that intent.
 public enum VoiceCloseIntent {
-    /// Narrow local control for completed transcripts or settled Live captions.
-    /// Requires an entire, explicit call-ending command.
-    /// The coordinator also waits for text to settle before acting.
+    /// Completed transcripts act immediately; Live captions must settle first.
     public static func isExplicitCallEnd(_ transcript: String) -> Bool {
         guard !transcript.contains(where: { "?？\"'“”‘’「」『』《》〈〉«»‹›＂＇".contains($0) }) else { return false }
         let clean = transcript.lowercased().unicodeScalars.filter {
@@ -18,5 +18,4 @@ public enum VoiceCloseIntent {
         ]
         return patterns.contains { clean.range(of: $0, options: .regularExpression) != nil }
     }
-
 }
