@@ -28,6 +28,25 @@ import VibeBuddyKit
 /// - **Cards are always answerable.** An ACP session has no Cursor UI of its
 ///   own, so presence never makes them read-only; and a request that goes
 ///   unanswered blocks the turn, exactly as the protocol says it will.
+/// What one `agent … acp` process is started with: the directory, and the
+/// model / mode / worktree the dispatch chose as the CLI's global options.
+public struct CursorACPLaunch: Sendable, Equatable {
+    public var cwd: String
+    public var options: CursorLaunchOptions
+
+    public init(cwd: String, options: CursorLaunchOptions = CursorLaunchOptions()) {
+        self.cwd = cwd
+        self.options = options
+    }
+
+    /// The argv in front of `acp`: global options apply to every command
+    /// (cursor.com/docs/cli/reference/parameters), so `--model`, `--mode`
+    /// and `-w` set the conversation up before the ACP server starts. Modes
+    /// could also be set per session over ACP; the flag is the simpler path
+    /// and is enough.
+    public var leadingArguments: [String] { options.arguments }
+}
+
 public actor CursorACPMonitor {
 
     /// How long a card may wait before the agent is told the request was
@@ -56,10 +75,14 @@ public actor CursorACPMonitor {
     private let followups: CursorFollowupQueue
     private let rules: @Sendable (AgentKind) -> PermissionRules
     private let makeID: @Sendable () -> String
-    private let spawn: @Sendable (String) throws -> CursorACPClient
+    private let spawn: @Sendable (CursorACPLaunch) throws -> CursorACPClient
     private let executable: URL?
     private let signInProbe: @Sendable () async -> Bool
+    private let modelsProbe: @Sendable () async -> [String]
     private var signedIn: Bool?
+    /// Cached with the sign-in verdict: `--list-models` is a subprocess and
+    /// runs once per verdict, not once per snapshot.
+    private var models: [String]?
     private var hosted: [String: Hosted] = [:]
 
     public init(store: SessionStore,
@@ -73,7 +96,8 @@ public actor CursorACPMonitor {
                 makeID: @escaping @Sendable () -> String = { UUID().uuidString },
                 executable: URL? = CursorCLI.resolveExecutable(),
                 signInProbe: (@Sendable () async -> Bool)? = nil,
-                spawn: (@Sendable (String) throws -> CursorACPClient)? = nil) {
+                modelsProbe: (@Sendable () async -> [String])? = nil,
+                spawn: (@Sendable (CursorACPLaunch) throws -> CursorACPClient)? = nil) {
         self.store = store
         self.approvals = approvals
         self.approvalContext = approvalContext
@@ -86,9 +110,11 @@ public actor CursorACPMonitor {
         self.executable = executable
         let resolved = executable
         self.signInProbe = signInProbe ?? { await CursorCLI.isSignedIn(executable: resolved) }
-        self.spawn = spawn ?? { cwd in
+        self.modelsProbe = modelsProbe ?? { await CursorCLI.listModels(executable: resolved) }
+        self.spawn = spawn ?? { launch in
             guard let resolved else { throw CursorACPClient.ClientError.closed }
-            return try CursorACPClient.spawn(executable: resolved, cwd: cwd)
+            return try CursorACPClient.spawn(executable: resolved, cwd: launch.cwd,
+                                             leadingArguments: launch.leadingArguments)
         }
     }
 
@@ -104,7 +130,22 @@ public actor CursorACPMonitor {
         return ok
     }
 
-    public func invalidate() { signedIn = nil }
+    public func invalidate() {
+        signedIn = nil
+        models = nil
+    }
+
+    /// The models a dispatch may name, from `cursor-agent --list-models`.
+    /// Empty when the CLI is missing or signed out — the list needs an
+    /// account (`--list-models` "requires a signed-in CLI") — and after a
+    /// probe that returned nothing, until `invalidate()`.
+    public func models() async -> [String] {
+        guard await isSupported() else { return [] }
+        if let models { return models }
+        let listed = await modelsProbe()
+        models = listed
+        return listed
+    }
 
     /// Whether this monitor is carrying the conversation right now.
     public func hosts(_ sessionID: String) -> Bool { hosted[sessionID] != nil }
@@ -126,8 +167,13 @@ public actor CursorACPMonitor {
         guard await isSupported() else {
             return .unavailable("The Cursor CLI is not signed in — run `cursor-agent login` on this Mac")
         }
+        let options: CursorLaunchOptions
+        switch CursorLaunchOptions.from(request) {
+        case .success(let parsed): options = parsed
+        case .failure(let why): return .rejected(why.message)
+        }
         let client: CursorACPClient
-        do { client = try spawn(request.cwd) } catch {
+        do { client = try spawn(CursorACPLaunch(cwd: request.cwd, options: options)) } catch {
             return .unavailable("Couldn't start cursor-agent: \(error)")
         }
         wire(client)
@@ -159,9 +205,11 @@ public actor CursorACPMonitor {
             hosted[sessionID] = Hosted(client: client, cwd: request.cwd)
             await store.setACPHosted(sessionID: sessionID, true)
             let now = Date()
+            // The chosen model names the row from the start; ACP's updates
+            // never say which model answers.
             await store.ingest(HookEvent(kind: .sessionStart, sessionID: sessionID, agent: .cursor,
                                          cwd: request.cwd, sessionName: request.name,
-                                         observationSource: .acp, timestamp: now))
+                                         model: options.model, observationSource: .acp, timestamp: now))
             await store.recordSourceSignal(agent: .cursor, source: .acp, health: .healthy, at: now)
             startTurn(sessionID: sessionID, text: request.prompt)
             return .started(sessionID: sessionID)

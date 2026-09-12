@@ -114,6 +114,18 @@ private final class FakeACPAgent: @unchecked Sendable {
     }
 }
 
+/// What the monitor asked to spawn, and how often it asked for the model
+/// list — the two seams a dispatch's options and the cache show through.
+private final class LaunchLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [CursorACPLaunch] = []
+    private var listed = 0
+    var launches: [CursorACPLaunch] { lock.lock(); defer { lock.unlock() }; return stored }
+    var modelListings: Int { lock.lock(); defer { lock.unlock() }; return listed }
+    func record(_ launch: CursorACPLaunch) { lock.lock(); stored.append(launch); lock.unlock() }
+    func recordListing() { lock.lock(); listed += 1; lock.unlock() }
+}
+
 /// Poll until `condition` holds. Bounded so a wrong implementation fails
 /// instead of hanging; the bound is liveness, never the assertion.
 private func eventually(_ what: String, _ condition: @Sendable () async -> Bool) async {
@@ -135,10 +147,13 @@ struct CursorACPTests {
         let sessionAllow = SessionAllowList()
         let followups = CursorFollowupQueue()
         let agent: FakeACPAgent
+        let log = LaunchLog()
         let monitor: CursorACPMonitor
 
-        init(agent: FakeACPAgent = FakeACPAgent(), signedIn: Bool = true, deny: [String] = []) {
+        init(agent: FakeACPAgent = FakeACPAgent(), signedIn: Bool = true, deny: [String] = [],
+             models: [String] = ["gpt-5", "sonnet-4.5"]) {
             self.agent = agent
+            let log = self.log
             allowStore = VibeBuddyAllowStore(url: FileManager.default.temporaryDirectory
                 .appendingPathComponent("vbacp-\(UUID().uuidString).json"))
             monitor = CursorACPMonitor(store: store, approvals: approvals, approvalContext: approvalContext,
@@ -148,7 +163,8 @@ struct CursorACPTests {
                                        makeID: { UUID().uuidString },
                                        executable: URL(fileURLWithPath: "/usr/bin/true"),
                                        signInProbe: { signedIn },
-                                       spawn: { _ in agent.client() })
+                                       modelsProbe: { log.recordListing(); return models },
+                                       spawn: { launch in log.record(launch); return agent.client() })
         }
 
         func session() async -> AgentSession? {
@@ -338,6 +354,62 @@ struct CursorACPTests {
         #expect(session?.controlChannel == .acp)
     }
 
+    @Test func aPlainDispatchStartsTheCLIWithNoOptions() async throws {
+        let rig = Rig()
+        _ = await rig.monitor.dispatch(request)
+        #expect(rig.log.launches == [CursorACPLaunch(cwd: "/x/p")])
+        #expect(rig.log.launches.first?.leadingArguments == [])
+    }
+
+    @Test func modelModeAndWorktreeBecomeTheCLIsGlobalOptionsInFrontOfACP() async throws {
+        let rig = Rig()
+        var chosen = request
+        chosen.model = "gpt-5"
+        chosen.mode = "plan"
+        chosen.worktree = true
+        let outcome = await rig.monitor.dispatch(chosen)
+        #expect(outcome == .started(sessionID: "acp-1"))
+        #expect(rig.log.launches.count == 1)
+        #expect(rig.log.launches.first?.cwd == "/x/p")
+        #expect(rig.log.launches.first?.leadingArguments == ["--model", "gpt-5", "--mode", "plan", "-w"])
+        // Agent mode is the CLI's default and needs no flag.
+        await eventually("the row carries the chosen model") { await rig.session()?.model == "gpt-5" }
+        var agentMode = request
+        agentMode.mode = "agent"
+        agentMode.model = "sonnet-4.5"
+        let second = Rig(agent: FakeACPAgent(sessionID: "acp-2"))
+        _ = await second.monitor.dispatch(agentMode)
+        #expect(second.log.launches.first?.leadingArguments == ["--model", "sonnet-4.5"])
+    }
+
+    @Test func aModelOrModeThatIsNotAPlainTokenIsRefusedBeforeAnythingIsSpawned() async throws {
+        let rig = Rig()
+        var bad = request
+        bad.model = "gpt-5; rm -rf ~"
+        guard case .rejected(let why) = await rig.monitor.dispatch(bad) else { Issue.record("expected rejected"); return }
+        #expect(why.contains("model"))
+        var badMode = request
+        badMode.mode = "yolo"
+        guard case .rejected(let modeWhy) = await rig.monitor.dispatch(badMode) else { Issue.record("expected rejected"); return }
+        #expect(modeWhy.contains("mode"))
+        #expect(rig.log.launches.isEmpty)
+        #expect(await rig.session() == nil)
+    }
+
+    @Test func theModelListIsProbedOncePerSignInVerdict() async throws {
+        let rig = Rig()
+        #expect(await rig.monitor.models() == ["gpt-5", "sonnet-4.5"])
+        #expect(await rig.monitor.models() == ["gpt-5", "sonnet-4.5"])
+        #expect(rig.log.modelListings == 1)
+        await rig.monitor.invalidate()
+        #expect(await rig.monitor.models() == ["gpt-5", "sonnet-4.5"])
+        #expect(rig.log.modelListings == 2)
+        // Signed out: no models, and no subprocess to ask for them.
+        let signedOut = Rig(signedIn: false)
+        #expect(await signedOut.monitor.models() == [])
+        #expect(signedOut.log.modelListings == 0)
+    }
+
     @Test func anUnexpectedProtocolVersionIsRefusedNotGuessed() async throws {
         let agent = FakeACPAgent()
         agent.protocolVersion = 2
@@ -398,5 +470,61 @@ struct CursorACPShapeTests {
         #expect((outcome?["reason"] as? String)?.contains("something else") == true)
         let picked = CursorACPMonitor.questionResponse(question: question, answers: ["q1": ["A"]])
         #expect(((picked["outcome"] as? [String: Any])?["outcome"] as? String) == "answered")
+    }
+}
+
+@Suite("Cursor launch options")
+struct CursorLaunchOptionTests {
+    @Test func theListIsOneIDPerLineWhateverDecorationTheCLIPrints() {
+        let fixture = """
+        Available models:
+        MODEL          DESCRIPTION
+        * gpt-5        OpenAI GPT-5 (current)
+        - sonnet-4.5   Anthropic
+        | composer-1 | Cursor |
+        claude-opus-4.1, the big one
+        auto
+        gpt-5
+
+        Run `agent --model <model>` to pick one.
+        """
+        #expect(CursorCLI.parseModelList(fixture) == ["gpt-5", "sonnet-4.5", "composer-1", "claude-opus-4.1", "auto"])
+        #expect(CursorCLI.parseModelList("Error: Authentication required. Run 'agent login'.") == [])
+        #expect(CursorCLI.parseModelList("") == [])
+    }
+
+    @Test func onlyPlainTokensAndDocumentedBracketOverridesPass() {
+        for ok in ["gpt-5", "sonnet-4-thinking", "claude-opus-4.1", "vendor/model:latest",
+                   "claude-opus-4-8[context=1m,effort=high,fast=false]"] {
+            #expect(CursorLaunchOptions.isModelToken(ok), "\(ok)")
+        }
+        for bad in ["", "gpt 5", "gpt-5; rm -rf ~", "$(id)", "gpt-5[", "gpt-5[context]", "gpt-5[a=b]x", "模型"] {
+            #expect(!CursorLaunchOptions.isModelToken(bad), "\(bad)")
+        }
+    }
+
+    @Test func aRequestBecomesArgumentsOrARejection() throws {
+        var request = DispatchRequest(agent: .cursor, cwd: "/x/p", prompt: "go")
+        #expect(try CursorLaunchOptions.from(request).get().arguments == [])
+        request.mode = "Ask"
+        request.worktree = true
+        #expect(try CursorLaunchOptions.from(request).get().arguments == ["--mode", "ask", "-w"])
+        request.mode = "agent"
+        request.worktree = false
+        request.model = " gpt-5 "
+        #expect(try CursorLaunchOptions.from(request).get().arguments == ["--model", "gpt-5"])
+        request.model = "gpt 5"
+        #expect(CursorLaunchOptions.from(request) == .failure(.invalidModel("gpt 5")))
+        request.model = nil
+        request.mode = "edit"
+        #expect(CursorLaunchOptions.from(request) == .failure(.invalidMode("edit")))
+    }
+
+    @Test func theTerminalFallbackPutsTheSameFlagsBeforeTheDoubleDash() {
+        let options = CursorLaunchOptions(model: "gpt-5", mode: "plan", worktree: true)
+        let parts = [CursorCLI.shellQuoted("/usr/local/bin/cursor-agent")] + options.arguments.map(CursorCLI.shellQuoted)
+            + ["--", CursorCLI.shellQuoted("fix it")]
+        #expect(CursorCLI.command(parts, cwd: "/x/p")
+                == "cd '/x/p' && '/usr/local/bin/cursor-agent' '--model' 'gpt-5' '--mode' 'plan' '-w' -- 'fix it'")
     }
 }

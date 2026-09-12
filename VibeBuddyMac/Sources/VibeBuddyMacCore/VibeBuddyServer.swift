@@ -194,6 +194,9 @@ public struct VibeBuddyServer: Sendable {
         if await claudeLauncher.isSupported() { agents.append(.claudeCode) }
         if let monitor = codexAppServerMonitor, await monitor.diagnostics().connected { agents.append(.codex) }
         var cursor = await cursorACPSupported()
+        // The model list rides with the sign-in verdict: the host caches it,
+        // so this costs a subprocess once per verdict, not once per snapshot.
+        await store.setCursorModels(cursor ? await cursorACP?.models() ?? [] : [])
         if !cursor { cursor = await cursorLauncher.isSupported() }
         if cursor { agents.append(.cursor) }
         return agents
@@ -526,8 +529,11 @@ public struct VibeBuddyServer: Sendable {
         // Full snapshot — bearer-token gated.
         authed.get("snapshot") { request, _ -> Response in
             await store.applyBackgroundSessions(backgroundSessions())
+            // Agents first: it also refreshes the store's Cursor model list,
+            // which the snapshot taken next composes in.
+            let agents = await dispatchAgents()
             var snapshot = await store.snapshot(now: Date())
-            snapshot.dispatchAgents = await dispatchAgents()
+            snapshot.dispatchAgents = agents
             let data = try JSONEncoder().encode(Self.snapshotForPeer(snapshot, request: request))
             return Response(
                 status: .ok,
@@ -1009,8 +1015,13 @@ public struct VibeBuddyServer: Sendable {
             guard await store.isKnownDirectory(cwd) else {
                 return reply(.badRequest, ["error": "not a directory a session has run in"])
             }
-            let req = DispatchRequest(agent: agent, cwd: cwd, prompt: text,
-                                      name: (o["name"] as? String).flatMap { $0.isEmpty ? nil : $0 })
+            func optionalString(_ key: String) -> String? {
+                (o[key] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            }
+            // Cursor's `--model`, `--mode` and `-w`; other agents ignore them.
+            let req = DispatchRequest(agent: agent, cwd: cwd, prompt: text, name: optionalString("name"),
+                                      model: optionalString("model"), mode: optionalString("mode"),
+                                      worktree: o["worktree"] as? Bool)
             let outcome: DispatchOutcome
             if let dispatcher {
                 outcome = await dispatcher(req)

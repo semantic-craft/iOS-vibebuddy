@@ -470,6 +470,7 @@ final class MenuBarModel: ObservableObject {
                 if await self.claudeLauncher.isSupported() { agents.append(.claudeCode) }
                 if self.codexAppServerDiagnostics.connected { agents.append(.codex) }
                 var cursorReady = await self.cursorACP.isSupported()
+                await self.store.setCursorModels(cursorReady ? await self.cursorACP.models() : [])
                 if !cursorReady { cursorReady = await self.cursorLauncher.isSupported() }
                 if cursorReady { agents.append(.cursor) }
                 self.dispatchAgents = agents

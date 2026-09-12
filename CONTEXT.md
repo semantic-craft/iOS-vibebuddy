@@ -197,10 +197,18 @@ code, and tests — don't drift to synonyms.
   <prompt>` in that directory; the job's `state.json` gives the full session
   id the hooks will report). Codex goes through the app-server daemon
   (`thread/start` → `thread/name/set` → `turn/start`, the user's own
-  model/approval/sandbox defaults). Other agents answer 501. The snapshot's
-  `dispatchAgents` says which agents can be started right now (Claude when
-  the CLI lists `--bg`, Codex when the daemon is connected); the "New task"
-  entry offers only those and is disabled when there are none.
+  model/approval/sandbox defaults). Cursor is hosted over ACP by
+  `CursorACPMonitor` when the CLI is signed in, else opened in a terminal; a
+  Cursor request may add `model`, `mode` (`plan` / `ask`; agent is the CLI's
+  default and travels as nil) and `worktree` (a fresh Git worktree the CLI
+  creates under `~/.cursor/worktrees/<repo>/<name>`), which become the CLI's
+  global options `--model`, `--mode` and `-w` in front of `acp` or `--`.
+  Model and mode must be plain tokens or the dispatch is `rejected`. Other
+  agents answer 501. The snapshot's `dispatchAgents` says which agents can
+  be started right now (Claude when the CLI lists `--bg`, Codex when the
+  daemon is connected); its `cursorModels` is the signed-in CLI's
+  `--list-models`, probed once per sign-in verdict. The "New task" entry
+  offers only those agents and is disabled when there are none.
 - **Question relay** — the agent's question answered from the phone or the Mac
   card through the agent's own contract: Claude's `AskUserQuestion` on a
   blocking PreToolUse hook (answered with `updatedInput.answers`, keyed by

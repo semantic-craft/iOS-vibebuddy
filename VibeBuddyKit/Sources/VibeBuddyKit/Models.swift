@@ -678,6 +678,9 @@ public struct Snapshot: Codable, Sendable, Equatable {
     /// Agents the Mac can start a new task for right now (Claude Code when the
     /// CLI supports `--bg`, Codex when the app-server daemon is connected).
     public var dispatchAgents: [AgentKind]?
+    /// Models the signed-in Cursor CLI lists (`cursor-agent --list-models`),
+    /// for a Cursor dispatch's `model`. Nil or empty: offer no choice.
+    public var cursorModels: [String]?
 
     public init(
         sessions: [AgentSession],
@@ -686,7 +689,8 @@ public struct Snapshot: Codable, Sendable, Equatable {
         observationDiagnostics: [AgentObservationDiagnostic]? = nil,
         providerQuota: [ProviderQuota]? = nil,
         recentDirectories: [String]? = nil,
-        dispatchAgents: [AgentKind]? = nil
+        dispatchAgents: [AgentKind]? = nil,
+        cursorModels: [String]? = nil
     ) {
         self.sessions = sessions
         self.serverTime = serverTime
@@ -695,11 +699,12 @@ public struct Snapshot: Codable, Sendable, Equatable {
         self.providerQuota = providerQuota
         self.recentDirectories = recentDirectories
         self.dispatchAgents = dispatchAgents
+        self.cursorModels = cursorModels
     }
 
     enum CodingKeys: String, CodingKey {
         case sourceID, sessions, serverTime, observationDiagnostics
-        case providerQuota, recentDirectories, dispatchAgents
+        case providerQuota, recentDirectories, dispatchAgents, cursorModels
     }
 
     public init(from decoder: Decoder) throws {
@@ -718,6 +723,7 @@ public struct Snapshot: Codable, Sendable, Equatable {
         }
         recentDirectories = try c.decodeIfPresent([String].self, forKey: .recentDirectories)
         dispatchAgents = try c.decodeIfPresent([AgentKind].self, forKey: .dispatchAgents)
+        cursorModels = try c.decodeIfPresent([String].self, forKey: .cursorModels)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -729,6 +735,7 @@ public struct Snapshot: Codable, Sendable, Equatable {
         try c.encodeIfPresent(providerQuota, forKey: .providerQuota)
         try c.encodeIfPresent(recentDirectories, forKey: .recentDirectories)
         try c.encodeIfPresent(dispatchAgents, forKey: .dispatchAgents)
+        try c.encodeIfPresent(cursorModels, forKey: .cursorModels)
     }
 }
 
@@ -815,12 +822,28 @@ public struct DispatchRequest: Codable, Sendable, Equatable {
     public var cwd: String
     public var prompt: String
     public var name: String?
+    /// Cursor only (`cursor-agent --model <model>`): one of the snapshot's
+    /// `cursorModels`. Nil leaves the CLI's own default. Ignored by every
+    /// other agent.
+    public var model: String?
+    /// Cursor only (`cursor-agent --mode plan|ask`). Nil is the CLI's default
+    /// agent mode, which has no flag of its own.
+    public var mode: String?
+    /// Cursor only (`cursor-agent -w`): run in a fresh Git worktree the CLI
+    /// creates under `~/.cursor/worktrees/<repo>/<name>` instead of `cwd`.
+    /// Nil and false mean the same thing; nil is omitted on the wire so an
+    /// older Mac reads the request exactly as before.
+    public var worktree: Bool?
 
-    public init(agent: AgentKind, cwd: String, prompt: String, name: String? = nil) {
+    public init(agent: AgentKind, cwd: String, prompt: String, name: String? = nil,
+                model: String? = nil, mode: String? = nil, worktree: Bool? = nil) {
         self.agent = agent
         self.cwd = cwd
         self.prompt = prompt
         self.name = name
+        self.model = model
+        self.mode = mode
+        self.worktree = worktree
     }
 }
 

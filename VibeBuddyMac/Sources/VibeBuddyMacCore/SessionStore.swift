@@ -296,6 +296,8 @@ public actor SessionStore {
     public let sourceID: String?
     /// Account allowance, kept beside the reducer rather than inside it.
     private var providerQuota: [ProviderQuota] = []
+    /// Models the signed-in Cursor CLI lists, for a Cursor dispatch.
+    private var cursorModels: [String] = []
     private var subscribers: [UUID: AsyncStream<Snapshot>.Continuation] = [:]
     private var needsResponseHandler: (@Sendable (AgentSession) async -> Void)?
     private var staleAfter: TimeInterval
@@ -1023,6 +1025,15 @@ public actor SessionStore {
         broadcast()
     }
 
+    /// Replace the Cursor model list the phone may choose from. Account
+    /// state like quota: composed into every snapshot, never near the reducer,
+    /// broadcast on change so a fresh sign-in reaches the sheet.
+    public func setCursorModels(_ models: [String]) {
+        guard models != cursorModels else { return }
+        cursorModels = models
+        broadcast()
+    }
+
     /// The one place a runtime snapshot is assembled: sessions and diagnostics
     /// from the reducer, allowance from beside it.
     private func currentSnapshot(now: Date) -> Snapshot {
@@ -1046,6 +1057,7 @@ public actor SessionStore {
         snapshot.providerQuota = providerQuota.isEmpty ? nil : providerQuota
         let directories = recentDirectories()
         snapshot.recentDirectories = directories.isEmpty ? nil : directories
+        snapshot.cursorModels = cursorModels.isEmpty ? nil : cursorModels
         snapshot.sessions = snapshot.sessions.map { session in
             var session = session
             session.attentionOverride = attention[session.id]
