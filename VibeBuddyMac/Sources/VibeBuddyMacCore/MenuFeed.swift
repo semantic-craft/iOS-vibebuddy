@@ -2,7 +2,7 @@ import Foundation
 import VibeBuddyKit
 
 /// Mac menu projection: the snapshot cut into the Companion's three attention
-/// groups (`StateGroups`, the same rule the iPhone's list uses), each ordered by
+/// groups (`StateGroups`, the Kit's own rule), each ordered by
 /// when something last happened. The view consumes this and does no sorting,
 /// grouping or filtering of its own.
 ///

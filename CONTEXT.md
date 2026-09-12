@@ -71,10 +71,12 @@ code, and tests — don't drift to synonyms.
   `GlanceCardQueue`. While the glance is on screen the card *replaces* the
   macOS banner for session cues; hidden glance → banner as before.
 - **Menu-bar entry** — a fixed cat icon that opens a panel centred under it: a
-  command row you type into to narrow the list, one summary line for the whole
-  snapshot, the sessions that need a person pinned above a time-ordered feed of
-  the rest, and a footer row of controls (Dashboard, the Glance toggle,
-  Settings, phone state, updates and quit). "Show task status in menu bar"
+  command row you type into to narrow the list, with the voice companion's mic
+  at its head; one summary line for the whole snapshot, led by the status dot
+  for the most urgent state present; the snapshot in three collapsible groups —
+  **Needs you / Working / Done**, newest first inside each (ADR-0015); and a
+  footer row of controls (Dashboard, the Glance toggle, Settings, phone state,
+  updates and quit). "Show task status in menu bar"
   optionally adds a state dot and the primary state count to the icon; it is off
   by default. The Glance owns ambient status and actionable alerts. Both
   surfaces are enabled by default and can be hidden independently.
@@ -90,6 +92,8 @@ code, and tests — don't drift to synonyms.
 - **Buddy / Pet** — the companion character (the app icon's white cat, drawn in
   code by the Kit's `BuddyCatFace` on iOS, watchOS and macOS per ADR-0007's
   second amendment) that reflects overall status and hosts the voice companion.
+  The **menu-bar panel does not draw it** (ADR-0015); there the mic stands where
+  it stood, and the menu-bar mark above the panel is still the cat.
   Zero third-party art.
 - **BuddyState** — the mood enum driving the pet's face and the sound pack:
   `approval`, `question`, `longWait`, `working`, `stuck`, `done`, `sleeping`.
@@ -101,8 +105,9 @@ code, and tests — don't drift to synonyms.
   selects tools. Interrupting speech does not cancel a coding task.
 - **Voice scope** — the sessions the user included in a conversation. Reading
   status and resolving an action target stay inside that scope.
-- **Voice companion** — tap the pet to hold a **realtime speech-to-speech**
-  conversation; it knows the live sessions and can **approve / answer** for you.
+- **Voice companion** — tap the pet — or the mic in the menu-bar panel — to hold
+  a **realtime speech-to-speech** conversation; it knows the live sessions and
+  can **approve / answer** for you.
 - **VoiceProvider** — the realtime backend: `qwen`, `openai`, `gemini`, or `doubao`. Each
   has its own key, model, voice, and input sample rate. Qwen additionally takes
   an optional Bailian **workspace ID** (workspace-specific `maas.aliyuncs.com`

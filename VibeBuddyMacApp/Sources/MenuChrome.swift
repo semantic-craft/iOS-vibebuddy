@@ -1,11 +1,10 @@
 import SwiftUI
 import VibeBuddyKit
 
-/// The menu panel's chrome (ADR-0015): the iPhone's flat list language
-/// (`PhoneChrome.swift`) at panel scale — round glyph buttons, collapsible
-/// group heads, hairlines between rows instead of a tinted block and a rail.
-/// Every colour and face comes from the Kit through `MacTheme`; only the sizes
-/// are the panel's own, one notch below the phone's.
+/// The menu panel's chrome (ADR-0015): Cursor's flat list register — round
+/// glyph buttons, collapsible group heads, hairlines between rows instead of a
+/// tinted block and a rail. Every colour and face comes from the Kit through
+/// `MacTheme`; only the sizes are the panel's own.
 enum MenuMetrics {
     static let gutter: CGFloat = 13
     static let control: CGFloat = 26
@@ -14,8 +13,8 @@ enum MenuMetrics {
     static let dotLane: CGFloat = 16
 }
 
-/// A glyph in a circle: the panel's toolbar unit, the phone's `PhoneCircleButton`
-/// at 26pt. Hover lifts the ground, as every other control in the panel does.
+/// A glyph in a circle: the panel's toolbar unit at 26pt. Hover lifts the
+/// ground, as every other control in the panel does.
 struct MenuCircleButton: View {
     let systemName: String
     var size: CGFloat = MenuMetrics.control

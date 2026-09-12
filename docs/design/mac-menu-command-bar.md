@@ -9,9 +9,10 @@ the implementation follows. The prototype's last version carries the pixel
 values and is the visual truth where prose is ambiguous.
 
 > **Partly superseded (2026-09-12) by [ADR-0015](../adr/0015-menu-panel-flat-task-list.md).**
-> The panel now wears the iPhone's flat list language: the cat left the command
-> row for a mic, the list is the Companion's three collapsible groups instead of
-> a pinned block over a rail-and-time-column feed, and rows are hairline-separated.
+> The panel is now a flat, grouped list in Cursor's register: the cat left the
+> command row for a mic, the list is the Companion's three collapsible groups
+> instead of a pinned block over a rail-and-time-column feed, and rows are
+> hairline-separated.
 > Rounds 1 and 3 below still stand — the panel still opens on something you type
 > into, and pet/field/badge are still one merged row. Rounds 2, 4, 5 and 6, the
 > Anatomy rows marked *(ADR-0015)* and the behaviour they describe are history;
@@ -45,7 +46,7 @@ The user's words about the panel it replaces: not centred under its icon, and
 | 3 | Head | **Merged** — pet, field and shortcut badge are one row, not a header plus a search bar | |
 | 4 | The merged row | **Pet Carries It** — the pet's own badge is the global status light, so the row needs no separate state chip | superseded by ADR-0015: the light is the dot on the summary line. An "Action Strip" variant (approve/deny inside the panel) was rejected: it needs the approval channel and is its own feature |
 | 5 | List | **Activity Feed** — one stream ordered by when each session last moved, with a time column and a rail | superseded by ADR-0015: three collapsible state groups, newest first inside each |
-| 6 | Urgency | **Pinned** — error and waiting sessions are lifted out of the stream into a block at the top | superseded by ADR-0015: `Needs you` is the first group, and every group collapses — the rejected "collapsed quiet section" came back when the phone's list did |
+| 6 | Urgency | **Pinned** — error and waiting sessions are lifted out of the stream into a block at the top | superseded by ADR-0015: `Needs you` is the first group, and every group collapses — the rejected "collapsed quiet section" came back as the general rule |
 
 Closing decisions, same day:
 

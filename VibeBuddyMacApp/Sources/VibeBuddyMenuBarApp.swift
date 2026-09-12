@@ -146,24 +146,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !loginLaunch {
             if ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO_PAGE"] == "settings" {
                 openSettings()
-            } else if ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO_PAGE"] == "panel" {
-                showPanelInAWindow()
             } else {
                 openDashboard()
             }
         }
-    }
-
-    // TEMP-SHOT: the menu-bar panel cannot be screenshotted where it lives.
-    private var panelShot: NSWindow?
-    private func showPanelInAWindow() {
-        let w = NSWindow(contentRect: NSRect(x: 120, y: 200, width: 360, height: 560),
-                         styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
-        w.title = "Menu panel"
-        w.contentView = NSHostingView(rootView: MenuContent(model: model))
-        w.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-        panelShot = w
     }
 
     /// Closing ordinary windows must leave the daemon and Glance running.
@@ -665,8 +651,8 @@ struct MenuContent: View {
 
     /// One field, with the voice companion on its left and the shortcut badge on
     /// its right. The cat left this row with ADR-0015: the mic is the voice
-    /// entry point here as it is on the phone, and the panel's status light is
-    /// the dot on the summary line under it.
+    /// entry point here, and the panel's status light is the dot on the summary
+    /// line under it.
     private func commandRow(_ feed: MenuFeed) -> some View {
         HStack(spacing: 9) {
             MenuCircleButton(systemName: voiceGlyph,
@@ -809,9 +795,9 @@ struct MenuContent: View {
         }
     }
 
-    /// The phone's list at panel scale (ADR-0015): the Companion's three
-    /// attention groups, each collapsible, with hairlines between rows. A group
-    /// that holds nothing is absent, not empty, so the panel shortens.
+    /// The list (ADR-0015): the Companion's three attention groups, each
+    /// collapsible, with hairlines between rows. A group that holds nothing is
+    /// absent, not empty, so the panel shortens.
     @ViewBuilder
     private func listContent(_ feed: MenuFeed) -> some View {
         let now = Date()
@@ -855,9 +841,9 @@ struct MenuContent: View {
                 })
     }
 
-    /// A row in the phone's anatomy: a status dot, the session's title and how
-    /// long ago it moved on the first line; what the agent is doing and its own
-    /// sentence on the second. Hover fills the whole row — there is no card.
+    /// A flat row: a status dot, the session's title and how long ago it moved
+    /// on the first line; what the agent is doing and its own sentence on the
+    /// second. Hover fills the whole row — there is no card.
     private func row(_ session: AgentSession, feed: MenuFeed, now: Date,
                      showsHairline: Bool) -> some View {
         let isTarget = !feed.query.isEmpty && feed.topResult?.id == session.id
@@ -913,7 +899,7 @@ struct MenuContent: View {
     }
 
     /// What the agent is doing, in the state's own colour, then its own
-    /// sentence — the phone's second line, kept to one line here.
+    /// sentence. One line: the row's width is the budget.
     private func activityLine(_ session: AgentSession) -> some View {
         let activity = Text(LocalizedStringKey(ToolActivity.label(for: session)))
             .foregroundColor(MacTheme.status(session.presentationState))
