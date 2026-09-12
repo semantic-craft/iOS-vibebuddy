@@ -9,40 +9,43 @@ struct VoiceStrip: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: icon)
-                .foregroundStyle(voice.errorText != nil ? .red : .accentColor)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(voice.errorText != nil ? CompanionPalette.status(.error) : CompanionPalette.accent)
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 1) {
                 if let err = voice.errorText {
-                    Text(err).font(.caption).foregroundStyle(.red)
+                    Text(err).font(CompanionType.font(12)).foregroundStyle(CompanionPalette.status(.error))
                 } else if voice.phase == .recovering {
-                    Text("Recovering audio… tap the pet to end").font(.caption)
+                    Text("Recovering audio… tap the mic to end").font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
                 } else {
                     if !voice.lastUserText.isEmpty {
-                        Text(voice.lastUserText).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        Text(voice.lastUserText).font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink3).lineLimit(1)
                     }
                     if !voice.lastReply.isEmpty {
-                        Text(voice.lastReply).font(.caption.weight(.medium)).lineLimit(2)
+                        Text(voice.lastReply).font(CompanionType.font(12, .medium)).foregroundStyle(CompanionPalette.ink).lineLimit(2)
                     } else if voice.phase == .listening {
-                        Text("Listening… tap the pet to end").font(.caption).foregroundStyle(.secondary)
+                        Text("Listening… tap the mic to end").font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
                     } else if voice.phase == .connecting {
-                        Text("Connecting… tap the pet to cancel").font(.caption).foregroundStyle(.secondary)
+                        Text("Connecting… tap the mic to cancel").font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
                     } else if voice.phase == .thinking {
-                        Text("Thinking…").font(.caption).foregroundStyle(.secondary)
+                        Text("Thinking…").font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
                     }
                 }
             }
             Spacer(minLength: 0)
             if let provider = voice.activeProvider {
                 Text(provider.display)
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.secondary)
+                    .font(CompanionType.font(10, .medium))
+                    .foregroundStyle(CompanionPalette.ink2)
                     .padding(.horizontal, 7).padding(.vertical, 3)
-                    .background(.quaternary, in: Capsule())
+                    .background(CompanionPalette.bg2, in: Capsule())
             }
         }
-        .padding(.horizontal, 16).padding(.vertical, 6)
+        .padding(.horizontal, PhoneMetrics.gutter).padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.bar)
+        .background(CompanionPalette.bg3)
+        .overlay(alignment: .top) { PhoneDivider() }
+        .overlay(alignment: .bottom) { PhoneDivider() }
     }
 
     private var icon: String {
