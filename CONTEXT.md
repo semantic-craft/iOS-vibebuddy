@@ -74,8 +74,8 @@ code, and tests — don't drift to synonyms.
 - **Glance** — the Mac status surface at the top of the menu-bar screen, drawn
   with the Dynamic Island's grammar (ADR-0011). On a notch Mac it never draws
   into the camera housing: **idle** (nothing), **compact** (a strip below the camera, no wider than
-  the housing: pet left, the one primary count right), **card** (a cue unfolded below the
-  housing), **expanded** (hover/click: counts + approval or session list).
+  the housing: the status dot left, the one primary count right), **card** (a cue unfolded below the
+  housing), **expanded** (hover/click: mic + mood line, then approval or session list).
   Without a notch the same content is a **pill** hanging under the menu bar.
 - **Glance card** — the glance's event layer: one `SoundPolicy` cue at a time
   shown under the housing with its actions (Approve / Deny / Jump), timed by
@@ -101,11 +101,13 @@ code, and tests — don't drift to synonyms.
 ## Buddy / pet
 
 - **Buddy / Pet** — the companion character (the app icon's white cat, drawn in
-  code by the Kit's `BuddyCatFace` per ADR-0007's second amendment) that reflects
-  overall status. It draws on the Live Activity, the Watch, the Mac glance and
-  dashboard, and the menu-bar mark. The **iPhone dashboard does not show it**
-  (ADR-0014) and neither does the **menu-bar panel** (ADR-0015); in both the
-  voice companion's mic stands where it stood. Zero third-party art.
+  code by the Kit's `BuddyCatFace` per ADR-0007's second amendment). Since
+  ADR-0017 it is a brand mark and the voice companion's avatar, not a status
+  surface: it draws as the app icon, the menu-bar mark, and — only while a
+  voice conversation is live — beside the mic in the phone's voice strip, the
+  Mac panel, dashboard and Glance. Every status surface shows a **status
+  dot** (or `moon.zzz` when empty) where the cat used to sit. Zero
+  third-party art.
 - **BuddyState** — the mood enum driving the pet's face and the sound pack:
   `approval`, `question`, `longWait`, `working`, `stuck`, `done`, `sleeping`.
 
@@ -117,9 +119,10 @@ code, and tests — don't drift to synonyms.
 - **Voice scope** — the sessions the user included in a conversation. Reading
   status and resolving an action target stay inside that scope.
 - **Voice companion** — a **realtime speech-to-speech** conversation that knows
-  the live sessions and can **approve / answer** for you. Started by tapping the
-  pet on the Mac's glance and dashboard and on the Watch, the mic in the
-  menu-bar panel (ADR-0015), and the composer's mic on the iPhone (ADR-0014).
+  the live sessions and can **approve / answer** for you. Started by the same
+  **mic circle** on every surface (ADR-0017 §3): the iPhone composer (always
+  visible, explained once), the Mac panel's command row, the Mac dashboard's
+  top bar and the expanded Glance. Its glyph follows the voice phase.
 - **VoiceProvider** — the realtime backend: `qwen`, `openai`, `gemini`, or `doubao`. Each
   has its own key, model, voice, and input sample rate. Qwen additionally takes
   an optional Bailian **workspace ID** (workspace-specific `maas.aliyuncs.com`

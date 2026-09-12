@@ -9,7 +9,6 @@ import VibeBuddyMacCore
 /// content hangs under the menu bar as a capsule.
 struct GlanceView: View {
     @ObservedObject var model: MenuBarModel
-    @State private var greet = 0
     @ObservedObject var voice: VoiceChat
     let layout: GlanceLayout
 
@@ -87,15 +86,9 @@ struct GlanceView: View {
 
     private var compactStrip: some View {
         HStack(spacing: 6) {
-            Button {
-                greet += 1
-                voice.toggle()
-            } label: {
-                PetFace(state: model.buddyState, voice: .init(voice.phase), greet: greet,
-                        bare: true, scale: 0.3)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(voice.isActive ? "Stop voice companion" : "Start voice companion")
+            // Compact: the status dot where the cat sat (ADR-0017 §2); the cat
+            // comes back only as the avatar of a live conversation.
+            compactLead
             Spacer(minLength: 0)
             if voice.isActive {
                 Image(systemName: voiceSymbol)
@@ -137,9 +130,7 @@ struct GlanceView: View {
                 expanded.frame(width: cardWidth).padding(.top, 8 * s)
             } else {
                 HStack(spacing: 10) {
-                    PetFace(state: model.buddyState, voice: .init(voice.phase), greet: greet,
-                            bare: true, scale: 0.36)
-                        .onTapGesture { greet += 1; voice.toggle() }
+                    compactLead
                     if voice.isActive { voiceBadge } else { needsYouBadge }
                 }
                 .padding(.horizontal, 12).padding(.vertical, 4)
@@ -239,7 +230,30 @@ struct GlanceView: View {
         }
     }
 
-    /// Round 5, expanded: the cat says one line, the rest sits under it.
+    /// The compact strip's lead: a status dot for the most urgent state, or
+    /// the cat while a conversation is live (its only appearance here).
+    @ViewBuilder private var compactLead: some View {
+        if voice.isActive {
+            PetFace(state: model.buddyState, voice: .init(voice.phase), bare: true, scale: 0.3)
+        } else {
+            let state = summary.primaryState
+            Circle()
+                .fill(state == .unassigned ? Color.white.opacity(0.35) : MacTheme.status(state))
+                .frame(width: 7, height: 7)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var micGlyph: String {
+        switch voice.phase {
+        case .idle: "mic"
+        case .listening: "mic.fill"
+        case .speaking: "waveform"
+        case .connecting, .recovering, .thinking: "ellipsis"
+        }
+    }
+
+    /// Round 5, expanded: one line about the snapshot, the rest under it.
     private var moodHead: some View {
         VStack(alignment: .leading, spacing: 1 * s) {
             Text(MacSummaryCopy.moodLine(summary))
@@ -263,15 +277,26 @@ struct GlanceView: View {
         .buttonStyle(.plain)
     }
 
-    /// The tall content: header (cat, the mood line, close), then the pending
+    /// The tall content: header (mic, the mood line, close), then the pending
     /// approval if there is one, else the session list — rows are the jump
     /// controls.
     private var expanded: some View {
         VStack(alignment: .leading, spacing: 8 * s) {
             HStack(spacing: 12 * s) {
-                PetFace(state: model.buddyState, voice: .init(voice.phase), greet: greet,
-                        bare: true, scale: 0.55 * s)
-                    .onTapGesture { greet += 1; voice.toggle() }
+                // The mic is the voice entry here as everywhere (ADR-0017 §3).
+                Button { voice.toggle() } label: {
+                    Image(systemName: micGlyph)
+                        .font(MacTheme.font(13 * s, .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 28 * s, height: 28 * s)
+                        .background(voice.isActive ? MacTheme.accent : Color.white.opacity(0.18), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .help(voice.isActive ? "End voice conversation" : "Start voice conversation")
+                .accessibilityLabel("Toggle voice companion")
+                if voice.isActive {
+                    PetFace(state: model.buddyState, voice: .init(voice.phase), bare: true, scale: 0.45 * s)
+                }
                 if voice.isActive { voiceBadge } else { moodHead }
                 Spacer(minLength: 8 * s)
                 Button {
@@ -391,20 +416,19 @@ private struct GlanceEventCard: View {
         }
     }
 
-    private var mood: BuddyState {
+    /// The state the card's glyph shows: what the cue is about.
+    private var cardState: TaskPresentationState {
         switch card.alert.sound {
-        case .needsApproval: return .approval
-        case .needsAnswer: return .question
-        case .longWaitNudge: return .longWait
-        case .agentDone, .pairSuccess: return .done
-        case .agentStuck: return .stuck
+        case .needsApproval, .needsAnswer, .longWaitNudge: return .requiresInput
+        case .agentDone, .pairSuccess: return .completeUnread
+        case .agentStuck: return .error
         }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10 * s) {
             HStack(alignment: .top, spacing: 10 * s) {
-                PetFace(state: mood, bare: true, scale: 0.5 * s)
+                StateGlyph(state: cardState, size: 24 * s, onDark: true)
                 VStack(alignment: .leading, spacing: 3 * s) {
                     HStack(spacing: 6 * s) {
                         Text(title).font(MacTheme.font(13 * s, .black)).foregroundStyle(.white)

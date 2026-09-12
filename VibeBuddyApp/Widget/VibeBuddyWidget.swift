@@ -72,7 +72,9 @@ private struct StatusWidgetView: View {
 
     private var emptyContent: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ActivityCat(state: .unassigned, size: 34)
+            Image(systemName: "moon.zzz")
+                .font(.system(size: 22, weight: .medium))
+                .foregroundStyle(CompanionPalette.ink3)
             Text("All quiet")
                 .font(CompanionType.font(14, .black))
             Text("Start a task to see its status.")
@@ -85,7 +87,7 @@ private struct StatusWidgetView: View {
     private var systemSmallContent: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 8) {
-                ActivityCat(state: snapshot.summary.primaryState, size: 36, onDark: false)
+                StateGlyph(state: snapshot.summary.primaryState, size: 28)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(CompanionCopy.moodLine(snapshot.summary))
                         .font(CompanionType.font(13, .black))
@@ -157,12 +159,12 @@ struct VibeBuddyLiveActivity: Widget {
         ActivityConfiguration(for: VibeBuddyActivityAttributes.self) { context in
             LockScreenView(state: context.state)
                 .padding()
-                .activityBackgroundTint(Color(hex: 0x2B3247).opacity(0.85))
+                .activityBackgroundTint(CompanionPalette.glance.opacity(0.85))
                 .widgetURL(tapTarget(context.state))
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    ActivityCat(state: context.state.summary.primaryState, size: 40)
+                    StateGlyph(state: context.state.summary.primaryState, size: 32, onDark: true)
                 }
                 DynamicIslandExpandedRegion(.center) {
                     ActivityHeadline(state: context.state)
@@ -173,7 +175,7 @@ struct VibeBuddyLiveActivity: Widget {
                         .padding(.top, 4)
                 }
             } compactLeading: {
-                ActivityCat(state: context.state.summary.primaryState, size: 22)
+                StateGlyph(state: context.state.summary.primaryState, size: 18, onDark: true)
             } compactTrailing: {
                 NeedsYouBadge(summary: context.state.summary)
             } minimal: {
@@ -207,7 +209,7 @@ private func tapTarget(_ state: VibeBuddyActivityAttributes.ContentState) -> URL
     state.topSessionId.flatMap(activitySessionURL(id:))
 }
 
-/// The cat's line and the rest, shared by the lock screen banner and the
+/// The mood line and the rest, shared by the lock screen banner and the
 /// expanded Dynamic Island so both read the same.
 struct ActivityHeadline: View {
     let state: VibeBuddyActivityAttributes.ContentState
@@ -231,14 +233,14 @@ struct ActivityHeadline: View {
     }
 }
 
-/// Lock screen banner: cat + the shared headline, the leading session beneath.
+/// Lock screen banner: status glyph + the shared headline, the leading session beneath.
 struct LockScreenView: View {
     let state: VibeBuddyActivityAttributes.ContentState
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
-                ActivityCat(state: state.summary.primaryState, size: 40)
+                StateGlyph(state: state.summary.primaryState, size: 32, onDark: true)
                 ActivityHeadline(state: state)
                 Spacer(minLength: 0)
             }

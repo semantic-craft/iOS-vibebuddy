@@ -251,6 +251,13 @@ struct DashboardView: View {
                 .font(CompanionType.font(13))
                 .foregroundStyle(CompanionPalette.ink2)
                 .lineLimit(2)
+            // The buddy's scope used to be the cat's subline; it is still the
+            // one thing about a conversation worth a line before it starts.
+            if companionEnabled, !dashboard.buddySessionIDs.isEmpty {
+                Label("Voice scope: \(dashboard.buddySessionIDs.count) tasks", systemImage: "waveform")
+                    .font(CompanionType.font(11))
+                    .foregroundStyle(CompanionPalette.ink3)
+            }
             if filters.isActive {
                 Button { showFilters = true } label: {
                     HStack(spacing: 5) {
@@ -651,7 +658,7 @@ private struct StreamComposer: View {
     @State private var draftTarget: AgentSession?
     @State private var draft = ""
     @FocusState private var focused: Bool
-    @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
+    @AppStorage("composer.micHintSeen") private var micHintSeen = false
 
     private var meaning: ReplyMeaning { ReplyMeaning(target: target) }
     private var unsupported: String? { meaning.unsupportedReason(for: target) }
@@ -701,19 +708,21 @@ private struct StreamComposer: View {
                     .focused($focused)
                     .padding(.vertical, 6)
                     .onSubmit(submit)
+                // The mic is the voice companion's entry point (ADR-0017 §3):
+                // always here, whether or not a draft is being typed.
+                PhoneCircleButton(voiceGlyph, size: 30,
+                                  tint: voice.phase == .idle ? CompanionPalette.ink2 : .onAccent,
+                                  ground: voice.phase == .idle ? CompanionPalette.bg2 : CompanionPalette.accent) {
+                    micHintSeen = true
+                    voice.toggle()
+                }
+                .accessibilityLabel(voice.phase == .idle ? "Start voice conversation" : "End voice conversation")
                 if hasDraft {
                     PhoneCircleButton("arrow.up", size: 30, tint: .onAccent,
                                       ground: canSend ? CompanionPalette.accent : CompanionPalette.ink3,
                                       action: submit)
                         .disabled(!canSend)
                         .accessibilityLabel(meaning.verbLabel)
-                } else {
-                    PhoneCircleButton(voiceGlyph, size: 30,
-                                      tint: voice.phase == .idle ? CompanionPalette.ink2 : .onAccent,
-                                      ground: voice.phase == .idle ? CompanionPalette.bg2 : CompanionPalette.accent) {
-                        voice.toggle()
-                    }
-                    .accessibilityLabel(voice.phase == .idle ? "Start voice conversation" : "End voice conversation")
                 }
             }
             .padding(.horizontal, 6).padding(.vertical, 5)
@@ -734,6 +743,11 @@ private struct StreamComposer: View {
                     .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.status(.error))
             } else if unsupported == nil, let note = meaning.note(for: target) {
                 Text(note)
+                    .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink2)
+            } else if !micHintSeen, !hasDraft, voice.phase == .idle, voice.errorText == nil {
+                // Said once: the mic is explained the first time it appears,
+                // then it is just the mic (ADR-0017 §3).
+                Text("Tap the mic to talk to your sessions")
                     .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink2)
             }
         }

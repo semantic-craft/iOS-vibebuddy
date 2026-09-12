@@ -663,6 +663,11 @@ struct MenuContent: View {
             }
             .help(voiceIsIdle ? "Start voice conversation" : "End voice conversation")
             .accessibilityLabel("Toggle voice companion")
+            if !voiceIsIdle {
+                // The conversation's avatar (ADR-0017 §2): the cat appears
+                // while a call is live and nowhere else in the panel.
+                PetFace(state: model.buddyState, voice: .init(model.voiceChat.phase), plain: true, scale: 0.4)
+            }
 
             TextField(text: $query) { Text("Search sessions or run a command") }
                 .textFieldStyle(.plain)

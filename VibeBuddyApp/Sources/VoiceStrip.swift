@@ -1,17 +1,28 @@
 import SwiftUI
 import VibeBuddyKit
 
-/// A thin strip under the buddy showing the voice conversation state: what you
+/// A thin strip over the composer showing the voice conversation state: what you
 /// said, what it replied, or an error / hint — plus which provider is live.
 struct VoiceStrip: View {
     @ObservedObject var voice: VoiceChat
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: icon)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(voice.errorText != nil ? CompanionPalette.status(.error) : CompanionPalette.accent)
-                .frame(width: 18)
+            // The cat is the conversation's avatar (ADR-0017 §2): it appears
+            // here while a call is live and nowhere else on the phone.
+            if voice.errorText == nil, voice.phase != .idle {
+                BuddyCatFace(mood: .calm, speaking: voice.phase == .speaking,
+                             listening: voice.phase == .listening,
+                             showsBody: false, onDark: colorScheme == .dark)
+                    .frame(width: 22, height: BuddyCat.height(forWidth: 22, showsBody: false))
+                    .accessibilityHidden(true)
+            } else {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(voice.errorText != nil ? CompanionPalette.status(.error) : CompanionPalette.accent)
+                    .frame(width: 18)
+            }
             VStack(alignment: .leading, spacing: 1) {
                 if let err = voice.errorText {
                     Text(err).font(CompanionType.font(12)).foregroundStyle(CompanionPalette.status(.error))

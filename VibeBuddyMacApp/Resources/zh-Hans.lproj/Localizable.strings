@@ -28,7 +28,9 @@
 "Ready" = "已就绪";
 "Stopped with an issue" = "出错中断";
 "History · read only" = "历史 · 只读";
-"Tap the pet to talk" = "点一下宠物开始说话";
+"Tap the mic to talk" = "点一下麦克风开始说话";
+"Recovering audio… tap the mic to end" = "正在恢复音频…点一下麦克风结束";
+"Enable it in Settings › Voice, or tap the mic." = "在设置 › 语音中开启，或点一下麦克风。";
 "Listening…" = "聆听中…";
 "Speaking…" = "说话中…";
 /* Buddy scope (which sessions the voice companion sees) */

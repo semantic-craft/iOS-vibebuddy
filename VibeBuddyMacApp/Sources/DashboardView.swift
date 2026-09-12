@@ -261,25 +261,26 @@ struct DashboardView: View {
 
 }
 
-/// The buddy header: cat + speech bubble on the left, search on the right.
+/// The top bar: the voice companion's mic and its status line on the left,
+/// search on the right. The cat appears beside the mic only while a
+/// conversation is live (ADR-0017 §2–3).
 private struct MacBuddyBar: View {
     @ObservedObject var model: MenuBarModel
     @ObservedObject var voice: VoiceChat
     @Binding var query: String
     var searchFocused: FocusState<Bool>.Binding
     @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
-    @State private var greet = 0
 
     /// The buddy header reads "off" until the companion is opted in; otherwise the
     /// live Listening/Speaking/idle status.
     private var headline: LocalizedStringKey {
         if !companionEnabled { return "Voice companion off" }
-        if voice.phase == .recovering { return "Recovering audio… tap the pet to end" }
+        if voice.phase == .recovering { return "Recovering audio… tap the mic to end" }
         if voice.phase == .connecting { return "Connecting — wait to speak" }
         if voice.phase == .thinking { return "Thinking…" }
         if voice.isListening { return "Listening…" }
         if voice.isSpeaking { return "Speaking…" }
-        return "Tap the pet to talk"
+        return "Tap the mic to talk"
     }
 
     /// "Buddy: all sessions" when nothing is scoped, else "Buddy: N selected".
@@ -290,8 +291,16 @@ private struct MacBuddyBar: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            PetFace(state: model.buddyState, voice: .init(voice.phase), greet: greet, bare: true, scale: 0.55)
-                .onTapGesture { greet += 1; voice.toggle() }
+            MenuCircleButton(systemName: micGlyph, size: 30,
+                             tint: voice.phase == .idle ? MacTheme.ink2 : .white,
+                             ground: voice.phase == .idle ? MacTheme.bg3 : MacTheme.accent) {
+                voice.toggle()
+            }
+            .help(voice.phase == .idle ? "Start voice conversation" : "End voice conversation")
+            .accessibilityLabel("Toggle voice companion")
+            if voice.isActive {
+                PetFace(state: model.buddyState, voice: .init(voice.phase), plain: true, scale: 0.5)
+            }
             Group {
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 6) {
@@ -314,7 +323,7 @@ private struct MacBuddyBar: View {
                     } else if !voice.lastUserText.isEmpty {
                         Text(voice.lastUserText).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2).lineLimit(1)
                     } else {
-                        Text(companionEnabled ? scopeLine : "Enable it in Settings › Voice, or tap the cat.")
+                        Text(companionEnabled ? scopeLine : "Enable it in Settings › Voice, or tap the mic.")
                             .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink2)
                     }
                 }
@@ -324,6 +333,15 @@ private struct MacBuddyBar: View {
         }
         .padding(.horizontal, 16).padding(.vertical, 6)
         .sheet(isPresented: $voice.showConsent) { VoiceConsentSheet(voice: voice) }
+    }
+
+    private var micGlyph: String {
+        switch voice.phase {
+        case .idle: "mic"
+        case .listening: "mic.fill"
+        case .speaking: "waveform"
+        case .connecting, .recovering, .thinking: "ellipsis"
+        }
     }
 }
 
