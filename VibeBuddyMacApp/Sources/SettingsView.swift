@@ -26,6 +26,9 @@ struct SettingsView: View {
             page
         }
         .frame(minWidth: 920, minHeight: 760)
+        // The buddy's green is the action colour everywhere else; without this
+        // every switch and segmented selection falls back to the system accent.
+        .tint(MacTheme.accent)
         .modifier(SettingsTestLifecycle(tests: tests))
     }
 
@@ -313,7 +316,7 @@ private struct NotificationsPage: View {
             SettingsSection("Notify me about",
                             footnote: "Disabled categories never notify. Quiet mode and Quiet hours silence session alerts except silent approvals and questions. Enabled quota alerts are unaffected.") {
                 SettingsGrid(items: NotificationCategoryPrefs.displayOrder.map { category in
-                    SettingsGrid.Item(id: category.rawValue, title: LocalizedStringKey(String(localized: category.categoryTitle))) {
+                    SettingsGrid.Item(id: category.rawValue, text: Text(category.categoryTitle)) {
                         Toggle("", isOn: Binding(
                             get: { categories.isEnabled(category) },
                             set: { categories.set(category, enabled: $0) }))
@@ -432,11 +435,11 @@ private struct PhonePage: View {
                 }
                 if model.useTailscale {
                     SettingsRow("Tailscale address",
-                                detail: model.pairing == nil
+                                detailText: model.pairing == nil
                                 ? String(localized: "Enter a valid Tailscale address.") : nil) {
                         TextField("100.x.x.x or Mac name.ts.net", text: $model.tailscaleHost)
                             .textFieldStyle(.roundedBorder)
-                            .frame(width: 240)
+                            .frame(width: 176)
                             .disabled(model.pairingInProgress || model.changingPairing)
                             .accessibilityLabel("Tailscale address")
                     }
@@ -563,7 +566,7 @@ private struct DiagnosticsPage: View {
                 ])
                 if let last = model.notificationDeliveryHealth.lastAttempt {
                     SettingsRow("Last attempt",
-                                detail: lastAttemptDetail(last)) {
+                                detailText: lastAttemptDetail(last)) {
                         SettingsPill(verbatim: last.outcome.rawValue,
                                      tone: last.outcome == .failed ? .warn : .neutral)
                     }
@@ -590,7 +593,7 @@ private struct DiagnosticsPage: View {
                     }
                 }
                 SettingsRow("Journal",
-                            detail: model.lifecycleJournalClearFailed
+                            detailText: model.lifecycleJournalClearFailed
                             ? String(localized: "Could not remove the journal from disk.") : nil) {
                     Button(role: .destructive) { model.clearLifecycleJournal() } label: {
                         Text("Clear timeline")

@@ -206,7 +206,7 @@ struct PlanAndQuotaPage: View {
             }
 
             SettingsSection("Current usage",
-                            footnote: "Read from each vendor's own local login. Local login credentials are never copied to storage, and no account IDs or raw responses are logged.",
+                            footnote: "Read from each vendor's own local login — nothing is copied to storage or logged.",
                             boxed: false) {
                 LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
                     ForEach(AccountUsageProvider.allCases, id: \.self) { provider in
@@ -232,7 +232,7 @@ private struct QuotaPanel: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.vertical, 10)
         .background(MacTheme.bg2)
         .clipShape(RoundedRectangle(cornerRadius: SettingsChrome.cardRadius, style: .continuous))
     }
@@ -307,7 +307,7 @@ struct UsageSourcesPage: View {
 
             SettingsSection("Grok Bot") {
                 SettingsRow("Account access",
-                            detail: grokBotAuthorization
+                            detailText: grokBotAuthorization
                             ?? String(localized: "Reads the active official Grok Bot account. Background refresh never opens a Keychain prompt. Expired login must be renewed in Grok Bot.")) {
                     Button("Authorize…") {
                         guard E2ERunConfiguration.current == nil else { return }
@@ -329,7 +329,7 @@ struct UsageSourcesPage: View {
 
             SettingsSection("Cursor session",
                             footnote: "Paste mode stores the Cookie in a Keychain slot separate from browser import. Browser import reads Safari/Chrome/Firefox cookies for cursor.com (may prompt for Keychain or Full Disk Access); refresh writes the imported slot only when the value changes and falls back to the manual Cookie.") {
-                SettingsRow("Login source", detail: cursorModeDetail) {
+                SettingsRow("Login source", detailText: cursorModeDetail) {
                     Picker("", selection: $cursorCookieMode) {
                         ForEach(CursorCookieSourceMode.allCases) { mode in
                             Text(mode.displayName).tag(mode)
@@ -357,7 +357,7 @@ struct UsageSourcesPage: View {
                         }
                     }
                 } else if cursorCookieMode == .browserAuto {
-                    SettingsRow("Browser import", detail: cursorImportMessage) {
+                    SettingsRow("Browser import", detailText: cursorImportMessage) {
                         Button("Import now") {
                             guard E2ERunConfiguration.current == nil else { return }
                             cursorImportMessage = nil
@@ -391,7 +391,7 @@ struct UsageSourcesPage: View {
         SecureField(prompt, text: $cursorCookie)
             .textFieldStyle(.roundedBorder)
             .labelsHidden()
-            .frame(width: 240)
+            .frame(width: 176)
             .focused($cursorCookieFocused)
             .accessibilityLabel(prompt)
             .onSubmit { CursorSessionCookieStore.saveManual(cursorCookie) }

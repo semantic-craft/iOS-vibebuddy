@@ -156,13 +156,14 @@ struct SettingsRow<Control: View>: View {
         self.control = control()
     }
 
-    /// A localized title with a detail that comes from data (an address, a
-    /// delivery record) and must not be run through the string table.
+    /// A localized title whose explanation comes from data — an address, a
+    /// delivery record, a message from a provider. Labelled apart from
+    /// `detail:` so a string literal never has two overloads to choose from.
     init(_ title: LocalizedStringKey,
-         detail: String?,
+         detailText: String?,
          @ViewBuilder control: () -> Control) {
         titleText = Text(title)
-        detailText = detail.map { Text(verbatim: $0) }
+        self.detailText = detailText.map { Text(verbatim: $0) }
         self.control = control()
     }
 
@@ -236,6 +237,13 @@ struct SettingsGrid: View {
         init<Control: View>(id: String, verbatim title: String, @ViewBuilder control: () -> Control) {
             self.id = id
             self.title = Text(verbatim: title)
+            self.control = AnyView(control())
+        }
+
+        /// For a title the app already holds as a localized resource.
+        init<Control: View>(id: String, text: Text, @ViewBuilder control: () -> Control) {
+            self.id = id
+            self.title = text
             self.control = AnyView(control())
         }
     }
