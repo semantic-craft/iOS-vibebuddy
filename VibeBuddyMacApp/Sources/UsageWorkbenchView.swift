@@ -9,6 +9,9 @@ import VibeBuddyMacCore
 /// window, credits, spend and the local token estimate.
 struct QuotaPlinth: View {
     @ObservedObject var model: MenuBarModel
+    /// Collapsed by default: one line says whether you can keep working, the
+    /// detail is a click away, and the choice is remembered.
+    @AppStorage("dashboard.quotaExpanded") private var expanded = false
 
     private var providers: [AccountUsageProvider] {
         AccountUsageProvider.allCases.filter { model.isUsageCollectionEnabled($0) }
@@ -19,31 +22,78 @@ struct QuotaPlinth: View {
             TimelineView(.periodic(from: .now, by: 30)) { context in
                 VStack(alignment: .leading, spacing: 9) {
                     Divider()
-                    HStack(alignment: .firstTextBaseline) {
-                        Text("Account quota")
-                            .font(MacTheme.font(10, .semibold)).foregroundStyle(MacTheme.ink3)
-                            .textCase(.uppercase).kerning(0.6)
-                        Spacer(minLength: 4)
-                        if let updated = latestFetch {
-                            Text(updated, style: .time)
-                                .font(MacTheme.mono(9)).foregroundStyle(MacTheme.ink3)
-                        }
-                    }
-                    ForEach(providers, id: \.self) { provider in
-                        row(provider, now: context.date)
-                    }
-                    if let spend = todaySpend {
-                        Divider()
-                        HStack {
-                            Text("Today's spend").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
+                    Button { expanded.toggle() } label: {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 8, weight: .bold)).foregroundStyle(MacTheme.ink3)
+                                .rotationEffect(.degrees(expanded ? 90 : 0))
+                            Text("Account quota")
+                                .font(MacTheme.font(10, .semibold)).foregroundStyle(MacTheme.ink3)
+                                .textCase(.uppercase).kerning(0.6)
                             Spacer(minLength: 4)
-                            Text(spend).font(MacTheme.mono(10, .semibold)).foregroundStyle(MacTheme.ink)
+                            if expanded, let updated = latestFetch {
+                                Text(updated, style: .time)
+                                    .font(MacTheme.mono(9)).foregroundStyle(MacTheme.ink3)
+                            }
                         }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Account quota")
+                    .accessibilityValue(expanded ? "Expanded" : "Collapsed")
+                    if !expanded, let tight = tightestOverall(now: context.date) {
+                        Text(tight.text).font(MacTheme.mono(10, .semibold)).foregroundStyle(tight.tint)
+                            .lineLimit(1)
+                    }
+                    if expanded {
+                        ForEach(providers, id: \.self) { provider in
+                            row(provider, now: context.date)
+                        }
+                        if let spend = todaySpend {
+                            Divider()
+                            HStack {
+                                Text("Today's spend").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
+                                Spacer(minLength: 4)
+                                Text(spend).font(MacTheme.mono(10, .semibold)).foregroundStyle(MacTheme.ink)
+                            }
+                        }
+                    } else if let issue = anomaly(now: context.date) {
+                        Text(issue).font(MacTheme.font(10)).foregroundStyle(QuotaPresentation.Severity.warning.tint)
+                            .lineLimit(1)
                     }
                 }
                 .padding(.horizontal, 12).padding(.vertical, 10)
+                .animation(.smooth(duration: 0.15), value: expanded)
             }
         }
+    }
+
+    /// The collapsed line: the provider with the least left, its remaining
+    /// share and reset — the one reading that decides whether to keep going.
+    private func tightestOverall(now: Date) -> (text: String, tint: Color)? {
+        var best: (provider: AccountUsageProvider, window: AccountUsageWindow)?
+        for provider in providers {
+            let snapshot = model.usageState(for: provider).snapshot?.excludingExpiredGrokWindows(at: now)
+            if let window = tightest(snapshot), best == nil || window.usedPercent > best!.window.usedPercent {
+                best = (provider, window)
+            }
+        }
+        guard let best else { return nil }
+        var text = "\(best.provider.displayName) \(max(0, 100 - best.window.usedPercent))%"
+        if let reset = best.window.resetsAt { text += " · \(QuotaPresentation.resetCountdown(from: reset, now: now))" }
+        return (text, QuotaPresentation.severity(usedPercent: best.window.usedPercent).tint)
+    }
+
+    /// One provider that cannot be read right now (signed out, offline,
+    /// stale…), so a collapsed plinth never hides a broken source.
+    private func anomaly(now: Date) -> String? {
+        for provider in providers {
+            let state = model.usageState(for: provider)
+            let snapshot = state.snapshot?.excludingExpiredGrokWindows(at: now)
+            if state.isStale { return "\(provider.displayName) · \(String(localized: "stale"))" }
+            if tightest(snapshot) == nil { return "\(provider.displayName) · \(Self.shortReason(state))" }
+        }
+        return nil
     }
 
     /// One provider, one window: the window closest to running out, because

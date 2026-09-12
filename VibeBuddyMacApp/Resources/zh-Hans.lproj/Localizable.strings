@@ -870,3 +870,26 @@
 "An honest assessment: verdict, what went well, problems and risks, and advice for next time." = "坦率评估：结论、做对了什么、问题与风险，以及下次的建议。";
 
 "Neutral notes: goal, key decisions, results and verification, open work." = "中性记录：目标、关键决策、结果与验证、未完成工作。";
+
+/* MARK: Dashboard sidebar and New task (Cursor layout) */
+"Errors" = "错误";
+"Unassigned" = "未分配";
+"All" = "全部";
+"Reset" = "重置";
+"Message matches" = "消息匹配";
+"Open Settings" = "打开设置";
+"Close" = "关闭";
+"Thinking…" = "思考中…";
+"Connecting…" = "连接中…";
+"Recovering…" = "恢复中…";
+"Choose folder…" = "选择文件夹…";
+"Choose" = "选择";
+"What should the agent do?" = "让代理做什么？";
+"No agent can start from this Mac yet." = "这台 Mac 上还没有可启动的代理。";
+"needs a `claude` that supports background sessions." = "需要支持后台会话的 `claude`。";
+"needs the app-server connection from Settings › Agent CLIs." = "需要在设置 › 代理命令行中连接 app-server。";
+"needs the Cursor CLI, or ACP, on this Mac." = "需要这台 Mac 上有 Cursor 命令行或 ACP。";
+"Pick a task on the left to see its details." = "从左侧选择任务查看详情。";
+"Pick a conversation on the left to read it." = "从左侧选择会话阅读。";
+"Expanded" = "已展开";
+"Collapsed" = "已收起";

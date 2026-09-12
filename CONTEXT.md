@@ -152,7 +152,7 @@ code, and tests — don't drift to synonyms.
   the live sessions and can **approve / answer** for you. Started by the same
   **mic circle** on every surface (ADR-0017 §3): the iPhone composer (always
   visible, explained once), the Mac panel's command row, the Mac dashboard's
-  top bar and the expanded Glance. Its glyph follows the voice phase.
+  sidebar (its Voice row) and the expanded Glance. Its glyph follows the voice phase.
 - **VoiceProvider** — a vendor the companion talks to: `qwen`, `openai`,
   `gemini`, `doubao` or `deepseek`. Each has its own key. The realtime backends
   also have a model, voice and input sample rate; `supportsVoice` says which

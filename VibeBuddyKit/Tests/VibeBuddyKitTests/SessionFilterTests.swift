@@ -32,6 +32,14 @@ struct SessionFilterTests {
         #expect(SessionFilter.apply(all, status: nil, agent: nil, query: "bug").map(\.id) == ["b"])
     }
 
+    @Test("query matches the task name, which is the row's title")
+    func byQueryName() {
+        var named = s("a", .working, project: "/Users/me/Projects/duetsub")
+        named.name = "Otty hook cleanup"
+        let all = [named, s("b", .working, project: "other")]
+        #expect(SessionFilter.apply(all, status: nil, agent: nil, query: "hook").map(\.id) == ["a"])
+    }
+
     @Test("nil filters + empty query return everything")
     func noFilter() {
         let all = [s("a", .working), s("b", .done)]
