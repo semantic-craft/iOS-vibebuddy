@@ -8,6 +8,15 @@ settled four closing questions. This file records what was decided and the rules
 the implementation follows. The prototype's last version carries the pixel
 values and is the visual truth where prose is ambiguous.
 
+> **Partly superseded (2026-09-12) by [ADR-0015](../adr/0015-menu-panel-flat-task-list.md).**
+> The panel now wears the iPhone's flat list language: the cat left the command
+> row for a mic, the list is the Companion's three collapsible groups instead of
+> a pinned block over a rail-and-time-column feed, and rows are hairline-separated.
+> Rounds 1 and 3 below still stand — the panel still opens on something you type
+> into, and pet/field/badge are still one merged row. Rounds 2, 4, 5 and 6, the
+> Anatomy rows marked *(ADR-0015)* and the behaviour they describe are history;
+> the rest of this file is still the truth.
+
 **This supersedes the menu-dropdown half of `mac-companion-redesign.md`** (its
 round 2: state groups, 34pt cat, Open Dashboard / Show Glance buttons). The rest
 of that file — palette, type, radii, copy rules, Dashboard, Glance, iPhone,
@@ -32,11 +41,11 @@ The user's words about the panel it replaces: not centred under its icon, and
 | Round | Question | Chosen | Notes |
 |---|---|---|---|
 | 1 | Overall form | **Command Bar** — the panel opens on something you type into | |
-| 2 | Identity | **Buddy Bar** — the pet leads the command row rather than sitting in a header of its own | |
+| 2 | Identity | **Buddy Bar** — the pet leads the command row rather than sitting in a header of its own | superseded by ADR-0015: the mic leads it |
 | 3 | Head | **Merged** — pet, field and shortcut badge are one row, not a header plus a search bar | |
-| 4 | The merged row | **Pet Carries It** — the pet's own badge is the global status light, so the row needs no separate state chip | an "Action Strip" variant (approve/deny inside the panel) was rejected: it needs the approval channel and is its own feature |
-| 5 | List | **Activity Feed** — one stream ordered by when each session last moved, with a time column and a rail | |
-| 6 | Urgency | **Pinned** — error and waiting sessions are lifted out of the stream into a block at the top | time-bucket headings (`Just now / Last hour / Earlier`) and a collapsed quiet section were rejected; take them back only if the feed gets too long to read |
+| 4 | The merged row | **Pet Carries It** — the pet's own badge is the global status light, so the row needs no separate state chip | superseded by ADR-0015: the light is the dot on the summary line. An "Action Strip" variant (approve/deny inside the panel) was rejected: it needs the approval channel and is its own feature |
+| 5 | List | **Activity Feed** — one stream ordered by when each session last moved, with a time column and a rail | superseded by ADR-0015: three collapsible state groups, newest first inside each |
+| 6 | Urgency | **Pinned** — error and waiting sessions are lifted out of the stream into a block at the top | superseded by ADR-0015: `Needs you` is the first group, and every group collapses — the rejected "collapsed quiet section" came back when the phone's list did |
 
 Closing decisions, same day:
 
@@ -63,14 +72,14 @@ adds no Mac-only colour.
 
 | Part | Rules |
 |---|---|
-| Panel | 360pt wide, radius 14, ground `bg3`; the list scrolls past 250pt |
-| Command row | 44pt, padding 13, gap 10; pet 26pt; placeholder 13.5 / `ink2`; `⌘K` badge 9.5 mono on `bg2`, radius 5; 0.5pt hairline underneath |
-| Status dot | 10pt circle on the pet's top-right with a 2pt `bg3` ring; colour is the most urgent state present — error → needs you → working → complete → idle |
-| Summary line | padding 9 / 13 / 7; mood clause 12.5 semibold `ink`, rest clause 11.5 `ink2` |
+| Panel | 360pt wide, radius 14, ground `bg` *(ADR-0015: was `bg3`)*; the list scrolls past 320pt *(ADR-0015: was 250, for two-line rows)* |
+| Command row | padding 13 / 10, gap 9; mic button 26pt on `bg3` (accent ground and white glyph while a conversation is live) *(ADR-0015: was the 26pt pet)*; placeholder 13.5 / `ink2`; `⌘K` badge 9.5 mono on `bg3` with a hairline, radius 5; hairline underneath |
+| Status dot | 7pt circle leading the summary line *(ADR-0015: was 10pt on the pet's head)*; colour is the most urgent state present — error → needs you → working → complete → idle |
+| Summary line | padding 2 / 13 / 8; dot, then mood clause 12.5 semibold `ink` and rest clause 11.5 `ink2` |
 | Result band | typing only; ~24pt, ground `bg2`, 10.5 `ink2`; `<matched> of <total> · matching "<query>"`, with `<n> still need you` at the right end in the requires-input orange; 0.15s height change |
-| Pinned block | ground `bg2`; heading 9.5 semibold, uppercase, .1em tracking, in the state colour; 9pt solid dots and **no** rail line — it is not a stretch of the timeline |
-| Feed row | columns 52 / 15 / flexible; time 10 mono `ink3` tabular; rail hairline 1px at x7 with a 7pt dot; content padding 6 / 13 / 7 / 3; hover fill `bg2` radius 7 |
-| Row text | 12.5pt, one line, tail-truncated; title 600 `ink`, the agent's summary 400 `ink2` |
+| Group head *(ADR-0015)* | title 12 medium `ink2`, count 11 medium `ink3`, chevron 9; padding 13 / 9 / 4; no ground, no uppercase — the rows' dots carry urgency |
+| Row *(ADR-0015)* | dot lane 16 with a 7pt dot; padding 13 / 6; hover fills the whole row with `bg2`; hairline to the next row in the group, inset 29 |
+| Row text *(ADR-0015)* | line one: title 12.5 medium `ink` (one line) and the age 9.5 mono `ink3` at the right; line two: `ToolActivity` in the state's colour then the agent's own sentence 11.5 `ink2`, one line |
 | Footer | padding 6 / 9 / 7, ground `bg`, hairline above; three buttons 11pt `ink` with trailing shortcut hints 8.5 mono `ink3`; phone dot and `⋯` menu at the right |
 
 Type ramp: 13.5 the field · 12.5 rows and the mood clause · 11.5 the rest
@@ -89,16 +98,19 @@ the shared type scale.
   only; neither the summary nor the dot on the pet's head moves. This is why
   the band exists: `2 of 8` and `3 still need you` say plainly what the query
   put out of sight, so narrowing never looks like disappearing.
-- **A session is in the pinned block or the feed, never both.** The block is
-  absent — not empty — when nothing needs a person, and the panel shortens.
-  Both are recomputed from the query's results.
-- **Ordering is by when the session last moved**, newest first, in both groups.
+- **A session is in exactly one group** — `Needs you`, `Working` or `Done`, cut
+  by presentation state through the Kit's `StateGroups`. A group with nothing in
+  it is absent, not empty, and the panel shortens. Every group is recomputed
+  from the query's results, and starting a search reopens all of them so a match
+  cannot hide inside a fold.
+- **Ordering is by when the session last moved**, newest first, inside each group.
   Sessions sharing a timestamp keep the snapshot's own order, so two identical
   rounds cannot reshuffle rows.
 - **Search matches the row's own title, its project, and the agent's summary**,
   case-insensitively; a query of only whitespace is no query.
-- **Return jumps to the row the `↵ jump` badge marks** — the first pinned row if
-  something needs a person, otherwise the newest. The badge appears only while
+- **Return jumps to the row the `↵ jump` badge marks** — the first row of the
+  first group, so something waiting wins over something running, and a task that
+  just finished is never the target while work is still going. The badge appears only while
   searching; with an empty field Return does nothing, because jumping somewhere
   from an empty field would be a guess.
 - **The field takes the caret when the panel opens**, and each open starts from
@@ -114,7 +126,8 @@ the shared type scale.
 - **Two empty states, worded differently**: nothing reporting ("No sessions
   reporting" / "Start a turn or repair hooks in Settings.") versus nothing
   matching ("No matches for …" / "Try another word, or ⌘K for commands."). Both
-  centre the pet at 44pt and hide the summary and the band.
+  centre a quiet 19pt glyph — `moon.zzz` or `magnifyingglass` *(ADR-0015: was
+  the pet at 44pt)* — and hide the summary and the band.
 - Motion respects "reduce motion" — the band's height change is dropped, not
   shortened.
 
@@ -132,15 +145,16 @@ the shared type scale.
 - **The `↵ jump` badge is not in the user's rounds.** It was derived when the
   footer legend became controls and the badge lost its old home. It was kept
   only because Return was given a real meaning to match it.
-- **The time column is computed when the panel draws** (`now`, `44s`, `12m`,
-  `3h`, `2d`) and does not tick on its own; sessions update often enough that
-  the panel redraws anyway.
+- **The age is computed when the panel draws** (`now`, `44s`, `12m`, `3h`, `2d`)
+  and does not tick on its own; sessions update often enough that the panel
+  redraws anyway. *(ADR-0015: it rides at the end of the row's first line; there
+  is no 52pt column.)*
 
 ## Testing seams
 
 One projection carries almost all of this behaviour: sessions and a query in;
-pinned group, feed, whole-snapshot summary, matched and total counts, and the
-empty state out. Tests assert order, group membership, disjointness, the
+the non-empty groups in attention order, the whole-snapshot summary, matched and
+total counts, and the empty state out. Tests assert order, group membership, the
 summary's basis, count semantics, the three query outcomes, both empty states,
 and the edges — equal timestamps, blank project names, a single-state snapshot,
 a whitespace query. The panel's horizontal placement is a second pure seam, so

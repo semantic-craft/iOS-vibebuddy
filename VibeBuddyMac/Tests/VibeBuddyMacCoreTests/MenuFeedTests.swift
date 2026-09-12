@@ -3,7 +3,7 @@ import Testing
 import VibeBuddyKit
 @testable import VibeBuddyMacCore
 
-@Suite("Mac menu feed — pinned attention over a time-ordered stream")
+@Suite("Mac menu feed — the Companion's three groups, newest first inside each")
 struct MenuFeedTests {
     private let epoch = Date(timeIntervalSince1970: 1_780_000_000)
 
@@ -28,37 +28,39 @@ struct MenuFeedTests {
         return s
     }
 
-    // MARK: ordering and the pinned/feed split
+    // MARK: grouping and ordering
 
-    @Test func attentionIsPinnedNewestFirstAndTheRestFollowByTime() {
+    @Test func attentionLeadsTheGroupsAndEachIsNewestFirst() {
         let feed = MenuFeed([session("old", ago: 600), failed("broke", ago: 300),
                              session("fresh", ago: 10), session("ask", ago: 400, .needsResponse),
                              session("mid", ago: 120)])
-        #expect(feed.pinned.map(\.id) == ["broke", "ask"])
-        #expect(feed.feed.map(\.id) == ["fresh", "mid", "old"])
+        #expect(feed.sections.map(\.kind) == [.needsYou, .working])
+        #expect(feed.sessions(.needsYou).map(\.id) == ["broke", "ask"])
+        #expect(feed.sessions(.working).map(\.id) == ["fresh", "mid", "old"])
         #expect(feed.emptyState == nil)
     }
 
-    @Test func noSessionAppearsInBothGroups() {
+    @Test func everySessionLandsInExactlyOneGroup() {
         let input = [session("a", ago: 5), failed("b", ago: 6), session("c", ago: 7, .needsResponse),
                      unread("d", ago: 8), session("e", ago: 9, .done)]
         let feed = MenuFeed(input)
-        #expect(Set(feed.pinned.map(\.id)).isDisjoint(with: Set(feed.feed.map(\.id))))
-        #expect(feed.pinned.count + feed.feed.count == input.count)
+        #expect(feed.sections.map(\.kind) == [.needsYou, .working, .done])
+        #expect(feed.rows.count == input.count)
+        #expect(Set(feed.rows.map(\.id)).count == input.count)
     }
 
     @Test func everyRowIsOrderedNewestFirstWithinItsGroup() {
         let feed = MenuFeed([session("a", ago: 100), session("b", ago: 50), session("c", ago: 200),
                              failed("x", ago: 30), failed("y", ago: 90)])
-        #expect(feed.feed.map(\.id) == ["b", "a", "c"])
-        #expect(feed.pinned.map(\.id) == ["x", "y"])
+        #expect(feed.sessions(.working).map(\.id) == ["b", "a", "c"])
+        #expect(feed.sessions(.needsYou).map(\.id) == ["x", "y"])
     }
 
     @Test func sessionsSharingATimestampKeepTheSnapshotOrder() {
         let same = [session("first"), session("second"), session("third")]
-        #expect(MenuFeed(same).feed.map(\.id) == ["first", "second", "third"])
+        #expect(MenuFeed(same).rows.map(\.id) == ["first", "second", "third"])
         // Reversing the input reverses the output: nothing else is deciding.
-        #expect(MenuFeed(same.reversed()).feed.map(\.id) == ["third", "second", "first"])
+        #expect(MenuFeed(same.reversed()).rows.map(\.id) == ["third", "second", "first"])
     }
 
     // MARK: the summary is always the whole snapshot
@@ -70,7 +72,7 @@ struct MenuFeedTests {
         let narrowed = MenuFeed(input, query: "api")
         #expect(narrowed.summary == whole.summary)
         #expect(narrowed.summary == TaskPresentationSummary(sessions: input))
-        #expect(narrowed.feed.count + narrowed.pinned.count == 1)
+        #expect(narrowed.rows.count == 1)
     }
 
     @Test func countsReportMatchesAgainstTheWholeSnapshot() {
@@ -89,9 +91,9 @@ struct MenuFeedTests {
         let input = [session("byProject", project: "payments-api"),
                      session("bySummary", project: "web", summary: "Retry the failing upload"),
                      session("neither", project: "docs", summary: "Rewrote the intro")]
-        #expect(MenuFeed(input, query: "payments").feed.map(\.id) == ["byProject"])
-        #expect(MenuFeed(input, query: "upload").feed.map(\.id) == ["bySummary"])
-        #expect(MenuFeed(input, query: "nothing here").feed.isEmpty)
+        #expect(MenuFeed(input, query: "payments").rows.map(\.id) == ["byProject"])
+        #expect(MenuFeed(input, query: "upload").rows.map(\.id) == ["bySummary"])
+        #expect(MenuFeed(input, query: "nothing here").rows.isEmpty)
     }
 
     @Test func queryIgnoresCase() {
@@ -128,28 +130,33 @@ struct MenuFeedTests {
 
     @Test func anEmptyProjectNameIsJustAnEmptyName() {
         let feed = MenuFeed([session("blank", project: "   "), session("named", project: "app")])
-        #expect(feed.feed.count == 2)
+        #expect(feed.rows.count == 2)
         #expect(MenuFeed([session("blank", project: "   ")], query: "app").emptyState == .noMatches("app"))
     }
 
+    /// An absent group draws no heading, so the panel shortens instead of
+    /// showing three titles over one row.
     @Test func aSnapshotOfOneStateFillsExactlyOneGroup() {
         let waiting = (0..<3).map { session("w\($0)", ago: TimeInterval($0), .needsResponse) }
-        #expect(MenuFeed(waiting).pinned.count == 3)
-        #expect(MenuFeed(waiting).feed.isEmpty)
+        #expect(MenuFeed(waiting).sections.map(\.kind) == [.needsYou])
+        #expect(MenuFeed(waiting).sessions(.needsYou).count == 3)
         let calm = (0..<3).map { session("c\($0)", ago: TimeInterval($0), .done) }
-        #expect(MenuFeed(calm).pinned.isEmpty)
-        #expect(MenuFeed(calm).feed.count == 3)
+        #expect(MenuFeed(calm).sections.map(\.kind) == [.done])
+        #expect(MenuFeed(calm).sessions(.done).count == 3)
     }
 
-    @Test func returnGoesToTheMostUrgentRowAndOtherwiseTheNewest() {
+    @Test func returnGoesToTheFirstRowOfTheFirstGroup() {
         #expect(MenuFeed([session("new", ago: 1), session("old", ago: 90)]).topResult?.id == "new")
         #expect(MenuFeed([session("new", ago: 1), failed("broke", ago: 90)]).topResult?.id == "broke")
+        // A finished task is never the target while something is still running,
+        // however recently it finished.
+        #expect(MenuFeed([unread("just done", ago: 1), session("running", ago: 90)]).topResult?.id == "running")
         #expect(MenuFeed([]).topResult == nil)
     }
 
-    // MARK: the time column
+    // MARK: the row's timestamp
 
-    @Test func ageStaysShortEnoughForA52ptColumn() {
+    @Test func ageStaysShortEnoughToRideAtTheEndOfARow() {
         let now = epoch
         #expect(MenuFeed.age(of: now, now: now) == "now")
         #expect(MenuFeed.age(of: now - 4, now: now) == "now")
