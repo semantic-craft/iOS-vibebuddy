@@ -145,6 +145,49 @@ struct TokenConsumptionScanTests {
         #expect(snap.window(.last7Days)?.byAgent.count == 2)
     }
 
+    @Test("a repeat scan reuses the memo until a transcript's size or mtime moves")
+    func cachedScanSkipsUnchangedTranscripts() throws {
+        let root = try makeRoot()
+        let dir = root.appendingPathComponent("projects/-proj", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let file = dir.appendingPathComponent("s1.jsonl")
+        // Literal, not the JSON helper: both revisions must be byte-identical in
+        // length so only the mtime decides whether the memo still stands.
+        let template = #"{"type":"assistant","timestamp":"2026-07-21T10:05:00.000Z","cwd":"/tmp/proj","uuid":"a","message":{"id":"m1","model":"claude-sonnet-4-5","usage":{"input_tokens":10,"output_tokens":OUT}}}"#
+        func write(_ output: String) throws {
+            try template.replacingOccurrences(of: "OUT", with: output)
+                .write(to: file, atomically: true, encoding: .utf8)
+        }
+        func setMTime(_ date: Date) throws {
+            try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: file.path)
+        }
+        var cache = TokenConsumptionCache()
+        let codex = root.appendingPathComponent("empty-codex")
+        func scan() throws -> Int {
+            let snapshot = TokenConsumptionScan.snapshot(
+                claudeHomes: [root], codexHome: codex, now: now, calendar: calendar, cache: &cache)
+            return try #require(snapshot.window(.today)).counts.outputTokens
+        }
+
+        // A whole-second stamp we set ourselves: a filesystem mtime carries more
+        // precision than a Date round-trip keeps, and the memo compares them.
+        let stamp = date("2026-07-21T11:00:00Z")
+        try write("2")
+        try setMTime(stamp)
+        #expect(try scan() == 2)
+
+        // Same size, same mtime: a transcript that looks untouched is not read
+        // again, which is the whole point — a menu-bar refresh must not re-parse
+        // every transcript in the window every few minutes.
+        try write("9")
+        try setMTime(stamp)
+        #expect(try scan() == 2)
+
+        // A moved mtime invalidates it, so real appends still land.
+        try setMTime(stamp.addingTimeInterval(1))
+        #expect(try scan() == 9)
+    }
+
     private func makeRoot() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("vb-tokens-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)

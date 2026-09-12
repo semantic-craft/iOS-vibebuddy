@@ -396,14 +396,22 @@ code, and tests — don't drift to synonyms.
   unavailable reason, plus extra named windows (Claude model-week, Codex Spark),
   credits remaining, and extra-usage spend when the local source reports them.
   Collected by isolated, individually switchable adapters that can never move
-  session state. Extra windows never replace the weekly remaining slot.
+  session state. A **scoped window** (Claude model-week, Codex Spark) is a
+  subdivision of the same allowance, not a pool of its own: it rides
+  `scopedWindows`, shows only in the Mac Account usage list and the iPhone
+  Usage sheet, and is deliberately absent from `otherWindows` — the slot the
+  Watch strip and the widgets fall back to — and from threshold alerts, which
+  stay on the weekly and short windows (one cue per event, ADR-0012).
   Distinct from **Token consumption** (local spend ledger) and from billed invoices.
 - **Token consumption** — local, read-only aggregation of tokens spent in Claude
   Code transcripts and Codex CLI/Desktop rollouts (input, output, cache-read,
   reasoning), grouped by agent, model and project over today and the last seven
   days. Distinct from **AccountUsage** (quota remaining) and from a Session's
   current-turn `tokens` / cumulative `spentTokens`. Composed into the snapshot
-  beside quota; never feeds the session reducer and never leaves the machine.
+  beside quota by both the menu-bar app and headless `vibebuddyd`; never feeds
+  the session reducer and never leaves the machine. Transcripts are read on a
+  utility task behind a size+mtime memo, so a refresh costs the files that
+  actually changed.
 - **Grok Bot** — the cloud bot product opened by `com.anysphere.sand`, distinct
   from Grok Build CLI (`grok`). Its account quota has the independent `grokBot`
   provider identity. The optional Mac observer uses the official client's

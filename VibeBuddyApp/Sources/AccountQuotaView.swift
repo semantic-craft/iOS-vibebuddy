@@ -44,6 +44,13 @@ struct AccountQuotaView: View {
                                     ForEach(Array(windows.enumerated()), id: \.offset) { _, window in
                                         reading(window, now: context.date)
                                     }
+                                    let scoped = Self.scopedWindows(quota)
+                                    if !scoped.isEmpty {
+                                        Text("Scoped windows").font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
+                                        ForEach(Array(scoped.enumerated()), id: \.offset) { _, window in
+                                            reading(window, now: context.date)
+                                        }
+                                    }
                                     if let credits = quota.credits {
                                         LabeledContent(credits.label ?? "Credits", value: QuotaPresentation.creditsLine(credits))
                                         if let reset = credits.resetsAt {
@@ -111,6 +118,7 @@ struct AccountQuotaView: View {
                                 .foregroundStyle(CompanionPalette.ink2)
                         }
                     }
+                    tokenConsumptionSections
                 }
             }
             .phoneList()
@@ -120,11 +128,67 @@ struct AccountQuotaView: View {
         }
     }
 
+    /// Local spend, after the allowance it is not: this sheet answers "how much
+    /// is left" first. Absent entirely when the Mac reports none — an empty
+    /// section is worse than no section.
+    @ViewBuilder private var tokenConsumptionSections: some View {
+        if let consumption = dashboard.lastTokenConsumption {
+            ForEach(consumption.windows) { window in
+                Section("Token spend · \(window.kind.title)") {
+                    if window.counts.isEmpty {
+                        Text("No spend in this window")
+                            .foregroundStyle(CompanionPalette.ink2)
+                    } else {
+                        LabeledContent("Tokens", value: TokenConsumptionSnapshot.formatTokens(window.counts.totalTokens))
+                        LabeledContent("List price", value: TokenConsumptionSnapshot.formatUSD(window.counts.estimatedUSD))
+                        LabeledContent("Billed / cache", value: "\(TokenConsumptionSnapshot.formatTokens(window.counts.billedTokens)) · \(TokenConsumptionSnapshot.formatTokens(window.counts.cachedInputTokens))")
+                        LabeledContent("Sessions", value: "\(window.counts.sessionCount)")
+                        if !window.byAgent.isEmpty {
+                            Text("By agent").font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
+                            ForEach(window.byAgent) { row in
+                                LabeledContent(row.label, value: "\(TokenConsumptionSnapshot.formatTokens(row.counts.totalTokens)) · \(TokenConsumptionSnapshot.formatUSD(row.counts.estimatedUSD))")
+                            }
+                        }
+                        if !window.byModel.isEmpty {
+                            Text("By model").font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
+                            ForEach(Array(window.byModel.prefix(6))) { row in
+                                LabeledContent(row.label, value: TokenConsumptionSnapshot.formatTokens(row.counts.totalTokens))
+                            }
+                        }
+                        if !window.byProject.isEmpty {
+                            Text("By project").font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
+                            ForEach(Array(window.byProject.prefix(4))) { row in
+                                LabeledContent(row.label, value: TokenConsumptionSnapshot.formatTokens(row.counts.totalTokens))
+                            }
+                        }
+                    }
+                }
+            }
+            if let observed = dashboard.lastTokenConsumption?.observedAt {
+                Section {
+                    Text("Token spend updated \(observed.formatted(date: .abbreviated, time: .shortened))")
+                        .font(CompanionType.font(12))
+                        .foregroundStyle(CompanionPalette.ink2)
+                }
+            }
+        }
+    }
+
     static func windows(_ quota: ProviderQuota) -> [QuotaWindow] {
         let standard = QuotaWindowKind.allCases.map { quota.window($0) }.filter {
             $0.remainingPercent != nil || $0.durationMinutes != nil || $0.resetsAt != nil || $0.label != nil
         }
         return standard + (quota.otherWindows ?? []).map { value in
+            var value = value
+            value.isCached = value.isCached == true || quota.isCached == true
+            return value
+        }
+    }
+
+    /// Subdivisions of the same allowance. Kept apart from `windows` so they
+    /// cannot be mistaken for a provider's headline reading.
+    static func scopedWindows(_ quota: ProviderQuota) -> [QuotaWindow] {
+        (quota.scopedWindows ?? []).map { value in
             var value = value
             value.isCached = value.isCached == true || quota.isCached == true
             return value

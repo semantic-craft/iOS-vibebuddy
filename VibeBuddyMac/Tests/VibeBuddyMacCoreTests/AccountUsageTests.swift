@@ -88,7 +88,8 @@ struct AccountUsageTests {
         let quota = ProviderQuota(.available(snapshot, nextRefreshAt: nil), provider: .codex)
         #expect(quota.weeklyRemainingPercent == 90)
         #expect(quota.shortWindowRemainingPercent == 80)
-        #expect(quota.otherWindows?.map(\.label) == ["Codex Spark 5-hour", "Codex Spark Weekly"])
+        #expect(quota.scopedWindows?.map(\.label) == ["Codex Spark 5-hour", "Codex Spark Weekly"])
+        #expect(quota.otherWindows == nil)
         #expect(quota.credits?.remaining == 12.5)
         #expect(quota.spend?.first?.label == "Extra usage")
     }
@@ -151,8 +152,12 @@ struct AccountUsageTests {
         #expect(snapshot.extraWindows?.first?.windowDurationMinutes == 10_080)
         let quota = ProviderQuota(.available(snapshot, nextRefreshAt: nil), provider: .claude)
         #expect(quota.weeklyRemainingPercent == 85)
-        #expect(quota.otherWindows?.first?.label == "Fable only")
-        #expect(quota.otherWindows?.first?.remainingPercent == 82)
+        #expect(quota.scopedWindows?.first?.label == "Fable only")
+        #expect(quota.scopedWindows?.first?.remainingPercent == 82)
+        // The Watch strip and the widgets fall back to otherWindows; a scoped
+        // week must never become the number they show as Claude's remaining.
+        #expect(quota.otherWindows == nil)
+        #expect(quota.displayWindow(preferring: .weekly).remainingPercent == 85)
     }
 
     @Test("a Claude window that resets on the hour prints no minutes and still parses")

@@ -471,13 +471,21 @@ final class MenuBarModel: ObservableObject {
             codexHome = TokenConsumptionScan.defaultCodexHome()
         }
         tokenScanTask = Task { [weak self, store] in
+            // The memo lives across refreshes: only transcripts whose size or
+            // mtime moved are read again, so the steady-state scan costs a few
+            // files instead of every file in the window.
+            var cache = TokenConsumptionCache()
             while !Task.isCancelled {
-                let snapshot = await Task.detached(priority: .utility) {
-                    TokenConsumptionScan.snapshot(
-                        claudeHomes: claudeHomes, codexHome: codexHome, now: Date())
+                let scanned = await Task.detached(priority: .utility) { [cache] in
+                    var carried = cache
+                    let snapshot = TokenConsumptionScan.snapshot(
+                        claudeHomes: claudeHomes, codexHome: codexHome,
+                        now: Date(), cache: &carried)
+                    return (snapshot, carried)
                 }.value
-                await store.setTokenConsumption(snapshot)
-                self?.tokenConsumption = snapshot
+                cache = scanned.1
+                await store.setTokenConsumption(scanned.0)
+                self?.tokenConsumption = scanned.0
                 try? await Task.sleep(for: .seconds(TokenConsumptionScan.refreshInterval))
             }
         }

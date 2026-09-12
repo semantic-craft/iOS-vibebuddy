@@ -118,7 +118,7 @@ struct GrokUsageProviderTests {
         #expect(snapshot.credits?.label == "Prepaid")
         #expect(snapshot.primary?.usedPercent == 36)
         #expect(snapshot.extraWindows == nil)
-        let quota = ProviderQuota(.available(snapshot, nextRefreshAt: nil), provider: .grok)
+        let quota = ProviderQuota(.available(snapshot, nextRefreshAt: nil), provider: .grok, now: now)
         #expect(quota.weeklyRemainingPercent == 64)
         #expect(quota.credits?.remaining == 42.5)
         #expect(quota.otherWindows == nil)

@@ -93,11 +93,6 @@ public struct AccountUsageSnapshot: Codable, Equatable, Sendable {
         windows + (extraWindows ?? [])
     }
 
-    /// Quota alerts include extras; Grok extra-usage spend still stays out.
-    public var alertWindows: [AccountUsageWindow] {
-        quotaWindows + (extraWindows ?? [])
-    }
-
     public init(
         provider: AccountUsageProvider,
         planType: String?,
@@ -596,6 +591,10 @@ public struct AccountUsageAlertMonitor: Sendable {
         self.alertedWindowKeys = alertedWindowKeys
     }
 
+    /// Watches the allowance windows only. Model-scoped weeks and Spark are
+    /// subdivisions of the same allowance and mostly reset together: alerting
+    /// on each would turn one "running low" cue into five, against ADR-0012.
+    /// They stay visible in the Mac and iPhone usage lists.
     public mutating func newlyCrossed(
         in state: AccountUsageState,
         thresholdPercent: Int,
@@ -604,7 +603,7 @@ public struct AccountUsageAlertMonitor: Sendable {
         guard thresholdPercent > 0 else { return [] }
         guard state.collectionEnabled, !state.isStale, let snapshot = state.snapshot else { return [] }
 
-        let currentKeys = Dictionary(uniqueKeysWithValues: snapshot.alertWindows.map {
+        let currentKeys = Dictionary(uniqueKeysWithValues: snapshot.quotaWindows.map {
             ($0.id, Self.key(provider: snapshot.provider, window: $0))
         })
         for (identity, currentKey) in currentKeys {
@@ -619,7 +618,7 @@ public struct AccountUsageAlertMonitor: Sendable {
 
         if !didObserveFreshSnapshot {
             didObserveFreshSnapshot = true
-            for window in snapshot.alertWindows {
+            for window in snapshot.quotaWindows {
                 let key = Self.key(provider: snapshot.provider, window: window)
                 observedWindowKeys.insert(key)
                 if window.usedPercent >= thresholdPercent {
@@ -630,7 +629,7 @@ public struct AccountUsageAlertMonitor: Sendable {
         }
 
         var alerts: [AccountUsageWindow] = []
-        for window in snapshot.alertWindows {
+        for window in snapshot.quotaWindows {
             let key = Self.key(provider: snapshot.provider, window: window)
             guard observedWindowKeys.contains(key) else {
                 observedWindowKeys.insert(key)

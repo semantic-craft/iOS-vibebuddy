@@ -32,8 +32,8 @@ struct QuotaPresentationTests {
     func windowPace() {
         let reset = now.addingTimeInterval(4 * 24 * 60 * 60)
         #expect(QuotaPresentation.windowPace(usedPercent: 44, resetsAt: reset, windowMinutes: 10_080, now: now) == .onTrack)
-        #expect(QuotaPresentation.windowPace(usedPercent: 90, resetsAt: reset, windowMinutes: 10_080, now: now) == .ahead)
-        #expect(QuotaPresentation.windowPace(usedPercent: 5, resetsAt: reset, windowMinutes: 10_080, now: now) == .behind)
+        #expect(QuotaPresentation.windowPace(usedPercent: 90, resetsAt: reset, windowMinutes: 10_080, now: now) == .spendingFaster)
+        #expect(QuotaPresentation.windowPace(usedPercent: 5, resetsAt: reset, windowMinutes: 10_080, now: now) == .spendingSlower)
     }
 
     @Test("status-line keys become scoped titles")

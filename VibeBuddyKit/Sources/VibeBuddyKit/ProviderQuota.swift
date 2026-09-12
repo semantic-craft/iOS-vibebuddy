@@ -58,7 +58,14 @@ public struct ProviderQuota: Codable, Equatable, Sendable, Identifiable {
     public var shortWindowResetsAt: Date?
     public var shortWindowDurationMinutes: Int?
     /// Windows whose duration cannot truthfully be called weekly or short.
+    /// Independent pools (a Cursor/Grok billing period), which compact surfaces
+    /// may fall back to when weekly and short are both missing.
     public var otherWindows: [QuotaWindow]?
+    /// Named subdivisions of the same allowance — a Claude model-scoped week,
+    /// Codex Spark. Detail for the Mac and iPhone usage lists only: they are
+    /// not independent pools, so they never stand in for the weekly reading on
+    /// the Watch or a widget, and never raise their own threshold alert.
+    public var scopedWindows: [QuotaWindow]?
     public var credits: QuotaCredits?
     public var spend: [QuotaSpend]?
     /// When the Mac last read a usable value from this provider's local source.
@@ -79,6 +86,7 @@ public struct ProviderQuota: Codable, Equatable, Sendable, Identifiable {
         shortWindowResetsAt: Date? = nil,
         shortWindowDurationMinutes: Int? = nil,
         otherWindows: [QuotaWindow]? = nil,
+        scopedWindows: [QuotaWindow]? = nil,
         credits: QuotaCredits? = nil,
         spend: [QuotaSpend]? = nil,
         observedAt: Date? = nil,
@@ -94,6 +102,7 @@ public struct ProviderQuota: Codable, Equatable, Sendable, Identifiable {
         self.shortWindowResetsAt = shortWindowResetsAt
         self.shortWindowDurationMinutes = shortWindowDurationMinutes
         self.otherWindows = otherWindows
+        self.scopedWindows = scopedWindows
         self.credits = credits
         self.spend = spend
         self.observedAt = observedAt
