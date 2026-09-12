@@ -285,7 +285,11 @@ SHIPPED="$(find "$UNPACKED/Payload" -maxdepth 1 -name '*.app' -print -quit)"
 [[ -n "$SHIPPED" ]] || die "no .app inside $IPA"
 
 authority() { codesign -dvv "$1" 2>&1 | sed -n 's/^Authority=//p' | head -1; }
-entitlement() { codesign -d --entitlements - --xml "$1" 2>/dev/null | plutil -extract "$2" raw -o - - 2>/dev/null || echo MISSING; }
+entitlement() {
+  # plutil treats dots as key-path separators; entitlement names are literal keys.
+  local key_path="${2//./\\.}"
+  codesign -d --entitlements - --xml "$1" 2>/dev/null | plutil -extract "$key_path" raw -o - - 2>/dev/null || echo MISSING
+}
 
 APP_AUTH="$(authority "$SHIPPED")"
 note "signed by: $APP_AUTH"
