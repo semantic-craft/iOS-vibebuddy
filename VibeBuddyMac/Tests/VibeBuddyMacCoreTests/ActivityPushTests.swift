@@ -33,6 +33,7 @@ struct ActivityPushTests {
         #expect(p.contains(#""event":"update""#))
         #expect(p.contains(#""timestamp":1700"#))
         #expect(p.contains(#""summary":{"idle":0,"thinking":1,"completeUnread":0,"requiresInput":2,"error":0}"#))
+        #expect(p.contains(#""relevance-score":80"#))
         #expect(!p.contains("topProject"))   // omitted when nil
     }
 
@@ -95,6 +96,23 @@ struct ActivityPushTests {
                                            topProject: #"my "proj""#, topSessionId: "s1", timestamp: 1)
         #expect(p.contains(#""topProject":"my \"proj\"""#))
         #expect(p.contains(#""topSessionId":"s1""#))
+        #expect(p.contains(#""relevance-score":20"#))
+    }
+
+    @Test("activity payload ranks needs-you above a quiet working snapshot")
+    func payloadRelevanceFollowsLeadingState() {
+        let needsYou = APNsPusher.activityPayload(
+            summary: TaskPresentationSummary(thinking: 3, error: 1),
+            topProject: "build-fail", topSessionId: "e1", timestamp: 2)
+        let quiet = APNsPusher.activityPayload(
+            summary: TaskPresentationSummary(thinking: 3),
+            topProject: "ok", topSessionId: "w1", timestamp: 2)
+        let empty = APNsPusher.activityPayload(
+            summary: TaskPresentationSummary(),
+            topProject: nil, topSessionId: nil, timestamp: 2)
+        #expect(needsYou.contains(#""relevance-score":100"#))
+        #expect(quiet.contains(#""relevance-score":40"#))
+        #expect(empty.contains(#""relevance-score":0"#))
     }
 
     // MARK: /activity route

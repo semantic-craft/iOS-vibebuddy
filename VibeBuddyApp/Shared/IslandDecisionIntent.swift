@@ -58,7 +58,10 @@ enum IslandActivity {
         where activity.content.state.approvalId == approvalId {
             var state = activity.content.state
             state.decisionSent = outcome
-            await activity.update(ActivityContent(state: state, staleDate: nil))
+            await activity.update(ActivityContent(
+                state: state,
+                staleDate: nil,
+                relevanceScore: LiveActivityPresentation.relevanceScore(for: state.summary.primaryState)))
         }
     }
 }
