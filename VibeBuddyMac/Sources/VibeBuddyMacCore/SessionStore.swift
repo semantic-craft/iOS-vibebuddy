@@ -8,6 +8,7 @@ public actor SessionStore {
     private static let diagnosticStaleAfter: TimeInterval = 10 * 60
     private var reducer = SessionReducer()
     private var toolLedger: ToolLedger
+    private var workingDirectories: [String: String] = [:]
     private var copilotReader: CopilotSessionReader
     private var copilotReadFailed = false
     private var copilotHistory: [String: CopilotSessionReader.Record] = [:]
@@ -642,6 +643,7 @@ public actor SessionStore {
         }
         let wasWaiting = reducer.sessions[event.sessionID]?.status == .needsResponse
         rememberDirectory(event.cwd, at: event.timestamp)
+        if let cwd = event.cwd, cwd.hasPrefix("/") { workingDirectories[event.sessionID] = cwd }
         reducer.apply(event, observationSource: observationSource, recordsEvidence: recordsEvidence)
         if let wait = explicitWaits[event.sessionID],
            reducer.sessions[event.sessionID].map(wait.matches) != true {
@@ -764,6 +766,15 @@ public actor SessionStore {
 
     /// Wait at most until two seconds after the original ending. Results are
     /// memory-only and must be revalidated again by the eventual notification owner.
+    public func workspaceChanges(sessionID: String, scope: ChangesScope, baseline: String?, file: String?) async -> WorkspaceChanges {
+        let session = reducer.sessions[sessionID]
+        let cwd = workingDirectories[sessionID] ?? session?.terminalRef?.cwd ?? session?.worktree
+        let shared = cwd.map { path in workingDirectories.values.filter { $0 == path }.count > 1 } ?? false
+        return await Task.detached(priority: .utility) {
+            WorkspaceChangesReader.read(cwd: cwd, scope: scope, baseline: baseline, file: file, shared: shared)
+        }.value
+    }
+
     public func completionBody(sessionID: String, completionID: String) async -> CompletionBody {
         let result = await completionResult(sessionID: sessionID, completionID: completionID, forReading: true)
         switch result {

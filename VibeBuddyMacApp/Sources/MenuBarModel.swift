@@ -1118,6 +1118,10 @@ final class MenuBarModel: ObservableObject {
         await recentOutput(for: sessionID).entries.map { TranscriptEntry(role: $0.role, text: $0.text) }
     }
 
+    func workspaceChanges(for session: AgentSession, scope: ChangesScope, baseline: String?, file: String?) async -> WorkspaceChanges {
+        await store.workspaceChanges(sessionID: session.id, scope: scope, baseline: baseline, file: file)
+    }
+
     var completionSourceID: String? { snapshotSourceID }
 
     func completionBody(for session: AgentSession) async -> CompletionBody? {

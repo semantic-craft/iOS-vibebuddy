@@ -815,6 +815,11 @@ final class DashboardStore: ObservableObject {
     }
 
     /// Fetch the bounded recent-output slice. Does not acknowledge completions.
+    func workspaceChanges(for session: AgentSession, scope: ChangesScope, baseline: String?, file: String?) async -> WorkspaceChanges? {
+        guard let pairing else { return nil }
+        return await decisionClient.workspaceChanges(pairing, sessionId: session.id, scope: scope, baseline: baseline, file: file)
+    }
+
     var completionSourceID: String? { sourceID }
 
     func completionBody(for session: AgentSession) async -> CompletionBody? {

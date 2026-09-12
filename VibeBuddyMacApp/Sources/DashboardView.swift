@@ -464,6 +464,7 @@ private struct SummaryRow: View {
 private struct DetailCard: View {
     let session: AgentSession
     @ObservedObject var model: MenuBarModel
+    @State private var showChanges = false
     @State private var showTranscript = false
     @State private var completionBody: CompletionBody?
     @State private var resultIsVisible = false
@@ -577,6 +578,7 @@ private struct DetailCard: View {
             }
             .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink3)
             DisclosureGroup("Activity and file changes") {
+                Button("Changes") { showChanges = true }.buttonStyle(PillButtonStyle(kind: .soft, size: .small))
                 ToolLedgerView(session: session)
             }
         }
@@ -594,6 +596,11 @@ private struct DetailCard: View {
         .onChange(of: currentBody) { _, _ in acknowledgeVisibleBody() }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in acknowledgeVisibleBody() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in acknowledgeVisibleBody() }
+        .sheet(isPresented: $showChanges) {
+            WorkspaceChangesView { scope, baseline, file in
+                await model.workspaceChanges(for: session, scope: scope, baseline: baseline, file: file)
+            }.frame(minWidth: 540, minHeight: 500)
+        }
         .sheet(isPresented: $showTranscript) {
             TranscriptSheet(session: session, model: model)
         }

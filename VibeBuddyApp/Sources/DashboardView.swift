@@ -843,6 +843,7 @@ private struct SessionDetailSheet: View {
     @EnvironmentObject private var dashboard: DashboardStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    @State private var showChanges = false
     @State private var completionBody: CompletionBody?
     @State private var resultIsVisible = false
     @State private var acknowledgedBodyID: String?
@@ -967,6 +968,7 @@ private struct SessionDetailSheet: View {
                         }
                     }
                     DisclosureGroup("Activity and file changes") {
+                        Button("Changes") { showChanges = true }.buttonStyle(PhoneButtonStyle(kind: .quiet, size: .small))
                         ToolLedgerView(session: session)
                         RecentOutputCard(output: dashboard.recentOutputs[session.id])
                         metaCard
@@ -979,6 +981,11 @@ private struct SessionDetailSheet: View {
         .background(CompanionPalette.bg)
         .presentationDetents([.medium, .large])
         .tint(CompanionPalette.accent)
+        .sheet(isPresented: $showChanges) {
+            WorkspaceChangesView { scope, baseline, file in
+                await dashboard.workspaceChanges(for: session, scope: scope, baseline: baseline, file: file)
+            }
+        }
         .task { await dashboard.loadRecentOutput(session.id) }
         .task(id: resultKey) {
             completionBody = nil

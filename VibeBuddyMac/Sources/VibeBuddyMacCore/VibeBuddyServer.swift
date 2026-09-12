@@ -547,6 +547,16 @@ public struct VibeBuddyServer: Sendable {
         let rolloutMonitor = self.codexRolloutMonitor
         let cursorMonitor = self.cursorTranscriptMonitor
         let cursorCloudReader = self.cursorCloud
+        authed.get("changes") { request, _ -> Response in
+            guard let sessionID = request.uri.queryParameters["sessionId"].map(String.init), !sessionID.isEmpty,
+                  let raw = request.uri.queryParameters["scope"].map(String.init), let scope = ChangesScope(rawValue: raw)
+            else { throw HTTPError(.badRequest) }
+            let changes = await store.workspaceChanges(sessionID: sessionID, scope: scope,
+                baseline: request.uri.queryParameters["baseline"].map(String.init),
+                file: request.uri.queryParameters["file"].map(String.init))
+            return Response(status: .ok, headers: [.contentType: "application/json"],
+                            body: .init(byteBuffer: ByteBuffer(bytes: try JSONEncoder().encode(changes))))
+        }
         authed.get("completion") { request, _ -> Response in
             guard let sessionID = request.uri.queryParameters["sessionId"].map(String.init), !sessionID.isEmpty,
                   let completionID = request.uri.queryParameters["completionId"].map(String.init), !completionID.isEmpty
