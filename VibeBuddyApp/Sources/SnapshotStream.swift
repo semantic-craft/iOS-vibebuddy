@@ -52,8 +52,7 @@ struct WebSocketSnapshotClient: SnapshotStreaming {
                             continuation.yield(snapshot)
                         }
                     } catch {
-                        if let status = (socket.response as? HTTPURLResponse)?.statusCode,
-                           status == 401 || status == 403 {
+                        if await Self.authenticationRejected(socket, pairing: pairing) {
                             continuation.finish(throwing: CompanionConnectionFailure.authentication)
                         } else {
                             continuation.finish(throwing: error)
@@ -69,6 +68,22 @@ struct WebSocketSnapshotClient: SnapshotStreaming {
                 socket.cancel(with: .goingAway, reason: nil)
             }
         }
+    }
+
+    private static func authenticationRejected(_ socket: URLSessionWebSocketTask, pairing: PairingPayload) async -> Bool {
+        guard let status = (socket.response as? HTTPURLResponse)?.statusCode else { return false }
+        if status == 401 || status == 403 { return true }
+        // Hummingbird reports every refused WebSocket upgrade as HTTP 400.
+        // Confirm auth on its existing HTTP route; 400 alone could be a protocol
+        // failure and must not tell a correctly paired phone to pair again.
+        guard status == 400, !Task.isCancelled, let url = pairing.companionURL(path: "snapshot") else { return false }
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 5)
+        request.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            let code = (response as? HTTPURLResponse)?.statusCode
+            return code == 401 || code == 403
+        } catch { return false }
     }
 
     private static func monitor(_ socket: URLSessionWebSocketTask) -> Task<Void, Never> {
