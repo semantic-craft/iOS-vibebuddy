@@ -522,7 +522,9 @@ final class DashboardStore: ObservableObject {
     func startDemo() {
         stop()
         isDemo = true
-        lastProviderQuota = []
+        // The Usage sheet is part of the demo now, so seed the same sample
+        // readings the Watch demo uses instead of leaving it empty.
+        lastProviderQuota = WatchDemoScenario.normal.quotas(now: Date())
         lastTokenConsumption = TokenConsumptionSnapshot.demo()
         pairing = nil
         state = .connected

@@ -119,7 +119,9 @@ private struct WatchQuotaDetail: View {
             }
             if let remaining = reading.currentRemainingPercent(now: now) {
                 ProgressView(value: Double(remaining), total: 100)
-                    .tint(status == .stale ? .secondary : .primary)
+                    .tint(status == .stale
+                          ? .secondary
+                          : QuotaPresentation.tint(identity: .primary, usedPercent: 100 - remaining))
             }
             if status == .awaitingReset {
                 Text("Reset reached · awaiting update")
@@ -153,8 +155,16 @@ private struct WatchAllowanceRing: View {
     let now: Date
     let provider: AccountUsageProvider
 
+    /// Provider identity while there is room; the severity tint once the
+    /// window crosses 80%, so the ring that is about to run out stops looking
+    /// like the other four.
     private var tint: Color {
         guard reading.status(now: now) == .live else { return .secondary }
+        return QuotaPresentation.tint(identity: identity,
+                                      usedPercent: reading.currentRemainingPercent(now: now).map { 100 - $0 })
+    }
+
+    private var identity: Color {
         switch provider {
         case .codex: return .cyan
         case .claude: return .orange

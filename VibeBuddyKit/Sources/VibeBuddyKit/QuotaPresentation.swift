@@ -203,6 +203,16 @@ public enum QuotaPresentation {
         }
     }
 
+    /// A reading's colour: the caller's own identity hue while there is room,
+    /// the severity tint once the window crosses 80%. The Watch rings are
+    /// coloured per provider so several can be told apart at a glance; this is
+    /// what stops the one that is about to run out from looking like the rest.
+    public static func tint(identity: Color, usedPercent: Int?) -> Color {
+        guard let usedPercent else { return identity }
+        let level = severity(usedPercent: usedPercent)
+        return level == .normal ? identity : level.tint
+    }
+
     public static func severity(usedPercent: Int) -> Severity {
         if usedPercent >= 95 { return .critical }
         if usedPercent >= 80 { return .warning }

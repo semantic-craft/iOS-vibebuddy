@@ -224,7 +224,10 @@ struct QuotaWidgetView: View {
             let reading = window(provider)
             let inset = CGFloat(index) * 5 + 2
             let remaining = CGFloat(reading.currentRemainingPercent(now: now) ?? 0) / 100
-            let tint = color(provider).opacity(reading.status(now: now) == .stale ? 0.4 : 1)
+            let tint = QuotaPresentation
+                .tint(identity: color(provider),
+                      usedPercent: reading.currentRemainingPercent(now: now).map { 100 - $0 })
+                .opacity(reading.status(now: now) == .stale ? 0.4 : 1)
             if segmented {
                 ForEach(0..<10) { segment in
                     let start = CGFloat(segment) / 10 + 0.012
