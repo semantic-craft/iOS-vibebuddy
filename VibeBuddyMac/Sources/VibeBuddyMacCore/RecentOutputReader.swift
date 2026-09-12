@@ -34,6 +34,36 @@ public enum RecentOutputReader {
               limit: limit, perEntryLimit: perEntryLimit)
     }
 
+    /// Cursor's agent transcript. It records prompts, the agent's prose and the
+    /// tools it called — but no tool *results*, so a tool line collapses to the
+    /// same compact marker the other adapters use, with Cursor's own argument
+    /// summary when there is one.
+    public static func cursor(tail data: Data, limit: Int = 12,
+                              perEntryLimit: Int = 600) -> RecentOutputSlice {
+        var entries: [TranscriptEntry] = []
+        for raw in String(decoding: data, as: UTF8.self)
+            .split(separator: "\n", omittingEmptySubsequences: true) {
+            for line in CursorTranscripts.parse(line: String(raw)) {
+                switch line {
+                case .prompt(let text):
+                    if let collapsed = collapse(text) {
+                        entries.append(TranscriptEntry(role: "user", text: collapsed))
+                    }
+                case .assistantText(let text):
+                    if let collapsed = collapse(text) {
+                        entries.append(TranscriptEntry(role: "assistant", text: collapsed))
+                    }
+                case .toolUse(let name, let detail):
+                    let suffix = collapse(detail).map { " \($0)" } ?? ""
+                    entries.append(TranscriptEntry(role: "assistant", text: "⚙ \(name)\(suffix)"))
+                case .turnEnded:
+                    continue
+                }
+            }
+        }
+        return bound(entries, limit: limit, perEntryLimit: perEntryLimit)
+    }
+
     public static func codexRollout(tail data: Data, limit: Int = 12,
                                     perEntryLimit: Int = 600) -> RecentOutputSlice {
         var entries: [TranscriptEntry] = []

@@ -55,6 +55,9 @@ public struct VibeBuddyServer: Sendable {
     /// The other kind of jump: a Codex Desktop session has no terminal, only the
     /// thread it *is*, opened in ChatGPT.app.
     public let onJumpToDesktopThread: @Sendable (String) async -> JumpOutcome
+    /// And the third: a Cursor chat lives inside Cursor's own sidebar, which no
+    /// deeplink addresses, so the jump brings Cursor (and its workspace) forward.
+    public let onJumpToCursor: @Sendable (String?) async -> JumpOutcome
     public let onAnswer: @Sendable (TerminalRef, String) -> Void
     public let onDevicePaired: @Sendable (DeviceRegistrationPayload) -> Void
     /// Claude background sessions on this Mac, for jumps into them.
@@ -66,6 +69,11 @@ public struct VibeBuddyServer: Sendable {
     public let onDispatch: (@Sendable (DispatchRequest) async -> DispatchOutcome)?
     /// Starts Claude Code background sessions for dispatches.
     public let claudeLauncher: ClaudeBackgroundLauncher
+    /// Starts Cursor CLI sessions for dispatches.
+    public let cursorLauncher: CursorLauncher
+    /// Tails Cursor's agent transcripts. Optional so route tests consume no
+    /// host state, exactly like the Codex rollout source.
+    public let cursorTranscriptMonitor: CursorTranscriptMonitor?
     /// Deliver one completion reminder for a followed, unread, done session.
     /// Returns whether any channel actually took it, so a reminder every
     /// channel suppressed does not spend one of the session's slots. The
@@ -74,6 +82,10 @@ public struct VibeBuddyServer: Sendable {
     public let onCompletionReminder: (@Sendable (AgentSession) async -> Bool)?
     /// Dedup for `/answer` request ids across the life of this process.
     public let actionRequests: ActionRequestLog
+    /// Follow-ups queued for Cursor conversations, collected by Cursor's own
+    /// `stop` hook. Cursor cannot be steered mid-turn; this is the one
+    /// documented way a phone instruction reaches a running Cursor task.
+    public let cursorFollowups: CursorFollowupQueue
 
     public init(store: SessionStore, token: String, host: String = "0.0.0.0",
                 port: Int = 9876, pusher: APNsPusher? = nil,
@@ -96,6 +108,7 @@ public struct VibeBuddyServer: Sendable {
                 approvalID: @escaping @Sendable () -> String = { UUID().uuidString },
                 onJump: @escaping @Sendable (TerminalRef) async -> JumpOutcome = { await TerminalJumper.jump($0) },
                 onJumpToDesktopThread: @escaping @Sendable (String) async -> JumpOutcome = { await CodexDesktopJumper.jump(threadID: $0) },
+                onJumpToCursor: @escaping @Sendable (String?) async -> JumpOutcome = { await CursorJumper.jump(project: $0) },
                 onAnswer: @escaping @Sendable (TerminalRef, String) -> Void = { ref, answer in TerminalInjector.inject(answer, into: ref) },
                 onDevicePaired: @escaping @Sendable (DeviceRegistrationPayload) -> Void = { _ in },
                 backgroundSessions: @escaping @Sendable () -> [ClaudeBackgroundSession] = { ClaudeBackgroundSessions.load() },
@@ -104,8 +117,11 @@ public struct VibeBuddyServer: Sendable {
                 },
                 onDispatch: (@Sendable (DispatchRequest) async -> DispatchOutcome)? = nil,
                 claudeLauncher: ClaudeBackgroundLauncher = ClaudeBackgroundLauncher(),
+                cursorLauncher: CursorLauncher = CursorLauncher(),
+                cursorTranscriptMonitor: CursorTranscriptMonitor? = nil,
                 onCompletionReminder: (@Sendable (AgentSession) async -> Bool)? = nil,
-                actionRequests: ActionRequestLog = ActionRequestLog()) {
+                actionRequests: ActionRequestLog = ActionRequestLog(),
+                cursorFollowups: CursorFollowupQueue = CursorFollowupQueue()) {
         self.store = store
         self.token = token
         self.host = host
@@ -130,14 +146,18 @@ public struct VibeBuddyServer: Sendable {
         self.presence = presence
         self.onJump = onJump
         self.onJumpToDesktopThread = onJumpToDesktopThread
+        self.onJumpToCursor = onJumpToCursor
         self.onAnswer = onAnswer
         self.backgroundSessions = backgroundSessions
         self.onAttach = onAttach
         self.onDispatch = onDispatch
         self.claudeLauncher = claudeLauncher
+        self.cursorLauncher = cursorLauncher
+        self.cursorTranscriptMonitor = cursorTranscriptMonitor
         self.onDevicePaired = onDevicePaired
         self.onCompletionReminder = onCompletionReminder
         self.actionRequests = actionRequests
+        self.cursorFollowups = cursorFollowups
     }
 
     /// Run the HTTP service and its Codex rollout source under one lifetime.
@@ -149,18 +169,25 @@ public struct VibeBuddyServer: Sendable {
         var agents: [AgentKind] = []
         if await claudeLauncher.isSupported() { agents.append(.claudeCode) }
         if let monitor = codexAppServerMonitor, await monitor.diagnostics().connected { agents.append(.codex) }
+        if await cursorLauncher.isSupported() { agents.append(.cursor) }
         return agents
     }
 
     public func runService() async throws {
         await store.refreshCopilotHistory()
+        await store.refreshCursorComposers()
         let historyTask = Task {
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(5)) } catch { break }
                 await store.refreshCopilotHistory()
+                await store.refreshCursorComposers()
             }
         }
         defer { historyTask.cancel() }
+        let cursorTask = cursorTranscriptMonitor.map { monitor in
+            Task { await monitor.run(store: store) }
+        }
+        defer { cursorTask?.cancel() }
         let monitorTask = codexRolloutMonitor.map { monitor in
             Task { await monitor.run(store: store) }
         }
@@ -475,10 +502,12 @@ public struct VibeBuddyServer: Sendable {
         // Bounded recent dialogue for one session. Token-gated, read-only:
         // fetching never acknowledges a completion or moves Session state.
         let rolloutMonitor = self.codexRolloutMonitor
+        let cursorMonitor = self.cursorTranscriptMonitor
         authed.get("recent-output") { request, _ -> Response in
             guard let sessionID = request.uri.queryParameters["sessionId"].map(String.init),
                   !sessionID.isEmpty else { throw HTTPError(.badRequest) }
-            let path = await rolloutMonitor?.rolloutPath(for: sessionID)
+            var path = await rolloutMonitor?.rolloutPath(for: sessionID)
+            if path == nil { path = await cursorMonitor?.transcriptPath(for: sessionID) }
             let output = await store.recentOutput(sessionID: sessionID, rolloutPath: path)
             let data = try JSONEncoder().encode(output)
             return Response(
@@ -602,6 +631,31 @@ public struct VibeBuddyServer: Sendable {
                 let updated = AskUserQuestionInput.updatedInput(original: input, question: question, answers: answers)
                 return Self.questionResponse(updatedInput: updated)
             }
+            // Cursor asking the user something is the same wait, through a
+            // different contract: `preToolUse` on Cursor's `AskQuestion` tool.
+            // There is no way to hand an answer back as the tool's *result* —
+            // `updated_input` only rewrites the call — so an answered question is
+            // denied and the person's choice travels to the model in
+            // `agent_message`, which is exactly what Cursor documents that field
+            // for. Silence still prints nothing, so Cursor shows its own picker.
+            if agent == .cursor, tool == CursorToolVocabulary.askQuestionTool {
+                guard let question = CursorAskQuestionInput.pendingQuestion(from: input, id: makeID()) else {
+                    return Response(status: .ok)
+                }
+                if await presence(sessionID) {
+                    await store.beginQuestion(sessionID: sessionID, question.readOnly, at: Date())
+                    return Response(status: .ok)
+                }
+                await store.beginQuestion(sessionID: sessionID, question, at: Date())
+                guard let answers = await questionRegistry.wait(sessionID: sessionID, questionID: question.id, timeout: timeout) else {
+                    return Response(status: .ok)
+                }
+                await store.endQuestion(sessionID: sessionID, questionID: question.id, at: Date())
+                guard let message = CursorAskQuestionInput.agentMessage(question: question, answers: answers) else {
+                    return Response(status: .ok)
+                }
+                return Self.cursorAnswerResponse(message)
+            }
             // While the Codex app-server daemon reports this session, its own
             // approval request reaches the phone through the monitor; the hook
             // gate steps aside so one request never raises two cards. Empty
@@ -697,6 +751,28 @@ public struct VibeBuddyServer: Sendable {
                 case .pass:  return Response(status: .ok)
                 }
             }
+        }
+
+        // Cursor's `stop` hook collects whatever the phone queued for this
+        // conversation while the turn was running — bearer-token gated like the
+        // other CLI-hook routes. An empty queue answers an empty 200, which the
+        // hook prints as nothing, so Cursor ends the turn exactly as it would
+        // have. Collecting clears the entry: Cursor submits the message itself.
+        let cursorFollowups = self.cursorFollowups
+        hookAuthed.post("cursor-followup") { request, _ -> Response in
+            let buffer = try await request.body.collect(upTo: 1 << 16)
+            let obj = (try? JSONSerialization.jsonObject(with: Data(buffer: buffer))) as? [String: Any] ?? [:]
+            let id = (obj["conversation_id"] as? String) ?? (obj["session_id"] as? String)
+                ?? request.uri.queryParameters["conversationId"].map(String.init) ?? ""
+            guard !id.isEmpty, let text = await cursorFollowups.take(conversationID: id) else {
+                return Response(status: .ok)
+            }
+            let body: [String: Any] = ["followup_message": text]
+            guard let data = try? JSONSerialization.data(withJSONObject: body) else {
+                return Response(status: .ok)
+            }
+            return Response(status: .ok, headers: [.contentType: "application/json"],
+                            body: .init(byteBuffer: ByteBuffer(bytes: data)))
         }
 
         // Resolve a held approval — bearer-token gated (the phone sends this).
@@ -827,6 +903,11 @@ public struct VibeBuddyServer: Sendable {
                 // Codex Desktop runs no hook, so this session will never have a
                 // ref; its thread id is the target instead.
                 outcome = await onJumpToDesktopThread(thread)
+            } else if session?.agent == .cursor {
+                // Cursor publishes no deeplink that opens a chat by id, so the
+                // honest jump is: Cursor forward, with this session's workspace
+                // window in front when we know the folder.
+                outcome = await onJumpToCursor(session?.project)
             } else if let job = backgroundSessions().first(where: { $0.sessionID == sid }) {
                 // A Claude background session has no window: open one attached
                 // to it, in the terminal the user's other sessions run in.
@@ -872,6 +953,8 @@ public struct VibeBuddyServer: Sendable {
                 outcome = await dispatchMonitor.dispatch(req)
             } else if agent == .claudeCode {
                 outcome = await claudeLauncher.dispatch(req)
+            } else if agent == .cursor {
+                outcome = await cursorLauncher.dispatch(req)
             } else {
                 outcome = .unsupported("vibebuddy cannot start \(agent.displayName) sessions yet")
             }
@@ -888,6 +971,7 @@ public struct VibeBuddyServer: Sendable {
         // inferred from the live session; an expired Answer still does not
         // become steer, and stop is only ever explicit.
         let monitor = self.codexAppServerMonitor
+        let cursorTerminal: @Sendable () async -> String? = { await store.preferredTerminalProgram() }
         let dispatch = AnswerDispatch(store: store, questions: questionRegistry, inject: self.onAnswer,
                                       steer: { sessionID, text in
                                           await monitor?.steer(threadID: sessionID, text: text) ?? false
@@ -898,6 +982,14 @@ public struct VibeBuddyServer: Sendable {
                                       interrupt: { sessionID in
                                           await monitor?.interrupt(threadID: sessionID)
                                               ?? .notSent(String(localized: "This Mac isn't watching Codex."))
+                                      },
+                                      queueCursorFollowup: { sessionID, text in
+                                          await cursorFollowups.queue(conversationID: sessionID, text: text) != nil
+                                      },
+                                      resumeCursor: { session, text in
+                                          await CursorCLI.resume(conversationID: session.id, text: text,
+                                                                 cwd: session.project,
+                                                                 preferring: await cursorTerminal())
                                       },
                                       requests: self.actionRequests)
         authed.post("answer") { request, _ -> Response in
@@ -968,6 +1060,24 @@ public struct VibeBuddyServer: Sendable {
                         body: .init(byteBuffer: ByteBuffer(bytes: data)))
     }
 
+    /// Cursor's `preToolUse` reply that answers `AskQuestion` on the user's
+    /// behalf: deny the question, and tell the model what the person chose.
+    /// Denying is the delivery mechanism, not a refusal — the wording in both
+    /// messages says so, since `user_message` is what Cursor shows in the chat.
+    static func cursorAnswerResponse(_ agentMessage: String) -> Response {
+        let body: [String: Any] = [
+            "permission": "deny",
+            "user_message": "Answered from vibebuddy.",
+            "agent_message": agentMessage,
+        ]
+        guard JSONSerialization.isValidJSONObject(body),
+              let data = try? JSONSerialization.data(withJSONObject: body) else {
+            return Response(status: .ok)
+        }
+        return Response(status: .ok, headers: [.contentType: "application/json"],
+                        body: .init(byteBuffer: ByteBuffer(bytes: data)))
+    }
+
     /// The PreToolUse decision, in the shape the calling agent parses.
     ///
     /// Claude Code reads `hookSpecificOutput.permissionDecision`. Grok Build
@@ -979,7 +1089,15 @@ public struct VibeBuddyServer: Sendable {
                                    event: ApprovalPayload.Event = .preToolUse,
                                    updatedPermissions: Data? = nil) -> Response {
         let json: String
-        if agent == .grok {
+        if agent == .cursor {
+            // Cursor's own gate contract: a flat `permission` of allow/deny/ask,
+            // with an optional line for the person and one for the model. `ask`
+            // is never sent — that is what an empty body already means, and it
+            // is what a timeout answers with so Cursor shows its own prompt.
+            json = decision == "deny"
+                ? #"{"permission":"deny","user_message":"Denied from vibebuddy.","agent_message":"The user denied this from vibebuddy on their phone."}"#
+                : #"{"permission":"allow","user_message":"Approved from vibebuddy."}"#
+        } else if agent == .grok {
             json = decision == "deny"
                 ? #"{"decision":"deny","reason":"vibebuddy"}"#
                 : #"{"decision":"\#(decision)"}"#

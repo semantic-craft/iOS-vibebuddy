@@ -20,10 +20,17 @@ public enum SessionActionIntent: String, Codable, Sendable {
 public struct SessionActionSupport: Equatable, Sendable {
     public var intent: SessionActionIntent
     public var unsupportedReason: String?
+    /// Said when the action *is* available but does not land the way the intent
+    /// reads. Cursor is the case it exists for: it has no way to interrupt a
+    /// running turn, so a supplement is queued and Cursor's own `stop` hook
+    /// submits it the moment the turn ends. The composer shows this so nobody
+    /// taps Send expecting the agent to change course mid-tool-call.
+    public var note: String?
 
-    public init(intent: SessionActionIntent, unsupportedReason: String? = nil) {
+    public init(intent: SessionActionIntent, unsupportedReason: String? = nil, note: String? = nil) {
         self.intent = intent
         self.unsupportedReason = unsupportedReason
+        self.note = note
     }
 
     public var isAvailable: Bool { unsupportedReason == nil }
@@ -40,6 +47,7 @@ public struct SessionActionSupport: Equatable, Sendable {
                 (handling == .remoteAvailable ? WaitHandling.macNativePrompt.message : handling.message))
         }
         let intent: SessionActionIntent = session.status == .done ? .continue : .steer
+        if session.agent == .cursor { return cursorSupport(intent: intent, session: session) }
         guard session.agent == .codex else {
             return SessionActionSupport(
                 intent: intent,
@@ -80,7 +88,38 @@ public struct SessionActionSupport: Equatable, Sendable {
         }
     }
 
+    /// Cursor takes instructions, but never into the turn that is running.
+    ///
+    /// A supplement for a live turn is queued and handed to Cursor's own `stop`
+    /// hook, which submits it as the next message — Cursor's documented
+    /// auto-continuation, and the only remote write it offers. Continuing a
+    /// finished conversation goes the other way: `cursor-agent --resume` opens
+    /// the same chat in a terminal, so it needs the CLI to be installed and
+    /// signed in, which only the Mac can know. Both require vibebuddy's hooks,
+    /// so an unhooked Cursor session says so instead of promising delivery.
+    private static func cursorSupport(intent: SessionActionIntent,
+                                      session: AgentSession) -> SessionActionSupport {
+        guard session.observations?.contains(where: { $0.source == .hook }) == true else {
+            return SessionActionSupport(intent: intent,
+                unsupportedReason: String(localized: "Install vibebuddy's Cursor hooks to send instructions from here."))
+        }
+        switch intent {
+        case .steer:
+            return SessionActionSupport(intent: intent,
+                note: String(localized: "Cursor can't be interrupted mid-turn. This is queued and sent the moment the turn ends."))
+        case .continue:
+            return SessionActionSupport(intent: intent,
+                note: String(localized: "Continues this chat in a terminal with the Cursor CLI."))
+        default:
+            return SessionActionSupport(intent: intent)
+        }
+    }
+
     private static func stopUnsupportedReason(for agent: AgentKind) -> String {
+        if agent == .cursor {
+            // Cursor exposes no interrupt: not on its hooks, not on the CLI.
+            return String(localized: "Stop this in Cursor on your Mac.")
+        }
         if agent == .claudeCode {
             // No official remote interrupt contract; a tmux Escape is not one.
             return String(localized: "Stop this on your Mac.")

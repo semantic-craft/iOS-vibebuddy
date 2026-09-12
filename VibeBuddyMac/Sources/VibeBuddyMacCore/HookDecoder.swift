@@ -38,6 +38,10 @@ public enum HookDecoder {
             // Grok's envelope is camelCase keys with snake_case event values,
             // and it is the one CLI that tells the two outcomes apart.
             return GrokParser.parse(data, receivedAt: receivedAt)
+        case .cursor:
+            // Cursor: snake_case envelope keyed on `conversation_id`, with
+            // camelCase event names (`preToolUse`, `beforeShellExecution`, …).
+            return CursorParser.parse(data, receivedAt: receivedAt)
         case .antigravity:
             // Antigravity/Gemini: Claude-shape envelope but Gemini event names
             // (BeforeTool/AfterAgent/…), plus the Antigravity-2.0 spelling.

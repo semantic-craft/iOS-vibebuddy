@@ -139,6 +139,12 @@ public struct AnswerDispatch: Sendable {
     /// (with the reason), or sent without an answer — never retried here, and
     /// never followed by another method.
     public let interrupt: @Sendable (String) async -> CodexAppServerMonitor.InterruptOutcome
+    /// Queue a supplement for a running Cursor turn. Cursor has no mid-turn
+    /// write, so this is held until its `stop` hook collects it.
+    public let queueCursorFollowup: @Sendable (String, String) async -> Bool
+    /// Continue a finished Cursor chat by resuming it in a terminal
+    /// (`cursor-agent --resume <id>`). False when the CLI is unavailable.
+    public let resumeCursor: @Sendable (AgentSession, String) async -> Bool
     public let requests: ActionRequestLog
 
     public init(store: SessionStore, questions: QuestionRegistry,
@@ -147,6 +153,8 @@ public struct AnswerDispatch: Sendable {
                 startTurn: @escaping @Sendable (String, String) async -> Bool = { _, _ in false },
                 interrupt: @escaping @Sendable (String) async -> CodexAppServerMonitor.InterruptOutcome
                     = { _ in .notSent(String(localized: "This Mac cannot stop Codex tasks.")) },
+                queueCursorFollowup: @escaping @Sendable (String, String) async -> Bool = { _, _ in false },
+                resumeCursor: @escaping @Sendable (AgentSession, String) async -> Bool = { _, _ in false },
                 requests: ActionRequestLog = ActionRequestLog()) {
         self.store = store
         self.questions = questions
@@ -154,6 +162,8 @@ public struct AnswerDispatch: Sendable {
         self.steer = steer
         self.startTurn = startTurn
         self.interrupt = interrupt
+        self.queueCursorFollowup = queueCursorFollowup
+        self.resumeCursor = resumeCursor
         self.requests = requests
     }
 
@@ -208,6 +218,22 @@ public struct AnswerDispatch: Sendable {
         guard !typed.isEmpty else { return .failed("Empty instruction") }
 
         if intent == .steer {
+            // Cursor cannot be interrupted: the supplement is queued and its
+            // `stop` hook submits it when the turn ends. Accepted means queued
+            // for that moment, which is what the composer's note says.
+            if let session, session.agent == .cursor {
+                guard session.status != .done else {
+                    return .failed("This turn has already ended")
+                }
+                let support = SessionActionSupport.resolve(for: session)
+                guard support.isAvailable else {
+                    return .failed(support.unsupportedReason ?? "This agent can't take that action from here")
+                }
+                guard await queueCursorFollowup(session.id, typed) else {
+                    return .failed("Nothing was queued for Cursor")
+                }
+                return .accepted
+            }
             guard session?.agent == .codex else {
                 return .failed("\(session?.agent.displayName ?? "This agent") sessions can't take instructions from here")
             }
@@ -221,6 +247,17 @@ public struct AnswerDispatch: Sendable {
         }
 
         if intent == .continue {
+            // A finished Cursor chat is reopened by the CLI against the same
+            // conversation id, in a terminal the person can watch.
+            if let session, session.agent == .cursor {
+                guard session.status == .done else {
+                    return .failed("This session is still running")
+                }
+                guard await resumeCursor(session, typed) else {
+                    return .failed("This Mac can't resume Cursor chats — the Cursor CLI isn't available.")
+                }
+                return .accepted
+            }
             guard session?.agent == .codex else {
                 return .failed("\(session?.agent.displayName ?? "This agent") sessions can't continue from here")
             }
@@ -285,7 +322,7 @@ public struct AnswerDispatch: Sendable {
     /// everything else falls through to tmux.
     private func inferredIntent(session: AgentSession?, waiting: Bool, pending: PendingQuestion?) -> SessionActionIntent? {
         if waiting || pending != nil { return .answer }
-        guard session?.agent == .codex else { return nil }
+        guard session?.agent == .codex || session?.agent == .cursor else { return nil }
         return session?.status == .done ? .continue : .steer
     }
 

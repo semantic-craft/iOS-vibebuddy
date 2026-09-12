@@ -53,6 +53,11 @@ public enum EnvironmentDetector {
             CLISpec(name: "antigravity", configPath: "\(home)/.gemini/antigravity-cli"),
             CLISpec(name: "kimi",        configPath: "\(home)/.kimi-code/config.toml"),
             CLISpec(name: "opencode",    configPath: "\(home)/.config/opencode"),
+            // Cursor is configured by the presence of its own home directory —
+            // the IDE and the `cursor-agent` CLI share it — and its lifecycle
+            // hooks live in one user-level file beside it.
+            CLISpec(name: "cursor",      configPath: "\(home)/.cursor",
+                    hookPath: "\(home)/.cursor/hooks.json"),
         ]
     }
 

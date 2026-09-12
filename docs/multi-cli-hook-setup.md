@@ -36,6 +36,7 @@ The CLI pipes its event JSON on stdin. VibeBuddy reads `hook_event_name`,
 | Kimi | `kimi` | `~/.kimi/config.toml` | TOML hooks | ⚠️ template |
 | Antigravity (Gemini) | `antigravity` | `~/.gemini/antigravity-cli/hooks.json` | JSON `command` hooks | blocked: `agy` 1.0.5 loads but skips execution |
 | Grok Build | `grok` | `~/.grok/hooks/vibebuddy.json` | JSON `command` hooks (camelCase envelope) | ✅ tested (1.0.13) |
+| Cursor | `cursor` | `~/.cursor/hooks.json` (merged, user level) | JSON `command` hooks (camelCase event names); `--approval` gates `preToolUse` | ✅ wired (3.20; IDE acceptance pending) |
 | GitHub Copilot CLI | `copilot` | `~/.copilot/session-store.db` | read-only session history | history only |
 
 ✅ = wired and exercised. ⚠️ template = the source routing + display are done in
@@ -213,6 +214,64 @@ no external answer channel. In that mode vibebuddy can still surface the wait (t
 `permission_prompt` notification) and *deny*, but the approval must be tapped on the
 Mac.
 
+### Cursor (`~/.cursor/hooks.json`)
+
+```bash
+python3 hooks/install-cursor-hooks.py --dry-run     # preview the merged file
+python3 hooks/install-cursor-hooks.py --install     # merge vibebuddy's entries in
+python3 hooks/install-cursor-hooks.py --approval    # + the blocking phone-approval gate
+python3 hooks/install-cursor-hooks.py --uninstall   # remove only our entries
+```
+
+One user-level file serves both Cursor surfaces — the IDE's Agent panel and the
+`cursor-agent` CLI — and it is shared with whatever hooks you wrote yourself, so
+the installer **merges**: it only ever adds, replaces or removes entries whose
+command is one of vibebuddy's scripts, and a foreign entry keeps its place and
+its options (`failClosed` included). Cursor watches the file and reloads on save.
+
+Two details of Cursor's contract shape the wiring:
+
+- A user-level hook runs with `~/.cursor/` as its working directory, so every
+  command is written as an absolute path.
+- `preToolUse` fires for **every** tool, shell commands and MCP calls included,
+  before Cursor's own permission check. That makes it the single place for the
+  blocking gate; wiring `beforeShellExecution` as well would raise two cards for
+  one command.
+
+Installed events (Cursor's own camelCase names):
+
+| Family | Events | What vibebuddy does with them |
+|--------|--------|-------------------------------|
+| lifecycle | `sessionStart`, `sessionEnd` | open the session (model, workspace, transcript path), then drop it |
+| turn | `beforeSubmitPrompt`, `stop` | working → done; `stop.status` tells `completed` / `error` / `aborted` apart, so an abort you asked for is an ending, not a crash |
+| tool | `preToolUse`, `postToolUse`, `postToolUseFailure`, `afterFileEdit` | active tool (under canonical names) and the stuck cue |
+| output | `afterAgentResponse` | the agent's last words become the row's line |
+| context | `preCompact` | Cursor's real context-token and window figures |
+| topology | `subagentStart`, `subagentStop` | child-agent rows under the parent conversation |
+
+Sessions are keyed on `conversation_id` — the composer id — which is also what
+names the agent transcript and Cursor's own database row, so the hooks, the
+transcript tailer and the composer store describe one session rather than three.
+
+`stop` runs `hooks/cursor-followup.sh`, which forwards the ending *and* collects
+whatever the phone queued for a running turn (`{"followup_message": …}`). That is
+Cursor's documented auto-continuation and the only remote write it offers: Cursor
+has no interrupt and no mid-turn steer, so vibebuddy queues a supplement and
+Cursor picks it up the moment the turn ends. A finished chat is continued the
+other way, with `cursor-agent --resume <composer id>` in a terminal.
+
+`--approval` routes `preToolUse` through `hooks/approval-hook.sh cursor`, which
+answers Cursor's own `{"permission": "allow" | "deny"}` contract. The same gate
+carries Cursor's `AskQuestion` tool, so a question the agent asks becomes a card
+the phone can answer — delivered back as `agent_message`, because Cursor has no
+contract for returning a tool *result* from a hook. A timeout prints nothing,
+which Cursor reads as no opinion, and it asks in its own UI. Nothing here sets
+`failClosed`, so no vibebuddy hook can ever block Cursor.
+
+The Cursor CLI does not yet send every event the IDE does (`beforeSubmitPrompt`
+and `afterAgentResponse` among them). The agent-transcript tailer covers the
+gap — and covers Cursor entirely when no hooks are installed at all.
+
 ### Terminal capture (for jump-to-terminal)
 
 Jump-to-terminal needs to know which terminal each session runs in. A second hook,
@@ -264,3 +323,6 @@ e.g. `# vibebuddy: managed, do not remove`, and uninstall does
       marked hooks (Claude/Codex first, then the templates above)
 - [ ] Per-CLI event-shape validation against the real tools
 - [x] Copilot CLI read-only history (Wake database format; no lifecycle monitoring)
+- [x] Cursor: hooks + agent transcript + composer store, remote approval and
+      question answering, queued follow-ups, `--resume` continuation
+- [ ] Cursor Cloud Agents API (`/v0/agents`): needs a `CURSOR_API_KEY` of its own

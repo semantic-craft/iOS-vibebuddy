@@ -210,6 +210,24 @@ public struct SessionReducer: Sendable {
         return changed
     }
 
+    /// Cursor's own record of a conversation, copied onto the live row: the chat
+    /// title and the workspace it belongs to, which no hook or transcript
+    /// carries. Enrichment only — status, waits and completions stay with the
+    /// live sources, and an existing summary is not overwritten by Cursor's
+    /// one-line activity note. Returns whether anything changed.
+    public mutating func applyCursorComposer(_ composer: CursorComposer) -> Bool {
+        guard var s = sessions[composer.id], s.agent == .cursor else { return false }
+        var changed = false
+        if let name = composer.name, s.name != name { s.name = name; changed = true }
+        if let project = composer.project, !project.isEmpty, s.project != project {
+            s.project = project
+            changed = true
+        }
+        if s.summary == nil, let subtitle = composer.subtitle { s.summary = subtitle; changed = true }
+        if changed { sessions[composer.id] = s }
+        return changed
+    }
+
     /// A connection outage changes evidence health, never progress or last-seen time.
     mutating func markSourceHealth(agent: AgentKind, source: ObservationSource, health: ObservationHealth) {
         for (id, var session) in sessions where session.agent == agent {
