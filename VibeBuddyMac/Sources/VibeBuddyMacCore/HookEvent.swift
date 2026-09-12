@@ -97,6 +97,9 @@ public struct HookEvent: Sendable, Equatable {
     /// normalised and bounded. Feeds the recent-output pane only; the
     /// reducer never reads it.
     public let toolOutput: String?
+    public let permissionModeRaw: String?
+    public let approvalPolicyRaw: String?
+    public let sandboxPolicyRaw: String?
 
     public init(
         kind: Kind,
@@ -126,7 +129,10 @@ public struct HookEvent: Sendable, Equatable {
         completionSucceeded: Bool? = nil,
         sourceCompletionID: String? = nil,
         observeOnly: Bool = false,
-        toolOutput: String? = nil
+        toolOutput: String? = nil,
+        permissionModeRaw: String? = nil,
+        approvalPolicyRaw: String? = nil,
+        sandboxPolicyRaw: String? = nil
     ) {
         self.kind = kind
         self.sessionID = sessionID
@@ -156,6 +162,9 @@ public struct HookEvent: Sendable, Equatable {
         self.sourceCompletionID = sourceCompletionID
         self.observeOnly = observeOnly
         self.toolOutput = toolOutput
+        self.permissionModeRaw = permissionModeRaw
+        self.approvalPolicyRaw = approvalPolicyRaw
+        self.sandboxPolicyRaw = sandboxPolicyRaw
     }
 
     /// Mark this ending as the answer to a stop the user asked for.
@@ -169,7 +178,8 @@ public struct HookEvent: Sendable, Equatable {
             childAction: childAction, turnID: turnID, enrichment: enrichment,
             desktopThreadID: desktopThreadID, probeRetirement: probeRetirement, userStopped: true,
             completionText: completionText, completionSucceeded: completionSucceeded,
-            sourceCompletionID: sourceCompletionID, observeOnly: observeOnly, toolOutput: toolOutput)
+            sourceCompletionID: sourceCompletionID, observeOnly: observeOnly, toolOutput: toolOutput, permissionModeRaw: permissionModeRaw,
+            approvalPolicyRaw: approvalPolicyRaw, sandboxPolicyRaw: sandboxPolicyRaw)
     }
 
     /// Stamp the rollout file this event was tailed from, so a later read-only
@@ -184,6 +194,7 @@ public struct HookEvent: Sendable, Equatable {
             childAction: childAction, turnID: turnID, enrichment: enrichment,
             desktopThreadID: desktopThreadID, probeRetirement: probeRetirement, userStopped: userStopped,
             completionText: completionText, completionSucceeded: completionSucceeded, sourceCompletionID: sourceCompletionID,
-            observeOnly: observeOnly, toolOutput: toolOutput)
+            observeOnly: observeOnly, toolOutput: toolOutput, permissionModeRaw: permissionModeRaw,
+            approvalPolicyRaw: approvalPolicyRaw, sandboxPolicyRaw: sandboxPolicyRaw)
     }
 }

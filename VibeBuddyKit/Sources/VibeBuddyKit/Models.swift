@@ -473,6 +473,12 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     public var waitKind: WaitKind?
     public var pendingApproval: PendingApproval?
     public var pendingQuestion: PendingQuestion?
+    /// Optional fields preserve snapshots from peers predating permission metadata.
+    public var permissionMode: PermissionMode? = nil
+    public var permissionModeRaw: String? = nil
+    public var approvalPolicyRaw: String? = nil
+    public var sandboxPolicyRaw: String? = nil
+    public var permissionObservedAt: Date? = nil
     public var terminalRef: TerminalRef?
     /// The Codex Desktop thread this session *is*, when it was observed from a
     /// rollout rather than a terminal. Codex Desktop runs no CLI hook, so such a

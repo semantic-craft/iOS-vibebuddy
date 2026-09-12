@@ -545,6 +545,17 @@ private struct AgentCLIsPage: View {
                 }
             }
 
+            SettingsSection("Reported permission mode",
+                            footnote: "Latest observed session per agent. Mode describes the agent; real waiting requests still need you. Unknown is not autonomous. Codex approval and sandbox policies are independent.") {
+                ForEach([AgentKind.claudeCode, AgentKind.codex, AgentKind.cursor], id: \.rawValue) { (agent: AgentKind) in
+                    let latest = model.sessions.filter { $0.agent == agent }
+                        .max { ($0.permissionObservedAt ?? $0.updatedAt) < ($1.permissionObservedAt ?? $1.updatedAt) }
+                    SettingsRow(verbatim: agent.displayName) {
+                        SettingsValue(verbatim: latest?.permissionDescription ?? "Unknown")
+                    }
+                }
+            }
+
             SettingsSection("Maintenance",
                             footnote: "Wires (or removes) the vibebuddy hook in every detected CLI's config (~/.claude/settings.json …) via the bundled installer. Reversible. Re-run after installing a new CLI. Codex Desktop is monitored automatically from its local rollout stream; Codex CLI hooks still require explicit trust — start a fresh CLI session, run /hooks, review the VibeBuddy entries, and trust them.") {
                 SettingsRow("Hook installation",

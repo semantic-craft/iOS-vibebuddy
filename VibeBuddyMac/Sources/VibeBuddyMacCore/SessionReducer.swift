@@ -165,6 +165,21 @@ public struct SessionReducer: Sendable {
             applyChildLifecycle(event)
         }
         if event.kind != .sessionEnd {
+            if event.permissionModeRaw != nil || event.approvalPolicyRaw != nil || event.sandboxPolicyRaw != nil,
+               var session = sessions[event.sessionID],
+               event.timestamp >= (session.permissionObservedAt ?? .distantPast) {
+                if let raw = event.permissionModeRaw {
+                    session.permissionModeRaw = event.agent == .cursor ? nil : raw
+                    session.permissionMode = PermissionMode.reported(raw, by: event.agent)
+                }
+                if event.agent == .codex {
+                    if let policy = event.approvalPolicyRaw { session.approvalPolicyRaw = policy }
+                    if let sandbox = event.sandboxPolicyRaw { session.sandboxPolicyRaw = sandbox }
+                    session.permissionMode = .unknown
+                }
+                session.permissionObservedAt = event.timestamp
+                sessions[event.sessionID] = session
+            }
             if let name = event.sessionName { sessions[event.sessionID]?.name = name }
             // A Desktop thread id is a durable fact about the session, not about
             // this event: carry it onto the session so `/jump` can resolve a

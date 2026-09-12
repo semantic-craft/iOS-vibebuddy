@@ -37,7 +37,7 @@ public enum HookParser {
             }
             return HookEvent(kind: .sessionMetadataChanged, sessionID: sessionID, agent: agent,
                              cwd: raw.cwd, message: line, transcriptPath: raw.transcriptPath,
-                             timestamp: receivedAt)
+                             timestamp: receivedAt, permissionModeRaw: raw.permissionMode)
         }
 
         let message: String?
@@ -94,7 +94,8 @@ public enum HookParser {
             childType: child.type,
             childAction: child.action,
             completionText: raw.hookEventName == "Stop" ? raw.lastAssistantMessage : nil,
-            completionSucceeded: raw.hookEventName == "Stop"
+            completionSucceeded: raw.hookEventName == "Stop",
+            permissionModeRaw: raw.permissionMode
         )
         event.startsNewSession = agent == .claudeCode && raw.hookEventName == "SessionStart" && raw.source == "startup"
         return event
@@ -243,6 +244,7 @@ public enum HookParser {
         let teammateName: String?
         let teamName: String?
         let model: String?
+        let permissionMode: String?
         let toModel: String?
         let newCwd: String?
     }
