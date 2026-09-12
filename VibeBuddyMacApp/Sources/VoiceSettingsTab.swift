@@ -55,17 +55,19 @@ enum VoiceFeatureStatus: Equatable {
 
 // MARK: - The page
 
-struct VoiceSettingsTab: View {
+/// The three feature rows and the language they share. Keys live on their own
+/// page now, so a row that needs one links across instead of scrolling down.
+struct VoiceFeaturesPage: View {
     @ObservedObject var model: MenuBarModel
     @ObservedObject var tests: SettingsTestCoordinator
-    /// Lets a feature row's "no API key" status reveal the account it needs.
-    let scroll: ScrollViewProxy?
-    @StateObject private var credentials = SettingsCredentials()
+    @ObservedObject var credentials: SettingsCredentials
+    /// "No API key yet · Add it" — opens that provider on the keys page.
+    let reveal: (VoiceProvider) -> Void
+
     @AppStorage(VoiceSettings.providerKey) private var conversationChoice = VoiceProvider.qwen.rawValue
     @AppStorage(VoiceSettings.summaryProviderKey) private var summaryChoice: String?
     @AppStorage(VoiceSettings.readAloudProviderKey) private var readAloudChoice = ""
     @AppStorage(VoiceSettings.conversationLanguageKey) private var language = VoiceLanguage.english.rawValue
-    @State private var expandedAccount: VoiceProvider?
 
     private var conversationProvider: VoiceProvider? { VoiceProvider(rawValue: conversationChoice) }
     private var summaryProvider: VoiceProvider? {
@@ -77,59 +79,47 @@ struct VoiceSettingsTab: View {
         _ = summaryChoice
         return VoiceSettings.readAloudStatus()
     }
-    /// Which features currently point at a provider, for the account rows.
-    private func features(using provider: VoiceProvider) -> [VoiceFeature] {
-        var used: [VoiceFeature] = []
-        if conversationProvider == provider { used.append(.conversation) }
-        if summaryProvider == provider { used.append(.summaries) }
-        if readAloud.provider == provider { used.append(.readAloud) }
-        return used
-    }
-    private func reveal(_ provider: VoiceProvider) {
-        expandedAccount = provider
-        credentials[provider].load() // The user is about to edit it.
-        withAnimation { scroll?.scrollTo(provider, anchor: .center) }
-    }
 
     var body: some View {
-        Group {
-            Section("Features") {
-                ConversationFeatureRow(provider: conversationProvider, menuModel: model, tests: tests,
-                    credentials: credentials, selection: conversationSelection, reveal: reveal)
-                    // Identity per row, not per provider: three siblings sharing an
-                    // id collapse into one repeated row.
-                    .id("conversation-\(conversationChoice)")
-                SummaryFeatureRow(provider: summaryProvider, tests: tests, credentials: credentials,
-                    reader: model.readAloud, language: language,
-                    selection: summarySelection, reveal: reveal)
-                    .id("summaries-\(summaryProvider?.rawValue ?? "")")
-                ReadAloudFeatureRow(status: readAloud, summaryProvider: summaryProvider,
-                    reader: model.readAloud, voiceChat: model.voiceChat,
-                    tests: tests, credentials: credentials, selection: readAloudSelection, reveal: reveal)
-                    .id("readAloud-\(readAloud.provider?.rawValue ?? "")")
+        SettingsPageScaffold(SettingsPageID.voice.title, subtitle: SettingsPageID.voice.subtitle) {
+            SettingsSection("Features") {
+                SettingsBlockRow {
+                    ConversationFeatureRow(provider: conversationProvider, menuModel: model, tests: tests,
+                                           credentials: credentials, selection: conversationSelection,
+                                           reveal: reveal)
+                        // Identity per row, not per provider: three siblings
+                        // sharing an id collapse into one repeated row.
+                        .id("conversation-\(conversationChoice)")
+                }
+                SettingsBlockRow {
+                    SummaryFeatureRow(provider: summaryProvider, tests: tests, credentials: credentials,
+                                      reader: model.readAloud, language: language,
+                                      selection: summarySelection, reveal: reveal)
+                        .id("summaries-\(summaryProvider?.rawValue ?? "")")
+                }
+                SettingsBlockRow {
+                    ReadAloudFeatureRow(status: readAloud, summaryProvider: summaryProvider,
+                                        reader: model.readAloud, voiceChat: model.voiceChat,
+                                        tests: tests, credentials: credentials,
+                                        selection: readAloudSelection, reveal: reveal)
+                        .id("readAloud-\(readAloud.provider?.rawValue ?? "")")
+                }
             }
-            Section("Provider accounts") {
-                ForEach(VoiceProvider.allCases, id: \.rawValue) { provider in
-                    AccountRow(provider: provider, credential: credentials[provider], tests: tests,
-                        usedBy: features(using: provider),
-                        expanded: Binding(get: { expandedAccount == provider },
-                                          set: { expandedAccount = $0 ? provider : nil }))
-                        .id(provider)
+
+            SettingsSection("Shared",
+                            footnote: "Shared by all three features, and it decides which voice each provider defaults to.") {
+                SettingsRow("Conversation language") {
+                    Picker("", selection: $language) {
+                        Text("English").tag(VoiceLanguage.english.rawValue)
+                        Text(verbatim: "中文").tag(VoiceLanguage.chinese.rawValue)
+                    }
+                    .labelsHidden().pickerStyle(.segmented).fixedSize()
+                    .accessibilityLabel("Conversation language")
+                    .onChange(of: language) { _, _ in
+                        tests.invalidate()
+                        model.voiceChat.reloadProviderIfActive()
+                    }
                 }
-                Text("A key belongs to the provider, not to a feature: every feature that selects a provider uses the same key.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Section("Shared") {
-                Picker("Conversation language", selection: $language) {
-                    Text("English").tag(VoiceLanguage.english.rawValue)
-                    Text("中文").tag(VoiceLanguage.chinese.rawValue)
-                }
-                .onChange(of: language) { _, _ in
-                    tests.invalidate()
-                    model.voiceChat.reloadProviderIfActive()
-                }
-                Text("Shared by all three features, and it decides which voice each provider defaults to.")
-                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .onChange(of: conversationChoice) { _, _ in tests.invalidate(); model.voiceChat.reloadProviderIfActive() }
@@ -159,6 +149,45 @@ struct VoiceSettingsTab: View {
     }
     private var readAloudSelection: Binding<String> {
         Binding(get: { readAloudChoice }, set: { readAloudChoice = $0 })
+    }
+}
+
+/// One key per provider — the only place on any page that holds them.
+struct ProviderKeysPage: View {
+    @ObservedObject var tests: SettingsTestCoordinator
+    @ObservedObject var credentials: SettingsCredentials
+    @Binding var expanded: VoiceProvider?
+
+    @AppStorage(VoiceSettings.providerKey) private var conversationChoice = VoiceProvider.qwen.rawValue
+    @AppStorage(VoiceSettings.summaryProviderKey) private var summaryChoice: String?
+    @AppStorage(VoiceSettings.readAloudProviderKey) private var readAloudChoice = ""
+
+    var body: some View {
+        SettingsPageScaffold(SettingsPageID.providerKeys.title,
+                             subtitle: SettingsPageID.providerKeys.subtitle) {
+            SettingsSection("Accounts",
+                            footnote: "A key belongs to the provider, not to a feature: every feature that selects a provider uses the same key. Kept in the Keychain, once per provider.") {
+                ForEach(VoiceProvider.allCases, id: \.rawValue) { provider in
+                    SettingsBlockRow {
+                        AccountRow(provider: provider, credential: credentials[provider], tests: tests,
+                                   usedBy: features(using: provider),
+                                   expanded: Binding(get: { expanded == provider },
+                                                     set: { expanded = $0 ? provider : nil }))
+                    }
+                }
+            }
+        }
+    }
+
+    /// Which features currently point at a provider, for the account rows.
+    private func features(using provider: VoiceProvider) -> [VoiceFeature] {
+        _ = summaryChoice
+        _ = readAloudChoice
+        var used: [VoiceFeature] = []
+        if VoiceProvider(rawValue: conversationChoice) == provider { used.append(.conversation) }
+        if VoiceSettings.summaryProvider() == provider { used.append(.summaries) }
+        if VoiceSettings.readAloudStatus().provider == provider { used.append(.readAloud) }
+        return used
     }
 }
 

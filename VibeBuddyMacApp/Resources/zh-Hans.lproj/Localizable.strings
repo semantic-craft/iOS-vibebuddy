@@ -21,6 +21,13 @@
 "Browsing…" = "联网查询…";
 "Delegating…" = "调度子任务…";
 "Planning…" = "规划中…";
+"Coordinating…" = "协同中…";
+"Waiting…" = "等待中…";
+"Needs approval" = "待批准";
+"Needs input" = "待输入";
+"Ready" = "已就绪";
+"Stopped with an issue" = "出错中断";
+"History · read only" = "历史 · 只读";
 "Tap the pet to talk" = "点一下宠物开始说话";
 "Listening…" = "聆听中…";
 "Speaking…" = "说话中…";
@@ -50,6 +57,10 @@
 "· matching “%@”" = "· 匹配“%@”";
 "%lld still need you" = "还有 %lld 件等你";
 "Needs you" = "等你处理";
+"Collapse" = "收起";
+"Expand" = "展开";
+"Start voice conversation" = "开始语音对话";
+"End voice conversation" = "结束语音对话";
 "No matches for “%@”" = "没有匹配“%@”的任务";
 "Try another word, or ⌘K for commands." = "换个词试试，或按 ⌘K 输入命令。";
 "Dashboard" = "仪表盘";

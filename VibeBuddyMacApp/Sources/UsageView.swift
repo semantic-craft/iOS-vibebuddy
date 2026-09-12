@@ -179,9 +179,110 @@ struct AccountUsageSummaryView: View {
         }
     }
 }
-struct AccountUsageSettings: View {
+
+/// What each account has left. The live meters are the point of the page, so
+/// the only setting on it is the threshold that turns them into an alert.
+struct PlanAndQuotaPage: View {
     @ObservedObject var model: MenuBarModel
     @AppStorage("accountUsageAlertThreshold") private var alertThreshold = 90
+
+    private let columns = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
+
+    var body: some View {
+        SettingsPageScaffold(SettingsPageID.quota.title, subtitle: SettingsPageID.quota.subtitle) {
+            SettingsSection("Alerts",
+                            footnote: "One threshold applies to every provider. Alerts identify the provider, respect Quiet mode and Quiet hours, and are not repeated after restart.") {
+                SettingsRow("Quota alert",
+                            detail: "Warn me when any window crosses this much of its allowance.") {
+                    Picker("", selection: $alertThreshold) {
+                        Text("Off").tag(0)
+                        Text("80%").tag(80)
+                        Text("90%").tag(90)
+                        Text("95%").tag(95)
+                    }
+                    .labelsHidden().fixedSize()
+                    .accessibilityLabel("Quota alert threshold")
+                }
+            }
+
+            SettingsSection("Current usage",
+                            footnote: "Read from each vendor's own local login. Local login credentials are never copied to storage, and no account IDs or raw responses are logged.",
+                            boxed: false) {
+                LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
+                    ForEach(AccountUsageProvider.allCases, id: \.self) { provider in
+                        QuotaPanel(provider: provider, state: model.usageState(for: provider))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// One provider's own panel on the quota page.
+private struct QuotaPanel: View {
+    let provider: AccountUsageProvider
+    let state: AccountUsageState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(verbatim: provider.displayName)
+                .font(SettingsChrome.font(13, .bold))
+                .foregroundStyle(MacTheme.ink)
+            AccountUsageSummaryView(provider: provider, state: state)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(MacTheme.bg2)
+        .clipShape(RoundedRectangle(cornerRadius: SettingsChrome.cardRadius, style: .continuous))
+    }
+}
+
+/// What this Mac has spent locally, and the per-session budget that warns about
+/// it. Distinct from the quota page: this is read from transcripts on disk, not
+/// from any account.
+struct TokenSpendPage: View {
+    @ObservedObject var model: MenuBarModel
+    @AppStorage("notifyOnNeedsResponse") private var notify = true
+    @AppStorage("sessionBudgetUSD") private var budgetUSD = 0.0
+
+    var body: some View {
+        SettingsPageScaffold(SettingsPageID.tokenSpend.title,
+                             subtitle: SettingsPageID.tokenSpend.subtitle) {
+            SettingsSection("Alerts") {
+                SettingsRow("Budget alert per session",
+                            detail: "A gentle heads-up when a session's estimated spend crosses this amount. Cost is a rough estimate from token usage.") {
+                    Picker("", selection: $budgetUSD) {
+                        Text("Off").tag(0.0)
+                        Text("$1").tag(1.0)
+                        Text("$2").tag(2.0)
+                        Text("$5").tag(5.0)
+                        Text("$10").tag(10.0)
+                        Text("$20").tag(20.0)
+                    }
+                    .labelsHidden().fixedSize()
+                    .disabled(!notify)
+                    .accessibilityLabel("Budget alert per session")
+                }
+            }
+
+            SettingsSection("Local spend", boxed: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    TokenConsumptionSummaryView(snapshot: model.tokenConsumption)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(MacTheme.bg2)
+                .clipShape(RoundedRectangle(cornerRadius: SettingsChrome.cardRadius, style: .continuous))
+            }
+        }
+    }
+}
+
+/// Where the quota and spend numbers are read from, and the logins they need.
+struct UsageSourcesPage: View {
+    @ObservedObject var model: MenuBarModel
     @State private var cursorCookie: String = CursorSessionCookieStore.loadManual() ?? ""
     @State private var cursorCookieMode: CursorCookieSourceMode = CursorCookieSourceSettings.mode()
     @State private var cursorImportMessage: String?
@@ -190,143 +291,125 @@ struct AccountUsageSettings: View {
     @FocusState private var cursorCookieFocused: Bool
 
     var body: some View {
-        Group {
-            Section {
-                ForEach(AccountUsageProvider.allCases, id: \.self) { provider in
-                    Toggle("Collect \(provider.displayName) usage", isOn: Binding(
-                        get: { model.isUsageCollectionEnabled(provider) },
-                        set: { model.setUsageCollectionEnabled($0, provider: provider) }
-                    ))
-                }
-            } header: {
-                Text("Providers")
-            } footer: {
-                Text("Codex reads its official local app-server. Claude runs the official read-only /usage command without session persistence or hooks. Grok asks its own agent process for the billing summary and falls back to the CLI billing proxy with the local login token when needed. Cursor reads its selected CLI login, local app login, or browser/manual Cookie. Local login credentials are never copied to storage. No account IDs or raw responses are logged. Turning a source off leaves session monitoring and notifications running.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+        SettingsPageScaffold(SettingsPageID.usageSources.title,
+                             subtitle: SettingsPageID.usageSources.subtitle) {
+            SettingsSection("Collect usage from",
+                            footnote: "Codex reads its official local app-server. Claude runs the official read-only /usage command. Grok asks its own agent process for the billing summary. Cursor reads its selected CLI login, local app login, or browser/manual Cookie. Turning a source off leaves session monitoring and notifications running.") {
+                SettingsGrid(items: AccountUsageProvider.allCases.map { provider in
+                    SettingsGrid.Item(id: provider.rawValue, verbatim: provider.displayName) {
+                        Toggle("", isOn: Binding(
+                            get: { model.isUsageCollectionEnabled(provider) },
+                            set: { model.setUsageCollectionEnabled($0, provider: provider) }))
+                            .labelsHidden().toggleStyle(.switch)
+                    }
+                })
             }
 
-            Section("Grok Bot") {
-                Button("Authorize Grok Bot account access…") {
-                    guard E2ERunConfiguration.current == nil else { return }
-                    isAuthorizingGrokBot = true
-                    Task {
-                        defer { isAuthorizingGrokBot = false }
-                        do {
-                            _ = try await GrokBotLocalAccount.load(allowPrompt: true)
-                            _ = try await GrokBotLocalAccount.load()
-                            grokBotAuthorization = "Access authorized. Enable collection and refresh Grok Bot usage."
-                        } catch {
-                            grokBotAuthorization = "Background access unavailable. Sign in to Grok Bot and authorize Keychain access for future reads."
-                        }
-                    }
-                }
-                .disabled(isAuthorizingGrokBot || E2ERunConfiguration.current != nil)
-                Text(grokBotAuthorization ?? "Reads the active official Grok Bot account. Background refresh never opens a Keychain prompt. Expired login must be renewed in Grok Bot.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-
-            Section {
-                Picker("Login source", selection: $cursorCookieMode) {
-                    ForEach(CursorCookieSourceMode.allCases) { mode in
-                        Text(mode.displayName).tag(mode)
-                    }
-                }
-                .onChange(of: cursorCookieMode) { _, mode in
-                    CursorCookieSourceSettings.setMode(mode)
-                }
-
-                if cursorCookieMode == .cursorCLI {
-                    Text("Uses only Cursor CLI login; the desktop app is not required. Run cursor-agent login if signed out or expired. If Keychain access is unavailable, unlock the login Keychain or select another login source.").font(.caption)
-                } else if cursorCookieMode == .cursorApp {
-                    Text("Uses the account signed in to Cursor on this Mac. If the session expires, sign in again in Cursor and refresh.").font(.caption)
-                } else if cursorCookieMode == .manual {
-                    SecureField("Cookie header from cursor.com", text: $cursorCookie)
-                        .textFieldStyle(.roundedBorder)
-                        .focused($cursorCookieFocused)
-                        .onSubmit { CursorSessionCookieStore.saveManual(cursorCookie) }
-                        .onChange(of: cursorCookieFocused) { _, focused in
-                            if !focused {
-                                CursorSessionCookieStore.saveManual(cursorCookie)
-                            }
-                        }
-                    Button("Paste Cookie") {
-                        guard let pasted = NSPasteboard.general.string(forType: .string) else { return }
-                        let trimmed = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !trimmed.isEmpty else { return }
-                        cursorCookie = trimmed
-                        CursorSessionCookieStore.saveManual(trimmed)
-                    }
-                    .accessibilityIdentifier("paste-cursorCookie")
-                } else {
-                    Button("Import Cookie from browser now") {
+            SettingsSection("Grok Bot") {
+                SettingsRow("Account access",
+                            detail: grokBotAuthorization
+                            ?? String(localized: "Reads the active official Grok Bot account. Background refresh never opens a Keychain prompt. Expired login must be renewed in Grok Bot.")) {
+                    Button("Authorize…") {
                         guard E2ERunConfiguration.current == nil else { return }
-                        cursorImportMessage = nil
+                        isAuthorizingGrokBot = true
                         Task {
-                        do {
-                            let header = try await Task.detached(priority: .utility) {
-                                try CursorBrowserCookieImporter().importSessionCookieHeader(allowKeychainPrompt: true)
-                            }.value
-                            if let status = CursorSessionCookieStore.saveImportedIfChanged(header), status != 0 {
-                                cursorImportMessage = "Could not save the imported session (Keychain error \(status))."
-                                return
-                            }
-                            cursorImportMessage = "Imported a Cursor session cookie from the browser."
-                        } catch {
-                            cursorImportMessage = "No usable Cursor session found in the browser. Paste a Cookie header, or sign in at cursor.com and try again."
-                        }
-                    }
-                    }
-                    .disabled(E2ERunConfiguration.current != nil)
-                    .accessibilityIdentifier("import-cursorCookie")
-                    if let cursorImportMessage {
-                        Text(cursorImportMessage)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    SecureField("Manual fallback Cookie", text: $cursorCookie)
-                        .textFieldStyle(.roundedBorder)
-                        .focused($cursorCookieFocused)
-                        .onSubmit { CursorSessionCookieStore.saveManual(cursorCookie) }
-                        .onChange(of: cursorCookieFocused) { _, focused in
-                            if !focused {
-                                CursorSessionCookieStore.saveManual(cursorCookie)
+                            defer { isAuthorizingGrokBot = false }
+                            do {
+                                _ = try await GrokBotLocalAccount.load(allowPrompt: true)
+                                _ = try await GrokBotLocalAccount.load()
+                                grokBotAuthorization = String(localized: "Access authorized. Enable collection and refresh Grok Bot usage.")
+                            } catch {
+                                grokBotAuthorization = String(localized: "Background access unavailable. Sign in to Grok Bot and authorize Keychain access for future reads.")
                             }
                         }
-                }
-            } header: {
-                Text("Cursor session")
-            } footer: {
-                Text("Paste mode stores the Cookie in a Keychain slot separate from browser import. Browser import reads Safari/Chrome/Firefox cookies for cursor.com (may prompt for Keychain or Full Disk Access); refresh writes the imported slot only when the value changes and falls back to the manual Cookie.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("Quota alert") {
-                Picker("Quota alert", selection: $alertThreshold) {
-                    Text("Off").tag(0)
-                    Text("80%").tag(80)
-                    Text("90%").tag(90)
-                    Text("95%").tag(95)
-                }
-                Text("One threshold applies to every provider. Alerts identify the provider, respect quiet mode and quiet hours, and are not repeated after restart.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("Current usage") {
-                ForEach(AccountUsageProvider.allCases, id: \.self) { provider in
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(provider.displayName).font(.headline)
-                        AccountUsageSummaryView(
-                            provider: provider,
-                            state: model.usageState(for: provider)
-                        )
                     }
-                    .padding(.vertical, 3)
+                    .disabled(isAuthorizingGrokBot || E2ERunConfiguration.current != nil)
                 }
             }
+
+            SettingsSection("Cursor session",
+                            footnote: "Paste mode stores the Cookie in a Keychain slot separate from browser import. Browser import reads Safari/Chrome/Firefox cookies for cursor.com (may prompt for Keychain or Full Disk Access); refresh writes the imported slot only when the value changes and falls back to the manual Cookie.") {
+                SettingsRow("Login source", detail: cursorModeDetail) {
+                    Picker("", selection: $cursorCookieMode) {
+                        ForEach(CursorCookieSourceMode.allCases) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+                    .labelsHidden().fixedSize()
+                    .accessibilityLabel("Cursor login source")
+                    .onChange(of: cursorCookieMode) { _, mode in
+                        CursorCookieSourceSettings.setMode(mode)
+                    }
+                }
+
+                if cursorCookieMode == .manual {
+                    SettingsRow("Cookie header from cursor.com") {
+                        HStack(spacing: 8) {
+                            cookieField(prompt: "Cookie header from cursor.com")
+                            Button("Paste") {
+                                guard let pasted = NSPasteboard.general.string(forType: .string) else { return }
+                                let trimmed = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+                                guard !trimmed.isEmpty else { return }
+                                cursorCookie = trimmed
+                                CursorSessionCookieStore.saveManual(trimmed)
+                            }
+                            .accessibilityIdentifier("paste-cursorCookie")
+                        }
+                    }
+                } else if cursorCookieMode == .browserAuto {
+                    SettingsRow("Browser import", detail: cursorImportMessage) {
+                        Button("Import now") {
+                            guard E2ERunConfiguration.current == nil else { return }
+                            cursorImportMessage = nil
+                            Task {
+                                do {
+                                    let header = try await Task.detached(priority: .utility) {
+                                        try CursorBrowserCookieImporter().importSessionCookieHeader(allowKeychainPrompt: true)
+                                    }.value
+                                    if let status = CursorSessionCookieStore.saveImportedIfChanged(header), status != 0 {
+                                        cursorImportMessage = String(localized: "Could not save the imported session (Keychain error \(status)).")
+                                        return
+                                    }
+                                    cursorImportMessage = String(localized: "Imported a Cursor session cookie from the browser.")
+                                } catch {
+                                    cursorImportMessage = String(localized: "No usable Cursor session found in the browser. Paste a Cookie header, or sign in at cursor.com and try again.")
+                                }
+                            }
+                        }
+                        .disabled(E2ERunConfiguration.current != nil)
+                        .accessibilityIdentifier("import-cursorCookie")
+                    }
+                    SettingsRow("Manual fallback Cookie") {
+                        cookieField(prompt: "Manual fallback Cookie")
+                    }
+                }
+            }
+        }
+    }
+
+    private func cookieField(prompt: LocalizedStringKey) -> some View {
+        SecureField(prompt, text: $cursorCookie)
+            .textFieldStyle(.roundedBorder)
+            .labelsHidden()
+            .frame(width: 240)
+            .focused($cursorCookieFocused)
+            .accessibilityLabel(prompt)
+            .onSubmit { CursorSessionCookieStore.saveManual(cursorCookie) }
+            .onChange(of: cursorCookieFocused) { _, focused in
+                if !focused { CursorSessionCookieStore.saveManual(cursorCookie) }
+            }
+    }
+
+    private var cursorModeDetail: String {
+        switch cursorCookieMode {
+        case .cursorCLI:
+            String(localized: "Uses only Cursor CLI login; the desktop app is not required. Run cursor-agent login if signed out or expired.")
+        case .cursorApp:
+            String(localized: "Uses the account signed in to Cursor on this Mac. If the session expires, sign in again in Cursor and refresh.")
+        case .manual:
+            String(localized: "Stored in a Keychain slot separate from browser import.")
+        default:
+            String(localized: "Reads Safari/Chrome/Firefox cookies for cursor.com, with the manual Cookie as a fallback.")
         }
     }
 }
