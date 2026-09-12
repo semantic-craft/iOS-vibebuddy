@@ -21,11 +21,54 @@ struct AccountQuotaView: View {
                             }
                         }
                     } footer: {
-                        Text("Token spend is from local Claude Code and Codex logs on the Mac. Account quota is remaining allowance. Neither is a billed invoice.")
+                        Text("Account quota is what each account has left. Token spend below is estimated from local Claude Code and Codex logs on the Mac — not an invoice.")
+                    }
+                    // Demo mode has readings but no pairing, and a forgotten
+                    // pairing still has its last saved readings worth showing.
+                    if connection.pairing != nil || connection.demo {
+                        ForEach(AccountUsageProvider.allCases) { provider in
+                            let quota = dashboard.lastProviderQuota.first { $0.provider == provider }
+                            Section("\(provider.displayName) quota") {
+                                if let quota {
+                                    if let account = quota.accountLabel {
+                                        Text(account).font(.caption).foregroundStyle(.secondary)
+                                    }
+                                    let windows = Self.windows(quota)
+                                    if windows.isEmpty {
+                                        Text("Quota unavailable")
+                                        if let observed = quota.observedAt {
+                                            Text("Updated: \(observed.formatted(date: .abbreviated, time: .shortened))")
+                                                .font(.caption).foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    ForEach(Array(windows.enumerated()), id: \.offset) { _, window in
+                                        reading(window, now: context.date)
+                                    }
+                                    if let credits = quota.credits {
+                                        LabeledContent(credits.label ?? "Credits", value: QuotaPresentation.creditsLine(credits))
+                                        if let reset = credits.resetsAt {
+                                            Text(QuotaPresentation.resetLine(from: reset, now: context.date))
+                                                .font(.caption).foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    if let spend = quota.spend, !spend.isEmpty {
+                                        ForEach(spend) { row in
+                                            LabeledContent(row.label, value: QuotaPresentation.spendLine(row))
+                                        }
+                                    }
+                                    if let reason = quota.unavailableReason {
+                                        Text(reason).font(.callout).foregroundStyle(.secondary)
+                                    }
+                                } else {
+                                    Text("Not provided by this Mac")
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
                     }
                     if let consumption = dashboard.lastTokenConsumption {
                         ForEach(consumption.windows) { window in
-                            Section(window.kind.title) {
+                            Section("Token spend · \(window.kind.title)") {
                                 if window.counts.isEmpty {
                                     Text("No spend in this window")
                                         .foregroundStyle(.secondary)
@@ -68,47 +111,6 @@ struct AccountQuotaView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
-                    if connection.pairing != nil {
-                        ForEach(AccountUsageProvider.allCases) { provider in
-                            let quota = dashboard.lastProviderQuota.first { $0.provider == provider }
-                            Section("\(provider.displayName) quota") {
-                                if let quota {
-                                    if let account = quota.accountLabel {
-                                        Text(account).font(.caption).foregroundStyle(.secondary)
-                                    }
-                                    let windows = Self.windows(quota)
-                                    if windows.isEmpty {
-                                        Text("Quota unavailable")
-                                        if let observed = quota.observedAt {
-                                            Text("Updated: \(observed.formatted(date: .abbreviated, time: .shortened))")
-                                                .font(.caption).foregroundStyle(.secondary)
-                                        }
-                                    }
-                                    ForEach(Array(windows.enumerated()), id: \.offset) { _, window in
-                                        reading(window, now: context.date)
-                                    }
-                                    if let credits = quota.credits {
-                                        LabeledContent(credits.label ?? "Credits", value: QuotaPresentation.creditsLine(credits))
-                                        if let reset = credits.resetsAt {
-                                            Text(QuotaPresentation.resetLine(from: reset, now: context.date))
-                                                .font(.caption).foregroundStyle(.secondary)
-                                        }
-                                    }
-                                    if let spend = quota.spend, !spend.isEmpty {
-                                        ForEach(spend) { row in
-                                            LabeledContent(row.label, value: QuotaPresentation.spendLine(row))
-                                        }
-                                    }
-                                    if let reason = quota.unavailableReason {
-                                        Text(reason).font(.callout).foregroundStyle(.secondary)
-                                    }
-                                } else {
-                                    Text("Not provided by this Mac")
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                    }
                 }
             }
             .navigationTitle("Usage")
@@ -139,39 +141,60 @@ struct AccountQuotaView: View {
         return "\(label) · \(duration)"
     }
 
+    /// The same reading the Mac draws: a bullet with the spent bar over
+    /// neutral 80/95 bands and a tick at the window's own pace, so "am I
+    /// burning this faster than the clock" survives the trip to the phone.
     private func reading(_ window: QuotaWindow, now: Date) -> some View {
         let status = window.status(now: now)
         let remaining = window.currentRemainingPercent(now: now)
-        return VStack(alignment: .leading, spacing: 6) {
-            Text(Self.title(window)).font(.headline)
-            if let remaining {
-                Text(QuotaPresentation.remainingLine(remainingPercent: remaining)).monospacedDigit()
-                ProgressView(value: Double(remaining), total: 100)
-            } else { Text("Remaining unknown") }
-            switch status {
-            case .awaitingReset:
-                Text("Reset reached · awaiting update")
-            case .unavailable:
-                Text("Reading unavailable")
-            case .stale:
-                Text("Stale · cached reading")
-            case .live:
-                Text(dashboard.state == .connected ? "Recent Mac reading" : "Cached · Mac unreachable")
+        let used = remaining.map { 100 - $0 }
+        let pace = window.durationMinutes.flatMap { minutes in
+            window.resetsAt.flatMap {
+                QuotaPresentation.pacePercent(resetsAt: $0, windowMinutes: minutes, now: now)
             }
-            if let reset = window.resetsAt {
-                Text(QuotaPresentation.resetLine(from: reset, now: now))
-            } else { Text("Reset time unknown") }
-            if let remaining, let minutes = window.durationMinutes, minutes >= 10_080,
-               let reset = window.resetsAt,
-               let pace = QuotaPresentation.weeklyPace(
-                usedPercent: 100 - remaining, resetsAt: reset, windowMinutes: minutes, now: now) {
-                Text(pace.caption).font(.caption).foregroundStyle(.secondary)
-            }
-            if let observed = window.observedAt {
-                Text("Updated: \(observed.formatted(date: .abbreviated, time: .shortened))")
-            } else { Text("Update time unknown") }
         }
-        .font(.callout)
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(Self.title(window)).font(.subheadline.weight(.semibold))
+                Spacer(minLength: 8)
+                if let remaining {
+                    Text("\(remaining)% left").monospacedDigit()
+                        .foregroundStyle(QuotaPresentation.severity(usedPercent: 100 - remaining).tint)
+                } else {
+                    Text("Remaining unknown").foregroundStyle(.secondary)
+                }
+            }
+            if let used {
+                QuotaBullet(usedPercent: used, pacePercent: pace, height: 14)
+            }
+            Group {
+                switch status {
+                case .awaitingReset: Text("Reset reached · awaiting update")
+                case .unavailable: Text("Reading unavailable")
+                case .stale: Text("Stale · cached reading")
+                case .live: Text(dashboard.state == .connected ? "Recent Mac reading" : "Cached · Mac unreachable")
+                }
+                if let reset = window.resetsAt {
+                    Text(QuotaPresentation.resetLine(from: reset, now: now))
+                } else {
+                    Text("Reset time unknown")
+                }
+                if let remaining, let minutes = window.durationMinutes, minutes >= 60,
+                   let reset = window.resetsAt,
+                   let pace = QuotaPresentation.weeklyPace(
+                    usedPercent: 100 - remaining, resetsAt: reset, windowMinutes: minutes, now: now) {
+                    Text(pace.caption)
+                        .foregroundStyle(pace == .ahead ? QuotaPresentation.Severity.warning.tint : Color.secondary)
+                }
+                if let observed = window.observedAt {
+                    Text("Updated \(observed.formatted(date: .abbreviated, time: .shortened))")
+                } else {
+                    Text("Update time unknown")
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
         .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
     }
