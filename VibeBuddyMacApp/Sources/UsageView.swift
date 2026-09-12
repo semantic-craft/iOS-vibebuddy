@@ -21,31 +21,31 @@ struct AccountUsageSummaryView: View {
     private func summary(now: Date) -> some View {
             if let snapshot = state.snapshot?.excludingExpiredGrokWindows(at: now) {
                 if let account = snapshot.accountLabel {
-                    Text(account).font(.caption).foregroundStyle(.secondary)
+                    Text(account).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 }
                 if let detail = snapshot.usageDetail {
-                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                    Text(detail).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 }
                 if let available = snapshot.hasAvailableUsage {
-                    Text(available ? "Usage available" : "No usage available").font(.caption)
-                        .foregroundStyle(available ? Color.secondary : Color.orange)
+                    Text(available ? "Usage available" : "No usage available").font(MacTheme.font(10))
+                        .foregroundStyle(available ? MacTheme.ink2 : Color.orange)
                 }
                 if provider == .grokBot, snapshot.primary == nil, snapshot.usageDetail == nil {
-                    Text("Weekly percentage unavailable").foregroundStyle(.secondary)
+                    Text("Weekly percentage unavailable").foregroundStyle(MacTheme.ink2)
                 }
                 if provider == .grok, snapshot.primary == nil {
                     if state.unavailableReason != .unknown {
-                        Text("Usage is temporarily unavailable").foregroundStyle(.secondary)
+                        Text("Usage is temporarily unavailable").foregroundStyle(MacTheme.ink2)
                     }
                     if let end = snapshot.periodEnd {
                         Text("Period ends \(end.formatted(date: .abbreviated, time: .shortened))")
-                            .font(.caption2).foregroundStyle(.secondary)
+                            .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                     }
                 }
                 if snapshot.displayWindows.isEmpty {
                     if provider != .grok && provider != .grokBot {
                         Label("No quota windows supplied", systemImage: "gauge.with.dots.needle.0percent")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(MacTheme.ink2)
                     }
                 } else {
                     ForEach(snapshot.displayWindows) { window in
@@ -55,17 +55,17 @@ struct AccountUsageSummaryView: View {
 
                 if let credits = snapshot.credits {
                     LabeledContent(credits.label ?? "Credits", value: QuotaPresentation.creditsLine(credits))
-                        .font(.caption)
+                        .font(MacTheme.font(10))
                     if let reset = credits.resetsAt {
                         Text(QuotaPresentation.resetLine(from: reset, now: now))
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .font(MacTheme.font(10))
+                            .foregroundStyle(MacTheme.ink2)
                     }
                 }
                 if let spend = snapshot.spend, !spend.isEmpty {
                     ForEach(spend) { row in
                         LabeledContent(row.label, value: QuotaPresentation.spendLine(row))
-                            .font(.caption)
+                            .font(MacTheme.font(10))
                     }
                 }
 
@@ -78,7 +78,7 @@ struct AccountUsageSummaryView: View {
                             LabeledContent("Lifetime", value: tokens.formatted())
                         }
                     }
-                    .font(.caption)
+                    .font(MacTheme.font(10))
                 }
 
                 HStack(spacing: 5) {
@@ -90,19 +90,19 @@ struct AccountUsageSummaryView: View {
                         Text("· Stale").foregroundStyle(.orange)
                     }
                 }
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+                .font(MacTheme.font(10))
+                .foregroundStyle(MacTheme.ink2)
             }
 
             if let reason = state.unavailableReason {
                 Label(reason.displayText(provider: provider), systemImage: reasonIcon(reason))
-                    .font(.caption)
-                    .foregroundStyle(reason == .collectionDisabled ? Color.secondary : Color.orange)
+                    .font(MacTheme.font(10))
+                    .foregroundStyle(reason == .collectionDisabled ? MacTheme.ink2 : Color.orange)
                     .fixedSize(horizontal: false, vertical: true)
                 if reason != .collectionDisabled, let retry = state.nextRefreshAt, retry > now {
                     Text("Retry \(retry, style: .relative)")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                        .font(MacTheme.font(10))
+                        .foregroundStyle(MacTheme.ink3)
                 }
             }
     }
@@ -110,10 +110,10 @@ struct AccountUsageSummaryView: View {
     private func windowRow(_ window: AccountUsageWindow, now: Date) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(windowTitle(window)).font(.caption.weight(.semibold))
+                Text(windowTitle(window)).font(MacTheme.font(10, .semibold))
                 Spacer(minLength: 4)
                 Text(QuotaPresentation.remainingLine(usedPercent: window.usedPercent))
-                    .font(.caption.monospacedDigit())
+                    .font(MacTheme.font(10).monospacedDigit())
                     .foregroundStyle(QuotaPresentation.severity(usedPercent: window.usedPercent).tint)
             }
             QuotaBullet(usedPercent: window.usedPercent,
@@ -121,12 +121,12 @@ struct AccountUsageSummaryView: View {
                         height: compact ? 10 : 12)
             if let reset = window.resetsAt {
                 Text(QuotaPresentation.resetLine(from: reset, now: now))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(MacTheme.font(10))
+                    .foregroundStyle(MacTheme.ink2)
             } else {
                 Text("Reset time unavailable")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(MacTheme.font(10))
+                    .foregroundStyle(MacTheme.ink2)
             }
             if let minutes = window.windowDurationMinutes, minutes >= 60,
                let reset = window.resetsAt,
@@ -137,8 +137,8 @@ struct AccountUsageSummaryView: View {
                 now: now
                ) {
                 Text(pace.caption)
-                    .font(.caption2)
-                    .foregroundStyle(pace == .ahead ? QuotaPresentation.Severity.warning.tint : Color.secondary)
+                    .font(MacTheme.font(10))
+                    .foregroundStyle(pace == .ahead ? QuotaPresentation.Severity.warning.tint : MacTheme.ink2)
             }
         }
     }
@@ -425,20 +425,20 @@ struct TokenConsumptionSummaryView: View {
                     windowBlock(window)
                 }
                 Text("Updated \(snapshot.observedAt.formatted(date: .abbreviated, time: .shortened))")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(MacTheme.font(10))
+                    .foregroundStyle(MacTheme.ink2)
                 if let warnings = snapshot.warnings, !warnings.isEmpty {
                     Text(warnings.prefix(2).joined(separator: "\n"))
-                        .font(.caption2)
+                        .font(MacTheme.font(10))
                         .foregroundStyle(.orange)
                 }
                 Text("From local Claude Code transcripts and Codex rollouts. Estimates only — not an invoice. Distinct from account quota remaining.")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                    .font(MacTheme.font(10))
+                    .foregroundStyle(MacTheme.ink3)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
                 Label("Waiting for the first local scan", systemImage: "chart.bar")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(MacTheme.ink2)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -447,20 +447,20 @@ struct TokenConsumptionSummaryView: View {
     private func windowBlock(_ window: TokenConsumptionWindow) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(window.kind.title).font(.caption.weight(.semibold))
+                Text(window.kind.title).font(MacTheme.font(10, .semibold))
                 Spacer(minLength: 4)
                 if window.counts.isEmpty {
-                    Text("No spend").foregroundStyle(.secondary)
+                    Text("No spend").foregroundStyle(MacTheme.ink2)
                 } else {
                     Text("\(TokenConsumptionSnapshot.formatUSD(window.counts.estimatedUSD)) · \(TokenConsumptionSnapshot.formatTokens(window.counts.totalTokens))")
                         .monospacedDigit()
                 }
             }
-            .font(.caption)
+            .font(MacTheme.font(10))
             if !window.counts.isEmpty {
                 Text("\(TokenConsumptionSnapshot.formatTokens(window.counts.billedTokens)) billed · \(TokenConsumptionSnapshot.formatTokens(window.counts.cachedInputTokens)) cache · \(window.counts.sessionCount) sessions")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(MacTheme.font(10))
+                    .foregroundStyle(MacTheme.ink2)
                 rowList("By agent", window.byAgent)
                 rowList("By model", compact ? Array(window.byModel.prefix(4)) : window.byModel)
                 rowList("By project", compact ? Array(window.byProject.prefix(4)) : window.byProject)
@@ -472,7 +472,7 @@ struct TokenConsumptionSummaryView: View {
         if !rows.isEmpty {
             VStack(alignment: .leading, spacing: 3) {
                 if let title {
-                    Text(title).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                    Text(title).font(MacTheme.font(10, .semibold)).foregroundStyle(MacTheme.ink2)
                 }
                 ForEach(rows) { row in
                     HStack {
@@ -480,9 +480,9 @@ struct TokenConsumptionSummaryView: View {
                         Spacer(minLength: 8)
                         Text("\(TokenConsumptionSnapshot.formatTokens(row.counts.totalTokens)) · \(TokenConsumptionSnapshot.formatUSD(row.counts.estimatedUSD))")
                             .monospacedDigit()
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(MacTheme.ink2)
                     }
-                    .font(.caption2)
+                    .font(MacTheme.font(10))
                 }
             }
         }

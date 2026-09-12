@@ -117,7 +117,7 @@ struct GlanceView: View {
                 .help("\(count) \(state.label)")
             }
         }
-        .font(.system(size: 12, weight: .semibold))
+        .font(MacTheme.font(12, .semibold))
         .lineLimit(1)
         .padding(.horizontal, 14)
         .padding(.bottom, 4)
@@ -209,11 +209,11 @@ struct GlanceView: View {
     private var voiceBadge: some View {
         HStack(spacing: 6) {
             Image(systemName: voiceSymbol)
-                .font(.system(size: 12, weight: .semibold))
+                .font(MacTheme.font(12, .semibold))
                 .foregroundStyle(voice.isSpeaking ? Color.green : Color.red)
                 .symbolEffect(.variableColor.iterative, options: .repeating, isActive: true)
             Text(voiceLabel)
-                .font(.system(size: 12, weight: .semibold))
+                .font(MacTheme.font(12, .semibold))
                 .foregroundStyle(.white)
                 .lineLimit(1)
         }
@@ -225,7 +225,7 @@ struct GlanceView: View {
         let n = MacSummaryCopy.needsYou(summary)
         if n > 0 {
             Text("\(n)")
-                .font(.system(size: 12, weight: .black, design: .rounded).monospacedDigit())
+                .font(MacTheme.font(12, .black).monospacedDigit())
                 .foregroundStyle(.white)
                 .padding(.horizontal, 8).padding(.vertical, 2)
                 .background(MacTheme.status(summary.error > 0 ? .error : .requiresInput), in: Capsule())
@@ -233,7 +233,7 @@ struct GlanceView: View {
                 .accessibilityLabel("\(n) need you")
         } else {
             Text(summary.thinking > 0 ? "\(summary.thinking) working" : "All quiet")
-                .font(.system(size: 12, weight: .heavy, design: .rounded))
+                .font(MacTheme.font(12, .heavy))
                 .foregroundStyle(.white.opacity(0.75))
                 .fixedSize()
         }
@@ -243,12 +243,12 @@ struct GlanceView: View {
     private var moodHead: some View {
         VStack(alignment: .leading, spacing: 1 * s) {
             Text(MacSummaryCopy.moodLine(summary))
-                .font(.system(size: 15 * s, weight: .black, design: .rounded))
+                .font(MacTheme.font(15 * s, .black))
                 .foregroundStyle(.white)
             let rest = MacSummaryCopy.restLine(summary)
             if !rest.isEmpty {
                 Text(rest)
-                    .font(.system(size: 11 * s, weight: .bold, design: .rounded))
+                    .font(MacTheme.font(11 * s, .bold))
                     .foregroundStyle(.white.opacity(0.6))
             }
         }
@@ -278,7 +278,7 @@ struct GlanceView: View {
                     model.setShowGlance(false)   // get out of the way; the shortcut or menu brings it back
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 12 * s, weight: .bold))
+                        .font(MacTheme.font(12 * s, .bold))
                         .foregroundStyle(.white)
                         .frame(width: 22 * s, height: 22 * s)
                         .background(Color.white.opacity(0.18), in: Circle())
@@ -289,7 +289,7 @@ struct GlanceView: View {
             if let p = pending, let a = p.pendingApproval {
                 Divider().overlay(.white.opacity(0.16))
                 Text("\(p.displayTitle) wants to \(MacSummaryCopy.requestVerb(a))")
-                    .font(.system(size: 10 * s, weight: .heavy, design: .rounded))
+                    .font(MacTheme.font(10 * s, .heavy))
                     .textCase(.uppercase).kerning(0.6)
                     .foregroundStyle(.white.opacity(0.55))
                 ApprovalBody(approval: a, onDark: true)
@@ -314,12 +314,12 @@ struct GlanceView: View {
                         linkButton(p.agent == .grokBot ? "Open Grok Bot" : p.jumpsToDesktopThread ? "Open thread" : "Jump ⏎") { model.jump(p) }
                             .help(p.agent == .grokBot ? "Open Grok Bot and select the task" : p.jumpsToDesktopThread ? "Open this thread in ChatGPT" : "Jump to terminal")
                     }
-                    .font(.system(size: 11 * s, weight: .heavy, design: .rounded))
+                    .font(MacTheme.font(11 * s, .heavy))
                 } else {
                     // Explain the capability without inferring Presence.
                     HStack(spacing: 8 * s) {
                         Label(WaitHandling.resolve(for: p).message, systemImage: "keyboard")
-                            .font(.system(size: 11 * s, weight: .semibold, design: .rounded)).foregroundStyle(.white.opacity(0.8))
+                            .font(MacTheme.font(11 * s, .semibold)).foregroundStyle(.white.opacity(0.8))
                         Spacer(minLength: 0)
                         if p.canJump {
                         Button(p.agent == .grokBot ? "Open Grok Bot" : p.jumpsToDesktopThread ? "Open thread" : "Jump") { model.jump(p) }
@@ -329,19 +329,19 @@ struct GlanceView: View {
                 }
                 if let outcome = model.jumpFeedback[p.id] {
                     Text(outcome.macMessage(for: p))
-                        .font(.system(size: 10 * s, weight: .medium, design: .rounded))
+                        .font(MacTheme.font(10 * s, .medium))
                         .foregroundStyle(.white.opacity(0.68))
                 }
             } else if model.sessions.isEmpty {
                 Text("No agent sessions yet")
-                    .font(.system(size: 12 * s, weight: .medium))
+                    .font(MacTheme.font(12 * s, .medium))
                     .foregroundStyle(.white.opacity(0.62))
             } else {
                 let groups = StateGroups(model.sessions)
                 Divider().overlay(.white.opacity(0.16))
                 ForEach(groups.buckets) { group in
                     Text("\(group.title) · \(group.sessions.count)")
-                        .font(.system(size: 10 * s, weight: .heavy, design: .rounded))
+                        .font(MacTheme.font(10 * s, .heavy))
                         .textCase(.uppercase).kerning(0.6)
                         .foregroundStyle(.white.opacity(0.5))
                         .padding(.top, 2 * s)
@@ -407,12 +407,12 @@ private struct GlanceEventCard: View {
                 PetFace(state: mood, bare: true, scale: 0.5 * s)
                 VStack(alignment: .leading, spacing: 3 * s) {
                     HStack(spacing: 6 * s) {
-                        Text(title).font(.system(size: 13 * s, weight: .black, design: .rounded)).foregroundStyle(.white)
+                        Text(title).font(MacTheme.font(13 * s, .black)).foregroundStyle(.white)
                         AgentBadge(agent: session.agent, onDark: true)
                     }
                     if !detail.isEmpty {
                         Text(detail)
-                            .font(.system(size: 11 * s, design: card.alert.sound == .needsApproval ? .monospaced : .default))
+                            .font(card.alert.sound == .needsApproval ? MacTheme.mono(11 * s) : MacTheme.font(11 * s))
                             .foregroundStyle(.white.opacity(0.8))
                             .lineLimit(2)
                     }
@@ -427,7 +427,7 @@ private struct GlanceEventCard: View {
             }
             if live.status == .needsResponse && live.pendingApproval == nil && WaitHandling.resolve(for: live) != .remoteAvailable {
                 Text(WaitHandling.resolve(for: live).message)
-                    .font(.system(size: 11 * s)).foregroundStyle(.white.opacity(0.8))
+                    .font(MacTheme.font(11 * s)).foregroundStyle(.white.opacity(0.8))
                     .fixedSize(horizontal: false, vertical: true)
             }
             if card.isActionable || card.alert.sound == .agentStuck {
@@ -440,7 +440,7 @@ private struct GlanceEventCard: View {
                                 .buttonStyle(GlanceButtonStyle(tint: MacTheme.status(.error), scale: s))
                         } else {
                             Label(WaitHandling.resolve(for: live).message, systemImage: "keyboard")
-                                .font(.system(size: 11 * s)).foregroundStyle(.white.opacity(0.8))
+                                .font(MacTheme.font(11 * s)).foregroundStyle(.white.opacity(0.8))
                         }
                     }
                     if live.canJump {
@@ -522,9 +522,9 @@ private struct GlanceSessionRow: View {
                 StateGlyph(state: session.presentationState, size: 24 * s, onDark: true)
                 VStack(alignment: .leading, spacing: 1 * s) {
                     Text(session.summary ?? ToolActivity.label(for: session))
-                        .font(.system(size: 13 * s, weight: .heavy, design: .rounded))
+                        .font(MacTheme.font(13 * s, .heavy))
                     Text(subtitle)
-                        .font(.system(size: 10 * s, weight: .semibold, design: .rounded))
+                        .font(MacTheme.font(10 * s, .semibold))
                         .foregroundStyle(.white.opacity(feedback == nil ? 0.62 : 0.85))
                         .contentTransition(.opacity)
                 }
@@ -532,7 +532,7 @@ private struct GlanceSessionRow: View {
                 Spacer(minLength: 4 * s)
                 if let symbol = targetSymbol {
                     Image(systemName: symbol)
-                        .font(.system(size: 11 * s))
+                        .font(MacTheme.font(11 * s))
                         .foregroundStyle(.white.opacity(hovering ? 0.75 : 0.45))
                 }
             }
@@ -578,7 +578,7 @@ struct GlanceButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 12 * scale, weight: .semibold))
+            .font(MacTheme.font(12 * scale, .semibold))
             .foregroundStyle(.white)
             .lineLimit(1)
             .padding(.horizontal, 12 * scale)

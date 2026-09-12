@@ -231,16 +231,16 @@ private struct FeatureRow<Controls: View>: View {
             VStack(alignment: .leading, spacing: 7) {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Label(LocalizedStringKey(feature.rawValue), systemImage: feature.symbol)
-                        .font(.headline).labelStyle(.titleAndIcon)
+                        .font(MacTheme.font(13, .semibold)).labelStyle(.titleAndIcon)
                     Spacer(minLength: 0)
                     StatusPill(status: status, reveal: reveal)
                 }
                 controls
                 if let detail {
                     Label(LocalizedStringKey(detail), systemImage: "exclamationmark.circle")
-                        .font(.caption).foregroundStyle(.orange)
+                        .font(MacTheme.font(10)).foregroundStyle(.orange)
                 }
-                Text(hint ?? feature.hint).font(.caption).foregroundStyle(.secondary)
+                Text(hint ?? feature.hint).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 SettingsTestFeedback(tests: tests, purpose: feature.testPurpose)
             }
         }
@@ -255,9 +255,9 @@ private struct StatusPill: View {
     var body: some View {
         switch status {
         case .unconfigured:
-            pill("Not configured", .secondary)
+            pill("Not configured", MacTheme.ink2)
         case .waitingForSummaries:
-            pill("Waiting for a summary provider", .secondary)
+            pill("Waiting for a summary provider", MacTheme.ink2)
         case .needsAttention:
             pill("Needs attention", .orange)
         case .needsKey(let provider):
@@ -269,14 +269,14 @@ private struct StatusPill: View {
         case .verified(let text):
             pill(LocalizedStringKey(text), .green)
         case .unverified:
-            pill("Unverified", .secondary)
+            pill("Unverified", MacTheme.ink2)
         }
     }
 
     private func pill(_ text: LocalizedStringKey, _ tint: Color) -> some View {
         HStack(spacing: 5) {
             Circle().frame(width: 6, height: 6).accessibilityHidden(true)
-            Text(text).font(.caption)
+            Text(text).font(MacTheme.font(10))
         }
         .foregroundStyle(tint)
         .padding(.horizontal, 8).padding(.vertical, 2)
@@ -320,7 +320,7 @@ private struct IDField: View {
         HStack(spacing: 4) {
             TextField(label, text: $text, prompt: Text(verbatim: placeholder))
                 .labelsHidden().textFieldStyle(.roundedBorder)
-                .font(.caption.monospaced()).autocorrectionDisabled()
+                .font(MacTheme.mono(10)).autocorrectionDisabled()
                 .accessibilityLabel(label)
                 .accessibilityIdentifier(identifier ?? "")
             Link(destination: browse) {
@@ -416,7 +416,7 @@ private struct ConversationFeatureRow: View {
                     IDField(label: "Realtime model ID", placeholder: provider.defaultModel, text: $modelID,
                             browse: provider.modelsURL, browseHelp: "Browse available models",
                             identifier: "voiceModelID")
-                } else { Text(verbatim: "—").foregroundStyle(.secondary) }
+                } else { Text(verbatim: "—").foregroundStyle(MacTheme.ink2) }
             } voice: {
                 if let provider {
                     VoicePicker(label: "Conversation voice", purpose: .conversation, provider: provider,
@@ -424,7 +424,7 @@ private struct ConversationFeatureRow: View {
                                 fallback: VoiceSettings.voice(provider,
                                     VoiceLanguage(rawValue: language) ?? .english),
                                 voiceID: $voiceID)
-                } else { Text(verbatim: "—").foregroundStyle(.secondary) }
+                } else { Text(verbatim: "—").foregroundStyle(MacTheme.ink2) }
             } trailing: {
                 Button("Test", action: test)
                     .disabled(tests.isBusy || provider == nil || !credential.configured
@@ -433,13 +433,13 @@ private struct ConversationFeatureRow: View {
             }
             if provider == .openai, OpenAIVoiceSession.usesLive(configuration?.model ?? "") {
                 HStack {
-                    Text("Task reasoning model").font(.caption).foregroundStyle(.secondary)
+                    Text("Task reasoning model").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                     IDField(label: "Task reasoning model", placeholder: OpenAILiveSession.defaultBackendModel,
                             text: $liveBackendModel, browse: VoiceProvider.openai.modelsURL,
                             browseHelp: "Browse available models", identifier: "liveBackendModelID")
                 }
                 Text("Live handles conversation; this model checks tasks and selects actions. Voice time and task reasoning are billed separately.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
             }
         }
         .onAppear { credential.refresh() }
@@ -527,10 +527,10 @@ private struct SummaryFeatureRow: View {
                             placeholder: CompletionSummaryConfiguration.recommendedModel(provider),
                             text: $modelID, browse: provider.modelsURL,
                             browseHelp: "Browse available models", identifier: "completionSummaryModelID")
-                } else { Text(verbatim: "—").foregroundStyle(.secondary) }
+                } else { Text(verbatim: "—").foregroundStyle(MacTheme.ink2) }
             } voice: {
                 // Summaries are text; the voice column stays empty on purpose.
-                Text(verbatim: "—").foregroundStyle(.secondary)
+                Text(verbatim: "—").foregroundStyle(MacTheme.ink2)
                     .accessibilityLabel("No voice — summaries are text")
             } trailing: {
                 Button("Sample", action: test)
@@ -671,7 +671,7 @@ private struct ReadAloudFeatureRow: View {
                             placeholder: SpeechSynthesis.support(provider).defaultModel,
                             text: $modelID, browse: provider.modelsURL,
                             browseHelp: "Browse available models", identifier: "readAloudModelID")
-                } else { Text(verbatim: "—").foregroundStyle(.secondary) }
+                } else { Text(verbatim: "—").foregroundStyle(MacTheme.ink2) }
             } voice: {
                 if case .ready(let provider) = status {
                     VoicePicker(label: "Read-aloud voice", purpose: .readAloud, provider: provider,
@@ -691,7 +691,7 @@ private struct ReadAloudFeatureRow: View {
                         .accessibilityLabel("Preview the read-aloud voice")
                         .accessibilityIdentifier("readAloudPreview")
                     }
-                } else { Text(verbatim: "—").foregroundStyle(.secondary) }
+                } else { Text(verbatim: "—").foregroundStyle(MacTheme.ink2) }
             } trailing: {
                 // No trailing button: the ▶ beside the voice is this row's verification.
                 EmptyView()
@@ -702,7 +702,7 @@ private struct ReadAloudFeatureRow: View {
                     Text(reader.automaticBusy && tests.purpose == .readAloud && tests.isBusy
                          ? "Automatic reading is queued until the preview finishes."
                          : LocalizedStringKey(reader.status))
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                     Spacer(minLength: 0)
                     Button("Stop automatic reading") { reader.stopAutomaticReading() }
                         .disabled(!reader.automaticBusy)
@@ -770,15 +770,15 @@ private struct AccountRow: View {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(provider.display)
-                    Text(verbatim: usage).font(.caption).foregroundStyle(.secondary)
+                    Text(verbatim: usage).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 }
                 Spacer(minLength: 0)
                 if credential.saveFailed {
-                    Text("Key not saved").font(.caption).foregroundStyle(.orange)
+                    Text("Key not saved").font(MacTheme.font(10)).foregroundStyle(.orange)
                 } else if credential.configured {
-                    Text("Key saved").font(.caption).foregroundStyle(.green)
+                    Text("Key saved").font(MacTheme.font(10)).foregroundStyle(.green)
                 } else {
-                    Text("No key").font(.caption).foregroundStyle(.secondary)
+                    Text("No key").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 }
                 Button(expanded ? "Done" : (credential.configured ? "Edit" : "Add key")) {
                     expanded.toggle()
@@ -804,7 +804,7 @@ private struct AccountRow: View {
                     }
                     if credential.saveFailed {
                         Text("API key could not be saved. Your edit is not stored; edit or paste it again to retry.")
-                            .font(.caption).foregroundStyle(.orange)
+                            .font(MacTheme.font(10)).foregroundStyle(.orange)
                     }
                     if provider == .qwen {
                         Toggle("Use Singapore (international) region", isOn: $intl)
@@ -812,7 +812,7 @@ private struct AccountRow: View {
                             TextField("Workspace ID", text: $workspaceID,
                                       prompt: Text(verbatim: "optional · llm-xxxxxxxx"))
                                 .labelsHidden().textFieldStyle(.roundedBorder)
-                                .font(.caption.monospaced()).autocorrectionDisabled()
+                                .font(MacTheme.mono(10)).autocorrectionDisabled()
                                 .accessibilityLabel("Workspace ID")
                                 .accessibilityIdentifier("qwenWorkspaceID")
                             Link(destination: VoiceProvider.qwenWorkspaceIDURL) {
@@ -821,13 +821,13 @@ private struct AccountRow: View {
                             .help("Find your workspace ID")
                         }
                         Text("Optional. When set, Qwen connects through the workspace endpoint.")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                     }
                     HStack {
-                        Link("Get an API key", destination: provider.apiKeyURL).font(.caption)
+                        Link("Get an API key", destination: provider.apiKeyURL).font(MacTheme.font(10))
                         Spacer(minLength: 8)
                         Text("Kept in the Keychain, once per provider.")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                     }
                 }
                 .padding(.leading, 2)

@@ -185,7 +185,7 @@ private struct SettingsSidebar: View {
         return Button { selection = page } label: {
             HStack(spacing: 9) {
                 Image(systemName: page.symbol)
-                    .font(.system(size: 13))
+                    .font(MacTheme.font(13))
                     .frame(width: 16)
                     .foregroundStyle(selected ? MacTheme.accent : MacTheme.ink2)
                 Text(page.title)
@@ -606,7 +606,7 @@ private struct DiagnosticsPage: View {
                 SettingsSection("Hook operation output") {
                     SettingsBlockRow {
                         Text(verbatim: setup.lastOutput)
-                            .font(.system(size: 11.5, design: .monospaced))
+                            .font(MacTheme.mono(11.5))
                             .textSelection(.enabled)
                             .foregroundStyle(MacTheme.ink2)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -739,7 +739,7 @@ struct TailscalePairingSettings: View {
                 .textFieldStyle(.roundedBorder)
                 .disabled(model.pairingInProgress || model.changingPairing)
             Text("Connect Mac and iPhone to the same tailnet. For Headscale, use this Mac’s 100.x.x.x address.")
-                .font(.footnote).foregroundStyle(.secondary)
+                .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
             if model.pairing == nil {
                 Text("Enter a valid Tailscale address.").foregroundStyle(.orange)
             }
@@ -761,10 +761,10 @@ struct HotkeyRecorderView: View {
     var body: some View {
         HStack(spacing: 8) {
             if hint {
-                Text("needs a modifier").font(.caption2).foregroundStyle(.red)
+                Text("needs a modifier").font(MacTheme.font(10)).foregroundStyle(.red)
             }
             (recording ? Text("Press a combo…") : Text(verbatim: current.displayString))
-                .font(.system(size: 12.5, design: .monospaced))
+                .font(MacTheme.mono(12.5))
                 .frame(minWidth: 84)
                 .padding(.horizontal, 10).padding(.vertical, 5)
                 .background(RoundedRectangle(cornerRadius: 7).fill(MacTheme.bg3))
