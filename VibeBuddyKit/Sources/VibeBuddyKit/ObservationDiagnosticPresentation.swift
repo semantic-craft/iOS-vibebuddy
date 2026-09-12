@@ -18,6 +18,8 @@ public extension ObservationSourceDiagnostic {
     var diagnosticTitle: String {
         if isOptionalStatusLineNotConfigured { return "Status line information not enabled" }
         return switch reasonCode {
+        case "copilotHistoryOnly": "Read-only history"
+        case "copilotHistoryUnreadable": "Copilot history unavailable"
         case "awaitingActivity": source == .hook ? "Configured, awaiting first activity" : "Awaiting activity"
         case "versionUnverified": "Version \(sourceVersion ?? "unknown") not yet verified"
         case "invalidSourceData": "Invalid source data"
@@ -31,6 +33,10 @@ public extension ObservationSourceDiagnostic {
             return "Optional Claude status line information is not enabled. Hook and Transcript monitoring can continue."
         }
         switch reasonCode {
+        case "copilotHistoryOnly":
+            return "Stored Copilot CLI conversations. Live task status is unavailable."
+        case "copilotHistoryUnreadable":
+            return "Copilot history could not be refreshed. Existing rows may be outdated; reading will retry automatically."
         case "awaitingActivity":
             return source == .transcript
                 ? "No transcript has been read since this launch. Transcript reading starts when a Hook reports session activity."

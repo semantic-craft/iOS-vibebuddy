@@ -867,9 +867,9 @@ struct MenuContent: View {
         }
         .buttonStyle(.plain)
         .onHover { hoveredSessionID = $0 ? session.id : nil }
-        .help("\(session.displayTitle)\n\(session.agent.displayName) · \(session.presentationState.label)\n\(session.summary ?? "")")
+        .help("\(session.displayTitle)\n\(session.agent.displayName) · \(session.statusLabel)\n\(session.summary ?? "")")
         .accessibilityLabel(Text(verbatim: session.displayTitle))
-        .accessibilityValue(Text(verbatim: session.summary ?? session.presentationState.label))
+        .accessibilityValue(Text(verbatim: session.summary ?? session.statusLabel))
         .accessibilityHint("Jump to this session")
     }
 
@@ -880,7 +880,7 @@ struct MenuContent: View {
             .font(MacTheme.font(12.5, .semibold))
             .foregroundColor(MacTheme.ink)
         let detail = session.summary.flatMap { $0.isEmpty ? nil : Text(verbatim: $0) }
-            ?? Text(LocalizedStringKey(session.presentationState.label))
+            ?? Text(LocalizedStringKey(session.statusLabel))
         return title + Text(verbatim: "  ")
             + detail.font(MacTheme.font(12.5)).foregroundColor(MacTheme.ink2)
     }

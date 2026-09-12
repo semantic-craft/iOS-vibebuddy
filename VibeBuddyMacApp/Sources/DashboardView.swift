@@ -435,7 +435,7 @@ private struct DetailCard: View {
             }
             HStack(spacing: 6) {
                 Image(systemName: session.presentationState.symbolName).font(.system(size: 10, weight: .bold))
-                Text(session.presentationState.label)
+                Text(session.statusLabel)
             }
             .font(MacTheme.font(12, .heavy))
             .foregroundStyle(MacTheme.status(session.presentationState))

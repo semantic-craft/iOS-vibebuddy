@@ -174,6 +174,7 @@ public struct AgentObservationDiagnostic: Codable, Sendable, Equatable, Identifi
 public extension AgentSession {
     /// Compact copy shared by the Mac and iOS session rows.
     var observationDescription: String? {
+        if historyOnly == true { return "Stored conversation · live status unavailable" }
         guard let observations, !observations.isEmpty else { return nil }
         let sorted = observations.sorted { $0.source < $1.source }
         let sources = sorted.map(\.source.displayName).joined(separator: " + ")

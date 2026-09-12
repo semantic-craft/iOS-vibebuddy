@@ -36,7 +36,7 @@ The CLI pipes its event JSON on stdin. VibeBuddy reads `hook_event_name`,
 | Kimi | `kimi` | `~/.kimi/config.toml` | TOML hooks | ⚠️ template |
 | Antigravity (Gemini) | `antigravity` | `~/.gemini/antigravity-cli/hooks.json` | JSON `command` hooks | blocked: `agy` 1.0.5 loads but skips execution |
 | Grok Build | `grok` | `~/.grok/hooks/vibebuddy.json` | JSON `command` hooks (camelCase envelope) | ✅ tested (1.0.13) |
-| GitHub Copilot | `copilot` | — | observe mode (no hooks) | ⚠️ partial |
+| GitHub Copilot CLI | `copilot` | `~/.copilot/session-store.db` | read-only session history | history only |
 
 ✅ = wired and exercised. ⚠️ template = the source routing + display are done in
 the app; the config snippet below needs validation against the installed CLI.
@@ -63,8 +63,15 @@ workspace.
 
 Other hook-compatible CLIs (OpenCode, Qwen) follow the same shape with
 `agent=<their source>`. Kimi uses its TOML hook table; Antigravity uses
-a Gemini plugin that shells out to the same curl. Copilot has no hook surface
-yet — it appears once a future watcher observes it.
+a Gemini plugin that shells out to the same curl. Copilot CLI is integrated
+through its local history database, following [Wake's adapter](https://github.com/iAmCorey/Wake/blob/main/crates/wake-core/src/adapters/copilot.rs).
+The Mac reads sessions with turns, their project/branch/title, and the latest
+12 dialogue entries (600 characters each). It checks database and WAL changes
+every five seconds, using a private temporary copy and never changing Copilot files.
+Rows are marked **History · read only**; no live task state, completion alert,
+remote approval, reply, resume, or quota is inferred. A CLI installation with no
+stored turns contributes no rows. Full-history indexing is not part of this
+bounded dashboard integration.
 
 #### Remote approval (`--approval`)
 
@@ -256,4 +263,4 @@ e.g. `# vibebuddy: managed, do not remove`, and uninstall does
 - [ ] `--install/--uninstall` that detects installed CLIs and writes/strips
       marked hooks (Claude/Codex first, then the templates above)
 - [ ] Per-CLI event-shape validation against the real tools
-- [ ] Copilot observe-mode watcher
+- [x] Copilot CLI read-only history (Wake database format; no lifecycle monitoring)

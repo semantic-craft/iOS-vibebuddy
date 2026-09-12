@@ -336,3 +336,11 @@ code, and tests — don't drift to synonyms.
   they implement the pending/decision protocol.
 
 Mac presence suppresses ordinary cues only while the verdict is current; leaving restores one still-open wait reminder without making the card remotely answerable.
+
+- **Copilot history** — Wake-compatible read-only conversations from
+  `~/.copilot/session-store.db` (`sessions` + `turns`). The scanner checks the
+  database and WAL every five seconds and reads private temporary copies.
+  History rows bypass SessionReducer, carry `historyOnly: true`, and use the
+  existing quiet `.done` wire value with no completion identity or unread flag.
+  They do not establish live status or generate completion notices; clients
+  label them History. RecentOutput carries a bounded dialogue slice.
