@@ -1,0 +1,88 @@
+/* VibeBuddyKit — Simplified Chinese (zh-Hans).
+   The Kit's own string table (ticket 08, ADR-0017). Every localized string
+   and `Text(…)` in the Kit resolves here through `bundle: .module`, so the
+   phone, the Mac panel, the Glance, the Watch and the widgets read one
+   wording for the shared copy. Keys are the English source text; an
+   interpolated `\(n)` in a key becomes `%lld` / `%@`, and a literal percent
+   sign in such a key is `%%`. The apps' tables keep their own
+   copies of the keys that predate this table (harmless: a Kit call never
+   looks in Bundle.main). */
+
+/* MARK: CompanionCopy — the snapshot's mood line and rest line */
+"1 thing needs you" = "1 件事需要你";
+"%lld things need you" = "%lld 件事需要你";
+"All quiet — %lld working" = "一切安静 — %lld 个进行中";
+"All quiet" = "一切安静";
+"%lld working" = "%lld 个进行中";
+"%lld done" = "%lld 个已完成";
+"%lld idle" = "%lld 个空闲";
+
+/* MARK: CompanionCopy.requestVerb — "<project> wants to <verb>" (the apps add 想要) */
+"edit" = "编辑";
+"write" = "写入";
+"run" = "运行";
+"read" = "读取";
+"fetch" = "抓取";
+"use %@" = "使用 %@";
+/* The Live Activity title: `<project> wants to <verb>` */
+"%@ wants to %@" = "%@ 想要%@";
+
+/* MARK: StateGroups — the three buckets. Same wording on every surface. */
+"Needs you" = "需要你";
+"Working" = "进行中";
+"Done" = "完成";
+
+/* MARK: CompanionSectionHeader / CompanionViews */
+"Collapse" = "收起";
+"Expand" = "展开";
+"Approve" = "批准";
+"Always allow this" = "总是允许这个";
+"Allow all this session" = "本会话全部允许";
+"More approval options" = "更多批准选项";
+"… (truncated)" = "…（已截断）";
+
+/* MARK: QuotaBullet accessibility */
+"%lld%% used" = "已用 %lld%%";
+"%lld%% used, %lld%% of the window elapsed" = "已用 %lld%%，窗口已过去 %lld%%";
+
+/* MARK: SessionActionSupport — why a remote instruction cannot be sent, and notes */
+"Respond in Grok Bot on your Mac. Remote instructions are unavailable." = "请在 Mac 的 Grok Bot 中处理。此会话无法远程发送指令。";
+"%@ sessions can't take instructions from the phone yet — use the terminal." = "%@ 的会话还不能从手机接收指令，请用终端。";
+"This agent can't take instructions from the phone yet — use the terminal." = "这个代理还不能从手机接收指令，请用终端。";
+"Your Mac isn't connected to Codex right now." = "你的 Mac 现在没连上 Codex。";
+"This task has already finished." = "这个任务已经结束了。";
+"This task is waiting on you, not running." = "这个任务在等你，没有在跑。";
+"Install vibebuddy's Cursor hooks to send instructions from here." = "安装 vibebuddy 的 Cursor hooks 后，才能从这里发送指令。";
+"Cursor can't be interrupted mid-turn. This is queued and sent the moment the turn ends." = "Cursor 不能在一轮进行中被打断。这条已排队，本轮一结束就发送。";
+"Continues this chat in a terminal with the Cursor CLI." = "用 Cursor CLI 在终端里继续这段对话。";
+"Stop this in Cursor on your Mac." = "请在 Mac 上的 Cursor 里停。";
+"Stop this on your Mac." = "在 Mac 上停。";
+"Mac" = "Mac";
+"Unknown project" = "未知项目";
+"Unknown source" = "未知来源";
+
+/* MARK: WaitHandling — where a waiting request can be answered */
+"Review and respond on your iPhone." = "请在 iPhone 上查看并处理。";
+"Approve or deny on your Watch." = "请在 Watch 上批准或拒绝。";
+"Respond in the agent's own prompt on your Mac. Remote response is unavailable." = "请在 Mac 上的代理原生提示中处理。此请求无法远程作答。";
+"Respond in Grok Bot on your Mac. Remote response is unavailable." = "请在 Mac 的 Grok Bot 中处理。此请求无法远程作答。";
+"This request can't be verified. Wait for an updated connection and request." = "暂时无法验证此请求。请等待连接和请求更新。";
+
+/* MARK: WatchQuickAnswer — the phrase is what the agent receives */
+"Yes, go ahead." = "可以，继续。";
+"No, don't do that." = "不，别这么做。";
+"Use the first option." = "用第一个方案。";
+"Run the tests first." = "先跑测试。";
+"Hold off for now — I'll look at this later." = "先别动，我等下再看。";
+
+/* MARK: NotificationCategory titles (the Settings switches on iPhone and Mac) */
+"Permission requests" = "权限请求";
+"Questions and waiting for input" = "提问与等待输入";
+"Errors and stuck sessions" = "出错与卡住";
+"Task completed" = "任务完成";
+"Still-waiting reminders" = "久等催促";
+"Pairing confirmation" = "配对成功提示";
+"Usage and budget" = "配额与预算";
+
+/* MARK: VoiceProvider */
+"Doubao (Volcengine)" = "豆包 · 火山引擎";
