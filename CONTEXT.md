@@ -208,7 +208,11 @@ code, and tests — don't drift to synonyms.
   connection (answered per question id). `QuestionRegistry` holds the wait;
   `AnswerDispatch` sends an answer there first and types into a tmux pane only
   when nothing is waiting. A `PendingQuestion` now carries every question
-  (`items`), multi-select and "Other".
+  (`items`), multi-select and "Other". The Watch answers a one-part question
+  with the text it showed; a prompt whose every question offers choices it
+  **walks** — one question per screen, the whole set sent once as
+  `WatchSessionAction.answerAll` and checked by `WatchQuestionSet` on both
+  sides — and a prompt with any free-text question stays on the iPhone.
 - **Status line sample** — one status line JSON from Claude Code, copied to the
   daemon by `hooks/vibebuddy-statusline.sh` on every event (ObservationSource
   `statusline`). It fills a known session's name, effort, cost, context, PR and

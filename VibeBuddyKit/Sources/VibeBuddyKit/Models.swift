@@ -183,12 +183,13 @@ public struct PendingQuestion: Codable, Sendable, Equatable, Identifiable {
 
     /// Whether this whole wait is one question taking one answer.
     ///
-    /// A surface that can send only a single string — the Watch — may finish
-    /// this wait and no other. A free-text answer to a three-question prompt
-    /// lands on the first item alone (`QuestionRegistry.normalize`) and the
-    /// agent treats the rest as unanswered, so offering one tap for it would
-    /// under-answer without saying so. Multi-select is the same: one tap
-    /// cannot express two picks.
+    /// A single string finishes this wait and no other. A free-text answer to
+    /// a three-question prompt lands on the first item alone
+    /// (`QuestionRegistry.normalize`) and the agent treats the rest as
+    /// unanswered, so offering one tap for it would under-answer without
+    /// saying so. Multi-select is the same: one tap cannot express two picks.
+    /// The Watch sends its text only for this shape; a longer prompt whose
+    /// every question offers choices it walks instead (`WatchQuestionSet`).
     public var isSinglePart: Bool {
         let list = items
         return list.count == 1 && !list[0].multiSelect

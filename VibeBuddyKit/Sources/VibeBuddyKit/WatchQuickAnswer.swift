@@ -115,7 +115,10 @@ public struct WatchQuickAnswers: Equatable, Sendable {
     /// on the tap — so a card that offers a phrase is a card whose answer will
     /// be forwarded, and a read-only wait never grows a button.
     public static func resolve(for alert: WatchAlert) -> WatchQuickAnswers? {
-        guard alert.isAnswerable else { return nil }
+        // A prompt the wrist walks question by question is not answered with
+        // one string; offering the first question's choices as if they were
+        // the whole answer would send one pick for three questions.
+        guard alert.isAnswerable, alert.questions == nil else { return nil }
         let offered = cleanedOptions(alert.options)
         if !offered.isEmpty {
             return WatchQuickAnswers(source: .options,
@@ -144,6 +147,117 @@ public struct WatchQuickAnswers: Equatable, Sendable {
             let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty, seen.insert(trimmed).inserted else { continue }
             kept.append(trimmed)
+        }
+        return kept
+    }
+}
+
+// MARK: - A prompt the wrist walks one question at a time
+
+/// One of an item's choices, as the wrist is allowed to pick it.
+///
+/// Unlike `WatchAlert.options`, this carries the option's `value` as well as its
+/// label. The wrist is not typing the value into anyone's terminal: it goes
+/// back structured, keyed by item id, and the iPhone's gate checks every value
+/// against the live question before anything is forwarded — so a value here
+/// can only ever be echoed, never invented.
+public struct WatchQuestionOption: Codable, Equatable, Sendable, Identifiable {
+    public var id: String
+    public var label: String
+    public var value: String
+
+    public init(id: String, label: String, value: String) {
+        self.id = id
+        self.label = label
+        self.value = value
+    }
+}
+
+/// One question of a prompt the wrist answers screen by screen.
+public struct WatchQuestionItem: Codable, Equatable, Sendable, Identifiable {
+    public var id: String
+    public var text: String
+    public var options: [WatchQuestionOption]
+    public var multiSelect: Bool
+
+    public init(id: String, text: String, options: [WatchQuestionOption], multiSelect: Bool = false) {
+        self.id = id
+        self.text = text
+        self.options = options
+        self.multiSelect = multiSelect
+    }
+}
+
+/// The rule for a prompt the wrist cannot finish with one string, but can
+/// finish by picking: every question is walked in turn, and the whole set is
+/// sent once at the end.
+///
+/// Cursor's `AskQuestion` usually asks several things at once, and a wrist
+/// that could only send one string had to send every one of those to the
+/// iPhone (`PendingQuestion.isSinglePart`). Picking is different from typing:
+/// a pick is one of the choices the agent itself offered, so a set of picks
+/// covering every question is a complete answer the agent can read. What a
+/// wrist still cannot do is type an essay, so one free-text question anywhere
+/// in the prompt keeps the whole prompt on the iPhone.
+///
+/// The same rule runs in the projection (does the wrist get the items?) and in
+/// the iPhone's gate (is this set of answers about those items?), so a forged
+/// or stale payload cannot answer a question the wrist was never shown.
+public enum WatchQuestionSet {
+    /// Every question with at least one readable choice — the shape the wrist
+    /// can walk — or `nil` when any question needs typing.
+    public static func enumerable(_ question: PendingQuestion) -> [WatchQuestionItem]? {
+        var items: [WatchQuestionItem] = []
+        for item in question.items {
+            let id = item.id.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !id.isEmpty else { return nil }
+            let options = readableOptions(item.options)
+            guard !options.isEmpty else { return nil }
+            items.append(WatchQuestionItem(id: id, text: item.text, options: options,
+                                           multiSelect: item.multiSelect))
+        }
+        return items.isEmpty ? nil : items
+    }
+
+    /// The answers as the agent will read them, or `nil` when they are not a
+    /// complete answer to exactly these questions.
+    ///
+    /// Complete means one entry per item, no entry for anything else, at least
+    /// one pick each, exactly one for a single-select, and every pick naming
+    /// one of that item's options — by value, or by id for a producer that
+    /// keeps the two apart. Picks come back as values in the option order,
+    /// which is the form the iPhone's own card sends.
+    public static func validate(_ answers: QuestionAnswers,
+                                against items: [WatchQuestionItem]) -> QuestionAnswers? {
+        guard Set(answers.keys) == Set(items.map(\.id)) else { return nil }
+        var checked: QuestionAnswers = [:]
+        for item in items {
+            guard let picks = answers[item.id] else { return nil }
+            var values: [String] = []
+            for pick in picks {
+                let trimmed = pick.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard let option = item.options.first(where: { $0.value == trimmed || $0.id == trimmed })
+                else { return nil }
+                if !values.contains(option.value) { values.append(option.value) }
+            }
+            guard !values.isEmpty, item.multiSelect || values.count == 1 else { return nil }
+            checked[item.id] = item.options.map(\.value).filter(values.contains)
+        }
+        return checked
+    }
+
+    /// Choices as the wrist can show and send them: trimmed labels, no blanks,
+    /// one per value. Unlike `WatchQuickAnswers`, the list is not cut here —
+    /// the gate has to know every real choice, and the wrist bounds what it
+    /// draws for itself.
+    private static func readableOptions(_ options: [QuestionOption]) -> [WatchQuestionOption] {
+        var seen = Set<String>()
+        var kept: [WatchQuestionOption] = []
+        for option in options {
+            let label = option.label.trimmingCharacters(in: .whitespacesAndNewlines)
+            let value = option.value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !label.isEmpty, !value.isEmpty, seen.insert(value).inserted else { continue }
+            kept.append(WatchQuestionOption(id: option.id, label: label, value: value))
         }
         return kept
     }

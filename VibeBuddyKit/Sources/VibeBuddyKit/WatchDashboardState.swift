@@ -99,9 +99,12 @@ public struct WatchAlert: Codable, Equatable, Sendable, Identifiable {
     public var tool: String?
     /// Permission: the command or target. Question: the prompt.
     public var request: String?
-    /// Question only: the labels of any predefined answers, so the wrist can
-    /// show what is being asked. Labels only — an option's `value` is text that
-    /// would be typed into someone's terminal, and the Watch cannot send it.
+    /// Question only: the labels of the first question's predefined answers,
+    /// so the wrist can show what is being asked. Labels only — an option's
+    /// `value` is text that would be typed into someone's terminal, and a
+    /// one-string answer from the Watch sends the label it showed. Values
+    /// travel only inside `questions`, where they go back structured and
+    /// checked.
     public var options: [String]
     /// The approval this alert may resolve from the wrist, when the relayed
     /// detail is complete enough to decide on (`WatchApprovalEligibility`).
@@ -113,6 +116,12 @@ public struct WatchAlert: Codable, Equatable, Sendable, Identifiable {
     /// when it lands. Absent for a permission — `approvalId` is that binding —
     /// and absent in relays that predate the shared action contract.
     public var pendingId: String?
+    /// Question only: every question of a prompt the wrist answers screen by
+    /// screen, present exactly when one string could not finish it but a set
+    /// of picks can (`WatchQuestionSet.enumerable`). Nil for the ordinary
+    /// one-question wait, which keeps sending the text it was shown; absent in
+    /// relays that predate the walk.
+    public var questions: [WatchQuestionItem]?
     public var handling: WaitHandling?
     public var waitingSince: Date
 
@@ -129,6 +138,7 @@ public struct WatchAlert: Codable, Equatable, Sendable, Identifiable {
         options: [String] = [],
         approvalId: String? = nil,
         pendingId: String? = nil,
+        questions: [WatchQuestionItem]? = nil,
         handling: WaitHandling? = nil,
         waitingSince: Date
     ) {
@@ -142,6 +152,7 @@ public struct WatchAlert: Codable, Equatable, Sendable, Identifiable {
         self.options = options
         self.approvalId = approvalId
         self.pendingId = pendingId
+        self.questions = questions
         self.handling = handling
         self.waitingSince = waitingSince
     }
@@ -396,6 +407,11 @@ public enum WatchDashboardProjection {
 
     private static func alert(for session: AgentSession) -> WatchAlert {
         let waitKind = session.waitKind ?? .question
+        let question = waitKind == .question ? session.pendingQuestion : nil
+        // A one-part question is answered with the text the wrist was shown,
+        // as before. Anything longer is answered only if every question can
+        // be picked from (`WatchQuestionSet`), and then question by question.
+        let walked = question.flatMap { $0.isSinglePart ? nil : WatchQuestionSet.enumerable($0) }
         return WatchAlert(
             sessionId: session.id,
             agent: session.agent,
@@ -404,19 +420,21 @@ public enum WatchDashboardProjection {
             summary: session.summary,
             tool: session.pendingApproval?.tool,
             request: request(for: session, waitKind: waitKind),
-            options: waitKind == .question
-                ? (session.pendingQuestion?.options.map(\.label) ?? [])
-                : [],
+            // The first question's choices caption the card whichever shape
+            // the producer used: the legacy flat `options`, or `questions`.
+            options: question?.items.first?.options.map(\.label) ?? [],
             // Present only when the wrist has enough to decide on. A question is
             // never decidable here, and neither is an approval whose real detail
             // stayed on the iPhone.
             approvalId: WatchApprovalEligibility.approvalId(for: session),
-            // Only for a question one string can finish. A multi-part or
-            // multi-select wait keeps `handling` (the iPhone can answer it) and
-            // loses the identity, because the wrist has no identity here it
-            // could act on: it would answer one question out of three.
-            pendingId: waitKind == .question
-                ? session.pendingQuestion.flatMap { $0.isSinglePart ? $0.id : nil } : nil,
+            // Only for a question the wrist can finish: one string for a
+            // one-part question, or one pick per question when every question
+            // offers choices. A prompt with a free-text question anywhere
+            // keeps `handling` (the iPhone can answer it) and loses the
+            // identity, because the wrist has no identity here it could act
+            // on: it would answer two questions out of three.
+            pendingId: question.flatMap { $0.isSinglePart || walked != nil ? $0.id : nil },
+            questions: walked,
             handling: WatchApprovalEligibility.approvalId(for: session) != nil
                 ? .watchApproval : WaitHandling.resolve(for: session),
             waitingSince: session.statusSince

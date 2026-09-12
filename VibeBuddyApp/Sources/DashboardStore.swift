@@ -194,7 +194,7 @@ final class DashboardStore: ObservableObject {
             return result(.accepted)
         case .refused:
             return result(.refused)
-        case .decide, .answer, .stop:
+        case .decide, .answer, .answerAll, .stop:
             break
         }
         if isDemo {
@@ -220,7 +220,15 @@ final class DashboardStore: ObservableObject {
         case .decide(let approvalId, let decision):
             guard await decisionClient.decide(pairing, approvalId: approvalId, decision: decision)
             else { return result(.failed) }
-        case .answer(_, let text):
+        case .answer, .answerAll:
+            // One string for a one-question wait; a checked set of picks, keyed
+            // by question, for a prompt the wrist walked — the same structured
+            // form this phone's own card sends.
+            let (text, answers): (String?, QuestionAnswers?) = switch revalidated {
+            case .answer(_, let text): (text, nil)
+            case .answerAll(_, let answers): (nil, answers)
+            default: (nil, nil)
+            }
             // Three different answers, because they mean three different things
             // on a wrist. `.expired` is the Mac saying this question is gone —
             // the same thing `refused` says for a stop, and the opposite of
@@ -228,7 +236,7 @@ final class DashboardStore: ObservableObject {
             // request the Mac may well have carried out, which is the one case
             // where claiming it did not send would be a lie.
             switch await decisionClient.phoneAnswer(pairing, session: current, text: text,
-                                                    answers: nil, requestID: request.attemptId) {
+                                                    answers: answers, requestID: request.attemptId) {
             case .received: break
             case .expired: return result(.refused)
             case .unconfirmed: return result(.unknown)
@@ -268,6 +276,11 @@ final class DashboardStore: ObservableObject {
             return decideDemo(approvalId) == .received
         case .answer(_, let text):
             return answerDemo(sessionId, text: text)
+        case .answerAll(_, let answers):
+            // The sample has no agent to read a structured answer; the picks
+            // become the sentence the summary shows, in question order.
+            return answerDemo(sessionId, text: answers.sorted { $0.key < $1.key }
+                                .map { $0.value.joined(separator: ", ") }.joined(separator: "; "))
         case .stop:
             return stopDemo(sessionId)
         case .duplicate, .refused:
