@@ -205,16 +205,16 @@ struct QuotaWidgetView: View {
         VStack(spacing: 0) {
             ForEach(providers) { provider in
                 Text("\(rowLabel(provider)) \(value(window(provider)))")
-                    .font(.system(size: providers.count == 1 ? 15 : 11, weight: .semibold, design: .rounded))
+                    .font(CompanionType.font(providers.count == 1 ? 15 : 11, .semibold))
                     .monospacedDigit().lineLimit(1).minimumScaleFactor(0.65)
             }
             if providers.count == 1, let provider = providers.first {
                 let reading = window(provider)
                 Text(reading.label ?? durationLabel(reading))
-                    .font(.system(size: 8)).lineLimit(1).minimumScaleFactor(0.7)
+                    .font(CompanionType.font(8)).lineLimit(1).minimumScaleFactor(0.7)
             }
             if providers.count > 1, !differentPeriods, let provider = providers.first {
-                Text(periodLabel(window(provider))).font(.system(size: 10)).lineLimit(1)
+                Text(periodLabel(window(provider))).font(CompanionType.font(10)).lineLimit(1)
             }
         }
     }
@@ -232,7 +232,7 @@ struct QuotaWidgetView: View {
                 ForEach(0..<10) { segment in
                     let start = CGFloat(segment) / 10 + 0.012
                     let end = CGFloat(segment + 1) / 10 - 0.012
-                    Circle().trim(from: start, to: end).stroke(.secondary.opacity(0.2), lineWidth: 3)
+                    Circle().trim(from: start, to: end).stroke(CompanionPalette.ink3.opacity(0.4), lineWidth: 3)
                         .rotationEffect(.degrees(-90)).padding(inset)
                     let fraction = min(1, max(0, remaining * 10 - CGFloat(segment)))
                     if fraction > 0 {
@@ -241,7 +241,7 @@ struct QuotaWidgetView: View {
                     }
                 }
             } else {
-                Circle().stroke(.secondary.opacity(0.2), style: StrokeStyle(
+                Circle().stroke(CompanionPalette.ink3.opacity(0.4), style: StrokeStyle(
                     lineWidth: 3, dash: reading.currentRemainingPercent(now: now) == nil ? [2, 4] : []))
                     .padding(inset)
                 if remaining > 0 {
@@ -267,7 +267,7 @@ struct QuotaWidgetView: View {
                     }
                 }
             }
-        }.font(.system(size: 10, design: .rounded)).monospacedDigit().lineLimit(1)
+        }.font(CompanionType.font(10)).monospacedDigit().lineLimit(1)
     }
 
     private var countdowns: some View {
@@ -275,9 +275,9 @@ struct QuotaWidgetView: View {
             ForEach(providers) { provider in
                 let reading = window(provider)
                 Text("\(label(provider)) \(countdown(reading))")
-                    .font(.system(size: providers.count == 1 ? 15 : 12, weight: .semibold, design: .rounded))
+                    .font(CompanionType.font(providers.count == 1 ? 15 : 12, .semibold))
                 Text("\(periodLabel(reading)) \(value(reading))")
-                    .font(.system(size: 10, design: .rounded))
+                    .font(CompanionType.font(10))
             }
         }.monospacedDigit().lineLimit(1)
     }

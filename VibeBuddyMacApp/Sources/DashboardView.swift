@@ -3,6 +3,24 @@ import AppKit
 import VibeBuddyKit
 import VibeBuddyMacCore
 
+/// The dashboard's library tabs, and the one programmatic way to land on one
+/// of them from elsewhere. Settings › Plan & quota uses it to open the Usage
+/// page rather than repeat its readings (ADR-0017 §6). `@Published` replays
+/// the current value to a new subscriber, so a request made before the
+/// dashboard window has ever been built still reaches the view once it is.
+@MainActor
+final class DashboardRoute: ObservableObject {
+    enum Library: String { case live, history, favorites, usage }
+
+    static let shared = DashboardRoute()
+    @Published fileprivate var requested: Library?
+
+    static func open(_ library: Library) {
+        shared.requested = library
+        NotificationCenter.default.post(name: .openDashboard, object: nil)
+    }
+}
+
 /// Project navigation, the filtered session list, and the existing live detail
 /// surface. These filters never alter the shared snapshot or Buddy scope.
 struct DashboardView: View {
@@ -75,6 +93,13 @@ struct DashboardView: View {
             }
         }
         .background(MacTheme.bg)
+        .onReceive(DashboardRoute.shared.$requested) { library in
+            guard let library else { return }
+            libraryScope = library.rawValue
+            // Clear on the next turn so the request is consumed once and the
+            // publisher is not re-entered from inside its own delivery.
+            DispatchQueue.main.async { DashboardRoute.shared.requested = nil }
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button { showNewTask = true } label: { Image(systemName: "plus.bubble") }
@@ -271,7 +296,7 @@ private struct MacBuddyBar: View {
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 6) {
                         if !companionEnabled {
-                            Image(systemName: "mic.slash").font(.caption).foregroundStyle(MacTheme.ink2)
+                            Image(systemName: "mic.slash").font(.system(size: 10)).foregroundStyle(MacTheme.ink2)
                         }
                         Text(headline).font(MacTheme.font(13, .heavy)).foregroundStyle(MacTheme.ink)
                         if companionEnabled {
@@ -431,7 +456,7 @@ private struct DetailCard: View {
             .background(MacTheme.status(session.presentationState).opacity(0.14), in: Capsule())
 
             if session.status == .needsResponse && session.pendingApproval == nil && session.pendingQuestion == nil {
-                Text(WaitHandling.resolve(for: session).message).font(.caption)
+                Text(WaitHandling.resolve(for: session).message).font(MacTheme.font(10))
             }
             if let approval = session.pendingApproval {
                 RequestCard(session: session, approval: approval, model: model)
@@ -585,12 +610,12 @@ private struct VoiceConsentSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Label("Voice companion", systemImage: "waveform").font(.headline)
+            Label("Voice companion", systemImage: "waveform").font(MacTheme.font(13, .semibold))
             Text("Tap the buddy to talk — it knows your sessions and can approve / answer for you. Pick the provider whose key you've filled in below. Switching applies instantly if the buddy is already listening.")
-                .font(.callout).foregroundStyle(.secondary)
+                .font(MacTheme.font(12)).foregroundStyle(MacTheme.ink2)
                 .fixedSize(horizontal: false, vertical: true)
             Text("Enabling opens the mic on the next tap and shares your live sessions with your selected provider, using your own key.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 .fixedSize(horizontal: false, vertical: true)
             HStack {
                 Spacer()
@@ -614,8 +639,8 @@ private struct TranscriptSheet: View {
         VStack(spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Recent output").font(.headline)
-                    Text(session.project).font(.caption).foregroundStyle(.secondary)
+                    Text("Recent output").font(MacTheme.font(13, .semibold))
+                    Text(session.project).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 }
                 Spacer()
                 Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
@@ -652,18 +677,18 @@ private struct TranscriptSheet: View {
                             Text(updatedAt, style: .relative).monospacedDigit()
                         }
                     }
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .font(MacTheme.font(10, .semibold))
+                    .foregroundStyle(MacTheme.ink2)
                     if !output.statusLine.isEmpty {
-                        Text(output.statusLine).font(.caption).foregroundStyle(.secondary)
+                        Text(output.statusLine).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                     }
                     ForEach(Array(output.entries.enumerated()), id: \.offset) { _, entry in
                         VStack(alignment: .leading, spacing: 3) {
                             Text(entry.role == "assistant" ? "Assistant" : "You")
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(entry.role == "assistant" ? Color.blue : Color.secondary)
+                                .font(MacTheme.font(10, .semibold))
+                                .foregroundStyle(entry.role == "assistant" ? Color.blue : MacTheme.ink2)
                             Text(entry.text)
-                                .font(.callout)
+                                .font(MacTheme.font(12))
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
@@ -685,26 +710,26 @@ private struct RecentOutputPane: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text("Recent output").font(.headline)
+                Text("Recent output").font(MacTheme.font(13, .semibold))
                 Spacer()
                 Button("Refresh") { Task { await reload() } }.disabled(loading)
             }
             if let output {
-                Text(output.sourceLabel).font(.caption).foregroundStyle(.secondary)
+                Text(output.sourceLabel).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 if !output.statusLine.isEmpty {
-                    Text(output.statusLine).font(.caption).foregroundStyle(.secondary)
+                    Text(output.statusLine).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 }
                 Text("A limited recent excerpt. Open History to read indexed local conversations.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 if output.entries.isEmpty {
                     Text("No recent output is available from this source.")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(MacTheme.ink2)
                 }
                 ForEach(Array(output.entries.enumerated()), id: \.offset) { _, entry in
                     VStack(alignment: .leading, spacing: 6) {
                         Text(entry.role == "assistant" ? "Assistant" : "You")
-                            .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                        Text(entry.text).font(.body).textSelection(.enabled)
+                            .font(MacTheme.font(10, .semibold)).foregroundStyle(MacTheme.ink2)
+                        Text(entry.text).font(MacTheme.font(13)).textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }

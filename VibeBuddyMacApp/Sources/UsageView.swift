@@ -21,31 +21,31 @@ struct AccountUsageSummaryView: View {
     private func summary(now: Date) -> some View {
             if let snapshot = state.snapshot?.excludingExpiredGrokWindows(at: now) {
                 if let account = snapshot.accountLabel {
-                    Text(account).font(.caption).foregroundStyle(.secondary)
+                    Text(account).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 }
                 if let detail = snapshot.usageDetail {
-                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                    Text(detail).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 }
                 if let available = snapshot.hasAvailableUsage {
-                    Text(available ? "Usage available" : "No usage available").font(.caption)
-                        .foregroundStyle(available ? Color.secondary : Color.orange)
+                    Text(available ? "Usage available" : "No usage available").font(MacTheme.font(10))
+                        .foregroundStyle(available ? MacTheme.ink2 : Color.orange)
                 }
                 if provider == .grokBot, snapshot.primary == nil, snapshot.usageDetail == nil {
-                    Text("Weekly percentage unavailable").foregroundStyle(.secondary)
+                    Text("Weekly percentage unavailable").foregroundStyle(MacTheme.ink2)
                 }
                 if provider == .grok, snapshot.primary == nil {
                     if state.unavailableReason != .unknown {
-                        Text("Usage is temporarily unavailable").foregroundStyle(.secondary)
+                        Text("Usage is temporarily unavailable").foregroundStyle(MacTheme.ink2)
                     }
                     if let end = snapshot.periodEnd {
                         Text("Period ends \(end.formatted(date: .abbreviated, time: .shortened))")
-                            .font(.caption2).foregroundStyle(.secondary)
+                            .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                     }
                 }
                 if snapshot.displayWindows.isEmpty {
                     if provider != .grok && provider != .grokBot {
                         Label("No quota windows supplied", systemImage: "gauge.with.dots.needle.0percent")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(MacTheme.ink2)
                     }
                 } else {
                     ForEach(snapshot.displayWindows) { window in
@@ -55,17 +55,17 @@ struct AccountUsageSummaryView: View {
 
                 if let credits = snapshot.credits {
                     LabeledContent(credits.label ?? "Credits", value: QuotaPresentation.creditsLine(credits))
-                        .font(.caption)
+                        .font(MacTheme.font(10))
                     if let reset = credits.resetsAt {
                         Text(QuotaPresentation.resetLine(from: reset, now: now))
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .font(MacTheme.font(10))
+                            .foregroundStyle(MacTheme.ink2)
                     }
                 }
                 if let spend = snapshot.spend, !spend.isEmpty {
                     ForEach(spend) { row in
                         LabeledContent(row.label, value: QuotaPresentation.spendLine(row))
-                            .font(.caption)
+                            .font(MacTheme.font(10))
                     }
                 }
 
@@ -78,7 +78,7 @@ struct AccountUsageSummaryView: View {
                             LabeledContent("Lifetime", value: tokens.formatted())
                         }
                     }
-                    .font(.caption)
+                    .font(MacTheme.font(10))
                 }
 
                 HStack(spacing: 5) {
@@ -90,19 +90,19 @@ struct AccountUsageSummaryView: View {
                         Text("· Stale").foregroundStyle(.orange)
                     }
                 }
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+                .font(MacTheme.font(10))
+                .foregroundStyle(MacTheme.ink2)
             }
 
             if let reason = state.unavailableReason {
                 Label(reason.displayText(provider: provider), systemImage: reasonIcon(reason))
-                    .font(.caption)
-                    .foregroundStyle(reason == .collectionDisabled ? Color.secondary : Color.orange)
+                    .font(MacTheme.font(10))
+                    .foregroundStyle(reason == .collectionDisabled ? MacTheme.ink2 : Color.orange)
                     .fixedSize(horizontal: false, vertical: true)
                 if reason != .collectionDisabled, let retry = state.nextRefreshAt, retry > now {
                     Text("Retry \(retry, style: .relative)")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                        .font(MacTheme.font(10))
+                        .foregroundStyle(MacTheme.ink3)
                 }
             }
     }
@@ -110,10 +110,10 @@ struct AccountUsageSummaryView: View {
     private func windowRow(_ window: AccountUsageWindow, now: Date) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(windowTitle(window)).font(.caption.weight(.semibold))
+                Text(windowTitle(window)).font(MacTheme.font(10, .semibold))
                 Spacer(minLength: 4)
                 Text(QuotaPresentation.remainingLine(usedPercent: window.usedPercent))
-                    .font(.caption.monospacedDigit())
+                    .font(MacTheme.font(10).monospacedDigit())
                     .foregroundStyle(QuotaPresentation.severity(usedPercent: window.usedPercent).tint)
             }
             QuotaBullet(usedPercent: window.usedPercent,
@@ -121,24 +121,24 @@ struct AccountUsageSummaryView: View {
                         height: compact ? 10 : 12)
             if let reset = window.resetsAt {
                 Text(QuotaPresentation.resetLine(from: reset, now: now))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(MacTheme.font(10))
+                    .foregroundStyle(MacTheme.ink2)
             } else {
                 Text("Reset time unavailable")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(MacTheme.font(10))
+                    .foregroundStyle(MacTheme.ink2)
             }
             if let minutes = window.windowDurationMinutes, minutes >= 60,
                let reset = window.resetsAt,
-               let pace = QuotaPresentation.weeklyPace(
+               let pace = QuotaPresentation.windowPace(
                 usedPercent: window.usedPercent,
                 resetsAt: reset,
                 windowMinutes: minutes,
                 now: now
                ) {
                 Text(pace.caption)
-                    .font(.caption2)
-                    .foregroundStyle(pace == .ahead ? QuotaPresentation.Severity.warning.tint : Color.secondary)
+                    .font(MacTheme.font(10))
+                    .foregroundStyle(pace == .ahead ? QuotaPresentation.Severity.warning.tint : MacTheme.ink2)
             }
         }
     }
@@ -180,13 +180,13 @@ struct AccountUsageSummaryView: View {
     }
 }
 
-/// What each account has left. The live meters are the point of the page, so
-/// the only setting on it is the threshold that turns them into an alert.
+/// The threshold that turns a quota window into an alert, and the way to the
+/// readings themselves. The meters are read in one place only — the
+/// dashboard's plinth and its Usage page (ADR-0017 §6) — so this page links
+/// there instead of repeating them.
 struct PlanAndQuotaPage: View {
     @ObservedObject var model: MenuBarModel
     @AppStorage("accountUsageAlertThreshold") private var alertThreshold = 90
-
-    private let columns = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
 
     var body: some View {
         SettingsPageScaffold(SettingsPageID.quota.title, subtitle: SettingsPageID.quota.subtitle) {
@@ -206,35 +206,14 @@ struct PlanAndQuotaPage: View {
             }
 
             SettingsSection("Current usage",
-                            footnote: "Read from each vendor's own local login — nothing is copied to storage or logged.",
-                            boxed: false) {
-                LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
-                    ForEach(AccountUsageProvider.allCases, id: \.self) { provider in
-                        QuotaPanel(provider: provider, state: model.usageState(for: provider))
-                    }
+                            footnote: "Read from each vendor's own local login — nothing is copied to storage or logged.") {
+                SettingsRow("Windows, resets and pace",
+                            detail: "Every provider's live meters are on the dashboard's Usage page.") {
+                    Button("Open Usage") { DashboardRoute.open(.usage) }
+                        .accessibilityIdentifier("open-usage-page")
                 }
             }
         }
-    }
-}
-
-/// One provider's own panel on the quota page.
-private struct QuotaPanel: View {
-    let provider: AccountUsageProvider
-    let state: AccountUsageState
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(verbatim: provider.displayName)
-                .font(SettingsChrome.font(13, .bold))
-                .foregroundStyle(MacTheme.ink)
-            AccountUsageSummaryView(provider: provider, state: state)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(MacTheme.bg2)
-        .clipShape(RoundedRectangle(cornerRadius: SettingsChrome.cardRadius, style: .continuous))
     }
 }
 
@@ -425,20 +404,20 @@ struct TokenConsumptionSummaryView: View {
                     windowBlock(window)
                 }
                 Text("Updated \(snapshot.observedAt.formatted(date: .abbreviated, time: .shortened))")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(MacTheme.font(10))
+                    .foregroundStyle(MacTheme.ink2)
                 if let warnings = snapshot.warnings, !warnings.isEmpty {
                     Text(warnings.prefix(2).joined(separator: "\n"))
-                        .font(.caption2)
+                        .font(MacTheme.font(10))
                         .foregroundStyle(.orange)
                 }
                 Text("From local Claude Code transcripts and Codex rollouts. Estimates only — not an invoice. Distinct from account quota remaining.")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                    .font(MacTheme.font(10))
+                    .foregroundStyle(MacTheme.ink3)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
                 Label("Waiting for the first local scan", systemImage: "chart.bar")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(MacTheme.ink2)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -447,20 +426,20 @@ struct TokenConsumptionSummaryView: View {
     private func windowBlock(_ window: TokenConsumptionWindow) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(window.kind.title).font(.caption.weight(.semibold))
+                Text(window.kind.title).font(MacTheme.font(10, .semibold))
                 Spacer(minLength: 4)
                 if window.counts.isEmpty {
-                    Text("No spend").foregroundStyle(.secondary)
+                    Text("No spend").foregroundStyle(MacTheme.ink2)
                 } else {
                     Text("\(TokenConsumptionSnapshot.formatUSD(window.counts.estimatedUSD)) · \(TokenConsumptionSnapshot.formatTokens(window.counts.totalTokens))")
                         .monospacedDigit()
                 }
             }
-            .font(.caption)
+            .font(MacTheme.font(10))
             if !window.counts.isEmpty {
                 Text("\(TokenConsumptionSnapshot.formatTokens(window.counts.billedTokens)) billed · \(TokenConsumptionSnapshot.formatTokens(window.counts.cachedInputTokens)) cache · \(window.counts.sessionCount) sessions")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(MacTheme.font(10))
+                    .foregroundStyle(MacTheme.ink2)
                 rowList("By agent", window.byAgent)
                 rowList("By model", compact ? Array(window.byModel.prefix(4)) : window.byModel)
                 rowList("By project", compact ? Array(window.byProject.prefix(4)) : window.byProject)
@@ -472,7 +451,7 @@ struct TokenConsumptionSummaryView: View {
         if !rows.isEmpty {
             VStack(alignment: .leading, spacing: 3) {
                 if let title {
-                    Text(title).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                    Text(title).font(MacTheme.font(10, .semibold)).foregroundStyle(MacTheme.ink2)
                 }
                 ForEach(rows) { row in
                     HStack {
@@ -480,9 +459,9 @@ struct TokenConsumptionSummaryView: View {
                         Spacer(minLength: 8)
                         Text("\(TokenConsumptionSnapshot.formatTokens(row.counts.totalTokens)) · \(TokenConsumptionSnapshot.formatUSD(row.counts.estimatedUSD))")
                             .monospacedDigit()
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(MacTheme.ink2)
                     }
-                    .font(.caption2)
+                    .font(MacTheme.font(10))
                 }
             }
         }

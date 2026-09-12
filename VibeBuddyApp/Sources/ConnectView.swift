@@ -125,7 +125,7 @@ struct ConnectView: View {
                         DisclosureGroup("Can't find the QR code?", isExpanded: $showScannerHelp) {
                             VStack(alignment: .leading, spacing: 12) {
                                 Text("Install the companion on your Mac, then open “Pair a phone” in its menu bar. Use the same local network or connect both devices to Tailscale.")
-                                    .font(.subheadline)
+                                    .font(CompanionType.font(15))
                                 MacCompanionDownloadActions()
                             }.padding(.top, 12)
                         }

@@ -42,11 +42,11 @@ struct HistorySessionActions: View {
                             : "The resume command is no longer available."
                     }
                 }
-                Text(Self.unavailableReason(for: session)).foregroundStyle(.secondary)
+                Text(Self.unavailableReason(for: session)).foregroundStyle(MacTheme.ink2)
             }
-            if let feedback { Text(feedback).foregroundStyle(.secondary) }
+            if let feedback { Text(feedback).foregroundStyle(MacTheme.ink2) }
         }
-        .font(.caption)
+        .font(MacTheme.font(10))
         .onChange(of: session.id) { _, _ in feedback = nil }
     }
 

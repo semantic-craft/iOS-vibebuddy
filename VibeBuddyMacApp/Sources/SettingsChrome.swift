@@ -10,9 +10,8 @@ import VibeBuddyKit
 /// read without scrolling. Every category now fits the window at its default
 /// size (see `AppWindows.showSettings`).
 ///
-/// Colours come from `CompanionPalette` like the rest of the app, but the type
-/// is SF Pro rather than `MacTheme.font`'s rounded face: Settings is read, not
-/// glanced at, and the rounded face costs legibility at 12–13pt.
+/// Colours and type come from `CompanionPalette` / `MacTheme` like the rest of
+/// the app (ADR-0017): Settings is set in the Kit face, not a private one.
 enum SettingsChrome {
     static let sidebarWidth: CGFloat = 246
     static let contentMaxWidth: CGFloat = 780
@@ -26,9 +25,10 @@ enum SettingsChrome {
     /// the window's own dividers.
     static var hairline: Color { MacTheme.line.opacity(0.75) }
 
-    /// SF Pro at a size and weight. Deliberately not `MacTheme.font`.
+    /// The Kit face at a size and weight; kept as a name so the Settings views
+    /// read uniformly, but it is `MacTheme.font`.
     static func font(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        .system(size: size, weight: weight)
+        MacTheme.font(size, weight)
     }
 }
 
@@ -345,7 +345,7 @@ struct SettingsValue: View {
 
     var body: some View {
         text
-            .font(monospaced ? .system(size: 12.5, design: .monospaced) : SettingsChrome.font(12.5, .medium))
+            .font(monospaced ? MacTheme.mono(12.5) : SettingsChrome.font(12.5, .medium))
             .monospacedDigit()
             .foregroundStyle(MacTheme.ink2)
             .textSelection(.enabled)

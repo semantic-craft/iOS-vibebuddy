@@ -62,15 +62,15 @@ struct FollowedTaskView: View {
                         Text("\(count) more").fixedSize()
                     }
                 }
-                .font(.caption2)
+                .font(CompanionType.font(11))
                 .foregroundStyle(Color(taskStatus: task.presentation.colorToken))
                 .widgetAccentable()
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(task.title.isEmpty ? String(localized: "Unnamed task") : task.title)
-                        .font(.headline).lineLimit(1)
+                        .font(CompanionType.font(16, .semibold)).lineLimit(1)
                     Spacer(minLength: 0)
                     Text(task.sourceName)
-                        .font(.caption2).lineLimit(1).minimumScaleFactor(0.75)
+                        .font(CompanionType.font(11)).lineLimit(1).minimumScaleFactor(0.75)
                         .fixedSize(horizontal: true, vertical: false)
                 }
                 if stale, let snapshot = entry.snapshot {
@@ -78,21 +78,21 @@ struct FollowedTaskView: View {
                         Image(systemName: "clock.badge.exclamationmark")
                         Text(pending ? "Sync pending" : "Updated")
                         Text(snapshot.observedAt, style: .relative)
-                    }.font(.caption2)
+                    }.font(CompanionType.font(11))
                 } else if pending {
-                    Text("Viewed — syncing with Mac").font(.caption2).lineLimit(1)
+                    Text("Viewed — syncing with Mac").font(CompanionType.font(11)).lineLimit(1)
                 } else {
                     Text(task.summary ?? String(localized: statusResource))
-                        .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                        .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink2).lineLimit(1)
                 }
             } else {
-                Text("Followed tasks").font(.caption2)
-                Text(emptyTitle).font(.headline).lineLimit(2)
+                Text("Followed tasks").font(CompanionType.font(11))
+                Text(emptyTitle).font(CompanionType.font(16, .semibold)).lineLimit(2)
                 if stale, let snapshot = entry.snapshot {
                     HStack(spacing: 3) {
                         Text("Updated")
                         Text(snapshot.observedAt, style: .relative)
-                    }.font(.caption2)
+                    }.font(CompanionType.font(11))
                 }
             }
         }

@@ -17,7 +17,7 @@ struct NewTaskSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("New task").font(.title3.bold())
+            Text("New task").font(MacTheme.font(15, .bold))
             Picker("Agent", selection: $agent) {
                 ForEach(model.dispatchAgents, id: \.self) { kind in
                     Text(kind.displayName).tag(kind)
@@ -31,11 +31,11 @@ struct NewTaskSheet: View {
             }
             TextField("Task name (optional)", text: $name).textFieldStyle(.roundedBorder)
             TextEditor(text: $prompt)
-                .font(.body)
+                .font(MacTheme.font(13))
                 .frame(minHeight: 120)
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
             if let feedback {
-                Label(feedback, systemImage: "info.circle").font(.caption).foregroundStyle(.secondary)
+                Label(feedback, systemImage: "info.circle").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
             }
             HStack {
                 Spacer()

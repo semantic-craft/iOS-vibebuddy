@@ -159,17 +159,17 @@ struct SettingsView: View {
             if dashboard.state != .connected && !dashboard.observationDiagnostics.isEmpty {
                 Section {
                     Label("Showing last diagnostics. Reconnect to update.", systemImage: "wifi.exclamationmark")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(CompanionPalette.ink2)
                 }
             }
             Section {
                 if dashboard.observationDiagnostics.isEmpty {
                     Text("No observation diagnostics received from the Mac yet.")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(CompanionPalette.ink2)
                 }
                 ForEach(dashboard.observationDiagnostics) { agent in
                     VStack(alignment: .leading, spacing: 7) {
-                        Text(agent.agent.displayName).font(.headline)
+                        Text(agent.agent.displayName).font(CompanionType.font(17, .semibold))
                         ForEach(agent.sources) { source in
                             ObservationDiagnosticRow(source: source)
                         }
@@ -200,7 +200,7 @@ struct SettingsView: View {
                     }
                 }
                 if connection.pairing != nil, case .failed(let message) = dashboard.state {
-                    Text(message).font(.footnote).foregroundStyle(.secondary)
+                    Text(message).font(CompanionType.font(13)).foregroundStyle(CompanionPalette.ink2)
                 }
             }
             Section {
@@ -340,7 +340,7 @@ private struct ProviderSection: View {
                 }
                 .accessibilityIdentifier("qwenModelPicker")
                 Text("Both models support live speech-to-speech. Actual response time depends on your network and region.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
                 Picker("Voice", selection: Binding(get: { voice.isEmpty ? "longanqian" : voice }, set: { voice = $0 })) {
                     ForEach(voices, id: \.self) { id in
                         Text(id == "longanqian" ? "Recommended — longanqian" : id).tag(id)
@@ -355,7 +355,7 @@ private struct ProviderSection: View {
                 field(caption: "Workspace ID — optional; uses the workspace endpoint when set",
                       link: "Find your workspace ID", icon: "arrow.up.right.square", url: VoiceProvider.qwenWorkspaceIDURL, pasteInto: $workspaceID, id: "qwenWorkspaceID") {
                     TextField("e.g. llm-xxxxxxxx", text: $workspaceID)
-                        .font(.body.monospaced())
+                        .font(CompanionType.mono(17))
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                 }
@@ -367,9 +367,9 @@ private struct ProviderSection: View {
                     connectionTest.invalidate()
                 }
             } else if provider == .doubao {
-                Text(effectiveModel == provider.defaultModel ? "Doubao realtime voice 3.0 · Recommended" : "Custom realtime model").font(.headline)
+                Text(effectiveModel == provider.defaultModel ? "Doubao realtime voice 3.0 · Recommended" : "Custom realtime model").font(CompanionType.font(17, .semibold))
                 Text(recommendedSummary)
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
                 DisclosureGroup("Advanced settings") {
                     customFields
                     Button("Restore recommended model and voice") { model = ""; voice = "" }
@@ -380,14 +380,14 @@ private struct ProviderSection: View {
             if keySaveFailed {
                 Text("API key could not be saved. Your edit is not stored; edit or paste it again to retry.").foregroundStyle(.orange)
             }
-            if !configurationValid { Text("Review the realtime model, voice and connection before testing.").foregroundStyle(.secondary) }
+            if !configurationValid { Text("Review the realtime model, voice and connection before testing.").foregroundStyle(CompanionPalette.ink2) }
             HStack {
                 Button("Test connection", action: testConnection).disabled(!hasKey || !configurationValid || connectionTest.busy)
                 if connectionTest.busy { Button("Cancel") { connectionTest.cancel() } }
             }
             Text("This test may incur provider charges. It checks configuration only, without microphone input, task history, tools or audio playback.")
-                .font(.caption).foregroundStyle(.secondary)
-            if let result = connectionTest.message { Text(LocalizedStringKey(result)).font(.caption) }
+                .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
+            if let result = connectionTest.message { Text(LocalizedStringKey(result)).font(CompanionType.font(12)) }
         } header: {
             Text(provider.display)
         }
@@ -411,23 +411,23 @@ private struct ProviderSection: View {
             field(caption: "Model ID — editable, type any model",
                   link: "Browse available models", icon: "arrow.up.right.square", url: provider.modelsURL, pasteInto: $model, id: "voiceModelID") {
                 TextField(provider.defaultModel, text: $model)
-                    .font(.body.monospaced())
+                    .font(CompanionType.mono(17))
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
             }
             field(caption: "Voice ID — editable (blank = auto by language)",
                   link: "Browse available voices", icon: "arrow.up.right.square", url: provider.voicesURL, pasteInto: $voice, id: "voiceID") {
                 TextField(exampleVoice, text: $voice)
-                    .font(.body.monospaced())
+                    .font(CompanionType.mono(17))
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
             }
             if provider == .openai, OpenAIVoiceSession.usesLive(effectiveModel) {
                 TextField(OpenAILiveSession.defaultBackendModel, text: $liveBackendModel)
-                    .font(.body.monospaced()).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    .font(CompanionType.mono(17)).textInputAutocapitalization(.never).autocorrectionDisabled()
                     .accessibilityLabel("Task reasoning model")
                 Text("Live handles conversation; the task reasoning model checks tasks and selects actions. Billed separately from voice time.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
             }
     }
 
@@ -452,7 +452,7 @@ private struct ProviderSection: View {
                                 pasteInto value: Binding<String>, id: String,
                                 @ViewBuilder _ input: () -> F) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(caption).font(.caption).foregroundStyle(.secondary)
+            Text(caption).font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
             HStack(spacing: 12) {
                 input()
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -470,7 +470,7 @@ private struct ProviderSection: View {
                 .accessibilityIdentifier("paste-\(id)")
             }
             Link(destination: url) {
-                Label(link, systemImage: icon).font(.caption)
+                Label(link, systemImage: icon).font(CompanionType.font(12))
             }
         }
         .padding(.vertical, 2)

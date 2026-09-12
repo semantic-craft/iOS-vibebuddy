@@ -30,10 +30,10 @@ struct WatchQuotaView: View {
                     WatchConnectionBanner(connection: connection)
                     if state.quotas.isEmpty {
                         Text("No quota sources")
-                            .font(.headline)
+                            .font(CompanionType.font(16, .semibold))
                         Text("Enable quota collection for your signed-in account on your Mac to see allowance here.")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .font(CompanionType.font(11))
+                            .foregroundStyle(CompanionPalette.ink2)
                             .multilineTextAlignment(.center)
                     } else {
                         Picker("Platform", selection: $provider) {
@@ -61,7 +61,7 @@ private struct WatchQuotaDetail: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let account = quota.accountLabel {
-                Text(account).font(.caption2).foregroundStyle(.secondary)
+                Text(account).font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink2)
             }
             let standard = QuotaWindowKind.allCases.map { quota.window($0) }.filter {
                 $0.remainingPercent != nil || $0.durationMinutes != nil || $0.resetsAt != nil || $0.label != nil
@@ -75,28 +75,28 @@ private struct WatchQuotaDetail: View {
                             WatchAllowanceRing(reading: reading, now: now, provider: quota.provider)
                                 .frame(width: 64, height: 64)
                             Text(reading.label ?? WatchQuotaVoice.windowName(reading))
-                                .font(.caption2)
+                                .font(CompanionType.font(11))
                                 .multilineTextAlignment(.center)
                                 .frame(maxWidth: 72)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
                 }
-                Text("Remaining").font(.caption2).foregroundStyle(.secondary)
+                Text("Remaining").font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink2)
             }
             ForEach(Array(readings.enumerated()), id: \.offset) { _, reading in
                 window(reading, title: WatchQuotaVoice.windowName(reading))
             }
             Text(WatchFormat.updated(quota.age(now: now)))
-                .font(.caption2).foregroundStyle(.secondary)
+                .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink2)
             if let observedAt = quota.observedAt {
                 Text(observedAt.formatted(date: .abbreviated, time: .shortened))
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink2)
             }
             if let reason = quota.unavailableReason {
-                Text(reason).font(.caption2).foregroundStyle(.secondary)
+                Text(reason).font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink2)
                 Text("Check the quota source on your Mac.")
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink2)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -120,7 +120,7 @@ private struct WatchQuotaDetail: View {
             if let remaining = reading.currentRemainingPercent(now: now) {
                 ProgressView(value: Double(remaining), total: 100)
                     .tint(status == .stale
-                          ? .secondary
+                          ? CompanionPalette.ink3
                           : QuotaPresentation.tint(identity: .primary, usedPercent: 100 - remaining))
             }
             if status == .awaitingReset {
@@ -144,8 +144,8 @@ private struct WatchQuotaDetail: View {
                 Text("Reset time unknown")
             }
         }
-        .font(.caption2)
-        .foregroundStyle(status == .live ? .primary : .secondary)
+        .font(CompanionType.font(11))
+        .foregroundStyle(status == .live ? CompanionPalette.ink : CompanionPalette.ink2)
     }
 }
 
@@ -159,7 +159,7 @@ private struct WatchAllowanceRing: View {
     /// window crosses 80%, so the ring that is about to run out stops looking
     /// like the other four.
     private var tint: Color {
-        guard reading.status(now: now) == .live else { return .secondary }
+        guard reading.status(now: now) == .live else { return CompanionPalette.ink3 }
         return QuotaPresentation.tint(identity: identity,
                                       usedPercent: reading.currentRemainingPercent(now: now).map { 100 - $0 })
     }
@@ -178,7 +178,7 @@ private struct WatchAllowanceRing: View {
         let remaining = reading.currentRemainingPercent(now: now)
         let status = reading.status(now: now)
         ZStack {
-            Circle().stroke(.secondary.opacity(0.3),
+            Circle().stroke(CompanionPalette.ink3.opacity(0.5),
                             style: StrokeStyle(lineWidth: 4, dash: remaining == nil ? [2, 5] : []))
             if let remaining, remaining > 0 {
                 Circle().trim(from: 0, to: CGFloat(remaining) / 100)
@@ -187,10 +187,10 @@ private struct WatchAllowanceRing: View {
             }
             VStack(spacing: 1) {
                 Text(status == .awaitingReset ? "↻" : remaining.map(WatchFormat.percent) ?? "—")
-                    .font(.system(.headline, design: .rounded)).monospacedDigit()
+                    .font(CompanionType.font(16, .semibold)).monospacedDigit()
                     .minimumScaleFactor(0.7).lineLimit(1)
                 if status == .stale {
-                    Text("Cached reading").font(.system(size: 9)).lineLimit(1).minimumScaleFactor(0.7)
+                    Text("Cached reading").font(CompanionType.font(9)).lineLimit(1).minimumScaleFactor(0.7)
                 }
             }.padding(5)
         }
