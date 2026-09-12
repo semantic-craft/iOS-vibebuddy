@@ -934,3 +934,7 @@
 
 /* Demo data label on the quota plinth */
 "Opus week" = "Opus 周";
+
+/* Voice page — the two-tier control line's cell labels (decision B) */
+"Provider" = "服务商";
+"Model" = "模型";
