@@ -71,6 +71,10 @@ generate a notification or alter the live session state.
 
 For a uniquely matched live Session, history reuses the existing Jump and supported
 Codex input actions, checking live identity again at the time of the action.
+Matching requires the same agent and native session ID. A known terminal directory
+must match; a Codex daemon/Desktop session without a terminal can instead match its
+explicit live thread ID. Duplicate matches remain unavailable, and this match does
+not grant CLI provenance or bypass the live session's action capability checks.
 For a historical Claude conversation with a valid ID and existing project directory,
 **Copy resume command** prepares a shell-quoted command for the user to run; copying
 does not run it. An available, unarchived Codex record with explicit `source=cli` metadata also

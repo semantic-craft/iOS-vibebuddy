@@ -6,9 +6,13 @@ public enum HistoryResumePolicy {
     public static func liveSession(for history: SessionHistorySession, in sessions: [AgentSession]) -> AgentSession? {
         guard history.projectPath.hasPrefix("/"), !history.nativeSessionID.isEmpty else { return nil }
         let matches = sessions.filter {
-            $0.id == history.nativeSessionID &&
-            $0.agent == (history.agent == .claude ? .claudeCode : .codex) &&
-            $0.terminalRef?.cwd == history.projectPath
+            guard $0.id == history.nativeSessionID,
+                  $0.agent == (history.agent == .claude ? .claudeCode : .codex) else { return false }
+            if let cwd = $0.terminalRef?.cwd { return cwd == history.projectPath }
+            // Daemon/desktop observations have a verified thread identity but
+            // need not have a terminal. Keep using the live action capability;
+            // this does not establish CLI provenance or invent a resume command.
+            return history.agent == .codex && $0.desktopThreadID == history.nativeSessionID
         }
         return matches.count == 1 ? matches[0] : nil
     }
