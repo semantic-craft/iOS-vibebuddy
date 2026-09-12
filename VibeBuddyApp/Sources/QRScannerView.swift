@@ -36,7 +36,7 @@ struct QRScannerView: UIViewControllerRepresentable {
                 scannerLog.info("metadata callback but no string")
                 return
             }
-            scannerLog.info("scanned string: \(string, privacy: .public)")
+            scannerLog.info("scanned pairing code")
             guard let payload = try? JSONDecoder().decode(PairingPayload.self, from: Data(string.utf8)) else {
                 scannerLog.error("decode to PairingPayload FAILED")
                 return

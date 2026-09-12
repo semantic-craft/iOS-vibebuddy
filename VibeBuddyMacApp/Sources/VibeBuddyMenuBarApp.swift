@@ -497,11 +497,20 @@ struct MenuContent: View {
                 Text("Push registration does not confirm notification delivery.")
                     .foregroundStyle(MacTheme.ink2)
                 Divider()
+                Toggle("Use Tailscale for remote access", isOn: $model.useTailscale)
+                    .disabled(model.pairingInProgress || model.changingPairing)
+                if model.useTailscale {
+                    TextField("100.x.x.x or Mac name.ts.net", text: $model.tailscaleHost)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(model.pairingInProgress || model.changingPairing)
+                    Text("Install Tailscale on Mac and iPhone and join the same network. Copy this Mac’s address from Tailscale.")
+                    if model.pairing == nil { Text("Enter a valid Tailscale address.").foregroundStyle(.orange) }
+                }
                 Text(model.pairingAddress).font(MacTheme.mono(11)).textSelection(.enabled)
                 Button(model.pairingInProgress ? "Cancel pairing" : "Pair a phone") {
                     if model.pairingInProgress { model.endPairing() } else { model.beginPairing() }
                 }
-                .disabled(model.changingPairing)
+                .disabled(model.changingPairing || (!model.pairingInProgress && model.pairing == nil))
                 if model.pairingInProgress, let qr = model.qrImage {
                     Image(nsImage: qr).interpolation(.none).resizable()
                         .scaledToFit().frame(width: 176, height: 176)

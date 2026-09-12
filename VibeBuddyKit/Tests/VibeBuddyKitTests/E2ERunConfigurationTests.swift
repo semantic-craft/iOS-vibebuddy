@@ -29,6 +29,9 @@ struct E2ERunConfigurationTests {
         let staged = try #require(try E2ERunConfiguration(environment: enabled, bundleIdentifier: "com.vibebuddy.e2e.probe-1"))
         #expect(staged.audioEnabled && staged.notificationsEnabled)
         #expect(staged.host == "192.168.1.23" && staged.codexThreadID == enabled["VIBEBUDDY_E2E_CODEX_THREAD"])
+        enabled["VIBEBUDDY_E2E_HOST"] = "100.64.0.2"
+        let tailnet = try #require(try E2ERunConfiguration(environment: enabled, bundleIdentifier: "com.vibebuddy.e2e.probe-1"))
+        #expect(tailnet.host == "100.64.0.2")
     }
 
     @Test("Partial, conflicting and malformed explicit inputs refuse production fallback")
@@ -45,6 +48,8 @@ struct E2ERunConfigurationTests {
             ["VIBEBUDDY_E2E_HOST": "0.0.0.0"],
             ["VIBEBUDDY_E2E_HOST": "example.com"],
             ["VIBEBUDDY_E2E_HOST": "8.8.8.8"],
+            ["VIBEBUDDY_E2E_HOST": "100.63.255.255"],
+            ["VIBEBUDDY_E2E_HOST": "100.128.0.1"],
             ["VIBEBUDDY_E2E_CODEX_THREAD": "not-a-thread"],
             ["VIBEBUDDY_E2E_UNKNOWN": "1"]]
         for replacement in replacements {

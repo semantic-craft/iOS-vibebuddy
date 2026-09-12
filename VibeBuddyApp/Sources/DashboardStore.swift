@@ -323,7 +323,7 @@ final class DashboardStore: ObservableObject {
     /// Register this Live Activity's APNs push token with the Mac. Best-effort.
     private func uploadActivityToken(_ token: String) {
         guard !isDemo, let pairing,
-              let url = URL(string: "http://\(pairing.host):\(pairing.port)/activity") else { return }
+              let url = pairing.companionURL(path: "activity") else { return }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
@@ -362,14 +362,29 @@ final class DashboardStore: ObservableObject {
                 // (emptying its registry) while this app stayed alive in the
                 // background, and nothing else re-uploads the APNs token.
                 self.reportDevice(pairing)
-                for await snapshot in self.streamer.stream(pairing) {
-                    if Task.isCancelled { return }
-                    await self.apply(snapshot, generation: generation)
+                var failure = String(localized: "Disconnected — reconnecting…")
+                var requiresInput = false
+                do {
+                    for try await snapshot in self.streamer.stream(pairing) {
+                        if Task.isCancelled || self.connectionGeneration != generation { return }
+                        await self.apply(snapshot, generation: generation)
+                    }
+                } catch CompanionConnectionFailure.authentication {
+                    failure = String(localized: "Access refused. Check your pairing token, then reconnect.")
+                    requiresInput = true
+                } catch CompanionConnectionFailure.invalidAddress {
+                    failure = String(localized: "Invalid Mac address. Pair again with a valid host and port.")
+                    requiresInput = true
+                } catch {
+                    if (error as? URLError)?.code == .timedOut {
+                        failure = String(localized: "Mac did not respond — reconnecting…")
+                    }
                 }
-                if Task.isCancelled { return }
-                self.state = .failed(String(localized: "Disconnected — reconnecting…"))
+                if Task.isCancelled || self.connectionGeneration != generation { return }
+                self.state = .failed(failure)
                 self.relayToWatch(self.allSessions)
                 await self.liveActivity.sync(sessions: self.allSessions, allowsActions: false)
+                if requiresInput { return }
                 try? await Task.sleep(for: .seconds(2))
             }
         }
@@ -388,6 +403,7 @@ final class DashboardStore: ObservableObject {
     }
 
     func forgetPairing() {
+        pendingPairingConfirmation = false
         stop()
         completionReads.clear()
         pairing = nil
@@ -402,7 +418,15 @@ final class DashboardStore: ObservableObject {
 
     /// Play the pairing-success cue. Called once when a fresh pairing is saved
     /// (a QR scan or manual connect), not on automatic reconnects.
+    private var pendingPairingConfirmation = false
+
     func confirmPairing() {
+        pendingPairingConfirmation = true
+    }
+
+    private func confirmConnectedPairing() {
+        guard pendingPairingConfirmation else { return }
+        pendingPairingConfirmation = false
         guard SoundPrefs.categories.isEnabled(NotificationSound.pairSuccess) else { return }
         notifier.confirmPairing()
     }
@@ -886,6 +910,7 @@ final class DashboardStore: ObservableObject {
         lastProviderQuota = snapshot.providerQuota ?? []
         buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: snapshot.sessions)
         state = .connected
+        confirmConnectedPairing()
         if sourceID != snapshot.sourceID { completionReads.pause() }
         if sourceID != snapshot.sourceID { recentOutputs = [:] }
         sourceID = snapshot.sourceID

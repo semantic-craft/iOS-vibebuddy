@@ -131,3 +131,5 @@ The Mac app, iPhone app, Watch companion, daemon, shared Swift models and agent 
 [m5-paper-buddy](https://github.com/op7418/m5-paper-buddy) inspired the hook-and-transcript approach to agent status; [open-vibe-island](https://github.com/Octane0411/open-vibe-island) informed the multi-agent model and Mac Glance. VibeBuddy's Swift implementation was written independently. The app icon was developed with the [ip-as-logo skill](https://github.com/s1dashu/ip-as-logo-skill); the in-app cat is drawn in shared Swift code.
 
 [MIT](LICENSE) © 2026 Xianwei Zhang. An independent community project; not affiliated with or endorsed by Anthropic, OpenAI or Apple.
+
+For access away from your LAN, see [Tailscale remote setup](docs/getting-started.md#remote-access-with-tailscale).

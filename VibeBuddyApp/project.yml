@@ -43,6 +43,12 @@ targets:
               - vibebuddy
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+          NSExceptionDomains:
+            100.64.0.0/10:
+              NSExceptionAllowsInsecureHTTPLoads: true
+            ts.net:
+              NSIncludesSubdomains: true
+              NSExceptionAllowsInsecureHTTPLoads: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.app

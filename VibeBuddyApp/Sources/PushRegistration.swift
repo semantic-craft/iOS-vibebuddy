@@ -47,7 +47,7 @@ final class PushRegistration {
     /// there is no push to stand down, so nothing is sent.
     func report(posted: [NotifiedPayload.Cue] = [], coveredByPush: [NotifiedPayload.Cue] = []) async {
         guard let token = deviceToken, let pairing, !(posted.isEmpty && coveredByPush.isEmpty),
-              let url = URL(string: "http://\(pairing.host):\(pairing.port)/notified") else { return }
+              let url = pairing.companionURL(path: "notified") else { return }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
@@ -62,7 +62,7 @@ final class PushRegistration {
     /// name for the Mac's "Paired: <name>" display.
     private func upload() {
         guard let pairing,
-              let url = URL(string: "http://\(pairing.host):\(pairing.port)/device")
+              let url = pairing.companionURL(path: "device")
         else { return }
         let token = deviceToken
         var request = URLRequest(url: url)

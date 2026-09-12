@@ -74,6 +74,7 @@ final class ConnectionStore: ObservableObject {
     }
 
     func save(_ payload: PairingPayload) {
+        guard payload.isValidConnection else { return }
         Self.observePairing(payload)
         pairing = payload
         if let data = try? JSONEncoder().encode(payload) {

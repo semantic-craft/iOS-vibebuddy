@@ -249,9 +249,9 @@ private final class PausedReadNotifier: AttentionNotifier, @unchecked Sendable {
 }
 
 private struct SwitchingReadStreamer: SnapshotStreaming {
-    func stream(_ pairing: PairingPayload) -> AsyncStream<Snapshot> {
+    func stream(_ pairing: PairingPayload) -> AsyncThrowingStream<Snapshot, Error> {
         let now = Date()
-        return AsyncStream { continuation in
+        return AsyncThrowingStream { continuation in
             if pairing.host == "old" {
                 continuation.yield(Snapshot(sessions: [], serverTime: now, sourceID: "old"))
                 let waiting = AgentSession(id: "wait", agent: .claudeCode, project: "Wait",
@@ -424,8 +424,8 @@ extension DashboardStoreTests {
 
 
 private struct ApprovalStream: SnapshotStreaming {
-    let snapshots: AsyncStream<Snapshot>
-    func stream(_ pairing: PairingPayload) -> AsyncStream<Snapshot> { snapshots }
+    let snapshots: AsyncThrowingStream<Snapshot, Error>
+    func stream(_ pairing: PairingPayload) -> AsyncThrowingStream<Snapshot, Error> { snapshots }
 }
 
 extension DashboardStoreTests {
@@ -436,7 +436,7 @@ extension DashboardStoreTests {
             pendingApproval: PendingApproval(id: "disconnect-wait", tool: "Bash", commandPreview: "pwd", command: "pwd"),
             statusSince: now, updatedAt: now)
         let snapshot = Snapshot(sessions: [session], serverTime: now, sourceID: "fixture-mac")
-        let stream = AsyncStream<Snapshot>.makeStream()
+        let stream = AsyncThrowingStream<Snapshot, Error>.makeStream()
         let client = PhoneActionRecorder(snapshot: snapshot, outcome: .received)
         await client.pauseSnapshot()
         let store = DashboardStore(streamer: ApprovalStream(snapshots: stream.stream), notifier: SilentNotifier(),
@@ -464,7 +464,7 @@ extension DashboardStoreTests {
 extension DashboardStoreTests {
     func testHomeFiltersIntersectWithoutChangingSnapshotBuddyOrDeepLink() async throws {
         let now = Date()
-        let stream = AsyncStream<Snapshot>.makeStream()
+        let stream = AsyncThrowingStream<Snapshot, Error>.makeStream()
         let decisions = DecisionRecorder()
         let store = DashboardStore(streamer: ApprovalStream(snapshots: stream.stream), notifier: SilentNotifier(),
             decisionClient: decisions, watchRelay: nil, reportDevice: { _ in })
@@ -535,5 +535,34 @@ extension DashboardStoreTests {
         XCTAssertFalse(DashboardFilters(status: .completeUnread).matches(session))
         XCTAssertTrue(DashboardFilters(status: .error).matches(session))
         XCTAssertFalse(DashboardFilters.projectTitle("").isEmpty)
+    }
+}
+
+private struct RefusedCompanionStream: SnapshotStreaming {
+    func stream(_ pairing: PairingPayload) -> AsyncThrowingStream<Snapshot, Error> {
+        AsyncThrowingStream { $0.finish(throwing: CompanionConnectionFailure.authentication) }
+    }
+}
+
+@MainActor
+final class CompanionRecoveryTests: XCTestCase {
+    func testAuthenticationFailureStopsUntilExplicitReconnect() async throws {
+        var attempts = 0
+        let store = DashboardStore(streamer: RefusedCompanionStream(), notifier: SilentNotifier(),
+                                   decisionClient: NullDecisionClient(), watchRelay: nil,
+                                   reportDevice: { _ in attempts += 1 })
+        let pairing = PairingPayload(host: "100.64.0.1", port: 9876, token: "fixture")
+        store.start(pairing)
+        try await Task.sleep(for: .milliseconds(2200))
+        XCTAssertEqual(attempts, 1)
+        guard case .failed(let message) = store.state else { return XCTFail("Expected failure") }
+        XCTAssertTrue(message.contains("token"))
+        store.start(pairing)
+        for _ in 0..<50 {
+            if attempts == 2 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(attempts, 2)
+        await store.stop().value
     }
 }

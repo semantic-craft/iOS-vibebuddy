@@ -6,8 +6,8 @@ import VibeBuddyKit
 /// one it actually cares about.
 
 struct EmptyStreamer: SnapshotStreaming {
-    func stream(_ pairing: PairingPayload) -> AsyncStream<Snapshot> {
-        AsyncStream { $0.finish() }
+    func stream(_ pairing: PairingPayload) -> AsyncThrowingStream<Snapshot, Error> {
+        AsyncThrowingStream { $0.finish() }
     }
 }
 
@@ -48,8 +48,8 @@ final class RecordingNotifier: AttentionNotifier, @unchecked Sendable {
 struct ScriptedStreamer: SnapshotStreaming {
     let snapshots: [Snapshot]
 
-    func stream(_ pairing: PairingPayload) -> AsyncStream<Snapshot> {
-        AsyncStream { continuation in
+    func stream(_ pairing: PairingPayload) -> AsyncThrowingStream<Snapshot, Error> {
+        AsyncThrowingStream { continuation in
             for snapshot in snapshots { continuation.yield(snapshot) }
         }
     }

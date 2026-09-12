@@ -64,6 +64,12 @@ final class MenuBarModel: ObservableObject {
     /// Sessions the user has pointed the buddy at (in-memory, never persisted).
     /// Empty = the buddy sees all sessions; pruned to live IDs on every snapshot.
     @Published private(set) var buddySessionIDs: Set<String> = []
+    @Published var useTailscale = UserDefaults.standard.bool(forKey: "pairing.useTailscale") {
+        didSet { UserDefaults.standard.set(useTailscale, forKey: "pairing.useTailscale"); preparePairing() }
+    }
+    @Published var tailscaleHost = UserDefaults.standard.string(forKey: "pairing.tailscaleHost") ?? "" {
+        didSet { UserDefaults.standard.set(tailscaleHost, forKey: "pairing.tailscaleHost"); preparePairing() }
+    }
     @Published private(set) var pairing: PairingPayload?
     @Published private(set) var qrImage: NSImage?
     /// The most-recently paired phone's display metadata (persisted), shown in the UI.
@@ -338,7 +344,7 @@ final class MenuBarModel: ObservableObject {
                                      pusher: nil, phoneReceipts: phoneReceipts,
                                      deviceTokens: deviceTokens,
                                      activityTokens: activityTokens,
-                                     codexRolloutMonitor: E2ERunConfiguration.current == nil ? menuRolloutMonitor : nil,
+                                     codexRolloutMonitor: menuRolloutMonitor,
                                      codexAppServerMonitor: E2ERunConfiguration.current == nil || codexAppServerEnabled ? codexAppServerMonitor : nil,
                                      grokBotMonitor: E2ERunConfiguration.current == nil ? grokBotMonitor : nil,
                                      usageFeed: usageFeed,
@@ -387,8 +393,13 @@ final class MenuBarModel: ObservableObject {
     }
 
     private func preparePairing() {
-        let host = E2ERunConfiguration.current?.host ?? LANAddress.primaryIPv4() ?? "127.0.0.1"
-        let payload = Pairing.payload(host: host, port: port, token: token, macName: macDisplayName)
+        let host = E2ERunConfiguration.current?.host ?? (useTailscale ? tailscaleHost : LANAddress.primaryIPv4() ?? "127.0.0.1")
+        guard let endpoint = CompanionEndpoint(host: host, port: port), !useTailscale || endpoint.isTailscale else {
+            pairing = nil
+            qrImage = nil
+            return
+        }
+        let payload = Pairing.payload(host: endpoint.host, port: port, token: token, macName: macDisplayName)
         pairing = payload
         if let cg = Pairing.qrImage(from: Pairing.qrJSONString(for: payload)) {
             qrImage = NSImage(cgImage: cg, size: NSSize(width: 220, height: 220))
@@ -1041,7 +1052,8 @@ final class MenuBarModel: ObservableObject {
 
     /// User action only. Preparing a QR at launch never authorizes registration.
     func beginPairing() {
-        guard !changingPairing else { return }
+        preparePairing()
+        guard pairing != nil, !changingPairing else { return }
         changingPairing = true
         pairingRevision += 1
         pairingTimeout?.cancel()
