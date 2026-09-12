@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import VibeBuddyKit
 
 /// Pure mapping from Grok Build's billing payloads onto `AccountUsageSnapshot`.
 ///
@@ -113,6 +114,7 @@ public enum GrokUsageResponseDecoder {
         }
 
         var onDemand: AccountUsageWindow?
+        var extraSpend: [QuotaSpend]?
         if let cap = config.onDemandCap?.val, cap > 0, let used = config.onDemandUsedValue {
             let percent = min(100, max(0, used / cap * 100))
             guard percent.isFinite else { throw AccountUsageError.incompatibleFormat }
@@ -120,8 +122,17 @@ public enum GrokUsageResponseDecoder {
                 kind: .secondary,
                 usedPercent: Int(percent.rounded()),
                 windowDurationMinutes: durationMinutes,
-                resetsAt: resetsAt
+                resetsAt: resetsAt,
+                label: "Extra usage"
             )
+            if used > 0 {
+                extraSpend = [QuotaSpend(label: "Extra usage", amount: used)]
+            }
+        }
+
+        var credits: QuotaCredits?
+        if let prepaid = config.prepaidBalance?.val, prepaid.isFinite, prepaid > 0 {
+            credits = QuotaCredits(remaining: prepaid, label: "Prepaid")
         }
 
         return AccountUsageSnapshot(
@@ -138,7 +149,9 @@ public enum GrokUsageResponseDecoder {
             latestDailyTokens: nil,
             fetchedAt: fetchedAt,
             periodStart: start,
-            periodEnd: resetsAt
+            periodEnd: resetsAt,
+            credits: credits,
+            spend: extraSpend
         )
     }
 
@@ -248,6 +261,7 @@ private struct BillingConfigDTO: Decodable {
     var used: CentDTO?
     var onDemandCap: CentDTO?
     var onDemandUsed: CentDTO?
+    var prepaidBalance: CentDTO?
     var billingPeriodStart: String?
     var billingPeriodEnd: String?
     /// Present on some CLI-proxy credits payloads (CodexBar).

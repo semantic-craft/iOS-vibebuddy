@@ -26,23 +26,23 @@ struct QuestionCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(items.count > 1 ? "\(items.count) questions" : "Question")
-                .font(CompanionType.font(10, .heavy)).textCase(.uppercase).kerning(0.6)
+                .font(CompanionType.font(11, .medium)).textCase(.uppercase).kerning(0.4)
                 .foregroundStyle(CompanionPalette.status(.requiresInput))
             if question.isBlocking == false, let expires = question.expiresAt {
                 Text("Codex moves on by itself in \(expires, style: .timer)")
-                    .font(CompanionType.font(10, .semibold)).foregroundStyle(CompanionPalette.ink3).monospacedDigit()
+                    .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3).monospacedDigit()
             }
             ForEach(items) { item in
                 VStack(alignment: .leading, spacing: 6) {
                     if let header = item.header, items.count > 1 {
-                        Text(header).font(CompanionType.font(11, .heavy)).foregroundStyle(CompanionPalette.ink2)
+                        Text(header).font(CompanionType.font(11, .medium)).foregroundStyle(CompanionPalette.ink2)
                     }
                     Text(item.text)
-                        .font(CompanionType.font(14, .heavy))
+                        .font(CompanionType.font(14, .medium))
                         .foregroundStyle(CompanionPalette.ink)
                         .fixedSize(horizontal: false, vertical: true)
                     if item.multiSelect {
-                        Text("Choose any").font(CompanionType.font(10, .semibold)).foregroundStyle(CompanionPalette.ink3)
+                        Text("Choose any").font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
                     }
                     ForEach(item.options) { option in
                         Button { choose(option, in: item) } label: {
@@ -54,45 +54,47 @@ struct QuestionCardView: View {
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(option.label)
                                     if let description = option.description {
-                                        Text(description).font(CompanionType.font(11, .semibold))
+                                        Text(description).font(CompanionType.font(11))
                                             .foregroundStyle(CompanionPalette.ink2).lineLimit(2)
                                     }
                                 }
                                 Spacer(minLength: 8)
                                 if sendsOnTap {
                                     Image(systemName: "arrow.turn.down.left")
-                                        .font(.caption.weight(.bold)).foregroundStyle(CompanionPalette.ink3)
+                                        .font(.system(size: 11, weight: .semibold)).foregroundStyle(CompanionPalette.ink3)
                                 }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        .buttonStyle(PillButtonStyle(kind: .soft))
+                        .buttonStyle(PhoneButtonStyle(kind: .quiet))
                     }
                     if item.allowsOther {
                         TextField(item.options.isEmpty ? "Answer" : "Other…", text: binding(for: item.id), axis: .vertical)
-                            .font(CompanionType.font(13, .semibold))
+                            .font(CompanionType.font(13))
                             .lineLimit(1...3)
                             .padding(.horizontal, 12).padding(.vertical, 8)
-                            .background(CompanionPalette.bg3, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .companionCard()
                             .onSubmit { if complete { send() } }
                     }
                 }
             }
-            if let actionState { Text(actionState.message).font(.caption) }
+            if let actionState {
+                Text(actionState.message).font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
+            }
             if showsSendButton {
                 Button {
                     send()
                 } label: {
                     Label("Send answer\(items.count > 1 ? "s" : "")", systemImage: "arrow.up")
                 }
-                .buttonStyle(PillButtonStyle(kind: .filled(CompanionPalette.accent), size: .large))
+                .buttonStyle(PhoneButtonStyle(kind: .primary(CompanionPalette.accent), size: .wide))
                 .disabled(!complete)
             }
         }
         .disabled(sending || actionState == .sending || actionState == .received || actionState == .unconfirmed)
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(CompanionPalette.bg2, in: RoundedRectangle(cornerRadius: CompanionType.cardRadius, style: .continuous))
+        .companionCard()
         .onChange(of: question.id) { _, _ in picked = [:]; typed = [:] }
     }
 

@@ -10,6 +10,12 @@ public actor SessionStore {
     private var copilotReader: CopilotSessionReader
     private var copilotReadFailed = false
     private var copilotHistory: [String: CopilotSessionReader.Record] = [:]
+    private var cursorStore: CursorComposerStore
+    private var cursorReadFailed = false
+    /// Cursor's own record of every conversation, keyed by composer id. Live
+    /// rows read facts out of it; conversations with no live evidence become
+    /// history rows.
+    private var cursorComposers: [String: CursorComposer] = [:]
 
     /// History bypasses the lifecycle reducer: imports never earn completion cues.
     public func refreshCopilotHistory() {
@@ -30,6 +36,83 @@ public actor SessionStore {
             // A failed read never advances the scanner signature; the next poll retries.
         }
     }
+    /// Cursor's conversation index. Two jobs in one pass: fill in what hooks
+    /// and transcripts never carry (the chat's own name, the tracked branch, the
+    /// model, the real context window), and give a row to conversations that are
+    /// only history. Never moves the three states — Cursor's `status` says what
+    /// *it* thinks, and a live source outranks a database written a beat late.
+    public func refreshCursorComposers() {
+        var changed = false
+        do {
+            if let composers = try cursorStore.refresh() {
+                let next = Dictionary(composers.filter { !$0.isSubagent && $0.hasRun }
+                    .map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+                changed = next != cursorComposers || cursorReadFailed
+                cursorComposers = next
+            }
+            cursorReadFailed = false
+        } catch {
+            if !cursorReadFailed {
+                cursorReadFailed = true
+                changed = true
+            }
+            // Keep the last readable index through a transient lock or a schema
+            // Cursor changed; the next poll retries from an unchanged signature.
+        }
+        // Always re-apply: the index is usually *older* than the live row it
+        // belongs to (a conversation is read from the database long before, or
+        // long after, a hook first reports it), so waiting for the file to
+        // change would leave a session that appeared in between un-named.
+        if applyCursorFacts() || changed { broadcast() }
+    }
+
+    /// Copy Cursor's facts onto the live rows that already exist. Enrichment
+    /// only: status, waits and completions stay with the live sources. Returns
+    /// whether any row actually changed, so an unchanged pass is silent.
+    @discardableResult
+    private func applyCursorFacts() -> Bool {
+        var changed = false
+        for composer in cursorComposers.values {
+            guard let before = reducer.sessions[composer.id] else { continue }
+            if reducer.applyCursorComposer(composer) { changed = true }
+            enrichSession(sessionID: composer.id, with: TranscriptInfo(
+                model: composer.model,
+                contextTokens: composer.contextTokens,
+                contextWindow: composer.contextWindow,
+                branch: composer.branch))
+            if reducer.sessions[composer.id] != before { changed = true }
+        }
+        return changed
+    }
+
+    /// How many of Cursor's stored conversations get a history row. Cursor keeps
+    /// every chat until its own cleanup prunes them, and a dashboard is a list of
+    /// work in progress, not an archive.
+    static let cursorHistoryLimit = 50
+
+    /// A Cursor conversation vibebuddy only knows from Cursor's database: shown
+    /// the way an imported Copilot session is, as a quiet history row that never
+    /// earns a completion cue. A chat the person archived in Cursor is one they
+    /// filed away, so it stays out.
+    private func cursorHistorySessions() -> [AgentSession] {
+        cursorComposers.values
+            .filter { !$0.isArchived && reducer.sessions[$0.id] == nil }
+            .sorted { $0.updatedAt == $1.updatedAt ? $0.id < $1.id : $0.updatedAt > $1.updatedAt }
+            .prefix(Self.cursorHistoryLimit)
+            .map { composer in
+                var session = AgentSession(
+                    id: composer.id, agent: .cursor,
+                    project: composer.project ?? String(localized: "Cursor chat"),
+                    branch: composer.branch, model: composer.model, status: .done,
+                    summary: composer.subtitle, contextTokens: composer.contextTokens,
+                    contextWindow: composer.contextWindow,
+                    name: composer.name,
+                    statusSince: composer.updatedAt, updatedAt: composer.updatedAt)
+                session.historyOnly = true
+                return session
+            }
+    }
+
     private var noticeLedger: CompletionNoticeLedger?
     private var noticeEnabled: (@Sendable () -> Bool)?
     private var noticeHandler: (@Sendable (AgentSession) async -> String?)?
@@ -93,6 +176,8 @@ public actor SessionStore {
     public let sourceID: String?
     /// Account allowance, kept beside the reducer rather than inside it.
     private var providerQuota: [ProviderQuota] = []
+    /// Local token spend, kept beside the reducer rather than inside it.
+    private var tokenConsumption: TokenConsumptionSnapshot?
     private var subscribers: [UUID: AsyncStream<Snapshot>.Continuation] = [:]
     private var needsResponseHandler: (@Sendable (AgentSession) async -> Void)?
     private var staleAfter: TimeInterval
@@ -145,9 +230,11 @@ public actor SessionStore {
         missedURL: URL? = nil,
         grokHome: URL? = nil,
         copilotDatabase: URL? = nil,
+        cursorDatabase: URL? = nil,
         now: Date = Date()
     ) {
         self.copilotReader = copilotDatabase.map { CopilotSessionReader(database: $0) } ?? CopilotSessionReader()
+        self.cursorStore = cursorDatabase.map { CursorComposerStore(database: $0) } ?? CursorComposerStore()
         self.sourceID = sourceID
         self.staleAfter = staleAfter
         self.diagnosticsHome = diagnosticsHome
@@ -338,6 +425,28 @@ public actor SessionStore {
     /// recorded as evidence (and still enriches token facts) but does not move
     /// the three-state progress, so two sources never fight over one row.
     /// `sessionEnd` still passes — a CLI exit is a fact the daemon lacks.
+    /// How recently Cursor's hooks must have reported a conversation for the
+    /// transcript tailer to step aside on it. Cursor's hooks fire per tool call,
+    /// so two minutes of silence means the hooks are not covering this turn (or
+    /// are not installed) and the transcript is the live source after all.
+    public static let cursorHookAuthorityWindow: TimeInterval = 2 * 60
+
+    /// Cursor is described by two sources at once: its hooks — immediate, and the
+    /// only thing that can be answered — and its agent transcript, a file
+    /// flushed a beat later. While the hooks are live for a conversation the
+    /// transcript may only corroborate; otherwise a line written just after the
+    /// `stop` hook would flip a finished session back to `working` and mint a
+    /// second completion for the same turn.
+    private func cursorHooksOutrank(_ event: HookEvent, from source: ObservationSource) -> Bool {
+        guard event.agent == .cursor, source == .transcript,
+              let session = reducer.sessions[event.sessionID],
+              let fresh = session.observations?.first(where: { $0.source == .hook }),
+              fresh.health.isHealthy,
+              event.timestamp.timeIntervalSince(fresh.lastObservedAt) < Self.cursorHookAuthorityWindow
+        else { return false }
+        return true
+    }
+
     private func appServerOutranks(_ event: HookEvent, from source: ObservationSource) -> Bool {
         guard event.agent == .codex, source != .appserver, event.kind != .sessionEnd,
               let session = reducer.sessions[event.sessionID],
@@ -356,7 +465,8 @@ public actor SessionStore {
     ) {
         // A corroborating source may supply the menu's read-only round evidence.
         if let path = event.transcriptPath { transcriptPaths[event.sessionID] = path }
-        if appServerOutranks(event, from: observationSource) {
+        if appServerOutranks(event, from: observationSource)
+            || cursorHooksOutrank(event, from: observationSource) {
             // Corroboration cannot drive progress, but evidence of a newer run
             // must prevent returning an older result while authority catches up.
             if event.kind == .userPromptSubmit,
@@ -718,11 +828,22 @@ public actor SessionStore {
         broadcast()
     }
 
+    /// Replace the current token-consumption summary. Composed into every
+    /// snapshot beside quota; never reaches the reducer.
+    public func setTokenConsumption(_ snapshot: TokenConsumptionSnapshot?) {
+        guard snapshot != tokenConsumption else { return }
+        tokenConsumption = snapshot
+        broadcast()
+    }
+
     /// The one place a runtime snapshot is assembled: sessions and diagnostics
     /// from the reducer, allowance from beside it.
     private func currentSnapshot(now: Date) -> Snapshot {
         var snapshot = reducer.snapshot(now: now, observationDiagnostics: diagnostics(now: now))
         snapshot.sessions += copilotHistory.values.map(\.session).sorted {
+            $0.updatedAt == $1.updatedAt ? $0.id < $1.id : $0.updatedAt > $1.updatedAt
+        }
+        snapshot.sessions += cursorHistorySessions().sorted {
             $0.updatedAt == $1.updatedAt ? $0.id < $1.id : $0.updatedAt > $1.updatedAt
         }
         if copilotReadFailed || !copilotHistory.isEmpty {
@@ -735,6 +856,7 @@ public actor SessionStore {
         }
         snapshot.sourceID = sourceID
         snapshot.providerQuota = providerQuota.isEmpty ? nil : providerQuota
+        snapshot.tokenConsumption = tokenConsumption
         let directories = recentDirectories()
         snapshot.recentDirectories = directories.isEmpty ? nil : directories
         snapshot.sessions = snapshot.sessions.map { session in
@@ -848,6 +970,8 @@ public actor SessionStore {
                 : rollout
         case .claudeCode:
             slice = RecentOutputReader.claude(tail: data, limit: limit, perEntryLimit: perEntryLimit)
+        case .cursor:
+            slice = RecentOutputReader.cursor(tail: data, limit: limit, perEntryLimit: perEntryLimit)
         default:
             let claude = RecentOutputReader.claude(
                 tail: data, limit: limit, perEntryLimit: perEntryLimit)

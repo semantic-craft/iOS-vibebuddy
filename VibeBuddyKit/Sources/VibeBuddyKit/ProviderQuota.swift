@@ -59,6 +59,8 @@ public struct ProviderQuota: Codable, Equatable, Sendable, Identifiable {
     public var shortWindowDurationMinutes: Int?
     /// Windows whose duration cannot truthfully be called weekly or short.
     public var otherWindows: [QuotaWindow]?
+    public var credits: QuotaCredits?
+    public var spend: [QuotaSpend]?
     /// When the Mac last read a usable value from this provider's local source.
     public var observedAt: Date?
     /// Why the source produced nothing, when it produced nothing.
@@ -77,6 +79,8 @@ public struct ProviderQuota: Codable, Equatable, Sendable, Identifiable {
         shortWindowResetsAt: Date? = nil,
         shortWindowDurationMinutes: Int? = nil,
         otherWindows: [QuotaWindow]? = nil,
+        credits: QuotaCredits? = nil,
+        spend: [QuotaSpend]? = nil,
         observedAt: Date? = nil,
         unavailableReason: String? = nil,
         isCached: Bool? = nil
@@ -90,6 +94,8 @@ public struct ProviderQuota: Codable, Equatable, Sendable, Identifiable {
         self.shortWindowResetsAt = shortWindowResetsAt
         self.shortWindowDurationMinutes = shortWindowDurationMinutes
         self.otherWindows = otherWindows
+        self.credits = credits
+        self.spend = spend
         self.observedAt = observedAt
         self.unavailableReason = unavailableReason
         self.isCached = isCached

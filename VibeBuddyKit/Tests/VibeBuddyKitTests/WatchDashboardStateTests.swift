@@ -51,6 +51,16 @@ struct WatchDashboardStateTests {
         #expect(state.counts.total == 4)
     }
 
+    @Test("a failed session counts under Needs you, as it does on every other surface")
+    func failedSessionIsNeedsYou() {
+        var broke = session(id: "broke", status: .done)
+        broke.failed = true
+        let state = project([broke, session(id: "run", status: .working)])
+        #expect(state.counts == WatchSessionCounts(needsResponse: 1, working: 1, done: 0))
+        #expect(state.stuck == 1)
+        #expect(CompanionCopy.needsYou(state.presentation) == state.counts.needsResponse)
+    }
+
     @Test("No sessions is an empty, connected state — not a no-data state")
     func emptyIsNotNoData() {
         let state = project([])
@@ -331,13 +341,14 @@ struct WatchDashboardStateTests {
         #expect(state.presentation.idle == 1)
     }
 
-    @Test("A failed session is the signal the three buckets cannot carry")
-    func stuckSurvivesTheThreeBuckets() {
+    @Test("A failed session counts under Needs you, whatever its status says")
+    func stuckIsNeedsYou() {
         var failed = session(id: "a", status: .working)
         failed.failed = true
         let state = project([failed, session(id: "b", status: .working)])
-        #expect(state.counts.working == 2)          // the bucket still says working
-        #expect(state.stuck == 1)                   // the five-state view says why it matters
+        #expect(state.counts.needsResponse == 1)    // the attention groups, as on the phone
+        #expect(state.counts.working == 1)
+        #expect(state.stuck == 1)                   // the five-state view still says why
         #expect(state.presentation.thinking == 1)
     }
 
@@ -398,12 +409,14 @@ struct WatchDashboardStateTests {
         }
     }
 
-    @Test("normal has work in flight and nobody waiting")
+    @Test("normal has work in flight, one failure to look at, and nobody waiting")
     func normalScenario() {
         let state = WatchDemoScenario.normal.state(now: now)
-        #expect(state.counts.needsResponse == 0)
+        // The failed build counts under Needs you (attention groups), but it
+        // is not a wait, so there is no alert card for it.
+        #expect(state.counts.needsResponse == 1)
         #expect(state.counts.working == 2)
-        #expect(state.counts.done == 4)
+        #expect(state.counts.done == 3)
         #expect(state.alerts.isEmpty)
         #expect(state.quotas.allSatisfy { $0.freshness(now: now) == .live })
     }

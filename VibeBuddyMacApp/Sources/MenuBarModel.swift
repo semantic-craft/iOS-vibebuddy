@@ -32,9 +32,24 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var recentDirectories: [String] = []
     /// Agents a new task can be started for from this Mac.
     @Published private(set) var dispatchAgents: [AgentKind] = []
+    /// Local Claude Code / Codex token spend, beside quota. Nil until the first scan.
+    @Published private(set) var tokenConsumption: TokenConsumptionSnapshot?
     private let claudeLauncher: ClaudeBackgroundLauncher = {
         guard let run = E2ERunConfiguration.current else { return ClaudeBackgroundLauncher() }
         return ClaudeBackgroundLauncher(executable: nil, jobsDirectory: run.file("agents").appendingPathComponent("claude/jobs", isDirectory: true))
+    }()
+    /// Cursor's CLI launcher. During isolated acceptance it is given no
+    /// executable, so it reports unsupported and starts nothing.
+    private let cursorLauncher: CursorLauncher = {
+        guard E2ERunConfiguration.current == nil else { return CursorLauncher(executable: nil) }
+        return CursorLauncher(terminalProgram: { await MenuBarModel.shared?.store.preferredTerminalProgram() })
+    }()
+    /// Cursor's agent-transcript tailer: the source that covers a Cursor
+    /// conversation when the hooks are not installed, or when the Cursor CLI
+    /// does not send the event in question.
+    private let cursorTranscriptMonitor: CursorTranscriptMonitor = {
+        guard let run = E2ERunConfiguration.current else { return CursorTranscriptMonitor() }
+        return CursorTranscriptMonitor(root: run.file("agents").appendingPathComponent("cursor/projects", isDirectory: true))
     }()
     /// The Codex app-server daemon connection (ADR-0011): on by default, and
     /// the rollout tailer + hooks keep covering Codex whenever it is off or
@@ -161,6 +176,7 @@ final class MenuBarModel: ObservableObject {
         actionHandler: { [weak self] action in await self?.performVoiceAction(action) ?? "" },
         onStart: { [weak self] in self?.readAloud.stop() })
     private var pollTask: Task<Void, Never>?
+    private var tokenScanTask: Task<Void, Never>?
     private var glance: GlanceWindow?
     @Published private(set) var pairingInProgress = false
     @Published private(set) var changingPairing = false
@@ -283,12 +299,15 @@ final class MenuBarModel: ObservableObject {
         if isDemo {
             sessions = MacDemoData.sessions()
             observationDiagnostics = MacDemoData.observationDiagnostics()
+            tokenConsumption = TokenConsumptionSnapshot.demo()
+            usage.seedDemoStates(MacDemoData.usageStates())
         } else if runtimeEnabled {
             notifier.requestAuthorization()
             startServer()
             preparePairing()
             startPolling()
             usage.start()
+            startTokenConsumptionScan()
         }
         // Create the glance on the next main-runloop tick — NOT synchronously here.
         // Hosting/displaying a SwiftUI view that observes `self` while `init` is
@@ -327,7 +346,9 @@ final class MenuBarModel: ObservableObject {
         NotificationQuietMode.isEffective(now: now)
     }
 
-    var presentationSummary: TaskPresentationSummary { TaskPresentationSummary(sessions: sessions) }
+    /// The counts every Mac surface states (menu-bar badge, Glance, panel):
+    /// current sessions only (`SessionCurrency`), like the phone and the Watch.
+    var presentationSummary: TaskPresentationSummary { TaskPresentationSummary(currentIn: sessions, now: Date()) }
     /// The buddy's mood, shared with the menu-bar icon and the glance so the Mac
     /// reads the same as the phone.
     var buddyState: BuddyState { BuddyState.from(SessionGroups(sessions), now: Date()) }
@@ -365,6 +386,10 @@ final class MenuBarModel: ObservableObject {
                                          guard E2ERunConfiguration.current == nil else { return .noTerminal }
                                          return await CodexDesktopJumper.jump(threadID: id)
                                      },
+                                     onJumpToCursor: { project in
+                                         guard E2ERunConfiguration.current == nil else { return .noTerminal }
+                                         return await CursorJumper.jump(project: project)
+                                     },
                                      onDevicePaired: { [weak self] _ in
                                          Task { @MainActor in await self?.refreshPairedPhone(notify: true) }
                                      },
@@ -376,6 +401,8 @@ final class MenuBarModel: ObservableObject {
                                          return await TerminalLauncher.attach(claudeJobID: id, preferring: term)
                                      },
                                      claudeLauncher: claudeLauncher,
+                                     cursorLauncher: cursorLauncher,
+                                     cursorTranscriptMonitor: cursorTranscriptMonitor,
                                      onCompletionReminder: { [weak self] session in
                                          guard let self else { return false }
                                          return await self.deliverCompletionReminder(session)
@@ -406,6 +433,32 @@ final class MenuBarModel: ObservableObject {
         }
     }
 
+    /// Independent of the 2s session poll: reading transcripts is slow and must
+    /// not stall approvals. Isolated from the reducer the same way quota is.
+    private func startTokenConsumptionScan() {
+        tokenScanTask?.cancel()
+        let claudeHomes: [URL]
+        let codexHome: URL
+        if let run = E2ERunConfiguration.current {
+            claudeHomes = [run.file("agents").appendingPathComponent("claude", isDirectory: true)]
+            codexHome = run.file("agents").appendingPathComponent("codex", isDirectory: true)
+        } else {
+            claudeHomes = TokenConsumptionScan.defaultClaudeHomes()
+            codexHome = TokenConsumptionScan.defaultCodexHome()
+        }
+        tokenScanTask = Task { [weak self, store] in
+            while !Task.isCancelled {
+                let snapshot = await Task.detached(priority: .utility) {
+                    TokenConsumptionScan.snapshot(
+                        claudeHomes: claudeHomes, codexHome: codexHome, now: Date())
+                }.value
+                await store.setTokenConsumption(snapshot)
+                self?.tokenConsumption = snapshot
+                try? await Task.sleep(for: .seconds(TokenConsumptionScan.refreshInterval))
+            }
+        }
+    }
+
     private func startPolling() {
         pollTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -426,7 +479,9 @@ final class MenuBarModel: ObservableObject {
                 var agents: [AgentKind] = []
                 if await self.claudeLauncher.isSupported() { agents.append(.claudeCode) }
                 if self.codexAppServerDiagnostics.connected { agents.append(.codex) }
+                if await self.cursorLauncher.isSupported() { agents.append(.cursor) }
                 self.dispatchAgents = agents
+                self.tokenConsumption = snapshot.tokenConsumption
                 self.lifecycleTimeline = await self.store.recentLifecycle()
                 self.missedThisWeek = await self.store.missedCounts()
                 self.buddySessionIDs = BuddyScope.pruned(self.buddySessionIDs, toLive: snapshot.sessions)
@@ -582,8 +637,11 @@ final class MenuBarModel: ObservableObject {
         guard let pusher else { return }
         let tokens = await activityTokens.all()
         guard !tokens.isEmpty else { return }
-        let summary = TaskPresentationSummary(sessions: sessions)
-        let leading = sessions.leadingPresentationSession
+        // The island shows current sessions (`SessionCurrency`); the approval
+        // target below still looks at all of them — a wait is always current.
+        let current = SessionCurrency.current(sessions, now: Date())
+        let summary = TaskPresentationSummary(sessions: current)
+        let leading = current.leadingPresentationSession
         let topProject = leading?.project
         let topSession = leading?.id
         // The first pending approval, not necessarily the leading session (an
@@ -904,6 +962,7 @@ final class MenuBarModel: ObservableObject {
         switch request.agent {
         case .codex: return await codexAppServerMonitor.dispatch(request)
         case .claudeCode: return await claudeLauncher.dispatch(request)
+        case .cursor: return await cursorLauncher.dispatch(request)
         default: return .unsupported("vibebuddy cannot start \(request.agent.displayName) sessions yet.")
         }
     }
@@ -1197,6 +1256,7 @@ final class MenuBarModel: ObservableObject {
 
     deinit {
         pollTask?.cancel()
+        tokenScanTask?.cancel()
         glanceCardTicker?.cancel()
     }
 }

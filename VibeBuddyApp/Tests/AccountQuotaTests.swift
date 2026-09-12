@@ -23,6 +23,22 @@ final class AccountQuotaTests: XCTestCase {
         XCTAssertTrue(AccountQuotaView.windows(.unavailable(.cursor, reason: "Collection disabled")).isEmpty)
     }
 
+    func testRemainingLineAndCreditsStayOnTheQuotaSurface() {
+        var quota = ProviderQuota(provider: .claude, weeklyRemainingPercent: 42,
+                                  weeklyWindowDurationMinutes: 10080, observedAt: Date())
+        quota.credits = QuotaCredits(remaining: 80, label: "Credits")
+        quota.spend = [QuotaSpend(label: "Extra usage", amount: 6.5)]
+        quota.otherWindows = [
+            QuotaWindow(remainingPercent: 82, durationMinutes: 10080, resetsAt: Date().addingTimeInterval(3600),
+                        observedAt: Date(), label: "Fable only")
+        ]
+        let windows = AccountQuotaView.windows(quota)
+        XCTAssertEqual(windows.last?.label, "Fable only")
+        XCTAssertEqual(QuotaPresentation.remainingLine(remainingPercent: 42), "42% left · 58% used")
+        XCTAssertEqual(quota.credits?.remaining, 80)
+        XCTAssertEqual(quota.spend?.first?.amount, 6.5)
+    }
+
     func testSwitchingMacClearsPublishedQuotaBeforeNewSnapshot() async throws {
         let quota = ProviderQuota(provider: .codex, weeklyRemainingPercent: 63, observedAt: Date())
         let store = DashboardStore(streamer: QuotaStreamer(quota: quota), notifier: SilentNotifier(),
@@ -30,10 +46,13 @@ final class AccountQuotaTests: XCTestCase {
         store.start(PairingPayload(host: "mac-a", port: 9, token: "test"))
         for _ in 0..<100 where store.lastProviderQuota.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
         XCTAssertEqual(store.lastProviderQuota, [quota])
+        XCTAssertNotNil(store.lastTokenConsumption)
         store.start(PairingPayload(host: "mac-b", port: 9, token: "test"))
         XCTAssertTrue(store.lastProviderQuota.isEmpty)
+        XCTAssertNil(store.lastTokenConsumption)
         store.forgetPairing()
         XCTAssertTrue(store.lastProviderQuota.isEmpty)
+        XCTAssertNil(store.lastTokenConsumption)
     }
 }
 
@@ -42,7 +61,7 @@ private struct QuotaStreamer: SnapshotStreaming {
     func stream(_ pairing: PairingPayload) -> AsyncThrowingStream<Snapshot, Error> {
         AsyncThrowingStream { continuation in
             if pairing.host == "mac-a" {
-                continuation.yield(Snapshot(sessions: [], serverTime: Date(), sourceID: "mac-a", providerQuota: [quota]))
+                continuation.yield(Snapshot(sessions: [], serverTime: Date(), sourceID: "mac-a", providerQuota: [quota], tokenConsumption: TokenConsumptionSnapshot.demo()))
             }
             continuation.finish()
         }

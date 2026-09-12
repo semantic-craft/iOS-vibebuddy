@@ -32,11 +32,19 @@ MANAGED = [
     ".gemini/antigravity-cli/hooks.json",
     ".kimi-code/config.toml",
     ".config/opencode/plugins/vibebuddy.js",
+    ".cursor/hooks.json",
 ]
 USER_CLAUDE_HOOK = "echo i-am-a-user-hook"
 USER_CODEX_NOTIFY = ["/Applications/Existing Notifier.app/Contents/MacOS/notifier", "turn-ended"]
 USER_CODEX_HOOK = "echo i-am-a-user-codex-hook"
 USER_KIMI_HOOK = "/Users/nobody/my-own-hook --source kimi"
+USER_CURSOR_HOOK = "./hooks/my-own-audit.sh"
+# The Cursor 3.20 event set install-cursor-hooks.py registers through the forwarder.
+CURSOR_EVENTS = [
+    "sessionStart", "sessionEnd", "beforeSubmitPrompt",
+    "postToolUse", "postToolUseFailure", "afterFileEdit",
+    "afterAgentResponse", "preCompact", "subagentStart", "subagentStop",
+]
 # The grok 1.0.13 event set install-grok-hooks.py registers.
 GROK_EVENTS = [
     "SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
@@ -67,6 +75,10 @@ def seed_home(home):
       'default_model = "x"\n\n[[hooks]]\nevent = "Stop"\nmatcher = ""\n'
       'command = "%s"\ntimeout = 30\n' % USER_KIMI_HOOK)
     os.makedirs(os.path.join(home, ".config/opencode"), exist_ok=True)
+    # cursor: one user hook in the shared file, with an option that must survive
+    w(".cursor/hooks.json",
+      '{"version":1,"hooks":{"beforeShellExecution":[{"command":"%s","failClosed":true}]}}\n'
+      % USER_CURSOR_HOOK)
 
 
 def run(mode, home):
@@ -76,6 +88,8 @@ def run(mode, home):
     # An ambient $GROK_HOME would redirect the grok installer away from the
     # throwaway $HOME this pass asserts against.
     env.pop("GROK_HOME", None)
+    # Same for Cursor: an ambient $CURSOR_HOME would redirect its installer.
+    env.pop("CURSOR_HOME", None)
     return subprocess.run([sys.executable, UNIVERSAL, mode], env=env,
                           capture_output=True, text=True)
 
@@ -412,6 +426,31 @@ def main():
         if any("approval-hook.sh" in command for command in approval_commands):
             fails.append("plain --install must not add the grok approval gate")
 
+        # cursor: one shared user-level file, merged — every documented status
+        # event through the forwarder, the follow-up collector on `stop`, the
+        # user's own hook untouched (options included), and no gate yet.
+        cursor_doc = json.loads(open(os.path.join(home, ".cursor/hooks.json")).read())
+        cursor_hooks = cursor_doc.get("hooks", {})
+        if cursor_doc.get("version") != 1:
+            fails.append("cursor hooks.json lost its schema version")
+        for event in CURSOR_EVENTS:
+            commands = [entry.get("command", "") for entry in cursor_hooks.get(event, [])]
+            if not any('vibebuddy-forward.sh" cursor' in command for command in commands):
+                fails.append(f"install missed the vibebuddy cursor {event} hook")
+        if not any("cursor-followup.sh" in entry.get("command", "")
+                   for entry in cursor_hooks.get("stop", [])):
+            fails.append("install missed the cursor stop follow-up collector")
+        if not any("capture-terminal.sh" in entry.get("command", "")
+                   for entry in cursor_hooks.get("sessionStart", [])):
+            fails.append("install missed the cursor sessionStart terminal capture")
+        user_shell = cursor_hooks.get("beforeShellExecution", [])
+        if not any(entry.get("command") == USER_CURSOR_HOOK and entry.get("failClosed") is True
+                   for entry in user_shell):
+            fails.append("install dropped the user's cursor hook or its options")
+        if any("approval-hook.sh" in entry.get("command", "")
+               for entries in cursor_hooks.values() for entry in entries):
+            fails.append("plain --install must not add the cursor approval gate")
+
         # --approval: the blocking gate replaces the fire-and-forget PreToolUse
         # group for the CLIs that support it, and leaves the rest installed.
         ra = run("--approval", home)
@@ -481,6 +520,30 @@ def main():
                                    for hook in group.get("hooks", [])]:
             fails.append("--approval dropped the user's codex lifecycle hook")
 
+        # cursor: the gate sits on `preToolUse` alone. It fires for every tool —
+        # shell and MCP included — before Cursor's own permission check, so a
+        # second gate on `beforeShellExecution` would raise two cards for one
+        # command. The same gate carries Cursor's AskQuestion tool.
+        cursor_hooks = json.loads(open(os.path.join(home, ".cursor/hooks.json")).read())["hooks"]
+        cursor_gate = cursor_hooks.get("preToolUse", [])
+        if not any("approval-hook.sh" in entry.get("command", "") for entry in cursor_gate):
+            fails.append("--approval did not add the cursor approval gate on preToolUse")
+        if any("vibebuddy-forward.sh" in entry.get("command", "") for entry in cursor_gate):
+            fails.append("--approval left the fire-and-forget cursor preToolUse entry")
+        if not all(entry.get("timeout") == 30 for entry in cursor_gate
+                   if "approval-hook.sh" in entry.get("command", "")):
+            fails.append("cursor approval gate must allow 30s for the phone round trip")
+        if not any(entry.get("command", "").endswith('" cursor') for entry in cursor_gate):
+            fails.append("cursor approval gate must pass the cursor source argument")
+        if any("approval-hook.sh" in entry.get("command", "")
+               for entry in cursor_hooks.get("beforeShellExecution", [])):
+            fails.append("cursor gate must not also sit on beforeShellExecution (two cards per command)")
+        if not any(entry.get("command") == USER_CURSOR_HOOK
+                   for entry in cursor_hooks.get("beforeShellExecution", [])):
+            fails.append("--approval dropped the user's cursor hook")
+        if "stop" not in cursor_hooks:
+            fails.append("--approval dropped the cursor status hooks")
+
         # A plain re-install (the Mac app's Repair button) rewrites the grok file
         # wholesale; it must not silently drop the gate the user opted into.
         rr = run("--install", home)
@@ -500,6 +563,10 @@ def main():
             fails.append("plain --install dropped the existing claude approval gate")
         if any("vibebuddy-forward.sh" in command for command in claude_gate):
             fails.append("re-install after --approval re-added the claude PermissionRequest forwarder")
+        cursor_hooks = json.loads(open(os.path.join(home, ".cursor/hooks.json")).read())["hooks"]
+        if not any("approval-hook.sh" in entry.get("command", "")
+                   for entry in cursor_hooks.get("preToolUse", [])):
+            fails.append("plain --install dropped the existing cursor approval gate")
         codex_hooks = json.loads(open(os.path.join(home, ".codex/hooks.json")).read())["hooks"]
         codex_gate = [hook.get("command", "") for group in codex_hooks.get("PermissionRequest", [])
                       for hook in group.get("hooks", [])]
@@ -558,6 +625,17 @@ def main():
             fails.append("uninstall left grok vibebuddy.json")
         if os.path.exists(os.path.join(home, ".config/opencode/plugins/vibebuddy.js")):
             fails.append("uninstall left opencode plugin")
+        cursor_doc = json.loads(open(os.path.join(home, ".cursor/hooks.json")).read())
+        cursor_entries = [entry for entries in cursor_doc.get("hooks", {}).values()
+                          for entry in entries]
+        cursor_commands = [entry.get("command", "") for entry in cursor_entries]
+        for marker in ["vibebuddy-forward.sh", "approval-hook.sh",
+                       "capture-terminal.sh", "cursor-followup.sh"]:
+            if any(marker in command for command in cursor_commands):
+                fails.append(f"uninstall left {marker} in cursor hooks.json")
+        if not any(entry.get("command") == USER_CURSOR_HOOK and entry.get("failClosed") is True
+                   for entry in cursor_entries):
+            fails.append("uninstall removed the user's cursor hook or its options")
 
     check_codex_hooks_feature(fails)
     check_grok_home(fails)
@@ -572,7 +650,7 @@ def main():
             print("  -", f)
         sys.exit(1)
     print("PASS: install idempotent, approval gates wired, uninstall clean, "
-          "user hooks preserved (7 CLIs)")
+          "user hooks preserved (8 CLIs)")
 
 
 if __name__ == "__main__":

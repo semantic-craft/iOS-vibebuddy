@@ -68,6 +68,23 @@ struct AccountUsageLiveTests {
         #expect(state == .disabled)
     }
 
+    @Test("a live sample without extras keeps extras the collector already had")
+    func livePreservesExtras() async {
+        let collector = AccountUsageCollector(provider: CountingProvider(), cache: MemoryCache(), enabled: true)
+        var fetched = live(usedPercent: 20)
+        fetched.extraWindows = [
+            .extra(key: "codex-spark", label: "Codex Spark 5-hour", usedPercent: 33,
+                   windowDurationMinutes: 300, resetsAt: nil)
+        ]
+        fetched.credits = QuotaCredits(remaining: 9, label: "Credits")
+        _ = await collector.acceptLive(fetched, holdFor: 60, now: now)
+        let liveOnly = live(usedPercent: 40)
+        let state = await collector.acceptLive(liveOnly, holdFor: 60, now: now)
+        #expect(state.snapshot?.primary?.usedPercent == 40)
+        #expect(state.snapshot?.extraWindows?.first?.key == "codex-spark")
+        #expect(state.snapshot?.credits?.remaining == 9)
+    }
+
     @Test("the feed remembers the latest sample per provider and streams to subscribers")
     func feed() async {
         let feed = AccountUsageLiveFeed()

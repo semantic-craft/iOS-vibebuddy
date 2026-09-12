@@ -7,20 +7,35 @@ user picked one per round. This file records the decisions and the rules the
 SwiftUI implementation follows. It is the reference for anyone touching the Mac
 UI; the prototype is the visual truth where prose is ambiguous.
 
+> **Superseded in part (2026-09-12) by [ADR-0017](../adr/0017-cursor-visual-language-on-every-surface.md).**
+> The visual language now follows Cursor on every surface: the *Tokens* table
+> below is history (the live values are `CompanionPalette` / `CompanionType` in
+> `VibeBuddyKit/Sources/VibeBuddyKit/Companion.swift`), round 1's "cat is the
+> protagonist" no longer holds (the cat keeps the app icon, the menu-bar mark
+> and the voice avatar only), Settings is ten pages on `SettingsChrome`, and the
+> Watch is re-skinned in the same tokens rather than exempted. The copy rules,
+> the summary-first row (round 3), the request card and the Glance's two keys
+> (round 4) and the state summary (round 5) still stand.
+
 ## Decisions
 
 | Round | Question | Chosen | Rejected |
 |---|---|---|---|
-| 1 | Overall look | **Companion** — the cat is the protagonist; soft ground, large radii, pill controls, speech bubbles | Cupertino (native), Console, Instrument, Board |
+| 1 | Overall look | **Companion** — the cat is the protagonist; soft ground, large radii, pill controls, speech bubbles. *Superseded by ADR-0017: Cursor's register — neutral grounds, hairlines, Geist, radii 12 / 8, no mascot on status surfaces.* | Cupertino (native), Console, Instrument, Board |
 | 2 | Panel structure | **C · grouped by state** — Needs you / Working / Done panels, no filter sidebar, cat small in the top bar | three-column filter, hero top bar, single inbox, cat room |
 | | | *Still the Dashboard's answer. For the **menu-bar panel** it was superseded on 2026-09-08 — see `mac-menu-command-bar.md`.* | |
 | 3 | Session row | **3 · summary-first** — tinted glyph circle, project as eyebrow, the agent's summary is the main line, activity in small caps | pill label, left stripe, single-line table, message bubble |
 | 4 | Approval card | **Detail pane: 3 · request card with diff**; **Glance: 2 · two big keys** | current button group, cat asks, keyboard row |
 | 5 | State summary | **Glance pill: 4 · only the needs-you count**; **everywhere else: 2 · the cat says one line** | glyph counts, stacked bar, labelled chips |
 
-Settings keeps macOS grouped forms; only control tinting follows the palette.
+Settings keeps macOS grouped forms; only control tinting follows the palette. *Superseded 2026-09-12: Settings is ten pages under five sidebar groups on `SettingsChrome` (`VibeBuddyMacApp/Sources/SettingsChrome.swift`), in the Kit tokens.*
 
 ## Tokens (`MacTheme.swift`)
+
+**History (2026-09-06 values).** Superseded by ADR-0017: the live tokens are
+Cursor's neutral grounds, translucent hairlines, Geist / Geist Mono and radii
+12 / 8, defined once in the Kit's `Companion.swift`; `MacTheme` is an alias.
+The table is kept so the Companion prototype can still be read.
 
 Light / dark:
 
@@ -45,12 +60,14 @@ These soft status colours are for Companion surfaces only. The Kit's neon
 `TaskStatusColorToken`s stay the source for the menu-bar badge, widgets and
 `TaskStatusIndicator` where accessibility modes depend on them.
 
-Type: system font, `.rounded` design (the prototype's Nunito). Sizes: eyebrow
-12, body 13, row main 14 semibold, group title 14 heavy, detail title 26 heavy.
-Monospace for paths, commands, diffs.
+Type (history): system font, `.rounded` design (the prototype's Nunito). Sizes
+carry over unchanged into Geist: eyebrow 12, body 13, row main 14 semibold,
+group title 14 heavy, detail title 26 heavy. Geist Mono for paths, commands,
+diffs.
 
-Radii: window/group panels 20, cards/rows 12, controls 999 (pills). Shadows are
-one soft card shadow only; selection is a 2 pt accent ring.
+Radii (history): window/group panels 20, cards/rows 12, controls 999 (pills).
+Now 12 / 8, rounded-rect controls, no shadow — a card separates on a hairline;
+selection is still a 2 pt accent ring.
 
 ## Copy rules
 
@@ -109,12 +126,15 @@ two equal-width keys Approve / Deny, then an underlined link row
 headers and up to three rows each.
 
 ### Settings
-Grouped forms as today. Toggles/pickers pick up the accent tint.
+Grouped forms as today. Toggles/pickers pick up the accent tint. *Superseded 2026-09-12 — ten pages on `SettingsChrome`; see ADR-0017.*
 
 ## iPhone and Apple Watch
 
 The same rules carry to the other two surfaces; the artifact's iPhone and
-Watch panels show them applied, and the implementation follows them. The
+Watch panels show them applied, and the implementation follows them. *(2026-09-12:
+the iPhone left this description with ADR-0014 — a flat grouped list, no cat;
+the Watch, Live Activity and widgets follow it under ADR-0017 once ticket 05
+of `.scratch/cursor-visual-language/` lands.)* The
 shared tokens, copy and controls live in `VibeBuddyKit/Sources/VibeBuddyKit/
 Companion.swift` and `CompanionViews.swift` (palette, type, `CompanionCopy`,
 `StateGroups`, `PillButtonStyle`, `StateGlyph`, `AgentAvatar`, `AgentBadge`,
@@ -122,7 +142,8 @@ Companion.swift` and `CompanionViews.swift` (palette, type, `CompanionCopy`,
 `MacTheme` is a thin alias over them.
 
 - **iPhone dashboard**: superseded by rounds 6–8 below — the message stream
-  replaced the three panels on 2026-09-06.
+  replaced the three panels on 2026-09-06 — and again by ADR-0014 (2026-09-12),
+  which replaced the stream with a flat, grouped, newest-first task list.
 - **Dynamic Island expanded / lock-screen Live Activity**: cat + mood line +
   second line; the leading session (project + state) underneath. Compact
   island: cat leading, needs-you badge trailing (working count in blue when
@@ -134,10 +155,15 @@ Companion.swift` and `CompanionViews.swift` (palette, type, `CompanionCopy`,
   <verb>` label, the summary as the title, the path/command in a mono strip,
   Approve and Deny stacked full-width, `Always · This session` links below.
   Scrolling down shows Working and Done as small-caps lists.
-- Palette, rounded type and radii are the Mac tokens; the Watch keeps its
-  black ground and uses the status colours at full strength.
+- Palette, type and radii are the Kit tokens (Geist and the neutral set since
+  ADR-0017); the Watch keeps its black ground and uses the status colours at
+  full strength.
 
 ## iPhone rounds 6–8 (2026-09-06, artifact `79f0f9ce-1e20-4bac-98d8-93d69057cfe5`)
+
+> **Superseded on 2026-09-12 by ADR-0014.** The message stream, the bubble +
+> avatar unit and oldest-first order are history; the reply banner and the
+> "meaning is never guessed from text" rule survive in the new composer.
 
 The phone got its own three rounds once the main branch had grown a task
 composer ("Send instruction", new-task sheet, PR number, effort). Decisions:

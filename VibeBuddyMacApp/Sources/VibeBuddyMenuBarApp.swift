@@ -125,7 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         windows = AppWindows(
             dashboard: AnyView(DashboardView(model: model)),
-            settings: AnyView(SettingsView(model: model)))
+            settings: AnyView(SettingsView(model: model, initialPage: Self.demoSettingsPage ?? .general)))
         NotificationCenter.default.addObserver(self, selector: #selector(openDashboard), name: .openDashboard, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(openSettings), name: .openAppSettings, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(toggleGlance), name: .toggleGlance, object: nil)
@@ -144,12 +144,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let loginLaunch = NSAppleEventManager.shared().currentAppleEvent?
             .paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
         if !loginLaunch {
-            if ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO_PAGE"] == "settings" {
+            if Self.demoSettingsPage != nil {
                 openSettings()
             } else {
                 openDashboard()
             }
         }
+    }
+
+    /// `VIBEBUDDY_DEMO_PAGE=settings` opens Settings instead of the Dashboard
+    /// on launch; `settings/<page>` (a `SettingsPageID` raw value, e.g.
+    /// `settings/phone`) opens it on that page — for screenshots and QA.
+    private static var demoSettingsPage: SettingsPageID? {
+        guard let value = ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO_PAGE"] else { return nil }
+        let parts = value.split(separator: "/", maxSplits: 1).map(String.init)
+        guard parts.first == "settings" else { return nil }
+        return parts.count > 1 ? SettingsPageID(rawValue: parts[1]) : .general
     }
 
     /// Closing ordinary windows must leave the daemon and Glance running.
@@ -428,15 +438,24 @@ struct MenuContent: View {
     @State private var listContentHeight: CGFloat = 120
     @State private var screenSize = NSScreen.main?.visibleFrame.size ?? CGSize(width: 800, height: 600)
     @State private var showsPhoneDetails = false
-    @State private var greet = 0
     @State private var hoveredSessionID: String?
+    /// Which groups the user has folded away, by `MenuFeed.Section.Kind`. A
+    /// search reopens all of them: a match must never hide inside a fold. The
+    /// folds are for this open of the panel only (`onAppear` puts them back to
+    /// `initialFolds`), so a group folded yesterday cannot hide today's work;
+    /// `needsYou` has no fold at all (ADR-0015).
+    @State private var collapsed = MenuContent.initialFolds
+    /// Older work starts folded: it is there to be found, not to be read past.
+    private static let initialFolds: Set<String> = [MenuFeed.Section.Kind.older.rawValue]
     @State private var query = ""
     @FocusState private var searchFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The panel's own width, and the list's ceiling before it scrolls.
     private static let width: CGFloat = 360
-    private static let listCeiling: CGFloat = 250
+    /// Two-line rows need more room than the old feed's single lines did; past
+    /// this the list scrolls under the summary.
+    private static let listCeiling: CGFloat = 320
 
     private var feed: MenuFeed { MenuFeed(model.sessions, query: query) }
 
@@ -446,7 +465,7 @@ struct MenuContent: View {
                                listHeight: min(listContentHeight, Self.listCeiling)) {
             VStack(spacing: 0) {
                 commandRow(feed)
-                Divider()
+                MenuHairline()
                 // The summary steps aside for the result band while you type:
                 // one line at the top of the list, never two.
                 if feed.emptyState == nil {
@@ -456,7 +475,7 @@ struct MenuContent: View {
             .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: feed.query.isEmpty)
             sessionList(feed)
             VStack(spacing: 0) {
-                Divider()
+                MenuHairline()
                 controlRow
                     .padding(.horizontal, 9)
                     .padding(.top, 6)
@@ -464,14 +483,19 @@ struct MenuContent: View {
             }
         }
         .frame(width: min(Self.width, screenSize.width - 24))
-        .background(MacTheme.bg3)
+        .background(MacTheme.bg)
         .background(MenuScreenReader { screenSize = $0 })
         .background(MenuPanelAnchor())
         // Typing is the only way to narrow the list, so the field takes the
-        // caret as the panel opens and each open starts from the whole snapshot.
+        // caret as the panel opens and each open starts from the whole snapshot
+        // with the same folds.
         .onAppear {
             query = ""
+            collapsed = Self.initialFolds
             searchFocused = true
+        }
+        .onChange(of: query) { old, new in
+            if old.isEmpty, !new.isEmpty { collapsed.removeAll() }
         }
     }
 
@@ -642,19 +666,24 @@ struct MenuContent: View {
 
     // MARK: - The command row
 
-    /// Pet, one field, one badge. The pet doubles as the global status light —
-    /// the dot on its head is the most urgent state in the whole snapshot, so
-    /// it keeps telling the truth while a query narrows the list below.
+    /// One field, with the voice companion on its left and the shortcut badge on
+    /// its right. The cat left this row with ADR-0015: the mic is the voice
+    /// entry point here, and the panel's status light is the dot on the summary
+    /// line under it.
     private func commandRow(_ feed: MenuFeed) -> some View {
-        HStack(spacing: 10) {
-            Button { greet += 1; model.voiceChat.toggle() } label: {
-                PetFace(state: model.buddyState, voice: .init(model.voiceChat.phase),
-                        greet: greet, bare: true, scale: 0.52)
-                    .overlay(alignment: .topTrailing) { statusDot(feed.summary) }
+        HStack(spacing: 9) {
+            MenuCircleButton(systemName: voiceGlyph,
+                             tint: voiceIsIdle ? MacTheme.ink2 : .onAccent,
+                             ground: voiceIsIdle ? MacTheme.bg3 : MacTheme.accent) {
+                model.voiceChat.toggle()
             }
-            .buttonStyle(.borderless)
+            .help(voiceIsIdle ? "Start voice conversation" : "End voice conversation")
             .accessibilityLabel("Toggle voice companion")
-            .accessibilityValue(Text(MacSummaryCopy.moodLine(feed.summary)))
+            if !voiceIsIdle {
+                // The conversation's avatar (ADR-0017 §2): the cat appears
+                // while a call is live and nowhere else in the panel.
+                PetFace(state: model.buddyState, voice: .init(model.voiceChat.phase), plain: true, scale: 0.4)
+            }
 
             TextField(text: $query) { Text("Search sessions or run a command") }
                 .textFieldStyle(.plain)
@@ -670,27 +699,29 @@ struct MenuContent: View {
                     .foregroundStyle(MacTheme.ink2)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 2)
-                    .background(MacTheme.bg2, in: RoundedRectangle(cornerRadius: 5))
+                    .background(MacTheme.bg3, in: RoundedRectangle(cornerRadius: 5))
+                    .overlay(RoundedRectangle(cornerRadius: 5)
+                        .strokeBorder(MacTheme.line, lineWidth: CompanionType.hairline))
             }
             .buttonStyle(.plain)
             .keyboardShortcut("k", modifiers: .command)
             .help("Search sessions")
             .accessibilityLabel("Search sessions")
         }
-        .padding(13)
+        .padding(.horizontal, MenuMetrics.gutter)
+        .padding(.vertical, 10)
     }
 
-    @ViewBuilder
-    private func statusDot(_ summary: TaskPresentationSummary) -> some View {
-        let state = summary.primaryState
-        if state != .unassigned {
-            Circle()
-                .fill(MacTheme.status(state))
-                .frame(width: 10, height: 10)
-                .padding(2)
-                .background(Circle().fill(MacTheme.bg3))
-                .offset(x: 4, y: -3)
-                .accessibilityHidden(true)
+    private var voiceIsIdle: Bool { model.voiceChat.phase == .idle }
+
+    /// The mic tells you which half of the conversation is live, as the cat's
+    /// face used to.
+    private var voiceGlyph: String {
+        switch model.voiceChat.phase {
+        case .idle: "mic"
+        case .listening: "mic.fill"
+        case .speaking: "waveform"
+        case .connecting, .recovering, .thinking: "ellipsis"
         }
     }
 
@@ -702,27 +733,42 @@ struct MenuContent: View {
 
     // MARK: - Summary and result band
 
-    /// One line for the whole snapshot, bold only on the first clause. It sits
-    /// above the scroller rather than inside it, so a long list scrolls under
-    /// an answer that stays put.
+    /// One line for the whole snapshot, led by the panel's status light: the
+    /// most urgent state present, which keeps telling the truth while a query
+    /// narrows the list below. It sits above the scroller rather than inside
+    /// it, so a long list scrolls under an answer that stays put.
     private func summaryRow(_ summary: TaskPresentationSummary) -> some View {
         let rest = MacSummaryCopy.restLine(summary)
-        return HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(MacSummaryCopy.moodLine(summary))
-                .font(MacTheme.font(12.5, .semibold))
-                .foregroundStyle(MacTheme.ink)
-            if !rest.isEmpty {
-                Text(verbatim: "· \(rest)")
-                    .font(MacTheme.font(11.5))
-                    .foregroundStyle(MacTheme.ink2)
+        return HStack(spacing: 7) {
+            statusDot(summary)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(MacSummaryCopy.moodLine(summary))
+                    .font(MacTheme.font(12.5, .semibold))
+                    .foregroundStyle(MacTheme.ink)
+                if !rest.isEmpty {
+                    Text(verbatim: "· \(rest)")
+                        .font(MacTheme.font(11.5))
+                        .foregroundStyle(MacTheme.ink2)
+                }
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
         }
         .lineLimit(1)
-        .padding(.horizontal, 13)
-        .padding(.top, 9)
-        .padding(.bottom, 7)
+        .padding(.horizontal, MenuMetrics.gutter)
+        .padding(.top, 2)
+        .padding(.bottom, 8)
         .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder
+    private func statusDot(_ summary: TaskPresentationSummary) -> some View {
+        let state = summary.primaryState
+        if state != .unassigned {
+            Circle()
+                .fill(MacTheme.status(state))
+                .frame(width: 7, height: 7)
+                .accessibilityHidden(true)
+        }
     }
 
     /// What the query hid, said out loud — otherwise filtering something away
@@ -747,7 +793,7 @@ struct MenuContent: View {
                     .fixedSize()
             }
         }
-        .padding(.horizontal, 13)
+        .padding(.horizontal, MenuMetrics.gutter)
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(MacTheme.bg2)
@@ -771,6 +817,10 @@ struct MenuContent: View {
         }
     }
 
+    /// The list (ADR-0015): the Companion's attention groups with hairlines
+    /// between rows — `Needs you` always open, the rest collapsible from their
+    /// heads. A group that holds nothing is absent, not empty, so the panel
+    /// shortens.
     @ViewBuilder
     private func listContent(_ feed: MenuFeed) -> some View {
         let now = Date()
@@ -778,112 +828,131 @@ struct MenuContent: View {
             if let empty = feed.emptyState {
                 emptyState(empty)
             } else {
-                if !feed.pinned.isEmpty { pinnedBlock(feed, now: now) }
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(feed.feed.enumerated()), id: \.element.id) { index, session in
-                        feedRow(session, feed: feed, now: now,
-                                rail: .feed(isFirst: index == 0, isLast: index == feed.feed.count - 1),
-                                ground: MacTheme.bg3, hover: MacTheme.bg2)
+                    ForEach(feed.sections) { section in
+                        VStack(alignment: .leading, spacing: 0) {
+                            sectionHead(section)
+                            if !isCollapsed(section.kind) {
+                                ForEach(Array(section.sessions.enumerated()), id: \.element.id) { index, session in
+                                    row(session, feed: feed, now: now,
+                                        showsHairline: index < section.sessions.count - 1)
+                                }
+                            }
+                        }
                     }
                 }
-                .padding(.top, 4)
-                .padding(.bottom, 8)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    /// Errors and questions never wait their turn in the stream. The block is
-    /// absent — not empty — when nothing needs a person, and the panel shortens.
-    private func pinnedBlock(_ feed: MenuFeed, now: Date) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .firstTextBaseline, spacing: 7) {
-                Text("Needs you")
-                    .textCase(.uppercase)
-                    .kerning(0.95)
-                    .foregroundStyle(MacTheme.status(feed.pinned[0].presentationState))
-                Spacer(minLength: 0)
-                Text("\(feed.pinned.count)")
-                    .foregroundStyle(MacTheme.ink3)
-                    .monospacedDigit()
-            }
-            .font(MacTheme.font(9.5, .semibold))
-            .padding(.horizontal, 13)
-            .padding(.top, 7)
-            .padding(.bottom, 2)
-            .accessibilityElement(children: .combine)
-
-            ForEach(feed.pinned) { session in
-                feedRow(session, feed: feed, now: now, rail: .pinned,
-                        ground: MacTheme.bg2, hover: MacTheme.bg3)
-            }
-        }
-        .padding(.top, 3)
-        .padding(.bottom, 5)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(MacTheme.bg2)
-    }
-
-    private enum Rail {
-        case pinned
-        case feed(isFirst: Bool, isLast: Bool)
-    }
-
-    private func feedRow(_ session: AgentSession, feed: MenuFeed, now: Date,
-                         rail: Rail, ground: Color, hover: Color) -> some View {
-        let isTarget = !feed.query.isEmpty && feed.topResult?.id == session.id
-        return Button { model.jump(session) } label: {
-            HStack(alignment: .top, spacing: 0) {
-                Text(verbatim: MenuFeed.age(of: session.updatedAt, now: now))
-                    .font(MacTheme.mono(10))
-                    .monospacedDigit()
-                    .foregroundStyle(MacTheme.ink3)
-                    .lineLimit(1)
-                    .frame(width: 52, alignment: .trailing)
-                    .padding(.trailing, 9)
-                    .padding(.top, 7)
-                railView(rail, color: MacTheme.status(session.presentationState), ground: ground)
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 8) {
-                        rowText(session).lineLimit(1)
-                        Spacer(minLength: 0)
-                        if isTarget { jumpBadge }
-                    }
-                    if let outcome = model.jumpFeedback[session.id] {
-                        Text(outcome.macMessage(for: session))
-                            .font(MacTheme.font(10, .semibold))
-                            .foregroundStyle(MacTheme.ink2)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .padding(.leading, 3)
-                .padding(.trailing, 13)
-                .padding(.top, 6)
                 .padding(.bottom, 7)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(hoveredSessionID == session.id ? hover : .clear,
-                            in: RoundedRectangle(cornerRadius: 7))
             }
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .onHover { hoveredSessionID = $0 ? session.id : nil }
-        .help("\(session.displayTitle)\n\(session.agent.displayName) · \(session.statusLabel)\n\(session.summary ?? "")")
-        .accessibilityLabel(Text(verbatim: session.displayTitle))
-        .accessibilityValue(Text(verbatim: session.summary ?? session.statusLabel))
-        .accessibilityHint("Jump to this session")
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// Project and the agent's own sentence as one run of text, so the sentence
-    /// gets the whole row instead of the leftovers after a status column.
-    private func rowText(_ session: AgentSession) -> Text {
-        let title = Text(verbatim: session.displayTitle)
-            .font(MacTheme.font(12.5, .semibold))
-            .foregroundColor(MacTheme.ink)
-        let detail = session.summary.flatMap { $0.isEmpty ? nil : Text(verbatim: $0) }
-            ?? Text(LocalizedStringKey(session.statusLabel))
-        return title + Text(verbatim: "  ")
-            + detail.font(MacTheme.font(12.5)).foregroundColor(MacTheme.ink2)
+    private static func groupTitle(_ kind: MenuFeed.Section.Kind) -> LocalizedStringKey {
+        switch kind {
+        case .needsYou: "Needs you"
+        case .working: "Working"
+        case .done: "Done"
+        case .older: "Older"
+        }
+    }
+
+    /// `Needs you` draws the group head without a chevron and without a toggle:
+    /// the same Kit head at the panel's sizes and insets as `MenuSectionHeader`,
+    /// handed no binding, so a new approval is never behind a fold.
+    @ViewBuilder
+    private func sectionHead(_ section: MenuFeed.Section) -> some View {
+        if section.kind == .needsYou {
+            CompanionSectionHeader(title: Text(Self.groupTitle(section.kind)), count: section.sessions.count,
+                                   insets: EdgeInsets(top: 9, leading: MenuMetrics.gutter,
+                                                      bottom: 4, trailing: MenuMetrics.gutter))
+        } else {
+            MenuSectionHeader(title: Self.groupTitle(section.kind),
+                              count: section.sessions.count,
+                              expanded: expansion(section.kind))
+        }
+    }
+
+    private func isCollapsed(_ kind: MenuFeed.Section.Kind) -> Bool {
+        kind != .needsYou && collapsed.contains(kind.rawValue)
+    }
+
+    private func expansion(_ kind: MenuFeed.Section.Kind) -> Binding<Bool> {
+        Binding(get: { !isCollapsed(kind) },
+                set: { expand in
+                    if expand { collapsed.remove(kind.rawValue) } else { collapsed.insert(kind.rawValue) }
+                })
+    }
+
+    /// A flat row: a status dot, the session's title and how long ago it moved
+    /// on the first line; what the agent is doing and its own sentence on the
+    /// second. Hover fills the whole row — there is no card.
+    private func row(_ session: AgentSession, feed: MenuFeed, now: Date,
+                     showsHairline: Bool) -> some View {
+        let isTarget = !feed.query.isEmpty && feed.topResult?.id == session.id
+        return VStack(spacing: 0) {
+            Button { model.jump(session) } label: {
+                HStack(alignment: .top, spacing: 0) {
+                    Circle()
+                        .fill(MacTheme.status(session.presentationState))
+                        .frame(width: 7, height: 7)
+                        .padding(.top, 5)
+                        .frame(width: MenuMetrics.dotLane, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(verbatim: session.displayTitle)
+                                .font(MacTheme.font(12.5, .medium))
+                                .foregroundStyle(MacTheme.ink)
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
+                            if isTarget { jumpBadge }
+                            Text(verbatim: MenuFeed.age(of: session.updatedAt, now: now))
+                                .font(MacTheme.mono(9.5))
+                                .monospacedDigit()
+                                .foregroundStyle(MacTheme.ink3)
+                                .lineLimit(1)
+                                .fixedSize()
+                        }
+                        activityLine(session)
+                        if let outcome = model.jumpFeedback[session.id] {
+                            Text(outcome.macMessage(for: session))
+                                .font(MacTheme.font(10, .semibold))
+                                .foregroundStyle(MacTheme.ink2)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .padding(.trailing, MenuMetrics.gutter)
+                }
+                .padding(.leading, MenuMetrics.gutter)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(hoveredSessionID == session.id ? MacTheme.bg2 : .clear)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .onHover { hoveredSessionID = $0 ? session.id : nil }
+            .help("\(session.displayTitle)\n\(session.agent.displayName) · \(session.statusLabel)\n\(session.summary ?? "")")
+            // One element: title, state word, activity or summary, age.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(verbatim: [session.displayTitle, session.presentationState.label,
+                                                session.displaySummary ?? ToolActivity.label(for: session),
+                                                MenuFeed.age(of: session.updatedAt, now: now)]
+                .filter { !$0.isEmpty }.joined(separator: ", ")))
+            .accessibilityHint("Jump to this session")
+            if showsHairline {
+                MenuHairline(leading: MenuMetrics.gutter + MenuMetrics.dotLane)
+            }
+        }
+    }
+
+    /// What the agent is doing, in the state's own colour, then its own
+    /// sentence. One line: the row's width is the budget.
+    private func activityLine(_ session: AgentSession) -> some View {
+        let activity = Text(LocalizedStringKey(ToolActivity.label(for: session)))
+            .foregroundColor(MacTheme.status(session.presentationState))
+        let detail = session.displaySummary.flatMap { $0.isEmpty ? nil : Text(verbatim: $0) }
+        return (detail.map { activity + Text(verbatim: "  ") + $0.foregroundColor(MacTheme.ink2) } ?? activity)
+            .font(MacTheme.font(11.5))
+            .lineLimit(1)
     }
 
     private var jumpBadge: some View {
@@ -892,50 +961,18 @@ struct MenuContent: View {
             .foregroundStyle(MacTheme.ink2)
             .padding(.horizontal, 5)
             .padding(.vertical, 1)
-            .overlay(RoundedRectangle(cornerRadius: 4).stroke(MacTheme.line, lineWidth: 0.5))
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke(MacTheme.line, lineWidth: CompanionType.hairline))
             .fixedSize()
             .accessibilityHidden(true)
     }
 
-    /// The 15pt gutter: a hairline through the stream with a status dot on it,
-    /// trimmed at the first and last row so the line does not dangle. The
-    /// pinned block draws the dot alone — it is not a stretch of the timeline.
-    @ViewBuilder
-    private func railView(_ rail: Rail, color: Color, ground: Color) -> some View {
-        switch rail {
-        case .pinned:
-            VStack(spacing: 0) {
-                dot(9, color: color, ground: ground).padding(.top, 5)
-                Spacer(minLength: 0)
-            }
-            .frame(width: 15)
-        case let .feed(isFirst, isLast):
-            VStack(spacing: 0) {
-                thread.frame(height: 6).opacity(isFirst ? 0 : 1)
-                dot(7, color: color, ground: ground)
-                thread.frame(maxHeight: .infinity).opacity(isLast ? 0 : 1)
-            }
-            .frame(width: 15)
-        }
-    }
-
-    private var thread: some View {
-        Rectangle().fill(MacTheme.line).frame(width: 1)
-    }
-
-    private func dot(_ size: CGFloat, color: Color, ground: Color) -> some View {
-        Circle()
-            .fill(color)
-            .frame(width: size, height: size)
-            .padding(2)
-            .background(Circle().fill(ground))
-    }
-
     @ViewBuilder
     private func emptyState(_ state: MenuFeed.EmptyState) -> some View {
-        VStack(spacing: 0) {
-            PetFace(state: model.buddyState, greet: greet, bare: true, scale: 0.88)
-                .padding(.bottom, 12)
+        VStack(spacing: 5) {
+            Image(systemName: Self.emptyGlyph(state))
+                .font(.system(size: 19, weight: .light))
+                .foregroundStyle(MacTheme.ink3)
+                .padding(.bottom, 7)
             switch state {
             case .noSessions:
                 Text("No sessions reporting")
@@ -944,7 +981,6 @@ struct MenuContent: View {
                 Text("Start a turn or repair hooks in Settings.")
                     .font(MacTheme.font(11.5))
                     .foregroundStyle(MacTheme.ink2)
-                    .padding(.top, 5)
             case let .noMatches(query):
                 Text("No matches for “\(query)”")
                     .font(MacTheme.font(13, .semibold))
@@ -953,14 +989,20 @@ struct MenuContent: View {
                 Text("Try another word, or ⌘K for commands.")
                     .font(MacTheme.font(11.5))
                     .foregroundStyle(MacTheme.ink2)
-                    .padding(.top, 5)
             }
         }
         .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 18)
-        .padding(.top, 30)
-        .padding(.bottom, 34)
+        .padding(.top, 26)
+        .padding(.bottom, 30)
         .accessibilityElement(children: .combine)
+    }
+
+    private static func emptyGlyph(_ state: MenuFeed.EmptyState) -> String {
+        switch state {
+        case .noSessions: "moon.zzz"
+        case .noMatches: "magnifyingglass"
+        }
     }
 }

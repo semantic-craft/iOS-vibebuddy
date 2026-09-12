@@ -22,8 +22,6 @@ final class DashboardStore: ObservableObject {
     /// Empty = the buddy sees all sessions; pruned to live IDs on every snapshot.
     @Published private(set) var buddySessionIDs: Set<String> = []
     @Published private(set) var state: ConnectionState = .connecting
-    /// Bumped whenever a cue fires, so the buddy can react in step with the sound.
-    @Published private(set) var cuePulse = 0
     /// Set when a Live Activity / deep link asks to open a specific session; the
     /// dashboard scrolls to and highlights it, then clears it via `clearFocus()`.
     @Published var focusedSessionId: String?
@@ -106,6 +104,8 @@ final class DashboardStore: ObservableObject {
     /// untouched — normalization already happened where the provider's own
     /// convention was still known.
     @Published private(set) var lastProviderQuota: [ProviderQuota] = []
+    /// Local Claude Code / Codex token spend as the Mac last reported it.
+    @Published private(set) var lastTokenConsumption: TokenConsumptionSnapshot?
     private var runTask: Task<Void, Never>?
     private var connectionGeneration = UUID()
     /// Decides which sound (if any) each snapshot earns. Reset per connection so
@@ -342,6 +342,7 @@ final class DashboardStore: ObservableObject {
         runTask?.cancel()
         isDemo = false
         lastProviderQuota = []
+        lastTokenConsumption = nil
         if self.pairing != pairing { phoneActions = [:]; phoneActionIdentity = [:] }
         self.pairing = pairing
         ConnectionStore.observePairing(pairing)
@@ -413,6 +414,7 @@ final class DashboardStore: ObservableObject {
         state = .connecting
         groups = SessionGroups([])
         lastProviderQuota = []
+        lastTokenConsumption = nil
         relayToWatch([])
     }
 
@@ -518,7 +520,10 @@ final class DashboardStore: ObservableObject {
     func startDemo() {
         stop()
         isDemo = true
-        lastProviderQuota = []
+        // The Usage sheet is part of the demo now, so seed the same sample
+        // readings the Watch demo uses instead of leaving it empty.
+        lastProviderQuota = WatchDemoScenario.normal.quotas(now: Date())
+        lastTokenConsumption = TokenConsumptionSnapshot.demo()
         pairing = nil
         state = .connected
         let demo = Self.demoSessions()
@@ -886,7 +891,6 @@ final class DashboardStore: ObservableObject {
             now: Date(),
             appActive: UIApplication.shared.applicationState == .active,
             quietMode: SoundPrefs.effectiveQuiet())))
-        var rang = false
         for alert in alerts {
             // A cue a push already delivered is not posted again (ADR-0012), and
             // then it earns no tap and no buddy reaction either.
@@ -894,9 +898,7 @@ final class DashboardStore: ObservableObject {
             guard generation == connectionGeneration, !Task.isCancelled else { return }
             guard notified, alert.delivery.interrupts else { continue }
             Haptics.play(for: alert.sound)   // a tasteful tap to go with the cue
-            rang = true
         }
-        if rang { cuePulse += 1 }   // let the buddy react
         // Answered on the Mac, or gone entirely: the banner it left on the phone
         // and on the wrist is describing something nobody is blocked on.
         notifications.record(alerts)
@@ -909,6 +911,7 @@ final class DashboardStore: ObservableObject {
         // Never let its old Mac readings repopulate a newly selected source.
         guard !Task.isCancelled else { return }
         lastProviderQuota = snapshot.providerQuota ?? []
+        lastTokenConsumption = snapshot.tokenConsumption
         buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: snapshot.sessions)
         state = .connected
         confirmConnectedPairing()

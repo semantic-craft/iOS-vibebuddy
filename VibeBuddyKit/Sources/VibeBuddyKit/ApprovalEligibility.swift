@@ -32,7 +32,7 @@ public struct ActivityApprovalTarget: Equatable, Sendable {
         for session in sessions {
             guard let approval = ApprovalEligibility.approval(for: session) else { continue }
             return Self(approvalID: approval.id,
-                        title: "\(session.project) wants to \(CompanionCopy.requestVerb(approval))",
+                        title: String(localized: "\(session.project) wants to \(CompanionCopy.requestVerb(approval))", bundle: .module),
                         detail: approval.commandPreview)
         }
         return nil

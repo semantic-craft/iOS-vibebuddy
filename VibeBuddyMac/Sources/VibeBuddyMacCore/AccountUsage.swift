@@ -5,6 +5,7 @@ import VibeBuddyKit
 public enum AccountUsageWindowKind: String, Codable, Sendable {
     case primary
     case secondary
+    case extra
 }
 
 public struct AccountUsageWindow: Codable, Equatable, Sendable, Identifiable {
@@ -13,21 +14,43 @@ public struct AccountUsageWindow: Codable, Equatable, Sendable, Identifiable {
     public var windowDurationMinutes: Int?
     public var resetsAt: Date?
     public var label: String?
+    /// Stable identity for extra windows (model-week, Spark, …). Nil on
+    /// cached primary/secondary rows that predate this field.
+    public var key: String?
 
-    public var id: AccountUsageWindowKind { kind }
+    public var id: String { key ?? kind.rawValue }
 
     public init(
         kind: AccountUsageWindowKind,
         usedPercent: Int,
         windowDurationMinutes: Int?,
         resetsAt: Date?,
-        label: String? = nil
+        label: String? = nil,
+        key: String? = nil
     ) {
         self.kind = kind
         self.usedPercent = usedPercent
         self.windowDurationMinutes = windowDurationMinutes
         self.resetsAt = resetsAt
         self.label = label
+        self.key = key
+    }
+
+    public static func extra(
+        key: String,
+        label: String,
+        usedPercent: Int,
+        windowDurationMinutes: Int?,
+        resetsAt: Date?
+    ) -> AccountUsageWindow {
+        AccountUsageWindow(
+            kind: .extra,
+            usedPercent: usedPercent,
+            windowDurationMinutes: windowDurationMinutes,
+            resetsAt: resetsAt,
+            label: label,
+            key: key
+        )
     }
 }
 
@@ -50,6 +73,10 @@ public struct AccountUsageSnapshot: Codable, Equatable, Sendable {
     public var accountLabel: String?
     public var usageDetail: String?
     public var hasAvailableUsage: Bool?
+    /// Model-week / Spark / other named windows. Not the weekly projection slot.
+    public var extraWindows: [AccountUsageWindow]?
+    public var credits: QuotaCredits?
+    public var spend: [QuotaSpend]?
 
     /// Extra Grok spend is not the shared subscription allowance.
     public var quotaWindows: [AccountUsageWindow] {
@@ -58,6 +85,17 @@ public struct AccountUsageSnapshot: Codable, Equatable, Sendable {
 
     public var windows: [AccountUsageWindow] {
         [primary, secondary].compactMap { $0 }
+    }
+
+    /// Account usage / iPhone Usage rows, including scoped extras that must
+    /// not steal the weekly remaining slot.
+    public var displayWindows: [AccountUsageWindow] {
+        windows + (extraWindows ?? [])
+    }
+
+    /// Quota alerts include extras; Grok extra-usage spend still stays out.
+    public var alertWindows: [AccountUsageWindow] {
+        quotaWindows + (extraWindows ?? [])
     }
 
     public init(
@@ -69,7 +107,10 @@ public struct AccountUsageSnapshot: Codable, Equatable, Sendable {
         latestDailyTokens: Int?,
         fetchedAt: Date,
         periodStart: Date? = nil,
-        periodEnd: Date? = nil
+        periodEnd: Date? = nil,
+        extraWindows: [AccountUsageWindow]? = nil,
+        credits: QuotaCredits? = nil,
+        spend: [QuotaSpend]? = nil
     ) {
         self.provider = provider
         self.planType = planType
@@ -80,6 +121,34 @@ public struct AccountUsageSnapshot: Codable, Equatable, Sendable {
         self.periodStart = periodStart
         self.periodEnd = periodEnd
         self.fetchedAt = fetchedAt
+        self.extraWindows = extraWindows
+        self.credits = credits
+        self.spend = spend
+    }
+
+    /// A live primary/secondary sample (status line, rate-limit stream) must
+    /// not erase extras the collector already learned.
+    public func preservingUnspecifiedExtras(from previous: AccountUsageSnapshot?) -> AccountUsageSnapshot {
+        guard let previous, previous.provider == provider else { return self }
+        var result = self
+        let incoming = extraWindows ?? []
+        let prior = previous.extraWindows ?? []
+        if incoming.isEmpty {
+            result.extraWindows = previous.extraWindows
+        } else if !prior.isEmpty {
+            var byID: [String: AccountUsageWindow] = [:]
+            for window in prior { byID[window.id] = window }
+            for window in incoming { byID[window.id] = window }
+            var seen: Set<String> = []
+            var merged: [AccountUsageWindow] = []
+            for window in incoming + prior where seen.insert(window.id).inserted {
+                if let kept = byID[window.id] { merged.append(kept) }
+            }
+            result.extraWindows = merged
+        }
+        if result.credits == nil { result.credits = previous.credits }
+        if (result.spend ?? []).isEmpty { result.spend = previous.spend }
+        return result
     }
 
     /// Grok's last period is not a reading of its new allowance.
@@ -490,7 +559,7 @@ public actor AccountUsageCollector {
         guard isEnabled else { return state }
         let currentGeneration = generation
         failureCount = 0
-        let live = snapshot
+        let live = snapshot.preservingUnspecifiedExtras(from: state.snapshot)
         state = .available(live, nextRefreshAt: now.addingTimeInterval(holdFor))
         do {
             try await cache.save(live, permit: cacheCommitGate.permit(generation: currentGeneration))
@@ -535,11 +604,11 @@ public struct AccountUsageAlertMonitor: Sendable {
         guard thresholdPercent > 0 else { return [] }
         guard state.collectionEnabled, !state.isStale, let snapshot = state.snapshot else { return [] }
 
-        let currentKeys = Dictionary(uniqueKeysWithValues: snapshot.quotaWindows.map {
-            ($0.kind, Self.key(provider: snapshot.provider, window: $0))
+        let currentKeys = Dictionary(uniqueKeysWithValues: snapshot.alertWindows.map {
+            ($0.id, Self.key(provider: snapshot.provider, window: $0))
         })
-        for (kind, currentKey) in currentKeys {
-            let prefix = snapshot.provider.rawValue + "|" + kind.rawValue + "|"
+        for (identity, currentKey) in currentKeys {
+            let prefix = snapshot.provider.rawValue + "|" + identity + "|"
             alertedWindowKeys = alertedWindowKeys.filter {
                 !$0.hasPrefix(prefix) || $0 == currentKey
             }
@@ -550,7 +619,7 @@ public struct AccountUsageAlertMonitor: Sendable {
 
         if !didObserveFreshSnapshot {
             didObserveFreshSnapshot = true
-            for window in snapshot.quotaWindows {
+            for window in snapshot.alertWindows {
                 let key = Self.key(provider: snapshot.provider, window: window)
                 observedWindowKeys.insert(key)
                 if window.usedPercent >= thresholdPercent {
@@ -561,7 +630,7 @@ public struct AccountUsageAlertMonitor: Sendable {
         }
 
         var alerts: [AccountUsageWindow] = []
-        for window in snapshot.quotaWindows {
+        for window in snapshot.alertWindows {
             let key = Self.key(provider: snapshot.provider, window: window)
             guard observedWindowKeys.contains(key) else {
                 observedWindowKeys.insert(key)
@@ -583,7 +652,7 @@ public struct AccountUsageAlertMonitor: Sendable {
             .map { String(Int64($0.timeIntervalSince1970.rounded())) }
             ?? "none"
         let duration = window.windowDurationMinutes.map(String.init) ?? "none"
-        return "\(provider.rawValue)|\(window.kind.rawValue)|\(reset)|\(duration)"
+        return "\(provider.rawValue)|\(window.id)|\(reset)|\(duration)"
     }
 }
 

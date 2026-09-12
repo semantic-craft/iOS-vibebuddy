@@ -74,7 +74,8 @@ struct VibeBuddyDaemon {
                 questionRegistry: questionRegistry),
             approvalRegistry: approvalRegistry, allowStore: allowStore,
             sessionAllow: sessionAllow, approvalContext: approvalContext,
-            questionRegistry: questionRegistry)
+            questionRegistry: questionRegistry,
+            cursorTranscriptMonitor: CursorTranscriptMonitor())
         FileHandle.standardError.write(Data(
             "vibebuddyd: listening on 0.0.0.0:\(port) (apns: \(pusher != nil ? "on" : "off"), token: \(tokenSource))\n".utf8))
         try await server.runService()

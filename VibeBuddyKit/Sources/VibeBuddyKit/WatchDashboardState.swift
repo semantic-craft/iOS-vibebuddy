@@ -61,8 +61,9 @@ public enum WatchConnection: String, Sendable, Equatable, CaseIterable {
 // MARK: - Counts
 
 /// The three canonical dashboard buckets, in the same vocabulary every other
-/// surface uses. Built from `SessionGroups` so the Watch cannot invent a second
-/// grouping rule.
+/// surface uses: the Companion's attention groups (`StateGroups`), so a failed
+/// session counts under Needs you here exactly as it does on the phone's list
+/// and in the mood line. The wire names keep their status spelling.
 public struct WatchSessionCounts: Codable, Equatable, Sendable {
     public var needsResponse: Int
     public var working: Int
@@ -74,8 +75,16 @@ public struct WatchSessionCounts: Codable, Equatable, Sendable {
         self.done = done
     }
 
+    /// Status-based, kept for callers that only know `SessionGroups`.
     public init(_ groups: SessionGroups) {
         self.init(needsResponse: groups.needsResponse.count,
+                  working: groups.working.count,
+                  done: groups.done.count)
+    }
+
+    /// Attention-based: what the Watch shows, matching every other surface.
+    public init(_ groups: StateGroups) {
+        self.init(needsResponse: groups.needsYou.count,
                   working: groups.working.count,
                   done: groups.done.count)
     }
@@ -380,12 +389,16 @@ public enum WatchDashboardProjection {
         isDemo: Bool = false
     ) -> WatchDashboardState {
         let sessions = snapshot.sessions.map { $0.validatingCompletionNotice(sourceID: snapshot.sourceID) }
-        let groups = SessionGroups(sessions)
+        // The wrist counts what is current (`SessionCurrency`), the same rule
+        // as the phone's summary line; a followed task stays listed because the
+        // person chose it, and every alert is current by definition.
+        let current = SessionCurrency.current(sessions, now: now)
+        let groups = SessionGroups(current)
         return WatchDashboardState(
             sourceID: snapshot.sourceID,
             followedTasks: sessions.filter { $0.effectiveAttention == .followed }.map(WatchFollowedTask.init),
-            counts: WatchSessionCounts(groups),
-            presentation: TaskPresentationSummary(sessions: snapshot.sessions),
+            counts: WatchSessionCounts(StateGroups(current)),
+            presentation: TaskPresentationSummary(sessions: current),
             alerts: groups.needsResponse.map(alert(for:)),
             quotas: quotas,
             relay: relay,

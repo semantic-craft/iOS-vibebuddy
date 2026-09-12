@@ -57,7 +57,7 @@
 "%lld waiting" = "%lld 个等待";
 "%lld working" = "%lld 个进行中";
 "%lld done" = "%lld 个已完成";
-"Listening… tap the pet to end" = "聆听中…点一下宠物结束";
+"Listening… tap the mic to end" = "聆听中…点一下麦克风结束";
 "Thinking…" = "思考中…";
 
 /* MARK: Approval / question cards */
@@ -91,7 +91,7 @@
 /* MARK: Voice companion opt-in (consent gate) */
 "Voice companion off" = "语音伙伴已关闭";
 "Continue" = "继续";
-"Tap the pet to talk with your selected AI provider: Qwen (DashScope), OpenAI, or Gemini (Google)." = "点一下宠物，即可与你选择的 AI 服务商通话：Qwen（DashScope）、OpenAI 或 Gemini（Google）。";
+"Tap the mic to talk with your selected AI provider: Qwen (DashScope), OpenAI, or Gemini (Google)." = "点一下麦克风，即可与你选择的 AI 服务商通话：Qwen（DashScope）、OpenAI 或 Gemini（Google）。";
 "When you start a voice conversation, your microphone audio and selected session context (project names, agent type, status, and summaries) are sent directly to that provider using your own API key. The key stays in Keychain and nothing passes through a vibebuddy server." = "开始语音对话时，你的麦克风音频和所选会话上下文（项目名、agent 类型、状态和摘要）会用你自己的 API 密钥直接发送给该服务商。密钥保存在钥匙串中，数据不经过 vibebuddy 服务器。";
 "Continuing keeps the mic off until your next tap." = "继续后，麦克风仍会保持关闭，直到你下次点击。";
 
@@ -276,3 +276,168 @@
 "Your Mac isn't connected to Codex right now." = "你的 Mac 现在没连上 Codex。";
 
 "Unknown project" = "未知项目";
+
+/* MARK: Flat phone dashboard (ADR-0014) */
+"Needs you" = "需要你";
+"No active tasks" = "没有活动任务";
+"No matching tasks" = "没有匹配的任务";
+"Nothing has moved in the last 24 hours. Older tasks are in Customize." = "过去 24 小时没有任务更新。更早的任务在“自定义”里。";
+"Try another filter, or reset them to see every task." = "换个筛选条件，或重置后查看全部任务。";
+"Show %lld older" = "显示 %lld 个更早的";
+"Plan, ask, build…" = "规划、提问、开发…";
+"Task" = "任务";
+"Tasks" = "任务";
+"Reply" = "回复";
+"New task" = "新建任务";
+"Account quota" = "账号配额";
+"Recent output" = "最近输出";
+"Notifications" = "通知";
+"Start voice conversation" = "开始语音对话";
+"End voice conversation" = "结束语音对话";
+"Connecting… tap the mic to cancel" = "连接中…点一下麦克风取消";
+"Recovering audio… tap the mic to end" = "正在恢复音频…点一下麦克风结束";
+
+/* MARK: Customize sheet */
+"Customize" = "自定义";
+"Close" = "关闭";
+"Grouping" = "分组";
+"Group by" = "分组方式";
+"Filter" = "筛选";
+"All" = "全部";
+"Project" = "项目";
+"None" = "不分组";
+"No assigned task" = "没有指派任务";
+"Show tasks idle over 24 hours" = "显示 24 小时无更新的任务";
+"A finished task drops off the list a day after its last update. A task that is waiting on you, running, failed, or followed with an unread result always stays, however old it is." = "已完成的任务在最后一次更新一天后从列表中移除。等你回应、正在运行、失败或已关注且有未读结果的任务无论多久都会一直显示。";
+"Tap the mic to talk to your sessions" = "点一下麦克风，和你的任务说话";
+"Voice scope: %lld tasks" = "语音范围：%lld 个任务";
+"Reset" = "重置";
+
+/* MARK: Approve menu and composer receipts (ADR-0017, ticket 08) */
+"Always allow this" = "总是允许这个";
+"Allow all this session" = "本会话全部允许";
+"More approval options" = "更多批准选项";
+"Cancel reply" = "取消回复";
+"Sending…" = "正在发送…";
+"Loading recent output…" = "正在加载最近输出…";
+"Couldn't reach your Mac — not sent" = "连不上你的 Mac——未发送";
+"Auto" = "自动";
+"OK" = "好";
+"Agent" = "Agent";
+"Jump" = "跳转";
+"Open thread" = "打开线程";
+"Open Grok Bot" = "打开 Grok Bot";
+"Open thread in ChatGPT" = "在 ChatGPT 中打开线程";
+"In buddy's context" = "已在伙伴的上下文中";
+"Add to buddy" = "加入伙伴的上下文";
+"Show recent output" = "显示最近输出";
+"Hide recent output" = "隐藏最近输出";
+"Assistant" = "助手";
+"You" = "你";
+"%@ / %@ context" = "上下文 %@ / %@";
+"%@, %@. Open details" = "%@，%@。打开详情";
+"wants to %@ · %@" = "想要%@ · %@";
+"Always allow adds %@ to Claude's own rules." = "“总是允许”会把 %@ 加入 Claude 自己的规则。";
+"%lld questions" = "%lld 个问题";
+"Codex moves on by itself in %@" = "Codex 将在 %@ 后自行继续";
+"Choose any" = "可多选";
+"Other…" = "其他…";
+"Send answer%@" = "发送回答";
+"Send instruction" = "发送指令";
+"Answer %@…" = "回答 %@…";
+"Instruction for %@…" = "给 %@ 的指令…";
+"Continue %@ with…" = "继续 %@…";
+"Send" = "发送";
+
+/* MARK: New task sheet */
+"Where" = "位置";
+"Your Mac has not seen a session run yet." = "你的 Mac 还没有运行过任何会话。";
+"Directory" = "目录";
+"What should %@ do?" = "让 %@ 做什么？";
+"Name (optional)" = "名称（可选）";
+"Starting…" = "正在开始…";
+"Runs as a new Codex thread on your Mac through the app-server daemon, with your usual model, approval and sandbox settings. It appears in Codex Desktop and in Working here." = "通过 app-server 守护进程在 Mac 上作为新的 Codex 线程运行，使用你平常的模型、审批和沙盒设置。它会出现在 Codex Desktop 和这里的“进行中”。";
+"Runs as a Claude Code background session on your Mac (claude --bg) with your usual settings. It appears in Working here; Jump opens a terminal attached to it." = "在 Mac 上作为 Claude Code 后台会话运行（claude --bg），使用你平常的设置。它会出现在这里的“进行中”；“跳转”会打开连接到它的终端。";
+"Demo mode: nothing was started" = "演示模式：没有启动任何任务";
+"Started — it will appear in Working" = "已开始——它会出现在“进行中”";
+
+/* MARK: Settings — voice conversation (ADR-0017, ticket 08) */
+"Optional and off by default. When you start a voice conversation, your microphone audio and selected session context (project names, agent type, status, and summaries) are sent directly to your selected provider — Qwen (DashScope), OpenAI, Gemini (Google), or Doubao (Volcengine) — using your own API key. The key stays in Keychain and nothing passes through a vibebuddy server." = "可选，默认关闭。开始语音对话时，你的麦克风音频和所选会话上下文（项目名、agent 类型、状态和摘要）会用你自己的 API 密钥直接发送给所选服务商——Qwen（DashScope）、OpenAI、Gemini（Google）或豆包（火山引擎）。密钥保存在钥匙串中，数据不经过 vibebuddy 服务器。";
+"English" = "English";
+"Realtime voice model" = "实时语音模型";
+"Qwen Audio 3.0 Plus — recommended" = "Qwen Audio 3.0 Plus——推荐";
+"Qwen Audio 3.0 Flash" = "Qwen Audio 3.0 Flash";
+"Custom: %@" = "自定义：%@";
+"Both models support live speech-to-speech. Actual response time depends on your network and region." = "两个模型都支持实时语音对话。实际响应时间取决于你的网络和地区。";
+"Voice" = "音色";
+"Recommended — longanqian" = "推荐——longanqian";
+"e.g. llm-xxxxxxxx" = "例如 llm-xxxxxxxx";
+"Test connection" = "测试连接";
+"Task reasoning model" = "任务推理模型";
+"Live handles conversation; the task reasoning model checks tasks and selects actions. Billed separately from voice time." = "Live 负责对话；任务推理模型负责检查任务并选择操作。与语音时长分别计费。";
+"The recommended model and %@ voice are ready. Only your realtime API key is required." = "已预设推荐模型与 %@ 音色，只需填入实时语音 API 密钥。";
+
+/* MARK: Settings — observation health and connection */
+"Observation health" = "观测健康";
+"No observation diagnostics received from the Mac yet." = "尚未收到来自 Mac 的观测诊断。";
+"Each row describes one source. Configuration changes are made on the Mac; a healthy source does not verify every session or its approvals." = "每一行描述一个来源。配置更改在 Mac 上进行；来源健康并不代表每个会话及其审批都已验证。";
+"Mac" = "Mac";
+"Source version %@" = "来源版本 %@";
+"Last signal %@" = "最近信号 %@";
+"Coverage: configured %@; received this launch %@" = "覆盖：已配置 %@；本次启动已收到 %@";
+"Enter a valid Mac host, port and pairing token." = "请输入有效的 Mac 主机、端口和配对令牌。";
+"Away from home? Join the same Tailscale network on your Mac and iPhone, then use your Mac’s Tailscale address." = "不在家？让 Mac 和 iPhone 加入同一个 Tailscale 网络，然后使用 Mac 的 Tailscale 地址。";
+"Install the companion on your Mac, then open “Pair a phone” in its menu bar. Use the same local network or connect both devices to Tailscale." = "先在 Mac 安装伴侣，再在菜单栏打开“配对手机”（Pair a phone）。使用同一局域网，或把两台设备都连到 Tailscale。";
+"Access refused. Check your pairing token, then reconnect." = "访问被拒绝。请检查配对令牌后重新连接。";
+"Invalid Mac address. Pair again with a valid host and port." = "Mac 地址无效。请用有效的主机和端口重新配对。";
+"Mac did not respond — reconnecting…" = "Mac 没有响应——正在重连…";
+
+/* MARK: Usage page (account quota and token spend) */
+"Usage" = "用量";
+"Pair with your Mac to see usage." = "与 Mac 配对后查看用量。";
+"Mac unreachable · saved readings only" = "连不上 Mac · 仅显示已保存读数";
+"Account quota is what each account has left. Token spend below is estimated from local Claude Code and Codex logs on the Mac — not an invoice." = "账号配额是每个账号剩余的额度。下方的 Token 花费根据 Mac 上的本地 Claude Code 与 Codex 日志估算——不是账单。";
+"%@ quota" = "%@ 配额";
+"Quota unavailable" = "配额不可用";
+"Updated: %@" = "更新于：%@";
+"Not provided by this Mac" = "此 Mac 未提供";
+"Token spend · %@" = "Token 花费 · %@";
+"No spend in this window" = "此窗口无花费";
+"Estimated cost" = "预估费用";
+"Tokens" = "Token";
+"Billed / cache" = "计费／缓存";
+"Sessions" = "会话数";
+"By agent" = "按 Agent";
+"By model" = "按模型";
+"By project" = "按项目";
+"Token spend updated %@" = "Token 花费更新于 %@";
+"Token consumption" = "Token 消耗";
+"Not provided by this Mac yet" = "此 Mac 尚未提供";
+"%lld%% left" = "剩余 %lld%%";
+"Remaining unknown" = "剩余未知";
+"Reset reached · awaiting update" = "已到重置时间 · 等待更新";
+"Reading unavailable" = "读数不可用";
+"Stale · cached reading" = "已过期 · 缓存读数";
+"Recent Mac reading" = "Mac 最近读数";
+"Cached · Mac unreachable" = "缓存 · 连不上 Mac";
+"Reset time unknown" = "重置时间未知";
+"Updated %@" = "更新于 %@";
+"Update time unknown" = "更新时间未知";
+
+/* MARK: Completion reads and jump results */
+"Couldn't save read status — reopen this result to retry" = "无法保存已读状态——重新打开此结果以重试";
+"Read — confirmed by Mac" = "已读——Mac 已确认";
+"Viewed — waiting to sync with Mac" = "已查看——等待与 Mac 同步";
+"Opened Grok Bot on your Mac — select the task in the app" = "已在 Mac 上打开 Grok Bot——请在 app 里选中该任务";
+"Couldn't open Grok Bot on your Mac" = "无法在 Mac 上打开 Grok Bot";
+"Opened the thread in ChatGPT on your Mac" = "已在 Mac 的 ChatGPT 中打开该线程";
+"Opened ChatGPT on your Mac — find the thread there" = "已在 Mac 上打开 ChatGPT——请在那里找到该线程";
+"Couldn't open the thread — is ChatGPT running on your Mac?" = "无法打开线程——Mac 上的 ChatGPT 在运行吗？";
+"No thread for this session" = "该会话没有线程";
+"Opened a terminal on your Mac attached to this session" = "已在 Mac 上打开连接到该会话的终端";
+"Opened the app on your Mac — find the tab there" = "已在 Mac 上打开该 app——请在那里找到标签页";
+
+/* MARK: Live Activity intent (shared with the widget extension) */
+"Answer an approval" = "回应审批";
+"Approval" = "审批";
+"Allow" = "允许";

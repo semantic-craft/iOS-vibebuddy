@@ -59,6 +59,24 @@ struct StatusLineTests {
         #expect(ProviderQuota(.available(usage, nextRefreshAt: nil), provider: .claude).weeklyRemainingPercent == 59)
     }
 
+    @Test("status-line keys besides five_hour and seven_day become extra windows")
+    func extraRateLimitKeys() throws {
+        var doc = json(statusLineJSON)
+        var limits = doc["rate_limits"] as! [String: Any]
+        limits["seven_day_fable"] = ["used_percentage": 70.4, "resets_at": 1_788_857_600]
+        doc["rate_limits"] = limits
+        let sample = try #require(StatusLineSample.decode(doc))
+        #expect(sample.extraWindows.map(\.key) == ["claude-weekly-scoped-fable"])
+        #expect(sample.extraWindows.first?.label == "Fable only")
+        #expect(sample.extraWindows.first?.usedPercent == 70)
+        #expect(sample.extraWindows.first?.windowDurationMinutes == 10_080)
+        let usage = try #require(sample.usageSnapshot(fetchedAt: now))
+        let quota = ProviderQuota(.available(usage, nextRefreshAt: nil), provider: .claude)
+        #expect(quota.weeklyRemainingPercent == 59)
+        #expect(quota.otherWindows?.first?.label == "Fable only")
+        #expect(quota.otherWindows?.first?.remainingPercent == 30)
+    }
+
     @Test("without rate_limits there is no usage snapshot, and without a session id no sample")
     func decodeEdges() {
         var doc = json(statusLineJSON)

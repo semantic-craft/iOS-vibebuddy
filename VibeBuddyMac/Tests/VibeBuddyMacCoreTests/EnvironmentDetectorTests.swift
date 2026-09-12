@@ -71,6 +71,26 @@ struct EnvironmentDetectorTests {
     @Test("the default CLI list mirrors the universal installer's set")
     func defaults() {
         let names = Set(EnvironmentDetector.defaultCLIs(home: "/h").map(\.name))
-        #expect(names == ["claude", "codex", "qwen", "grok", "antigravity", "kimi", "opencode"])
+        #expect(names == ["claude", "codex", "qwen", "grok", "antigravity", "kimi", "opencode", "cursor"])
+    }
+
+    /// Cursor keeps its lifecycle hooks in one user-level file beside its home
+    /// directory, so "configured" and "wired" are two different paths.
+    @Test("Cursor is detected by its home directory and wired in hooks.json")
+    func cursor() throws {
+        let dir = tempDir()
+        let cursorHome = dir.appendingPathComponent(".cursor")
+        try FileManager.default.createDirectory(at: cursorHome, withIntermediateDirectories: true)
+        let spec = CLISpec(name: "cursor", configPath: cursorHome.path,
+                           hookPath: cursorHome.appendingPathComponent("hooks.json").path)
+        var status = try #require(EnvironmentDetector.detect([spec]).first)
+        #expect(status.configured)
+        #expect(!status.hookInjected)
+
+        try #"{"version":1,"hooks":{"stop":[{"command":"…/cursor-followup.sh"}],"#
+            .appending(#""preToolUse":[{"command":"…/approval-hook.sh cursor"}]}}"#)
+            .write(to: cursorHome.appendingPathComponent("hooks.json"), atomically: true, encoding: .utf8)
+        status = try #require(EnvironmentDetector.detect([spec]).first)
+        #expect(status.hookInjected)
     }
 }

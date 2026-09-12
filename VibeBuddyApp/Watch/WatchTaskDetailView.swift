@@ -13,26 +13,39 @@ struct WatchTaskDetailView: View {
                 if let task = link.task(in: store.state) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(task.title.isEmpty ? String(localized: "Unnamed task") : task.title)
-                            .font(.headline)
+                            .font(CompanionType.font(15, .semibold))
+                            .foregroundStyle(CompanionPalette.ink)
                         HStack(spacing: 5) {
                             if let agent = task.agent {
                                 AgentAvatar(agent: agent, size: 16)
                                     .accessibilityHidden(true)
                             }
                             Text(task.sourceName)
+                                .font(CompanionType.font(10))
+                                .foregroundStyle(CompanionPalette.ink2)
                         }
-                        .font(.caption)
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel(task.sourceName)
-                        Label(status(task), systemImage: task.presentation.symbolName)
-                            .font(.caption)
+                        HStack(spacing: 6) {
+                            StatusDot(state: task.presentation)
+                            Text(status(task))
+                                .font(CompanionType.font(12, .medium))
+                                .foregroundStyle(CompanionPalette.status(task.presentation))
+                        }
+                        .accessibilityElement(children: .combine)
                         if task.completionID != link.completionID {
                             Text("Task status changed. This newer result has not been marked read.")
-                                .font(.caption2).foregroundStyle(.secondary)
+                                .font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink2)
                         }
-                        if let summary = task.detailSummary ?? task.summary { Text(summary).font(.caption) }
+                        if let summary = task.detailSummary ?? task.summary {
+                            CompanionHairline()
+                            Text(summary)
+                                .font(CompanionType.font(12))
+                                .foregroundStyle(CompanionPalette.ink)
+                        }
                         if completionPending {
-                            Text("Viewed — syncing with Mac").font(.caption2).foregroundStyle(.secondary)
+                            Text("Viewed — syncing with Mac")
+                                .font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink2)
                         }
                         if let alert = store.state?.alerts.first(where: { $0.sessionId == link.sessionID }),
                            task.presentation == .requiresInput {
@@ -53,9 +66,12 @@ struct WatchTaskDetailView: View {
                     .onAppear { store.viewed(link) }
                 } else {
                     Text("This task is unavailable. Return to the dashboard for current tasks.")
-                        .font(.caption)
+                        .font(CompanionType.font(12))
+                        .foregroundStyle(CompanionPalette.ink2)
                 }
-                Button("Back to dashboard") { dismiss() }.padding(.top, 8)
+                Button("Back to dashboard") { dismiss() }
+                    .buttonStyle(CompanionButtonStyle(kind: .quiet, size: .wide))
+                    .padding(.top, 8)
             }
             .navigationTitle("Task")
         }

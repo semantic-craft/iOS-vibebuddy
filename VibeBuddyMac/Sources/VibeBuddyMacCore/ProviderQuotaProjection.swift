@@ -39,20 +39,23 @@ public extension ProviderQuota {
         let others = snapshot.quotaWindows.filter {
             // Preserve independent pools even when they share a duration.
             $0.kind != weekly?.kind && $0.kind != short?.kind
-        }.map {
+        } + (snapshot.extraWindows ?? [])
+        let projectedOthers = others.map {
             QuotaWindow(remainingPercent: Self.remaining(fromUsedPercent: $0.usedPercent),
                         durationMinutes: $0.windowDurationMinutes, resetsAt: $0.resetsAt,
                         observedAt: snapshot.fetchedAt, isCached: state.isStale, label: $0.label)
         }
         let weeklyRemaining = Self.remaining(fromUsedPercent: weekly?.usedPercent)
         let shortRemaining = Self.remaining(fromUsedPercent: short?.usedPercent)
-        let usable = weeklyRemaining != nil || shortRemaining != nil || others.contains { $0.remainingPercent != nil }
+        let usable = weeklyRemaining != nil || shortRemaining != nil || projectedOthers.contains { $0.remainingPercent != nil }
         self.init(provider: provider, accountLabel: snapshot.accountLabel,
                   weeklyRemainingPercent: weeklyRemaining, weeklyResetsAt: weekly?.resetsAt,
                   weeklyWindowDurationMinutes: weekly?.windowDurationMinutes,
                   shortWindowRemainingPercent: shortRemaining, shortWindowResetsAt: short?.resetsAt,
                   shortWindowDurationMinutes: short?.windowDurationMinutes,
-                  otherWindows: others.isEmpty ? nil : others,
+                  otherWindows: projectedOthers.isEmpty ? nil : projectedOthers,
+                  credits: snapshot.credits,
+                  spend: snapshot.spend,
                   observedAt: usable || provider == .grokBot ? snapshot.fetchedAt : nil,
                   unavailableReason: state.unavailableReason?.displayText(provider: provider)
                     ?? (usable ? nil : snapshot.usageDetail)

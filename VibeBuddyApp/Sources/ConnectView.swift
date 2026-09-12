@@ -31,13 +31,16 @@ struct ConnectView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Connect your Mac").font(.largeTitle.bold())
+                    Text("Connect your Mac")
+                        .font(CompanionType.font(30, .semibold))
+                        .tracking(CompanionType.tracking(30))
+                        .foregroundStyle(CompanionPalette.ink)
                     Text("Your live tasks come from your own Mac. Install the free Mac companion and scan its code to unlock connected features.")
-                        .font(.subheadline).foregroundStyle(.secondary)
+                        .font(CompanionType.font(14)).foregroundStyle(CompanionPalette.ink2)
                 }
                 MacCompanionSteps()
                 Text("For Apple Silicon Macs with macOS 14 or later. Install the companion on your Mac, not your iPhone.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink3)
                 MacCompanionDownloadActions()
 
                 VStack(spacing: 16) {
@@ -45,34 +48,37 @@ struct ConnectView: View {
                         showScanner = true
                     } label: {
                         Label("Scan to pair", systemImage: "qrcode.viewfinder")
-                            .font(.headline).frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
+                    .buttonStyle(PhoneButtonStyle(kind: .primary(CompanionPalette.accent), size: .wide))
 
                     Text("Open “Pair a phone” in the vibebuddy Mac menu bar and scan that QR code.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
                         .multilineTextAlignment(.center)
 
                     Button(showManual ? LocalizedStringKey("Hide manual entry")
                                       : LocalizedStringKey("Enter address manually")) {
                         withAnimation(.smooth) { showManual.toggle() }
                     }
-                    .font(.subheadline)
+                    .font(CompanionType.font(13, .medium))
 
                     Text("Away from home? Join the same Tailscale network on your Mac and iPhone, then use your Mac’s Tailscale address.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    if let connectionError { Text(connectionError).foregroundStyle(.red) }
+                        .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink3)
+                    if let connectionError {
+                        Text(connectionError)
+                            .font(CompanionType.font(13)).foregroundStyle(CompanionPalette.status(.error))
+                    }
                     if showManual { manualFields }
 
                     Button("See the demo (no Mac needed)") { connection.enterDemo() }
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .font(CompanionType.font(13))
+                        .foregroundStyle(CompanionPalette.ink2)
                         .padding(.top, 4)
                 }
             }
             .padding(24)
         }
+        .background(CompanionPalette.bg)
+        .tint(CompanionPalette.accent)
         .sheet(isPresented: $showScanner) { scannerSheet }
     }
 
@@ -86,9 +92,7 @@ struct ConnectView: View {
                     pair(PairingPayload(host: host, port: portValue, token: token))
                 }
             }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .frame(maxWidth: .infinity)
+            .buttonStyle(PhoneButtonStyle(kind: .quiet, size: .wide))
             .disabled(!canConnect)
         }
         .transition(.opacity.combined(with: .move(edge: .top)))
@@ -97,14 +101,14 @@ struct ConnectView: View {
     private func field(_ label: LocalizedStringKey, placeholder: String,
                        text: Binding<String>, keyboard: UIKeyboardType = .default) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(label).font(.caption).foregroundStyle(.secondary)
+            Text(label).font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink3)
             TextField(placeholder, text: text)
-                .font(.body.monospaced())
+                .font(CompanionType.mono(14))
                 .keyboardType(keyboard)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .padding(12)
-                .background(.fill.quaternary, in: .rect(cornerRadius: 10))
+                .companionCard()
         }
     }
 
@@ -121,7 +125,7 @@ struct ConnectView: View {
                         DisclosureGroup("Can't find the QR code?", isExpanded: $showScannerHelp) {
                             VStack(alignment: .leading, spacing: 12) {
                                 Text("Install the companion on your Mac, then open “Pair a phone” in its menu bar. Use the same local network or connect both devices to Tailscale.")
-                                    .font(.subheadline)
+                                    .font(CompanionType.font(15))
                                 MacCompanionDownloadActions()
                             }.padding(.top, 12)
                         }
