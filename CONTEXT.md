@@ -8,6 +8,10 @@ code, and tests — don't drift to synonyms.
 - **Session** (`AgentSession`) — one coding-agent run on the Mac (Claude Code or
   Codex), tracked over its lifetime. Carries project, branch, model, tokens,
   context-window usage, and a **state**.
+- **Recency window** — the iPhone dashboard shows a session only while it moved
+  inside the last 24 h (`SessionRecency`), except a `needsResponse` one, which
+  never ages out. Presentation only: the snapshot, the Mac panel, the widget and
+  the Watch still carry every session (ADR-0014).
 - **The three states** — every session is in exactly one, by priority
   **`needsResponse` > `working` > `done`**:
   - **needsResponse** — blocked on the user (a permission prompt or a question).
@@ -74,9 +78,9 @@ code, and tests — don't drift to synonyms.
   command row you type into to narrow the list, with the voice companion's mic
   at its head; one summary line for the whole snapshot, led by the status dot
   for the most urgent state present; the snapshot in three collapsible groups —
-  **Needs you / Working / Done**, newest first inside each (ADR-0015); and a
-  footer row of controls (Dashboard, the Glance toggle, Settings, phone state,
-  updates and quit). "Show task status in menu bar"
+  **Needs you / Working / Done**, newest first inside each, the phone's own list
+  at panel scale (ADR-0015); and a footer row of controls (Dashboard, the Glance
+  toggle, Settings, phone state, updates and quit). "Show task status in menu bar"
   optionally adds a state dot and the primary state count to the icon; it is off
   by default. The Glance owns ambient status and actionable alerts. Both
   surfaces are enabled by default and can be hidden independently.
@@ -90,11 +94,11 @@ code, and tests — don't drift to synonyms.
 ## Buddy / pet
 
 - **Buddy / Pet** — the companion character (the app icon's white cat, drawn in
-  code by the Kit's `BuddyCatFace` on iOS, watchOS and macOS per ADR-0007's
-  second amendment) that reflects overall status and hosts the voice companion.
-  The **menu-bar panel does not draw it** (ADR-0015); there the mic stands where
-  it stood, and the menu-bar mark above the panel is still the cat.
-  Zero third-party art.
+  code by the Kit's `BuddyCatFace` per ADR-0007's second amendment) that reflects
+  overall status. It draws on the Live Activity, the Watch, the Mac glance and
+  dashboard, and the menu-bar mark. The **iPhone dashboard does not show it**
+  (ADR-0014) and neither does the **menu-bar panel** (ADR-0015); in both the
+  voice companion's mic stands where it stood. Zero third-party art.
 - **BuddyState** — the mood enum driving the pet's face and the sound pack:
   `approval`, `question`, `longWait`, `working`, `stuck`, `done`, `sleeping`.
 
@@ -105,9 +109,10 @@ code, and tests — don't drift to synonyms.
   selects tools. Interrupting speech does not cancel a coding task.
 - **Voice scope** — the sessions the user included in a conversation. Reading
   status and resolving an action target stay inside that scope.
-- **Voice companion** — tap the pet — or the mic in the menu-bar panel — to hold
-  a **realtime speech-to-speech** conversation; it knows the live sessions and
-  can **approve / answer** for you.
+- **Voice companion** — a **realtime speech-to-speech** conversation that knows
+  the live sessions and can **approve / answer** for you. Started by tapping the
+  pet on the Mac's glance and dashboard and on the Watch, the mic in the
+  menu-bar panel (ADR-0015), and the composer's mic on the iPhone (ADR-0014).
 - **VoiceProvider** — the realtime backend: `qwen`, `openai`, `gemini`, or `doubao`. Each
   has its own key, model, voice, and input sample rate. Qwen additionally takes
   an optional Bailian **workspace ID** (workspace-specific `maas.aliyuncs.com`

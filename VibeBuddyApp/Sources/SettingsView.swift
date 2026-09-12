@@ -19,41 +19,56 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section("This iPhone") {
-                    NavigationLink { notificationSettings } label: {
-                        Label("Notifications & sounds", systemImage: "bell.badge")
+            VStack(spacing: 0) {
+                PhoneSheetHeader(title: String(localized: "Settings")) { dismiss() }
+                List {
+                    Section {
+                        row("Notifications & sounds", "bell.badge") { notificationSettings }
+                        row("Voice conversation", "waveform") { voiceSettings }
+                    } header: {
+                        sectionTitle("This iPhone")
                     }
-                    NavigationLink { voiceSettings } label: {
-                        Label("Voice conversation", systemImage: "waveform")
+                    Section {
+                        row("Connection information", "desktopcomputer") { connectionDetails }
+                        row("Completion summaries", "text.alignleft") { completionSummaryInfo }
+                    } header: {
+                        sectionTitle("Connected Mac")
                     }
-                }
-                Section("Connected Mac") {
-                    NavigationLink { connectionDetails } label: {
-                        Label("Connection information", systemImage: "desktopcomputer")
-                    }
-                    NavigationLink { completionSummaryInfo } label: {
-                        Label("Completion summaries", systemImage: "text.alignleft")
-                    }
-                }
-                Section("Help") {
-                    NavigationLink { observationDiagnostics } label: {
-                        Label("Observation health", systemImage: "waveform.path.ecg")
-                    }
-                    NavigationLink { MacCompanionSetupView() } label: {
-                        Label("Download or update the Mac app", systemImage: "arrow.down.circle")
+                    Section {
+                        row("Observation health", "waveform.path.ecg") { observationDiagnostics }
+                        row("Download or update the Mac app", "arrow.down.circle") { MacCompanionSetupView() }
+                    } header: {
+                        sectionTitle("Help")
                     }
                 }
+                .listStyle(.insetGrouped)
+                .phoneList()
             }
-            .navigationTitle("Settings")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
-                }
+            .background(CompanionPalette.bg)
+            .toolbar(.hidden, for: .navigationBar)
+        }
+        .tint(CompanionPalette.accent)
+        .onDisappear { connectionTest.invalidate() }
+    }
+
+    /// One directory row: a quiet glyph, the destination, the chevron.
+    private func row<Destination: View>(_ title: LocalizedStringKey, _ symbol: String,
+                                        @ViewBuilder destination: () -> Destination) -> some View {
+        NavigationLink(destination: destination()) {
+            Label {
+                Text(title).font(CompanionType.font(15)).foregroundStyle(CompanionPalette.ink)
+            } icon: {
+                Image(systemName: symbol).foregroundStyle(CompanionPalette.ink2)
             }
         }
-        .onDisappear { connectionTest.invalidate() }
+        .listRowBackground(CompanionPalette.bg3)
+    }
+
+    private func sectionTitle(_ title: LocalizedStringKey) -> some View {
+        Text(title)
+            .font(CompanionType.font(12, .medium))
+            .foregroundStyle(CompanionPalette.ink3)
+            .textCase(nil)
     }
 
     private var notificationSettings: some View {
@@ -91,6 +106,7 @@ struct SettingsView: View {
                 Text("During this window Quiet mode applies to session alerts. Enabled quota alerts are unaffected.")
             }
         }
+        .phoneList()
         .navigationTitle("Notifications & sounds")
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: playSound) { _, _ in reportPrefs() }
@@ -132,6 +148,7 @@ struct SettingsView: View {
                 ProviderSection(provider: p, connectionTest: connectionTest).id(p.rawValue)
             }
         }
+        .phoneList()
         .navigationTitle("Voice conversation")
         .navigationBarTitleDisplayMode(.inline)
         .animation(.smooth, value: provider)
@@ -164,6 +181,7 @@ struct SettingsView: View {
                 Text("Each row describes one source. Configuration changes are made on the Mac; a healthy source does not verify every session or its approvals.")
             }
         }
+        .phoneList()
         .navigationTitle("Observation health")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -193,6 +211,7 @@ struct SettingsView: View {
                 Text("Pair by scanning the code from your Mac. Use the Mac menu at the top of the dashboard to reconnect or forget the current pairing.")
             }
         }
+        .phoneList()
         .navigationTitle("Connection information")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -221,6 +240,7 @@ struct SettingsView: View {
                 Text("Separate from iPhone voice")
             }
         }
+        .phoneList()
         .navigationTitle("Completion summaries")
         .navigationBarTitleDisplayMode(.inline)
     }

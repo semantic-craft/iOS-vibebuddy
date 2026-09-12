@@ -55,6 +55,7 @@ struct NewTaskSheet: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
+            .phoneList()
             .navigationTitle("New task")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

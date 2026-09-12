@@ -57,7 +57,7 @@
 "%lld waiting" = "%lld 个等待";
 "%lld working" = "%lld 个进行中";
 "%lld done" = "%lld 个已完成";
-"Listening… tap the pet to end" = "聆听中…点一下宠物结束";
+"Listening… tap the mic to end" = "聆听中…点一下麦克风结束";
 "Thinking…" = "思考中…";
 
 /* MARK: Approval / question cards */
@@ -91,7 +91,7 @@
 /* MARK: Voice companion opt-in (consent gate) */
 "Voice companion off" = "语音伙伴已关闭";
 "Continue" = "继续";
-"Tap the pet to talk with your selected AI provider: Qwen (DashScope), OpenAI, or Gemini (Google)." = "点一下宠物，即可与你选择的 AI 服务商通话：Qwen（DashScope）、OpenAI 或 Gemini（Google）。";
+"Tap the mic to talk with your selected AI provider: Qwen (DashScope), OpenAI, or Gemini (Google)." = "点一下麦克风，即可与你选择的 AI 服务商通话：Qwen（DashScope）、OpenAI 或 Gemini（Google）。";
 "When you start a voice conversation, your microphone audio and selected session context (project names, agent type, status, and summaries) are sent directly to that provider using your own API key. The key stays in Keychain and nothing passes through a vibebuddy server." = "开始语音对话时，你的麦克风音频和所选会话上下文（项目名、agent 类型、状态和摘要）会用你自己的 API 密钥直接发送给该服务商。密钥保存在钥匙串中，数据不经过 vibebuddy 服务器。";
 "Continuing keeps the mic off until your next tap." = "继续后，麦克风仍会保持关闭，直到你下次点击。";
 
@@ -276,3 +276,38 @@
 "Your Mac isn't connected to Codex right now." = "你的 Mac 现在没连上 Codex。";
 
 "Unknown project" = "未知项目";
+
+/* MARK: Flat phone dashboard (ADR-0014) */
+"Needs you" = "需要你";
+"No active tasks" = "没有活动任务";
+"No matching tasks" = "没有匹配的任务";
+"Nothing has moved in the last 24 hours. Older tasks are in Customize." = "过去 24 小时没有任务更新。更早的任务在“自定义”里。";
+"Try another filter, or reset them to see every task." = "换个筛选条件，或重置后查看全部任务。";
+"Show %lld older" = "显示 %lld 个更早的";
+"Plan, ask, build…" = "规划、提问、开发…";
+"Task" = "任务";
+"Tasks" = "任务";
+"Reply" = "回复";
+"New task" = "新建任务";
+"Account quota" = "账号配额";
+"Recent output" = "最近输出";
+"Notifications" = "通知";
+"Start voice conversation" = "开始语音对话";
+"End voice conversation" = "结束语音对话";
+"Connecting… tap the mic to cancel" = "连接中…点一下麦克风取消";
+"Recovering audio… tap the mic to end" = "正在恢复音频…点一下麦克风结束";
+
+/* MARK: Customize sheet */
+"Customize" = "自定义";
+"Close" = "关闭";
+"Grouping" = "分组";
+"Group by" = "分组方式";
+"Filter" = "筛选";
+"All" = "全部";
+"Project" = "项目";
+"None" = "不分组";
+"No project" = "无项目";
+"No assigned task" = "没有指派任务";
+"Show tasks idle over 24 hours" = "显示 24 小时无更新的任务";
+"A finished task drops off the list a day after its last update. A task waiting on you always stays, however old it is." = "已完成的任务在最后一次更新一天后从列表中移除。等你回应的任务无论多久都会一直显示。";
+"Reset" = "重置";

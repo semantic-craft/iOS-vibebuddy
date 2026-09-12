@@ -14,15 +14,18 @@ letter-spaced `NEEDS YOU` heading (round 6).
 
 The product has since moved into Cursor's visual register — neutral grounds,
 Geist, hairlines instead of shadows (`CompanionPalette` / `CompanionType` in the
-Kit). Against that, the panel still read as an older, louder product: a cartoon
-face over a tinted block with a timeline drawn down its gutter. The owner asked
-for the panel to look like Cursor's iOS home screen at panel size.
+Kit) — and ADR-0014 rebuilt the iPhone's dashboard in it: a neutral page,
+collapsible groups, round glyph buttons, no cat. Against that, the panel still
+read as an older, louder product: a cartoon face over a tinted block with a
+timeline drawn down its gutter. The owner asked for the panel to be the phone's
+home screen at panel size.
 
 ## Decision
 
-**The panel is a flat, grouped list**, in the chrome of `MenuChrome.swift`:
-`MenuCircleButton`, `MenuSectionHeader`, `MenuHairline`. Same Kit tokens as
-every other surface; the sizes are the panel's own.
+**The panel adopts the phone's list language** (`PhoneChrome.swift`, ADR-0014)
+at panel scale, in the chrome of `MenuChrome.swift`: `MenuCircleButton`,
+`MenuSectionHeader`, `MenuHairline`. Same Kit tokens as every other surface;
+the sizes are one notch below the phone's.
 
 **The cat leaves the command row.** The mic takes its place — a 26pt circle
 button whose glyph follows the voice phase — and the panel's status light
@@ -49,14 +52,14 @@ its hover `bg2`.
   3 stand: the panel still opens on something you type into, and the row is
   still merged rather than a header plus a search bar. Search is still the only
   way to narrow the list — this brings back grouping, not filtering.
-- **Amends ADR-0007**: the cat no longer draws in the menu panel. It keeps the
-  menu-bar mark, the Glance, the Mac dashboard, the Live Activity, the Watch and
-  the app icon, and still starts the voice companion from the Mac's own pet — in
-  the panel that entry point is the mic.
+- **Amends ADR-0007 a fourth time** (after ADR-0014): the cat no longer draws
+  in the menu panel. It keeps the menu-bar mark, the Glance, the Mac dashboard,
+  the Live Activity, the Watch and the app icon, and still starts the voice
+  companion from the Mac's own pet — in the panel that entry point is the mic.
 - **Return now jumps to the first row of the first group**, so a task that just
   finished is never the target while something is still running. `topResult`
   follows the order the panel draws.
 - Collapse state is in memory for the life of the panel and keyed by the group's
   kind, not its heading, so it survives snapshots and a change of language.
-- The iPhone's own list is untouched by this decision. If the phone takes the
-  same three groups later, `StateGroups` is already the shared rule.
+- **The Mac still shows the whole snapshot.** ADR-0014's 24-hour recency window
+  is the phone's; the panel folds old work into `Done` rather than hiding it.

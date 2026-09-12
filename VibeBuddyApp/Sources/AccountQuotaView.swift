@@ -113,6 +113,7 @@ struct AccountQuotaView: View {
                     }
                 }
             }
+            .phoneList()
             .navigationTitle("Usage")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
