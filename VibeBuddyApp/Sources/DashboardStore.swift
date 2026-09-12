@@ -55,7 +55,7 @@ final class DashboardStore: ObservableObject {
     /// are never replayed: an unchanged snapshot cannot prove non-execution.
     private func sendPhoneAction(_ session: AgentSession,
                                  send: (PairingPayload, AgentSession) async -> PhoneActionResult) async -> PhoneActionResult {
-        guard isDemo || state == .connected else { return .failed }
+        guard !Task.isCancelled, isDemo || state == .connected else { return .failed }
         if sendingPhoneSessions.contains(session.id) { return .sending }
         if phoneActionDisabled(for: session) { return phoneActionState(for: session) ?? .unconfirmed }
         guard let pairing else { showToast(PhoneActionResult.notPaired.message); return .notPaired }
@@ -68,7 +68,7 @@ final class DashboardStore: ObservableObject {
         phoneActions[session.id] = .sending
         let result: PhoneActionResult
         if let snapshot = await decisionClient.actionSnapshot(pairing) {
-            if epoch != pairingEpoch || generation != connectionGeneration || snapshot.sourceID != sourceID || state != .connected {
+            if Task.isCancelled || epoch != pairingEpoch || generation != connectionGeneration || snapshot.sourceID != sourceID || state != .connected {
                 result = .expired
             } else if let current = snapshot.sessions.first(where: { $0.id == session.id }),
                       actionIdentity(current) == identity,
@@ -466,6 +466,7 @@ final class DashboardStore: ObservableObject {
 
     /// Execute a voice action on the matching session; returns a spoken confirmation.
     func performVoiceAction(_ action: VoiceAction) async -> String {
+        guard !Task.isCancelled else { return "Cancelled before sending." }
         guard isDemo || pairing != nil else { return PhoneActionResult.notPaired.message }
         switch action {
         case .approve(let project), .deny(let project):

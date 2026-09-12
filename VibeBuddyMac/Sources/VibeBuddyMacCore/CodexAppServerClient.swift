@@ -203,9 +203,11 @@ public final class CodexAppServerClient: CodexAppServerConnecting, @unchecked Se
     /// Send a request and await its `result`. A JSON-RPC `error` throws `.rpc`.
     public func request(_ method: String, params: [String: Any],
                         timeout: Duration) async throws -> [String: Any] {
+        try Task.checkCancellation()
         let id = try allocateRequestID()
         let message: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": method, "params": params]
         return try await withCheckedThrowingContinuation { continuation in
+            guard !Task.isCancelled else { continuation.resume(throwing: CancellationError()); return }
             register(id, continuation)
             guard send(json: message) else {
                 _ = takePending(id)?.resume(throwing: ClientError.closed)

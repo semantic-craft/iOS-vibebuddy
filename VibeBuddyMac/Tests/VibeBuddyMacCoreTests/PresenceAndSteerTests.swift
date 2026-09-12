@@ -166,6 +166,34 @@ struct CodexSteerTests {
         #expect(h.connection.calls.suffix(2) == ["thread/resume", "turn/start"])
     }
 
+    @Test("voice cancellation during cold-thread resume prevents turn submission, then a fresh action succeeds")
+    func cancelledAnswerAcrossResumeDoesNotSend() async throws {
+        let h = Harness()
+        defer { h.connection.resumeReply("thread/resume"); h.stop() }
+        #expect(await h.connected())
+        let now = Date()
+        await h.store.ingest(HookEvent(kind: .userPromptSubmit, sessionID: "thr-cold", agent: .codex, cwd: "/x/p",
+                                      observationSource: .appserver, timestamp: now))
+        await h.store.ingest(HookEvent(kind: .stop, sessionID: "thr-cold", agent: .codex, cwd: "/x/p",
+                                      observationSource: .appserver, timestamp: now.addingTimeInterval(0.01)))
+        h.connection.set("thread/resume", ["thread": ["id": "thr-cold", "cwd": "/x/p", "source": "vscode",
+                                                         "status": ["type": "idle"], "turns": []]])
+        h.connection.pauseReply("thread/resume")
+        let dispatch = AnswerDispatch(store: h.store, questions: QuestionRegistry(),
+                                      inject: { _, _ in Issue.record("Codex must not type into a terminal") },
+                                      startTurn: { id, text in await h.monitor.startTurn(threadID: id, text: text) })
+        let action = Task { await dispatch.deliver(SessionActionRequest(sessionID: "thr-cold", intent: .continue, text: "fixture only")) }
+        #expect(await waitFor { h.connection.replyIsPaused("thread/resume") })
+        action.cancel()
+        h.connection.resumeReply("thread/resume")
+        _ = await action.value
+        #expect(h.connection.lastParams("turn/start") == nil)
+        #expect(h.connection.lastParams("turn/steer") == nil)
+        let fresh = await dispatch.deliver(SessionActionRequest(sessionID: "thr-cold", intent: .continue, text: "fresh fixture"))
+        #expect(fresh == .accepted)
+        #expect(h.connection.lastParams("turn/start")?["input"] != nil)
+    }
+
     @Test("steer without an observed turn never sends a malformed request")
     func steerWithoutTurn() async throws {
         let h = Harness()

@@ -70,21 +70,30 @@ public actor OpenAIRealtimeSession: RealtimeVoiceProvider {
         send(["type": "session.update", "session": session])
     }
 
+    public func appendAudio(_ data: Data, ifCurrent: @escaping @Sendable () -> Bool) async {
+        guard ifCurrent() else { return }
+        appendAudio(data)
+    }
+
     public func appendAudio(_ pcm24k: Data) {
         send(["type": "input_audio_buffer.append", "audio": pcm24k.base64EncodedString()])
     }
 
     public func sendToolResult(callID: String, name: String, result: String) async {
-        guard let socket = task else { return }
-        let messages = RealtimeToolDelivery.encode([
+        guard let socket = task, responseFilter.canDeliverCall(callID) else { return }
+        let messages: [[String: Any]] = [
             ["type": "conversation.item.create",
              "item": ["type": "function_call_output", "call_id": callID, "output": result]],
             ["type": "response.create"],
-        ])
-        guard await RealtimeToolDelivery.send(messages, over: socket), task === socket else {
-            if task === socket { continuation?.yield(.failed("OpenAI tool result delivery failed; no action was retried.")); close() }
-            return
+        ]
+        for message in messages {
+            guard task === socket, responseFilter.canDeliverCall(callID) else { return }
+            guard await RealtimeToolDelivery.send(RealtimeToolDelivery.encode([message]), over: socket), task === socket else {
+                if task === socket { continuation?.yield(.failed("OpenAI tool result delivery failed; no action was retried.")); close() }
+                return
+            }
         }
+        responseFilter.completedCall(callID)
     }
 
     public func truncatePlayback(_ checkpoints: [VoicePlaybackCheckpoint]) {
@@ -170,6 +179,7 @@ public actor OpenAIRealtimeSession: RealtimeVoiceProvider {
         case "conversation.item.input_audio_transcription.completed":
             if let t = obj["transcript"] as? String { continuation?.yield(.userTranscript(text: t, final: true)) }
         case "input_audio_buffer.speech_started":
+            continuation?.yield(.toolCallsCancelled(responseFilter.cancelledCallIDs))
             continuation?.yield(.speechStarted)
         case "response.function_call_arguments.done":
             let name = obj["name"] as? String ?? ""

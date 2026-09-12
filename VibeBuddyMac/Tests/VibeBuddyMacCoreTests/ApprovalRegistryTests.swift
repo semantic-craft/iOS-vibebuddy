@@ -4,6 +4,21 @@ import Foundation
 
 @Suite("ApprovalRegistry — hold until decision or timeout")
 struct ApprovalRegistryTests {
+    @Test("cancelled voice decision does not consume an approval or override a claimed decision")
+    func cancelledVoiceDecision() async {
+        let registry = ApprovalRegistry()
+        await registry.prepare(id: "voice")
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return await registry.resolve(id: "voice", with: .allow, unlessCancelled: true)
+        }
+        #expect(await task.value == false)
+        #expect(await registry.claim(id: "voice"))
+        #expect(await registry.resolve(id: "voice", with: .deny, unlessCancelled: true) == false)
+        #expect(await registry.resolve(id: "voice", with: .allow))
+        #expect(await registry.wait(id: "voice", timeout: .seconds(1)) == .allow)
+    }
+
     @Test("resolve before timeout returns that outcome")
     func resolves() async {
         let reg = ApprovalRegistry()

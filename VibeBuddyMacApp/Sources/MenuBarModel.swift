@@ -152,7 +152,7 @@ final class MenuBarModel: ObservableObject {
             guard let self else { return [] }
             return BuddyScope.included(from: self.sessions, selectedIDs: self.buddySessionIDs)
         },
-        actionHandler: { [weak self] action in self?.performVoiceAction(action) ?? "" },
+        actionHandler: { [weak self] action in await self?.performVoiceAction(action) ?? "" },
         onStart: { [weak self] in self?.readAloud.stop() })
     private var pollTask: Task<Void, Never>?
     private var glance: GlanceWindow?
@@ -962,23 +962,46 @@ final class MenuBarModel: ObservableObject {
     }
 
     /// Execute a voice action against the matching session; returns a spoken confirmation.
-    func performVoiceAction(_ action: VoiceAction) -> String {
+    func performVoiceAction(_ action: VoiceAction) async -> String {
+        guard !Task.isCancelled else { return "Cancelled before sending." }
         switch action {
-        case .approve(let project):
-            guard let s = match(project), let ap = s.pendingApproval else { return "No session to approve." }
-            decide(ap.id, approve: true); return "Approval request submitted for \(s.project); execution is not yet confirmed."
-        case .deny(let project):
-            guard let s = match(project), let ap = s.pendingApproval else { return "No session to deny." }
-            decide(ap.id, approve: false); return "Denial request submitted for \(s.project); receipt is not yet confirmed."
+        case .approve(let project), .deny(let project):
+            guard let s = match(project), let ap = s.pendingApproval else { return "No matching pending approval." }
+            let snapshot = await store.snapshot(now: Date())
+            guard !Task.isCancelled,
+                  let current = snapshot.sessions.first(where: { $0.id == s.id }),
+                  current.pendingApproval?.id == ap.id, current.pendingApproval?.isAnswerable == true else { return "Approval is no longer current; no action was sent." }
+            let outcome: ApprovalRegistry.Outcome
+            if case .approve = action { outcome = .allow } else { outcome = .deny }
+            // Resolve and cancellation check share one actor turn. Do not consume
+            // the context or claim the wait before this actual submission boundary.
+            guard await approvalRegistry.resolve(id: ap.id, with: outcome, unlessCancelled: true) else {
+                return "Approval was cancelled or expired; no action was sent."
+            }
+            _ = await approvalContext.take(id: ap.id)
+            await store.recordInteraction(sessionID: s.id)
+            return "Decision submitted for \(s.project); execution is not yet confirmed."
         case .answer(let project, let text):
             guard let s = match(project), s.pendingQuestion != nil || s.terminalRef != nil else {
                 return "No matching session, or it has nothing waiting and no terminal."
             }
-            answer(s.id, answers: [:], text: text)
-            Task { [store] in await store.recordInteraction(sessionID: s.id) }
-            return "Answer submitted for \(s.project); agent receipt is not yet confirmed."
-        case .none:
-            return ""
+            let monitor = codexAppServerMonitor
+            let dispatch = AnswerDispatch(
+                store: store, questions: questionRegistry,
+                inject: { ref, answer in TerminalInjector.inject(answer, into: ref) },
+                steer: { id, answer in await monitor.steer(threadID: id, text: answer) },
+                startTurn: { id, answer in await monitor.startTurn(threadID: id, text: answer) })
+            let result = await dispatch.deliver(SessionActionRequest(
+                sessionID: s.id, intent: SessionActionSupport.resolve(for: s).intent,
+                questionID: s.pendingQuestion?.id, expectedStatusSince: s.statusSince.timeIntervalSince1970, text: text))
+            switch result {
+            case .accepted:
+                await store.recordInteraction(sessionID: s.id)
+                return "Answer submitted for \(s.project); execution is not yet confirmed."
+            case .unknown: return "Answer result unknown; check the task before sending again."
+            case .failed(let reason), .refused(let reason): return reason
+            }
+        case .none: return ""
         }
     }
 

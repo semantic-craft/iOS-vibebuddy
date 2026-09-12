@@ -5,6 +5,7 @@ import Foundation
 public enum VoiceCallPhase: Equatable, Sendable {
     case idle
     case connecting
+    case recovering
     case listening
     case thinking
     case speaking
@@ -44,6 +45,7 @@ public final class VoiceCallCoordinator {
     private var toolTasks: [String: Task<Void, Never>] = [:]
     private var handledToolIDs: Set<String> = []
     private var stopped = false
+    private var audioAvailable = true
     private var closeIntentTask: Task<Void, Never>?
     public private(set) var endedByExplicitVoiceCommand = false
 
@@ -73,13 +75,11 @@ public final class VoiceCallCoordinator {
         guard !stopped else { return }
         switch event {
         case .connected:
-            phase = .listening
+            phase = audioAvailable ? .listening : .recovering
         case .userTranscript(let text, let final):
             lastUserText = text
             if final, VoiceCloseIntent.isExplicitCallEnd(text) {
                 endedByExplicitVoiceCommand = true
-                stop()
-            } else if final, VoiceCloseIntent.shouldClose(text) {
                 stop()
             }
         case .transcriptFragment(let fragment):
@@ -115,8 +115,10 @@ public final class VoiceCallCoordinator {
                 lastReply = assistantBuffer
             }
         case .audioDelta(let pcm, let item):
+            guard audioAvailable else { return }
             turnComplete = continuousPlayback
             audio.enqueue(pcm, item: item)
+            guard audioAvailable, !stopped else { return }
             if !continuousPlayback || audio.isAudiblePlaybackPending { phase = .speaking }
             else { updatePlaybackPhase() }
         case .responseDone:
@@ -126,7 +128,7 @@ public final class VoiceCallCoordinator {
             let action = VoiceTools.action(name: name, arguments: arguments)
             guard !stopped, handledToolIDs.insert(callID).inserted else { return }
             let playing = continuousPlayback ? audio.isAudiblePlaybackPending : audio.isPlaybackPending
-            phase = playing ? .speaking : .thinking
+            phase = audioAvailable ? (playing ? .speaking : .thinking) : .recovering
             toolTasks[callID] = Task { [weak self] in
                 guard let self, !Task.isCancelled else { return }
                 let result: String
@@ -161,10 +163,12 @@ public final class VoiceCallCoordinator {
         case .closed:
             stop()
         case .speechStarted:
+            toolTasks.values.forEach { $0.cancel() }
+            toolTasks.removeAll()
             truncatePlayback(audio.flushPlayback())
             assistantBuffer = ""
             turnComplete = true
-            phase = .listening
+            phase = audioAvailable ? .listening : .recovering
         }
     }
 
@@ -180,12 +184,29 @@ public final class VoiceCallCoordinator {
         phase = .idle
     }
 
+    public func audioAvailabilityChanged(_ state: VoiceAudioAvailability) {
+        guard !stopped else { return }
+        switch state {
+        case .available:
+            audioAvailable = true
+            phase = toolTasks.isEmpty ? .listening : .thinking
+        case .recovering, .interrupted:
+            audioAvailable = false
+            phase = .recovering
+        case .failed(let message):
+            audioAvailable = false
+            errorText = message
+            stop()
+        }
+    }
+
     public func playbackDrained() {
         guard !stopped else { return }
         updatePlaybackPhase()
     }
 
     private func updatePlaybackPhase() {
+        guard audioAvailable else { phase = .recovering; return }
         let pending = continuousPlayback ? audio.isAudiblePlaybackPending : audio.isPlaybackPending
         if turnComplete, !pending, phase == .speaking {
             phase = toolTasks.isEmpty ? .listening : .thinking

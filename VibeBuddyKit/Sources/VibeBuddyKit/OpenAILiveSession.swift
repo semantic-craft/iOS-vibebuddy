@@ -18,6 +18,7 @@ public actor OpenAILiveSession: RealtimeVoiceProvider {
     private var closing = false
     private var completingHangup = false
     private var toolLoop = LiveResponseTools()
+    private var inputGate = LiveInputAudioGate()
     public private(set) var usageSeconds: Double?
     public private(set) var finalized = false
     public private(set) var backendInputTokens = 0
@@ -41,6 +42,7 @@ public actor OpenAILiveSession: RealtimeVoiceProvider {
         continuation = cont
         ready = false; closing = false; finalized = false; usageSeconds = nil
         completingHangup = false
+        inputGate = LiveInputAudioGate()
         backendInputTokens = 0; backendOutputTokens = 0
         latestBackendReply = ""
         toolLoop = LiveResponseTools(allowedTools: Set(tools.map(\.name)))
@@ -78,11 +80,34 @@ public actor OpenAILiveSession: RealtimeVoiceProvider {
     }
 
     public func appendAudio(_ pcm24k: Data) {
-        guard ready, !closing, !pcm24k.isEmpty else { return }
+        guard ready, !closing, inputGate.acceptingAudio, !pcm24k.isEmpty else { return }
         guard pcm24k.count.isMultiple(of: 2) else {
             fail("OpenAI Live requires complete PCM16 samples."); return
         }
-        send(["type": "session.input_audio.append", "audio": pcm24k.base64EncodedString()])
+        send(["type": "session.input_audio.append", "audio": pcm24k.base64EncodedString()], audioGeneration: inputGate.generation)
+    }
+
+    public func appendAudio(_ data: Data, ifCurrent: @escaping @Sendable () -> Bool) {
+        guard ifCurrent() else { return }
+        appendAudio(data)
+    }
+
+    public func setInputAudioSuspended(_ suspended: Bool) async throws {
+        guard ready, !closing, let connection = socket else { throw CancellationError() }
+        let command = inputGate.begin(suspended: suspended)
+        send(command)
+        let requestID = inputGate.pendingID
+        let limit = ContinuousClock.now.advanced(by: .seconds(2))
+        while socket === connection, ready, !closing, inputGate.pendingID == requestID,
+              ContinuousClock.now < limit {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        guard socket === connection, ready, !closing else { throw CancellationError() }
+        guard inputGate.completedID == requestID else {
+            let message = "OpenAI Live did not confirm microphone recovery. Reopen the voice conversation."
+            fail(message)
+            throw NSError(domain: "OpenAILiveAudioRecovery", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+        }
     }
 
     public func sendToolResult(callID: String, name: String, result: String) {
@@ -100,6 +125,7 @@ public actor OpenAILiveSession: RealtimeVoiceProvider {
         guard let connection = socket else { return }
         if !closing {
             closing = true
+            inputGate.invalidate()
             deadline?.cancel()
             guard ready else { finish(); return }
             ready = false
@@ -124,7 +150,7 @@ public actor OpenAILiveSession: RealtimeVoiceProvider {
     }
 
     /// Keep audio, function outputs and response.create ordered on the wire.
-    private func send(_ json: [String: Any]) {
+    private func send(_ json: [String: Any], audioGeneration: UUID? = nil) {
         guard let connection = socket,
               let data = try? JSONSerialization.data(withJSONObject: json),
               let text = String(data: data, encoding: .utf8) else { return }
@@ -132,6 +158,7 @@ public actor OpenAILiveSession: RealtimeVoiceProvider {
         sender = Task {
             await previous?.value
             guard !Task.isCancelled, self.socket === connection else { return }
+            if let audioGeneration, !self.inputGate.accepts(audioGeneration) { return }
             do { try await connection.send(.string(text)) }
             catch {
                 guard self.socket === connection else { return }
@@ -168,6 +195,9 @@ public actor OpenAILiveSession: RealtimeVoiceProvider {
             guard !ready, !closing else { return }
             deadline?.cancel(); deadline = nil; ready = true
             continuation?.yield(.connected)
+        case "session.input_audio.muted", "session.input_audio.unmuted":
+            guard ready, !closing else { return }
+            inputGate.acknowledge(event)
         case "session.output_audio.delta":
             guard ready, !closing, let delta = event["delta"] as? String,
                   let audio = Data(base64Encoded: delta), audio.count.isMultiple(of: 2) else { return }
@@ -223,6 +253,7 @@ public actor OpenAILiveSession: RealtimeVoiceProvider {
 
     private func finish() {
         ready = false
+        inputGate.invalidate()
         deadline?.cancel(); deadline = nil
         sender?.cancel(); sender = nil
         socket?.cancel(with: .goingAway, reason: nil); socket = nil
@@ -230,6 +261,37 @@ public actor OpenAILiveSession: RealtimeVoiceProvider {
         continuation?.yield(.closed); continuation?.finish(); continuation = nil
         let waiters = closeWaiters; closeWaiters.removeAll()
         waiters.forEach { $0.resume() }
+    }
+}
+
+/// Acknowledgments are tied to a command, not merely to the current desired
+/// microphone state. Queued audio carries the generation it was captured in.
+struct LiveInputAudioGate {
+    private(set) var generation = UUID()
+    private(set) var acceptingAudio = true
+    private(set) var pendingID: String?
+    private(set) var completedID: String?
+    private var suspended = false
+
+    mutating func begin(suspended: Bool) -> [String: Any] {
+        generation = UUID(); acceptingAudio = false
+        self.suspended = suspended
+        let id = UUID().uuidString
+        pendingID = id; completedID = nil
+        return ["type": suspended ? "session.input_audio.mute" : "session.input_audio.unmute", "event_id": id]
+    }
+
+    mutating func acknowledge(_ event: [String: Any]) {
+        guard let pendingID, event["client_event_id"] as? String == pendingID,
+              event["type"] as? String == (suspended ? "session.input_audio.muted" : "session.input_audio.unmuted") else { return }
+        completedID = pendingID; self.pendingID = nil
+        acceptingAudio = !suspended
+    }
+
+    func accepts(_ generation: UUID) -> Bool { acceptingAudio && self.generation == generation }
+
+    mutating func invalidate() {
+        generation = UUID(); acceptingAudio = false; pendingID = nil; completedID = nil
     }
 }
 

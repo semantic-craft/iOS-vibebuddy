@@ -17,12 +17,14 @@ public actor DoubaoRealtimeSession: RealtimeVoiceProvider {
     private var sendTask: Task<Void, Never>?
     private var audioTask: Task<Void, Never>?
     private var timeoutTask: Task<Void, Never>?
-    private struct Outgoing { let text: String; let sequence: UInt64 }
+    private struct Outgoing { let text: String; let sequence: UInt64; let audioGeneration: UUID? }
     private var nextSequence: UInt64 = 0
     private var sentSequence: UInt64 = 0
     private var outgoing: [Outgoing] = []
     private var frames = DoubaoPCMFrames()
     private var muted = false
+    private var inputSuspended = false
+    private var audioGeneration = UUID()
     private var lastAudioAt: ContinuousClock.Instant?
     private var filter = DoubaoResponseState()
     private var calls = DoubaoToolBatch()
@@ -46,7 +48,8 @@ public actor DoubaoRealtimeSession: RealtimeVoiceProvider {
         generation = UUID()
         let id = generation
         continuation = cont
-        ready = false; closing = false; muted = false
+        ready = false; closing = false; muted = false; inputSuspended = false
+        audioGeneration = UUID()
         filter = DoubaoResponseState(); calls = DoubaoToolBatch(); frames = DoubaoPCMFrames()
         lastAudioAt = nil
         var request = URLRequest(url: URL(string: "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue")!)
@@ -73,7 +76,7 @@ public actor DoubaoRealtimeSession: RealtimeVoiceProvider {
     }
 
     public func appendAudio(_ pcm16k: Data) {
-        guard ready, !closing, !pcm16k.isEmpty else { return }
+        guard ready, !closing, !inputSuspended, !pcm16k.isEmpty else { return }
         // Fail instead of accumulating seconds of stale microphone input on a slow link.
         guard frames.byteCount + pcm16k.count <= 32_000 else {
             fail("Doubao microphone audio fell behind realtime. Reconnect to continue."); return
@@ -82,15 +85,48 @@ public actor DoubaoRealtimeSession: RealtimeVoiceProvider {
         lastAudioAt = .now
     }
 
+    public func appendAudio(_ data: Data, ifCurrent: @escaping @Sendable () -> Bool) {
+        guard ifCurrent() else { return }
+        appendAudio(data)
+    }
+
+    /// Device recovery is an explicit discontinuity, even when shorter than the
+    /// idle detector. Keep the reset and mute boundary in the audio sender FIFO.
+    public func setInputAudioSuspended(_ suspended: Bool) async throws {
+        guard ready, !closing else { throw CancellationError() }
+        inputSuspended = true
+        audioGeneration = UUID()
+        let audioID = audioGeneration
+        frames = DoubaoPCMFrames()
+        lastAudioAt = nil
+        outgoing.removeAll { $0.audioGeneration != nil }
+        let type = suspended ? "input_audio_mute.commit" : "input_audio_unmute.commit"
+        guard let sequence = enqueue(["type": type]) else { throw CancellationError() }
+        muted = suspended
+        let id = generation
+        let limit = ContinuousClock.now.advanced(by: .seconds(2))
+        while generation == id, audioGeneration == audioID, ready, !closing,
+              sentSequence < sequence, ContinuousClock.now < limit {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        guard generation == id, audioGeneration == audioID, ready, !closing else { throw CancellationError() }
+        guard sentSequence >= sequence else {
+            let message = "Doubao audio recovery command timed out. Reopen the voice conversation."
+            fail(message)
+            throw NSError(domain: "DoubaoAudioRecovery", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+        }
+        inputSuspended = suspended
+    }
+
     /// PCM capture pauses are detected by the paced sender, not by sending silence.
     private func pumpAudio(generation id: UUID) async {
         var pacer = DoubaoAudioPacer(now: .now)
         while !Task.isCancelled, generation == id, ready, !closing {
-            if let frame = frames.next() {
+            if !inputSuspended, let frame = frames.next() {
                 if muted { enqueue(["type": "input_audio_unmute.commit"]); muted = false }
                 // The same FIFO orders unmute before the next audio frame.
-                enqueue(["type": "input_audio_buffer.append", "audio": frame.base64EncodedString()])
-            } else if !muted, lastAudioAt == nil || lastAudioAt!.duration(to: .now) >= .milliseconds(100) {
+                enqueue(["type": "input_audio_buffer.append", "audio": frame.base64EncodedString()], audioGeneration: audioGeneration)
+            } else if !inputSuspended, !muted, lastAudioAt == nil || lastAudioAt!.duration(to: .now) >= .milliseconds(100) {
                 frames = DoubaoPCMFrames() // never join a partial frame across a pause
                 enqueue(["type": "input_audio_mute.commit"]); muted = true
             }
@@ -156,7 +192,8 @@ public actor DoubaoRealtimeSession: RealtimeVoiceProvider {
     }
 
     private func finish() {
-        ready = false; closing = false
+        ready = false; closing = false; inputSuspended = true
+        audioGeneration = UUID()
         generation = UUID()
         timeoutTask?.cancel(); timeoutTask = nil
         receiveTask?.cancel(); receiveTask = nil
@@ -171,7 +208,7 @@ public actor DoubaoRealtimeSession: RealtimeVoiceProvider {
     }
 
     @discardableResult
-    private func enqueue(_ object: [String: Any]) -> UInt64? {
+    private func enqueue(_ object: [String: Any], audioGeneration: UUID? = nil) -> UInt64? {
         guard socket != nil,
               let data = try? JSONSerialization.data(withJSONObject: object),
               let text = String(data: data, encoding: .utf8) else { return nil }
@@ -179,7 +216,7 @@ public actor DoubaoRealtimeSession: RealtimeVoiceProvider {
         guard outgoing.count < 8 else { fail("Doubao audio connection is too slow. Reconnect to continue."); return nil }
         nextSequence += 1
         let sequence = nextSequence
-        outgoing.append(Outgoing(text: text, sequence: sequence))
+        outgoing.append(Outgoing(text: text, sequence: sequence, audioGeneration: audioGeneration))
         if sendTask == nil {
             let id = generation
             sendTask = Task { await self.flush(generation: id) }
@@ -190,6 +227,7 @@ public actor DoubaoRealtimeSession: RealtimeVoiceProvider {
     private func flush(generation id: UUID) async {
         while generation == id, !Task.isCancelled, let socket, !outgoing.isEmpty {
             let message = outgoing.removeFirst()
+            if let audioID = message.audioGeneration, audioID != audioGeneration { continue }
             do {
                 // pumpAudio alone paces capture frames. A second delay here
                 // adds send latency to every frame and grows the FIFO on a healthy link.
@@ -224,6 +262,17 @@ public actor DoubaoRealtimeSession: RealtimeVoiceProvider {
                 return
             }
         }
+    }
+
+    /// The completed-event parser is shared with offline protocol regression tests.
+    static func finalTranscription(_ object: [String: Any]) -> RealtimeVoiceEvent? {
+        guard object["type"] as? String == "conversation.item.input_audio_transcription.completed" else { return nil }
+        for field in ["transcript", "text"] {
+            if let text = object[field] as? String, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return .userTranscript(text: text, final: true)
+            }
+        }
+        return nil
     }
 
     private func handle(_ object: [String: Any]) {
@@ -272,7 +321,7 @@ public actor DoubaoRealtimeSession: RealtimeVoiceProvider {
         case "conversation.item.input_audio_transcription.delta":
             if let text = object["delta"] as? String { continuation?.yield(.userTranscript(text: text, final: false)) }
         case "conversation.item.input_audio_transcription.completed":
-            if let text = object["transcript"] as? String { continuation?.yield(.userTranscript(text: text, final: true)) }
+            if let event = Self.finalTranscription(object) { continuation?.yield(event) }
         case "conversation.item.input_audio_transcription.failed":
             fail("Doubao could not transcribe the audio. Reconnect to try again.")
         case "response.output_text.delta":

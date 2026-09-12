@@ -197,11 +197,12 @@ struct GlanceView: View {
 
     private var voiceLabel: LocalizedStringKey {
         voice.phase == .connecting ? "Connecting — wait to speak"
+            : voice.phase == .recovering ? "Restoring audio…"
             : voice.phase == .thinking ? "Thinking…" : voice.isSpeaking ? "Speaking" : "Listening"
     }
 
     private var voiceSymbol: String {
-        voice.phase == .connecting || voice.phase == .thinking ? "ellipsis"
+        voice.phase == .connecting || voice.phase == .recovering || voice.phase == .thinking ? "ellipsis"
             : voice.isSpeaking ? "waveform" : "mic.fill"
     }
 

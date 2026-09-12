@@ -14,7 +14,7 @@ private let voiceLog = Logger(subsystem: "com.vibebuddy.app", category: "voice")
 /// and this thin controller are iOS-specific.
 @MainActor
 final class VoiceChat: ObservableObject {
-    enum Phase: Equatable { case idle, connecting, listening, thinking, speaking }
+    enum Phase: Equatable { case idle, connecting, recovering, listening, thinking, speaking }
 
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var lastUserText = ""
@@ -42,6 +42,7 @@ final class VoiceChat: ObservableObject {
     private var audioStarted = false
     private var eventTask: Task<Void, Never>?
     private var coordinator: VoiceCallCoordinator?
+    private var audioCleanupError: String?
 
     init(contextProvider: @escaping () -> [AgentSession],
          actionHandler: @escaping (VoiceAction) async -> String) {
@@ -71,6 +72,7 @@ final class VoiceChat: ObservableObject {
 
     private func startRealtime() {
         errorText = nil
+        audioCleanupError = nil
         guard isAvailable else {
             errorText = "Add your \(VoiceSettings.provider.display) API key in Settings first."; return
         }
@@ -149,7 +151,28 @@ final class VoiceChat: ObservableObject {
                 self.handleRealtime(event)
             }
         }
-        io.onAudioFrame = { @Sendable data in Task { await session.appendAudio(data) } }
+        io.onAudioFrame = { @Sendable [weak io] data, generation in
+            Task {
+                await session.appendAudio(data, ifCurrent: { [weak io] in
+                    io?.isCaptureCurrent(generation) == true
+                })
+            }
+        }
+        io.onInputSuspensionChanged = { suspended in
+            try await session.setInputAudioSuspended(suspended)
+        }
+        io.onAvailabilityChanged = { [weak self] state in
+            guard let self, self.startID == id, let coordinator = self.coordinator else { return }
+            coordinator.audioAvailabilityChanged(state)
+            self.syncFromCoordinator(coordinator)
+        }
+        io.onCleanupError = { [weak self] message in
+            guard let self else { return }
+            // stop has already invalidated startID; this synchronous callback
+            // still belongs to the currently retained audio instance.
+            self.audioCleanupError = message
+            self.errorText = message
+        }
         io.onPlaybackDrained = { [weak self] in
             Task { @MainActor in
                 guard let self, self.startID == id, let coordinator = self.coordinator else { return }
@@ -180,10 +203,8 @@ final class VoiceChat: ObservableObject {
                 }
             }
             voiceLog.info("realtime connected; microphone ready")
-        case .userTranscript(let text, _):
-            if VoiceCloseIntent.shouldClose(text) {     // "再见 / 关闭 / bye" → hang up hands-free
-                voiceLog.info("voice close phrase heard — ending call")
-            }
+        case .userTranscript:
+            break
         case .assistantTranscript, .transcriptFragment, .audioDelta:
             break
         case .speechStarted:                // server detected real user speech
@@ -244,13 +265,14 @@ final class VoiceChat: ObservableObject {
         phase = Self.phase(from: coordinator.phase)
         lastUserText = coordinator.lastUserText
         lastReply = coordinator.lastReply
-        errorText = coordinator.errorText
+        errorText = audioCleanupError ?? coordinator.errorText
     }
 
     private static func phase(from coordinatorPhase: VoiceCallPhase) -> Phase {
         switch coordinatorPhase {
         case .idle: .idle
         case .connecting: .connecting
+        case .recovering: .recovering
         case .listening: .listening
         case .thinking: .thinking
         case .speaking: .speaking

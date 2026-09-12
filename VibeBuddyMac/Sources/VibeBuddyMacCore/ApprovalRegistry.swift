@@ -41,9 +41,13 @@ public actor ApprovalRegistry {
         }
     }
 
+    /// Voice one-shot decisions use `unlessCancelled` at the submission boundary;
+    /// they cannot steal a wait already claimed by another decision.
     @discardableResult
-    public func resolve(id: String, with outcome: Outcome) -> Bool {
+    public func resolve(id: String, with outcome: Outcome, unlessCancelled: Bool = false) -> Bool {
+        guard !unlessCancelled || !Task.isCancelled else { return false }
         guard var entry = pending[id], entry.outcome == nil,
+              !unlessCancelled || !entry.claimed,
               !(outcome == .pass && entry.claimed) else { return false }
         if let continuation = entry.continuation {
             pending[id] = nil
