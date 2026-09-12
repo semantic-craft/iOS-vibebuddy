@@ -69,8 +69,14 @@ public struct VibeBuddyServer: Sendable {
     public let onDispatch: (@Sendable (DispatchRequest) async -> DispatchOutcome)?
     /// Starts Claude Code background sessions for dispatches.
     public let claudeLauncher: ClaudeBackgroundLauncher
-    /// Starts Cursor CLI sessions for dispatches.
+    /// Starts Cursor CLI sessions for dispatches in a terminal — the fallback
+    /// when no ACP host is configured.
     public let cursorLauncher: CursorLauncher
+    /// Hosts Cursor CLI conversations over ACP: dispatch, continue, stop,
+    /// permission and question all through one process per conversation.
+    /// Nil (route tests, an older wiring) leaves the terminal launcher in
+    /// charge and Cursor sessions on their hooks.
+    public let cursorACP: CursorACPMonitor?
     /// Tails Cursor's agent transcripts. Optional so route tests consume no
     /// host state, exactly like the Codex rollout source.
     public let cursorTranscriptMonitor: CursorTranscriptMonitor?
@@ -118,6 +124,7 @@ public struct VibeBuddyServer: Sendable {
                 onDispatch: (@Sendable (DispatchRequest) async -> DispatchOutcome)? = nil,
                 claudeLauncher: ClaudeBackgroundLauncher = ClaudeBackgroundLauncher(),
                 cursorLauncher: CursorLauncher = CursorLauncher(),
+                cursorACP: CursorACPMonitor? = nil,
                 cursorTranscriptMonitor: CursorTranscriptMonitor? = nil,
                 onCompletionReminder: (@Sendable (AgentSession) async -> Bool)? = nil,
                 actionRequests: ActionRequestLog = ActionRequestLog(),
@@ -153,6 +160,7 @@ public struct VibeBuddyServer: Sendable {
         self.onDispatch = onDispatch
         self.claudeLauncher = claudeLauncher
         self.cursorLauncher = cursorLauncher
+        self.cursorACP = cursorACP
         self.cursorTranscriptMonitor = cursorTranscriptMonitor
         self.onDevicePaired = onDevicePaired
         self.onCompletionReminder = onCompletionReminder
@@ -169,8 +177,17 @@ public struct VibeBuddyServer: Sendable {
         var agents: [AgentKind] = []
         if await claudeLauncher.isSupported() { agents.append(.claudeCode) }
         if let monitor = codexAppServerMonitor, await monitor.diagnostics().connected { agents.append(.codex) }
-        if await cursorLauncher.isSupported() { agents.append(.cursor) }
+        var cursor = await cursorACPSupported()
+        if !cursor { cursor = await cursorLauncher.isSupported() }
+        if cursor { agents.append(.cursor) }
         return agents
+    }
+
+    /// Whether a Cursor dispatch would be hosted over ACP rather than opened
+    /// in a terminal: an ACP host is wired and the CLI is installed and signed in.
+    func cursorACPSupported() async -> Bool {
+        guard let cursorACP else { return false }
+        return await cursorACP.isSupported()
     }
 
     public func runService() async throws {
@@ -638,6 +655,12 @@ public struct VibeBuddyServer: Sendable {
             // denied and the person's choice travels to the model in
             // `agent_message`, which is exactly what Cursor documents that field
             // for. Silence still prints nothing, so Cursor shows its own picker.
+            // A conversation vibebuddy hosts over ACP gets its permission and
+            // question requests on that pipe; the hook gate for the same call
+            // says nothing, so one request never raises two cards.
+            if agent == .cursor, await store.isACPHosted(sessionID) {
+                return Response(status: .ok)
+            }
             if agent == .cursor, tool == CursorToolVocabulary.askQuestionTool {
                 guard let question = CursorAskQuestionInput.pendingQuestion(from: input, id: makeID()) else {
                     return Response(status: .ok)
@@ -764,7 +787,10 @@ public struct VibeBuddyServer: Sendable {
             let obj = (try? JSONSerialization.jsonObject(with: Data(buffer: buffer))) as? [String: Any] ?? [:]
             let id = (obj["conversation_id"] as? String) ?? (obj["session_id"] as? String)
                 ?? request.uri.queryParameters["conversationId"].map(String.init) ?? ""
-            guard !id.isEmpty, let text = await cursorFollowups.take(conversationID: id) else {
+            // A hosted conversation's follow-up goes out as the next ACP
+            // prompt; handing it to the hook as well would send it twice.
+            guard !id.isEmpty, !(await store.isACPHosted(id)),
+                  let text = await cursorFollowups.take(conversationID: id) else {
                 return Response(status: .ok)
             }
             let body: [String: Any] = ["followup_message": text]
@@ -928,6 +954,7 @@ public struct VibeBuddyServer: Sendable {
         let dispatcher = self.onDispatch
         let dispatchMonitor = self.codexAppServerMonitor
         let claudeLauncher = self.claudeLauncher
+        let cursorACP = self.cursorACP
         authed.post("dispatch") { request, _ -> Response in
             let buffer = try await request.body.collect(upTo: 64 * 1024)
             guard let o = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
@@ -954,7 +981,13 @@ public struct VibeBuddyServer: Sendable {
             } else if agent == .claudeCode {
                 outcome = await claudeLauncher.dispatch(req)
             } else if agent == .cursor {
-                outcome = await cursorLauncher.dispatch(req)
+                // Hosted over ACP when the CLI is signed in — the phone can
+                // then stop, continue and answer it — else a terminal window.
+                if let cursorACP, await cursorACP.isSupported() {
+                    outcome = await cursorACP.dispatch(req)
+                } else {
+                    outcome = await cursorLauncher.dispatch(req)
+                }
             } else {
                 outcome = .unsupported("vibebuddy cannot start \(agent.displayName) sessions yet")
             }
@@ -980,16 +1013,24 @@ public struct VibeBuddyServer: Sendable {
                                           await monitor?.startTurn(threadID: sessionID, text: text) ?? false
                                       },
                                       interrupt: { sessionID in
-                                          await monitor?.interrupt(threadID: sessionID)
+                                          // A hosted Cursor conversation is cancelled on its
+                                          // own pipe; everything else is Codex's interrupt.
+                                          if let cursorACP, await cursorACP.hosts(sessionID) {
+                                              return await cursorACP.cancel(sessionID: sessionID)
+                                          }
+                                          return await monitor?.interrupt(threadID: sessionID)
                                               ?? .notSent(String(localized: "This Mac isn't watching Codex."))
                                       },
                                       queueCursorFollowup: { sessionID, text in
                                           await cursorFollowups.queue(conversationID: sessionID, text: text) != nil
                                       },
                                       resumeCursor: { session, text in
-                                          await CursorCLI.resume(conversationID: session.id, text: text,
-                                                                 cwd: session.project,
-                                                                 preferring: await cursorTerminal())
+                                          if let cursorACP, await cursorACP.hosts(session.id) {
+                                              return await cursorACP.prompt(sessionID: session.id, text: text)
+                                          }
+                                          return await CursorCLI.resume(conversationID: session.id, text: text,
+                                                                        cwd: session.project,
+                                                                        preferring: await cursorTerminal())
                                       },
                                       requests: self.actionRequests)
         authed.post("answer") { request, _ -> Response in

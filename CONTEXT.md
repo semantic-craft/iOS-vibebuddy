@@ -58,6 +58,19 @@ code, and tests — don't drift to synonyms.
   submits as the next message. One per conversation, replaced by a newer one,
   expired after 30 minutes. Continuing a *finished* Cursor chat is the other
   direction: `cursor-agent --resume <composer id>` in a terminal.
+- **Cursor ACP host** — `CursorACPMonitor`: one `cursor-agent acp` process per
+  conversation vibebuddy started, spoken to over stdio JSON-RPC (Agent Client
+  Protocol). The live source for that conversation (`ObservationSource.acp`)
+  and its write path: `session/prompt` continues, `session/cancel` stops,
+  `session/request_permission` and `cursor/ask_question` / `cursor/create_plan`
+  become cards. Dies with the daemon. The IDE's hooks and transcript for the
+  same id only corroborate while it runs (ADR-0016, amendment 1).
+- **Control channel** (`ControlChannel`) — the one write path the daemon would
+  use for a session right now: `hook` (Cursor IDE, follow-ups only), `acp`
+  (hosted CLI), `appserver` (Codex), `cloud` (Cursor cloud agent), `none`
+  (seen, unreachable). Stamped on every snapshot; the phone's composer and the
+  Watch's buttons decide what to offer from it first, from the agent second.
+  Distinct from an observation source, which says how a session is *seen*.
 - **Daemon** — the Mac menu-bar app's embedded HTTP + WebSocket server
   (`:9876`) that ingests hooks, runs the reducer, and broadcasts snapshots.
 - **Glance** — the Mac status surface at the top of the menu-bar screen, drawn
@@ -140,7 +153,10 @@ code, and tests — don't drift to synonyms.
   `userStopped`: Codex words a requested stop and a crash the same
   ("interrupted"), so without that mark the failure heuristic would ring the
   error cue for something the user asked for. An interruption this Mac did not
-  send is unmarked and still reads as a failure.
+  send is unmarked and still reads as a failure. Since 2026-09-13 a Cursor
+  conversation on the `acp` channel is stopped the same way (`session/cancel`,
+  marked `userStopped`) and a cloud agent's run is cancelled through the API;
+  a Cursor chat in the IDE still cannot be stopped from here.
 - **Session action / SessionActionIntent** — what a client asks of an existing
   session: **answer** (bind to the current question), **steer** (supplement the
   running turn), **continue** (open the next turn), **stop** (interrupt the

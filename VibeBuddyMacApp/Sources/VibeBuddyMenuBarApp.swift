@@ -160,7 +160,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         Self.log.notice("applicationShouldTerminate (someone asked us to quit)")
-        return .terminateNow
+        // Hosted `cursor-agent acp` processes end with the app: their turns
+        // cannot outlive it, and a child left behind would keep its pipes.
+        Task { @MainActor in
+            await MenuBarModel.shared?.shutdownCursorHosts()
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 
     func applicationWillTerminate(_ notification: Notification) {

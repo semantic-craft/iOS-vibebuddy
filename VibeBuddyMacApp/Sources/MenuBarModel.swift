@@ -112,6 +112,15 @@ final class MenuBarModel: ObservableObject {
     private let approvalContext = ApprovalContextStore()
     private let questionRegistry = QuestionRegistry()
     private let codexAppServerMonitor: CodexAppServerMonitor
+    /// Follow-ups queued for Cursor conversations; the hooks' `stop` collects
+    /// them for an IDE chat, the ACP host for one it carries. One queue so a
+    /// supplement can never be delivered twice.
+    private let cursorFollowups = CursorFollowupQueue()
+    /// Hosts `cursor-agent acp` conversations (ticket cursor-integration/11):
+    /// the phone's dispatch, stop, continue, permission and question for a
+    /// Cursor task all travel this pipe. Given no executable during isolated
+    /// acceptance, so it reports unsupported and spawns nothing.
+    private let cursorACP: CursorACPMonitor
     private let grokBotMonitor: GrokBotMonitor
     /// Live account usage from Claude's status line and the Codex daemon,
     /// consumed by the usage coordinator ahead of its spawning collectors.
@@ -244,6 +253,11 @@ final class MenuBarModel: ObservableObject {
         openDashboardHotkey = Hotkey.loadOpenDashboard()
         toggleGlanceHotkey = Hotkey.loadToggleGlance()
         usage = AccountUsageCoordinator(store: store, notifier: notifier, liveFeed: usageFeed)
+        cursorACP = CursorACPMonitor(
+            store: store, approvals: approvalRegistry, approvalContext: approvalContext,
+            questions: questionRegistry, allowStore: allowStore, sessionAllow: sessionAllow,
+            followups: cursorFollowups,
+            executable: E2ERunConfiguration.current == nil ? CursorCLI.resolveExecutable() : nil)
         let apnsConfig = APNsConfig.load()
         let deliveryURL = (E2ERunConfiguration.current == nil ? ProcessInfo.processInfo.environment["VIBEBUDDY_DELIVERY_LOG_PATH"] : nil).map {
             URL(fileURLWithPath: $0)
@@ -394,11 +408,13 @@ final class MenuBarModel: ObservableObject {
                                      },
                                      claudeLauncher: claudeLauncher,
                                      cursorLauncher: cursorLauncher,
+                                     cursorACP: cursorACP,
                                      cursorTranscriptMonitor: cursorTranscriptMonitor,
                                      onCompletionReminder: { [weak self] session in
                                          guard let self else { return false }
                                          return await self.deliverCompletionReminder(session)
-                                     })
+                                     },
+                                     cursorFollowups: cursorFollowups)
         Task.detached(priority: .utility) {
             do {
                 try await server.runService()
@@ -445,7 +461,9 @@ final class MenuBarModel: ObservableObject {
                 var agents: [AgentKind] = []
                 if await self.claudeLauncher.isSupported() { agents.append(.claudeCode) }
                 if self.codexAppServerDiagnostics.connected { agents.append(.codex) }
-                if await self.cursorLauncher.isSupported() { agents.append(.cursor) }
+                var cursorReady = await self.cursorACP.isSupported()
+                if !cursorReady { cursorReady = await self.cursorLauncher.isSupported() }
+                if cursorReady { agents.append(.cursor) }
                 self.dispatchAgents = agents
                 self.lifecycleTimeline = await self.store.recentLifecycle()
                 self.missedThisWeek = await self.store.missedCounts()
@@ -914,6 +932,10 @@ final class MenuBarModel: ObservableObject {
         }
     }
 
+    /// End every `cursor-agent acp` process this app is hosting. Called on quit:
+    /// the CLI has no detached mode over ACP, so a turn cannot outlive the host.
+    func shutdownCursorHosts() async { await cursorACP.shutdown() }
+
     /// Start a new task from the Mac, the same way `/dispatch` does for the
     /// phone: Codex through the app-server daemon; other agents once they have
     /// a launcher. The directory must be one a session has run in.
@@ -924,7 +946,11 @@ final class MenuBarModel: ObservableObject {
         switch request.agent {
         case .codex: return await codexAppServerMonitor.dispatch(request)
         case .claudeCode: return await claudeLauncher.dispatch(request)
-        case .cursor: return await cursorLauncher.dispatch(request)
+        case .cursor:
+            // Hosted over ACP when the CLI is signed in, so the task can be
+            // stopped and answered from the phone; a terminal window otherwise.
+            if await cursorACP.isSupported() { return await cursorACP.dispatch(request) }
+            return await cursorLauncher.dispatch(request)
         default: return .unsupported("vibebuddy cannot start \(request.agent.displayName) sessions yet.")
         }
     }
