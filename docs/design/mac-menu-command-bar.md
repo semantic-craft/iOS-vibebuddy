@@ -21,7 +21,9 @@ values and is the visual truth where prose is ambiguous.
 **This supersedes the menu-dropdown half of `mac-companion-redesign.md`** (its
 round 2: state groups, 34pt cat, Open Dashboard / Show Glance buttons). The rest
 of that file — palette, type, radii, copy rules, Dashboard, Glance, iPhone,
-Watch — still stands, and this panel uses its tokens unchanged.
+Watch — still stands, and this panel uses its tokens unchanged. *(2026-09-12:
+the tokens themselves have since changed to Cursor's register under ADR-0017 —
+neutral grounds, hairlines, Geist; the panel reads them through the same alias.)*
 
 ## The problem it answers
 
@@ -86,7 +88,8 @@ adds no Mac-only colour.
 Type ramp: 13.5 the field · 12.5 rows and the mood clause · 11.5 the rest
 clause · 10 mono the time column · 9.5 the pinned heading and key badges.
 Rounded system face for words, monospace for time and keys — both already in
-the shared type scale.
+the shared type scale. *(Since ADR-0017 the shared scale is Geist and Geist
+Mono; the sizes are unchanged.)*
 
 ## Behaviour
 
