@@ -6,7 +6,7 @@ public enum HistoryResumePolicy {
     public static func liveSession(for history: SessionHistorySession, in sessions: [AgentSession]) -> AgentSession? {
         guard history.projectPath.hasPrefix("/"), !history.nativeSessionID.isEmpty else { return nil }
         let matches = sessions.filter {
-            $0.historyOnly != true && $0.id == history.nativeSessionID &&
+            $0.id == history.nativeSessionID &&
             $0.agent == (history.agent == .claude ? .claudeCode : .codex) &&
             $0.terminalRef?.cwd == history.projectPath
         }

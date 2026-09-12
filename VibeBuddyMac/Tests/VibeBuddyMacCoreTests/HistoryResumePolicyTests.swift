@@ -44,7 +44,7 @@ struct HistoryResumePolicyTests {
         live.terminalRef = nil
         #expect(HistoryResumePolicy.liveSession(for: item, in: [live]) == nil)
         live.terminalRef = TerminalRef(cwd: item.projectPath)
-        live.historyOnly = true
+        live.agent = .codex
         #expect(HistoryResumePolicy.liveSession(for: item, in: [live]) == nil)
     }
 }
