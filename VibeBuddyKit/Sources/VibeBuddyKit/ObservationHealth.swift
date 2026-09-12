@@ -16,6 +16,15 @@ public enum ObservationSource: String, Codable, Sendable, CaseIterable, Comparab
     case rollout
     case transcript
     case recovery
+    /// A `cursor-agent acp` process vibebuddy itself hosts: its `session/update`
+    /// notifications are the live source for that conversation, and the same
+    /// pipe carries the answers.
+    case acp
+    /// Cursor's Cloud Agents API, polled for a conversation that runs on
+    /// Cursor's infrastructure rather than this Mac. No hook fires for it and
+    /// no transcript is written for it, so for a cloud conversation this is
+    /// the live source.
+    case cloud
 
     public static func < (lhs: Self, rhs: Self) -> Bool {
         guard let left = allCases.firstIndex(of: lhs),
@@ -32,6 +41,8 @@ public enum ObservationSource: String, Codable, Sendable, CaseIterable, Comparab
         case .rollout: "Rollout"
         case .transcript: "Transcript"
         case .recovery: "Recovery"
+        case .acp: "Cursor CLI (ACP)"
+        case .cloud: "Cursor cloud"
         }
     }
 }
@@ -80,6 +91,8 @@ public enum ObservationHealth: String, Codable, Sendable, CaseIterable {
             case .transcript: return "The transcript cannot be read."
             case .hook: return "The hook configuration cannot be read."
             case .recovery: return "The recovery source cannot be read."
+            case .acp: return "The Cursor CLI process vibebuddy started is not answering. Check that cursor-agent is installed and signed in."
+            case .cloud: return "Cursor's Cloud Agents API cannot be reached with the saved key."
             }
         case .notInstalled:
             return "The agent is not installed or has no local configuration."

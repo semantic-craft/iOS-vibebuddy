@@ -47,7 +47,16 @@ public struct SessionActionSupport: Equatable, Sendable {
                 (handling == .remoteAvailable ? WaitHandling.macNativePrompt.message : handling.message))
         }
         let intent: SessionActionIntent = session.status == .done ? .continue : .steer
-        if session.agent == .cursor { return cursorSupport(intent: intent, session: session) }
+        // The channel decides first, the agent second: the same Cursor chat is
+        // supplemented one way through its hooks, another through a hosted
+        // ACP process, and not at all from a transcript tail.
+        switch ControlChannel.infer(for: session) {
+        case .some(.acp): return acpSupport(intent: intent)
+        case .some(.cloud): return cloudSupport(intent: intent)
+        case .some(.hook) where session.agent == .cursor: return cursorHookSupport(intent: intent)
+        case .some(.none) where session.agent == .cursor: return unreachableCursorSupport(intent: intent, session: session)
+        default: break
+        }
         guard session.agent == .codex else {
             return SessionActionSupport(
                 intent: intent,
@@ -65,14 +74,23 @@ public struct SessionActionSupport: Equatable, Sendable {
     /// The daemon re-checks all of this against the live snapshot before it
     /// calls anything.
     public static func resolveStop(for session: AgentSession) -> SessionActionSupport {
-        guard session.agent == .codex else {
+        // Channels that carry a real interrupt: Codex's app-server
+        // (`turn/interrupt`), a hosted Cursor CLI (`session/cancel`) and a Cursor
+        // cloud run (`POST …/cancel`). Everything else is stopped where it runs.
+        let channel = ControlChannel.infer(for: session)
+        if session.agent == .cursor, channel == ControlChannel.none, Self.isCursorCloudConversation(session) {
+            return SessionActionSupport(intent: .stop,
+                unsupportedReason: String(localized: "Add a Cursor API key on your Mac to reach cloud agents from here."))
+        }
+        guard channel == .acp || channel == .cloud || session.agent == .codex else {
             return SessionActionSupport(intent: .stop, unsupportedReason: stopUnsupportedReason(for: session.agent))
         }
         // A Codex session is visible through the rollout tailer and hooks too,
         // and those cannot interrupt anything. Only the app-server connection
         // can, so a session it is not carrying must not offer a Stop button
         // that the Mac would then have to refuse.
-        guard session.observations?.contains(where: { $0.source == .appserver && $0.health.isHealthy }) == true else {
+        if session.agent == .codex,
+           session.observations?.contains(where: { $0.source == .appserver && $0.health.isHealthy }) != true {
             return SessionActionSupport(intent: .stop,
                                         unsupportedReason: String(localized: "Your Mac isn't connected to Codex right now."))
         }
@@ -88,21 +106,16 @@ public struct SessionActionSupport: Equatable, Sendable {
         }
     }
 
-    /// Cursor takes instructions, but never into the turn that is running.
+    /// A Cursor chat reached through its hooks takes instructions, but never
+    /// into the turn that is running.
     ///
     /// A supplement for a live turn is queued and handed to Cursor's own `stop`
     /// hook, which submits it as the next message — Cursor's documented
-    /// auto-continuation, and the only remote write it offers. Continuing a
-    /// finished conversation goes the other way: `cursor-agent --resume` opens
+    /// auto-continuation, and the only remote write the hooks offer. Continuing
+    /// a finished conversation goes the other way: `cursor-agent --resume` opens
     /// the same chat in a terminal, so it needs the CLI to be installed and
-    /// signed in, which only the Mac can know. Both require vibebuddy's hooks,
-    /// so an unhooked Cursor session says so instead of promising delivery.
-    private static func cursorSupport(intent: SessionActionIntent,
-                                      session: AgentSession) -> SessionActionSupport {
-        guard session.observations?.contains(where: { $0.source == .hook }) == true else {
-            return SessionActionSupport(intent: intent,
-                unsupportedReason: String(localized: "Install vibebuddy's Cursor hooks to send instructions from here."))
-        }
+    /// signed in, which only the Mac can know.
+    private static func cursorHookSupport(intent: SessionActionIntent) -> SessionActionSupport {
         switch intent {
         case .steer:
             return SessionActionSupport(intent: intent,
@@ -115,9 +128,63 @@ public struct SessionActionSupport: Equatable, Sendable {
         }
     }
 
+    /// A Cursor conversation vibebuddy can only see — a transcript tail, a
+    /// database row — says so instead of promising delivery. A cloud agent
+    /// without an API key is the same shape with a different fix.
+    private static func unreachableCursorSupport(intent: SessionActionIntent,
+                                                 session: AgentSession) -> SessionActionSupport {
+        if isCursorCloudConversation(session) {
+            return SessionActionSupport(intent: intent,
+                unsupportedReason: String(localized: "Add a Cursor API key on your Mac to reach cloud agents from here."))
+        }
+        return SessionActionSupport(intent: intent,
+            unsupportedReason: String(localized: "Install vibebuddy's Cursor hooks to send instructions from here."))
+    }
+
+    /// A `cursor-agent` vibebuddy hosts over ACP takes every instruction, but
+    /// the protocol has no mid-turn steer: `session/prompt` is sequential, so a
+    /// supplement waits for the running prompt to return and is sent as the
+    /// next one. The composer says so, the same way it does for the hooks.
+    private static func acpSupport(intent: SessionActionIntent) -> SessionActionSupport {
+        switch intent {
+        case .steer:
+            return SessionActionSupport(intent: intent,
+                note: String(localized: "Sent as the next message when this turn ends. Cursor's CLI takes one message at a time."))
+        case .continue:
+            return SessionActionSupport(intent: intent,
+                note: String(localized: "Continues this chat through the Cursor CLI vibebuddy is running."))
+        default:
+            return SessionActionSupport(intent: intent)
+        }
+    }
+
+    /// A Cursor cloud agent runs one run at a time: an idle agent takes a new
+    /// run, a running one refuses a follow-up with `409 agent_busy`, so the
+    /// refusal is made here rather than discovered on the wire.
+    private static func cloudSupport(intent: SessionActionIntent) -> SessionActionSupport {
+        switch intent {
+        case .steer:
+            return SessionActionSupport(intent: intent,
+                unsupportedReason: String(localized: "This cloud agent runs one run at a time. It can take a follow-up once this run finishes."))
+        case .continue:
+            return SessionActionSupport(intent: intent,
+                note: String(localized: "Starts a new run for this agent in Cursor's cloud."))
+        default:
+            return SessionActionSupport(intent: intent)
+        }
+    }
+
+    /// Cursor cloud agents carry `bc-`-prefixed ids everywhere Cursor names
+    /// them: its own database, its API and its hooks.
+    static func isCursorCloudConversation(_ session: AgentSession) -> Bool {
+        session.agent == .cursor && session.id.hasPrefix("bc-")
+    }
+
     private static func stopUnsupportedReason(for agent: AgentKind) -> String {
         if agent == .cursor {
-            // Cursor exposes no interrupt: not on its hooks, not on the CLI.
+            // A Cursor chat in the IDE exposes no interrupt on its hooks; only a
+            // CLI vibebuddy hosts over ACP or a cloud run can be stopped, and
+            // those never reach this line.
             return String(localized: "Stop this in Cursor on your Mac.")
         }
         if agent == .claudeCode {

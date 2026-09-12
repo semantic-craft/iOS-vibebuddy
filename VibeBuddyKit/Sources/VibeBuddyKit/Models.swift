@@ -414,6 +414,51 @@ public struct ChildAgent: Codable, Sendable, Equatable, Identifiable {
     }
 }
 
+/// How a session can be acted on — the write path, as opposed to the
+/// observation sources that are its read paths.
+///
+/// One session, one channel: the daemon stamps whichever it would actually use
+/// to carry an answer, a supplement, a continuation or a stop. The phone's
+/// composer and the Watch's buttons decide availability and wording from this
+/// first and from the agent second, so a Cursor chat in the IDE (hooks: no
+/// interrupt) and a `cursor-agent` vibebuddy hosts over ACP (a real
+/// `session/cancel`) can sit in the same list and each tell the truth.
+public enum ControlChannel: String, Codable, Sendable, CaseIterable {
+    /// The agent's lifecycle hooks: the blocking gates can answer a prompt and
+    /// a `stop` hook can hand over a follow-up, but nothing can interrupt.
+    case hook
+    /// A `cursor-agent acp` process vibebuddy spawned and speaks JSON-RPC to:
+    /// prompt, cancel, permission and question all go through the same pipe.
+    case acp
+    /// The Codex app-server daemon (ADR-0011): `turn/steer`, `turn/start`,
+    /// `turn/interrupt`.
+    case appserver
+    /// Cursor's Cloud Agents API: a run can be cancelled and an idle agent given
+    /// a new run, but a running one cannot be supplemented.
+    case cloud
+    /// Seen but not reachable: a transcript tail or a database row with no live
+    /// channel behind it.
+    case none
+
+    /// The channel to reason about for this session. The Mac's own stamp when
+    /// it has one; otherwise the same rules the clients applied before the
+    /// stamp existed, so a snapshot from an older Mac reads exactly as it did.
+    public static func infer(for session: AgentSession) -> ControlChannel? {
+        if let channel = session.controlChannel { return channel }
+        switch session.agent {
+        case .cursor:
+            let sources = Set((session.observations ?? []).map(\.source))
+            if sources.contains(.cloud) { return .cloud }
+            return sources.contains(.hook) ? .hook : ControlChannel.none
+        case .codex:
+            let live = session.observations?.contains { $0.source == .appserver && $0.health.isHealthy } == true
+            return live ? .appserver : nil
+        default:
+            return nil
+        }
+    }
+}
+
 /// One coding-agent session, as broadcast to the phone.
 public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     public let id: String
@@ -461,6 +506,15 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     /// Stable evidence describing how this session was observed. Optional keeps
     /// snapshots from older Mac builds decodable by newer clients.
     public var observations: [ObservationEvidence]?
+    /// The channel through which this session can be *acted on* right now —
+    /// answered, supplemented, continued or stopped. Distinct from
+    /// `observations`, which say how it is *seen*: a Cursor chat is seen through
+    /// its hooks, its transcript and its database at once, but only the hooks
+    /// can answer it, and a `cursor-agent` vibebuddy hosts over ACP can also be
+    /// stopped. Only the Mac writes it. Optional so snapshots from an older Mac
+    /// decode as "unknown", and `ControlChannel.infer(for:)` then falls back to
+    /// the agent-based rules that predate it.
+    public var controlChannel: ControlChannel?
     /// Live teammate/subagent/task rows for this parent. Optional so older
     /// snapshots decode as "no topology yet"; recovery leaves this empty.
     public var childAgents: [ChildAgent]?
@@ -524,6 +578,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         spentTokens: Int? = nil,
         activeTool: String? = nil,
         observations: [ObservationEvidence]? = nil,
+        controlChannel: ControlChannel? = nil,
         childAgents: [ChildAgent]? = nil,
         childTopologyDegraded: Bool? = nil,
         probeRetired: Bool? = nil,
@@ -560,6 +615,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         self.spentTokens = spentTokens
         self.activeTool = activeTool
         self.observations = observations
+        self.controlChannel = controlChannel
         self.childAgents = childAgents
         self.childTopologyDegraded = childTopologyDegraded
         self.probeRetired = probeRetired
