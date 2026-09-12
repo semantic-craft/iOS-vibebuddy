@@ -18,6 +18,8 @@ final class DashboardStore: ObservableObject {
     @Published private(set) var recentDirectories: [String] = []
     /// Agents the Mac can start a new task for right now.
     @Published private(set) var dispatchAgents: [AgentKind] = []
+    /// Models the Mac's signed-in Cursor CLI lists, for a Cursor dispatch.
+    @Published private(set) var cursorModels: [String] = []
     /// Sessions the user has pointed the buddy at (in-memory, never persisted).
     /// Empty = the buddy sees all sessions; pruned to live IDs on every snapshot.
     @Published private(set) var buddySessionIDs: Set<String> = []
@@ -918,6 +920,7 @@ final class DashboardStore: ObservableObject {
         observationDiagnostics = snapshot.observationDiagnostics ?? []
         recentDirectories = snapshot.recentDirectories ?? []
         dispatchAgents = snapshot.dispatchAgents ?? []
+        cursorModels = snapshot.cursorModels ?? []
         // A cancelled stream may resume after awaiting notification delivery.
         // Never let its old Mac readings repopulate a newly selected source.
         guard !Task.isCancelled else { return }
