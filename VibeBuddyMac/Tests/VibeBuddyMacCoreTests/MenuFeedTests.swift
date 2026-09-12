@@ -201,6 +201,18 @@ struct MenuFeedTests {
         #expect(make([]).topResult == nil)
     }
 
+    /// `Needs you` cannot be folded away (ADR-0015), and it leads the list, so
+    /// Return lands there however much newer the other groups are.
+    @Test func returnLandsInNeedsYouEvenWhenEveryOtherGroupIsNewer() {
+        let input = [unread("finished", ago: 1), session("running", ago: 5),
+                     session("ask", ago: 3 * 3600, .needsResponse), failed("broke", ago: 2 * 3600)]
+        let feed = make(input)
+        #expect(feed.sections.first?.kind == .needsYou)
+        #expect(feed.topResult?.id == "broke")
+        // Narrowing keeps the rule: the newest matching row that needs a person.
+        #expect(make(input, query: "app").topResult?.id == "broke")
+    }
+
     // MARK: the row's timestamp
 
     @Test func ageStaysShortEnoughToRideAtTheEndOfARow() {

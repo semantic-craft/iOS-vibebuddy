@@ -331,6 +331,22 @@ struct SettingsPill: View {
     }
 }
 
+/// A quiet action on the trailing edge of a row — a jump to another page, not
+/// a change to a setting. The same chrome `HotkeyRecorderView` draws for its
+/// combo: label on `bg3` with a hairline, radius 7; pressing lifts the ground.
+struct SettingsQuietButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(SettingsChrome.font(12.5, .medium))
+            .foregroundStyle(MacTheme.ink)
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(RoundedRectangle(cornerRadius: 7)
+                .fill(configuration.isPressed ? MacTheme.bg3.opacity(0.7) : MacTheme.bg3))
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(MacTheme.line, lineWidth: 1))
+            .contentShape(RoundedRectangle(cornerRadius: 7))
+    }
+}
+
 /// A value shown on the trailing edge of a row — an address, a count, a date.
 struct SettingsValue: View {
     private let text: Text

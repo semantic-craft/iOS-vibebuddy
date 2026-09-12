@@ -14,10 +14,15 @@ struct SettingsView: View {
     /// Lifted out of the voice page so the feature rows and the key rows —
     /// now two separate pages — read the same saved credentials.
     @StateObject private var credentials = SettingsCredentials()
-    @State private var selection: SettingsPageID = .general
+    @State private var selection: SettingsPageID
     /// Which provider's key row is open on the Provider keys page. A feature
     /// row's "No API key yet" pill sets both this and `selection`.
     @State private var expandedAccount: VoiceProvider?
+
+    init(model: MenuBarModel, initialPage: SettingsPageID = .general) {
+        self.model = model
+        _selection = State(initialValue: initialPage)
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -35,7 +40,7 @@ struct SettingsView: View {
     @ViewBuilder private var page: some View {
         switch selection {
         case .general:
-            GeneralPage(model: model)
+            GeneralPage(model: model, setup: hookSetup, showDiagnostics: showDiagnostics)
         case .notifications:
             NotificationsPage(model: model)
         case .voice:
@@ -43,7 +48,7 @@ struct SettingsView: View {
         case .providerKeys:
             ProviderKeysPage(tests: tests, credentials: credentials, expanded: $expandedAccount)
         case .phone:
-            PhonePage(model: model)
+            PhonePage(model: model, setup: hookSetup, showDiagnostics: showDiagnostics)
         case .agentCLIs:
             AgentCLIsPage(model: model, setup: hookSetup)
         case .quota:
@@ -63,6 +68,9 @@ struct SettingsView: View {
         expandedAccount = provider
         selection = .providerKeys
     }
+
+    /// The cross-link at the foot of General and Phone & remote.
+    private func showDiagnostics() { selection = .diagnostics }
 }
 
 // MARK: - Pages and navigation
@@ -148,8 +156,12 @@ enum SettingsPageID: String, CaseIterable, Identifiable {
     }
 }
 
+/// The page list. Hand-drawn rather than a `List(selection:)` so the rows keep
+/// the Cursor chrome; the column itself takes keyboard focus so ↑ / ↓ still
+/// walk the pages in sidebar order, as the `List` used to.
 private struct SettingsSidebar: View {
     @Binding var selection: SettingsPageID
+    @FocusState private var focused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -177,12 +189,31 @@ private struct SettingsSidebar: View {
         }
         .frame(width: SettingsChrome.sidebarWidth)
         .background(MacTheme.bg2)
+        .focusable()
+        .focused($focused)
+        // The selected row is the focus cue; a ring around the whole column
+        // would be the system's chrome, not this window's.
+        .focusEffectDisabled()
+        .onMoveCommand(perform: move)
+        .onAppear { focused = true }
         .accessibilityLabel("Settings categories")
+    }
+
+    /// ↓ and ↑ step through the pages in the order the sidebar draws them,
+    /// stopping at either end; ← and → have no meaning in a single column.
+    private func move(_ direction: MoveCommandDirection) {
+        let pages = SettingsPageID.allCases
+        guard let index = pages.firstIndex(of: selection) else { return }
+        switch direction {
+        case .down where index < pages.count - 1: selection = pages[index + 1]
+        case .up where index > 0: selection = pages[index - 1]
+        default: break
+        }
     }
 
     private func item(_ page: SettingsPageID) -> some View {
         let selected = page == selection
-        return Button { selection = page } label: {
+        return Button { selection = page; focused = true } label: {
             HStack(spacing: 9) {
                 Image(systemName: page.symbol)
                     .font(MacTheme.font(13))
@@ -211,6 +242,8 @@ private struct SettingsSidebar: View {
 
 private struct GeneralPage: View {
     @ObservedObject var model: MenuBarModel
+    @ObservedObject var setup: HookSetup
+    let showDiagnostics: () -> Void
     @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
     @AppStorage("showMenuBarTaskStatus") private var showMenuBarTaskStatus = false
     @State private var showHideIconNote = false
@@ -288,6 +321,8 @@ private struct GeneralPage: View {
                     .accessibilityLabel("Clean up idle sessions after")
                 }
             }
+
+            ConnectionAndDeliverySection(model: model, setup: setup, showDiagnostics: showDiagnostics)
         }
     }
 }
@@ -372,6 +407,8 @@ private struct NotificationsPage: View {
 
 private struct PhonePage: View {
     @ObservedObject var model: MenuBarModel
+    @ObservedObject var setup: HookSetup
+    let showDiagnostics: () -> Void
 
     var body: some View {
         SettingsPageScaffold(SettingsPageID.phone.title, subtitle: SettingsPageID.phone.subtitle) {
@@ -448,6 +485,43 @@ private struct PhonePage: View {
                 SettingsRow("Pairing address") {
                     SettingsValue(verbatim: model.pairingAddress, monospaced: true)
                 }
+            }
+
+            ConnectionAndDeliverySection(model: model, setup: setup, showDiagnostics: showDiagnostics)
+        }
+    }
+}
+
+/// The foot of General and Phone & remote: what Diagnostics would say if it
+/// had something to say — a latched delivery failure, a source that is not
+/// healthy, a hook operation whose output is waiting — and the way there. The
+/// jump is always present so the advanced page is never only a sidebar item;
+/// the summary rows appear only when there is something to report, as they did
+/// in the grouped form this replaced.
+private struct ConnectionAndDeliverySection: View {
+    @ObservedObject var model: MenuBarModel
+    @ObservedObject var setup: HookSetup
+    let showDiagnostics: () -> Void
+
+    var body: some View {
+        SettingsSection("Connection & delivery",
+                        footnote: !setup.running && !setup.lastOutput.isEmpty
+                        ? "Hook operation finished. Review its output in diagnostics." : nil) {
+            if let failure = model.notificationDeliveryHealth.latchedFailure {
+                SettingsRow(verbatim: String(localized: "Notification delivery failed: \(failure.failureReason ?? "unknown")")) {
+                    SettingsPill("Latched failure", tone: .critical)
+                }
+            }
+            ForEach(model.observationDiagnostics) { agent in
+                ForEach(agent.sources.filter { !$0.health.isHealthy && !$0.isInformational }) { source in
+                    SettingsRow(verbatim: "\(agent.agent.displayName) · \(source.source.displayName)") {
+                        SettingsPill(verbatim: source.diagnosticTitle, tone: .warn)
+                    }
+                }
+            }
+            SettingsRow(SettingsPageID.diagnostics.title, detail: SettingsPageID.diagnostics.subtitle) {
+                Button("Show advanced diagnostics", action: showDiagnostics)
+                    .buttonStyle(SettingsQuietButtonStyle())
             }
         }
     }
