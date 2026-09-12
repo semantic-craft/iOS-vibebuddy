@@ -941,7 +941,7 @@ private struct MacTitleMenu: View {
         switch state {
         case .connecting: String(localized: "Connecting")
         case .connected: String(localized: "Connected")
-        case .failed: String(localized: "Reconnecting")
+        case .failed(let message): message
         }
     }
 }
@@ -963,7 +963,7 @@ private struct EmptyStateView: View {
                 Label("Disconnected", systemImage: "wifi.exclamationmark")
             } description: {
                 Text(message)
-                Text("Check that the Mac app is running, both devices are on the same local network, and Local Network access is enabled in Settings.")
+                Text("Check that the Mac app is running and both devices are on the same LAN or connected to Tailscale. For LAN access, allow Local Network in Settings.")
             } actions: {
                 Button("Need the Mac companion?") { showMacHelp = true }
             }

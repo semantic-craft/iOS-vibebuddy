@@ -43,11 +43,17 @@ targets:
               - vibebuddy
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+          NSExceptionDomains:
+            100.64.0.0/10:
+              NSExceptionAllowsInsecureHTTPLoads: true
+            ts.net:
+              NSIncludesSubdomains: true
+              NSExceptionAllowsInsecureHTTPLoads: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.app
-        MARKETING_VERSION: "1.3.12"
-        CURRENT_PROJECT_VERSION: "25"
+        MARKETING_VERSION: "1.3.13"
+        CURRENT_PROJECT_VERSION: "27"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"
         DEVELOPMENT_TEAM: LQAVR62TK2
@@ -81,8 +87,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.app.widget
-        MARKETING_VERSION: "1.3.12"
-        CURRENT_PROJECT_VERSION: "25"
+        MARKETING_VERSION: "1.3.13"
+        CURRENT_PROJECT_VERSION: "27"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"
         DEVELOPMENT_TEAM: LQAVR62TK2
@@ -117,8 +123,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.app.watchkitapp
         CODE_SIGN_ENTITLEMENTS: Watch/VibeBuddyWatch.entitlements
-        MARKETING_VERSION: "1.3.12"
-        CURRENT_PROJECT_VERSION: "25"
+        MARKETING_VERSION: "1.3.13"
+        CURRENT_PROJECT_VERSION: "27"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "4"
         DEVELOPMENT_TEAM: LQAVR62TK2
@@ -145,8 +151,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.app.watchkitapp.widget
-        MARKETING_VERSION: "1.3.12"
-        CURRENT_PROJECT_VERSION: "25"
+        MARKETING_VERSION: "1.3.13"
+        CURRENT_PROJECT_VERSION: "27"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "4"
         DEVELOPMENT_TEAM: LQAVR62TK2

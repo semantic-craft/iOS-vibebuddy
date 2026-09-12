@@ -69,7 +69,8 @@ struct HistorySessionActions: View {
 
     static func unavailableReason(for history: SessionHistorySession) -> String {
         if !history.isAvailable { return "Source unavailable. Cached history does not establish a recoverable session." }
-        if history.agent == .codex {
+        if history.sourceArchived == true { return "Archived in Codex. Unarchive the original task in Codex before continuing." }
+        if history.agent == .codex && history.source != "cli" {
             return "This archive does not establish a Codex CLI or Desktop target. Open the original task in Codex to continue."
         }
         var isDirectory: ObjCBool = false

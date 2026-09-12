@@ -47,4 +47,21 @@ struct HistoryResumePolicyTests {
         item.agent = .codex
         #expect(HistoryResumePolicy.liveSession(for: item, in: [live]) == nil)
     }
+
+    @Test func resolvesDaemonCodexIdentityWithoutInventingATerminal() {
+        var item = history()
+        item.agent = .codex
+        item.source = "vscode"
+        var live = AgentSession(id: item.nativeSessionID, agent: .codex, project: "project", status: .done,
+                                statusSince: Date(), updatedAt: Date())
+        live.desktopThreadID = item.nativeSessionID
+        #expect(HistoryResumePolicy.liveSession(for: item, in: [live]) == live)
+        #expect(HistoryResumePolicy.command(for: item, directoryExists: true) == nil)
+        #expect(HistoryResumePolicy.liveSession(for: item, in: [live, live]) == nil)
+        live.terminalRef = TerminalRef(cwd: "/different/project")
+        #expect(HistoryResumePolicy.liveSession(for: item, in: [live]) == nil)
+        live.terminalRef = nil
+        live.desktopThreadID = UUID().uuidString
+        #expect(HistoryResumePolicy.liveSession(for: item, in: [live]) == nil)
+    }
 }

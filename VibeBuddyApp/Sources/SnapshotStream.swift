@@ -5,25 +5,36 @@ import VibeBuddyKit
 protocol SnapshotStreaming: Sendable {
     /// Yields snapshots until the connection drops; the stream then finishes so
     /// the caller can reconnect.
-    func stream(_ pairing: PairingPayload) -> AsyncStream<Snapshot>
+    func stream(_ pairing: PairingPayload) -> AsyncThrowingStream<Snapshot, Error>
+}
+
+enum CompanionConnectionFailure: Error {
+    case invalidAddress
+    case authentication
 }
 
 /// WebSocket client with a bounded heartbeat, following HAKit's liveness check.
 /// Finishing the stream lets DashboardStore's existing reconnect loop recover.
 struct WebSocketSnapshotClient: SnapshotStreaming {
-    func stream(_ pairing: PairingPayload) -> AsyncStream<Snapshot> {
-        AsyncStream { continuation in
+    func stream(_ pairing: PairingPayload) -> AsyncThrowingStream<Snapshot, Error> {
+        AsyncThrowingStream { continuation in
             let providers = AccountUsageProvider.allCases.map(\.rawValue).joined(separator: ",")
-            guard let url = URL(string: "ws://\(pairing.host):\(pairing.port)/ws?quotaProviders=\(providers)") else {
-                continuation.finish(); return
+            guard let url = pairing.companionURL(path: "ws", webSocket: true, queryItems: [URLQueryItem(name: "quotaProviders", value: providers)]) else {
+                continuation.finish(throwing: CompanionConnectionFailure.invalidAddress); return
             }
             var request = URLRequest(url: url)
             request.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
             let socket = URLSession.shared.webSocketTask(with: request)
             let task = Task {
                 socket.resume()
+                let firstSnapshotDeadline = Task {
+                    do { try await Task.sleep(for: .seconds(15)) } catch { return }
+                    continuation.finish(throwing: URLError(.timedOut))
+                    socket.cancel(with: .goingAway, reason: nil)
+                }
                 var heartbeat: Task<Void, Never>?
                 defer {
+                    firstSnapshotDeadline.cancel()
                     heartbeat?.cancel()
                     socket.cancel(with: .goingAway, reason: nil)
                     continuation.finish()
@@ -37,9 +48,15 @@ struct WebSocketSnapshotClient: SnapshotStreaming {
                               let event = try? JSONDecoder().decode(ServerEvent.self, from: data)
                         else { continue }
                         if case let .snapshot(snapshot) = event {
+                            firstSnapshotDeadline.cancel()
                             continuation.yield(snapshot)
                         }
                     } catch {
+                        if await Self.authenticationRejected(socket, pairing: pairing) {
+                            continuation.finish(throwing: CompanionConnectionFailure.authentication)
+                        } else {
+                            continuation.finish(throwing: error)
+                        }
                         break
                     }
                 }
@@ -51,6 +68,22 @@ struct WebSocketSnapshotClient: SnapshotStreaming {
                 socket.cancel(with: .goingAway, reason: nil)
             }
         }
+    }
+
+    private static func authenticationRejected(_ socket: URLSessionWebSocketTask, pairing: PairingPayload) async -> Bool {
+        guard let status = (socket.response as? HTTPURLResponse)?.statusCode else { return false }
+        if status == 401 || status == 403 { return true }
+        // Hummingbird reports every refused WebSocket upgrade as HTTP 400.
+        // Confirm auth on its existing HTTP route; 400 alone could be a protocol
+        // failure and must not tell a correctly paired phone to pair again.
+        guard status == 400, !Task.isCancelled, let url = pairing.companionURL(path: "snapshot") else { return false }
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 5)
+        request.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            let code = (response as? HTTPURLResponse)?.statusCode
+            return code == 401 || code == 403
+        } catch { return false }
     }
 
     private static func monitor(_ socket: URLSessionWebSocketTask) -> Task<Void, Never> {

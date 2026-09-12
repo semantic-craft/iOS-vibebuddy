@@ -36,7 +36,7 @@ final class ObservationDiagnosticsTests: XCTestCase {
     func testUpstreamFramesWithOldDecoderStoreAndPhoneRendering() async throws {
         let url = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "oh-upstream-frames", withExtension: "json"))
         let frames = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [Any])
-        let pipe = AsyncStream<Snapshot>.makeStream()
+        let pipe = AsyncThrowingStream<Snapshot, Error>.makeStream()
         let store = DashboardStore(streamer: ControlledDiagnosticStreamer(stream: pipe.stream),
             notifier: SilentNotifier(), decisionClient: NullDecisionClient(), watchRelay: nil, reportDevice: { _ in })
         store.start(PairingPayload(host: "127.0.0.1", port: 9, token: "test"))
@@ -106,7 +106,7 @@ final class ObservationDiagnosticsTests: XCTestCase {
             XCTAssertEqual(decoded, snapshot)
             snapshots.append(decoded)
         }
-        let pipe = AsyncStream<Snapshot>.makeStream()
+        let pipe = AsyncThrowingStream<Snapshot, Error>.makeStream()
         let store = DashboardStore(streamer: ControlledDiagnosticStreamer(stream: pipe.stream),
             notifier: SilentNotifier(), decisionClient: NullDecisionClient(), watchRelay: nil, reportDevice: { _ in })
         store.start(PairingPayload(host: "127.0.0.1", port: 9, token: "test"))
@@ -125,8 +125,8 @@ final class ObservationDiagnosticsTests: XCTestCase {
 }
 
 private struct ControlledDiagnosticStreamer: SnapshotStreaming {
-    let stream: AsyncStream<Snapshot>
-    func stream(_ pairing: PairingPayload) -> AsyncStream<Snapshot> { stream }
+    let stream: AsyncThrowingStream<Snapshot, Error>
+    func stream(_ pairing: PairingPayload) -> AsyncThrowingStream<Snapshot, Error> { stream }
 }
 
 private enum OldPhoneEvent: Codable {

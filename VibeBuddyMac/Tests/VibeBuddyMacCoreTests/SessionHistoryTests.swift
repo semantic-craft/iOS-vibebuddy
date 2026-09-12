@@ -3,6 +3,76 @@ import XCTest
 @testable import VibeBuddyMacCore
 
 final class SessionHistoryTests: XCTestCase {
+    func testInjectedContextIsRetainedButDoesNotBecomeTitle() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".jsonl")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let lines = ["<recommended_plugins>setup</recommended_plugins>", "# AGENTS.md instructions for /tmp", "真实任务标题"]
+        let data = try lines.map { text in
+            try JSONSerialization.data(withJSONObject: ["type": "response_item", "payload": ["type": "message", "role": "user", "content": [["type": "input_text", "text": text]]]])
+        }.reduce(into: Data()) { $0.append($1); $0.append(10) }
+        try data.write(to: file)
+        let record = try SessionHistoryParser.read(url: file, agent: .codex, updatedAt: Date())
+        XCTAssertEqual(record.title, "真实任务标题")
+        XCTAssertEqual(record.messageCount, 3)
+    }
+
+    func testIndexedSearchArchiveMoveAndIndependentLibraryPreferences() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let claude = root.appendingPathComponent("claude")
+        let codex = root.appendingPathComponent("codex")
+        let cache = root.appendingPathComponent("cache")
+        let source = codex.appendingPathComponent("sessions/rollout.jsonl")
+        let archived = codex.appendingPathComponent("archived_sessions/rollout.jsonl")
+        for file in [source, archived] { try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true) }
+        let contents = #"{"type":"session_meta","payload":{"id":"747b278b-e90a-462f-bc5a-9608a8ca31ae","cwd":"/tmp","source":"cli"}}"# + "\n" +
+            #"{"timestamp":"2026-09-01T10:00:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"中文查询 café useEffect( 100% _literal_ \"quoted\""}]}}"# + "\n"
+        try Data(contents.utf8).write(to: source)
+        let repo = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cacheDirectory: cache)
+        let initial = try await repo.refresh()
+        let session = try XCTUnwrap(initial.sessions.first)
+        XCTAssertEqual(session.source, "cli")
+        XCTAssertNotNil(HistoryResumePolicy.command(for: session, directoryExists: true))
+        for query in ["中文", "中文查询", "cafe", "useEffect(", "100%", "_literal_", "\"quoted\""] {
+            let hits = try await repo.search(query)
+            XCTAssertEqual(hits.count, 1, query)
+        }
+        let wrongAgent = try await repo.search("cafe", agent: .claude)
+        XCTAssertTrue(wrongAgent.isEmpty)
+        try await repo.setFavorite(sessionID: session.id, isFavorite: true)
+        try await repo.setPinned(sessionID: session.id, isPinned: true)
+        try await repo.setArchived(sessionID: session.id, isArchived: true)
+        let hidden = try await repo.search("cafe", archived: false)
+        XCTAssertTrue(hidden.isEmpty)
+        XCTAssertEqual(try Data(contentsOf: source), Data(contents.utf8))
+        try FileManager.default.moveItem(at: source, to: archived)
+        let moved = try await repo.refresh()
+        let record = try XCTUnwrap(moved.sessions.first)
+        XCTAssertEqual(moved.sessions.count, 1)
+        XCTAssertEqual(URL(fileURLWithPath: record.sourcePath).resolvingSymlinksInPath().path, archived.resolvingSymlinksInPath().path)
+        XCTAssertTrue(record.sourceArchived == true)
+        XCTAssertEqual(record.updatedAt, session.updatedAt)
+        XCTAssertNil(HistoryResumePolicy.command(for: record, directoryExists: true))
+        try await repo.setArchived(sessionID: session.id, isArchived: false)
+        let nativeArchived = try await repo.search("cafe", favoritesOnly: true, archived: true)
+        XCTAssertEqual(nativeArchived.count, 1)
+        let restarted = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cacheDirectory: cache)
+        let rebuilt = try await restarted.refresh(rebuild: true)
+        XCTAssertTrue(rebuilt.sessions.first?.isPinned == true)
+        XCTAssertTrue(rebuilt.sessions.first?.isFavorite == true)
+        XCTAssertTrue(rebuilt.sessions.first?.isArchived == true)
+        let restored = try await restarted.search("cafe")
+        XCTAssertEqual(restored.count, 1)
+        // Warm search must use the index: a missing derived transcript cache cannot
+        // force every already-indexed query to re-open and decode all transcripts.
+        for file in try FileManager.default.contentsOfDirectory(at: cache, includingPropertiesForKeys: nil)
+            where file.pathExtension == "json" && file.lastPathComponent.count == 69 {
+            try FileManager.default.removeItem(at: file)
+        }
+        let warm = try await restarted.search("useEffect(")
+        XCTAssertEqual(warm.count, 1)
+    }
+
     func testIncrementalSearchIdentityFavoritesAndMissingSource() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -143,11 +213,12 @@ final class SessionHistoryTests: XCTestCase {
         ]
         try Data(lines.joined(separator: "\n").utf8).write(to: file)
         let session = try SessionHistoryParser.read(url: file, agent: .codex, updatedAt: Date())
-        XCTAssertEqual(session.messages.count, 5)
-        XCTAssertEqual(session.messages.last?.text, "request")
+        XCTAssertEqual(session.messages.count, 6)
+        XCTAssertEqual(session.messages.last(where: { $0.kind != .thinking })?.text, "request")
         XCTAssertTrue(session.messages.contains { $0.text == "event-only answer" })
         XCTAssertEqual(session.messages[1].toolName, "shell")
-        XCTAssertFalse(session.messages.contains { $0.text.contains("private reasoning") })
+        XCTAssertTrue(session.messages.contains { $0.kind == .thinking && $0.text == "private reasoning" })
+        XCTAssertFalse(SessionHistoryExport.markdown(session: session).contains("private reasoning"))
         XCTAssertTrue(SessionHistoryExport.markdown(session: session).contains("````text"))
     }
 }

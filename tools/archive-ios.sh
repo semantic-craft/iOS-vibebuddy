@@ -285,7 +285,11 @@ SHIPPED="$(find "$UNPACKED/Payload" -maxdepth 1 -name '*.app' -print -quit)"
 [[ -n "$SHIPPED" ]] || die "no .app inside $IPA"
 
 authority() { codesign -dvv "$1" 2>&1 | sed -n 's/^Authority=//p' | head -1; }
-entitlement() { codesign -d --entitlements - --xml "$1" 2>/dev/null | plutil -extract "$2" raw -o - - 2>/dev/null || echo MISSING; }
+entitlement() {
+  # plutil treats dots as key-path separators; entitlement names are literal keys.
+  local key_path="${2//./\\.}"
+  codesign -d --entitlements - --xml "$1" 2>/dev/null | plutil -extract "$key_path" raw -o - - 2>/dev/null || echo MISSING
+}
 
 APP_AUTH="$(authority "$SHIPPED")"
 note "signed by: $APP_AUTH"
@@ -298,6 +302,10 @@ SHIPPED_APS="$(entitlement "$SHIPPED" aps-environment)"
 [[ "$SHIPPED_APS" == "production" ]] \
   || die "the exported app has aps-environment=\"$SHIPPED_APS\", not \"production\" — Apple would issue production push tokens to an app registered for sandbox"
 note "aps-environment: production"
+
+[[ "$(entitlement "$SHIPPED" com.apple.developer.usernotifications.time-sensitive)" == "true" ]] \
+  || die "the exported app is missing its Time Sensitive Notifications entitlement"
+note "time-sensitive notifications: enabled"
 
 [[ "$(entitlement "$SHIPPED" get-task-allow)" == "false" ]] \
   || die "get-task-allow is not false — that is a development signature, not a distribution one"
@@ -319,6 +327,17 @@ SHIPPED_WATCH_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$SHI
 [[ "$SHIPPED_WATCH_ID" == "$WATCH_BUNDLE_ID" ]] \
   || die "the exported Watch app's bundle id is \"$SHIPPED_WATCH_ID\", expected \"$WATCH_BUNDLE_ID\""
 note "watch:  $SHIPPED_WATCH_ID, distribution-signed"
+
+for VERSION_KEY in CFBundleShortVersionString CFBundleVersion; do
+  PHONE_VALUE="$(/usr/libexec/PlistBuddy -c "Print :$VERSION_KEY" "$SHIPPED/Info.plist")"
+  WATCH_VALUE="$(/usr/libexec/PlistBuddy -c "Print :$VERSION_KEY" "$SHIPPED_WATCH/Info.plist")"
+  [[ "$WATCH_VALUE" == "$PHONE_VALUE" ]] \
+    || die "the exported Watch $VERSION_KEY ($WATCH_VALUE) does not match iPhone ($PHONE_VALUE)"
+done
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :WKCompanionAppBundleIdentifier' "$SHIPPED_WATCH/Info.plist")" == "$BUNDLE_ID" ]] \
+  || die "the exported Watch app has the wrong iPhone companion"
+note "Watch version/build and iPhone companion: matched"
+note "Production Watch delivery still requires the physical gate in docs/watch-notification-acceptance.md."
 
 step "done — $SCHEME $VERSION (build $BUILD_NO)"
 note "archive: $ARCHIVE"

@@ -318,6 +318,12 @@ code, and tests — don't drift to synonyms.
 
 ## Completion summaries and Mac reading
 
+- **Conversation summary** — a user-requested reading aid for one historical
+  conversation, separate from a Completion notice. It summarizes bounded readable
+  history through the configured BYO text provider, excludes injected Meta and
+  Thinking, and records coverage and source revision. A changed source marks the
+  persisted result stale. Generating or reading it establishes no live completion
+  identity, notification or task control capability.
 - **Completion notice** — the Mac's durable wording decision for one
   source/session/completion: pending, plain, summary, or cancelled. Only the
   final assistant result bound to that completion may be summarized. Pending

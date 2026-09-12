@@ -78,7 +78,7 @@ extension DecisionClient {
 
 struct HTTPDecisionClient: DecisionClient {
     func actionSnapshot(_ pairing: PairingPayload) async -> Snapshot? {
-        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/snapshot") else { return nil }
+        guard let url = pairing.companionURL(path: "snapshot") else { return nil }
         var request = URLRequest(url: url)
         request.timeoutInterval = 10
         request.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
@@ -110,7 +110,7 @@ struct HTTPDecisionClient: DecisionClient {
                                    "intent": SessionActionIntent.stop.rawValue,
                                    "requestId": requestID,
                                    "expectedStatusSince": session.statusSince.timeIntervalSince1970]
-        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/answer"),
+        guard let url = pairing.companionURL(path: "answer"),
               let data = try? JSONSerialization.data(withJSONObject: body) else { return .failed }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -132,7 +132,7 @@ struct HTTPDecisionClient: DecisionClient {
 
     private func postAction(_ pairing: PairingPayload, path: String, body: [String: Any]) async -> PhoneActionResult {
         guard !Task.isCancelled else { return .failed }
-        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/\(path)"),
+        guard let url = pairing.companionURL(path: path),
               let data = try? JSONSerialization.data(withJSONObject: body) else { return .failed }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -152,7 +152,7 @@ struct HTTPDecisionClient: DecisionClient {
     }
 
     func acknowledgeWait(_ pairing: PairingPayload, request: WaitReadRequest) async -> Bool {
-        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/acknowledge-wait") else { return false }
+        guard let url = pairing.companionURL(path: "acknowledge-wait") else { return false }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
@@ -163,7 +163,7 @@ struct HTTPDecisionClient: DecisionClient {
     }
 
     func acknowledge(_ pairing: PairingPayload, request: CompletionReadRequest) async -> CompletionReadOutcome {
-        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/acknowledge") else { return .failed }
+        guard let url = pairing.companionURL(path: "acknowledge") else { return .failed }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.timeoutInterval = 15
@@ -178,7 +178,7 @@ struct HTTPDecisionClient: DecisionClient {
     }
 
     func setAttention(_ pairing: PairingPayload, sessionId: String, level: SessionAttention?) async {
-        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/attention") else { return }
+        guard let url = pairing.companionURL(path: "attention") else { return }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
@@ -194,7 +194,7 @@ struct HTTPDecisionClient: DecisionClient {
     }
 
     func decideResult(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> WaitActionResult {
-        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/decision") else { return .failed }
+        guard let url = pairing.companionURL(path: "decision") else { return .failed }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
@@ -206,7 +206,7 @@ struct HTTPDecisionClient: DecisionClient {
     }
 
     func answerResult(_ pairing: PairingPayload, sessionId: String, answer: String) async -> WaitActionResult {
-        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/answer") else { return .failed }
+        guard let url = pairing.companionURL(path: "answer") else { return .failed }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
@@ -218,7 +218,7 @@ struct HTTPDecisionClient: DecisionClient {
     }
 
     func dispatch(_ pairing: PairingPayload, request: DispatchRequest) async -> DispatchOutcome? {
-        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/dispatch") else { return nil }
+        guard let url = pairing.companionURL(path: "dispatch") else { return nil }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
@@ -239,9 +239,7 @@ struct HTTPDecisionClient: DecisionClient {
     }
 
     func recentOutput(_ pairing: PairingPayload, sessionId: String) async -> RecentOutput? {
-        var comps = URLComponents(string: "http://\(pairing.host):\(pairing.port)/recent-output")
-        comps?.queryItems = [URLQueryItem(name: "sessionId", value: sessionId)]
-        guard let url = comps?.url else { return nil }
+        guard let url = pairing.companionURL(path: "recent-output", queryItems: [URLQueryItem(name: "sessionId", value: sessionId)]) else { return nil }
         var req = URLRequest(url: url)
         req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
         guard let (data, resp) = try? await URLSession.shared.data(for: req),
@@ -251,7 +249,7 @@ struct HTTPDecisionClient: DecisionClient {
     }
 
     func jump(_ pairing: PairingPayload, sessionId: String) async -> JumpOutcome? {
-        guard let url = URL(string: "http://\(pairing.host):\(pairing.port)/jump") else { return nil }
+        guard let url = pairing.companionURL(path: "jump") else { return nil }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")

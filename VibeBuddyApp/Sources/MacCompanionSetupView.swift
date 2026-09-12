@@ -10,7 +10,7 @@ struct MacCompanionSteps: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             step("1", "Install on your Mac", "Open the download link on your Mac. Under Assets, download the DMG and drag the app to Applications.")
-            step("2", "Show the pairing code", "Open “Pair a phone” in the Mac menu bar. Keep your Mac and iPhone on the same local network.")
+            step("2", "Show the pairing code", "Open “Pair a phone” in the Mac menu bar. Use the same LAN, or connect both devices to Tailscale for remote access.")
             step("3", "Scan with your iPhone", "Scan the code to pair, then set up your agents in the Mac app. Keep the Mac app running and reachable for live updates.")
         }
     }

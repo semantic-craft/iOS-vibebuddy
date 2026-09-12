@@ -3,6 +3,14 @@ import CryptoKit
 
 /// Reads only the transcript selected by the repository. Never invokes an agent.
 enum SessionHistoryParser {
+    /// Exclude known agent-injected setup blocks from titles, while retaining
+    /// their full indexed messages for provenance and literal searches.
+    private static func isInjectedContext(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return ["<recommended_plugins", "<environment_context", "<user_instructions", "<permissions",
+                "<skill>", "# AGENTS.md instructions", "The following is the Codex agent history"]
+            .contains { trimmed.hasPrefix($0) }
+    }
     static let byteLimit = 32 * 1024 * 1024
     static func read(url: URL, agent: SessionHistoryAgent, updatedAt: Date) throws -> SessionHistorySession {
         let handle = try FileHandle(forReadingFrom: url)
@@ -19,6 +27,8 @@ enum SessionHistoryParser {
         let fractional = ISO8601DateFormatter(); fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         var nativeID = url.deletingPathExtension().lastPathComponent
         var cwd = ""
+        var source: String?
+        var conversationUpdatedAt: Date?
         var messages: [SessionHistoryMessage] = []
         var fallback: [SessionHistoryMessage] = []
         var seen = Set<String>()
@@ -44,10 +54,11 @@ enum SessionHistoryParser {
             guard let root = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any] else { malformed += 1; continue }
             if agent == .claude, root["isSidechain"] as? Bool == true { omitted += 1; continue }
             let date = stamp(root["timestamp"])
+            if let date { conversationUpdatedAt = max(conversationUpdatedAt ?? date, date) }
             let type = root["type"] as? String ?? ""
             if let path = root["cwd"] as? String { cwd = path }
             if agent == .claude, let id = root["sessionId"] as? String { nativeID = id }
-            func append(_ role: SessionHistoryRole, _ text: String, _ suffix: String, _ tool: String? = nil, fallbackOnly: Bool = false) {
+            func append(_ role: SessionHistoryRole, _ text: String, _ suffix: String, _ tool: String? = nil, fallbackOnly: Bool = false, kind: SessionHistoryMessageKind? = nil, groupID: String? = nil, callID: String? = nil, output: Bool = false, isError: Bool = false) {
                 guard !text.isEmpty else { return }
                 let material = role.rawValue + "\u{0}" + (tool ?? "") + "\u{0}" + suffix + "\u{0}" + text
                 let digest = SHA256.hash(data: Data(material.utf8)).map { String(format: "%02x", $0) }.joined()
@@ -63,43 +74,57 @@ enum SessionHistoryParser {
                 let bounded = String(text.prefix(128 * 1024))
                 if bounded.count < text.count { omitted += 1 }
                 order[key] = lineNumber
-                let message = SessionHistoryMessage(id: key, role: role, text: bounded, timestamp: date, toolName: tool)
+                let message = SessionHistoryMessage(id: key, role: role, text: bounded, timestamp: date, toolName: tool, kind: kind ?? (role == .user && isInjectedContext(text) ? .meta : .text), groupID: groupID, toolCallID: callID, isToolOutput: output, isError: isError)
                 if fallbackOnly { fallback.append(message) } else { messages.append(message) }
             }
             if agent == .claude {
+                if type == "system", root["subtype"] as? String == "compact_boundary" {
+                    append(.system, "Context compacted", "compact", kind: .compactSummary); continue
+                }
                 guard let body = root["message"] as? [String: Any], let role = SessionHistoryRole(rawValue: body["role"] as? String ?? type) else { continue }
+                let groupID = body["id"] as? String
+                let compact = root["isCompactSummary"] as? Bool == true
                 if let blocks = body["content"] as? [[String: Any]] {
                     for (index, block) in blocks.enumerated() {
                         switch block["type"] as? String {
-                        case "text": append(role, block["text"] as? String ?? "", "\(index)")
-                        case "tool_use": append(.tool, string(block["input"]), "\(index)", block["name"] as? String)
-                        case "tool_result": append(.tool, textBlocks(block["content"]), "\(index)", "Result")
-                        case "thinking", "redacted_thinking": omitted += 1
+                        case "text": append(role, block["text"] as? String ?? "", "\(index)", kind: compact ? .compactSummary : nil, groupID: groupID)
+                        case "tool_use": append(.tool, string(block["input"]), "\(index)", block["name"] as? String, groupID: groupID, callID: block["id"] as? String)
+                        case "tool_result": append(.tool, textBlocks(block["content"]), "\(index)", "Result", callID: block["tool_use_id"] as? String, output: true, isError: block["is_error"] as? Bool == true)
+                        case "thinking": append(.assistant, block["thinking"] as? String ?? "", "\(index)", kind: .thinking, groupID: groupID)
+                        case "redacted_thinking": omitted += 1
                         case "image": append(role, "[Image attachment not rendered]", "\(index)"); omitted += 1
                         default: omitted += 1
                         }
                     }
-                } else { append(role, textBlocks(body["content"]), "0") }
+                } else { append(role, textBlocks(body["content"]), "0", kind: compact ? .compactSummary : nil, groupID: groupID) }
             } else if let body = root["payload"] as? [String: Any] {
                 if type == "session_meta" {
                     nativeID = body["id"] as? String ?? nativeID
                     cwd = body["cwd"] as? String ?? cwd
+                    let originator = (body["originator"] as? String)?.lowercased()
+                    source = originator == "codex desktop" ? "desktop" : (body["source"] as? String)?.lowercased()
+                    if body["thread_source"] as? String == "subagent" || (body["source"] as? [String: Any])?["subagent"] != nil { source = "subagent" }
                 } else if type == "turn_context", cwd.isEmpty { cwd = body["cwd"] as? String ?? cwd }
                 else if type == "response_item" {
                     switch body["type"] as? String {
                     case "message":
                         if let role = SessionHistoryRole(rawValue: body["role"] as? String ?? "") {
-                            if body["channel"] as? String == "analysis" { omitted += 1 }
+                            if body["channel"] as? String == "analysis" { append(role, textBlocks(body["content"]), "thinking", kind: .thinking) }
                             else { append(role, textBlocks(body["content"]), "message") }
                         }
                     case "function_call", "custom_tool_call", "local_shell_call", "mcp_tool_call":
-                        append(.tool, string(body["arguments"] ?? body["input"] ?? body["action"] ?? "[Tool call]"), "call", body["name"] as? String ?? "Tool")
-                    case "function_call_output", "custom_tool_call_output": append(.tool, string(body["output"]), "output", "Result")
-                    case "reasoning": omitted += 1
+                        append(.tool, string(body["arguments"] ?? body["input"] ?? body["action"] ?? "[Tool call]"), "call", body["name"] as? String ?? "Tool", callID: body["call_id"] as? String ?? body["id"] as? String)
+                    case "function_call_output", "custom_tool_call_output": append(.tool, string(body["output"]), "output", "Result", callID: body["call_id"] as? String, output: true, isError: body["is_error"] as? Bool == true)
+                    case "reasoning":
+                        let summary = (body["summary"] as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }.joined(separator: "\n\n")
+                        append(.assistant, summary, "thinking", kind: .thinking)
                     default: omitted += 1
                     }
+                } else if type == "compacted" {
+                    append(.system, body["message"] as? String ?? "Context compacted", "compact", kind: .compactSummary)
                 } else if type == "event_msg" {
                     let event = body["type"] as? String
+                    if event == "context_compacted" { append(.system, "Context compacted", "compact", kind: .compactSummary) }
                     if event == "user_message" || event == "agent_message" {
                         append(event == "user_message" ? .user : .assistant, body["message"] as? String ?? "", "event", fallbackOnly: true)
                     }
@@ -111,7 +136,7 @@ enum SessionHistoryParser {
         if !fallback.isEmpty {
             var paired = Set<String>()
             let eventIDs = Set(fallback.map(\.id))
-            let semantic = (messages + fallback).filter { $0.role == .user || $0.role == .assistant }
+            let semantic = (messages + fallback).filter { ($0.role == .user || $0.role == .assistant) && $0.kind != .thinking }
                 .sorted { order[$0.id, default: 0] < order[$1.id, default: 0] }
             for (index, canonical) in semantic.enumerated() where !eventIDs.contains(canonical.id) {
                 let canonicalLine = order[canonical.id, default: 0]
@@ -137,7 +162,7 @@ enum SessionHistoryParser {
         if malformed > 0 { warnings.append("Partial history: \(malformed) malformed or incomplete JSONL records.") }
         if omitted > 0 { warnings.append("\(omitted) reasoning, attachment, unsupported or oversized blocks omitted/abbreviated.") }
         if messages.isEmpty { warnings.append("No readable messages in this source.") }
-        let title = messages.first(where: { $0.role == .user })?.text.components(separatedBy: .newlines).first ?? nativeID
-        return SessionHistorySession(id: agent.rawValue + ":" + nativeID, nativeSessionID: nativeID, agent: agent, projectPath: cwd, title: String(title.prefix(120)), sourcePath: url.path, updatedAt: updatedAt, messages: messages, warnings: warnings)
+        let title = messages.first(where: { $0.role == .user && !isInjectedContext($0.text) })?.text.components(separatedBy: .newlines).first ?? nativeID
+        return SessionHistorySession(id: agent.rawValue + ":" + nativeID, nativeSessionID: nativeID, agent: agent, projectPath: cwd, title: String(title.prefix(120)), sourcePath: url.path, updatedAt: conversationUpdatedAt ?? updatedAt, messages: messages, warnings: warnings, source: source)
     }
 }

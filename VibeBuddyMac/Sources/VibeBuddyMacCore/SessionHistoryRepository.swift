@@ -4,12 +4,15 @@ import CryptoKit
 /// Local history is a read-only projection, independent of the live Session reducer.
 public actor SessionHistoryRepository {
     private struct Entry: Codable { var modified: Date; var size: Int; var session: SessionHistorySession }
-    private struct Cache: Codable { var version: Int = 4; var entries: [String: Entry]; var pendingPaths: Set<String>? = nil }
+    private struct Cache: Codable { var version: Int = 7; var entries: [String: Entry]; var pendingPaths: Set<String>? = nil }
     private let roots: [(URL, SessionHistoryAgent)]
     private let directory: URL
     private let refreshByteBudget: Int
     private var entries: [String: Entry] = [:]
     private var favorites = Set<String>()
+    private var pins = Set<String>()
+    private var archives = Set<String>()
+    private var searchIndex: SessionHistorySearchIndex?
     private var issues: [String] = []
     private var refreshedAt: Date?
     private var pendingPaths = Set<String>()
@@ -27,23 +30,32 @@ public actor SessionHistoryRepository {
     private func ensureLoaded() {
         guard !loaded else { return }
         loaded = true
+        if let data = try? Data(contentsOf: directory.appendingPathComponent("archives.json")), let decoded = try? JSONDecoder().decode(Set<String>.self, from: data) { archives = decoded }
+        if let data = try? Data(contentsOf: directory.appendingPathComponent("pins.json")), let decoded = try? JSONDecoder().decode(Set<String>.self, from: data) { pins = decoded }
         if let data = try? Data(contentsOf: directory.appendingPathComponent("favorites.json")), let decoded = try? JSONDecoder().decode(Set<String>.self, from: data) { favorites = decoded }
-        if let data = try? Data(contentsOf: directory.appendingPathComponent("index.json")), let cache = try? JSONDecoder().decode(Cache.self, from: data), cache.version == 4 {
+        if let data = try? Data(contentsOf: directory.appendingPathComponent("index.json")), let cache = try? JSONDecoder().decode(Cache.self, from: data), [4, 5, 6, 7].contains(cache.version) {
             // Never reuse another configured source home's cached content.
             let configuredRoots = roots
             entries = cache.entries.filter { path, _ in configuredRoots.contains { URL(fileURLWithPath: path).resolvingSymlinksInPath().path.hasPrefix($0.0.path + "/") } }
-            pendingPaths = cache.pendingPaths ?? []
+            pendingPaths = Set((cache.pendingPaths ?? []).filter { entries[$0] != nil })
+            if cache.version < 7 { pendingPaths.formUnion(entries.keys) }
         }
     }
     public func snapshot() -> SessionHistorySnapshot {
         ensureLoaded()
         var byID: [String: SessionHistorySession] = [:]
         for entry in entries.values {
-            var session = entry.session; session.isFavorite = favorites.contains(session.id)
-            if let existing = byID[session.id], existing.isAvailable && (!session.isAvailable || existing.updatedAt >= session.updatedAt) { continue }
+            var session = entry.session; session.isFavorite = favorites.contains(session.id); session.isPinned = pins.contains(session.id); session.archivedLocally = archives.contains(session.id)
+            session.sourceRevision = "\(entry.modified.timeIntervalSince1970)|\(entry.size)"
+            if let existing = byID[session.id] {
+                if existing.isAvailable != session.isAvailable {
+                    if existing.isAvailable { continue }
+                } else if existing.updatedAt > session.updatedAt ||
+                    (existing.updatedAt == session.updatedAt && existing.sourcePath < session.sourcePath) { continue }
+            }
             byID[session.id] = session
         }
-        return SessionHistorySnapshot(sessions: byID.values.sorted { $0.updatedAt == $1.updatedAt ? $0.id < $1.id : $0.updatedAt > $1.updatedAt }, issues: issues, refreshedAt: refreshedAt)
+        return SessionHistorySnapshot(sessions: byID.values.sorted { if ($0.isPinned == true) != ($1.isPinned == true) { return $0.isPinned == true }; return $0.updatedAt == $1.updatedAt ? $0.id < $1.id : $0.updatedAt > $1.updatedAt }, issues: issues, refreshedAt: refreshedAt)
     }
     public func refresh(rebuild: Bool = false) throws -> SessionHistorySnapshot {
         ensureLoaded()
@@ -55,7 +67,12 @@ public actor SessionHistoryRepository {
         var totalBytes = 0
         var pendingCount = 0
         var excludedChildren = 0
-        if rebuild { pendingPaths.formUnion(entries.keys) }
+        if rebuild {
+            searchIndex = nil
+            let indexFile = directory.appendingPathComponent("search.sqlite")
+            if fm.fileExists(atPath: indexFile.path) { try fm.removeItem(at: indexFile) }
+            pendingPaths.formUnion(entries.keys)
+        }
         for (root, agent) in roots {
             guard fm.fileExists(atPath: root.path) else { issues.append("Source directory unavailable: \(root.path)"); continue }
             var enumerationErrors = 0
@@ -81,6 +98,7 @@ public actor SessionHistoryRepository {
                     totalBytes += min(size, SessionHistoryParser.byteLimit)
                     entries[file.path] = try autoreleasepool {
                         var session = try SessionHistoryParser.read(url: file, agent: agent, updatedAt: modified)
+                        session.sourceArchived = agent == .codex && root.lastPathComponent == "archived_sessions"
                         do { try save(session, name: contentFilename(file.path)) } catch { cacheFailure = error; throw error }
                         session.messages = []
                         return Entry(modified: modified, size: size, session: session)
@@ -120,6 +138,10 @@ public actor SessionHistoryRepository {
         guard full.id == metadata.id, full.sourcePath == metadata.sourcePath else {
             throw CocoaError(.fileReadCorruptFile)
         }
+        full.sourceRevision = metadata.sourceRevision
+        full.archivedLocally = metadata.archivedLocally
+        full.isPinned = metadata.isPinned
+        full.sourceArchived = metadata.sourceArchived
         full.isFavorite = metadata.isFavorite
         full.isAvailable = metadata.isAvailable && FileManager.default.isReadableFile(atPath: metadata.sourcePath)
         return full
@@ -134,28 +156,53 @@ public actor SessionHistoryRepository {
         try save(next, name: "favorites.json")
         favorites = next
     }
-    public func search(_ query: String, projectPath: String? = nil, favoritesOnly: Bool = false, limit: Int = 200) throws -> [SessionHistorySearchResult] {
+    /// Library organization only: does not change native archive state or live tasks.
+    public func setArchived(sessionID: String, isArchived: Bool) throws {
+        ensureLoaded()
+        var next = archives
+        if isArchived { next.insert(sessionID) } else { next.remove(sessionID) }
+        try save(next, name: "archives.json")
+        archives = next
+    }
+    public func setPinned(sessionID: String, isPinned: Bool) throws {
+        ensureLoaded()
+        var next = pins
+        if isPinned { next.insert(sessionID) } else { next.remove(sessionID) }
+        try save(next, name: "pins.json")
+        pins = next
+    }
+    public func search(_ query: String, projectPath: String? = nil, favoritesOnly: Bool = false,
+                       agent: SessionHistoryAgent? = nil, archived: Bool? = nil,
+                       limit: Int = 200) throws -> [SessionHistorySearchResult] {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !needle.isEmpty, limit > 0 else { return [] }
-        var results: [SessionHistorySearchResult] = []
-        for session in snapshot().sessions {
-            try Task.checkCancellation()
-            guard projectPath == nil || session.projectPath == projectPath, !favoritesOnly || session.isFavorite else { continue }
-            let reachedLimit = try autoreleasepool {
-                let full = try load(session)
-                for (index, message) in full.messages.enumerated() {
-                    if index.isMultiple(of: 64) { try Task.checkCancellation() }
-                    guard let range = message.text.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive]) else { continue }
-                    let start = message.text.index(range.lowerBound, offsetBy: -70, limitedBy: message.text.startIndex) ?? message.text.startIndex
-                    let end = message.text.index(range.upperBound, offsetBy: 130, limitedBy: message.text.endIndex) ?? message.text.endIndex
-                    results.append(SessionHistorySearchResult(sessionID: session.id, messageID: message.id, excerpt: String(message.text[start..<end])))
-                    if results.count >= limit { return true }
-                }
-                return false
-            }
-            if reachedLimit { return results }
+        let sessions = snapshot().sessions.filter {
+            (projectPath == nil || $0.projectPath == projectPath) && (!favoritesOnly || $0.isFavorite)
+                && (agent == nil || $0.agent == agent) && (archived == nil || $0.isArchived == archived)
         }
-        return results
+        if searchIndex == nil { searchIndex = try SessionHistorySearchIndex(directory: directory) }
+        guard let searchIndex else { return [] }
+        // Reconcile derived index by source version, including after a restart or cache migration.
+        // Warm queries do not decode transcript caches. A failing cache remains an explicit error.
+        for session in sessions {
+            try Task.checkCancellation()
+            guard let entry = entries[session.sourcePath] else { continue }
+            let stamp = "v7|\(entry.modified.timeIntervalSince1970)|\(entry.size)"
+            if try !searchIndex.isCurrent(path: session.sourcePath, stamp: stamp) {
+                try autoreleasepool { try searchIndex.replace(load(session), stamp: stamp) }
+            }
+        }
+        return try searchIndex.search(needle, sessions: sessions, limit: limit)
+    }
+    public func summary(sessionID: String) throws -> SessionHistorySummary? {
+        let file = directory.appendingPathComponent("summary-" + contentFilename(sessionID))
+        guard FileManager.default.fileExists(atPath: file.path) else { return nil }
+        let record = try JSONDecoder().decode(SessionHistorySummary.self, from: Data(contentsOf: file))
+        guard record.sessionID == sessionID else { throw CocoaError(.fileReadCorruptFile) }
+        return record
+    }
+    public func saveSummary(_ summary: SessionHistorySummary) throws {
+        try save(summary, name: "summary-" + contentFilename(summary.sessionID))
     }
     private func save<T: Encodable>(_ value: T, name: String) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])

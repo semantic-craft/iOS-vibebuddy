@@ -497,11 +497,12 @@ struct MenuContent: View {
                 Text("Push registration does not confirm notification delivery.")
                     .foregroundStyle(MacTheme.ink2)
                 Divider()
+                TailscalePairingSettings(model: model)
                 Text(model.pairingAddress).font(MacTheme.mono(11)).textSelection(.enabled)
                 Button(model.pairingInProgress ? "Cancel pairing" : "Pair a phone") {
                     if model.pairingInProgress { model.endPairing() } else { model.beginPairing() }
                 }
-                .disabled(model.changingPairing)
+                .disabled(model.changingPairing || (!model.pairingInProgress && model.pairing == nil))
                 if model.pairingInProgress, let qr = model.qrImage {
                     Image(nsImage: qr).interpolation(.none).resizable()
                         .scaledToFit().frame(width: 176, height: 176)

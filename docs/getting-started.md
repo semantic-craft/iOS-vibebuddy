@@ -25,6 +25,42 @@ The local connection uses HTTP/WebSocket with bearer authentication, not built-i
 TLS. Use a trusted LAN or a protected private network; do not expose port 9876
 directly to the public internet. Treat the pairing QR as a credential.
 
+## Remote access with Tailscale
+
+Use the official Tailscale apps on your Mac and iPhone and sign both into the
+same tailnet. VibeBuddy does not install, log in to or manage the VPN. No
+Cloudflare account, public domain or router port forwarding is needed.
+
+1. In Tailscale on the Mac, copy its IPv4 address (`100.x.x.x`) or full MagicDNS
+   name (`your-mac.your-tailnet.ts.net`).
+2. Open VibeBuddy's phone details on the Mac, enable **Use Tailscale for remote
+   access**, and paste that address without a URL scheme, path or port.
+3. Choose **Pair a phone** to open the two-minute pairing window. Scan the QR on
+   iPhone, or use manual entry with the same host, the Mac service port (normally
+   `9876`), and pairing token. Keep the QR and token private.
+4. With Tailscale connected on iPhone, turn off Wi-Fi and check that a current
+   task appears. Test a supported action and check its receipt; saving an address
+   alone does not establish a connection.
+
+Existing LAN pairings remain unchanged. To return to LAN, select that connection
+on the Mac and pair using its LAN address. There is one selected connection, with
+no automatic fallback between addresses. The app uses HTTP/WS inside Tailscale's
+protected network; it does not expose the daemon publicly or add HTTPS support.
+MagicDNS requires Tailscale DNS resolution; the app permits HTTP to `*.ts.net`
+for this private-network flow, without disabling transport security globally.
+
+If access is refused, check the pairing token and explicitly reconnect. If a
+connection times out, check both Tailscale clients, the Mac's running state and
+whether tailnet rules permit the service port. A timeout does not identify which
+of these failed. The app reconnects after ordinary network interruptions but
+never resends an uncertain task action automatically.
+
+Apple Watch continues to use the paired iPhone connection; this does not enable
+independent Watch networking. Background notifications still need the separate
+APNs setup below. The Mac must remain running and reachable. Other VPNs on iPhone
+may conflict with Tailscale; see the official [VPN compatibility notes](https://tailscale.com/docs/reference/faq/other-vpns)
+and [MagicDNS guide](https://tailscale.com/docs/features/magicdns).
+
 ## Connect an agent
 
 Start with Setup in the Mac app's settings. For manual installation, clone this

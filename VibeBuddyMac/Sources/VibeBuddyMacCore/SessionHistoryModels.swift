@@ -5,14 +5,21 @@ public enum SessionHistoryAgent: String, Codable, Sendable, CaseIterable {
     public var displayName: String { self == .claude ? "Claude Code" : "Codex" }
 }
 public enum SessionHistoryRole: String, Codable, Sendable { case user, assistant, tool, system }
+public enum SessionHistoryMessageKind: String, Codable, Sendable { case text, meta, thinking, compactSummary }
 public struct SessionHistoryMessage: Identifiable, Codable, Sendable, Equatable {
     public var id: String
     public var role: SessionHistoryRole
     public var text: String
     public var timestamp: Date?
     public var toolName: String?
-    public init(id: String, role: SessionHistoryRole, text: String, timestamp: Date? = nil, toolName: String? = nil) {
+    public var kind: SessionHistoryMessageKind?
+    public var groupID: String?
+    public var toolCallID: String?
+    public var isToolOutput: Bool?
+    public var isError: Bool?
+    public init(id: String, role: SessionHistoryRole, text: String, timestamp: Date? = nil, toolName: String? = nil, kind: SessionHistoryMessageKind? = nil, groupID: String? = nil, toolCallID: String? = nil, isToolOutput: Bool = false, isError: Bool = false) {
         self.id = id; self.role = role; self.text = text; self.timestamp = timestamp; self.toolName = toolName
+        self.kind = kind; self.groupID = groupID; self.toolCallID = toolCallID; self.isToolOutput = isToolOutput; self.isError = isError
     }
 }
 public struct SessionHistorySession: Identifiable, Codable, Sendable, Equatable {
@@ -30,9 +37,16 @@ public struct SessionHistorySession: Identifiable, Codable, Sendable, Equatable 
     public var warnings: [String]
     public var isFavorite: Bool
     public var isAvailable: Bool
-    public init(id: String, nativeSessionID: String, agent: SessionHistoryAgent, projectPath: String, title: String, sourcePath: String, updatedAt: Date, messages: [SessionHistoryMessage], warnings: [String] = [], isFavorite: Bool = false, isAvailable: Bool = true) {
+    public var sourceArchived: Bool?
+    public var source: String?
+    public var sourceRevision: String?
+    public var isPinned: Bool?
+    public var archivedLocally: Bool?
+    public var isArchived: Bool { sourceArchived == true || archivedLocally == true }
+    public init(id: String, nativeSessionID: String, agent: SessionHistoryAgent, projectPath: String, title: String, sourcePath: String, updatedAt: Date, messages: [SessionHistoryMessage], warnings: [String] = [], isFavorite: Bool = false, isAvailable: Bool = true, sourceArchived: Bool = false, source: String? = nil) {
         self.id = id; self.nativeSessionID = nativeSessionID; self.agent = agent; self.projectPath = projectPath
         self.title = title; self.sourcePath = sourcePath; self.updatedAt = updatedAt; self.messages = messages; self.messageCount = messages.count
+        self.sourceArchived = sourceArchived; self.source = source
         self.warnings = warnings; self.isFavorite = isFavorite; self.isAvailable = isAvailable
     }
 }
@@ -53,9 +67,11 @@ public struct SessionHistorySearchResult: Identifiable, Sendable {
 public enum SessionHistoryExport {
     public static func markdown(session: SessionHistorySession) -> String {
         var output = "# \(session.title)\n\nAgent: \(session.agent.displayName)\n\nSession: \(session.nativeSessionID)\n\nProject: \(session.projectPath)\n\nSource: \(session.sourcePath)\n\n"
+        if session.sourceArchived == true { output += "> Archived in the source agent.\n\n" }
         if !session.isAvailable { output += "> Source unavailable; cached history.\n\n" }
         for warning in session.warnings { output += "> \(warning)\n\n" }
-        for message in session.messages {
+        for message in session.messages where message.kind != .meta && message.kind != .thinking {
+            if message.kind == .compactSummary { output += "## Context compacted\n\n"; continue }
             output += "## \(message.role.rawValue.capitalized)\(message.toolName.map { " — " + $0 } ?? "")\n\n"
             if message.role == .tool {
                 let fence = String(repeating: "`", count: max(3, message.text.split(whereSeparator: { $0 != "`" }).map(\.count).max().map { $0 + 1 } ?? 3))

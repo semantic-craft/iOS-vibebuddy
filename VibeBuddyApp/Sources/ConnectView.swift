@@ -12,11 +12,17 @@ struct ConnectView: View {
     @State private var showScanner = false
     @State private var showManual = false
     @State private var showScannerHelp = false
+    @State private var connectionError: String?
 
-    private var canConnect: Bool { !host.isEmpty && Int(port) != nil && !token.isEmpty }
+    private var canConnect: Bool { PairingPayload(host: host, port: Int(port) ?? 0, token: token).isValidConnection }
 
     /// Save a freshly entered pairing and play the pairing-success cue once.
     private func pair(_ payload: PairingPayload) {
+        guard payload.isValidConnection else {
+            connectionError = String(localized: "Enter a valid Mac host, port and pairing token.")
+            return
+        }
+        connectionError = nil
         connection.save(payload)
         dashboard.confirmPairing()
     }
@@ -54,6 +60,9 @@ struct ConnectView: View {
                     }
                     .font(.subheadline)
 
+                    Text("Away from home? Join the same Tailscale network on your Mac and iPhone, then use your Mac’s Tailscale address.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if let connectionError { Text(connectionError).foregroundStyle(.red) }
                     if showManual { manualFields }
 
                     Button("See the demo (no Mac needed)") { connection.enterDemo() }
@@ -111,7 +120,7 @@ struct ConnectView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         DisclosureGroup("Can't find the QR code?", isExpanded: $showScannerHelp) {
                             VStack(alignment: .leading, spacing: 12) {
-                                Text("Install the companion on your Mac, then open “Pair a phone” in its menu bar. Keep both devices on the same local network.")
+                                Text("Install the companion on your Mac, then open “Pair a phone” in its menu bar. Use the same local network or connect both devices to Tailscale.")
                                     .font(.subheadline)
                                 MacCompanionDownloadActions()
                             }.padding(.top, 12)

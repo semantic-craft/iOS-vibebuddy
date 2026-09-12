@@ -131,3 +131,5 @@ Mac App、iPhone App、Watch 伴侣、守护进程、共享 Swift 模型和 Agen
 [m5-paper-buddy](https://github.com/op7418/m5-paper-buddy) 启发了通过 hook 与对话记录观测任务状态的思路；[open-vibe-island](https://github.com/Octane0411/open-vibe-island) 为多 Agent 模型与 Mac Glance 提供了参考。VibeBuddy 的 Swift 实现为独立编写。App 图标借助 [ip-as-logo skill](https://github.com/s1dashu/ip-as-logo-skill)设计，App 内的小猫由共享 Swift 代码绘制。
 
 [MIT](LICENSE) © 2026 Xianwei Zhang。独立社区项目，与 Anthropic、OpenAI 或 Apple 无隶属或背书关系。
+
+离开局域网时，可通过外置 Tailscale 连接：[远程连接设置](docs/getting-started.md#remote-access-with-tailscale)。

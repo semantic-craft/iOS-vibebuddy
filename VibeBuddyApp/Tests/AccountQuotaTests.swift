@@ -39,8 +39,8 @@ final class AccountQuotaTests: XCTestCase {
 
 private struct QuotaStreamer: SnapshotStreaming {
     let quota: ProviderQuota
-    func stream(_ pairing: PairingPayload) -> AsyncStream<Snapshot> {
-        AsyncStream { continuation in
+    func stream(_ pairing: PairingPayload) -> AsyncThrowingStream<Snapshot, Error> {
+        AsyncThrowingStream { continuation in
             if pairing.host == "mac-a" {
                 continuation.yield(Snapshot(sessions: [], serverTime: Date(), sourceID: "mac-a", providerQuota: [quota]))
             }

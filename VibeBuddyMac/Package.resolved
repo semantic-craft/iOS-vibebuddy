@@ -1,5 +1,5 @@
 {
-  "originHash" : "f6cbd50b9170f9e0ba09677946c7bd7d3d9a23b1e0ffbe8a03646910f30bb8e3",
+  "originHash" : "5512fb38df4a19c610914e1602bd7aa922344c87b182ff323b2f651d197c2af1",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -35,15 +35,6 @@
       "state" : {
         "revision" : "89c66b8d6655209268c44f619afcf771d8d83ec9",
         "version" : "2.7.0"
-      }
-    },
-    {
-      "identity" : "sparkle",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/sparkle-project/Sparkle",
-      "state" : {
-        "revision" : "ac2def288cbff5cfc7df3ffef6abdf45b72bcb0a",
-        "version" : "2.9.6"
       }
     },
     {
@@ -98,6 +89,15 @@
       "state" : {
         "revision" : "bde8ca32a096825dfce37467137c903418c1893d",
         "version" : "1.19.1"
+      }
+    },
+    {
+      "identity" : "swift-cmark",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swiftlang/swift-cmark.git",
+      "state" : {
+        "revision" : "924936d0427cb25a61169739a7660230bffa6ea6",
+        "version" : "0.8.0"
       }
     },
     {
@@ -161,6 +161,15 @@
       "state" : {
         "revision" : "2aed77ae5ec9a86d8fe42c12275e4c2653a286ee",
         "version" : "1.13.1"
+      }
+    },
+    {
+      "identity" : "swift-markdown",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swiftlang/swift-markdown.git",
+      "state" : {
+        "revision" : "ea79e83c8744d2b50b0dc2d5bbd1e857e1253bf9",
+        "version" : "0.6.0"
       }
     },
     {

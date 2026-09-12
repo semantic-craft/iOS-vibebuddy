@@ -1,5 +1,11 @@
 # vibebuddy iOS — App Store 提交逐步清单
 
+## 当前发布必过项：Watch 通知、震动与审批
+
+每次涉及远程连接、推送、Watch 或配对的发布，按 [Watch 正式版验收](watch-notification-acceptance.md)核对导出包，并在 TestFlight 的生产推送环境完成手机锁屏后的通知、真实震动、手表批准和 Mac 回执。记录双方实际版本及推送环境；Debug/APNs 沙盒通过不能替代这一项。该项未通过时，不能标记正式版已验收或提交公开发布。
+
+以下保留的旧版本清单属于历史记录；当前包的 Watch App Group、版本和签名以 `project.yml`、entitlements 及归档脚本实测为准。
+
 > 当前 1.3.8（19）的更新内容以 [1.3.8 发布说明](release-notes-1.3.8.md) 为准；1.3 的 [提交文案包](app-store-submission-1.3.md) 仅供历史参考。本文件保留历史准备记录；旧版本号、构建号、截图与在线状态不可直接沿用。
 
 图例:🧑 = 只能你做(登录/付费/网页/截图) · 🤖 = 我能帮你做(代码/配置/文案)

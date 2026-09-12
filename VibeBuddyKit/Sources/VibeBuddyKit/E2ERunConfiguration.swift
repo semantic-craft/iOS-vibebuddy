@@ -53,6 +53,7 @@ public struct E2ERunConfiguration: Sendable {
         guard octets.count == 4, numbers.count == 4,
               zip(octets, numbers).allSatisfy({ String($0.0) == String($0.1) }),
               host == "127.0.0.1" || numbers[0] == 10 ||
+                (numbers[0] == 100 && (64...127).contains(numbers[1])) ||
                 (numbers[0] == 172 && (16...31).contains(numbers[1])) ||
                 (numbers[0] == 192 && numbers[1] == 168) else {
             throw ConfigurationError.invalidEnvironment

@@ -16,6 +16,11 @@ final class HistoryLibraryModel: ObservableObject {
     @Published private(set) var transcript: SessionHistorySession?
     @Published private(set) var readingError: String?
     @Published private(set) var reading = false
+    @Published private(set) var summary: SessionHistorySummary?
+    @Published private(set) var summarizing = false
+    @Published private(set) var summaryError: String?
+    private let summaryService = SessionHistorySummaryService()
+    private var summaryTask: Task<Void, Never>?
     private var readGeneration = 0
     private let repository: SessionHistoryRepository
     private var searchGeneration = 0
@@ -43,7 +48,7 @@ final class HistoryLibraryModel: ObservableObject {
         } catch { self.error = error.localizedDescription }
     }
 
-    func search(_ query: String, project: String?, favorites: Bool) async {
+    func search(_ query: String, project: String?, favorites: Bool, agent: SessionHistoryAgent?, archived: Bool?) async {
         searchGeneration += 1
         let generation = searchGeneration
         searching = true
@@ -57,7 +62,7 @@ final class HistoryLibraryModel: ObservableObject {
         do { try await Task.sleep(for: .milliseconds(180)) } catch { return }
         guard !Task.isCancelled else { return }
         do {
-            let found = try await repository.search(query, projectPath: project, favoritesOnly: favorites, limit: 200)
+            let found = try await repository.search(query, projectPath: project, favoritesOnly: favorites, agent: agent, archived: archived, limit: 200)
             guard generation == searchGeneration, !Task.isCancelled else { return }
             results = found
         } catch {
@@ -71,6 +76,7 @@ final class HistoryLibraryModel: ObservableObject {
         readGeneration += 1
         let generation = readGeneration
         readingError = nil
+        summaryTask?.cancel(); summaryTask = nil; summarizing = false; summary = nil; summaryError = nil
         guard let id else { transcript = nil; reading = false; return }
         if transcript?.id != id { transcript = nil }
         reading = true
@@ -78,12 +84,57 @@ final class HistoryLibraryModel: ObservableObject {
             let result = try await repository.session(id: id)
             guard generation == readGeneration, !Task.isCancelled else { return }
             transcript = result
+            do {
+                let saved = try await repository.summary(sessionID: id)
+                if generation == readGeneration { summary = saved }
+            } catch { if generation == readGeneration { summaryError = "Saved summary could not be read. You can generate it again." } }
             if result == nil { readingError = "This record is no longer indexed. Refresh the library." }
         } catch {
             guard generation == readGeneration, !Task.isCancelled else { return }
             readingError = error.localizedDescription
         }
         if generation == readGeneration { reading = false }
+    }
+
+    func generateSummary() {
+        guard !summarizing, let selected = transcript else { return }
+        let generation = readGeneration
+        let config = CompletionSummaryConfiguration.load()
+        summarizing = true; summaryError = nil
+        summaryTask = Task {
+            defer { if generation == readGeneration { summarizing = false } }
+            do {
+                let result = try await summaryService.generate(selected, configuration: config)
+                guard generation == readGeneration, !Task.isCancelled else { return }
+                try await repository.saveSummary(result)
+                guard generation == readGeneration, !Task.isCancelled else { return }
+                summary = result
+            } catch is CancellationError { }
+            catch let failure as CompletionSummaryFailure {
+                guard generation == readGeneration, !Task.isCancelled else { return }
+                switch failure {
+                case .missingProvider, .missingModel, .missingKey, .invalidModel, .invalidWorkspace:
+                    summaryError = "Configure the summary provider, text model and API key in Settings."
+                default: summaryError = "Summary could not be generated (\(failure.rawValue)). You can retry."
+                }
+            } catch {
+                if generation == readGeneration, !Task.isCancelled { summaryError = "Could not save the summary. You can retry." }
+            }
+        }
+    }
+    func cancelSummary() { summaryTask?.cancel() }
+
+    func togglePinned(_ session: SessionHistorySession) async {
+        do {
+            try await repository.setPinned(sessionID: session.id, isPinned: session.isPinned != true)
+            snapshot = await repository.snapshot()
+        } catch { self.error = error.localizedDescription }
+    }
+    func toggleArchive(_ session: SessionHistorySession) async {
+        do {
+            try await repository.setArchived(sessionID: session.id, isArchived: session.archivedLocally != true)
+            snapshot = await repository.snapshot()
+        } catch { self.error = error.localizedDescription }
     }
 
     func toggleFavorite(_ session: SessionHistorySession) async {
@@ -101,6 +152,9 @@ struct HistoryWorkbenchView: View {
     let query: String
     let favoritesOnly: Bool
     @State private var project: String?
+    @State private var agent: SessionHistoryAgent?
+    @State private var archiveScope = "all"
+    private var archived: Bool? { archiveScope == "all" ? nil : archiveScope == "archived" }
     @State private var selection: String?
     @State private var targetMessage: String?
     @State private var exportError: String?
@@ -109,6 +163,7 @@ struct HistoryWorkbenchView: View {
     private var sessions: [SessionHistorySession] {
         history.snapshot.sessions.filter {
             (project == nil || $0.projectPath == project) && (!favoritesOnly || $0.isFavorite)
+                && (agent == nil || $0.agent == agent) && (archived == nil || $0.isArchived == archived)
         }
     }
     private var projects: [String] {
@@ -120,10 +175,10 @@ struct HistoryWorkbenchView: View {
     }
     private var readKey: String {
         guard let selected else { return "" }
-        return "\(selected.id)|\(selected.updatedAt.timeIntervalSince1970)|\(selected.isAvailable)"
+        return "\(selected.id)|\(selected.sourcePath)|\(selected.sourceRevision ?? "")|\(selected.updatedAt.timeIntervalSince1970)|\(selected.isAvailable)"
     }
     private var searchKey: String {
-        "\(query)\u{1f}\(project ?? "")\u{1f}\(favoritesOnly)\u{1f}\(history.snapshot.refreshedAt?.timeIntervalSince1970 ?? 0)\u{1f}\(sessions.filter(\.isFavorite).count)"
+        "\(agent?.rawValue ?? "")|\(archiveScope)|\(sessions.map { "\($0.id):\($0.isFavorite):\($0.isArchived)" }.joined(separator: ","))|\(query)\u{1f}\(project ?? "")\u{1f}\(favoritesOnly)\u{1f}\(history.snapshot.refreshedAt?.timeIntervalSince1970 ?? 0)\u{1f}\(sessions.filter(\.isFavorite).count)"
     }
 
     var body: some View {
@@ -139,8 +194,10 @@ struct HistoryWorkbenchView: View {
                 await history.refresh()
             }
         }
-        .task(id: searchKey) { await history.search(query, project: project, favorites: favoritesOnly) }
+        .task(id: searchKey) { await history.search(query, project: project, favorites: favoritesOnly, agent: agent, archived: archived) }
         .task(id: readKey) { await history.read(selected?.id) }
+        .onChange(of: agent) { _, _ in clearSelection() }
+        .onChange(of: archiveScope) { _, _ in clearSelection() }
         .onChange(of: project) { _, _ in clearSelection() }
         .onChange(of: favoritesOnly) { _, _ in clearSelection() }
         .onChange(of: query) { _, _ in clearSelection() }
@@ -157,6 +214,17 @@ struct HistoryWorkbenchView: View {
             Text("Local library").font(.headline)
             Text("Claude Code · Codex\nIncludes archived Codex sessions")
                 .font(.caption).foregroundStyle(.secondary)
+            Picker("Agent", selection: $agent) {
+                Text("All agents").tag(nil as SessionHistoryAgent?)
+                ForEach(SessionHistoryAgent.allCases, id: \.self) { value in
+                    Text(value.displayName).tag(Optional(value))
+                }
+            }
+            Picker("Archive", selection: $archiveScope) {
+                Text("All history").tag("all")
+                Text("Unarchived").tag("unarchived")
+                Text("Archived").tag("archived")
+            }
             Button { project = nil } label: {
                 Label("All projects", systemImage: "tray.full")
                     .frame(maxWidth: .infinity, alignment: .leading).padding(8)
@@ -248,10 +316,12 @@ struct HistoryWorkbenchView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .top) {
                 Text(session.title).font(.body.weight(.medium)).lineLimit(2)
+                if session.isPinned == true { Image(systemName: "pin.fill").foregroundStyle(.secondary) }
                 if session.isFavorite { Image(systemName: "star.fill").foregroundStyle(.yellow) }
             }
             Text("\(session.agent.displayName) · \(session.updatedAt.formatted(date: .abbreviated, time: .shortened))")
                 .font(.caption).foregroundStyle(.secondary)
+            if session.isArchived { Label(session.sourceArchived == true ? "Archived in Codex" : "Archived in library", systemImage: "archivebox").font(.caption) }
             if let excerpt { Text(excerpt).font(.caption).lineLimit(3) }
             if !session.isAvailable { Label("Source unavailable", systemImage: "exclamationmark.triangle").font(.caption) }
             else if !session.warnings.isEmpty { Label("Partial or limited record", systemImage: "info.circle").font(.caption) }
@@ -289,7 +359,11 @@ struct HistoryWorkbenchView: View {
                         Button("Retry") { Task { await history.read(metadata.id) } }
                     }.frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    HistoryMessageReader(session: session, targetMessage: targetMessage)
+                    VStack(spacing: 0) {
+                        HistorySummaryView(history: history, session: session)
+                        Divider()
+                        HistoryMessageReader(session: session, targetMessage: targetMessage)
+                    }
                 }
             }
             .frame(minWidth: 340, maxWidth: .infinity, maxHeight: .infinity)
@@ -314,6 +388,10 @@ struct HistoryWorkbenchView: View {
         Button { Task { await history.toggleFavorite(session) } } label: {
             Label(session.isFavorite ? "Unfavorite" : "Favorite", systemImage: session.isFavorite ? "star.fill" : "star")
         }
+        Button(session.isPinned == true ? "Unpin" : "Pin") { Task { await history.togglePinned(session) } }
+        Button(session.archivedLocally == true ? "Unarchive in library" : "Archive in library") {
+            Task { await history.toggleArchive(session) }
+        }.help("Organizes this library only; the original agent and current tasks are unchanged.")
         Button("Export Markdown…") { export(session) }
             .disabled(history.reading || history.transcript?.id != session.id || history.readingError != nil)
         Button("Show source") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: session.sourcePath)]) }
@@ -337,78 +415,6 @@ struct HistoryWorkbenchView: View {
             panel.beginSheetModal(for: window, completionHandler: completion)
         } else {
             panel.begin(completionHandler: completion)
-        }
-    }
-}
-
-private struct HistoryMessageReader: View {
-    let session: SessionHistorySession
-    let targetMessage: String?
-    @State private var expandedTools = Set<String>()
-    @State private var pageStart = 0
-    private let pageSize = 30
-    private var pageEnd: Int { min(pageStart + pageSize, session.messages.count) }
-
-    var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    Color.clear.frame(height: 1).id("page-top")
-                    if let targetMessage, !session.messages.contains(where: { $0.id == targetMessage }) {
-                        Text("This search match is no longer in the current record. Search again to locate the updated message.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    if pageStart > 0 {
-                        Button("Earlier messages") {
-                            pageStart = max(0, pageStart - pageSize)
-                            proxy.scrollTo("page-top", anchor: .top)
-                        }
-                    }
-                    if !session.messages.isEmpty {
-                        Text("Messages \(pageStart + 1)–\(pageEnd) of \(session.messages.count)")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    if session.messages.isEmpty {
-                        Text("No readable messages in this record.").foregroundStyle(.secondary)
-                    }
-                    ForEach(Array(session.messages.dropFirst(pageStart).prefix(pageSize))) { message in
-                        VStack(alignment: .leading, spacing: 6) {
-                            if message.role == .tool {
-                                DisclosureGroup(message.toolName ?? "Tool call", isExpanded: Binding(
-                                    get: { expandedTools.contains(message.id) },
-                                    set: { if $0 { expandedTools.insert(message.id) } else { expandedTools.remove(message.id) } })) {
-                                    Text(message.text).font(.system(.callout, design: .monospaced)).textSelection(.enabled)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                }
-                            } else {
-                                Text(message.role.rawValue.capitalized).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                                Text(message.text).font(.body).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                        }
-                        .padding(12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(message.id == targetMessage ? Color.accentColor.opacity(0.13) : .clear, in: RoundedRectangle(cornerRadius: 8))
-                        .id(message.id)
-                    }
-                    if pageEnd < session.messages.count {
-                        Button("Later messages") {
-                            pageStart = pageEnd
-                            proxy.scrollTo("page-top", anchor: .top)
-                        }
-                    }
-                }.padding(16)
-            }
-            .onChange(of: session.messages.count) { _, count in
-                pageStart = min(pageStart, max(0, count - 1))
-            }
-            .task(id: targetMessage) {
-                if let targetMessage, let index = session.messages.firstIndex(where: { $0.id == targetMessage }) {
-                    pageStart = index
-                    expandedTools.insert(targetMessage)
-                    await Task.yield()
-                    proxy.scrollTo(targetMessage, anchor: .top)
-                }
-            }
         }
     }
 }
