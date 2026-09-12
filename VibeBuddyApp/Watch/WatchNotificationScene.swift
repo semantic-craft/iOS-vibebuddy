@@ -92,22 +92,28 @@ struct WatchNotificationView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if !content.title.isEmpty {
-                Text(content.title)
-                    .font(CompanionType.font(15, .black))
-                    .foregroundStyle(accent)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.8)
+                HStack(alignment: .top, spacing: 6) {
+                    StatusDot(state: state)
+                        .padding(.top, 5)
+                    Text(content.title)
+                        .font(CompanionType.font(15, .semibold))
+                        .foregroundStyle(CompanionPalette.status(state))
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.8)
+                }
             }
             if !content.body.isEmpty {
                 Text(content.body)
-                    .font(.caption)
+                    .font(CompanionType.font(12))
+                    .foregroundStyle(CompanionPalette.ink)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var accent: Color {
-        CompanionPalette.status(content.category == nil ? .completeUnread : .requiresInput)
+    /// A cue with a category is a wait; the rest is news of a completion.
+    private var state: TaskPresentationState {
+        content.category == nil ? .completeUnread : .requiresInput
     }
 }

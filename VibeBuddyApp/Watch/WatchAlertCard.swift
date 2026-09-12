@@ -23,10 +23,12 @@ struct WatchAlertCard: View {
     private var accent: Color { CompanionPalette.status(.requiresInput) }
 
     var body: some View {
+        // A card on a hairline, not a tinted block: the dot and the kicker
+        // carry the urgency (ADR-0017 §4).
         content
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .companionCard()
             .accessibilityElement(children: .combine)
     }
 
@@ -62,21 +64,24 @@ struct WatchAlertCard: View {
 
     private var content: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
+            HStack(alignment: .top, spacing: 6) {
+                StatusDot(state: .requiresInput)
+                    .padding(.top, 3)
                 Text(label)
-                    .font(CompanionType.font(9, .heavy)).textCase(.uppercase).kerning(0.4)
+                    .font(CompanionType.font(10, .medium))
                     .foregroundStyle(accent)
                     .lineLimit(2)
                     .minimumScaleFactor(0.8)
                 Spacer(minLength: 4)
                 Text(WatchFormat.duration(alert.waitedFor(now: now)))
-                    .font(.caption2)
+                    .font(CompanionType.font(10))
                     .monospacedDigit()
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(CompanionPalette.ink2)
             }
 
             Text(title)
-                .font(CompanionType.font(15, .black))
+                .font(CompanionType.font(15, .semibold))
+                .foregroundStyle(CompanionPalette.ink)
                 .lineLimit(3)
                 .minimumScaleFactor(0.8)
                 .fixedSize(horizontal: false, vertical: true)
@@ -85,12 +90,13 @@ struct WatchAlertCard: View {
             // mono strip. A question already is the title above.
             if alert.waitKind == .permission, let request = alert.request {
                 Text(request)
-                    .font(.system(.caption2, design: .monospaced))
+                    .font(CompanionType.mono(10))
+                    .foregroundStyle(CompanionPalette.ink)
                     .lineLimit(4)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(6)
-                    .background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .background(CompanionPalette.bg2, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
             }
 
             // What the agent offered as answers, when they are not already the
@@ -108,20 +114,25 @@ struct WatchAlertCard: View {
                         }
                     }
                 }
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+                .font(CompanionType.font(10))
+                .foregroundStyle(CompanionPalette.ink2)
             }
 
             Text("\(alert.agent.shortName) · \(alert.project)")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+                .font(CompanionType.font(10))
+                .foregroundStyle(CompanionPalette.ink2)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
 
+            // What the request is, above; what can be done about it, below.
+            CompanionHairline()
+                .padding(.vertical, 2)
+
             if let connectionMessage {
-                Text(connectionMessage).font(.caption2).foregroundStyle(.secondary)
+                Text(connectionMessage).font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink2)
                 if alert.handling == .macGrokBot || alert.handling == .macNativePrompt {
-                    Text((alert.handling ?? .unavailable).message).font(.caption2).foregroundStyle(.secondary)
+                    Text((alert.handling ?? .unavailable).message)
+                        .font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink2)
                 }
             } else if alert.isDecidable {
                 WatchApprovalActions(store: store, alert: alert, isFrontmost: isFrontmost)
@@ -130,8 +141,8 @@ struct WatchAlertCard: View {
                 // "Respond in the agent's own prompt on your Mac" — rather than
                 // growing a button the iPhone would refuse.
                 Text((alert.handling ?? .unavailable).message)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(CompanionType.font(10))
+                    .foregroundStyle(CompanionPalette.ink2)
             }
 
             // Outside the connection branch on purpose. The buttons do
@@ -154,9 +165,9 @@ struct WatchAlertCard: View {
 
             if alsoWaiting > 0 {
                 Text("\(alsoWaiting) more waiting")
-                    .font(.caption2)
+                    .font(CompanionType.font(10))
                     .monospacedDigit()
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(CompanionPalette.ink2)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -205,8 +216,8 @@ struct WatchApprovalActions: View {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     if phase == .sending { ProgressView().controlSize(.mini) }
                     Text(message)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .font(CompanionType.font(10))
+                        .foregroundStyle(CompanionPalette.ink2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -214,20 +225,19 @@ struct WatchApprovalActions: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// Stacked and full-width, in the state's own colour, radius 8: the
+    /// phone's rectangles rather than the system's capsule.
     private func button(_ choice: WatchApprovalChoice,
                         title: LocalizedStringResource, tint: Color) -> some View {
         Button {
             store.submit(alert, choice)
         } label: {
             Text(title)
-                .font(CompanionType.font(14, .heavy))
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .frame(maxWidth: .infinity)
         }
-        .tint(tint)
-        .buttonStyle(.borderedProminent)
-        .buttonBorderShape(.capsule)
+        .buttonStyle(CompanionButtonStyle(kind: .filled(tint), size: .wide))
     }
 
     /// Never "Approved". The wrist knows only that the Mac took the decision;
@@ -309,8 +319,8 @@ struct WatchStopControl: View {
             // an answer; a dead button is not. The words are chosen here, on
             // the device doing the reading, from the code the iPhone relayed.
             Text(block.message(agent: task.agent))
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+                .font(CompanionType.font(10))
+                .foregroundStyle(CompanionPalette.ink2)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         case .offered:
@@ -324,22 +334,19 @@ struct WatchStopControl: View {
                 confirming = WatchStopIntent(task: task)
             } label: {
                 Label("Stop", systemImage: "stop.fill")
-                    .font(CompanionType.font(14, .heavy))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                     .frame(maxWidth: .infinity)
             }
-            .tint(CompanionPalette.status(.error))
-            .buttonStyle(.borderedProminent)
-            .buttonBorderShape(.capsule)
+            .buttonStyle(CompanionButtonStyle(kind: .filled(CompanionPalette.status(.error)), size: .wide))
             .disabled(blocked != nil || store.pendingAction.isBusy)
 
             if let message = statusText {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     if phase == .sending { ProgressView().controlSize(.mini) }
                     Text(message)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .font(CompanionType.font(10))
+                        .foregroundStyle(CompanionPalette.ink2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -410,21 +417,22 @@ struct WatchStopConfirmView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Stop this task?")
-                    .font(CompanionType.font(15, .black))
+                    .font(CompanionType.font(15, .semibold))
+                    .foregroundStyle(CompanionPalette.ink)
                     .fixedSize(horizontal: false, vertical: true)
                 Text(intent.title.isEmpty ? String(localized: "Unnamed task") : intent.title)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(CompanionType.font(12))
+                    .foregroundStyle(CompanionPalette.ink2)
                     .lineLimit(2)
                 Text("The turn it is running now ends. Work already finished stays done.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(CompanionType.font(10))
+                    .foregroundStyle(CompanionPalette.ink2)
                     .fixedSize(horizontal: false, vertical: true)
 
                 if refused {
                     Text("Could not send. The task changed or another action is still pending.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .font(CompanionType.font(10))
+                        .foregroundStyle(CompanionPalette.ink2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
@@ -432,17 +440,13 @@ struct WatchStopConfirmView: View {
                     if onStop() { dismiss() } else { refused = true }
                 } label: {
                     Text("Stop")
-                        .font(CompanionType.font(14, .heavy))
                         .frame(maxWidth: .infinity)
                 }
-                .tint(CompanionPalette.status(.error))
-                .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.capsule)
+                .buttonStyle(CompanionButtonStyle(kind: .filled(CompanionPalette.status(.error)), size: .wide))
                 .handGestureShortcut(.primaryAction)
 
                 Button("Keep going") { dismiss() }
-                    .buttonStyle(.bordered)
-                    .buttonBorderShape(.capsule)
+                    .buttonStyle(CompanionButtonStyle(kind: .quiet, size: .wide))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 2)

@@ -56,13 +56,17 @@ struct WatchNoDataView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 10) {
-                    WatchCat(state: .sleeping)
+                VStack(spacing: 8) {
+                    Image(systemName: "moon.zzz")
+                        .font(.system(size: 22, weight: .regular))
+                        .foregroundStyle(CompanionPalette.ink3)
+                        .accessibilityHidden(true)
                     Text("Waiting for iPhone")
-                        .font(.headline)
+                        .font(CompanionType.font(14, .semibold))
+                        .foregroundStyle(CompanionPalette.ink)
                     Text("Open vibebuddy on your iPhone and pair it with your Mac. Sessions and weekly quota appear here.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .font(CompanionType.font(10))
+                        .foregroundStyle(CompanionPalette.ink2)
                         .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity)
@@ -85,16 +89,16 @@ struct WatchConnectionBanner: View {
                 Image(systemName: connection.symbolName)
                     .font(.system(size: 10))
                 Text(title)
-                    .font(.caption2)
+                    .font(CompanionType.font(10))
                     .lineLimit(2)
                     .minimumScaleFactor(0.8)
                 Spacer(minLength: 0)
             }
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 4)
+            .foregroundStyle(CompanionPalette.ink2)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.quaternary, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .companionCard()
             .accessibilityElement(children: .combine)
         }
     }
@@ -113,18 +117,18 @@ struct WatchFooter: View {
                 Image(systemName: connection.symbolName)
                     .font(.system(size: 9))
                 Text(relayText)
+                    .font(CompanionType.font(10))
                     .monospacedDigit()
             }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(CompanionPalette.ink2)
 
             if state.isDemo {
                 Text("Sample data")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(CompanionType.font(10))
+                    .foregroundStyle(CompanionPalette.ink2)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(.quaternary, in: Capsule())
+                    .background(CompanionPalette.bg3, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
             }
         }
         .accessibilityElement(children: .combine)

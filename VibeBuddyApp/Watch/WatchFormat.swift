@@ -33,8 +33,13 @@ enum WatchBucket: CaseIterable {
         }
     }
 
-    var color: Color { Color(taskStatus: presentation.colorToken) }
-    var symbolName: String { presentation.symbolName }
+}
+
+/// The wrist's own sizes; every colour and face comes from the Kit.
+enum WatchMetrics {
+    /// The lane the status dot rides in: a 7pt dot and the 6pt gap after it,
+    /// so a row's hairline starts where its words do.
+    static let dotLane: CGFloat = 13
 }
 
 enum WatchFormat {

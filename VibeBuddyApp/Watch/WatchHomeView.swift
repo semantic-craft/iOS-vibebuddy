@@ -42,24 +42,36 @@ struct WatchHomeView: View {
         if let source = state.sourceID, !source.isEmpty,
            let epoch = state.pairingEpoch, !epoch.isEmpty,
            !state.followedTasks.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Followed tasks").font(.caption).foregroundStyle(.secondary)
-                ForEach(state.followedTasks) { task in
+            VStack(alignment: .leading, spacing: 0) {
+                // The group cannot fold on a wrist: nothing else is on the page
+                // to make room for, and a hidden task is a missed one.
+                CompanionSectionHeader(title: Text("Followed tasks"), count: state.followedTasks.count)
+                    .padding(.bottom, 4)
+                ForEach(Array(state.followedTasks.enumerated()), id: \.element.id) { index, task in
                     Button {
                         store.openTask(WatchTaskLink(sourceID: source, pairingEpoch: epoch,
                             sessionID: task.sessionID, completionID: task.completionID).url)
                     } label: {
-                        HStack {
-                            Image(systemName: task.presentation.symbolName)
+                        HStack(spacing: 6) {
+                            StatusDot(state: task.presentation)
                             Text(task.title.isEmpty ? String(localized: "Unnamed task") : task.title)
+                                .font(CompanionType.font(12))
+                                .foregroundStyle(CompanionPalette.ink)
                                 .lineLimit(2)
                             Spacer(minLength: 0)
-                            Image(systemName: "chevron.right").font(.caption2)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(CompanionPalette.ink3)
                         }
-                        .font(.caption)
+                        .padding(.vertical, 6)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text("\(task.presentation.label), \(task.title.isEmpty ? String(localized: "Unnamed task") : task.title)"))
+                    if index < state.followedTasks.count - 1 {
+                        CompanionHairline(leading: WatchMetrics.dotLane)
+                    }
                 }
             }
         }
@@ -71,38 +83,44 @@ private struct WatchCalmHeader: View {
     let connection: WatchConnection
 
     var body: some View {
-        // With sessions running, the cat sits beside its line so the counts
-        // still land on the first screen of a 40mm watch. With nothing running
-        // there is nothing to make room for, so the empty state gets the centred
-        // composition and room to explain itself.
+        // With sessions running, the status dot sits beside its line so the
+        // counts still land on the first screen of a 40mm watch. With nothing
+        // running there is nothing to make room for, so the empty state gets
+        // the centred composition and room to explain itself.
         if state.counts.isEmpty {
             // Nothing known is not the same as nothing running: say which.
             VStack(spacing: 6) {
-                WatchCat(state: state.buddyState)
+                Image(systemName: "moon.zzz")
+                    .font(.system(size: 22, weight: .regular))
+                    .foregroundStyle(CompanionPalette.ink3)
+                    .accessibilityHidden(true)
                 Text(connection.isCurrent ? "No sessions" : "No recent update")
-                    .font(CompanionType.font(15, .black))
+                    .font(CompanionType.font(14, .semibold))
+                    .foregroundStyle(CompanionPalette.ink)
                     .multilineTextAlignment(.center)
                 Text(connection.advice ?? "Start a session on your Mac and it shows up here.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(CompanionType.font(10))
+                    .foregroundStyle(CompanionPalette.ink2)
                     .multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity)
         } else {
-            // Round 5: the cat says one line, the rest sits under it.
-            HStack(spacing: 8) {
-                WatchCat(state: state.buddyState, width: 36)
+            // One dot for the whole snapshot, in the colour of what matters most.
+            HStack(alignment: .top, spacing: 6) {
+                StatusDot(state: state.presentation.primaryState)
+                    .padding(.top, 5)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(CompanionCopy.moodLine(state.presentation))
-                        .font(CompanionType.font(14, .black))
+                        .font(CompanionType.font(14, .semibold))
+                        .foregroundStyle(CompanionPalette.ink)
                         .lineLimit(2)
                         .minimumScaleFactor(0.8)
                     let rest = CompanionCopy.restLine(state.presentation)
                     if !rest.isEmpty {
                         Text(rest)
-                            .font(CompanionType.font(10, .bold))
+                            .font(CompanionType.font(10))
                             .monospacedDigit()
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(CompanionPalette.ink2)
                     }
                 }
                 Spacer(minLength: 0)
@@ -112,8 +130,8 @@ private struct WatchCalmHeader: View {
     }
 }
 
-/// The three canonical buckets, in the app's one status vocabulary: colour,
-/// symbol, and word together, so the reading never depends on colour alone.
+/// The three canonical buckets, in the app's one status vocabulary: a dot, the
+/// word, and the count, so the reading never depends on colour alone.
 ///
 /// One bucket per line rather than three columns — at 40mm three columns force
 /// "Needs response" to hyphenate, and a hyphenated status word is worse than a
@@ -125,39 +143,38 @@ struct WatchCountsRow: View {
     var stuck: Int = 0
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(WatchBucket.allCases, id: \.self) { bucket in
-                row(symbol: bucket.symbolName, value: bucket.count(in: counts),
-                    accent: CompanionPalette.status(bucket.presentation), title: bucket.title)
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(WatchBucket.allCases.enumerated()), id: \.element) { index, bucket in
+                row(state: bucket.presentation, value: bucket.count(in: counts), title: bucket.title)
+                if index < WatchBucket.allCases.count - 1 || stuck > 0 {
+                    CompanionHairline(leading: WatchMetrics.dotLane)
+                }
             }
             if stuck > 0 {
-                row(symbol: TaskPresentationState.error.symbolName, value: stuck,
-                    accent: CompanionPalette.status(.error),
-                    title: "Stuck")
+                row(state: .error, value: stuck, title: "Stuck")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func row(symbol: String, value: Int,
-                     accent: Color, title: LocalizedStringResource) -> some View {
-        let tint = value > 0 ? accent : Color.secondary
-        return HStack(spacing: 6) {
-            Image(systemName: symbol)
-                .font(.system(size: 10, weight: .bold))
-                .frame(width: 11)
-                .foregroundStyle(tint)
-            Text(value, format: .number)
-                .font(CompanionType.font(18, .black))
-                .monospacedDigit()
-                .foregroundStyle(tint)
+    private func row(state: TaskPresentationState, value: Int, title: LocalizedStringResource) -> some View {
+        HStack(spacing: 6) {
+            // An empty bucket keeps its place but not its colour.
+            Circle()
+                .fill(value > 0 ? CompanionPalette.status(state) : CompanionPalette.ink3)
+                .frame(width: 7, height: 7)
             Text(title)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+                .font(CompanionType.font(12))
+                .foregroundStyle(value > 0 ? CompanionPalette.ink : CompanionPalette.ink2)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-            Spacer(minLength: 0)
+            Spacer(minLength: 4)
+            Text(value, format: .number)
+                .font(CompanionType.font(12))
+                .monospacedDigit()
+                .foregroundStyle(value > 0 ? CompanionPalette.ink : CompanionPalette.ink3)
         }
+        .padding(.vertical, 5)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(title))
         .accessibilityValue(Text(value, format: .number))
@@ -186,28 +203,30 @@ struct WatchQuotaStrips: View {
         let reading = quota.displayWindow(preferring: .weekly)
         return HStack(spacing: 6) {
             Text(quota.provider.displayName)
-                .font(.caption2)
+                .font(CompanionType.font(10))
+                .foregroundStyle(CompanionPalette.ink)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(width: 44, alignment: .leading)
             if let remaining = reading.currentRemainingPercent(now: now) {
                 ProgressView(value: Double(remaining), total: 100)
-                    .tint(freshness == .stale ? Color.secondary
+                    .tint(freshness == .stale ? CompanionPalette.ink3
                           : (remaining <= 10 ? CompanionPalette.status(.requiresInput) : CompanionPalette.accent))
                 Text(WatchFormat.percent(remaining))
-                    .font(.caption2)
+                    .font(CompanionType.font(10))
                     .monospacedDigit()
+                    .foregroundStyle(CompanionPalette.ink)
                     .frame(width: 32, alignment: .trailing)
             } else {
                 Text(reading.status(now: now) == .awaitingReset ? "Reset reached · awaiting update" : "Window unavailable")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(CompanionType.font(10))
+                    .foregroundStyle(CompanionPalette.ink2)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             if let symbol = freshness.symbolName {
                 Image(systemName: symbol)
                     .font(.system(size: 9))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(CompanionPalette.ink2)
             }
         }
         .accessibilityElement(children: .ignore)
