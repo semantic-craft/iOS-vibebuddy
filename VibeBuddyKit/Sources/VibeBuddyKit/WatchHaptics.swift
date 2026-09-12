@@ -246,12 +246,12 @@ public struct WatchHapticTransitions: Sendable, Equatable {
     /// Two sources, because the Watch's state carries the three presentation
     /// states in two different places: `alerts` holds every waiting session
     /// (and its wait kind, which decides approval from question), while
-    /// `followedTasks` is the only carrier of `error` and `completeUnread`.
+    /// `followedTasks` and `results` carry `error` and `completeUnread`.
     /// A waiting session appears in both; the alert wins, matching
     /// `WatchFollowedTask`'s own "explicit input wins over error" rule.
     private static func cues(in state: WatchDashboardState) -> [String: NotificationCategory] {
         var cues: [String: NotificationCategory] = [:]
-        for task in state.followedTasks {
+        for task in state.followedTasks + (state.results ?? []) {
             switch task.presentation {
             case .error:          cues[task.sessionID] = .agentStuck
             case .completeUnread: cues[task.sessionID] = .agentDone

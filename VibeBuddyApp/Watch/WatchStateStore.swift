@@ -111,6 +111,11 @@ final class WatchStateStore: NSObject, ObservableObject {
                 completionQueue.reconcile(with: saved.state)
             }
             activate()
+            // A tapped notification names a session; open it here, or as soon
+            // as a state that knows it arrives.
+            WatchNotificationRouter.shared.attach { [weak self] sessionID in
+                self?.openSession(sessionID)
+            }
             retryTask = Task { @MainActor [weak self] in
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(5))
@@ -150,14 +155,34 @@ final class WatchStateStore: NSObject, ObservableObject {
         taskLink = link
     }
 
-    /// Called only by the exact detail body after it has appeared.
+    /// A session the wrist was pointed at by id — a Needs-you or Results row,
+    /// or the tap on a mirrored notification. The link is minted from the
+    /// state on screen, so it is bound to the Mac, the pairing and (for a
+    /// result) the exact round the wearer is about to read. A session the
+    /// current state does not know is held until one that does arrives; a
+    /// notification can wake this app before the relay has said anything.
+    func openSession(_ sessionID: String) {
+        guard let state, let source = state.sourceID, !source.isEmpty,
+              let epoch = state.pairingEpoch, !epoch.isEmpty, state.knows(sessionID) else {
+            pendingSessionID = sessionID
+            return
+        }
+        pendingSessionID = nil
+        quotaSelection = nil
+        taskLink = WatchTaskLink(sourceID: source, pairingEpoch: epoch, sessionID: sessionID,
+                                 completionID: state.task(sessionID)?.completionID)
+    }
+
+    /// A session named before the state could place it (`openSession`).
+    private var pendingSessionID: String?
+
+    /// Called only by the exact detail body after it has appeared. Viewing is
+    /// viewing: for a wait it tells the Mac the request was seen (so the
+    /// missed-wait clock stops) and nothing more; for a completion it queues
+    /// the exact-round read. Neither approves, answers or resolves anything.
     func viewed(_ link: WatchTaskLink) {
-        if !isDemo, let task = link.task(in: state), task.presentation == .requiresInput,
-           let session, isPhoneReachable {
-            let request = WatchWaitReadRequest(pairingEpoch: link.pairingEpoch,
-                read: WaitReadRequest(sourceID: link.sourceID, sessionID: link.sessionID,
-                                      statusSince: task.statusSince, waitKind: task.waitKind ?? .question,
-                                      pendingID: task.pendingID))
+        if !isDemo, let read = waitRead(for: link), let session, isPhoneReachable {
+            let request = WatchWaitReadRequest(pairingEpoch: link.pairingEpoch, read: read)
             if let payload = try? JSONEncoder().encode(request) {
                 // Best effort only: no approval and no claim that an offline read synced.
                 session.sendMessage([WatchWaitReadRequest.messageKey: payload],
@@ -167,6 +192,23 @@ final class WatchStateStore: NSObject, ObservableObject {
         completionQueue.viewed(link, state: state)
         persistCompletions()
         flushCompletions()
+    }
+
+    /// The wait this link is looking at, if it is looking at one. A followed
+    /// task carries it; an alert that is not followed carries the same facts
+    /// under its own names.
+    private func waitRead(for link: WatchTaskLink) -> WaitReadRequest? {
+        if let task = link.task(in: state), task.presentation == .requiresInput {
+            return WaitReadRequest(sourceID: link.sourceID, sessionID: link.sessionID,
+                                   statusSince: task.statusSince, waitKind: task.waitKind ?? .question,
+                                   pendingID: task.pendingID)
+        }
+        if let alert = link.alert(in: state) {
+            return WaitReadRequest(sourceID: link.sourceID, sessionID: link.sessionID,
+                                   statusSince: alert.waitingSince, waitKind: alert.waitKind,
+                                   pendingID: alert.approvalId ?? alert.pendingId)
+        }
+        return nil
     }
 
     private func persistCompletions() {
@@ -434,6 +476,7 @@ final class WatchStateStore: NSObject, ObservableObject {
         state = next
         pendingAction.reconcile(with: next)
         completionQueue.reconcile(with: next)
+        if let pendingSessionID { openSession(pendingSessionID) }
         persistCompletions()
         if let request = completionAttempt,
            request.link.sourceID != next.sourceID || request.link.pairingEpoch != next.pairingEpoch {

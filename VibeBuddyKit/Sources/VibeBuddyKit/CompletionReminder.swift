@@ -6,20 +6,35 @@ import Foundation
 ///
 /// A followed session that reaches `done` gets its one `agentDone` cue from
 /// `SoundPolicy` like any other. This schedule adds the reminders behind it:
-/// every `interval` after the completion, at most `maxReminders` times, for as
-/// long as the completion stays unread. Reading it on any device clears
-/// `hasUnreadCompletion` through the Mac, so the next evaluation finds nothing
-/// due and forgets the session. A new completion has a new `statusSince`, which
-/// starts the count over.
+/// one after each of `intervals` — 5, 10, 20, then 40 minutes — for as long as
+/// the completion stays unread, so the last one lands 75 minutes after the
+/// completion and there are never more than four. Reading it on any device
+/// clears `hasUnreadCompletion` through the Mac, so the next evaluation finds
+/// nothing due and forgets the session. A new completion has a new
+/// `statusSince`, which starts the count over.
+///
+/// The cadence backs off rather than repeating (ADR-0019): every reminder is
+/// mirrored to the wrist as a fresh buzz, and a fixed five minutes for an hour
+/// was twelve buzzes for one piece of finished work. Backing off keeps the
+/// first reminder quick and the coverage over an hour while cutting the
+/// interruptions to four.
 ///
 /// Pure and clock-injected. `due` proposes; the caller posts and then calls
 /// `markReminded` only when at least one channel actually took the cue. A
 /// reminder that every channel suppressed (Focus mode, category off, no phone)
-/// therefore does not spend one of the twelve slots: the completion is still
-/// unread, and the next eligible moment says so.
+/// therefore does not spend one of the slots: the completion is still unread,
+/// and the next eligible moment says so.
 public struct CompletionReminderSchedule: Sendable, Equatable {
-    public static let interval: TimeInterval = 5 * 60
-    public static let maxReminders = 12
+    /// The gap before each reminder, in order; the last one is not repeated.
+    public static let intervals: [TimeInterval] = [5 * 60, 10 * 60, 20 * 60, 40 * 60]
+    public static var maxReminders: Int { intervals.count }
+    /// The first gap, kept for callers that only need "how soon at the earliest".
+    public static var interval: TimeInterval { intervals[0] }
+
+    /// How long to wait after `count` reminders have been sent before the next.
+    public static func interval(afterReminders count: Int) -> TimeInterval {
+        intervals[min(max(count, 0), intervals.count - 1)]
+    }
 
     private struct Progress: Equatable {
         var completedAt: Date
@@ -44,7 +59,8 @@ public struct CompletionReminderSchedule: Sendable, Equatable {
             let p = progress[session.id].flatMap { $0.completedAt == session.statusSince ? $0 : nil }
                 ?? Progress(completedAt: session.statusSince, count: 0, lastAt: session.statusSince)
             progress[session.id] = p
-            if p.count < Self.maxReminders, now.timeIntervalSince(p.lastAt) >= Self.interval {
+            if p.count < Self.maxReminders,
+               now.timeIntervalSince(p.lastAt) >= Self.interval(afterReminders: p.count) {
                 due.append(session)
             }
         }
@@ -62,9 +78,10 @@ public struct CompletionReminderSchedule: Sendable, Equatable {
         progress[sessionID] = p
     }
 
-    /// Nobody could take the reminder: wait one interval before proposing it
-    /// again, without spending a slot. Keeps an undeliverable completion from
-    /// being re-proposed — and re-logged as skipped — on every service pass.
+    /// Nobody could take the reminder: wait the current interval before
+    /// proposing it again, without spending a slot. Keeps an undeliverable
+    /// completion from being re-proposed — and re-logged as skipped — on every
+    /// service pass.
     public mutating func markSkipped(_ sessionID: String, now: Date) {
         guard var p = progress[sessionID] else { return }
         p.lastAt = now

@@ -1,7 +1,18 @@
 import SwiftUI
 import VibeBuddyKit
 
-/// The URL's task stays selected even if another task becomes more urgent.
+/// One session, opened on purpose: from a row, a complication, or the tap on
+/// a mirrored notification. The URL's session stays selected even if another
+/// becomes more urgent, and the body is re-read from the live state on every
+/// render — so a wait that was answered elsewhere turns into "no longer
+/// waiting" here rather than staying a live-looking card.
+///
+/// Three shapes. A task the projection carries (followed, or a result) gets
+/// the task header, and its card when it is waiting. A waiting session the
+/// projection carries only as an alert gets the card alone. Anything else is
+/// gone, and says so. Appearing *views*: it tells the Mac the wait was seen
+/// and queues the exact-round read of a completion — never an approval or an
+/// answer, which are the card's buttons and nothing else.
 struct WatchTaskDetailView: View {
     @ObservedObject var store: WatchStateStore
     let link: WatchTaskLink
@@ -11,63 +22,15 @@ struct WatchTaskDetailView: View {
         NavigationStack {
             ScrollView {
                 if let task = link.task(in: store.state) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(task.title.isEmpty ? String(localized: "Unnamed task") : task.title)
-                            .font(CompanionType.font(15, .semibold))
-                            .foregroundStyle(CompanionPalette.ink)
-                        HStack(spacing: 5) {
-                            if let agent = task.agent {
-                                AgentAvatar(agent: agent, size: 16)
-                                    .accessibilityHidden(true)
-                            }
-                            Text(task.sourceName)
-                                .font(CompanionType.font(10))
-                                .foregroundStyle(CompanionPalette.ink2)
-                        }
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel(task.sourceName)
-                        HStack(spacing: 6) {
-                            StatusDot(state: task.presentation)
-                            Text(status(task))
-                                .font(CompanionType.font(12, .medium))
-                                .foregroundStyle(CompanionPalette.status(task.presentation))
-                        }
-                        .accessibilityElement(children: .combine)
-                        if task.completionID != link.completionID {
-                            Text("Task status changed. This newer result has not been marked read.")
-                                .font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink2)
-                        }
-                        if let summary = task.detailSummary ?? task.summary {
-                            CompanionHairline()
-                            Text(summary)
-                                .font(CompanionType.font(12))
-                                .foregroundStyle(CompanionPalette.ink)
-                        }
-                        if completionPending {
-                            Text("Viewed — syncing with Mac")
-                                .font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink2)
-                        }
-                        if let alert = store.state?.alerts.first(where: { $0.sessionId == link.sessionID }),
-                           task.presentation == .requiresInput {
-                            WatchAlertCard(store: store, alert: alert, now: Date(), alsoWaiting: 0)
-                        } else {
-                            // The alert card already carries the control for a
-                            // waiting session; showing it twice on one screen
-                            // would offer the same turn two buttons.
-                            WatchStopControl(store: store, task: task)
-                        }
-                        if let state = store.state {
-                            WatchFooter(state: state,
-                                        connection: state.connection(now: Date(), phoneReachable: store.isPhoneReachable),
-                                        now: Date())
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .onAppear { store.viewed(link) }
+                    taskBody(task)
+                } else if let alert = link.alert(in: store.state) {
+                    alertBody(alert)
                 } else {
-                    Text("This task is unavailable. Return to the dashboard for current tasks.")
+                    Text(unavailableText)
                         .font(CompanionType.font(12))
                         .foregroundStyle(CompanionPalette.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 Button("Back to dashboard") { dismiss() }
                     .buttonStyle(CompanionButtonStyle(kind: .quiet, size: .wide))
@@ -76,6 +39,89 @@ struct WatchTaskDetailView: View {
             .navigationTitle("Task")
         }
     }
+
+    private func taskBody(_ task: WatchFollowedTask) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(task.title.isEmpty ? String(localized: "Unnamed task") : task.title)
+                .font(CompanionType.font(15, .semibold))
+                .foregroundStyle(CompanionPalette.ink)
+            HStack(spacing: 5) {
+                if let agent = task.agent {
+                    AgentAvatar(agent: agent, size: 16)
+                        .accessibilityHidden(true)
+                }
+                Text(task.sourceName)
+                    .font(CompanionType.font(10))
+                    .foregroundStyle(CompanionPalette.ink2)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(task.sourceName)
+            HStack(spacing: 6) {
+                StatusDot(state: task.presentation)
+                Text(status(task))
+                    .font(CompanionType.font(12, .medium))
+                    .foregroundStyle(CompanionPalette.status(task.presentation))
+            }
+            .accessibilityElement(children: .combine)
+            if task.completionID != link.completionID {
+                Text("Task status changed. This newer result has not been marked read.")
+                    .font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink2)
+            }
+            if let summary = task.detailSummary ?? task.summary {
+                CompanionHairline()
+                Text(summary)
+                    .font(CompanionType.font(12))
+                    .foregroundStyle(CompanionPalette.ink)
+            }
+            if completionPending {
+                Text("Viewed — syncing with Mac")
+                    .font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink2)
+            }
+            if let alert = link.alert(in: store.state), task.presentation == .requiresInput {
+                WatchAlertCard(store: store, alert: alert, now: Date(), alsoWaiting: 0)
+            } else {
+                // The alert card already carries the control for a
+                // waiting session; showing it twice on one screen
+                // would offer the same turn two buttons.
+                WatchStopControl(store: store, task: task)
+            }
+            footer
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onAppear { store.viewed(link) }
+    }
+
+    /// A waiting session the projection knows only as an alert — not
+    /// followed, so no task header: the card is the whole story.
+    private func alertBody(_ alert: WatchAlert) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            WatchAlertCard(store: store, alert: alert, now: Date(), alsoWaiting: 0)
+            footer
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onAppear { store.viewed(link) }
+    }
+
+    @ViewBuilder
+    private var footer: some View {
+        if let state = store.state {
+            WatchFooter(state: state,
+                        connection: state.connection(now: Date(), phoneReachable: store.isPhoneReachable),
+                        now: Date())
+        }
+    }
+
+    /// Gone means different things: a wait that was resolved somewhere else
+    /// is the common case and the good news; a task the wrist never knew is
+    /// the other. Only the first can be named.
+    private var unavailableText: LocalizedStringResource {
+        if let state = store.state, state.sourceID == link.sourceID, state.pairingEpoch == link.pairingEpoch,
+           state.relay == .live {
+            return "This is no longer waiting on you. It was handled on another device, or the task moved on."
+        }
+        return "This task is unavailable. Return to the dashboard for current tasks."
+    }
+
     private var completionPending: Bool { store.completionQueue.links.contains(link) }
     private func status(_ task: WatchFollowedTask) -> String {
         switch task.presentation {
