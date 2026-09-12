@@ -83,6 +83,24 @@ struct QuestionRoutesTests {
         #expect(await registry.resolveExact(sessionID: "fixture", questionID: "new", answers: ["q": ["yes"]]) == false)
     }
 
+    @Test("cancelled voice answer leaves the exact question waiting")
+    func cancelledAnswerDoesNotResolve() async {
+        let registry = QuestionRegistry()
+        let waiter = Task { await registry.wait(sessionID: "fixture", questionID: "current", timeout: .seconds(5)) }
+        for _ in 0..<1000 {
+            if await registry.isWaiting(sessionID: "fixture") { break }
+            await Task.yield()
+        }
+        let cancelled = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return await registry.resolveExact(sessionID: "fixture", questionID: "current", answers: ["q": ["old answer"]])
+        }
+        #expect(await cancelled.value == false)
+        #expect(await registry.isWaiting(sessionID: "fixture"))
+        #expect(await registry.resolveExact(sessionID: "fixture", questionID: "current", answers: ["q": ["new answer"]]))
+        #expect(await waiter.value == ["q": ["new answer"]])
+    }
+
     @Test("the hook holds with a structured card; single, multi and typed answers come back keyed by question text")
     func answersFlowBack() async throws {
         let store = SessionStore()

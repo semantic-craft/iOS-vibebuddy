@@ -207,6 +207,7 @@ public final class CodexAppServerClient: CodexAppServerConnecting, @unchecked Se
         let id = try allocateRequestID()
         let message: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": method, "params": params]
         return try await withCheckedThrowingContinuation { continuation in
+            guard !Task.isCancelled else { continuation.resume(throwing: CancellationError()); return }
             register(id, continuation)
             guard send(json: message, cancelBeforeWrite: true) else {
                 _ = takePending(id)?.resume(throwing: ClientError.closed)

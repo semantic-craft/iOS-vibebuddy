@@ -250,3 +250,34 @@ struct OpenAILiveSessionTests {
     func flushPlayback() -> [VoicePlaybackCheckpoint] { flushes += 1; isPlaybackPending = false; return [] }
     func stop() { stopped = true }
 }
+
+struct LiveInputAudioGateTests {
+    @Test("Recovery blocks old queued frames and needs the matching mute and unmute acknowledgment")
+    func audioDiscontinuityAcknowledgments() throws {
+        var gate = LiveInputAudioGate()
+        let oldFrame = gate.generation
+        #expect(gate.accepts(oldFrame))
+        let mute = gate.begin(suspended: true)
+        let muteID = try #require(mute["event_id"] as? String)
+        #expect(mute["type"] as? String == "session.input_audio.mute")
+        #expect(!gate.accepts(oldFrame))
+        gate.acknowledge(["type": "session.input_audio.muted", "client_event_id": "old"])
+        #expect(gate.pendingID == muteID)
+        gate.acknowledge(["type": "session.input_audio.unmuted", "client_event_id": muteID])
+        #expect(gate.pendingID == muteID)
+        gate.acknowledge(["type": "session.input_audio.muted", "client_event_id": muteID])
+        #expect(gate.pendingID == nil && !gate.acceptingAudio)
+        let unmute = gate.begin(suspended: false)
+        let unmuteID = try #require(unmute["event_id"] as? String)
+        #expect(unmute["type"] as? String == "session.input_audio.unmute")
+        #expect(!gate.acceptingAudio)
+        gate.acknowledge(["type": "session.input_audio.muted", "client_event_id": muteID])
+        #expect(!gate.acceptingAudio)
+        gate.acknowledge(["type": "session.input_audio.unmuted", "client_event_id": unmuteID])
+        #expect(gate.acceptingAudio && gate.accepts(gate.generation))
+        #expect(!gate.accepts(oldFrame))
+        gate.invalidate()
+        gate.acknowledge(["type": "session.input_audio.unmuted", "client_event_id": unmuteID])
+        #expect(!gate.acceptingAudio)
+    }
+}

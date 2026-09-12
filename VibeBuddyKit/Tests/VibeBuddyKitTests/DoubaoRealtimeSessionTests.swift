@@ -160,3 +160,54 @@ struct DoubaoRealtimeSessionTests {
     }
 
 }
+
+@Suite("Doubao completed transcript delivery")
+@MainActor
+struct DoubaoFinalTranscriptTests {
+    @Test("Official text-only final reaches the coordinator and closes exactly once")
+    func textOnlyFinalEndsCall() throws {
+        let audio = TranscriptAudio()
+        var closes = 0
+        let coordinator = VoiceCallCoordinator(audio: audio, actionHandler: { _ in "" }, closeSession: { _ in closes += 1 })
+        coordinator.handle(.connected)
+        let event = try #require(DoubaoRealtimeSession.userTranscriptionEvent([
+            "type": "conversation.item.input_audio_transcription.completed", "text": "请立即挂断这次语音通话"]))
+        coordinator.handle(event)
+        #expect(coordinator.lastUserText == "请立即挂断这次语音通话")
+        #expect(audio.stops == 1 && closes == 1 && coordinator.phase == .idle)
+        coordinator.handle(event)
+        #expect(audio.stops == 1 && closes == 1)
+    }
+
+    @Test("Completed parser prefers nonblank transcript then text and ignores failed events")
+    func fieldPrecedence() throws {
+        let audio = TranscriptAudio()
+        let coordinator = VoiceCallCoordinator(audio: audio, actionHandler: { _ in "" })
+        coordinator.handle(.connected)
+        for fields in [["transcript": "ordinary", "text": "请立即挂断这次语音通话"],
+                       ["transcript": "  ", "text": "ordinary"], ["text": "ordinary"]] {
+            let object = fields.merging(["type": "conversation.item.input_audio_transcription.completed"]) { first, _ in first }
+            coordinator.handle(try #require(DoubaoRealtimeSession.userTranscriptionEvent(object)))
+            #expect(coordinator.lastUserText == "ordinary")
+            #expect(coordinator.phase == .listening && audio.stops == 0)
+        }
+        for hypothesis in ["ord", "ordinary updated"] {
+            coordinator.handle(try #require(DoubaoRealtimeSession.userTranscriptionEvent([
+                "type": "conversation.item.input_audio_transcription.delta", "delta": hypothesis])))
+            #expect(coordinator.lastUserText == hypothesis)
+            #expect(coordinator.phase == .listening && audio.stops == 0)
+        }
+        #expect(DoubaoRealtimeSession.userTranscriptionEvent(["type": "conversation.item.input_audio_transcription.completed", "transcript": " ", "text": ""]) == nil)
+        #expect(DoubaoRealtimeSession.userTranscriptionEvent(["type": "conversation.item.input_audio_transcription.failed", "text": "请立即挂断这次语音通话"]) == nil)
+        coordinator.stop()
+    }
+}
+
+@MainActor
+private final class TranscriptAudio: VoiceCallAudio {
+    var isPlaybackPending = false
+    var stops = 0
+    func flushPlayback() -> [VoicePlaybackCheckpoint] { [] }
+    func enqueue(_ data: Data, item: VoiceAudioItem?) {}
+    func stop() { stops += 1 }
+}

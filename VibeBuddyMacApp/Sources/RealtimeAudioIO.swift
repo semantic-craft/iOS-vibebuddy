@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import CoreAudio
 import os
 import VibeBuddyKit
 
@@ -7,10 +8,11 @@ private let rtAudioLog = Logger(subsystem: "com.vibebuddy.mac", category: "realt
 
 @MainActor
 final class RealtimeAudioIO: VoiceCallAudio {
-    private let hardware: RealtimeAudioEngine
+    nonisolated private let hardware: RealtimeAudioEngine
     private var wantsAudio = false
     private var callID = UUID()
-    var onAudioFrame: ((Data) -> Void)?
+    var onAudioFrame: ((Data, UUID) -> Void)?
+    var onInputSuspensionChanged: ((Bool) async throws -> Void)?
     var onPlaybackDrained: (@Sendable () -> Void)?
     var onStateChanged: ((VoiceCallAudioState) -> Void)?
     var onRelease: (@Sendable (Bool, UUID, VoiceAudioReleaseGate) -> Void)? {
@@ -28,8 +30,8 @@ final class RealtimeAudioIO: VoiceCallAudio {
         hardware.onAudioFrame = { [weak self] data, generation in
             Task { @MainActor in
                 guard let self, self.wantsAudio, !self.recovery.isRecovering,
-                      self.hardware.accepts(generation) else { return }
-                self.onAudioFrame?(data)
+                      self.hardware.acceptsCapture(generation) else { return }
+                self.onAudioFrame?(data, generation)
             }
         }
         hardware.onPlaybackDrained = { [weak self] in
@@ -38,10 +40,13 @@ final class RealtimeAudioIO: VoiceCallAudio {
         hardware.onConfigurationChange = { [weak self] generation in
             Task { @MainActor in
                 guard let self, self.hardware.accepts(generation) else { return }
+                self.hardware.revoke()
                 self.recovery.request()
             }
         }
     }
+
+    nonisolated func isCaptureCurrent(_ generation: UUID) -> Bool { hardware.acceptsCapture(generation) }
 
     var isPlaybackPending: Bool { hardware.isPlaybackPending }
     var isAudiblePlaybackPending: Bool { hardware.isAudiblePlaybackPending }
@@ -52,8 +57,11 @@ final class RealtimeAudioIO: VoiceCallAudio {
         callID = UUID()
         let call = callID
         recovery.canResume = true
+        recovery.beforeRecovery = { [weak self] in try await self?.onInputSuspensionChanged?(true) }
+        recovery.afterRebuild = { [weak self] in try await self?.onInputSuspensionChanged?(false) }
         recovery.onStateChanged = { [weak self] state in
             guard let self, self.wantsAudio else { return }
+            if state == .running { self.hardware.enableCapture() }
             if case .failed = state { self.stop() }
             self.onStateChanged?(state)
         }
@@ -62,6 +70,7 @@ final class RealtimeAudioIO: VoiceCallAudio {
         do {
             try await hardware.rebuild(id)
             guard wantsAudio, callID == call, hardware.accepts(id) else { throw CancellationError() }
+            hardware.enableCapture()
         } catch {
             if callID == call { stop() }
             throw error
@@ -109,19 +118,24 @@ private final class RealtimeAudioEngine: @unchecked Sendable {
 
     let queue = DispatchQueue(label: "com.vibebuddy.voice.audio-engine")
     private let lease = OSAllocatedUnfairLock<UUID?>(initialState: nil)
+    private let captureLease = OSAllocatedUnfairLock<UUID?>(initialState: nil)
+    func enableCapture() { captureLease.withLock { $0 = currentGeneration } }
+    func acceptsCapture(_ id: UUID) -> Bool { captureLease.withLock { $0 == id } && accepts(id) }
     var onConfigurationChange: (@Sendable (UUID) -> Void)?
     private var observer: NSObjectProtocol?
+    private var deviceListeners: [(AudioObjectPropertyAddress, AudioObjectPropertyListenerBlock)] = []
 
     private let releaseGate = VoiceAudioReleaseGate()
 
     func authorize() -> UUID {
+        captureLease.withLock { $0 = nil }
         releaseGate.advance()
         let id = UUID()
         lease.withLock { $0 = id }
         return id
     }
     var currentGeneration: UUID? { lease.withLock { $0 } }
-    func revoke() { lease.withLock { $0 = nil } }
+    func revoke() { captureLease.withLock { $0 = nil }; lease.withLock { $0 = nil } }
     func accepts(_ id: UUID) -> Bool { lease.withLock { $0 == id } }
 
     func rebuild(_ id: UUID) async throws {
@@ -229,12 +243,32 @@ private final class RealtimeAudioEngine: @unchecked Sendable {
             guard let self else { return }
             self.onConfigurationChange?(generation)
         }
+        for selector in [kAudioHardwarePropertyDefaultInputDevice, kAudioHardwarePropertyDefaultOutputDevice] {
+            var address = AudioObjectPropertyAddress(mSelector: selector,
+                mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+            let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+                self?.onConfigurationChange?(generation)
+            }
+            let status = AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, nil, block)
+            guard status == noErr else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status)) }
+            deviceListeners.append((address, block))
+        }
         rtAudioLog.info("audio engine started (native \(nativeFormat.sampleRate, privacy: .public)Hz)")
     }
 
     @discardableResult
     func stop() -> Bool {
         var released = true
+        var remaining: [(AudioObjectPropertyAddress, AudioObjectPropertyListenerBlock)] = []
+        for (var address, block) in deviceListeners {
+            let status = AudioObjectRemovePropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, nil, block)
+            if status != noErr {
+                released = false
+                remaining.append((address, block))
+                rtAudioLog.error("remove device listener failed code=\(status, privacy: .public)")
+            }
+        }
+        deviceListeners = remaining
         if let observer { NotificationCenter.default.removeObserver(observer) }
         observer = nil
         if tapInstalled {
@@ -315,7 +349,11 @@ private final class RealtimeAudioEngine: @unchecked Sendable {
         // items too. Only graph scheduling crosses onto the audio queue.
         nonisolated(unsafe) let scheduledBuffer = buffer
         queue.async { [self] in
-            guard accepts(leaseID), engine.isRunning else { return }
+            guard accepts(leaseID) else { return }
+            guard engine.isRunning else {
+                onConfigurationChange?(leaseID)
+                return
+            }
             pendingLock.lock()
             let current = playbackGeneration == generation
             pendingLock.unlock()
@@ -343,7 +381,11 @@ private final class RealtimeAudioEngine: @unchecked Sendable {
     }
 
     private func captureAndForward(_ buffer: AVAudioPCMBuffer, converter: AVAudioConverter, generation: UUID) {
-        guard accepts(generation), let onAudioFrame else { return }
+        guard acceptsCapture(generation), let onAudioFrame else { return }
+        guard buffer.format.sampleRate == converter.inputFormat.sampleRate,
+              buffer.format.channelCount == converter.inputFormat.channelCount else {
+            onConfigurationChange?(generation); return
+        }
         let ratio = captureFormat.sampleRate / buffer.format.sampleRate
         let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 1
         guard let out = AVAudioPCMBuffer(pcmFormat: captureFormat, frameCapacity: capacity) else { return }
@@ -368,9 +410,9 @@ private final class RealtimeAudioEngine: @unchecked Sendable {
             status.pointee = .haveData
             return inputBuffer
         }
-        if let error { rtAudioLog.error("convert: \(error.localizedDescription, privacy: .public)"); return }
+        if let error { rtAudioLog.error("convert: \(error.localizedDescription, privacy: .public)"); onConfigurationChange?(generation); return }
         guard out.frameLength > 0, let chan = out.int16ChannelData?[0] else { return }
         let data = Data(bytes: chan, count: Int(out.frameLength) * 2)
-        if accepts(generation) { onAudioFrame(data, generation) }
+        if acceptsCapture(generation) { onAudioFrame(data, generation) }
     }
 }

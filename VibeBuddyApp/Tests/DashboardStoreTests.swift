@@ -303,6 +303,7 @@ private actor PhoneActionRecorder: DecisionClient {
     var holdSnapshot = false
     var heldSnapshot: CheckedContinuation<Snapshot?, Never>?
     func pauseSnapshot() { holdSnapshot = true }
+    func resumeSnapshots() { holdSnapshot = false; releaseSnapshot() }
     func snapshotIsHeld() -> Bool { heldSnapshot != nil }
     func releaseSnapshot() { heldSnapshot?.resume(returning: snapshot); heldSnapshot = nil }
     func replaceSnapshot(_ next: Snapshot) { snapshot = next }
@@ -328,6 +329,34 @@ private actor PhoneActionRecorder: DecisionClient {
 }
 
 extension DashboardStoreTests {
+    func testVoiceCancellationWhileRefreshingAuthorityDoesNotSend() async throws {
+        let now = Date()
+        let session = AgentSession(id: "fixture", agent: .claudeCode, project: "Fixture",
+                                   status: .needsResponse, waitKind: .permission,
+                                   pendingApproval: PendingApproval(id: "fixture-wait", tool: "Bash", commandPreview: "fixture only"),
+                                   statusSince: now, updatedAt: now)
+        let snapshot = Snapshot(sessions: [session], serverTime: now, sourceID: "fixture-mac")
+        let client = PhoneActionRecorder(snapshot: snapshot, outcome: .received)
+        let store = DashboardStore(streamer: ScriptedStreamer(snapshots: [snapshot]), notifier: SilentNotifier(),
+                                   decisionClient: client, watchRelay: nil, reportDevice: { _ in })
+        store.start(PairingPayload(host: "127.0.0.1", port: 9, token: "fixture"))
+        for _ in 0..<100 where store.allSessions.isEmpty { try await Task.sleep(for: .milliseconds(5)) }
+        await client.pauseSnapshot()
+        let action = Task { await store.performVoiceAction(.approve(project: "Fixture")) }
+        for _ in 0..<100 {
+            if await client.snapshotIsHeld() { break }
+            await Task.yield()
+        }
+        let held = await client.snapshotIsHeld()
+        XCTAssertTrue(held)
+        action.cancel()
+        await client.resumeSnapshots()
+        _ = await action.value
+        let sent = await client.sent
+        XCTAssertEqual(sent, 0)
+        await store.stop().value
+    }
+
     func testVoiceWaitsForReceiptAndAmbiguousActionIsNotReplayed() async throws {
         let now = Date()
         let session = AgentSession(id: "fixture", agent: .claudeCode, project: "Fixture",

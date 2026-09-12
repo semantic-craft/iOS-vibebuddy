@@ -68,6 +68,8 @@ public protocol RealtimeVoiceProvider: Actor {
     func start(instructions: String, voice: String, tools: [VoiceTool]) -> AsyncStream<RealtimeVoiceEvent>
     /// Append captured microphone audio at VoiceProvider.inputSampleRate, mono PCM16.
     func appendAudio(_ pcm16k: Data)
+    func appendAudio(_ data: Data, ifCurrent: @escaping @Sendable () -> Bool) async
+    func setInputAudioSuspended(_ suspended: Bool) async throws
     /// Return a tool call's result to the model so it can continue the turn (and
     /// speak a confirmation). `name` is required by some providers (Gemini); the
     /// OpenAI-style providers correlate on `callID` alone. Implementations must
@@ -78,6 +80,14 @@ public protocol RealtimeVoiceProvider: Actor {
     func truncatePlayback(_ checkpoints: [VoicePlaybackCheckpoint])
     /// Tear the session down.
     func close() async
+}
+
+public extension RealtimeVoiceProvider {
+    func setInputAudioSuspended(_ suspended: Bool) async throws {}
+    func appendAudio(_ data: Data, ifCurrent: @escaping @Sendable () -> Bool) async {
+        guard ifCurrent() else { return }
+        appendAudio(data)
+    }
 }
 
 /// The socket remains ordered, but cancellation can leave old response packets
@@ -100,7 +110,6 @@ struct RealtimeResponseFilter {
         if type == "input_audio_buffer.speech_started" {
             if let currentID {
                 interruptedIDs.insert(currentID)
-
             }
             cancelledCalls = pendingCalls.sorted()
             for callID in pendingCalls {
@@ -141,6 +150,8 @@ struct RealtimeResponseFilter {
         }
         return true
     }
+
+    func canDeliverCall(_ callID: String) -> Bool { pendingCalls.contains(callID) }
 }
 
 /// Alibaba Bailian / DashScope **Qwen-Audio 3.0 Realtime** over its
@@ -252,23 +263,31 @@ public actor QwenRealtimeSession: RealtimeVoiceProvider {
         return session
     }
 
+    public func appendAudio(_ data: Data, ifCurrent: @escaping @Sendable () -> Bool) async {
+        guard ifCurrent() else { return }
+        appendAudio(data)
+    }
+
     public func appendAudio(_ pcm16k: Data) {
         guard ready else { return }
         send(["type": "input_audio_buffer.append", "audio": pcm16k.base64EncodedString()])
     }
 
     public func sendToolResult(callID: String, name: String, result: String) async {
-        responseFilter.completed(callID: callID)
-        guard let socket = task else { return }
-        let messages = RealtimeToolDelivery.encode([
+        guard let socket = task, responseFilter.canDeliverCall(callID) else { return }
+        let messages: [[String: Any]] = [
             ["type": "conversation.item.create",
              "item": ["type": "function_call_output", "call_id": callID, "output": result]],
             ["type": "response.create"],
-        ])
-        guard await RealtimeToolDelivery.send(messages, over: socket), task === socket else {
-            if task === socket { continuation?.yield(.failed("Qwen tool result delivery failed; no action was retried.")); close() }
-            return
+        ]
+        for message in messages {
+            guard task === socket, responseFilter.canDeliverCall(callID) else { return }
+            guard await RealtimeToolDelivery.send(RealtimeToolDelivery.encode([message]), over: socket), task === socket else {
+                if task === socket { continuation?.yield(.failed("Qwen tool result delivery failed; no action was retried.")); close() }
+                return
+            }
         }
+        responseFilter.completed(callID: callID)
     }
 
     // Qwen smart_turn handles server interruption; its current API does not

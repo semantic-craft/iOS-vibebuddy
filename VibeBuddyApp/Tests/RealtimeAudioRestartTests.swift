@@ -36,7 +36,7 @@ final class RealtimeAudioRestartTests: XCTestCase {
             let report = try XCTUnwrap(released.withLock { $0 })
             XCTAssertTrue(report.0 && report.2.accepts(report.1), "Old release failed or became stale in round \(round)")
             var freshFrames = 0
-            replacement.onAudioFrame = { _ in freshFrames += 1 }
+            replacement.onAudioFrame = { _, _ in freshFrames += 1 }
             try await Task.sleep(for: .milliseconds(600))
             XCTAssertGreaterThan(freshFrames, 3, "Replacement lost capture after old release in round \(round)")
             replacement.stop()

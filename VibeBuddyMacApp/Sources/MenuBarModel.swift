@@ -993,11 +993,11 @@ final class MenuBarModel: ObservableObject {
                 startTurn: { id, text in await monitor.startTurn(threadID: id, text: text) })
             let result = await dispatch.deliver(SessionActionRequest(sessionID: s.id,
                 intent: SessionActionSupport.resolve(for: s).intent,
-                questionID: s.pendingQuestion?.id, text: text))
+                questionID: s.pendingQuestion?.id, expectedStatusSince: s.statusSince.timeIntervalSince1970, text: text))
             switch result {
             case .accepted:
                 await store.recordInteraction(sessionID: s.id)
-                return "Answer submitted for \(s.project)."
+                return "Answer submitted for \(s.project); execution is not yet confirmed."
             case .failed(let reason), .refused(let reason): return reason
             default: return "Result unknown. Check the task before sending again."
             }

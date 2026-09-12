@@ -157,7 +157,16 @@ final class VoiceChat: ObservableObject {
                 await self.handleRealtime(event)
             }
         }
-        io.onAudioFrame = { data in Task { await session.appendAudio(data) } }
+        io.onAudioFrame = { [weak io] data, generation in
+            Task {
+                await session.appendAudio(data, ifCurrent: { [weak io] in
+                    io?.isCaptureCurrent(generation) == true
+                })
+            }
+        }
+        io.onInputSuspensionChanged = { suspended in
+            try await session.setInputAudioSuspended(suspended)
+        }
         io.onStateChanged = { [weak self] state in
             guard let self, self.startID == id, let coordinator = self.coordinator else { return }
             coordinator.audioStateChanged(state)

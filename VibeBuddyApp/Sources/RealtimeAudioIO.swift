@@ -7,10 +7,11 @@ private let rtAudioLog = Logger(subsystem: "com.vibebuddy.app", category: "realt
 
 @MainActor
 final class RealtimeAudioIO: VoiceCallAudio {
-    private let hardware: RealtimeAudioEngine
+    nonisolated private let hardware: RealtimeAudioEngine
     private var wantsAudio = false
     private var callID = UUID()
-    var onAudioFrame: ((Data) -> Void)?
+    var onAudioFrame: ((Data, UUID) -> Void)?
+    var onInputSuspensionChanged: ((Bool) async throws -> Void)?
     var onPlaybackDrained: (@Sendable () -> Void)?
     var onStateChanged: ((VoiceCallAudioState) -> Void)?
     var onRelease: (@Sendable (Bool, UUID, VoiceAudioReleaseGate) -> Void)? {
@@ -29,8 +30,8 @@ final class RealtimeAudioIO: VoiceCallAudio {
         hardware.onAudioFrame = { [weak self] data, generation in
             Task { @MainActor in
                 guard let self, self.wantsAudio, !self.recovery.isRecovering,
-                      self.hardware.accepts(generation) else { return }
-                self.onAudioFrame?(data)
+                      self.hardware.acceptsCapture(generation) else { return }
+                self.onAudioFrame?(data, generation)
             }
         }
         hardware.onPlaybackDrained = { [weak self] in
@@ -39,10 +40,13 @@ final class RealtimeAudioIO: VoiceCallAudio {
         hardware.onConfigurationChange = { [weak self] generation in
             Task { @MainActor in
                 guard let self, self.hardware.accepts(generation) else { return }
+                self.hardware.revoke()
                 self.recovery.request()
             }
         }
     }
+
+    nonisolated func isCaptureCurrent(_ generation: UUID) -> Bool { hardware.acceptsCapture(generation) }
 
     var isPlaybackPending: Bool { hardware.isPlaybackPending }
     var isAudiblePlaybackPending: Bool { hardware.isAudiblePlaybackPending }
@@ -53,8 +57,11 @@ final class RealtimeAudioIO: VoiceCallAudio {
         callID = UUID()
         let call = callID
         recovery.canResume = true
+        recovery.beforeRecovery = { [weak self] in try await self?.onInputSuspensionChanged?(true) }
+        recovery.afterRebuild = { [weak self] in try await self?.onInputSuspensionChanged?(false) }
         recovery.onStateChanged = { [weak self] state in
             guard let self, self.wantsAudio else { return }
+            if state == .running { self.hardware.enableCapture() }
             if case .failed = state { self.stop() }
             self.onStateChanged?(state)
         }
@@ -64,6 +71,7 @@ final class RealtimeAudioIO: VoiceCallAudio {
         do {
             try await hardware.rebuild(id)
             guard wantsAudio, callID == call, hardware.accepts(id) else { throw CancellationError() }
+            hardware.enableCapture()
         } catch {
             if callID == call { stop() }
             throw error
@@ -97,7 +105,10 @@ final class RealtimeAudioIO: VoiceCallAudio {
                 // recycle the deadline for category changes caused by rebuilding.
                 guard reason == AVAudioSession.RouteChangeReason.newDeviceAvailable.rawValue ||
                       reason == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue ||
-                      reason == AVAudioSession.RouteChangeReason.noSuitableRouteForCategory.rawValue else { return }
+                      reason == AVAudioSession.RouteChangeReason.noSuitableRouteForCategory.rawValue ||
+                      reason == AVAudioSession.RouteChangeReason.override.rawValue ||
+                      reason == AVAudioSession.RouteChangeReason.routeConfigurationChange.rawValue else { return }
+                self.hardware.revoke()
                 self.recovery.request()
             }
         })
@@ -126,8 +137,11 @@ final class RealtimeAudioIO: VoiceCallAudio {
             object: nil, queue: nil) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.callID == call else { return }
-                self.hardware.revoke()
-                self.recovery.request()
+                // Apple QA1749 requires an explicit user action after a media
+                // services reset. End this call instead of restarting capture.
+                self.hardware.markMediaServicesReset()
+                self.stop()
+                self.onStateChanged?(.failed("Audio services restarted. Tap the pet to start a new call."))
             }
         })
     }
@@ -163,19 +177,28 @@ private final class RealtimeAudioEngine: @unchecked Sendable {
     private static let sessionQueue = DispatchQueue(label: "com.vibebuddy.voice.audio-engine")
     let queue = RealtimeAudioEngine.sessionQueue
     private let lease = OSAllocatedUnfairLock<UUID?>(initialState: nil)
+    private let captureLease = OSAllocatedUnfairLock<UUID?>(initialState: nil)
+    func enableCapture() { captureLease.withLock { $0 = currentGeneration } }
+    func acceptsCapture(_ id: UUID) -> Bool { captureLease.withLock { $0 == id } && accepts(id) }
     var onConfigurationChange: (@Sendable (UUID) -> Void)?
     private var observer: NSObjectProtocol?
+    private let mediaReset = OSAllocatedUnfairLock(initialState: false)
+    func markMediaServicesReset() {
+        revoke()
+        mediaReset.withLock { $0 = true }
+    }
 
     private let releaseGate = VoiceAudioReleaseGate()
 
     func authorize() -> UUID {
+        captureLease.withLock { $0 = nil }
         releaseGate.advance()
         let id = UUID()
         lease.withLock { $0 = id }
         return id
     }
     var currentGeneration: UUID? { lease.withLock { $0 } }
-    func revoke() { lease.withLock { $0 = nil } }
+    func revoke() { captureLease.withLock { $0 = nil }; lease.withLock { $0 = nil } }
     func accepts(_ id: UUID) -> Bool { lease.withLock { $0 == id } }
 
     func rebuild(_ id: UUID) async throws {
@@ -209,7 +232,13 @@ private final class RealtimeAudioEngine: @unchecked Sendable {
         let completion = onRelease
         let reportID = releaseGate.advance()
         queue.async {
-            let released = self.stop()
+            var released = self.stop()
+            for _ in 0..<2 where !released {
+                // The static hardware queue also serializes replacement-call
+                // activation, so cleanup cannot deactivate a newer call.
+                Thread.sleep(forTimeInterval: 0.15)
+                released = self.stop()
+            }
             if self.releaseGate.accepts(reportID) { completion?(released, reportID, self.releaseGate) }
         }
     }
@@ -223,7 +252,11 @@ private final class RealtimeAudioEngine: @unchecked Sendable {
 
     private var playbackGeneration: UInt64 = 0
     private var tapInstalled = false
-    private var sessionActivated = false
+    // Confined to sessionQueue, including ownership transfer. A new call
+    // inherits any failed deactivation before its own activation can throw.
+    nonisolated(unsafe) private static var sessionOwner: UUID?
+    nonisolated(unsafe) private static var needsDeactivation = false
+    private let sessionOwnerID = UUID()
 
     var isAudiblePlaybackPending: Bool {
         pendingLock.lock(); defer { pendingLock.unlock() }
@@ -239,12 +272,13 @@ private final class RealtimeAudioEngine: @unchecked Sendable {
         guard accepts(generation) else { throw CancellationError() }
         // Configure the audio session before touching the engine's input node so
         // the route (and its native format) reflect the record-capable category.
+        Self.sessionOwner = sessionOwnerID
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.playAndRecord, mode: .voiceChat,
                                 options: [.duckOthers, .defaultToSpeaker, .allowBluetooth])
         guard accepts(generation) else { throw CancellationError() }
+        Self.needsDeactivation = true
         try session.setActive(true)
-        sessionActivated = true
 
         guard accepts(generation) else { throw CancellationError() }
         let input = engine.inputNode
@@ -302,26 +336,39 @@ private final class RealtimeAudioEngine: @unchecked Sendable {
         var released = true
         if let observer { NotificationCenter.default.removeObserver(observer) }
         observer = nil
-        if tapInstalled {
-            engine.inputNode.removeTap(onBus: 0)
-            tapInstalled = false
+        let reset = mediaReset.withLock { value in
+            defer { value = false }
+            return value
         }
-        invalidatePlayback()
-        player.stop()
-        if engine.isRunning { engine.stop() }
-        // Release voice processing before returning the audio session to others.
-        if engine.inputNode.isVoiceProcessingEnabled {
-            do {
-                try engine.inputNode.setVoiceProcessingEnabled(false)
-            } catch {
-                released = false
-                rtAudioLog.error("disable voice processing failed code=\((error as NSError).code, privacy: .public)")
+        if reset {
+            // Orphaned audio objects must be discarded, not queried/restarted.
+            tapInstalled = false
+            engine = AVAudioEngine()
+            player = AVAudioPlayerNode()
+            invalidatePlayback()
+        } else {
+            if tapInstalled {
+                engine.inputNode.removeTap(onBus: 0)
+                tapInstalled = false
+            }
+            invalidatePlayback()
+            player.stop()
+            if engine.isRunning { engine.stop() }
+            // Release voice processing before returning the audio session to others.
+            if engine.inputNode.isVoiceProcessingEnabled {
+                do {
+                    try engine.inputNode.setVoiceProcessingEnabled(false)
+                } catch {
+                    released = false
+                    rtAudioLog.error("disable voice processing failed code=\((error as NSError).code, privacy: .public)")
+                }
             }
         }
-        if sessionActivated {
+        if Self.sessionOwner == sessionOwnerID, Self.needsDeactivation {
             do {
                 try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-                sessionActivated = false
+                Self.needsDeactivation = false
+                Self.sessionOwner = nil
             } catch {
                 released = false
                 rtAudioLog.error("audio session release failed code=\((error as NSError).code, privacy: .public)")
@@ -387,7 +434,11 @@ private final class RealtimeAudioEngine: @unchecked Sendable {
         // items too. Only graph scheduling crosses onto the audio queue.
         nonisolated(unsafe) let scheduledBuffer = buffer
         queue.async { [self] in
-            guard accepts(leaseID), engine.isRunning else { return }
+            guard accepts(leaseID) else { return }
+            guard engine.isRunning else {
+                onConfigurationChange?(leaseID)
+                return
+            }
             pendingLock.lock()
             let current = playbackGeneration == generation
             pendingLock.unlock()
@@ -415,7 +466,11 @@ private final class RealtimeAudioEngine: @unchecked Sendable {
     }
 
     private func captureAndForward(_ buffer: AVAudioPCMBuffer, converter: AVAudioConverter, generation: UUID) {
-        guard accepts(generation), let onAudioFrame else { return }
+        guard acceptsCapture(generation), let onAudioFrame else { return }
+        guard buffer.format.sampleRate == converter.inputFormat.sampleRate,
+              buffer.format.channelCount == converter.inputFormat.channelCount else {
+            onConfigurationChange?(generation); return
+        }
         let ratio = captureFormat.sampleRate / buffer.format.sampleRate
         let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 1
         guard let out = AVAudioPCMBuffer(pcmFormat: captureFormat, frameCapacity: capacity) else { return }
@@ -434,9 +489,9 @@ private final class RealtimeAudioEngine: @unchecked Sendable {
             status.pointee = .haveData
             return inputBuffer
         }
-        if let error { rtAudioLog.error("convert: \(error.localizedDescription, privacy: .public)"); return }
+        if let error { rtAudioLog.error("convert: \(error.localizedDescription, privacy: .public)"); onConfigurationChange?(generation); return }
         guard out.frameLength > 0, let chan = out.int16ChannelData?[0] else { return }
         let data = Data(bytes: chan, count: Int(out.frameLength) * 2)
-        if accepts(generation) { onAudioFrame(data, generation) }
+        if acceptsCapture(generation) { onAudioFrame(data, generation) }
     }
 }
