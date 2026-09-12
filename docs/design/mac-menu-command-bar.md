@@ -10,8 +10,9 @@ values and is the visual truth where prose is ambiguous.
 
 > **Partly superseded (2026-09-12) by [ADR-0015](../adr/0015-menu-panel-flat-task-list.md).**
 > The panel is now a flat, grouped list in Cursor's register: the cat left the
-> command row for a mic, the list is the Companion's three collapsible groups
-> instead of a pinned block over a rail-and-time-column feed, and rows are
+> command row for a mic, the list is the Companion's groups — `Needs you`, which
+> never folds, over collapsible `Working`, `Done` and `Older` — instead of a
+> pinned block over a rail-and-time-column feed, and rows are
 > hairline-separated.
 > Rounds 1 and 3 below still stand — the panel still opens on something you type
 > into, and pet/field/badge are still one merged row. Rounds 2, 4, 5 and 6, the
@@ -48,7 +49,7 @@ The user's words about the panel it replaces: not centred under its icon, and
 | 3 | Head | **Merged** — pet, field and shortcut badge are one row, not a header plus a search bar | |
 | 4 | The merged row | **Pet Carries It** — the pet's own badge is the global status light, so the row needs no separate state chip | superseded by ADR-0015: the light is the dot on the summary line. An "Action Strip" variant (approve/deny inside the panel) was rejected: it needs the approval channel and is its own feature |
 | 5 | List | **Activity Feed** — one stream ordered by when each session last moved, with a time column and a rail | superseded by ADR-0015: three collapsible state groups, newest first inside each |
-| 6 | Urgency | **Pinned** — error and waiting sessions are lifted out of the stream into a block at the top | superseded by ADR-0015: `Needs you` is the first group, and every group collapses — the rejected "collapsed quiet section" came back as the general rule |
+| 6 | Urgency | **Pinned** — error and waiting sessions are lifted out of the stream into a block at the top | superseded by ADR-0015: `Needs you` is the first group and the one that cannot be folded — the rejected "collapsed quiet section" stays rejected for it; `Working`, `Done` and `Older` collapse, and the folds reset every time the panel opens |
 
 Closing decisions, same day:
 
@@ -106,7 +107,8 @@ Mono; the sizes are unchanged.)*
   by presentation state through the Kit's `StateGroups`. A group with nothing in
   it is absent, not empty, and the panel shortens. Every group is recomputed
   from the query's results, and starting a search reopens all of them so a match
-  cannot hide inside a fold.
+  cannot hide inside a fold. `Needs you` has no fold; the other three start each
+  open of the panel the same way (`Older` closed, the rest open).
 - **Ordering is by when the session last moved**, newest first, inside each group.
   Sessions sharing a timestamp keep the snapshot's own order, so two identical
   rounds cannot reshuffle rows.

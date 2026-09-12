@@ -35,9 +35,11 @@ whole snapshot. The menu-bar **mark** above the panel is still the cat.
 **The list is the Companion's three groups, not a stream.** `MenuFeed` projects
 the snapshot through the Kit's `StateGroups` into `Needs you` / `Working` /
 `Done`, newest first inside each, and exposes them as `sections`; `pinned` and
-`feed` are gone. Each group is collapsible from its own head (title, count,
-chevron, quiet ink), an absent group draws no head, and starting a search
-reopens every group so a match can never hide inside a fold.
+`feed` are gone. Every group but `Needs you` is collapsible from its own head
+(title, count, chevron, quiet ink); `Needs you` draws the same head without a
+chevron and cannot be folded, so a new approval is never hidden behind a count.
+An absent group draws no head, and starting a search reopens every fold so a
+match can never hide inside one.
 
 **Rows are flat.** A status dot, the title and how long ago it moved on the
 first line; what the agent is doing (`ToolActivity`, in the state's colour) and
@@ -59,8 +61,11 @@ its hover `bg2`.
 - **Return now jumps to the first row of the first group**, so a task that just
   finished is never the target while something is still running. `topResult`
   follows the order the panel draws.
-- Collapse state is in memory for the life of the panel and keyed by the group's
-  kind, not its heading, so it survives snapshots and a change of language.
+- Collapse state is view state keyed by the group's kind, not its heading, so
+  it survives snapshots and a change of language — but not a close: every open
+  of the panel starts from the same folds (`Older` closed, the rest open), so a
+  fold made yesterday cannot hide today's work. `Needs you` has no fold at all;
+  it is the one group whose rows are always on screen.
 - **The Mac still shows the whole snapshot.** Since ADR-0017 the panel folds
   work that is no longer current (`SessionCurrency`) into a fourth, initially
   collapsed `Older` group rather than into `Done`, and its summary line counts

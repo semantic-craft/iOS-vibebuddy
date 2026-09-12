@@ -430,9 +430,13 @@ struct MenuContent: View {
     @State private var showsPhoneDetails = false
     @State private var hoveredSessionID: String?
     /// Which groups the user has folded away, by `MenuFeed.Section.Kind`. A
-    /// search reopens all of them: a match must never hide inside a fold.
+    /// search reopens all of them: a match must never hide inside a fold. The
+    /// folds are for this open of the panel only (`onAppear` puts them back to
+    /// `initialFolds`), so a group folded yesterday cannot hide today's work;
+    /// `needsYou` has no fold at all (ADR-0015).
+    @State private var collapsed = MenuContent.initialFolds
     /// Older work starts folded: it is there to be found, not to be read past.
-    @State private var collapsed: Set<String> = [MenuFeed.Section.Kind.older.rawValue]
+    private static let initialFolds: Set<String> = [MenuFeed.Section.Kind.older.rawValue]
     @State private var query = ""
     @FocusState private var searchFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -473,9 +477,11 @@ struct MenuContent: View {
         .background(MenuScreenReader { screenSize = $0 })
         .background(MenuPanelAnchor())
         // Typing is the only way to narrow the list, so the field takes the
-        // caret as the panel opens and each open starts from the whole snapshot.
+        // caret as the panel opens and each open starts from the whole snapshot
+        // with the same folds.
         .onAppear {
             query = ""
+            collapsed = Self.initialFolds
             searchFocused = true
         }
         .onChange(of: query) { old, new in
@@ -801,9 +807,10 @@ struct MenuContent: View {
         }
     }
 
-    /// The list (ADR-0015): the Companion's three attention groups, each
-    /// collapsible, with hairlines between rows. A group that holds nothing is
-    /// absent, not empty, so the panel shortens.
+    /// The list (ADR-0015): the Companion's attention groups with hairlines
+    /// between rows — `Needs you` always open, the rest collapsible from their
+    /// heads. A group that holds nothing is absent, not empty, so the panel
+    /// shortens.
     @ViewBuilder
     private func listContent(_ feed: MenuFeed) -> some View {
         let now = Date()
@@ -814,10 +821,8 @@ struct MenuContent: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(feed.sections) { section in
                         VStack(alignment: .leading, spacing: 0) {
-                            MenuSectionHeader(title: Self.groupTitle(section.kind),
-                                              count: section.sessions.count,
-                                              expanded: expansion(section.kind))
-                            if !collapsed.contains(section.kind.rawValue) {
+                            sectionHead(section)
+                            if !isCollapsed(section.kind) {
                                 ForEach(Array(section.sessions.enumerated()), id: \.element.id) { index, session in
                                     row(session, feed: feed, now: now,
                                         showsHairline: index < section.sessions.count - 1)
@@ -841,8 +846,28 @@ struct MenuContent: View {
         }
     }
 
+    /// `Needs you` draws the group head without a chevron and without a toggle:
+    /// the same Kit head at the panel's sizes and insets as `MenuSectionHeader`,
+    /// handed no binding, so a new approval is never behind a fold.
+    @ViewBuilder
+    private func sectionHead(_ section: MenuFeed.Section) -> some View {
+        if section.kind == .needsYou {
+            CompanionSectionHeader(title: Text(Self.groupTitle(section.kind)), count: section.sessions.count,
+                                   insets: EdgeInsets(top: 9, leading: MenuMetrics.gutter,
+                                                      bottom: 4, trailing: MenuMetrics.gutter))
+        } else {
+            MenuSectionHeader(title: Self.groupTitle(section.kind),
+                              count: section.sessions.count,
+                              expanded: expansion(section.kind))
+        }
+    }
+
+    private func isCollapsed(_ kind: MenuFeed.Section.Kind) -> Bool {
+        kind != .needsYou && collapsed.contains(kind.rawValue)
+    }
+
     private func expansion(_ kind: MenuFeed.Section.Kind) -> Binding<Bool> {
-        Binding(get: { !collapsed.contains(kind.rawValue) },
+        Binding(get: { !isCollapsed(kind) },
                 set: { expand in
                     if expand { collapsed.remove(kind.rawValue) } else { collapsed.insert(kind.rawValue) }
                 })
