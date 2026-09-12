@@ -153,6 +153,14 @@ public struct VibeBuddyServer: Sendable {
     }
 
     public func runService() async throws {
+        await store.refreshCopilotHistory()
+        let historyTask = Task {
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(5)) } catch { break }
+                await store.refreshCopilotHistory()
+            }
+        }
+        defer { historyTask.cancel() }
         let monitorTask = codexRolloutMonitor.map { monitor in
             Task { await monitor.run(store: store) }
         }

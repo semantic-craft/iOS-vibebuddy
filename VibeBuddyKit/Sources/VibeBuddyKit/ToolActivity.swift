@@ -12,6 +12,7 @@ public enum ToolActivity {
     /// session. Unlike a prose transcript summary, this always tells the user
     /// whether the agent is active, blocked, or ready.
     public static func label(for session: AgentSession) -> String {
+        if session.historyOnly == true { return "History · read only" }
         switch session.status {
         case .needsResponse:
             return session.waitKind == .permission ? "Needs approval" : "Needs input"

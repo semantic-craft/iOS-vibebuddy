@@ -419,6 +419,8 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     public let id: String
     public let agent: AgentKind
     public var project: String
+    /// Read-only stored conversation; no live task state is known.
+    public var historyOnly: Bool? = nil
     public var branch: String?
     public var model: String?
     public var status: SessionStatus
