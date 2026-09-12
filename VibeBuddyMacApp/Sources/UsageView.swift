@@ -283,3 +283,78 @@ struct AccountUsageSettings: View {
         }
     }
 }
+
+struct TokenConsumptionSummaryView: View {
+    let snapshot: TokenConsumptionSnapshot?
+    var compact = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: compact ? 10 : 14) {
+            if let snapshot {
+                ForEach(snapshot.windows) { window in
+                    windowBlock(window)
+                }
+                Text("Updated \(snapshot.observedAt.formatted(date: .abbreviated, time: .shortened))")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                if let warnings = snapshot.warnings, !warnings.isEmpty {
+                    Text(warnings.prefix(2).joined(separator: "\n"))
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+                Text("From local Claude Code transcripts and Codex rollouts. Estimates only — not an invoice. Distinct from account quota remaining.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Label("Waiting for the first local scan", systemImage: "chart.bar")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func windowBlock(_ window: TokenConsumptionWindow) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(window.kind.title).font(.caption.weight(.semibold))
+                Spacer(minLength: 4)
+                if window.counts.isEmpty {
+                    Text("No spend").foregroundStyle(.secondary)
+                } else {
+                    Text("\(TokenConsumptionSnapshot.formatUSD(window.counts.estimatedUSD)) · \(TokenConsumptionSnapshot.formatTokens(window.counts.totalTokens))")
+                        .monospacedDigit()
+                }
+            }
+            .font(.caption)
+            if !window.counts.isEmpty {
+                Text("\(TokenConsumptionSnapshot.formatTokens(window.counts.billedTokens)) billed · \(TokenConsumptionSnapshot.formatTokens(window.counts.cachedInputTokens)) cache · \(window.counts.sessionCount) sessions")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                rowList("By agent", window.byAgent)
+                rowList("By model", compact ? Array(window.byModel.prefix(4)) : window.byModel)
+                rowList("By project", compact ? Array(window.byProject.prefix(4)) : window.byProject)
+            }
+        }
+    }
+
+    @ViewBuilder private func rowList(_ title: String?, _ rows: [TokenConsumptionRow]) -> some View {
+        if !rows.isEmpty {
+            VStack(alignment: .leading, spacing: 3) {
+                if let title {
+                    Text(title).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                }
+                ForEach(rows) { row in
+                    HStack {
+                        Text(row.label).lineLimit(1)
+                        Spacer(minLength: 8)
+                        Text("\(TokenConsumptionSnapshot.formatTokens(row.counts.totalTokens)) · \(TokenConsumptionSnapshot.formatUSD(row.counts.estimatedUSD))")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.caption2)
+                }
+            }
+        }
+    }
+}

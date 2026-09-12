@@ -32,6 +32,8 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var recentDirectories: [String] = []
     /// Agents a new task can be started for from this Mac.
     @Published private(set) var dispatchAgents: [AgentKind] = []
+    /// Local Claude Code / Codex token spend, beside quota. Nil until the first scan.
+    @Published private(set) var tokenConsumption: TokenConsumptionSnapshot?
     private let claudeLauncher: ClaudeBackgroundLauncher = {
         guard let run = E2ERunConfiguration.current else { return ClaudeBackgroundLauncher() }
         return ClaudeBackgroundLauncher(executable: nil, jobsDirectory: run.file("agents").appendingPathComponent("claude/jobs", isDirectory: true))
@@ -161,6 +163,7 @@ final class MenuBarModel: ObservableObject {
         actionHandler: { [weak self] action in await self?.performVoiceAction(action) ?? "" },
         onStart: { [weak self] in self?.readAloud.stop() })
     private var pollTask: Task<Void, Never>?
+    private var tokenScanTask: Task<Void, Never>?
     private var glance: GlanceWindow?
     @Published private(set) var pairingInProgress = false
     @Published private(set) var changingPairing = false
@@ -283,12 +286,14 @@ final class MenuBarModel: ObservableObject {
         if isDemo {
             sessions = MacDemoData.sessions()
             observationDiagnostics = MacDemoData.observationDiagnostics()
+            tokenConsumption = TokenConsumptionSnapshot.demo()
         } else if runtimeEnabled {
             notifier.requestAuthorization()
             startServer()
             preparePairing()
             startPolling()
             usage.start()
+            startTokenConsumptionScan()
         }
         // Create the glance on the next main-runloop tick — NOT synchronously here.
         // Hosting/displaying a SwiftUI view that observes `self` while `init` is
@@ -406,6 +411,32 @@ final class MenuBarModel: ObservableObject {
         }
     }
 
+    /// Independent of the 2s session poll: reading transcripts is slow and must
+    /// not stall approvals. Isolated from the reducer the same way quota is.
+    private func startTokenConsumptionScan() {
+        tokenScanTask?.cancel()
+        let claudeHomes: [URL]
+        let codexHome: URL
+        if let run = E2ERunConfiguration.current {
+            claudeHomes = [run.file("agents").appendingPathComponent("claude", isDirectory: true)]
+            codexHome = run.file("agents").appendingPathComponent("codex", isDirectory: true)
+        } else {
+            claudeHomes = TokenConsumptionScan.defaultClaudeHomes()
+            codexHome = TokenConsumptionScan.defaultCodexHome()
+        }
+        tokenScanTask = Task { [weak self, store] in
+            while !Task.isCancelled {
+                let snapshot = await Task.detached(priority: .utility) {
+                    TokenConsumptionScan.snapshot(
+                        claudeHomes: claudeHomes, codexHome: codexHome, now: Date())
+                }.value
+                await store.setTokenConsumption(snapshot)
+                self?.tokenConsumption = snapshot
+                try? await Task.sleep(for: .seconds(TokenConsumptionScan.refreshInterval))
+            }
+        }
+    }
+
     private func startPolling() {
         pollTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -427,6 +458,7 @@ final class MenuBarModel: ObservableObject {
                 if await self.claudeLauncher.isSupported() { agents.append(.claudeCode) }
                 if self.codexAppServerDiagnostics.connected { agents.append(.codex) }
                 self.dispatchAgents = agents
+                self.tokenConsumption = snapshot.tokenConsumption
                 self.lifecycleTimeline = await self.store.recentLifecycle()
                 self.missedThisWeek = await self.store.missedCounts()
                 self.buddySessionIDs = BuddyScope.pruned(self.buddySessionIDs, toLive: snapshot.sessions)
@@ -1197,6 +1229,7 @@ final class MenuBarModel: ObservableObject {
 
     deinit {
         pollTask?.cancel()
+        tokenScanTask?.cancel()
         glanceCardTicker?.cancel()
     }
 }

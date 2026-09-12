@@ -297,6 +297,12 @@ code, and tests — don't drift to synonyms.
 - **AccountUsage** — provider quota (Codex app-server RPC, Claude `/usage` CLI):
   window, remaining, reset, freshness, `stale` / unavailable reason. Collected by
   isolated, individually switchable adapters that can never move session state.
+- **Token consumption** — local, read-only aggregation of tokens spent in Claude
+  Code transcripts and Codex CLI/Desktop rollouts (input, output, cache-read,
+  reasoning), grouped by agent, model and project over today and the last seven
+  days. Distinct from **AccountUsage** (quota remaining) and from a Session's
+  current-turn `tokens` / cumulative `spentTokens`. Composed into the snapshot
+  beside quota; never feeds the session reducer and never leaves the machine.
 - **Grok Bot** — the cloud bot product opened by `com.anysphere.sand`, distinct
   from Grok Build CLI (`grok`). Its account quota has the independent `grokBot`
   provider identity. The optional Mac observer uses the official client's

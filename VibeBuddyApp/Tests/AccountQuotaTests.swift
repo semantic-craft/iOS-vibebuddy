@@ -30,10 +30,13 @@ final class AccountQuotaTests: XCTestCase {
         store.start(PairingPayload(host: "mac-a", port: 9, token: "test"))
         for _ in 0..<100 where store.lastProviderQuota.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
         XCTAssertEqual(store.lastProviderQuota, [quota])
+        XCTAssertNotNil(store.lastTokenConsumption)
         store.start(PairingPayload(host: "mac-b", port: 9, token: "test"))
         XCTAssertTrue(store.lastProviderQuota.isEmpty)
+        XCTAssertNil(store.lastTokenConsumption)
         store.forgetPairing()
         XCTAssertTrue(store.lastProviderQuota.isEmpty)
+        XCTAssertNil(store.lastTokenConsumption)
     }
 }
 
@@ -42,7 +45,7 @@ private struct QuotaStreamer: SnapshotStreaming {
     func stream(_ pairing: PairingPayload) -> AsyncThrowingStream<Snapshot, Error> {
         AsyncThrowingStream { continuation in
             if pairing.host == "mac-a" {
-                continuation.yield(Snapshot(sessions: [], serverTime: Date(), sourceID: "mac-a", providerQuota: [quota]))
+                continuation.yield(Snapshot(sessions: [], serverTime: Date(), sourceID: "mac-a", providerQuota: [quota], tokenConsumption: TokenConsumptionSnapshot.demo()))
             }
             continuation.finish()
         }

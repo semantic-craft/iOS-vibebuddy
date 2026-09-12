@@ -1,7 +1,7 @@
 import SwiftUI
 import VibeBuddyKit
 
-/// Read-only rendering of the exact account readings relayed to the Watch.
+/// Usage sheet: local token spend plus the account quota readings relayed to the Watch.
 struct AccountQuotaView: View {
     @EnvironmentObject private var dashboard: DashboardStore
     @EnvironmentObject private var connection: ConnectionStore
@@ -12,21 +12,66 @@ struct AccountQuotaView: View {
             TimelineView(.periodic(from: .now, by: 30)) { context in
                 List {
                     Section {
-                        if connection.pairing == nil {
-                            Text("Pair with your Mac to see account quota.")
+                        if connection.pairing == nil && !connection.demo {
+                            Text("Pair with your Mac to see usage.")
                         } else {
-                            Text(connection.pairing?.macName ?? "Mac")
-                            if dashboard.state != .connected {
+                            Text(connection.pairing?.macName ?? (connection.demo ? "Demo" : "Mac"))
+                            if connection.pairing != nil, dashboard.state != .connected {
                                 Label("Mac unreachable · saved readings only", systemImage: "wifi.slash")
                             }
                         }
                     } footer: {
-                        Text("Account allowance from your Mac, separate from a task's context usage. Manage accounts and quota sources on your Mac.")
+                        Text("Token spend is from local Claude Code and Codex logs on the Mac. Account quota is remaining allowance. Neither is a billed invoice.")
+                    }
+                    if let consumption = dashboard.lastTokenConsumption {
+                        ForEach(consumption.windows) { window in
+                            Section(window.kind.title) {
+                                if window.counts.isEmpty {
+                                    Text("No spend in this window")
+                                        .foregroundStyle(.secondary)
+                                } else {
+                                    LabeledContent("Estimated cost", value: TokenConsumptionSnapshot.formatUSD(window.counts.estimatedUSD))
+                                    LabeledContent("Tokens", value: TokenConsumptionSnapshot.formatTokens(window.counts.totalTokens))
+                                    LabeledContent("Billed / cache", value: "\(TokenConsumptionSnapshot.formatTokens(window.counts.billedTokens)) · \(TokenConsumptionSnapshot.formatTokens(window.counts.cachedInputTokens))")
+                                    LabeledContent("Sessions", value: "\(window.counts.sessionCount)")
+                                    if !window.byAgent.isEmpty {
+                                        Text("By agent").font(.caption).foregroundStyle(.secondary)
+                                        ForEach(window.byAgent) { row in
+                                            LabeledContent(row.label, value: "\(TokenConsumptionSnapshot.formatTokens(row.counts.totalTokens)) · \(TokenConsumptionSnapshot.formatUSD(row.counts.estimatedUSD))")
+                                        }
+                                    }
+                                    if !window.byModel.isEmpty {
+                                        Text("By model").font(.caption).foregroundStyle(.secondary)
+                                        ForEach(Array(window.byModel.prefix(6))) { row in
+                                            LabeledContent(row.label, value: TokenConsumptionSnapshot.formatTokens(row.counts.totalTokens))
+                                        }
+                                    }
+                                    if !window.byProject.isEmpty {
+                                        Text("By project").font(.caption).foregroundStyle(.secondary)
+                                        ForEach(Array(window.byProject.prefix(4))) { row in
+                                            LabeledContent(row.label, value: TokenConsumptionSnapshot.formatTokens(row.counts.totalTokens))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if let observed = dashboard.lastTokenConsumption?.observedAt {
+                            Section {
+                                Text("Token spend updated \(observed.formatted(date: .abbreviated, time: .shortened))")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    } else if connection.pairing != nil || connection.demo {
+                        Section("Token consumption") {
+                            Text("Not provided by this Mac yet")
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     if connection.pairing != nil {
                         ForEach(AccountUsageProvider.allCases) { provider in
                             let quota = dashboard.lastProviderQuota.first { $0.provider == provider }
-                            Section(provider.displayName) {
+                            Section("\(provider.displayName) quota") {
                                 if let quota {
                                     if let account = quota.accountLabel {
                                         Text(account).font(.caption).foregroundStyle(.secondary)
@@ -54,7 +99,7 @@ struct AccountQuotaView: View {
                     }
                 }
             }
-            .navigationTitle("Account quota")
+            .navigationTitle("Usage")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }

@@ -120,7 +120,7 @@ struct DashboardView: View {
         .toolbar {
             // The title is the paired Mac: a status dot, its name, and a menu
             // holding everything about the link (address, reconnect, forget).
-            // "New task" lives in the composer; account quota has its own read-only entry.
+            // "New task" lives in the composer; usage (quota + token spend) has its own read-only entry.
             ToolbarItem(placement: .principal) {
                 MacTitleMenu(title: macTitle, pairing: connection.pairing, demo: connection.demo,
                              state: dashboard.state,
@@ -134,7 +134,7 @@ struct DashboardView: View {
                              disconnect: { connection.clear(); dashboard.forgetPairing() })
             }
             ToolbarItem(placement: .topBarLeading) {
-                Button { showQuota = true } label: { Label("Account quota", systemImage: "gauge.with.dots.needle.50percent") }
+                Button { showQuota = true } label: { Label("Usage", systemImage: "chart.bar.xaxis") }
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showSettings = true } label: { Image(systemName: "gearshape") }

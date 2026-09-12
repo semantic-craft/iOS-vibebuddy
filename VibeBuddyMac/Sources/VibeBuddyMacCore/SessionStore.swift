@@ -93,6 +93,8 @@ public actor SessionStore {
     public let sourceID: String?
     /// Account allowance, kept beside the reducer rather than inside it.
     private var providerQuota: [ProviderQuota] = []
+    /// Local token spend, kept beside the reducer rather than inside it.
+    private var tokenConsumption: TokenConsumptionSnapshot?
     private var subscribers: [UUID: AsyncStream<Snapshot>.Continuation] = [:]
     private var needsResponseHandler: (@Sendable (AgentSession) async -> Void)?
     private var staleAfter: TimeInterval
@@ -718,6 +720,14 @@ public actor SessionStore {
         broadcast()
     }
 
+    /// Replace the current token-consumption summary. Composed into every
+    /// snapshot beside quota; never reaches the reducer.
+    public func setTokenConsumption(_ snapshot: TokenConsumptionSnapshot?) {
+        guard snapshot != tokenConsumption else { return }
+        tokenConsumption = snapshot
+        broadcast()
+    }
+
     /// The one place a runtime snapshot is assembled: sessions and diagnostics
     /// from the reducer, allowance from beside it.
     private func currentSnapshot(now: Date) -> Snapshot {
@@ -735,6 +745,7 @@ public actor SessionStore {
         }
         snapshot.sourceID = sourceID
         snapshot.providerQuota = providerQuota.isEmpty ? nil : providerQuota
+        snapshot.tokenConsumption = tokenConsumption
         let directories = recentDirectories()
         snapshot.recentDirectories = directories.isEmpty ? nil : directories
         snapshot.sessions = snapshot.sessions.map { session in

@@ -106,6 +106,8 @@ final class DashboardStore: ObservableObject {
     /// untouched — normalization already happened where the provider's own
     /// convention was still known.
     @Published private(set) var lastProviderQuota: [ProviderQuota] = []
+    /// Local Claude Code / Codex token spend as the Mac last reported it.
+    @Published private(set) var lastTokenConsumption: TokenConsumptionSnapshot?
     private var runTask: Task<Void, Never>?
     private var connectionGeneration = UUID()
     /// Decides which sound (if any) each snapshot earns. Reset per connection so
@@ -342,6 +344,7 @@ final class DashboardStore: ObservableObject {
         runTask?.cancel()
         isDemo = false
         lastProviderQuota = []
+        lastTokenConsumption = nil
         if self.pairing != pairing { phoneActions = [:]; phoneActionIdentity = [:] }
         self.pairing = pairing
         ConnectionStore.observePairing(pairing)
@@ -413,6 +416,7 @@ final class DashboardStore: ObservableObject {
         state = .connecting
         groups = SessionGroups([])
         lastProviderQuota = []
+        lastTokenConsumption = nil
         relayToWatch([])
     }
 
@@ -519,6 +523,7 @@ final class DashboardStore: ObservableObject {
         stop()
         isDemo = true
         lastProviderQuota = []
+        lastTokenConsumption = TokenConsumptionSnapshot.demo()
         pairing = nil
         state = .connected
         let demo = Self.demoSessions()
@@ -909,6 +914,7 @@ final class DashboardStore: ObservableObject {
         // Never let its old Mac readings repopulate a newly selected source.
         guard !Task.isCancelled else { return }
         lastProviderQuota = snapshot.providerQuota ?? []
+        lastTokenConsumption = snapshot.tokenConsumption
         buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: snapshot.sessions)
         state = .connected
         confirmConnectedPairing()

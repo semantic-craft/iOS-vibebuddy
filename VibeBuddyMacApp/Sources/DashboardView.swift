@@ -19,6 +19,7 @@ struct DashboardView: View {
         ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1" ? "demo-edit" : nil
     @FocusState private var searchFocused: Bool
     @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
+    @State private var showTokenConsumption = true
 
     private var projection: DashboardSessionList {
         DashboardSessionList(model.sessions, project: projectScope, status: statusFilter,
@@ -220,6 +221,8 @@ struct DashboardView: View {
                     }
                 }
                 .companionCard(radius: MacTheme.panelRadius)
+                DisclosureGroup("Token consumption", isExpanded: $showTokenConsumption) { tokenConsumptionCard }
+                    .font(.caption).padding(.horizontal, 4)
                 DisclosureGroup("Account usage") { usageCard }
                     .font(.caption).padding(.horizontal, 4)
             }
@@ -245,6 +248,14 @@ struct DashboardView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .companionCard(radius: MacTheme.panelRadius)
         }
+    }
+
+    @ViewBuilder private var tokenConsumptionCard: some View {
+        TokenConsumptionSummaryView(snapshot: model.tokenConsumption, compact: true)
+            .font(MacTheme.font(12))
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .companionCard(radius: MacTheme.panelRadius)
     }
 }
 

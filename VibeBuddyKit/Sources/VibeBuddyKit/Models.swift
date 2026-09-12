@@ -621,6 +621,9 @@ public struct Snapshot: Codable, Sendable, Equatable {
     /// Agents the Mac can start a new task for right now (Claude Code when the
     /// CLI supports `--bg`, Codex when the app-server daemon is connected).
     public var dispatchAgents: [AgentKind]?
+    /// Local Claude Code / Codex token spend, aggregated beside quota. Optional
+    /// so older phones ignore it. Composed outside the session reducer.
+    public var tokenConsumption: TokenConsumptionSnapshot?
 
     public init(
         sessions: [AgentSession],
@@ -629,7 +632,8 @@ public struct Snapshot: Codable, Sendable, Equatable {
         observationDiagnostics: [AgentObservationDiagnostic]? = nil,
         providerQuota: [ProviderQuota]? = nil,
         recentDirectories: [String]? = nil,
-        dispatchAgents: [AgentKind]? = nil
+        dispatchAgents: [AgentKind]? = nil,
+        tokenConsumption: TokenConsumptionSnapshot? = nil
     ) {
         self.sessions = sessions
         self.serverTime = serverTime
@@ -638,11 +642,12 @@ public struct Snapshot: Codable, Sendable, Equatable {
         self.providerQuota = providerQuota
         self.recentDirectories = recentDirectories
         self.dispatchAgents = dispatchAgents
+        self.tokenConsumption = tokenConsumption
     }
 
     enum CodingKeys: String, CodingKey {
         case sourceID, sessions, serverTime, observationDiagnostics
-        case providerQuota, recentDirectories, dispatchAgents
+        case providerQuota, recentDirectories, dispatchAgents, tokenConsumption
     }
 
     public init(from decoder: Decoder) throws {
@@ -661,6 +666,7 @@ public struct Snapshot: Codable, Sendable, Equatable {
         }
         recentDirectories = try c.decodeIfPresent([String].self, forKey: .recentDirectories)
         dispatchAgents = try c.decodeIfPresent([AgentKind].self, forKey: .dispatchAgents)
+        tokenConsumption = try c.decodeIfPresent(TokenConsumptionSnapshot.self, forKey: .tokenConsumption)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -672,6 +678,7 @@ public struct Snapshot: Codable, Sendable, Equatable {
         try c.encodeIfPresent(providerQuota, forKey: .providerQuota)
         try c.encodeIfPresent(recentDirectories, forKey: .recentDirectories)
         try c.encodeIfPresent(dispatchAgents, forKey: .dispatchAgents)
+        try c.encodeIfPresent(tokenConsumption, forKey: .tokenConsumption)
     }
 }
 
