@@ -679,6 +679,10 @@ private struct ReadAloudFeatureRow: View {
         FeatureRow(feature: .readAloud, dependsOnPrevious: true, enabled: $enabled,
                    status: rowStatus, detail: detail, hint: hint, tests: tests, reveal: reveal) {
           VStack(alignment: .leading, spacing: 6) {
+            Toggle("Silence speech while viewing this task", isOn: Binding(
+                get: { UserDefaults.standard.bool(forKey: ReadAloud.silenceViewedKey) },
+                set: { UserDefaults.standard.set($0, forKey: ReadAloud.silenceViewedKey) }))
+                .font(MacTheme.font(11))
             ControlLine {
                 ProviderPicker(label: "Read-aloud provider", selection: $selection,
                                options: VoiceProvider.voiceProviders,

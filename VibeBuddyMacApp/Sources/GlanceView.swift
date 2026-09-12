@@ -302,6 +302,7 @@ struct GlanceView: View {
                     PetFace(state: model.buddyState, voice: .init(voice.phase), bare: true, scale: 0.45 * s)
                 }
                 if voice.isActive { voiceBadge } else { moodHead }
+                AnnouncementControls(reader: model.readAloud)
                 Spacer(minLength: 8 * s)
                 Button {
                     model.setShowGlance(false)   // get out of the way; the shortcut or menu brings it back
@@ -334,6 +335,9 @@ struct GlanceView: View {
                             if sess.status == .needsResponse {
                                 expandedDecisionID = expandedDecisionID == sess.id ? nil : sess.id
                             } else { model.jump(sess) }
+                        }
+                        .onHover { hovering in
+                            model.glanceViewedSessionID = hovering ? sess.id : nil
                         }
                         if expandedDecisionID == sess.id {
                             decision(for: sess)

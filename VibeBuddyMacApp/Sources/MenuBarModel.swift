@@ -151,26 +151,66 @@ final class MenuBarModel: ObservableObject {
             self?.presentGlanceCard(alert) ?? false
         },
         delivery: deliveryRecorder,
-        onScheduled: { [weak self] alert in
-            Task { @MainActor in
-                guard let self, UserDefaults.standard.bool(forKey: ReadAloud.enabledKey),
-                      !self.voiceChat.isActive, !alert.isReminder, alert.sound == .agentDone,
-                      let notice = alert.session.completionNotice, notice.state == .summary,
-                      let text = notice.text, await self.isCurrentCompletion(alert) else { return }
-                guard UserDefaults.standard.bool(forKey: ReadAloud.enabledKey), !self.voiceChat.isActive else { return }
-                guard (alert.session.agent != .grokBot || self.grokBotEnabled),
-                      !ForegroundTerminal.sourceAppSuppressesSpeech(for: alert.session,
-                        frontmostBundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier) else { return }
-                self.readAloud.speak(text, id: notice.id) { [weak self] in
-                    guard let self, await self.isCurrentCompletion(alert) else { return false }
-                    // Recheck live speech preferences and foreground after the store actor hop.
-                    guard UserDefaults.standard.bool(forKey: ReadAloud.enabledKey), !self.voiceChat.isActive,
-                          alert.session.agent != .grokBot || self.grokBotEnabled else { return false }
-                    return !ForegroundTerminal.sourceAppSuppressesSpeech(for: alert.session,
-                        frontmostBundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
-                }
-            }
+        onEligible: { [weak self] alert in
+            Task { @MainActor in self?.enqueueAnnouncement(alert) }
         })
+
+    private func enqueueAnnouncement(_ alert: SoundAlert) {
+        guard UserDefaults.standard.bool(forKey: ReadAloud.enabledKey), !alert.isReminder,
+              let text = AnnouncementCopy.text(for: alert.session, sound: alert.sound, language: VoiceSettings.conversationLanguage()) else { return }
+        let identity = alert.sound == .agentDone
+            ? (alert.session.completionNotice?.id ?? "completion/" + alert.sessionID + "/" + (alert.session.completionID ?? ""))
+            : alert.notificationID + "/" + String(alert.session.statusSince.timeIntervalSince1970)
+        readAloud.speak(text, id: identity, priority: alert.sound != .agentDone, prepareText: { [weak self] in
+            var session = alert.session
+            if alert.sound == .agentDone, session.completionSummary == nil, session.completionText == nil,
+               let body = await self?.completionBody(for: session),
+               body.sessionID == session.id, body.completionID == session.completionID {
+                // Resolve the existing exact-round result inside the queue, without acknowledging.
+                session.completionText = RowPresentation.firstSentence(body.text)
+            }
+            return AnnouncementCopy.text(for: session, sound: alert.sound, language: VoiceSettings.conversationLanguage())
+        }) { [weak self] in
+            guard let self, UserDefaults.standard.bool(forKey: ReadAloud.enabledKey),
+                  !Self.effectiveQuiet(), NotificationCategoryPrefs.loadMac().isEnabled(alert.sound) else { return false }
+            let snapshot = await self.store.snapshot(now: Date())
+            guard let current = snapshot.sessions.first(where: { $0.id == alert.sessionID }),
+                  current.effectiveAttention != .muted else { return false }
+            if UserDefaults.standard.bool(forKey: ReadAloud.silenceViewedKey) {
+                let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+                let nativePresence = !Presence.screenIsLocked() && Presence.idleSeconds() < 120
+                    && (ForegroundTerminal.sourceAppSuppressesSpeech(for: current, frontmostBundleID: front)
+                        || ForegroundTerminal.focusedSessionIDs(among: [current], frontmostBundleID: front).contains(current.id))
+                if self.isViewing(current.id) || nativePresence { return false }
+            }
+            if alert.sound == .agentDone {
+                return current.status == .done && current.completionID == alert.session.completionID
+                    && current.completionID != nil && !current.isStuck
+            }
+            return current.status == alert.session.status && current.statusSince == alert.session.statusSince
+                && (alert.sound != .agentStuck || current.failed == true)
+        }
+    }
+
+    func replayResult(_ original: AgentSession, body: CompletionBody? = nil) {
+        var session = original
+        if let body, body.sourceID == snapshotSourceID, body.sessionID == session.id,
+           body.completionID == session.completionID,
+           let result = RowPresentation.firstSentence(body.text) {
+            session.completionText = result
+        }
+        guard let text = AnnouncementCopy.text(for: session, sound: .agentDone, language: VoiceSettings.conversationLanguage()) else { return }
+        readAloud.speak((VoiceSettings.conversationLanguage() == .chinese ? "此前结果。" : "Previous result. ") + text, id: "replay/" + UUID().uuidString, remember: false)
+    }
+
+    var dashboardViewedSessionID: String?
+    var glanceViewedSessionID: String?
+    func isViewing(_ sessionID: String) -> Bool {
+        guard !Presence.screenIsLocked(), Presence.idleSeconds() < 120 else { return false }
+        if glanceExpanded && glanceViewedSessionID == sessionID { return true }
+        return NSApp.isActive && NSApp.keyWindow?.identifier?.rawValue == "com.vibebuddy.dashboard"
+            && dashboardViewedSessionID == sessionID
+    }
     private let deliveryRecorder: NotificationDeliveryRecorder
     // Phone push: the same SoundPolicy engine, run from the Mac's perspective of
     // a backgrounded phone, so the phone hears the full pack (not just needs-you).
@@ -191,7 +231,7 @@ final class MenuBarModel: ObservableObject {
             return BuddyScope.included(from: self.sessions, selectedIDs: self.buddySessionIDs)
         },
         actionHandler: { [weak self] action in await self?.performVoiceAction(action) ?? "" },
-        onStart: { [weak self] in self?.readAloud.stop() })
+        onStart: { [weak self] in self?.readAloud.voiceStarted() })
     private var pollTask: Task<Void, Never>?
     private var tokenScanTask: Task<Void, Never>?
     private var glance: GlanceWindow?
@@ -534,6 +574,7 @@ final class MenuBarModel: ObservableObject {
                     appActive: NSApp.isActive,                 // user looking at VibeBuddy?
                     quietMode: Self.effectiveQuiet(),          // Focus mode (manual or nightly) → every session muted
                     focusedSessionIDs: present,                // present sessions cap to the list
+                    viewedSessionIDs: Set(snapshot.sessions.filter { self.isViewing($0.id) }.map(\.id)),
                     categories: NotificationCategoryPrefs.loadMac()) // this Mac's own switches
                 await self.refreshNotificationDeliveryHealth()
                 // Off the loop: a push may hold for the phone's receipt, and the

@@ -697,6 +697,8 @@ struct MenuContent: View {
                 PetFace(state: model.buddyState, voice: .init(model.voiceChat.phase), plain: true, scale: 0.4)
             }
 
+            AnnouncementControls(reader: model.readAloud)
+
             TextField(text: $query) { Text("Search sessions or run a command") }
                 .textFieldStyle(.plain)
                 .font(MacTheme.font(13.5))

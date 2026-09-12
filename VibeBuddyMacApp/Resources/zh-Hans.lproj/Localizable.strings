@@ -873,3 +873,13 @@
 
 "Unread" = "未读";
 "Last observed: %@" = "最后观察：%@";
+
+"Silence speech while viewing this task" = "查看当前任务时也静默播报";
+"Resume announcements" = "恢复播报";
+"Pause announcements" = "暂停播报";
+"Skip announcement" = "跳过当前播报";
+"Replay previous result" = "重播此前结果";
+"Replay this previous result" = "重播这条此前结果";
+"More results remain in the unread list" = "还有更多结果可在未读列表查看";
+"Read-aloud paused" = "播报已暂停";
+"Skipped; result remains unread" = "已跳过；结果仍未读";

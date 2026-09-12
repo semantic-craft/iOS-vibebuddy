@@ -15,9 +15,11 @@ struct NotificationCoordinatorTests {
     final class SpyNotifier: AttentionNotifier {
         var result: LocalNotificationAttempt = .scheduled()
         private(set) var played: [(id: String, sound: NotificationSound)] = []
+        private(set) var levels: [DeliveryLevel] = []
         private(set) var withdrawn: [[String]] = []
         func notify(_ alert: SoundAlert) async -> LocalNotificationAttempt {
             played.append((alert.sessionID, alert.sound))
+            levels.append(alert.delivery)
             return result
         }
         func withdraw(_ identifiers: [String]) async { withdrawn.append(identifiers) }
@@ -28,6 +30,63 @@ struct NotificationCoordinatorTests {
                          since: Date = Date(timeIntervalSince1970: 0)) -> AgentSession {
         AgentSession(id: id, agent: agent, project: "p",
                      status: status, waitKind: wait, statusSince: since, updatedAt: since)
+    }
+
+    final class EligibleSpeechSpy: @unchecked Sendable {
+        private let lock = NSLock()
+        private var sessions: [String] = []
+        func record(_ alert: SoundAlert) { lock.withLock { sessions.append(alert.sessionID) } }
+        var ids: [String] { lock.withLock { sessions } }
+    }
+
+    @Test("Short new completion speaks once without a cue or a sampled Working state")
+    func shortCompletionSpeech() async {
+        let spy = SpyNotifier(), speech = EligibleSpeechSpy()
+        let coordinator = NotificationCoordinator(notifier: spy, onEligible: { speech.record($0) })
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        await coordinator.observe([], now: now, appActive: false, quietMode: false)
+        var done = session("short", .done, since: now.addingTimeInterval(2))
+        done.completionID = "round-1"; done.hasUnreadCompletion = true
+        await coordinator.observe([done], now: now.addingTimeInterval(2), appActive: false, quietMode: false)
+        done.hasUnreadCompletion = false
+        await coordinator.observe([done], now: now.addingTimeInterval(3), appActive: false, quietMode: false)
+        done.hasUnreadCompletion = true
+        await coordinator.observe([done], now: now.addingTimeInterval(4), appActive: false, quietMode: false)
+        #expect(speech.ids == ["short"])
+        #expect(spy.played.isEmpty)
+        done.completionID = "round-2"; done.statusSince = now.addingTimeInterval(5)
+        await coordinator.observe([done], now: now.addingTimeInterval(5), appActive: false, quietMode: true)
+        await coordinator.observe([done], now: now.addingTimeInterval(6), appActive: false, quietMode: false)
+        #expect(speech.ids == ["short"])
+        done.completionID = "round-3"; done.statusSince = now.addingTimeInterval(7)
+        done.completionNotice = CompletionNotice(id: "notice-3", deadline: now.addingTimeInterval(10))
+        await coordinator.observe([done], now: now.addingTimeInterval(7), appActive: true, quietMode: false)
+        done.hasUnreadCompletion = false
+        done.completionNotice?.state = .cancelled
+        await coordinator.observe([done], now: now.addingTimeInterval(8), appActive: true, quietMode: false)
+        #expect(speech.ids == ["short", "short"])
+    }
+
+    @Test("Only the viewed completion is quiet; another task and a real question still notify")
+    func completionViewingIsPerTaskAndPerChannel() async {
+        let spy = SpyNotifier()
+        let speech = EligibleSpeechSpy()
+        let coordinator = NotificationCoordinator(notifier: spy, onEligible: { speech.record($0) })
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        await coordinator.observe([session("viewed", .working, since: now),
+                                   session("other", .working, since: now),
+                                   session("question", .working, since: now)],
+                                  now: now, appActive: true, quietMode: false)
+        await coordinator.observe([session("viewed", .done, since: now),
+                                   session("other", .done, since: now),
+                                   session("question", .needsResponse, wait: .question, since: now)],
+                                  now: now.addingTimeInterval(60), appActive: true, quietMode: false,
+                                  viewedSessionIDs: ["viewed", "question"])
+        let levels = Dictionary(uniqueKeysWithValues: zip(spy.played.map(\.id), spy.levels))
+        #expect(Set(speech.ids) == ["viewed", "other", "question"])
+        #expect(levels["viewed"] == .list)
+        #expect(levels["other"] == .banner)
+        #expect(levels["question"] == .bannerSound)
     }
 
     @Test("Claude and Codex transitions share the notification pipeline")

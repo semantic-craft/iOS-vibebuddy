@@ -141,6 +141,9 @@ struct DashboardView: View {
             statusFilter = nil
             selection = MenuFeed(model.sessions).nextPending(after: selection)?.id
         }
+        .onChange(of: selection) { _, id in model.dashboardViewedSessionID = id }
+        .onAppear { model.dashboardViewedSessionID = selection }
+        .onDisappear { model.dashboardViewedSessionID = nil }
         .onChange(of: filtered.map(\.id)) { _, ids in
             if let selection, !ids.contains(selection) { self.selection = nil }
         }
@@ -530,6 +533,10 @@ private struct DetailCard: View {
                 }
             }
             Text("Actions").font(MacTheme.font(12, .semibold)).foregroundStyle(MacTheme.ink2)
+            if session.status == .done {
+                Button("Replay this previous result") { model.replayResult(session, body: currentBody) }
+                    .buttonStyle(PillButtonStyle(kind: .soft, size: .small))
+            }
             if session.status != .needsResponse && SessionActionSupport.resolve(for: session).isAvailable {
                 InstructionComposer(placeholder: session.status == .done ? "Start a new turn…" : "Add to the current turn…") { text in
                     model.answer(session.id, answers: [:], text: text)

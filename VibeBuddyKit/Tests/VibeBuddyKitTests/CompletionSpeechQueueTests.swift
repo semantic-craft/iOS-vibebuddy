@@ -46,6 +46,26 @@ struct CompletionSpeechQueueTests {
         #expect(events == ["fresh-play"])
     }
 
+    @Test func boundedQueueKeepsNewestAndPlacesBlockerNext() async {
+        let queue = CompletionSpeechQueue()
+        queue.pause()
+        var played: [String] = []
+        var overflow = 0
+        queue.onOverflow = { overflow += 1 }
+        for index in 0..<12 {
+            queue.enqueue(id: "result-\(index)") { played.append("result-\(index)") }
+        }
+        queue.enqueue(id: "blocker", priority: true) { played.append("blocker") }
+        queue.enqueue(id: "blocker", priority: true) { played.append("duplicate") }
+        #expect(queue.pendingCount == 10)
+        #expect(overflow == 3)
+        #expect(played.isEmpty)
+        queue.resume()
+        await waitForIdle(queue)
+        #expect(played.first == "blocker")
+        #expect(Array(played.dropFirst()) == (3..<12).map { "result-\($0)" })
+    }
+
     private func waitForIdle(_ queue: CompletionSpeechQueue) async {
         // Install the observer before yielding, so even synchronous jobs signal it.
         await withCheckedContinuation { continuation in
