@@ -38,7 +38,11 @@ final class LiveActivityManager {
         await task.value
     }
 
-    private func reconcile(sessions: [AgentSession], allowsActions: Bool) async {
+    private func reconcile(sessions allSessions: [AgentSession], allowsActions: Bool) async {
+        // The island counts what is current (`SessionCurrency`), like every
+        // other summary line; the approval target below still looks at every
+        // session, since a wait is current by definition.
+        let sessions = SessionCurrency.current(allSessions, now: Date())
         let summary = TaskPresentationSummary(sessions: sessions)
         let existing = Activity<VibeBuddyActivityAttributes>.activities
         let reusable = existing.filter { $0.activityState == .active || $0.activityState == .stale }

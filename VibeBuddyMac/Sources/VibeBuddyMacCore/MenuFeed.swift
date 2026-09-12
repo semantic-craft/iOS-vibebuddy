@@ -3,8 +3,9 @@ import VibeBuddyKit
 
 /// Mac menu projection: the snapshot cut into the Companion's three attention
 /// groups (`StateGroups`, the Kit's own rule), each ordered by
-/// when something last happened. The view consumes this and does no sorting,
-/// grouping or filtering of its own.
+/// when something last happened, with everything that is no longer current
+/// (`SessionCurrency`) folded into a fourth group, `older`. The view consumes
+/// this and does no sorting, grouping or filtering of its own.
 ///
 /// Narrowing is the search field's job and nothing else's — there is no state
 /// or agent filter, and no locally cleared round.
@@ -20,18 +21,19 @@ public struct MenuFeed: Sendable {
     /// the heading: a group keeps the state the user collapsed it into across
     /// snapshots, and across a change of language.
     public struct Section: Identifiable, Equatable, Sendable {
-        public enum Kind: String, Sendable { case needsYou, working, done }
+        public enum Kind: String, Sendable { case needsYou, working, done, older }
         public let kind: Kind
         public let sessions: [AgentSession]
         public var id: String { kind.rawValue }
     }
 
-    /// The non-empty groups in attention order — `needsYou`, `working`, `done` —
-    /// newest first inside each. An empty group is absent, not empty, so the
-    /// panel shortens instead of showing a heading over nothing.
+    /// The non-empty groups in attention order — `needsYou`, `working`, `done`,
+    /// then `older` — newest first inside each. An empty group is absent, not
+    /// empty, so the panel shortens instead of showing a heading over nothing.
     public let sections: [Section]
-    /// Always the whole snapshot. Typing narrows the list; it must not change
-    /// what the panel says is going on.
+    /// Always the whole snapshot's current sessions (`SessionCurrency`), the
+    /// same numbers the phone, the Watch and the island say. Typing narrows the
+    /// list; it must not change what the panel says is going on.
     public let summary: TaskPresentationSummary
     /// How many sessions the query matched, and how many there are in total.
     public let matchCount: Int
@@ -40,10 +42,10 @@ public struct MenuFeed: Sendable {
     public let query: String
     public let emptyState: EmptyState?
 
-    public init(_ sessions: [AgentSession], query: String = "") {
+    public init(_ sessions: [AgentSession], query: String = "", now: Date = Date()) {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         self.query = trimmed
-        summary = TaskPresentationSummary(sessions: sessions)
+        summary = TaskPresentationSummary(currentIn: sessions, now: now)
         totalCount = sessions.count
 
         let matched = trimmed.isEmpty ? sessions : sessions.filter { Self.matches($0, trimmed) }
@@ -57,10 +59,11 @@ public struct MenuFeed: Sendable {
                 : $0.element.updatedAt > $1.element.updatedAt
         }.map(\.element)
 
-        let groups = StateGroups(ordered)
+        let groups = StateGroups(SessionCurrency.current(ordered, now: now))
         sections = [Section(kind: .needsYou, sessions: groups.needsYou),
                     Section(kind: .working, sessions: groups.working),
-                    Section(kind: .done, sessions: groups.done)]
+                    Section(kind: .done, sessions: groups.done),
+                    Section(kind: .older, sessions: SessionCurrency.older(ordered, now: now))]
             .filter { !$0.sessions.isEmpty }
 
         if sessions.isEmpty {
@@ -72,16 +75,9 @@ public struct MenuFeed: Sendable {
         }
     }
 
-    /// Every matched row in the order the panel draws them.
-    public var rows: [AgentSession] { sections.flatMap(\.sessions) }
-
-    /// The sessions in one group, empty when the group is absent.
-    public func sessions(_ kind: Section.Kind) -> [AgentSession] {
-        sections.first { $0.kind == kind }?.sessions ?? []
-    }
-
     /// The row Return jumps to: the most urgent one when something is waiting,
-    /// otherwise the newest of whatever group leads the list.
+    /// otherwise the newest of whatever group leads the list — which is `older`
+    /// only when nothing current matched.
     public var topResult: AgentSession? { sections.first?.sessions.first }
 
     /// Matches what the row actually shows — its title and the agent's own

@@ -346,7 +346,9 @@ final class MenuBarModel: ObservableObject {
         NotificationQuietMode.isEffective(now: now)
     }
 
-    var presentationSummary: TaskPresentationSummary { TaskPresentationSummary(sessions: sessions) }
+    /// The counts every Mac surface states (menu-bar badge, Glance, panel):
+    /// current sessions only (`SessionCurrency`), like the phone and the Watch.
+    var presentationSummary: TaskPresentationSummary { TaskPresentationSummary(currentIn: sessions, now: Date()) }
     /// The buddy's mood, shared with the menu-bar icon and the glance so the Mac
     /// reads the same as the phone.
     var buddyState: BuddyState { BuddyState.from(SessionGroups(sessions), now: Date()) }
@@ -635,8 +637,11 @@ final class MenuBarModel: ObservableObject {
         guard let pusher else { return }
         let tokens = await activityTokens.all()
         guard !tokens.isEmpty else { return }
-        let summary = TaskPresentationSummary(sessions: sessions)
-        let leading = sessions.leadingPresentationSession
+        // The island shows current sessions (`SessionCurrency`); the approval
+        // target below still looks at all of them — a wait is always current.
+        let current = SessionCurrency.current(sessions, now: Date())
+        let summary = TaskPresentationSummary(sessions: current)
+        let leading = current.leadingPresentationSession
         let topProject = leading?.project
         let topSession = leading?.id
         // The first pending approval, not necessarily the leading session (an

@@ -148,6 +148,13 @@ public struct TaskPresentationSummary: Codable, Sendable, Hashable {
         self = result
     }
 
+    /// The counts a summary line shows: only the sessions that are current
+    /// (`SessionCurrency`), so every surface that says "N done" says the same N.
+    public init(currentIn sessions: [AgentSession], now: Date,
+                window: TimeInterval = SessionCurrency.window) {
+        self.init(sessions: SessionCurrency.current(sessions, now: now, window: window))
+    }
+
     public var total: Int { idle + thinking + completeUnread + requiresInput + error }
     public var isEmpty: Bool { total == 0 }
 
@@ -189,9 +196,13 @@ public struct TaskPresentationSnapshot: Codable, Sendable, Hashable {
         self.updatedAt = updatedAt
     }
 
+    /// Built from the current sessions only (`SessionCurrency`, judged at
+    /// `updatedAt`), so the widget's counts and leading task match the phone's
+    /// own summary line.
     public init(sessions: [AgentSession], updatedAt: Date = Date()) {
-        let leading = sessions.leadingPresentationSession
-        self.init(summary: TaskPresentationSummary(sessions: sessions),
+        let current = SessionCurrency.current(sessions, now: updatedAt)
+        let leading = current.leadingPresentationSession
+        self.init(summary: TaskPresentationSummary(sessions: current),
                   topProject: leading?.project, topSessionId: leading?.id,
                   updatedAt: updatedAt)
     }

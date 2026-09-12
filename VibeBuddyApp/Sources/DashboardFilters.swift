@@ -30,8 +30,9 @@ struct DashboardFilters: Equatable {
     var agent: AgentKind?
     var attention: SessionAttention?
     var grouping: DashboardGrouping = .status
-    /// Off by default: a finished task older than `SessionRecency.window` is
-    /// history, not today's list. Anything waiting on a person stays either way.
+    /// Off by default: a session that is not current (`SessionCurrency`) is
+    /// history, not today's list. Waiting, failed, running and followed-unread
+    /// sessions stay either way.
     var includeInactive = false
 
     var isActive: Bool { project != nil || status != nil || agent != nil || attention != nil }
@@ -46,13 +47,13 @@ struct DashboardFilters: Equatable {
     /// Everything the selection admits, newest first.
     func sessions(from sessions: [AgentSession], now: Date = Date()) -> [AgentSession] {
         let selected = sessions.filter(matches)
-        let current = includeInactive ? selected : SessionRecency.current(selected, now: now)
+        let current = includeInactive ? selected : SessionCurrency.current(selected, now: now)
         return current.sorted { $0.updatedAt > $1.updatedAt }
     }
 
     /// How many rows the recency window is holding back right now.
     func hiddenCount(from sessions: [AgentSession], now: Date = Date()) -> Int {
-        includeInactive ? 0 : SessionRecency.inactiveCount(sessions.filter(matches), now: now)
+        includeInactive ? 0 : SessionCurrency.older(sessions.filter(matches), now: now).count
     }
 
     func sections(from sessions: [AgentSession], now: Date = Date()) -> [DashboardSection] {
@@ -160,7 +161,7 @@ struct DashboardCustomizeSheet: View {
                 Section {
                     Toggle("Show tasks idle over 24 hours", isOn: $selection.includeInactive)
                 } footer: {
-                    Text("A finished task drops off the list a day after its last update. A task waiting on you always stays, however old it is.")
+                    Text("A finished task drops off the list a day after its last update. A task that is waiting on you, running, failed, or followed with an unread result always stays, however old it is.")
                 }
                 if selection.isActive || selection.grouping != .status || selection.includeInactive {
                     Section {

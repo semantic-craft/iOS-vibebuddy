@@ -431,7 +431,8 @@ struct MenuContent: View {
     @State private var hoveredSessionID: String?
     /// Which groups the user has folded away, by `MenuFeed.Section.Kind`. A
     /// search reopens all of them: a match must never hide inside a fold.
-    @State private var collapsed: Set<String> = []
+    /// Older work starts folded: it is there to be found, not to be read past.
+    @State private var collapsed: Set<String> = [MenuFeed.Section.Kind.older.rawValue]
     @State private var query = ""
     @FocusState private var searchFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -831,6 +832,7 @@ struct MenuContent: View {
         case .needsYou: "Needs you"
         case .working: "Working"
         case .done: "Done"
+        case .older: "Older"
         }
     }
 

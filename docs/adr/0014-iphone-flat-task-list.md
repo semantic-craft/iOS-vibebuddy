@@ -44,7 +44,10 @@ replaces the chip rows and the old filter form.
 
 **A 24-hour recency window** (`SessionRecency`) decides what the list shows: a
 session that is `needsResponse` is always current, however old; everything else
-must have moved inside `SessionRecency.window`. The window is presentation only —
+must have moved inside `SessionRecency.window`. *(2026-09-13, ADR-0017: the rule
+moved into the Kit as `SessionCurrency` and grew its exceptions — failed,
+still working, and followed-with-unread sessions never age out either — and
+now feeds every surface's summary line, not just the phone's list.)* The window is presentation only —
 `DashboardStore.allSessions` stays complete, so deep links, answers, acknowledgements
 and the Buddy scope still resolve a session the list is hiding. The list offers the
 hidden rows back ("Show N older") and Customize has the same switch.

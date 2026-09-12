@@ -61,5 +61,7 @@ its hover `bg2`.
   follows the order the panel draws.
 - Collapse state is in memory for the life of the panel and keyed by the group's
   kind, not its heading, so it survives snapshots and a change of language.
-- **The Mac still shows the whole snapshot.** ADR-0014's 24-hour recency window
-  is the phone's; the panel folds old work into `Done` rather than hiding it.
+- **The Mac still shows the whole snapshot.** Since ADR-0017 the panel folds
+  work that is no longer current (`SessionCurrency`) into a fourth, initially
+  collapsed `Older` group rather than into `Done`, and its summary line counts
+  current sessions only — the same numbers as the phone and the Watch.

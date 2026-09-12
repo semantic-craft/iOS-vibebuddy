@@ -8,10 +8,17 @@ code, and tests — don't drift to synonyms.
 - **Session** (`AgentSession`) — one coding-agent run on the Mac (Claude Code or
   Codex), tracked over its lifetime. Carries project, branch, model, tokens,
   context-window usage, and a **state**.
-- **Recency window** — the iPhone dashboard shows a session only while it moved
-  inside the last 24 h (`SessionRecency`), except a `needsResponse` one, which
-  never ages out. Presentation only: the snapshot, the Mac panel, the widget and
-  the Watch still carry every session (ADR-0014).
+- **Current session** — a session a summary line counts and a list shows
+  without being asked (`SessionCurrency` in the Kit, ADR-0017): every
+  `needsResponse`, `working` or `failed` session, a followed session whose
+  completion is unread, and any other session that moved within the last 24
+  hours. The rest is **older**: the Mac panel folds it into an `Older` group,
+  the phone offers it back with "Show N older", the Watch, the Live Activity
+  and the widget leave it out. The mood line, rest line and counts on every
+  surface are computed over current sessions only, so no device says "All
+  quiet" while another still counts or reminds. The rule is presentation only:
+  notifications, deep links, acknowledgements and the buddy's scope resolve
+  against the complete set (`DashboardStore.allSessions`).
 - **The three states** — every session is in exactly one, by priority
   **`needsResponse` > `working` > `done`**:
   - **needsResponse** — blocked on the user (a permission prompt or a question).
@@ -395,4 +402,6 @@ Mac presence suppresses ordinary cues only while the verdict is current; leaving
   History rows bypass SessionReducer, carry `historyOnly: true`, and use the
   existing quiet `.done` wire value with no completion identity or unread flag.
   They do not establish live status or generate completion notices; clients
-  label them History. RecentOutput carries a bounded dialogue slice.
+  label them History. RecentOutput carries a bounded dialogue slice. As `done`
+  rows dated by their history time they are current for a day and then older,
+  like any other finished session.

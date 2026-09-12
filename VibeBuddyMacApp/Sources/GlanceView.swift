@@ -337,7 +337,7 @@ struct GlanceView: View {
                     .font(.system(size: 12 * s, weight: .medium))
                     .foregroundStyle(.white.opacity(0.62))
             } else {
-                let groups = StateGroups(model.sessions)
+                let groups = StateGroups(SessionCurrency.current(model.sessions, now: Date()))
                 Divider().overlay(.white.opacity(0.16))
                 ForEach(groups.buckets) { group in
                     Text("\(group.title) · \(group.sessions.count)")

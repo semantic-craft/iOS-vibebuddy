@@ -119,10 +119,10 @@ struct DashboardView: View {
         .background(CompanionPalette.bg)
         .scrollDismissesKeyboard(.interactively)
         .onReceive(clock) { now = $0 }
-        .onChange(of: dashboard.groups) { _, _ in now = Date() }
         .onChange(of: dashboard.focusedSessionId) { _, _ in focus(proxy) }
         .onChange(of: dashboard.state) { _, _ in focus(proxy) }
         .onChange(of: dashboard.groups) { _, _ in
+            now = Date()
             if dashboard.focusedSessionId != nil { focus(proxy) }
             if let id = replyTo, !dashboard.allSessions.contains(where: { $0.id == id }) { replyTo = nil }
         }
@@ -264,9 +264,12 @@ struct DashboardView: View {
         }
     }
 
-    /// `All quiet · 2 working · 1 done`, over the sessions the list is showing.
+    /// `All quiet · 2 working · 1 done`, over the current sessions of the whole
+    /// snapshot (`SessionCurrency`) — the same numbers the island, the widget,
+    /// the Watch and the Mac panel say. A filter narrows the list, never the
+    /// line that says what is going on.
     private var statusLine: String {
-        let summary = TaskPresentationSummary(sessions: stream)
+        let summary = TaskPresentationSummary(currentIn: dashboard.allSessions, now: now)
         let rest = CompanionCopy.restLine(summary)
         return [CompanionCopy.moodLine(summary), rest.isEmpty ? nil : rest]
             .compactMap { $0 }.joined(separator: " · ")

@@ -380,12 +380,16 @@ public enum WatchDashboardProjection {
         isDemo: Bool = false
     ) -> WatchDashboardState {
         let sessions = snapshot.sessions.map { $0.validatingCompletionNotice(sourceID: snapshot.sourceID) }
-        let groups = SessionGroups(sessions)
+        // The wrist counts what is current (`SessionCurrency`), the same rule
+        // as the phone's summary line; a followed task stays listed because the
+        // person chose it, and every alert is current by definition.
+        let current = SessionCurrency.current(sessions, now: now)
+        let groups = SessionGroups(current)
         return WatchDashboardState(
             sourceID: snapshot.sourceID,
             followedTasks: sessions.filter { $0.effectiveAttention == .followed }.map(WatchFollowedTask.init),
             counts: WatchSessionCounts(groups),
-            presentation: TaskPresentationSummary(sessions: snapshot.sessions),
+            presentation: TaskPresentationSummary(sessions: current),
             alerts: groups.needsResponse.map(alert(for:)),
             quotas: quotas,
             relay: relay,
