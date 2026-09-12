@@ -147,6 +147,234 @@ struct CursorHookAdapterTests {
         // Metadata never manufactures progress.
         #expect(session?.status == .working)
     }
+
+    // MARK: - postToolUseFailure causes (cursor.com/docs/hooks)
+
+    /// `is_interrupt` is the person pressing stop in Cursor. The tool did not
+    /// break, so the error cue must stay silent.
+    @Test func anInterruptedToolIsNotAFailure() async {
+        let result = CursorParser.parse(cursorHook("postToolUseFailure",
+            extra: #","tool_name":"Shell","tool_input":{"command":"swift test"},"error_message":"Command was interrupted","failure_type":"error","duration":812,"is_interrupt":true"#),
+            receivedAt: Date())
+        #expect(result.event?.kind == .postToolUse)
+        #expect(result.event?.toolError == false)
+        #expect(result.event?.userStopped == true)
+        #expect(result.event?.message == "Stopped by you")
+
+        let store = SessionStore()
+        let now = Date()
+        await store.ingest(cursorHook("beforeSubmitPrompt", extra: #","prompt":"go""#),
+                           agent: .cursor, receivedAt: now)
+        await store.ingest(cursorHook("postToolUseFailure",
+            extra: #","tool_name":"Shell","tool_input":{},"error_message":"Command was interrupted","failure_type":"error","duration":812,"is_interrupt":true"#),
+            agent: .cursor, receivedAt: now.addingTimeInterval(1))
+        let session = await store.snapshot(now: now).sessions.first { $0.id == "c1" }
+        #expect(session?.failed != true)
+    }
+
+    /// A gate saying no (Cursor's own, or the phone's Deny) is a decision, not
+    /// a breakage.
+    @Test func aDeniedToolIsNotAFailure() {
+        let denied = CursorParser.parse(cursorHook("postToolUseFailure",
+            extra: #","tool_name":"Shell","tool_input":{"command":"rm -rf build"},"error_message":"Permission denied by user","failure_type":"permission_denied","duration":3,"is_interrupt":false"#),
+            receivedAt: Date())
+        #expect(denied.event?.toolError == false)
+        #expect(denied.event?.userStopped == false)
+        #expect(denied.event?.message == "Permission denied by user")
+
+        let bare = CursorParser.parse(cursorHook("postToolUseFailure",
+            extra: #","tool_name":"Shell","tool_input":{},"failure_type":"permission_denied","duration":3,"is_interrupt":false"#),
+            receivedAt: Date())
+        #expect(bare.event?.message == "Denied")
+    }
+
+    @Test func aTimedOutToolIsStillAFailure() {
+        let result = CursorParser.parse(cursorHook("postToolUseFailure",
+            extra: #","tool_name":"Shell","tool_input":{"command":"sleep 999"},"error_message":"Timed out after 600s","failure_type":"timeout","duration":600000,"is_interrupt":false"#),
+            receivedAt: Date())
+        #expect(result.event?.toolError == true)
+        #expect(result.event?.message == "Timed out after 600s")
+    }
+
+    // MARK: - composer_mode
+
+    /// An Ask or Edit chat is a Q&A, not a task: it never becomes a row, never
+    /// enters the three states, and its later events do not open one either —
+    /// from the hook or from the transcript tailer, which keys on the same id.
+    @Test func anAskModeChatNeverBecomesASession() async {
+        let ask = CursorParser.parse(cursorHook("sessionStart",
+            extra: #","session_id":"s1","is_background_agent":false,"composer_mode":"ask""#), receivedAt: Date())
+        #expect(ask.event?.observeOnly == true)
+        let edit = CursorParser.parse(cursorHook("sessionStart",
+            extra: #","session_id":"s1","is_background_agent":false,"composer_mode":"edit""#), receivedAt: Date())
+        #expect(edit.event?.observeOnly == true)
+
+        let store = SessionStore()
+        let now = Date()
+        await store.ingest(cursorHook("sessionStart",
+            extra: #","session_id":"s1","is_background_agent":false,"composer_mode":"ask""#),
+            agent: .cursor, receivedAt: now)
+        #expect(await store.snapshot(now: now).sessions.contains { $0.id == "c1" } == false)
+
+        await store.ingest(cursorHook("beforeSubmitPrompt", extra: #","prompt":"what does this do?""#),
+                           agent: .cursor, receivedAt: now.addingTimeInterval(1))
+        await store.ingest(cursorHook("preToolUse", extra: #","tool_name":"ReadFile","tool_input":{"path":"/a"},"cwd":"/x/p""#),
+                           agent: .cursor, receivedAt: now.addingTimeInterval(2))
+        await store.ingest(HookEvent(kind: .userPromptSubmit, sessionID: "c1", agent: .cursor,
+                                     cwd: "/x/p", message: "go", observationSource: .transcript,
+                                     timestamp: now.addingTimeInterval(3)))
+        await store.ingest(cursorHook("stop", extra: #","status":"completed","loop_count":0"#),
+                           agent: .cursor, receivedAt: now.addingTimeInterval(4))
+        #expect(await store.snapshot(now: now).sessions.contains { $0.id == "c1" } == false)
+        // Nothing was recorded as hook evidence for it either.
+        #expect(await store.hasSession("c1") == false)
+
+        // An Agent-mode chat in the same store is tracked as usual.
+        let agent = cursorHook("sessionStart",
+            extra: #","session_id":"s2","is_background_agent":false,"composer_mode":"agent""#)
+            .replacingConversation(with: "c2")
+        await store.ingest(agent, agent: .cursor, receivedAt: now)
+        await store.ingest(cursorHook("preToolUse", extra: #","tool_name":"Shell","tool_input":{"command":"ls"},"cwd":"/x/p""#)
+                               .replacingConversation(with: "c2"),
+                           agent: .cursor, receivedAt: now.addingTimeInterval(1))
+        let session = await store.snapshot(now: now).sessions.first { $0.id == "c2" }
+        #expect(session?.status == .working)
+        #expect(session?.activeTool == "Bash")
+
+        // `sessionEnd` releases the id; a fresh Agent-mode start is tracked again.
+        await store.ingest(cursorHook("sessionEnd", extra: #","session_id":"s1","reason":"user_closed""#),
+                           agent: .cursor, receivedAt: now.addingTimeInterval(5))
+        await store.ingest(cursorHook("sessionStart",
+            extra: #","session_id":"s3","is_background_agent":false,"composer_mode":"agent""#),
+            agent: .cursor, receivedAt: now.addingTimeInterval(6))
+        #expect(await store.snapshot(now: now).sessions.contains { $0.id == "c1" })
+    }
+
+    // MARK: - model display
+
+    /// `model_id` is the stable id, `model` the picker label; the picker's
+    /// toggles ride in `model_params` and are worth a suffix.
+    @Test func modelIDAndParamsRender() {
+        let full = CursorParser.parse(cursorHook("beforeSubmitPrompt",
+            extra: #","prompt":"go","model_id":"claude-opus-4-7","model_params":[{"id":"thinking","value":"true"},{"id":"context","value":"1m"},{"id":"effort","value":"max"}]"#),
+            receivedAt: Date())
+        #expect(full.event?.model == "claude-opus-4-7 (1m, max, thinking)")
+
+        let some = CursorParser.parse(cursorHook("beforeSubmitPrompt",
+            extra: #","prompt":"go","model_id":"gpt-5.5","model_params":[{"id":"thinking","value":"false"},{"id":"effort","value":"high"}]"#),
+            receivedAt: Date())
+        #expect(some.event?.model == "gpt-5.5 (high)")
+
+        // No id and no params: the label alone, no parentheses.
+        let bare = CursorParser.parse(cursorHook("beforeSubmitPrompt", extra: #","prompt":"go""#), receivedAt: Date())
+        #expect(bare.event?.model == "Claude Fable 5")
+    }
+
+    // MARK: - tool output into recent output
+
+    /// `tool_output` is a JSON-stringified result payload for shell tools; the
+    /// pane shows it as exit / stdout, and while the hooks are fresh it is what
+    /// `/recent-output` serves — the transcript has no tool results at all.
+    @Test func toolOutputRendersAndReachesRecentOutput() async {
+        let result = CursorParser.parse(cursorHook("postToolUse",
+            extra: #","tool_name":"Shell","tool_input":{"command":"swift test"},"tool_output":"{\"exitCode\":0,\"stdout\":\"All tests passed\"}","tool_use_id":"t1","cwd":"/x/p","duration":812"#),
+            receivedAt: Date())
+        #expect(result.event?.toolOutput == "exit 0\nAll tests passed")
+        #expect(result.event?.toolError == false)
+
+        let withErr = CursorParser.parse(cursorHook("postToolUse",
+            extra: #","tool_name":"Shell","tool_input":{},"tool_output":"{\"exit_code\":1,\"stdout\":\"\",\"stderr\":\"boom\"}","tool_use_id":"t2","cwd":"/x/p","duration":1"#),
+            receivedAt: Date())
+        #expect(withErr.event?.toolOutput == "exit 1\nboom")
+
+        let plain = CursorParser.parse(cursorHook("postToolUse",
+            extra: #","tool_name":"ReadFile","tool_input":{"path":"/a"},"tool_output":"line one","tool_use_id":"t3","cwd":"/x/p","duration":1"#),
+            receivedAt: Date())
+        #expect(plain.event?.toolOutput == "line one")
+
+        let long = String(repeating: "x", count: 700)
+        let cut = CursorParser.parse(cursorHook("postToolUse",
+            extra: #","tool_name":"ReadFile","tool_input":{},"tool_output":"\#(long)","tool_use_id":"t4","cwd":"/x/p","duration":1"#),
+            receivedAt: Date())
+        #expect(cut.event?.toolOutput?.count == 601)
+        #expect(cut.event?.toolOutput?.hasSuffix("…") == true)
+
+        let store = SessionStore()
+        let now = Date()
+        await store.ingest(cursorHook("beforeSubmitPrompt", extra: #","prompt":"run the tests""#),
+                           agent: .cursor, receivedAt: now)
+        await store.ingest(cursorHook("preToolUse", extra: #","tool_name":"Shell","tool_input":{"command":"swift test"},"cwd":"/x/p""#),
+                           agent: .cursor, receivedAt: now.addingTimeInterval(1))
+        await store.ingest(cursorHook("postToolUse",
+            extra: #","tool_name":"Shell","tool_input":{"command":"swift test"},"tool_output":"{\"exitCode\":0,\"stdout\":\"All tests passed\"}","tool_use_id":"t1","cwd":"/x/p","duration":812"#),
+            agent: .cursor, receivedAt: now.addingTimeInterval(2))
+        await store.ingest(cursorHook("afterAgentResponse", extra: #","text":"Green.""#),
+                           agent: .cursor, receivedAt: now.addingTimeInterval(3))
+        let output = await store.recentOutput(sessionID: "c1")
+        #expect(output.source == .hook)
+        #expect(output.entries.map(\.role) == ["user", "assistant", "assistant", "assistant"])
+        #expect(output.entries.map(\.text) == ["run the tests", "⚙ Bash", "exit 0\nAll tests passed", "Green."])
+    }
+
+    @Test func shellOutputReachesRecentOutput() async {
+        let result = CursorParser.parse(cursorHook("afterShellExecution",
+            extra: #","command":"git status","output":"On branch main\nnothing to commit","duration":40,"sandbox":false"#),
+            receivedAt: Date())
+        #expect(result.event?.toolOutput == "On branch main\nnothing to commit")
+
+        let store = SessionStore()
+        let now = Date()
+        await store.ingest(cursorHook("beforeSubmitPrompt", extra: #","prompt":"status?""#),
+                           agent: .cursor, receivedAt: now)
+        await store.ingest(cursorHook("afterShellExecution",
+            extra: #","command":"git status","output":"On branch main\nnothing to commit","duration":40,"sandbox":false"#),
+            agent: .cursor, receivedAt: now.addingTimeInterval(1))
+        let output = await store.recentOutput(sessionID: "c1")
+        #expect(output.entries.last?.text == "On branch main\nnothing to commit")
+    }
+}
+
+private extension Data {
+    /// The same documented payload for a second conversation.
+    func replacingConversation(with id: String) -> Data {
+        Data(String(decoding: self, as: UTF8.self)
+            .replacingOccurrences(of: #""conversation_id":"c1""#, with: #""conversation_id":"\#(id)""#).utf8)
+    }
+}
+
+@Suite("Cursor through Claude hooks")
+struct CursorThroughClaudeHooksTests {
+    /// With "Include third-party Plugins, Skills, and other configs" on, Cursor
+    /// runs the Claude Code hooks in ~/.claude/settings.json with its own
+    /// payload (cursor.com/docs/reference/third-party-hooks). The forwarder tags
+    /// it `claude-code`; the decoder must still see one Cursor session.
+    @Test func aCursorPayloadOnTheClaudeRouteIsACursorSession() {
+        let payload = Data(#"{"hook_event_name":"preToolUse","conversation_id":"c1","generation_id":"g1","#
+            .appending(#""model":"Claude Fable 5","cursor_version":"3.20.17","workspace_roots":["/x/p"],"#)
+            .appending(#""tool_name":"Shell","tool_input":{"command":"ls"},"cwd":"/x/p"}"#).utf8)
+        let result = HookDecoder.decode(payload, agent: .claudeCode, receivedAt: Date())
+        #expect(result.event?.agent == .cursor)
+        #expect(result.event?.sessionID == "c1")
+        #expect(result.event?.kind == .preToolUse)
+        #expect(result.event?.toolName == "Bash")
+    }
+
+    /// A camelCase event name alone is enough: no Claude-shape CLI spells its
+    /// events that way.
+    @Test func aCamelCaseEventNameWithoutAVersionStillRoutes() {
+        let payload = Data(#"{"hook_event_name":"beforeSubmitPrompt","conversation_id":"c1","prompt":"go"}"#.utf8)
+        let result = HookDecoder.decode(payload, agent: .claudeCode, receivedAt: Date())
+        #expect(result.event?.agent == .cursor)
+        #expect(result.event?.kind == .userPromptSubmit)
+    }
+
+    @Test func aGenuineClaudePayloadIsUnchanged() {
+        let payload = Data(#"{"hook_event_name":"PreToolUse","session_id":"s1","cwd":"/x/p","tool_name":"Bash","tool_input":{"command":"ls"}}"#.utf8)
+        let result = HookDecoder.decode(payload, agent: .claudeCode, receivedAt: Date())
+        #expect(result.event?.agent == .claudeCode)
+        #expect(result.event?.sessionID == "s1")
+        #expect(result.event?.kind == .preToolUse)
+    }
 }
 
 @Suite("Cursor tool vocabulary")
