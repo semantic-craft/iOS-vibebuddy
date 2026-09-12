@@ -429,6 +429,7 @@ private struct SummaryRow: View {
                             Text("Last observed: \(seen.formatted())")
                         }
                     }
+                    if let stats = session.ledgerSummary { Text(stats).lineLimit(2) }
                     if let child = ToolActivity.childSummary(for: session) { Text(child) }
                 }
                 .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
@@ -576,8 +577,7 @@ private struct DetailCard: View {
             }
             .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink3)
             DisclosureGroup("Activity and file changes") {
-                Text("Activity records and read-only file changes are not available yet. Recent output shows a bounded dialogue slice.")
-                    .font(MacTheme.font(11)).foregroundStyle(MacTheme.ink3)
+                ToolLedgerView(session: session)
             }
         }
         .padding(20)

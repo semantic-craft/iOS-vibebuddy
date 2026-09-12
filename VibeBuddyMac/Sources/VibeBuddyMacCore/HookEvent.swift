@@ -32,6 +32,7 @@ public struct HookEvent: Sendable, Equatable {
 
     /// Explicit provider evidence that this is a new session, not a resume.
     public var startsNewSession = false
+    public var toolCall: ToolCallRecord? = nil
     public let kind: Kind
     public let sessionID: String
     public let agent: AgentKind

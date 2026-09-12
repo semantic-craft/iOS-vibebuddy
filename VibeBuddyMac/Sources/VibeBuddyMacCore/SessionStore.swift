@@ -7,6 +7,7 @@ import VibeBuddyKit
 public actor SessionStore {
     private static let diagnosticStaleAfter: TimeInterval = 10 * 60
     private var reducer = SessionReducer()
+    private var toolLedger: ToolLedger
     private var copilotReader: CopilotSessionReader
     private var copilotReadFailed = false
     private var copilotHistory: [String: CopilotSessionReader.Record] = [:]
@@ -357,6 +358,7 @@ public actor SessionStore {
     ) {
         self.copilotReader = copilotDatabase.map { CopilotSessionReader(database: $0) } ?? CopilotSessionReader()
         self.cursorStore = cursorDatabase.map { CursorComposerStore(database: $0) } ?? CursorComposerStore()
+        self.toolLedger = ToolLedger(url: journalURL?.deletingLastPathComponent().appendingPathComponent("tool-ledger.json"), now: now)
         self.sourceID = sourceID
         self.staleAfter = staleAfter
         self.diagnosticsHome = diagnosticsHome
@@ -475,6 +477,10 @@ public actor SessionStore {
         // hooks directly and selects a translator only for different envelopes.
         switch HookDecoder.decode(data, agent: agent, receivedAt: receivedAt) {
         case let .event(event):
+            if !appServerOutranks(event, from: .hook), !acpOutranks(event, from: .hook),
+               let record = ToolLedger.hook(data, event: event) {
+                toolLedger.observe(record, sessionID: event.sessionID, now: receivedAt)
+            }
             ingest(event, observationSource: .hook, announcesWait: announcesWait)
             return true
         case .ignored:
@@ -626,6 +632,13 @@ public actor SessionStore {
             }
             broadcast()
             return
+        }
+        if observationSource != .hook, event.childID == nil,
+           event.kind == .preToolUse || event.kind == .postToolUse {
+            let record = event.toolCall ?? ToolCallRecord(id: UUID().uuidString, tool: event.toolName ?? "Tool",
+                observedAt: event.timestamp, source: observationSource.rawValue,
+                coverage: "Tool activity observed; call identity and result details unavailable")
+            toolLedger.observe(record, sessionID: event.sessionID, now: event.timestamp)
         }
         let wasWaiting = reducer.sessions[event.sessionID]?.status == .needsResponse
         rememberDirectory(event.cwd, at: event.timestamp)
@@ -1094,6 +1107,8 @@ public actor SessionStore {
                 reasonCode: copilotReadFailed ? "copilotHistoryUnreadable" : "copilotHistoryOnly")]))
             snapshot.observationDiagnostics = diagnostics
         }
+        toolLedger.prune(now: now)
+        snapshot.sessions = snapshot.sessions.map { toolLedger.applying(to: $0) }
         snapshot.sourceID = sourceID
         snapshot.providerQuota = providerQuota.isEmpty ? nil : providerQuota
         snapshot.tokenConsumption = tokenConsumption
@@ -1286,10 +1301,11 @@ public actor SessionStore {
     /// in-memory timeline when on-disk data could not be removed, allowing retry.
     @discardableResult
     public func clearLifecycleJournal() -> Bool {
-        guard var journal = lifecycleJournal else { return true }
+        let ledgerRemoved = toolLedger.clear()
+        guard var journal = lifecycleJournal else { return ledgerRemoved }
         let removed = journal.clear()
         lifecycleJournal = journal
-        return removed
+        return removed && ledgerRemoved
     }
 
     /// Subscribe to live snapshots. The current snapshot is delivered immediately.

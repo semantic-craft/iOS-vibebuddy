@@ -495,6 +495,9 @@ private struct TaskRow: View {
                     .accessibilityHint("Open details")
                 activity
                 metaLine.padding(.leading, 19)
+                if let stats = session.ledgerSummary {
+                    Text(stats).font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink3).padding(.leading, 19)
+                }
                 if let warning = presentation.observationWarning {
                     Text(warning).font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
                     if let seen = presentation.lastObservedAt {
@@ -964,8 +967,7 @@ private struct SessionDetailSheet: View {
                         }
                     }
                     DisclosureGroup("Activity and file changes") {
-                        Text("Activity records and read-only file changes are not available yet.")
-                            .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
+                        ToolLedgerView(session: session)
                         RecentOutputCard(output: dashboard.recentOutputs[session.id])
                         metaCard
                     }

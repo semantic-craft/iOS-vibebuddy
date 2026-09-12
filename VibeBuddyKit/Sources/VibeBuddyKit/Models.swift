@@ -547,6 +547,11 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     /// generated title, the effort level, the client-side cost estimate, the
     /// open pull request and the worktree the session runs in.
     public var name: String?
+    public var ledger: [ToolCallRecord]? = nil
+    public var changedFiles: [String]? = nil
+    public var linesAdded: Int? = nil
+    public var linesRemoved: Int? = nil
+    public var commandsRun: Int? = nil
     /// First user request after a provider-confirmed new session, bounded to 4000 characters; never persisted in the lifecycle journal.
     public var firstUserPrompt: String? = nil
     public var effort: String?
