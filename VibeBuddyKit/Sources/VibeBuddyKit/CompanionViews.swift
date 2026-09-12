@@ -2,20 +2,17 @@ import SwiftUI
 
 // MARK: - Cards
 
-private struct CompanionCardShadow: ViewModifier {
-    @Environment(\.colorScheme) private var scheme
-    func body(content: Content) -> some View {
-        content.shadow(color: scheme == .dark ? .black.opacity(0.2) : Color(hex: 0x2B3247).opacity(0.05),
-                       radius: 2, y: 1)
-    }
-}
-
 public extension View {
-    /// A Companion card: `bg3` ground, continuous corners, one soft shadow.
+    /// A Companion card: `bg3` ground, continuous corners, one hairline edge.
+    /// Depth comes from the edge, not a shadow — the same way Cursor separates
+    /// its panes — so a dense column of cards stays flat and quiet.
     func companionCard(_ ground: Color = CompanionPalette.bg3,
                        radius: CGFloat = CompanionType.cardRadius) -> some View {
         background(ground, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
-            .modifier(CompanionCardShadow())
+            .overlay {
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .strokeBorder(CompanionPalette.line, lineWidth: CompanionType.hairline)
+            }
     }
 }
 
@@ -42,9 +39,8 @@ public struct PillButtonStyle: ButtonStyle {
             .frame(maxWidth: size == .large ? .infinity : nil)
             .background(background, in: Capsule())
             .overlay {
-                if case .ghost = kind { Capsule().strokeBorder(CompanionPalette.line, lineWidth: 2) }
+                if case .ghost = kind { Capsule().strokeBorder(CompanionPalette.line, lineWidth: CompanionType.hairline) }
             }
-            .shadow(color: shadowColor, radius: 6, y: 3)
             .opacity(configuration.isPressed ? 0.85 : 1)
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .animation(.smooth(duration: 0.12), value: configuration.isPressed)
@@ -64,10 +60,6 @@ public struct PillButtonStyle: ButtonStyle {
         case .ghost: return .clear
         case .soft: return CompanionPalette.bg2
         }
-    }
-    private var shadowColor: Color {
-        if case .filled(let c) = kind { return c.opacity(0.28) }
-        return .clear
     }
 }
 
@@ -210,7 +202,6 @@ public struct SplitApproveButton: View {
             .accessibilityLabel(String(localized: "More approval options"))
             }
         }
-        .shadow(color: green.opacity(0.28), radius: 6, y: 3)
     }
 }
 

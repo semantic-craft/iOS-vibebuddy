@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreText
 #if canImport(UIKit)
 import UIKit
 #elseif canImport(AppKit)
@@ -9,27 +10,35 @@ import AppKit
 /// Activity: one palette, one type ramp, one set of copy rules
 /// (docs/design/mac-companion-redesign.md).
 public enum CompanionPalette {
-    public static let bg     = dynamic(0xF5F7FC, 0x21242D)
-    public static let bg2    = dynamic(0xEDF1F9, 0x282C37)
-    public static let bg3    = dynamic(0xFFFFFF, 0x303542)
-    public static let line   = dynamic(0xE0E5F0, 0x3B4152)
-    public static let ink    = dynamic(0x2B3247, 0xEEF0F6)
-    public static let ink2   = dynamic(0x6C7590, 0xA3AABD)
-    public static let ink3   = dynamic(0xA8B0C4, 0x6B7389)
-    public static let accent = dynamic(0x5DA868, 0x8AC37E)
+    // Grounds follow Cursor's own app theme (`theme-cursor`), not its marketing
+    // site: a neutral near-white canvas over a slightly darker chrome, and the
+    // inverse in dark. Cards sit on hairlines, not shadows.
+    public static let bg     = dynamic(0xFCFCFC, 0x181818)
+    public static let bg2    = dynamic(0xF3F3F3, 0x141414)
+    public static let bg3    = dynamic(0xFFFFFF, 0x1F1F1F)
+    /// A hairline is translucent ink, so one value works on every ground.
+    public static let line   = translucent(0x141414, 0.09, 0xF0F0F0, 0.10)
+    public static let ink    = dynamic(0x141414, 0xF0F0F0)
+    public static let ink2   = translucent(0x141414, 0.74, 0xF0F0F0, 0.70)
+    public static let ink3   = translucent(0x141414, 0.45, 0xF0F0F0, 0.42)
+    /// The buddy's green stays the action colour: Cursor spends its brand
+    /// orange on the brand, not on the product's buttons. Darkened for the
+    /// neutral ground so white label text keeps its contrast.
+    public static let accent = dynamic(0x3E7A4A, 0x7FC48F)
     /// Ground of dark "glance" surfaces: the Mac notch card, the Live Activity.
-    public static let glance = dynamic(0x2B3247, 0x151820)
+    public static let glance = dynamic(0x141414, 0x0F0F0F)
 
-    /// Soft status tints for Companion surfaces. The neon
+    /// Soft status tints for Companion surfaces, taken from Cursor's own
+    /// light/dark theme values so they sit calmly on a neutral ground. The neon
     /// `TaskStatusColorToken`s stay the source for the menu-bar badge and
     /// `TaskStatusIndicator`, whose accessibility modes depend on them.
     public static func status(_ state: TaskPresentationState) -> Color {
         switch state {
-        case .error:          return Color(hex: 0xE8636B)
-        case .requiresInput:  return Color(hex: 0xF2A03D)
-        case .thinking:       return Color(hex: 0x5B8DEF)
-        case .completeUnread: return Color(hex: 0x5DA868)
-        case .idle:           return Color(hex: 0xB4BACB)
+        case .error:          return dynamic(0xBE1744, 0xE34671)
+        case .requiresInput:  return dynamic(0xCD4500, 0xF1B467)
+        case .thinking:       return dynamic(0x2778C1, 0x81A1C1)
+        case .completeUnread: return accent
+        case .idle:           return translucent(0x141414, 0.35, 0xF0F0F0, 0.32)
         case .unassigned:     return ink3
         }
     }
@@ -37,31 +46,77 @@ public enum CompanionPalette {
     /// Light/dark pair resolved by the platform's appearance. watchOS is
     /// always dark, so it takes the dark value outright.
     static func dynamic(_ light: UInt32, _ dark: UInt32) -> Color {
+        translucent(light, 1, dark, 1)
+    }
+
+    /// The same pair with per-appearance opacity, for hairlines and secondary
+    /// ink that should composite onto whatever sits behind them.
+    static func translucent(_ light: UInt32, _ lightAlpha: CGFloat,
+                            _ dark: UInt32, _ darkAlpha: CGFloat) -> Color {
         #if os(macOS)
         return Color(nsColor: NSColor(name: nil) { appearance in
             let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
             return NSColor(hex: isDark ? dark : light)
+                .withAlphaComponent(isDark ? darkAlpha : lightAlpha)
         })
         #elseif os(iOS)
         return Color(uiColor: UIColor { trait in
-            UIColor(hex: trait.userInterfaceStyle == .dark ? dark : light)
+            let isDark = trait.userInterfaceStyle == .dark
+            return UIColor(hex: isDark ? dark : light)
+                .withAlphaComponent(isDark ? darkAlpha : lightAlpha)
         })
         #else
-        return Color(hex: dark)
+        return Color(hex: dark).opacity(darkAlpha)
         #endif
     }
 }
 
+/// Geist ships with the kit under the SIL OFL. Cursor's own CursorGothic is
+/// not distributed, and Geist is the same engineered-gothic register — the
+/// face the readings, labels and numbers are set in across all three apps.
+enum CompanionFonts {
+    static let sans = "Geist"
+    static let mono = "Geist Mono"
+
+    /// CoreText registration is process-wide and idempotent; a missing file
+    /// just leaves `Font.custom` to fall back to the system face.
+    private static let registered: Bool = {
+        var ok = true
+        for resource in ["Geist", "GeistMono"] {
+            guard let url = Bundle.module.url(forResource: resource, withExtension: "ttf") else {
+                ok = false
+                continue
+            }
+            if !CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil) { ok = false }
+        }
+        return ok
+    }()
+
+    static func register() { _ = registered }
+}
+
 public enum CompanionType {
-    /// The rounded system face at a size and weight (the prototype's Nunito).
+    /// The packaged Geist face at a size and weight. Sizes stay fixed, as the
+    /// system ramp did, so the dense dashboard keeps its layout.
     public static func font(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        .system(size: size, weight: weight, design: .rounded)
+        CompanionFonts.register()
+        return .custom(CompanionFonts.sans, fixedSize: size).weight(weight)
     }
     public static func mono(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        .system(size: size, weight: weight, design: .monospaced)
+        CompanionFonts.register()
+        return .custom(CompanionFonts.mono, fixedSize: size).weight(weight)
     }
-    public static let panelRadius: CGFloat = 20
-    public static let cardRadius: CGFloat = 12
+    /// Cursor compresses display sizes (-2.16 pt at 72 pt). Titles apply this
+    /// through `.tracking()`; body text and captions stay untracked.
+    public static func tracking(_ size: CGFloat) -> CGFloat {
+        if size >= 20 { return -size * 0.03 }
+        if size >= 13 { return -size * 0.012 }
+        return 0
+    }
+    public static let panelRadius: CGFloat = 12
+    public static let cardRadius: CGFloat = 8
+    /// One hairline, everywhere a card or column needs an edge.
+    public static let hairline: CGFloat = 1
 }
 
 /// What the cat says about the whole snapshot, and how a request is worded.

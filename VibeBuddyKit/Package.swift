@@ -8,7 +8,7 @@ let package = Package(
         .library(name: "VibeBuddyKit", targets: ["VibeBuddyKit"]),
     ],
     targets: [
-        .target(name: "VibeBuddyKit"),
+        .target(name: "VibeBuddyKit", resources: [.process("Resources")]),
         .testTarget(name: "VibeBuddyKitTests", dependencies: ["VibeBuddyKit"]),
     ]
 )
