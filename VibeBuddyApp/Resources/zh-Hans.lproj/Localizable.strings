@@ -306,7 +306,6 @@
 "All" = "全部";
 "Project" = "项目";
 "None" = "不分组";
-"No project" = "无项目";
 "No assigned task" = "没有指派任务";
 "Show tasks idle over 24 hours" = "显示 24 小时无更新的任务";
 "A finished task drops off the list a day after its last update. A task that is waiting on you, running, failed, or followed with an unread result always stays, however old it is." = "已完成的任务在最后一次更新一天后从列表中移除。等你回应、正在运行、失败或已关注且有未读结果的任务无论多久都会一直显示。";

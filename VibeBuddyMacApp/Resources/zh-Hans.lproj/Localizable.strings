@@ -842,7 +842,3 @@
 "The provider returned no audio for this text." = "服务商没有为这段文本返回音频。";
 
 "The provider returned more audio than a summary should need." = "服务商返回的音频超出一段摘要应有的长度。";
-
-/* MARK: ticket 07 — Settings › Connection & delivery */
-
-"Latched failure" = "已锁定的失败";

@@ -24,7 +24,7 @@ struct WatchHomeView: View {
                     } else {
                         WatchCalmHeader(state: state, connection: connection)
                     }
-                    WatchCountsRow(counts: state.counts, stuck: state.stuck)
+                    WatchCountsRow(counts: state.counts)
                     followedTasks
                     WatchQuotaStrips(state: state, now: now)
                     WatchFooter(state: state, connection: connection, now: now)
@@ -138,20 +138,16 @@ private struct WatchCalmHeader: View {
 /// slightly taller list.
 struct WatchCountsRow: View {
     let counts: WatchSessionCounts
-    /// Sessions whose last turn ended badly. The three buckets cannot say this,
-    /// so it gets its own line — and only when there is something to say.
-    var stuck: Int = 0
 
     var body: some View {
+        // A failed session is already counted under Needs you (`StateGroups`),
+        // so there is no separate Stuck line: the alert card names it.
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(WatchBucket.allCases.enumerated()), id: \.element) { index, bucket in
                 row(state: bucket.presentation, value: bucket.count(in: counts), title: bucket.title)
-                if index < WatchBucket.allCases.count - 1 || stuck > 0 {
+                if index < WatchBucket.allCases.count - 1 {
                     CompanionHairline(leading: WatchMetrics.dotLane)
                 }
-            }
-            if stuck > 0 {
-                row(state: .error, value: stuck, title: "Stuck")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
