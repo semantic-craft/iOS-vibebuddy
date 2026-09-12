@@ -48,27 +48,39 @@ struct DashboardView: View {
                 .listRowInsets(.init(top: 2, leading: PhoneMetrics.gutter, bottom: 4, trailing: PhoneMetrics.gutter))
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
+            // The connection is said once, here. Rows only add what the
+            // offline state changes for them (a disabled key), and the
+            // composer only speaks up when there is a draft it cannot send.
             if !dashboard.allSessions.isEmpty && dashboard.state != .connected {
-                Label("Showing last snapshot. Reconnect to update tasks.", systemImage: "wifi.exclamationmark")
-                    .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
-                    .listRowInsets(.init(top: 0, leading: PhoneMetrics.gutter, bottom: 12, trailing: PhoneMetrics.gutter))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
+                PhoneNotice(symbol: "wifi.exclamationmark",
+                            text: dashboard.state == .connecting
+                                ? String(localized: "Reconnecting · showing last snapshot")
+                                : String(localized: "Offline · showing last snapshot"),
+                            tint: CompanionPalette.status(.requiresInput)) {
+                    if case .failed = dashboard.state, let pairing = connection.pairing {
+                        Button("Reconnect") { dashboard.start(pairing) }
+                            .buttonStyle(PhoneButtonStyle(kind: .quiet, size: .small))
+                    }
+                }
+                .listRowInsets(.init(top: 4, leading: PhoneMetrics.gutter, bottom: 10, trailing: PhoneMetrics.gutter))
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
             }
             if dashboard.allSessions.isEmpty {
                 EmptyStateView(state: dashboard.state)
+                    .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
             } else if stream.isEmpty {
-                ContentUnavailableView {
-                    Label("No matching tasks", systemImage: "line.3.horizontal.decrease")
-                } description: {
-                    Text(hiddenCount > 0
-                         ? "Nothing has moved in the last 24 hours. Older tasks are in Customize."
-                         : "Try another filter, or reset them to see every task.")
-                } actions: {
+                PhoneEmptyState(symbol: "line.3.horizontal.decrease",
+                                title: String(localized: "No matching tasks"),
+                                text: hiddenCount > 0
+                                    ? String(localized: "Nothing has moved in the last 24 hours. Older tasks are in Customize.")
+                                    : String(localized: "Try another filter, or reset them to see every task.")) {
                     Button("Customize") { showFilters = true }
+                        .buttonStyle(PhoneButtonStyle(kind: .quiet, size: .small))
                 }
+                .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
             }
@@ -77,6 +89,7 @@ struct DashboardView: View {
                     if isExpanded(section.id) {
                         ForEach(Array(section.sessions.enumerated()), id: \.element.id) { index, session in
                             TaskRow(session: session,
+                                    now: now,
                                     isSelected: highlightId == session.id,
                                     isReplyTarget: replyTo == session.id,
                                     showsDivider: index < section.sessions.count - 1,
@@ -159,7 +172,9 @@ struct DashboardView: View {
         .sheet(isPresented: $showQuota) {
             AccountQuotaView().environmentObject(dashboard).environmentObject(connection)
         }
-        .sheet(isPresented: $showNewTask) { NewTaskSheet(dashboard: dashboard, initialPrompt: newTaskDraft) }
+        .sheet(isPresented: $showNewTask) {
+            NewTaskSheet(dashboard: dashboard, macName: connection.pairing?.macName, initialPrompt: newTaskDraft)
+        }
         .sheet(isPresented: $showSettings) {
             // A sheet doesn't inherit the presenter's environment objects, so
             // re-inject `voice` — Settings restarts a live session on change.
@@ -461,11 +476,14 @@ enum ReplyMeaning: Equatable {
     }
 }
 
-/// One task as a row: a state dot, its title, the agent and project under it,
-/// then `ACTIVITY — summary`; a pending approval or question is answered in
-/// place. Rows sit on the page and are told apart by a hairline, not a card.
+/// One task as a row, in Cursor's two-line shape: the state dot and the title,
+/// then one quiet line — the `ToolActivity` word in the state's colour, the
+/// agent, the branch — and, when there is one, the summary under that. A
+/// pending approval or question is answered in place. Rows sit on the page
+/// and are told apart by a hairline, not a card.
 private struct TaskRow: View {
     let session: AgentSession
+    let now: Date
     let isSelected: Bool
     let isReplyTarget: Bool
     let showsDivider: Bool
@@ -474,59 +492,85 @@ private struct TaskRow: View {
     @EnvironmentObject private var dashboard: DashboardStore
 
     private var state: TaskPresentationState { session.presentationState }
+    /// The question card is the answer path when it is shown; a Reply key
+    /// beside it would only be a second way to the same composer.
+    private var showsQuestionCard: Bool {
+        session.pendingQuestion != nil && WaitHandling.resolve(for: session) == .remoteAvailable
+    }
     private var canReply: Bool {
         guard session.agent != .grokBot else { return false }
-        if session.pendingQuestion != nil { return SessionActionSupport.resolve(for: session).isAvailable }
+        if session.pendingQuestion != nil {
+            return !showsQuestionCard && SessionActionSupport.resolve(for: session).isAvailable
+        }
         return session.agent == .codex && session.status != .needsResponse
     }
+    /// Keys this row offers that the offline state has disabled: only then
+    /// does the row say so, in one short line.
+    private var offlineBlocksAction: Bool {
+        guard dashboard.state != .connected, session.status == .needsResponse else { return false }
+        return WaitHandling.resolve(for: session) == .remoteAvailable
+    }
+    private var summaryLineLimit: Int { session.status == .needsResponse ? 3 : 2 }
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
                 Button(action: onOpen) { headline }
                     .buttonStyle(.plain)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(accessibilityLabel)
                     .accessibilityHint("Open details")
-                activity
+                // The question card carries its own prompt; the row does not
+                // say it twice.
+                if let summary = session.displaySummary, !summary.isEmpty,
+                   !(showsQuestionCard && session.pendingQuestion?.prompt == summary) {
+                    Text(summary)
+                        .font(CompanionType.font(13))
+                        .foregroundStyle(CompanionPalette.ink2)
+                        .lineLimit(summaryLineLimit)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.leading, PhoneRowMetrics.textInset)
+                }
                 if let approval = session.pendingApproval { approvalBlock(approval) }
                 if let question = session.pendingQuestion { questionBlock(question) }
                 if let child = ToolActivity.childSummary(for: session) {
                     Text(child).font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
                         .monospacedDigit().lineLimit(1)
+                        .padding(.leading, PhoneRowMetrics.textInset)
                 }
                 if session.status == .needsResponse && session.pendingApproval == nil && session.pendingQuestion == nil {
-                    Text(WaitHandling.resolve(for: session).message)
-                        .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
+                    Label(WaitHandling.resolve(for: session).message, systemImage: "keyboard")
+                        .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
+                        .padding(.leading, PhoneRowMetrics.textInset)
                 }
-                if session.status == .needsResponse && dashboard.state != .connected {
-                    Text("Connection to your Mac is unavailable. Reconnect to verify this request.")
-                        .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
+                if offlineBlocksAction {
+                    Label(String(localized: "Offline · reconnect to respond"), systemImage: "wifi.exclamationmark")
+                        .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
+                        .padding(.leading, PhoneRowMetrics.textInset)
                 }
                 actions
             }
             .padding(.horizontal, PhoneMetrics.gutter)
-            .padding(.vertical, 11)
+            .padding(.vertical, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(isSelected || isReplyTarget ? CompanionPalette.accent.opacity(0.08) : .clear)
-            if showsDivider { PhoneDivider(leading: PhoneMetrics.gutter) }
+            if showsDivider { PhoneDivider(leading: PhoneMetrics.gutter + PhoneRowMetrics.textInset) }
         }
     }
 
     /// Title, state word, activity or summary, and the relative time, read as
     /// one element; the approve / deny / reply keys below stay separate.
     private var accessibilityLabel: String {
-        let when = RelativeDateTimeFormatter().localizedString(for: session.updatedAt, relativeTo: Date())
-        return [session.displayTitle, state.label,
-                session.displaySummary ?? ToolActivity.label(for: session), when]
+        [session.displayTitle, ToolActivity.label(for: session), session.agent.shortName,
+         session.effectiveAttention == .normal ? "" : session.effectiveAttention.stateTitle,
+         session.displaySummary ?? "", PhoneRelativeTime.spoken(session.updatedAt, now: now)]
             .filter { !$0.isEmpty }.joined(separator: ", ")
     }
 
     private var headline: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Circle().fill(CompanionPalette.status(state))
-                .frame(width: 9, height: 9)
-                .padding(.top, 5)
+        HStack(alignment: .top, spacing: PhoneRowMetrics.textInset - PhoneRowMetrics.dot) {
+            StatusDot(state: state, size: PhoneRowMetrics.dot)
+                .padding(.top, 6)
             VStack(alignment: .leading, spacing: 3) {
                 Text(session.displayTitle)
                     .font(CompanionType.font(15, .medium))
@@ -535,46 +579,44 @@ private struct TaskRow: View {
                     .lineLimit(1)
                 metaLine
             }
-            Spacer(minLength: 6)
-            Text(session.updatedAt, style: .relative)
-                .font(CompanionType.font(11)).monospacedDigit()
-                .foregroundStyle(CompanionPalette.ink3)
-                .lineLimit(1)
+            Spacer(minLength: 8)
+            HStack(spacing: 5) {
+                if session.effectiveAttention != .normal {
+                    Image(systemName: session.effectiveAttention == .followed ? "bell.badge" : "bell.slash")
+                        .font(.system(size: 10, weight: .medium))
+                        .accessibilityLabel(session.effectiveAttention.stateTitle)
+                }
+                Text(PhoneRelativeTime.short(session.updatedAt, now: now))
+                    .font(CompanionType.font(11)).monospacedDigit()
+            }
+            .foregroundStyle(CompanionPalette.ink3)
+            .padding(.top, 2)
         }
+        // The whole row, blank space included, opens the task.
+        .contentShape(Rectangle())
     }
 
+    /// `Working · Claude · feat/auth`: the state word first, in its colour,
+    /// then who is doing it and where. One line, always.
     private var metaLine: some View {
         HStack(spacing: 5) {
-            AgentAvatar(agent: session.agent, size: 14)
+            Text(ToolActivity.label(for: session))
+                .foregroundStyle(CompanionPalette.status(state))
+            Text("·")
+            AgentMark(agent: session.agent)
             Text(session.agent.shortName)
             if DashboardFilters.projectTitle(session.project) != session.displayTitle {
                 Text("·")
-                Text(DashboardFilters.projectTitle(session.project))
+                Text(DashboardFilters.projectTitle(session.project)).lineLimit(1)
             }
             if let branch = session.branch {
                 Text("·")
                 Text(branch).font(CompanionType.mono(10)).lineLimit(1).truncationMode(.middle)
             }
-            if session.effectiveAttention != .normal {
-                Image(systemName: session.effectiveAttention == .followed ? "bell.badge.fill" : "bell.slash.fill")
-                    .foregroundStyle(session.effectiveAttention == .followed
-                                     ? CompanionPalette.status(.requiresInput) : CompanionPalette.ink3)
-                    .accessibilityLabel(session.effectiveAttention.stateTitle)
-            }
         }
         .font(CompanionType.font(11))
-        .foregroundStyle(CompanionPalette.ink2)
+        .foregroundStyle(CompanionPalette.ink3)
         .lineLimit(1)
-    }
-
-    private var activity: some View {
-        (Text(ToolActivity.label(for: session)).foregroundStyle(CompanionPalette.status(state))
-         + Text("  ").foregroundStyle(CompanionPalette.ink3)
-         + Text(session.displaySummary ?? "").foregroundStyle(CompanionPalette.ink2))
-            .font(CompanionType.font(13))
-            .lineLimit(3)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.leading, 19)
     }
 
     @ViewBuilder private func approvalKeys(_ approval: PendingApproval) -> some View {
@@ -620,43 +662,56 @@ private struct TaskRow: View {
                 .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
             }
         }
-        .padding(.leading, 19)
+        .padding(.leading, PhoneRowMetrics.textInset)
+        .padding(.top, 2)
     }
 
     @ViewBuilder private func questionBlock(_ question: PendingQuestion) -> some View {
         Group {
-            if WaitHandling.resolve(for: session) == .remoteAvailable {
+            if showsQuestionCard {
                 QuestionCardView(question: question, actionState: dashboard.phoneActionState(for: session)) { answers in
                     await dashboard.answer(session.id, answers: answers, expected: session)
                 }
                 .disabled(dashboard.phoneActionDisabled(for: session))
             } else {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(question.prompt).font(CompanionType.font(14, .medium)).foregroundStyle(CompanionPalette.ink)
+                    if question.prompt != session.displaySummary {
+                        Text(question.prompt).font(CompanionType.font(14, .medium)).foregroundStyle(CompanionPalette.ink)
+                    }
                     Label(WaitHandling.resolve(for: session).message, systemImage: "keyboard")
-                        .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink2)
+                        .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
                 }
             }
         }
-        .padding(.leading, 19)
+        .padding(.leading, PhoneRowMetrics.textInset)
+        .padding(.top, 2)
     }
 
+    /// Small text keys, the way Cursor's `View PR` sits under a message.
     @ViewBuilder private var actions: some View {
         if canReply || session.canJump {
             HStack(spacing: 8) {
                 if canReply {
-                    Button(action: onReply) { Label("Reply", systemImage: "arrowshape.turn.up.left") }
+                    Button("Reply", action: onReply)
                         .buttonStyle(PhoneButtonStyle(
-                            kind: isReplyTarget ? .primary(CompanionPalette.accent) : .quiet, size: .small))
+                            kind: isReplyTarget ? .primary(CompanionPalette.accent) : .soft, size: .small))
                 }
                 if session.canJump {
                     Button(session.agent == .grokBot ? "Open Grok Bot" : session.jumpsToDesktopThread ? "Open thread" : "Jump") { dashboard.jump(session.id) }
-                        .buttonStyle(PhoneButtonStyle(kind: .quiet, size: .small))
+                        .buttonStyle(PhoneButtonStyle(kind: .soft, size: .small))
                 }
             }
-            .padding(.leading, 19)
+            .padding(.leading, PhoneRowMetrics.textInset)
+            .padding(.top, 2)
         }
     }
+}
+
+/// The row's own measures: the dot, and the inset every line under the title
+/// shares so summaries, keys and the divider align on the title's left edge.
+private enum PhoneRowMetrics {
+    static let dot: CGFloat = 8
+    static let textInset: CGFloat = 18
 }
 
 /// The composer says whom the text goes to and what it means. With a reply
@@ -688,17 +743,23 @@ private struct StreamComposer: View {
     var body: some View {
         VStack(spacing: 6) {
             if let target {
-                HStack(spacing: 8) {
-                    RoundedRectangle(cornerRadius: 2).fill(CompanionPalette.status(target.presentationState))
-                        .frame(width: 3)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(SessionActionSupport.targetCaption(macName: macName, session: target))
-                            .font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink3)
-                        Text("\(meaning.verbLabel) · \(target.displayTitle) · \(target.presentationState.label)")
-                            .font(CompanionType.font(11, .medium)).foregroundStyle(CompanionPalette.ink2)
-                        Text(unsupported ?? target.displaySummary ?? ToolActivity.label(for: target))
-                            .font(CompanionType.font(12))
-                            .foregroundStyle(unsupported == nil ? CompanionPalette.ink : CompanionPalette.status(.error))
+                // Two lines: what the text will do and to whom, then where
+                // that is. The card takes the height of its text and no more.
+                HStack(alignment: .top, spacing: 8) {
+                    StatusDot(state: target.presentationState, size: PhoneRowMetrics.dot)
+                        .padding(.top, 4)
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 5) {
+                            Text(meaning.verbLabel)
+                                .font(CompanionType.font(12, .medium)).foregroundStyle(CompanionPalette.ink)
+                            Text("·").foregroundStyle(CompanionPalette.ink3)
+                            Text(target.displayTitle)
+                                .font(CompanionType.font(12, .medium)).foregroundStyle(CompanionPalette.ink)
+                                .lineLimit(1)
+                        }
+                        Text(unsupported ?? "\(ToolActivity.label(for: target)) · \(SessionActionSupport.targetCaption(macName: macName, session: target))")
+                            .font(CompanionType.font(11))
+                            .foregroundStyle(unsupported == nil ? CompanionPalette.ink3 : CompanionPalette.status(.error))
                             .lineLimit(2)
                     }
                     Spacer(minLength: 0)
@@ -706,12 +767,14 @@ private struct StreamComposer: View {
                         Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(CompanionPalette.ink3)
                             .frame(width: 26, height: 26)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Cancel reply")
                 }
                 .padding(.horizontal, 10).padding(.vertical, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
                 .companionCard()
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
@@ -755,11 +818,18 @@ private struct StreamComposer: View {
                 Text(receipt.message)
                     .font(CompanionType.font(11))
                     .foregroundStyle(receiptColor(receipt))
-            } else if !reachable {
+            } else if !reachable, hasDraft {
+                // The page already says it is offline; the composer only adds
+                // that this draft is staying here.
                 Text("Couldn't reach your Mac — not sent")
                     .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.status(.error))
             } else if unsupported == nil, let note = meaning.note(for: target) {
                 Text(note)
+                    .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink2)
+            } else if target == nil, hasDraft {
+                // Text with no target is a new task. Said here, so a draft
+                // that lost its reply target is not sent somewhere by surprise.
+                Text("Sends as a new task — you pick the folder and agent next")
                     .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink2)
             } else if !micHintSeen, !hasDraft, voice.phase == .idle, voice.errorText == nil {
                 // Said once: the mic is explained the first time it appears,
@@ -833,30 +903,35 @@ private struct SessionDetailSheet: View {
             PhoneSheetHeader(title: String(localized: "Task")) { dismiss() }
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    HStack(spacing: 10) {
+                    HStack(alignment: .top, spacing: 10) {
                         AgentAvatar(agent: session.agent, size: 36)
-                        VStack(alignment: .leading, spacing: 2) {
+                        VStack(alignment: .leading, spacing: 3) {
                             Text(session.displayTitle)
                                 .font(CompanionType.font(22, .semibold))
                                 .tracking(CompanionType.tracking(22))
                                 .foregroundStyle(CompanionPalette.ink)
-                            HStack(spacing: 6) {
-                                Text(DashboardFilters.projectTitle(session.project))
-                                AgentBadge(agent: session.agent)
-                                if let branch = session.branch { Text(branch).font(CompanionType.mono(10)) }
+                                .lineLimit(2)
+                            // The same line the row carries: the state word in
+                            // its colour, then agent, project and branch.
+                            HStack(spacing: 5) {
+                                StatusDot(state: state, size: PhoneRowMetrics.dot)
+                                Text(ToolActivity.label(for: session))
+                                    .foregroundStyle(CompanionPalette.status(state))
+                                Text("·")
+                                Text(session.agent.shortName)
+                                if DashboardFilters.projectTitle(session.project) != session.displayTitle {
+                                    Text("·")
+                                    Text(DashboardFilters.projectTitle(session.project))
+                                }
+                                if let branch = session.branch {
+                                    Text("·")
+                                    Text(branch).font(CompanionType.mono(10)).lineLimit(1).truncationMode(.middle)
+                                }
                             }
-                            .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink2)
+                            .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
+                            .lineLimit(1)
                         }
                     }
-                    HStack(spacing: 6) {
-                        Image(systemName: state.symbolName).font(.system(size: 10, weight: .semibold))
-                        Text(state.label)
-                    }
-                    .font(CompanionType.font(12, .medium))
-                    .foregroundStyle(CompanionPalette.status(state))
-                    .padding(.horizontal, 10).padding(.vertical, 5)
-                    .background(CompanionPalette.status(state).opacity(0.12),
-                                in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     if session.completionNotice?.state == .pending {
                         Text("Preparing completion summary…")
                             .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
@@ -936,7 +1011,7 @@ private struct SessionDetailSheet: View {
             if let observation = session.observationDescription {
                 HStack(spacing: 5) {
                     Label(observation, systemImage: "waveform.path.ecg")
-                    if let last = session.lastObservedAt { Text("· \(last, style: .relative)") }
+                    if let last = session.lastObservedAt { Text("· \(PhoneRelativeTime.short(last))") }
                 }
                 .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
             }
@@ -1015,7 +1090,7 @@ private struct RecentOutputCard: View {
             Text(output.sourceLabel)
             if let updatedAt = output.updatedAt {
                 Text("·")
-                Text(updatedAt, style: .relative).monospacedDigit()
+                Text(PhoneRelativeTime.short(updatedAt)).monospacedDigit()
             }
         }
         .font(CompanionType.font(11))
@@ -1123,6 +1198,8 @@ private struct MacTitleMenu: View {
     }
 }
 
+/// The page with nothing on it, in the phone's own type. `moon.zzz` is the
+/// empty glyph on every status surface (ADR-0017 §2).
 private struct EmptyStateView: View {
     @State private var showMacHelp = false
     let state: DashboardStore.ConnectionState
@@ -1130,19 +1207,18 @@ private struct EmptyStateView: View {
     var body: some View {
         switch state {
         case .connecting:
-            ContentUnavailableView("Connecting to your Mac", systemImage: "antenna.radiowaves.left.and.right")
+            PhoneEmptyState(symbol: "antenna.radiowaves.left.and.right",
+                            title: String(localized: "Connecting to your Mac"))
         case .connected:
-            ContentUnavailableView(
-                "No active tasks", systemImage: "moon.zzz",
-                description: Text("Start a Claude Code or Codex session and it'll show up here."))
+            PhoneEmptyState(symbol: "moon.zzz",
+                            title: String(localized: "No active tasks"),
+                            text: String(localized: "Start a Claude Code or Codex session and it'll show up here."))
         case .failed(let message):
-            ContentUnavailableView {
-                Label("Disconnected", systemImage: "wifi.exclamationmark")
-            } description: {
-                Text(message)
-                Text("Check that the Mac app is running, both devices are on the same local network, and Local Network access is enabled in Settings.")
-            } actions: {
+            PhoneEmptyState(symbol: "wifi.exclamationmark",
+                            title: String(localized: "Disconnected"),
+                            text: message + "\n" + String(localized: "Check that the Mac app is running, both devices are on the same local network, and Local Network access is enabled in Settings.")) {
                 Button("Need the Mac companion?") { showMacHelp = true }
+                    .buttonStyle(PhoneButtonStyle(kind: .quiet, size: .small))
             }
             .sheet(isPresented: $showMacHelp) { MacCompanionSetupSheet() }
         }
