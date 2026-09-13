@@ -60,13 +60,13 @@ struct VoicePicker<Trailing: View>: View {
                     Picker(label, selection: selection) {
                         ForEach(VoiceCatalog.grouped(shortlist)) { group in
                             Section(group.category) {
-                                ForEach(group.voices) { Text(verbatim: $0.label).tag($0.id) }
+                                ForEach(group.voices) { Text(verbatim: Self.menuTitle($0)).tag($0.id) }
                             }
                         }
                         // A voice chosen from the full list, or kept from an
                         // earlier language, still needs a tag of its own.
                         if !effectiveID.isEmpty, !shortlist.contains(where: { $0.id == effectiveID }) {
-                            Text(verbatim: all.first { $0.id == effectiveID }?.label ?? effectiveID)
+                            Text(verbatim: all.first { $0.id == effectiveID }.map(Self.menuTitle) ?? effectiveID)
                                 .tag(effectiveID)
                         }
                         Divider()
@@ -75,16 +75,34 @@ struct VoicePicker<Trailing: View>: View {
                     .labelsHidden().accessibilityLabel(label)
                     trailing
                 }
-                if VoiceCatalog.isTiered(purpose, provider) {
-                    Button("Show all \(all.count) voices…") { query = ""; showingAll = true }
-                        .buttonStyle(.link).font(MacTheme.font(10))
-                        .popover(isPresented: $showingAll, arrowEdge: .bottom) { fullList }
-                } else {
-                    Text("\(shortlist.count) voices from \(provider.display)")
-                        .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
+                // The second layer (decision B): the vendor's voice ID, which
+                // the menu no longer carries, then the catalog's size or the
+                // way to the full list. Nothing the old one-line label said is
+                // dropped; it is just not all in the control's own width.
+                HStack(spacing: 6) {
+                    if let voice = all.first(where: { $0.id == effectiveID }), voice.name != voice.id {
+                        Text(verbatim: voice.id).font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink3)
+                            .textSelection(.enabled)
+                        Text(verbatim: "·").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink3)
+                    }
+                    if VoiceCatalog.isTiered(purpose, provider) {
+                        Button("Show all \(all.count) voices…") { query = ""; showingAll = true }
+                            .buttonStyle(.link).font(MacTheme.font(10))
+                            .popover(isPresented: $showingAll, arrowEdge: .bottom) { fullList }
+                    } else {
+                        Text("\(shortlist.count) voices from \(provider.display)")
+                            .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
+                    }
                 }
             }
         }
+    }
+
+    /// The menu shows the name and the vendor's one line of character; the
+    /// ID moves to the line under the control.
+    static func menuTitle(_ voice: CatalogVoice) -> String {
+        if voice.name == voice.id { return voice.trait.isEmpty ? voice.name : "\(voice.name) · \(voice.trait)" }
+        return voice.trait.isEmpty ? voice.name : "\(voice.name) · \(voice.trait)"
     }
 
     private var fullList: some View {

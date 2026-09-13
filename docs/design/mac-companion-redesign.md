@@ -101,13 +101,16 @@ live and history libraries; only this list scrolls, the rows above stay put.
 At the bottom the account-quota plinth, collapsed by default to one line (the
 provider with the least left, its reset, and any source that cannot be read)
 and expanded to the per-provider rows on click, remembered across launches;
-under it a **Settings** row, where Cursor keeps its gear. Selection and hover
-are an ink wash (7 % / 4 %), never the accent.
+under it a **Settings** row, where Cursor keeps its gear. Selection matches the
+Settings sidebar — accent glyph and title on a 14 % accent wash; hover and press
+stay an ink wash (4 % / 7 %). *(2026-09-13: was an ink wash, never the accent;
+the owner asked the dashboard to carry Settings' green.)*
 
 Content: list column (240–380 pt) + detail column. The list head is the scope
 title, the search pill and a row of filter chips (All / Needs you / Errors /
-Working / Done / Idle; the selected chip is ink-filled). Rows are summary-first
-cards on `bg3`; the selected row sits on `bg2` with a hairline. History uses
+Working / Done / Idle; the selected chip is accent-filled). Rows are summary-first
+cards on `bg3`; the selected row sits on `bg2` with an accent hairline. The
+live mic disc is accent-filled. History uses
 the same head with agent / archive dropdown pills and a `···` menu (Refresh,
 Rebuild index, source notices). Empty panes are `QuietEmptyState`: a 22 pt
 glyph, a body-size title and one line of guidance, centred, no card — never
@@ -117,8 +120,23 @@ Detail is one `bg3` card. Approval: request card (agent avatar CC/CX/GK, header,
 path label, diff or command block, then `Approve ▾` split button whose menu
 holds *Always allow this* and *Allow all this session*, `Deny` and
 `Jump` as ghost buttons). Non-approval: title, state pill, summary, primary
-`Jump to terminal`, `Recent output`, Notifications picker, model line.
-Usage bars sit under the detail card.
+`Jump to terminal`, `Recent output`, a Notifications row of filter chips
+(Auto / Followed / Normal / Muted — the list head's chips, never a system
+segmented control), model line. Usage bars sit under the detail card; the
+Recent output pane's `Refresh` is a small ghost pill.
+
+History's reading pane (*2026-09-13, ticket 10*): under the title and the
+agent · path line, one action row — the filled small pill is the thing you
+came for (`Jump to current session` while the conversation is live,
+otherwise `Copy resume command`), the star is a ghost pill, and Pin / Archive
+in library / Export Markdown… / Show source sit behind a `···` menu pill. A
+Codex thread's composer and any feedback take the next line. The
+Conversation summary head is the same grammar: title, a style dropdown pill
+(`Action briefing ⌄`) and one small ghost key (`Generate summary` /
+`Regenerate`, `Cancel` while running). Out-of-date and error notes use the
+status tints, and the message the search landed on sits on the ink wash
+(7 %), not the accent. No system button, picker or `accentColor` remains in
+the dashboard window.
 
 Keyboard: ⌘F search, A / D approve / deny, ⏎ jump, ⌘1–5 / ⌘0 status filters
 narrow the groups.
@@ -144,6 +162,22 @@ headers and up to three rows each.
 
 ### Settings
 Grouped forms as today. Toggles/pickers pick up the accent tint. *Superseded 2026-09-12 — ten pages on `SettingsChrome`; see ADR-0017.*
+
+Status words in Settings (*2026-09-13, ticket 10*) are one `SettingsPill`
+on every page: a 6 pt dot and the word in the tone's colour (accent for ok,
+the needs-you tint for a warning, the error tint for a failure, tertiary /
+secondary ink when neutral) on a hairline capsule — ADR-0017 §4's "a dot and
+a word", never a tinted fill. Counts and dates are `SettingsValue` text; a
+pill says a state ("No devices"), not a number. Diagnostics shows product
+words for the delivery enums (Allowed / Denied / Not asked yet; Attempted /
+Scheduled / Accepted / Failed / Skipped), not raw cases. Voice's feature
+rows are two tiers (decision B, 2026-09-13): the provider popup at its
+natural width with the row's own action (Test / Sample) on the first line,
+then **Model** and **Voice** under small labels on the second — two columns
+while both fit (they do at 920 and 1080), stacked otherwise; never a smaller
+face or a wider window. The voice menu shows the name and the vendor's
+character line; the voice ID sits in mono under the control with the
+catalog note, so the long label is layered, not cut.
 
 ## iPhone and Apple Watch
 
@@ -175,6 +209,13 @@ Companion.swift` and `CompanionViews.swift` (palette, type, `CompanionCopy`,
 - Palette, type and radii are the Kit tokens (Geist and the neutral set since
   ADR-0017); the Watch keeps its black ground and uses the status colours at
   full strength.
+- **Quota colour** is one rule on every surface (`QuotaPresentation.severity`):
+  the accent while there is room, amber past 80 %, red past 95 %. The phone's
+  bars, the Watch's in-app rings and the phone task sheet's context bar all
+  take it; only the Watch complication keeps a per-provider hue, because its
+  rings nest without labels. The phone's task sheet says the same state word
+  as its row (`ToolActivity.label`), sets the notification level with a row
+  of chips, and tags the agent with a rounded-rect badge (`AgentBadge`).
 
 ## iPhone rounds 6–8 (2026-09-06, artifact `79f0f9ce-1e20-4bac-98d8-93d69057cfe5`)
 

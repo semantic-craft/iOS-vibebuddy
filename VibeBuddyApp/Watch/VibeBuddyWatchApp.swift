@@ -4,6 +4,9 @@ import VibeBuddyKit
 
 @main
 struct VibeBuddyWatchApp: App {
+    /// Owns the notification-centre delegate from process start, so a tap on
+    /// a mirrored notification opens the session it was about.
+    @WKApplicationDelegateAdaptor(WatchAppDelegate.self) private var delegate
     @StateObject private var store = WatchStateStore()
 
     var body: some Scene {

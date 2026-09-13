@@ -208,6 +208,14 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
     /// Persistent iPhone publication order; never derived from the Mac clock.
     public var relayRevision: UInt64
     public var followedTasks: [WatchFollowedTask]
+    /// What is worth a look without waiting on you: sessions that ended badly
+    /// (`error`) first, then unread completions, newest first, at most
+    /// `maxResults`. Every current session qualifies, followed or not — a
+    /// result the wrist can open is a result the wrist can mark read, through
+    /// the same exact-round acknowledgement a followed task uses. Optional so
+    /// a relay or cache from before this field decodes as "none known" rather
+    /// than failing.
+    public var results: [WatchFollowedTask]?
     public var counts: WatchSessionCounts
     /// The app's five-state aggregate, shared with the Mac, the iPhone list,
     /// the Live Activity and the widget. It is a different partition, not a
@@ -238,6 +246,7 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
         pairingEpoch: String? = nil,
         relayRevision: UInt64 = 0,
         followedTasks: [WatchFollowedTask] = [],
+        results: [WatchFollowedTask]? = nil,
         counts: WatchSessionCounts = WatchSessionCounts(),
         presentation: TaskPresentationSummary = TaskPresentationSummary(),
         alerts: [WatchAlert] = [],
@@ -253,6 +262,7 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
         self.pairingEpoch = pairingEpoch
         self.relayRevision = relayRevision
         self.followedTasks = followedTasks
+        self.results = results
         self.counts = counts
         self.presentation = presentation
         self.alerts = alerts
@@ -269,8 +279,37 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
         WatchDashboardState(relay: .noData, observedAt: observedAt)
     }
 
+    /// The most results a wrist is handed. Past this the list stops being a
+    /// list; the phone keeps the rest.
+    public static let maxResults = 6
+
     /// The session that takes over the home screen, if any.
     public var topAlert: WatchAlert? { alerts.first }
+
+    /// Sessions whose last turn ended badly — listed under Needs you with the
+    /// alerts, because a session that stopped on an error is blocked on you
+    /// just as surely as one that asked.
+    public var stuckTasks: [WatchFollowedTask] {
+        (results ?? []).filter { $0.presentation == .error }
+    }
+
+    /// Finished work nobody has read yet, newest first.
+    public var unreadResults: [WatchFollowedTask] {
+        (results ?? []).filter { $0.presentation == .completeUnread }
+    }
+
+    /// The one session the wrist can open by id, wherever the projection
+    /// carried it. A followed task wins when a session is in both lists — the
+    /// two are built from the same session and say the same thing.
+    public func task(_ sessionID: String) -> WatchFollowedTask? {
+        followedTasks.first { $0.sessionID == sessionID }
+            ?? results?.first { $0.sessionID == sessionID }
+    }
+
+    /// Whether the wrist has anything at all to show for this session.
+    public func knows(_ sessionID: String) -> Bool {
+        alerts.contains { $0.sessionId == sessionID } || task(sessionID) != nil
+    }
 
     public func quota(_ provider: AccountUsageProvider) -> ProviderQuota? {
         quotas.first { $0.provider == provider }
@@ -408,6 +447,7 @@ public enum WatchDashboardProjection {
         return WatchDashboardState(
             sourceID: snapshot.sourceID,
             followedTasks: sessions.filter { $0.effectiveAttention == .followed }.map(WatchFollowedTask.init),
+            results: results(in: current),
             counts: WatchSessionCounts(StateGroups(current)),
             presentation: TaskPresentationSummary(sessions: current),
             alerts: groups.needsResponse.map(alert(for:)),
@@ -416,6 +456,26 @@ public enum WatchDashboardProjection {
             observedAt: now,
             isDemo: isDemo
         )
+    }
+
+    /// What is worth a look: every current session that ended badly, then
+    /// every unread completion, newest first within each, cut to what a wrist
+    /// can list. Attention is not consulted — a normal session's result is a
+    /// result too; only a muted one is left off, as its completion is dropped
+    /// everywhere else (`DeliveryMatrix`).
+    private static func results(in current: [AgentSession]) -> [WatchFollowedTask] {
+        let worth = current.filter {
+            $0.effectiveAttention != .muted
+                && ($0.presentationState == .error || $0.presentationState == .completeUnread)
+        }
+        let ordered = worth.sorted { a, b in
+            let ra = a.presentationState == .error ? 0 : 1
+            let rb = b.presentationState == .error ? 0 : 1
+            if ra != rb { return ra < rb }
+            if a.statusSince != b.statusSince { return a.statusSince > b.statusSince }
+            return a.id < b.id
+        }
+        return ordered.prefix(WatchDashboardState.maxResults).map(WatchFollowedTask.init)
     }
 
     private static func alert(for session: AgentSession) -> WatchAlert {

@@ -195,10 +195,16 @@ final class WatchRelayTests: XCTestCase {
         let relayed = transport.states.last
         XCTAssertEqual(relayed?.isDemo, true)
         XCTAssertEqual(relayed?.relay, .live)
-        XCTAssertEqual(relayed?.counts.needsResponse, 3)
+        // Attention buckets (`StateGroups`): the failed demo session counts
+        // under Needs you, as on every other surface.
+        XCTAssertEqual(relayed?.counts.needsResponse, 4)
         XCTAssertEqual(relayed?.counts.working, 3)
-        XCTAssertEqual(relayed?.counts.done, 3)
+        XCTAssertEqual(relayed?.counts.done, 2)
         XCTAssertEqual(relayed?.stuck, 1)
+        // The same failed session leads the wrist's results; the unread
+        // completions follow it.
+        XCTAssertEqual(relayed?.stuckTasks.count, 1)
+        XCTAssertEqual(relayed?.unreadResults.isEmpty, false)
         XCTAssertEqual(Set(relayed?.quotas.map(\.provider) ?? []), Set([.codex, .claude, .grok, .cursor, .grokBot]))
         await store.stop().value
     }
@@ -217,7 +223,7 @@ final class WatchRelayTests: XCTestCase {
 
         XCTAssertEqual(transport.states.count, publishedBeforeDecision + 1)
         XCTAssertFalse(transport.states.last?.alerts.contains { $0.sessionId == targetID } ?? true)
-        XCTAssertEqual(transport.states.last?.counts.needsResponse, 2)
+        XCTAssertEqual(transport.states.last?.counts.needsResponse, 3)
         await store.stop().value
     }
 

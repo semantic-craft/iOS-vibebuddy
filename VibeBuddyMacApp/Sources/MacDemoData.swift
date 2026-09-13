@@ -29,7 +29,7 @@ enum MacDemoData {
             secondary: window(.secondary, used: 52, minutes: 10_080, elapsed: 0.43),
             lifetimeTokens: nil, latestDailyTokens: nil, fetchedAt: now.addingTimeInterval(-240),
             extraWindows: [window(.extra, used: 73, minutes: 10_080, elapsed: 0.43,
-                                  label: "Opus week", key: "opus-week")])
+                                  label: String(localized: "Opus week"), key: "opus-week")])
         let grok = AccountUsageSnapshot(
             provider: .grok, planType: "SuperGrok Heavy",
             primary: window(.primary, used: 38, minutes: 10_080, elapsed: 0.70),

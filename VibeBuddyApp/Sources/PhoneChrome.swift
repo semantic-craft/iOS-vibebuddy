@@ -58,7 +58,7 @@ struct PhoneSectionHeader: View {
 
     var body: some View {
         CompanionSectionHeader(title: title, count: count, expanded: $expanded,
-                               titleSize: 15, countSize: 13, chevronSize: 11, spacing: 6)
+                               titleSize: 14, countSize: 12, chevronSize: 10, spacing: 6)
             .accessibilityLabel("\(title), \(count)")
     }
 }
@@ -66,7 +66,10 @@ struct PhoneSectionHeader: View {
 /// Rounded-rect buttons, the phone's answer to `PillButtonStyle`: the Kit's
 /// `CompanionButtonStyle` at the phone's control radius.
 struct PhoneButtonStyle: ButtonStyle {
-    enum Kind { case primary(Color), quiet, ghost }
+    /// `soft` is the lightest key: the secondary ground, no edge — for the
+    /// small verbs under a row (Reply, Jump) that must not weigh as much as
+    /// an approval.
+    enum Kind { case primary(Color), quiet, soft, ghost }
     enum Size { case small, regular, wide }
     var kind: Kind = .quiet
     var size: Size = .regular
@@ -80,6 +83,7 @@ struct PhoneButtonStyle: ButtonStyle {
         switch kind {
         case .primary(let c): return .filled(c)
         case .quiet: return .quiet
+        case .soft: return .soft
         case .ghost: return .ghost
         }
     }
@@ -159,10 +163,35 @@ private struct PhoneApproveHalf: ButtonStyle {
 /// The hairline between rows, inset past the status dot like a settings list.
 typealias PhoneDivider = CompanionHairline
 
-/// A sheet's head: a round close button on the left, the title centred.
-struct PhoneSheetHeader: View {
+/// The agent's mark alone, in its brand hue, with no tile behind it: the
+/// Kit's `AgentAvatar` is the product tile for a sheet's head; on a row's
+/// meta line the mark is enough and a tile is one more block.
+struct AgentMark: View {
+    let agent: AgentKind
+    var size: CGFloat = 11
+
+    var body: some View {
+        SVGPathShape(agent.brandMark)
+            .fill(agent.brandColor)
+            .frame(width: size, height: size)
+            .accessibilityLabel(agent.displayName)
+    }
+}
+
+/// A sheet's head: a round close button on the left, the title centred, and
+/// — when the sheet has one action of its own (Start, Done) — that action on
+/// the right as a small key. Every sheet on the phone opens with this head;
+/// none uses the system navigation bar.
+struct PhoneSheetHeader<Trailing: View>: View {
     let title: String
     let close: () -> Void
+    @ViewBuilder var trailing: Trailing
+
+    init(title: String, close: @escaping () -> Void, @ViewBuilder trailing: () -> Trailing) {
+        self.title = title
+        self.close = close
+        self.trailing = trailing()
+    }
 
     var body: some View {
         ZStack {
@@ -170,14 +199,132 @@ struct PhoneSheetHeader: View {
                 .font(CompanionType.font(17, .semibold))
                 .tracking(CompanionType.tracking(17))
                 .foregroundStyle(CompanionPalette.ink)
+                .lineLimit(1)
             HStack {
                 PhoneCircleButton("xmark", size: 32, tint: CompanionPalette.ink2, action: close)
                     .accessibilityLabel("Close")
                 Spacer(minLength: 0)
+                trailing
             }
         }
         .padding(.horizontal, PhoneMetrics.gutter)
         .padding(.top, 14).padding(.bottom, 12)
+    }
+}
+
+extension PhoneSheetHeader where Trailing == EmptyView {
+    init(title: String, close: @escaping () -> Void) {
+        self.init(title: title, close: close) { EmptyView() }
+    }
+}
+
+/// The phone's relative time: `now`, `5m`, `3h`, `2d`. Rows re-cut on the
+/// page's 60-second clock and on every snapshot, so seconds would only
+/// flicker; Cursor's rows say `5m` too.
+enum PhoneRelativeTime {
+    static func short(_ date: Date, now: Date = Date()) -> String {
+        let seconds = max(0, now.timeIntervalSince(date))
+        if seconds < 60 { return String(localized: "now") }
+        let minutes = Int(seconds / 60)
+        if minutes < 60 { return String(localized: "\(minutes)m") }
+        let hours = minutes / 60
+        if hours < 24 { return String(localized: "\(hours)h") }
+        return String(localized: "\(hours / 24)d")
+    }
+
+    /// The spoken form for accessibility (`5 minutes ago`).
+    static func spoken(_ date: Date, now: Date = Date()) -> String {
+        RelativeDateTimeFormatter().localizedString(for: date, relativeTo: now)
+    }
+}
+
+/// One line about the page, above the list: a glyph, a short sentence, and
+/// at most one key. The connection is said here, once; rows only add what
+/// changes for them.
+struct PhoneNotice<Action: View>: View {
+    let symbol: String
+    let text: String
+    var tint: Color = CompanionPalette.ink2
+    @ViewBuilder var action: Action
+
+    init(symbol: String, text: String, tint: Color = CompanionPalette.ink2,
+         @ViewBuilder action: () -> Action) {
+        self.symbol = symbol
+        self.text = text
+        self.tint = tint
+        self.action = action()
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(tint)
+                .frame(width: 16)
+            Text(text)
+                .font(CompanionType.font(12))
+                .foregroundStyle(CompanionPalette.ink2)
+                .lineLimit(2)
+            Spacer(minLength: 8)
+            action
+        }
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .companionCard()
+    }
+}
+
+extension PhoneNotice where Action == EmptyView {
+    init(symbol: String, text: String, tint: Color = CompanionPalette.ink2) {
+        self.init(symbol: symbol, text: text, tint: tint) { EmptyView() }
+    }
+}
+
+/// An empty page in the phone's own type: a glyph, a title, a line, and at
+/// most one key. The system's `ContentUnavailableView` sets SF Pro, which
+/// no surface keeps (ADR-0017 §1).
+struct PhoneEmptyState<Action: View>: View {
+    let symbol: String
+    let title: String
+    var text: String? = nil
+    @ViewBuilder var action: Action
+
+    init(symbol: String, title: String, text: String? = nil, @ViewBuilder action: () -> Action) {
+        self.symbol = symbol
+        self.title = title
+        self.text = text
+        self.action = action()
+    }
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: symbol)
+                .font(.system(size: 28, weight: .regular))
+                .foregroundStyle(CompanionPalette.ink3)
+                .padding(.bottom, 2)
+            Text(title)
+                .font(CompanionType.font(17, .semibold))
+                .tracking(CompanionType.tracking(17))
+                .foregroundStyle(CompanionPalette.ink)
+            if let text {
+                Text(text)
+                    .font(CompanionType.font(13))
+                    .foregroundStyle(CompanionPalette.ink2)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            action
+                .padding(.top, 4)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, PhoneMetrics.gutter + 8)
+        .padding(.vertical, 40)
+    }
+}
+
+extension PhoneEmptyState where Action == EmptyView {
+    init(symbol: String, title: String, text: String? = nil) {
+        self.init(symbol: symbol, title: title, text: text) { EmptyView() }
     }
 }
 

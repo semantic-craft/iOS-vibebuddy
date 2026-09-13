@@ -199,6 +199,8 @@ public struct VibeBuddyServer: Sendable {
         await store.setCursorModels(cursor ? await cursorACP?.models() ?? [] : [])
         if !cursor { cursor = await cursorLauncher.isSupported() }
         if cursor { agents.append(.cursor) }
+        // Remembered by the store so pushed snapshots say the same as GET /snapshot.
+        await store.setDispatchAgents(agents)
         return agents
     }
 

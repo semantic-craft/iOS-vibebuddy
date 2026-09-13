@@ -87,7 +87,7 @@ struct AccountUsageSummaryView: View {
                         Text("· \(plan)")
                     }
                     if state.isStale {
-                        Text("· Stale").foregroundStyle(.orange)
+                        Text("· Stale").foregroundStyle(MacTheme.status(.requiresInput))
                     }
                 }
                 .font(MacTheme.font(10))
@@ -435,7 +435,7 @@ struct TokenConsumptionSummaryView: View {
                 if let warnings = snapshot.warnings, !warnings.isEmpty {
                     Text(warnings.prefix(2).joined(separator: "\n"))
                         .font(MacTheme.font(10))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(MacTheme.status(.requiresInput))
                 }
                 Text("From local Claude Code transcripts and Codex rollouts. Dollars are list price for the tokens read, not what a subscription charges. Distinct from account quota remaining.")
                     .font(MacTheme.font(10))

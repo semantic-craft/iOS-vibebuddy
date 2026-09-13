@@ -238,7 +238,7 @@ private struct FeatureRow<Controls: View>: View {
                 controls
                 if let detail {
                     Label(LocalizedStringKey(detail), systemImage: "exclamationmark.circle")
-                        .font(MacTheme.font(10)).foregroundStyle(.orange)
+                        .font(MacTheme.font(10)).foregroundStyle(MacTheme.status(.requiresInput))
                 }
                 Text(hint ?? feature.hint).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 SettingsTestFeedback(tests: tests, purpose: feature.testPurpose)
@@ -248,6 +248,8 @@ private struct FeatureRow<Controls: View>: View {
     }
 }
 
+/// The feature's state in the one settings pill (`SettingsPill`): a dot and
+/// a word. "No API key yet" is also the way to the key.
 private struct StatusPill: View {
     let status: VoiceFeatureStatus
     let reveal: (VoiceProvider) -> Void
@@ -255,54 +257,90 @@ private struct StatusPill: View {
     var body: some View {
         switch status {
         case .unconfigured:
-            pill("Not configured", MacTheme.ink2)
+            SettingsPill("Not configured")
         case .waitingForSummaries:
-            pill("Waiting for a summary provider", MacTheme.ink2)
+            SettingsPill("Waiting for a summary provider")
         case .needsAttention:
-            pill("Needs attention", .orange)
+            SettingsPill("Needs attention", tone: .warn)
         case .needsKey(let provider):
-            Button { reveal(provider) } label: { pill("No API key yet · Add it", .orange) }
+            Button { reveal(provider) } label: { SettingsPill("No API key yet · Add it", tone: .warn) }
                 .buttonStyle(.plain)
                 .accessibilityHint("Opens this provider’s account below.")
         case .nothingToRead:
-            pill("Nothing to read yet", .orange)
+            SettingsPill("Nothing to read yet", tone: .warn)
         case .verified(let text):
-            pill(LocalizedStringKey(text), .green)
+            SettingsPill(LocalizedStringKey(text), tone: .ok)
         case .unverified:
-            pill("Unverified", MacTheme.ink2)
+            SettingsPill("Unverified")
         }
-    }
-
-    private func pill(_ text: LocalizedStringKey, _ tint: Color) -> some View {
-        HStack(spacing: 5) {
-            Circle().frame(width: 6, height: 6).accessibilityHidden(true)
-            Text(text).font(MacTheme.font(10))
-        }
-        .foregroundStyle(tint)
-        .padding(.horizontal, 8).padding(.vertical, 2)
-        .overlay(Capsule().stroke(tint.opacity(0.4)))
-        .fixedSize()
     }
 }
 
-/// The controls line the design gives every row: provider first, then what it
-/// governs, then this row's own action. Same column proportions on all three rows.
+/// The controls of a feature row in two tiers (decision B, 2026-09-13):
+/// the provider and this row's own action on the first line, the model and
+/// the voice on the second, each under a small label. The provider popup
+/// keeps its natural width; the second tier is two columns while both fit
+/// and stacks otherwise — never a smaller face, never a wider window.
 private struct ControlLine<P: View, M: View, V: View, T: View>: View {
     @ViewBuilder let provider: P
     @ViewBuilder let model: M
     @ViewBuilder let voice: V
     @ViewBuilder let trailing: T
+    /// Summaries are text: the row has no voice cell at all.
+    var showsVoice = true
 
     var body: some View {
-        HStack(alignment: .center, spacing: 8) {
-            // Minimums, not just proportions: the voice cell carries the widest
-            // text and without them it squeezes the other two into slivers. The
-            // row's own action keeps its full width so it cannot be clipped off
-            // the right edge.
-            provider.frame(minWidth: 120, maxWidth: .infinity)
-            model.frame(minWidth: 120, maxWidth: .infinity)
-            voice.frame(minWidth: 170, maxWidth: .infinity).layoutPriority(1)
-            trailing.fixedSize().layoutPriority(3)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .bottom, spacing: 8) {
+                LabeledCell("Provider") { provider.fixedSize() }
+                trailing.fixedSize()
+                Spacer(minLength: 0)
+            }
+            if showsVoice {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 14) {
+                        LabeledCell("Model") { model }
+                            .frame(minWidth: 200, maxWidth: 280, alignment: .leading)
+                        LabeledCell("Voice") { voice }
+                            .frame(minWidth: 240, maxWidth: .infinity, alignment: .leading)
+                            .layoutPriority(1)
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        LabeledCell("Model") { model }.frame(maxWidth: 320, alignment: .leading)
+                        LabeledCell("Voice") { voice }.frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            } else {
+                LabeledCell("Model") { model }.frame(maxWidth: 320, alignment: .leading)
+            }
+        }
+    }
+}
+
+extension ControlLine where V == EmptyView {
+    /// The line for a feature that has no voice: provider and action, then the model.
+    static func textOnly(@ViewBuilder provider: () -> P, @ViewBuilder model: () -> M,
+                         @ViewBuilder trailing: () -> T) -> ControlLine {
+        ControlLine(provider: provider, model: model, voice: { EmptyView() }, trailing: trailing, showsVoice: false)
+    }
+}
+
+/// A small label over a control. The controls carry their own accessibility
+/// names, so the visible label is decoration for sighted reading only.
+private struct LabeledCell<Content: View>: View {
+    let label: LocalizedStringKey
+    @ViewBuilder let content: Content
+
+    init(_ label: LocalizedStringKey, @ViewBuilder content: () -> Content) {
+        self.label = label
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label).font(MacTheme.font(10, .medium)).foregroundStyle(MacTheme.ink3)
+                .accessibilityHidden(true)
+            content
         }
     }
 }
@@ -514,31 +552,34 @@ private struct SummaryFeatureRow: View {
         return .unverified
     }
 
+    private var providerPicker: some View {
+        ProviderPicker(label: "Completion summary provider", selection: $selection,
+                       options: VoiceProvider.summaryProviders,
+                       leading: ("", NSLocalizedString("Not configured", comment: "No summary provider")))
+    }
+
+    @ViewBuilder private var modelField: some View {
+        if let provider {
+            IDField(label: "Text model ID",
+                    placeholder: CompletionSummaryConfiguration.recommendedModel(provider),
+                    text: $modelID, browse: provider.modelsURL,
+                    browseHelp: "Browse available models", identifier: "completionSummaryModelID")
+        } else { Text(verbatim: "—").foregroundStyle(MacTheme.ink2) }
+    }
+
+    private var sampleButton: some View {
+        Button("Sample", action: test)
+            .disabled(tests.isBusy || provider == nil || configuration?.configurationFailure != nil
+                      || !credential.configured || reader.busy)
+            .accessibilityIdentifier("completionSummaryTest")
+            .help("Generate one synthetic summary with this Mac’s saved key. Billed; no task history is sent.")
+    }
+
     var body: some View {
         FeatureRow(feature: .summaries, enabled: $enabled, status: status,
                    detail: detail, tests: tests, reveal: reveal) {
-            ControlLine {
-                ProviderPicker(label: "Completion summary provider", selection: $selection,
-                               options: VoiceProvider.summaryProviders,
-                               leading: ("", NSLocalizedString("Not configured", comment: "No summary provider")))
-            } model: {
-                if let provider {
-                    IDField(label: "Text model ID",
-                            placeholder: CompletionSummaryConfiguration.recommendedModel(provider),
-                            text: $modelID, browse: provider.modelsURL,
-                            browseHelp: "Browse available models", identifier: "completionSummaryModelID")
-                } else { Text(verbatim: "—").foregroundStyle(MacTheme.ink2) }
-            } voice: {
-                // Summaries are text; the voice column stays empty on purpose.
-                Text(verbatim: "—").foregroundStyle(MacTheme.ink2)
-                    .accessibilityLabel("No voice — summaries are text")
-            } trailing: {
-                Button("Sample", action: test)
-                    .disabled(tests.isBusy || provider == nil || configuration?.configurationFailure != nil
-                              || !credential.configured || reader.busy)
-                    .accessibilityIdentifier("completionSummaryTest")
-                    .help("Generate one synthetic summary with this Mac’s saved key. Billed; no task history is sent.")
-            }
+            // Summaries are text: the two-tier line without a voice cell.
+            ControlLine.textOnly(provider: { providerPicker }, model: { modelField }, trailing: { sampleButton })
         }
         .onAppear { credential.refresh() }
         .onChange(of: [modelID, language, workspace, String(intl),
@@ -720,7 +761,7 @@ private struct ReadAloudFeatureRow: View {
             // instruction channel — see `SpeechSynthesis.supportsStyle`.
             if case .ready(let provider) = status, SpeechSynthesis.supportsStyle(provider) {
                 HStack(spacing: 8) {
-                    Text("Voice style").font(.caption).foregroundStyle(.secondary)
+                    Text("Voice style").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                     Picker("Voice style", selection: styleSelection) {
                         ForEach(VoiceStyle.allCases, id: \.rawValue) { Text(verbatim: $0.display).tag($0.rawValue) }
                     }
@@ -730,7 +771,7 @@ private struct ReadAloudFeatureRow: View {
                     Text(effectiveStyle == .standard
                          ? "Reads the summary with no extra direction."
                          : "Sent to \(provider.display) as a delivery instruction alongside each reading.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                     Spacer(minLength: 0)
                 }
             }
@@ -819,9 +860,9 @@ private struct AccountRow: View {
                 }
                 Spacer(minLength: 0)
                 if credential.saveFailed {
-                    Text("Key not saved").font(MacTheme.font(10)).foregroundStyle(.orange)
+                    Text("Key not saved").font(MacTheme.font(10)).foregroundStyle(MacTheme.status(.requiresInput))
                 } else if credential.configured {
-                    Text("Key saved").font(MacTheme.font(10)).foregroundStyle(.green)
+                    Text("Key saved").font(MacTheme.font(10)).foregroundStyle(MacTheme.accent)
                 } else {
                     Text("No key").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 }
@@ -849,7 +890,7 @@ private struct AccountRow: View {
                     }
                     if credential.saveFailed {
                         Text("API key could not be saved. Your edit is not stored; edit or paste it again to retry.")
-                            .font(MacTheme.font(10)).foregroundStyle(.orange)
+                            .font(MacTheme.font(10)).foregroundStyle(MacTheme.status(.requiresInput))
                     }
                     if provider == .qwen {
                         Toggle("Use Singapore (international) region", isOn: $intl)

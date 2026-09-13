@@ -33,13 +33,14 @@ struct WatchRootView: View {
                 WatchHomeView(store: store, state: state, connection: connection, now: now)
                     .tag(WatchPage.home)
                 if state.alerts.count > 1 {
-                    WatchAlertsView(state: state, connection: connection, now: now)
+                    WatchAlertsView(store: store, state: state, connection: connection, now: now)
                         .tag(WatchPage.alerts)
                 }
                 WatchQuotaView(state: state, connection: connection, now: now)
                     .tag(WatchPage.quota)
             }
             .tabViewStyle(.page)
+            .onChange(of: page) { _, _ in store.cancelPendingNavigation() }
             // The last waiting session was resolved while its page was open.
             .onChange(of: state.alerts.count) { _, count in
                 if count <= 1, page == .alerts { page = .home }

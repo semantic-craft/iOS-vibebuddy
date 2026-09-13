@@ -1,4 +1,5 @@
 import SwiftUI
+import VibeBuddyKit
 import VibeBuddyMacCore
 
 struct HistorySummaryView: View {
@@ -11,19 +12,33 @@ struct HistorySummaryView: View {
     private var provider: String { CompletionSummaryConfiguration.load().provider?.display ?? "configured provider" }
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
+            // The head is the list head's grammar: title, then a style
+            // dropdown pill and one ghost key, never a system picker.
+            HStack(spacing: 6) {
                 Text("Conversation summary").font(MacTheme.font(13, .semibold))
+                Spacer(minLength: 8)
                 if history.summarizing {
-                    ProgressView().controlSize(.small)
+                    ProgressView().controlSize(.mini)
                     Button("Cancel") { history.cancelSummary() }
+                        .buttonStyle(PillButtonStyle(kind: .ghost, size: .small))
                 } else {
-                    Spacer()
-                    Picker("Summary style", selection: $styleChoice) {
-                        ForEach(HistorySummaryStyle.allCases, id: \.rawValue) { Text(LocalizedStringKey($0.title)).tag($0.rawValue) }
+                    MenuPill(title: String(localized: String.LocalizationValue(style.title))) {
+                        ForEach(HistorySummaryStyle.allCases, id: \.rawValue) { choice in
+                            Button {
+                                styleChoice = choice.rawValue
+                            } label: {
+                                if choice.rawValue == styleChoice {
+                                    Label(LocalizedStringKey(choice.title), systemImage: "checkmark")
+                                } else {
+                                    Text(LocalizedStringKey(choice.title))
+                                }
+                            }
+                        }
                     }
-                    .labelsHidden().fixedSize().help(LocalizedStringKey(style.detail))
+                    .help(LocalizedStringKey(style.detail))
                     .accessibilityLabel("Summary style").accessibilityIdentifier("historySummaryStyle")
                     Button(history.summary == nil ? "Generate summary" : "Regenerate") { expanded = true; history.generateSummary() }
+                        .buttonStyle(PillButtonStyle(kind: .ghost, size: .small))
                         .disabled(history.reading)
                 }
             }
@@ -36,13 +51,13 @@ struct HistorySummaryView: View {
                         Text("· \(summary.provider) · \(summary.model) · \(summary.generatedAt.formatted(date: .abbreviated, time: .shortened))")
                     }.font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 }
-                if !summary.isCurrent(for: session) { Text("Out of date — the conversation has changed. Regenerate to update.").font(MacTheme.font(10)).foregroundStyle(.orange) }
+                if !summary.isCurrent(for: session) { Text("Out of date — the conversation has changed. Regenerate to update.").font(MacTheme.font(10)).foregroundStyle(MacTheme.status(.requiresInput)) }
                 if expanded { Text(summary.coverage).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2) }
             } else {
                 Text("On request, sends readable dialogue to \(provider). Injected context and thinking are excluded.").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 Text(LocalizedStringKey(style.detail)).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
             }
-            if let error = history.summaryError { Text(error).font(MacTheme.font(10)).foregroundStyle(.red) }
+            if let error = history.summaryError { Text(error).font(MacTheme.font(10)).foregroundStyle(MacTheme.status(.error)) }
         }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
     }
 }
