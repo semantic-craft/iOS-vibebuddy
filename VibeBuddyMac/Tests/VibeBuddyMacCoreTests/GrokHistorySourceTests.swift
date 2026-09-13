@@ -73,4 +73,31 @@ final class GrokHistorySourceTests: XCTestCase {
             XCTAssertEqual(error.localizedDescription, GrokHistorySource.noTranscript)
         }
     }
+
+    func testMetadataOnlyRebuildNeverBecomesPendingFullText() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("grok-rebuild-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let grok = root.appendingPathComponent("absent-grok")
+        let cache = root.appendingPathComponent("cache")
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        let record = GrokHistorySource.parse(sample, cwd: "/project", directory: grok.appendingPathComponent("sessions/%2Fproject")).sessions[0]
+        let session = try JSONSerialization.jsonObject(with: JSONEncoder().encode(record))
+        // Version 6 also exercises migration into the eager message index. The
+        // Grok source root is absent, so neither refresh can run a real CLI.
+        let data = try JSONSerialization.data(withJSONObject: ["version": 6, "entries": [record.sourcePath: ["modified": record.updatedAt.timeIntervalSinceReferenceDate, "size": 0, "session": session]]])
+        try data.write(to: cache.appendingPathComponent("index.json"))
+        let repository = SessionHistoryRepository(claudeHome: root.appendingPathComponent("claude"), codexHome: root.appendingPathComponent("codex"), grokHome: grok, cacheDirectory: cache)
+        let initial = await repository.snapshot()
+        XCTAssertEqual(initial.sessions.count, 1)
+        XCTAssertEqual(initial.pendingSourceCount, 0)
+        let first = try await repository.index(rebuild: true)
+        XCTAssertEqual(first?.pendingSourceCount, 0)
+        let second = try await repository.refresh(rebuild: true)
+        XCTAssertEqual(second.sessions.count, 1)
+        XCTAssertEqual(second.pendingSourceCount, 0)
+        let reloaded = SessionHistoryRepository(grokHome: grok, cacheDirectory: cache, readOnly: true)
+        let persisted = await reloaded.snapshot()
+        XCTAssertEqual(persisted.pendingSourceCount, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: grok.path))
+    }
 }

@@ -61,7 +61,7 @@ public actor SessionHistoryRepository {
                 belongsToRoots(path) || (entry.session.agent == .grokBuild && grokPrefix.map { path.hasPrefix($0) } == true)
             }
             pendingPaths = Set((cache.pendingPaths ?? []).filter(belongsToRoots))
-            if cache.version < 7 { pendingPaths.formUnion(entries.keys) }
+            if cache.version < 7 { pendingPaths.formUnion(entries.filter { $0.value.session.agent.supportsTranscript }.keys) }
         }
     }
     public func hasUsableIndex() -> Bool { ensureLoaded(); return usableIndex }
@@ -128,7 +128,7 @@ public actor SessionHistoryRepository {
         let staging = rebuild ? directory.appendingPathComponent(".rebuild-" + UUID().uuidString) : nil
         defer { if let staging { try? fm.removeItem(at: staging) } }
         let searchIndex = try SessionHistorySearchIndex(directory: staging ?? directory)
-        if rebuild { pendingPaths.formUnion(entries.keys) }
+        if rebuild { pendingPaths.formUnion(entries.filter { $0.value.session.agent.supportsTranscript }.keys) }
         for (root, agent) in roots {
             guard fm.fileExists(atPath: root.path) else { issues.append("Source directory unavailable: \(root.path)"); continue }
             var enumerationErrors = 0
@@ -196,6 +196,7 @@ public actor SessionHistoryRepository {
             if !inventory.sessions.isEmpty { issues.append(GrokHistorySource.coverage) }
             for session in inventory.sessions {
                 discovered.insert(session.sourcePath)
+                pendingPaths.remove(session.sourcePath)
                 if entries[session.sourcePath]?.session != session {
                     entries[session.sourcePath] = Entry(modified: session.updatedAt, size: 0, session: session)
                     changed = true
