@@ -109,7 +109,12 @@ private struct SessionTitleBar: View {
                         if session.hasUnreadCompletion { model.acknowledge(session.id, displayedCompletionID: session.completionID) }
                         else { model.markUnread(session) }
                     }
-                    Button("Replay this previous result") { model.replayResult(session) }
+                    Button("Replay this previous result") {
+                        Task {
+                            let body = await model.completionBody(for: session)
+                            model.replayResult(session, body: body)
+                        }
+                    }
                     Divider()
                 }
                 Menu("Notifications") { AttentionPicker(session: session, model: model, style: .menu) }
@@ -267,6 +272,9 @@ private struct ReadingColumn: View {
                     Text(WaitHandling.resolve(for: session).message).font(MacTheme.font(11))
                 }
             }
+            if let feedback = model.answerFeedback[session.id] {
+                Text(feedback).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
+            }
             // What the last jump actually achieved — focused the pane, only
             // raised the app, or found nothing to raise. Same wording as the
             // glance rows.
@@ -303,9 +311,6 @@ private struct ReadingColumn: View {
                     InstructionComposer(placeholder: session.status == .done ? "Start a new turn…" : "Add to the current turn…",
                                         externalDraft: $draft) { text in
                         model.answer(session.id, answers: [:], text: text)
-                    }
-                    if let feedback = model.answerFeedback[session.id] {
-                        Text(feedback).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
                     }
                 }
             }
