@@ -26,8 +26,7 @@ struct VibeBuddyMCP {
         let executor = HistoryToolExecutor(repository: repository)
         if argv.first == "setup" {
             guard argv == ["setup"] else { fail(HistoryToolError.invalidArguments("Usage: vibebuddy-mcp setup"), code: 2) }
-            let executable = Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0])
-            let setup = HistoryConnectionSetup(executablePath: executable.standardizedFileURL.resolvingSymlinksInPath().path)
+            let setup = HistoryConnectionSetup(executablePath: runningExecutablePath())
             let text = setup.instructions(indexAvailable: await repository.hasUsableIndex())
             FileHandle.standardOutput.write(Data(HistoryCLI.output(text).utf8))
             return
@@ -50,6 +49,21 @@ struct VibeBuddyMCP {
         } catch HistoryToolError.invalidArguments(let message) {
             fail(HistoryToolError.invalidArguments(message), code: argv.first == "call" ? 1 : 2)
         } catch { fail(error, code: 1) }
+    }
+
+    /// A bundled auxiliary executable must not use the enclosing app's executable URL.
+    private static func runningExecutablePath() -> String {
+        var size: UInt32 = 0
+        _ = _NSGetExecutablePath(nil, &size)
+        guard size > 0 else {
+            fail(HistoryToolError.executionFailed("Unable to determine the running executable path."), code: 1)
+        }
+        var buffer = [CChar](repeating: 0, count: Int(size))
+        guard _NSGetExecutablePath(&buffer, &size) == 0 else {
+            fail(HistoryToolError.executionFailed("Unable to determine the running executable path."), code: 1)
+        }
+        let path = buffer.withUnsafeBufferPointer { String(cString: $0.baseAddress!) }
+        return URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
     }
 
     /// Bounded newline framing. read(2) returns available bytes rather than
