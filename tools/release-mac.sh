@@ -178,6 +178,9 @@ for lib in "$BUILT_APP/Contents/Frameworks"/*.dylib; do
   [[ -e "$lib" ]] || continue
   note "$(basename "$lib")"; sign "$lib"
 done
+HISTORY_CLI="$BUILT_APP/Contents/MacOS/vibebuddy-mcp"
+[[ -x "$HISTORY_CLI" ]] || die "missing bundled history MCP CLI"
+note "vibebuddy-mcp"; sign "$HISTORY_CLI"
 note "VibeBuddyMacApp.app"
 sign --entitlements "$ENTITLEMENTS" "$BUILT_APP"
 

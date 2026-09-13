@@ -24,14 +24,15 @@ struct VibeBuddyMCP {
         }
         let repository = SessionHistoryRepository(grokHome: GrokHome.url, cacheDirectory: directory, readOnly: true)
         let executor = HistoryToolExecutor(repository: repository)
+        if argv.first == "setup" {
+            guard argv == ["setup"] else { fail(HistoryToolError.invalidArguments("Usage: vibebuddy-mcp setup"), code: 2) }
+            let executable = Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0])
+            let setup = HistoryConnectionSetup(executablePath: executable.standardizedFileURL.resolvingSymlinksInPath().path)
+            let text = setup.instructions(indexAvailable: await repository.hasUsableIndex())
+            FileHandle.standardOutput.write(Data(HistoryCLI.output(text).utf8))
+            return
+        }
         if argv.isEmpty {
-            // When every registered tool needs the index, fail startup helpfully.
-            // Adding source-only/show or live tools allows them to start without it;
-            // each indexed call still checks its own prerequisite in the executor.
-            let names = HistoryTools.definitions().compactMap { $0["name"] as? String }
-            if names.allSatisfy(HistoryToolExecutor.requiresIndex), !(await repository.hasUsableIndex()) {
-                fail(HistoryToolError.noIndex, code: 2)
-            }
             do { try await serve(HistoryMCPServer(executor: executor)) }
             catch { fail(error, code: 1) }
             return

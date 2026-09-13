@@ -5,7 +5,11 @@ import CoreFoundation
 /// never in the protocol adapter. The caller supplies a read-only repository.
 public struct HistoryToolExecutor: Sendable {
     public let repository: SessionHistoryRepository
-    public init(repository: SessionHistoryRepository) { self.repository = repository }
+    private let environment: [String: String]
+    public init(repository: SessionHistoryRepository, environment: [String: String] = ProcessInfo.processInfo.environment) {
+        self.repository = repository
+        self.environment = environment
+    }
 
     public static func requiresIndex(_ name: String) -> Bool {
         ["vibebuddy_list_sessions", "vibebuddy_list_projects", "vibebuddy_search"].contains(name)
@@ -16,7 +20,7 @@ public struct HistoryToolExecutor: Sendable {
         do {
             // Live observation does not load History metadata or require an index.
             if name == "vibebuddy_live_status" {
-                return try await HistoryLiveStatus.call(arguments: arguments)
+                return try await HistoryLiveStatus.call(arguments: arguments, environment: environment)
             }
             try await repository.reloadReadOnlyMetadata()
             if Self.requiresIndex(name), !(await repository.hasUsableIndex()) {
@@ -78,6 +82,7 @@ extension HistoryTools {
         switch schema["type"] as? String {
         case "string":
             guard let text = value as? String else { return false }
+            if let minimum = schema["minLength"] as? Int, text.unicodeScalars.count < minimum { return false }
             return (schema["enum"] as? [String]).map { $0.contains(text) } ?? true
         case "boolean":
             return (value as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() } ?? false

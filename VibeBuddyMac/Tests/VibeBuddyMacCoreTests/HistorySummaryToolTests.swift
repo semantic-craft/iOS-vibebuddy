@@ -109,7 +109,7 @@ final class HistorySummaryToolTests: XCTestCase {
         XCTAssertEqual(try fixture.storeBytes(), before)
         let absent = fixture.root.appendingPathComponent("absent")
         let empty = SessionHistoryRepository(claudeHome: fixture.root.appendingPathComponent("claude"),
-            codexHome: fixture.root.appendingPathComponent("codex"), cacheDirectory: absent, readOnly: true)
+            codexHome: fixture.root.appendingPathComponent("codex"), cursorHome: fixture.root.appendingPathComponent("cursor"), cacheDirectory: absent, readOnly: true)
         let missing = try await HistoryTools.getSummary(arguments: ["key": "codex:native"], repository: empty)
         XCTAssertTrue(missing.contains("No saved summary"))
         XCTAssertFalse(FileManager.default.fileExists(atPath: absent.path))
@@ -131,7 +131,7 @@ final class HistorySummaryToolTests: XCTestCase {
             try Data((header + "\n" + message).utf8).write(to: source)
         }
         func repository(readOnly: Bool = false) -> SessionHistoryRepository {
-            SessionHistoryRepository(claudeHome: root.appendingPathComponent("claude"), codexHome: root.appendingPathComponent("codex"), cacheDirectory: cache, readOnly: readOnly)
+            SessionHistoryRepository(claudeHome: root.appendingPathComponent("claude"), codexHome: root.appendingPathComponent("codex"), cursorHome: root.appendingPathComponent("cursor"), cacheDirectory: cache, readOnly: readOnly)
         }
         func summary(_ session: SessionHistorySession) -> SessionHistorySummary {
             SessionHistorySummary(sessionID: session.id, sourcePath: session.sourcePath, sourceRevision: session.sourceRevision,

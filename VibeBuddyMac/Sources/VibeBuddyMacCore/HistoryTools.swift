@@ -152,7 +152,7 @@ public enum HistoryCLI {
             return (argv[1], arguments)
         }
         guard let command = argv.first, let tool = commands[command] else {
-            throw HistoryToolError.invalidArguments("Usage: vibebuddy-mcp sessions [--project PATH] [--agent AGENT] [--since DATE] [--starred] [--limit N] | projects [--since DATE] [--limit N] | show KEY|REF [--from-seq N] [--max-messages N] [--tools] [--thinking] | search QUERY [--project PATH] [--agent AGENT] [--since DATE] [--limit N] | summary KEY|REF | status [--project PATH] [--exclude-session ID] | index [--rebuild] | call <tool> '<JSON object>'; no arguments starts stdio MCP")
+            throw HistoryToolError.invalidArguments("Usage: vibebuddy-mcp sessions [--project PATH] [--agent AGENT] [--since DATE] [--starred] [--limit N] | projects [--since DATE] [--limit N] | show KEY|REF [--from-seq N] [--max-messages N] [--tools] [--thinking] | search QUERY [--project PATH] [--agent AGENT] [--since DATE] [--limit N] | summary KEY|REF | status [--project PATH] [--exclude-session ID] | index [--rebuild] | setup | call <tool> '<JSON object>'; no arguments starts stdio MCP")
         }
         var args: [String: Any] = [:]
         var index = 1

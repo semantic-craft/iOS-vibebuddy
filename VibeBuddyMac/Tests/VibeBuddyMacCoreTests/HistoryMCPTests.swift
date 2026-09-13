@@ -11,9 +11,9 @@ final class HistoryMCPTests: XCTestCase {
         try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data((#"{"type":"session_meta","payload":{"id":"native","cwd":"/repo","source":"cli"}}"# + "\n" + #"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"中文 context"}]}}"#).utf8).write(to: source)
         let directory = root.appendingPathComponent("history")
-        let writer = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cacheDirectory: directory)
+        let writer = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cursorHome: root.appendingPathComponent("cursor"), cacheDirectory: directory)
         _ = try await writer.refresh()
-        return (root, SessionHistoryRepository(claudeHome: claude, codexHome: codex, cacheDirectory: directory, readOnly: true))
+        return (root, SessionHistoryRepository(claudeHome: claude, codexHome: codex, cursorHome: root.appendingPathComponent("cursor"), cacheDirectory: directory, readOnly: true))
     }
     private func request(_ server: HistoryMCPServer, _ method: String, _ params: [String: Any] = [:]) async throws -> [String: Any] {
         let data = try JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": "request", "method": method, "params": params])
@@ -31,7 +31,7 @@ final class HistoryMCPTests: XCTestCase {
     func testLifecycleRegistrySnapshotAndNotifications() async throws {
         let (root, repository) = try await fixture()
         defer { try? FileManager.default.removeItem(at: root) }
-        let server = HistoryMCPServer(executor: HistoryToolExecutor(repository: repository))
+        let server = HistoryMCPServer(executor: HistoryToolExecutor(repository: repository, environment: ["VIBEBUDDY_PORT": "0"]))
         let early = try await request(server, "tools/list")
         XCTAssertEqual((early["error"] as? [String: Any])?["code"] as? Int, -32602)
         let initialized = try await initialize(server, version: "future-version")
@@ -59,17 +59,22 @@ final class HistoryMCPTests: XCTestCase {
             try Dictionary(uniqueKeysWithValues: FileManager.default.contentsOfDirectory(at: store, includingPropertiesForKeys: nil).map { ($0.lastPathComponent, try Data(contentsOf: $0)) })
         }
         let before = try bytes()
-        let executor = HistoryToolExecutor(repository: repository)
+        let executor = HistoryToolExecutor(repository: repository, environment: ["VIBEBUDDY_PORT": "0"])
         let server = HistoryMCPServer(executor: executor)
         _ = try await initialize(server)
-        for (command, name) in HistoryCLI.commands where name != "vibebuddy_get_session" {
-            let parsed = try HistoryCLI.parse([command, "--limit", "5"])
-            XCTAssertEqual(parsed.arguments["limit"] as? String, "5")
-            let arguments = try HistoryTools.normalizeCLIArguments(name, arguments: parsed.arguments)
-            let cli = try await executor.execute(name, arguments: arguments)
-            let response = try await request(server, "tools/call", ["name": name, "arguments": ["limit": 5]])
+        let requests: [(String, [String])] = [
+            ("sessions", ["--limit", "5"]), ("projects", ["--limit", "5"]),
+            ("show", ["codex:native"]), ("search", ["context"]),
+            ("summary", ["codex:native"]), ("status", [])
+        ]
+        for (command, flags) in requests {
+            let parsed = try HistoryCLI.parse([command] + flags)
+            let arguments = try HistoryTools.normalizeCLIArguments(parsed.tool, arguments: parsed.arguments)
+            let cli = try await executor.execute(parsed.tool, arguments: arguments)
+            let response = try await request(server, "tools/call", ["name": parsed.tool, "arguments": arguments])
             XCTAssertEqual(Data(HistoryCLI.output(cli).utf8), Data((try text(response) + "\n").utf8))
-            let call = try HistoryCLI.parse(["call", name, #"{"limit":5}"#])
+            let json = String(decoding: try JSONSerialization.data(withJSONObject: arguments), as: UTF8.self)
+            let call = try HistoryCLI.parse(["call", parsed.tool, json])
             let called = try await executor.execute(call.tool, arguments: call.arguments)
             XCTAssertEqual(called, cli)
         }
@@ -88,12 +93,12 @@ final class HistoryMCPTests: XCTestCase {
     func testLongLivedConnectionSeesPublishedMetadata() async throws {
         let (root, repository) = try await fixture()
         defer { try? FileManager.default.removeItem(at: root) }
-        let server = HistoryMCPServer(executor: HistoryToolExecutor(repository: repository))
+        let server = HistoryMCPServer(executor: HistoryToolExecutor(repository: repository, environment: ["VIBEBUDDY_PORT": "0"]))
         _ = try await initialize(server)
         let params: [String: Any] = ["name": "vibebuddy_list_sessions", "arguments": ["starred": true]]
         let first = try await request(server, "tools/call", params)
         XCTAssertTrue(try text(first).contains("No sessions found"))
-        let writer = SessionHistoryRepository(claudeHome: root.appendingPathComponent("claude"), codexHome: root.appendingPathComponent("codex"), cacheDirectory: root.appendingPathComponent("history"))
+        let writer = SessionHistoryRepository(claudeHome: root.appendingPathComponent("claude"), codexHome: root.appendingPathComponent("codex"), cursorHome: root.appendingPathComponent("cursor"), cacheDirectory: root.appendingPathComponent("history"))
         let snapshot = await writer.snapshot()
         let id = try XCTUnwrap(snapshot.sessions.first?.id)
         try await writer.setFavorite(sessionID: id, isFavorite: true)
@@ -109,7 +114,7 @@ final class HistoryMCPTests: XCTestCase {
     func testGetSessionWireParityAndBadKeyErrorsWithoutIndex() async throws {
         let (root, repository) = try await fixture()
         defer { try? FileManager.default.removeItem(at: root) }
-        let executor = HistoryToolExecutor(repository: repository)
+        let executor = HistoryToolExecutor(repository: repository, environment: ["VIBEBUDDY_PORT": "0"])
         let server = HistoryMCPServer(executor: executor)
         _ = try await initialize(server)
         for key in ["codex:native", "vibebuddy://session/codex:native#1"] {
@@ -130,12 +135,15 @@ final class HistoryMCPTests: XCTestCase {
             XCTAssertEqual((response["result"] as? [String: Any])?["isError"] as? Bool, true)
         }
         let absent = root.appendingPathComponent("absent-index")
-        let sourceOnly = SessionHistoryRepository(claudeHome: root.appendingPathComponent("claude"), codexHome: root.appendingPathComponent("codex"), cacheDirectory: absent, readOnly: true)
-        let sourceServer = HistoryMCPServer(executor: HistoryToolExecutor(repository: sourceOnly))
+        let sourceOnly = SessionHistoryRepository(claudeHome: root.appendingPathComponent("claude"), codexHome: root.appendingPathComponent("codex"), cursorHome: root.appendingPathComponent("cursor"), cacheDirectory: absent, readOnly: true)
+        let sourceServer = HistoryMCPServer(executor: HistoryToolExecutor(repository: sourceOnly, environment: ["VIBEBUDDY_PORT": "0"]))
         _ = try await initialize(sourceServer)
         let source = try await request(sourceServer, "tools/call", ["name": "vibebuddy_get_session", "arguments": ["key": "codex:native"]])
         XCTAssertTrue(try text(source).contains("中文 context"))
         XCTAssertFalse(FileManager.default.fileExists(atPath: absent.path))
+        let status = try await request(sourceServer, "tools/call", ["name": "vibebuddy_live_status"])
+        XCTAssertTrue(try text(status).contains("live status unknown"))
+        XCTAssertEqual((status["result"] as? [String: Any])?["isError"] as? Bool, false)
         let missingIndex = try await request(sourceServer, "tools/call", ["name": "vibebuddy_list_sessions"])
         XCTAssertEqual((missingIndex["result"] as? [String: Any])?["isError"] as? Bool, true)
         XCTAssertTrue(try text(missingIndex).contains("Open History"))
@@ -145,7 +153,7 @@ final class HistoryMCPTests: XCTestCase {
     func testMalformedJSONAndShapeAreProtocolErrors() async throws {
         let (root, repository) = try await fixture()
         defer { try? FileManager.default.removeItem(at: root) }
-        let server = HistoryMCPServer(executor: HistoryToolExecutor(repository: repository))
+        let server = HistoryMCPServer(executor: HistoryToolExecutor(repository: repository, environment: ["VIBEBUDDY_PORT": "0"]))
         let response = try await server.response(to: Data("{".utf8))
         let invalid = try JSONSerialization.jsonObject(with: XCTUnwrap(response)) as! [String: Any]
         XCTAssertEqual((invalid["error"] as? [String: Any])?["code"] as? Int, -32700)
