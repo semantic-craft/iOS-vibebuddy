@@ -41,7 +41,7 @@ public actor SessionHistoryRepository {
             // Never reuse another configured source home's cached content.
             let configuredRoots = roots
             entries = cache.entries.filter { path, _ in configuredRoots.contains { URL(fileURLWithPath: path).resolvingSymlinksInPath().path.hasPrefix($0.0.path + "/") } }
-            pendingPaths = Set((cache.pendingPaths ?? []).filter { entries[$0] != nil })
+            pendingPaths = Set((cache.pendingPaths ?? []).filter { path in configuredRoots.contains { URL(fileURLWithPath: path).resolvingSymlinksInPath().path.hasPrefix($0.0.path + "/") } })
             if cache.version < 7 { pendingPaths.formUnion(entries.keys) }
         }
     }
@@ -61,7 +61,7 @@ public actor SessionHistoryRepository {
             }
             byID[session.id] = session
         }
-        return SessionHistorySnapshot(sessions: byID.values.sorted { if ($0.isPinned == true) != ($1.isPinned == true) { return $0.isPinned == true }; return $0.updatedAt == $1.updatedAt ? $0.id < $1.id : $0.updatedAt > $1.updatedAt }, issues: issues, refreshedAt: refreshedAt)
+        return SessionHistorySnapshot(sessions: byID.values.sorted { if ($0.isPinned == true) != ($1.isPinned == true) { return $0.isPinned == true }; return $0.updatedAt == $1.updatedAt ? $0.id < $1.id : $0.updatedAt > $1.updatedAt }, issues: issues, refreshedAt: refreshedAt, pendingSourceCount: pendingPaths.count)
     }
     public func refresh(rebuild: Bool = false) throws -> SessionHistorySnapshot {
         guard !readOnly else { throw HistoryToolError.readOnly }
@@ -83,6 +83,7 @@ public actor SessionHistoryRepository {
         for (root, agent) in roots {
             guard fm.fileExists(atPath: root.path) else { issues.append("Source directory unavailable: \(root.path)"); continue }
             var enumerationErrors = 0
+            var seenPaths = Set<String>()
             guard let iterator = fm.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey], options: [.skipsHiddenFiles], errorHandler: { _, _ in enumerationErrors += 1; return true }) else {
                 issues.append("Unable to enumerate source: \(root.path)"); continue
             }
@@ -90,6 +91,7 @@ public actor SessionHistoryRepository {
                 if agent == .claude, file.lastPathComponent == "subagents" { iterator.skipDescendants(); excludedChildren += 1; continue }
                 guard file.pathExtension == "jsonl" else { continue }
                 if agent == .claude, file.lastPathComponent.hasPrefix("agent-") { excludedChildren += 1; continue }
+                seenPaths.insert(file.path)
                 do {
                     let values = try file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey])
                     guard values.isRegularFile == true, values.isSymbolicLink != true else { continue }
@@ -118,6 +120,21 @@ public actor SessionHistoryRepository {
                 }
             }
             if enumerationErrors > 0 { issues.append("Partial coverage: \(enumerationErrors) inaccessible paths in \(root.path).") }
+            else {
+                // A complete enumeration can retire deferred sources that disappeared.
+                // Unavailable/partial roots retain them so omissions stay visible.
+                var prefixes = [root.path + "/"]
+                // Foundation may shorten /private/var while enumeration returns its
+                // physical spelling. Resolve the existing root, not a deleted leaf.
+                if let physical = realpath(root.path, nil) {
+                    prefixes.append(String(cString: physical) + "/")
+                    free(physical)
+                }
+                let removed = pendingPaths.filter { path in
+                    prefixes.contains { path.hasPrefix($0) } && !seenPaths.contains(path)
+                }
+                if !removed.isEmpty { pendingPaths.subtract(removed); changed = true }
+            }
         }
         for path in entries.keys where !discovered.contains(path) {
             // Retain a cached transcript for provenance/favorites, but never claim its source is available.

@@ -87,6 +87,42 @@ final class HistoryToolsTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: missing.path))
     }
 
+
+    func testPersistedPendingSourceWithoutEntryIsReportedByBothLists() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let codex = root.appendingPathComponent("codex")
+        let cache = root.appendingPathComponent("cache")
+        let sources = codex.appendingPathComponent("sessions")
+        try FileManager.default.createDirectory(at: sources, withIntermediateDirectories: true)
+        for id in ["one", "two"] {
+            let data = try JSONSerialization.data(withJSONObject: ["type": "session_meta", "payload": ["id": id, "cwd": "/repo", "source": "cli"]])
+            try data.write(to: sources.appendingPathComponent(id + ".jsonl"))
+        }
+        let writer = SessionHistoryRepository(claudeHome: root.appendingPathComponent("claude"), codexHome: codex, cacheDirectory: cache, refreshByteBudget: 1)
+        let initial = try await writer.refresh()
+        XCTAssertEqual(initial.pendingSourceCount, 1)
+        let before = try bytes(cache)
+        let reader = SessionHistoryRepository(claudeHome: root.appendingPathComponent("claude"), codexHome: codex, cacheDirectory: cache, readOnly: true)
+        let snapshot = await reader.snapshot()
+        XCTAssertEqual(snapshot.sessions.count, 1)
+        XCTAssertEqual(snapshot.pendingSourceCount, 1)
+        for tool in HistoryCLI.commands.values {
+            let text = try HistoryTools.call(tool, arguments: [:], snapshot: snapshot)
+            XCTAssertTrue(text.contains("Partial index: 1 source(s) pending"))
+            XCTAssertTrue(text.contains("older or newer"))
+        }
+        XCTAssertEqual(try bytes(cache), before)
+        let stored = try JSONSerialization.jsonObject(with: Data(contentsOf: cache.appendingPathComponent("index.json"))) as! [String: Any]
+        let pending = try XCTUnwrap((stored["pendingPaths"] as? [String])?.first)
+        try FileManager.default.removeItem(atPath: pending)
+        let afterRemoval = try await writer.refresh()
+        XCTAssertEqual(afterRemoval.pendingSourceCount, 0, "root=\(codex.path) resolved=\(codex.resolvingSymlinksInPath().path) pending=\(pending)")
+        let reopened = SessionHistoryRepository(claudeHome: root.appendingPathComponent("claude"), codexHome: codex, cacheDirectory: cache, readOnly: true)
+        let final = await reopened.snapshot()
+        XCTAssertEqual(final.pendingSourceCount, 0)
+    }
+
     private func bytes(_ root: URL) throws -> [String: Data] {
         let urls = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey])!
         var result: [String: Data] = [:]

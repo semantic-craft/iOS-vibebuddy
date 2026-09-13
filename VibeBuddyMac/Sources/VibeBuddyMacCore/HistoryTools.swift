@@ -56,7 +56,8 @@ public enum HistoryTools {
         let limit = (arguments["limit"] as? NSNumber)?.intValue ?? (arguments["limit"] as? String).flatMap(Int.init) ?? 20
         let since = try (arguments["since"] as? String).map { try date($0, now: now) }
         let all = snapshot.sessions.sorted { $0.updatedAt == $1.updatedAt ? key($0) < key($1) : $0.updatedAt > $1.updatedAt }
-        let freshness = "Index covers activity up to \(all.first.map { stamp($0.updatedAt) } ?? "unknown (empty index)"). Cached metadata only; newer activity may not be indexed."
+        let partial = snapshot.pendingSourceCount > 0 ? " Partial index: \(snapshot.pendingSourceCount) source(s) pending; omitted activity may be older or newer." : ""
+        let freshness = "Index covers activity up to \(all.first.map { stamp($0.updatedAt) } ?? "unknown (empty index)"). Cached metadata only; newer activity may not be indexed." + partial
         var sessions = all.filter { since == nil || $0.updatedAt >= since! }
         if name == "vibebuddy_list_projects" {
             var seen = Set<String>()
