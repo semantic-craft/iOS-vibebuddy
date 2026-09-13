@@ -16,8 +16,7 @@
 ## 当前素材边界
 
 - **演示数据只用于说明界面。** 任务状态、审批命令、提问选项、额度百分比和模型名称都是 `VIBEBUDDY_DEMO=1` 内置的固定样例，不构成真实 Agent 兼容性、通知送达、真实审批或额度验证。样例项目名、分支、命令和模型名保留英文。
-- **中文环境仍有未翻译文案**：任务表内 “Model”“Token”“Transcript”，配对参考页第 2 步正文 “Open “Pair a phone” in the Mac menu bar…”，以及工具类型 “BASH”“EDIT”。图片没有替换这些文字；若发布前完善本地化，应从最终成品重拍受影响页面。
-- 任务表把当前状态显示为 “Requires input / 待回应”，而列表行显示 “Needs approval / 待批准”，两处用词不一致；这是界面现状，未做修饰。
+- **2026-09-13 第二轮**：任务表的 “Model / Token / Transcript” 已译（模型 / Token 数 / 对话记录），任务表状态词与列表行一致（Needs approval / 待批准），配对参考页第 2 步正文已译；工具类型 “BASH”“EDIT” 按设计保留英文（动词部分中文）。受影响的 8 张已按下文重拍，配对参考页与手表任务概览未变，沿用第一轮。
 - Watch 拍的是 **App 内任务与额度页面**，不是表盘小组件。额度页可滚动，本图只含平台与两个环形进度；下方内容仍在滚动页中。
 - 图片来自 Release 模拟器构建，不是 Distribution archive 或真机验收；版本号仍是源码树中的 1.3.13(27)，1.3.14 的版本号递增和送审构建另行产生。发布 build 若改变界面或本地化，应重拍受影响页面。
 - 全部 12 张状态为 **未上传**。
@@ -66,3 +65,7 @@
 ## 本轮更新（2026-09-13）
 
 移动端 10 张按 Cursor 视觉语言从 `29dabd5` 的 Release 模拟器构建重新采集；Mac 两张来自 Mac 端单独一轮。全部未上传。截图不代表真实 Mac 配对、通知送达、手表组件验收或 Apple 审核通过。
+
+### 第二轮重拍（2026-09-13，源码 HEAD 见 `manifest.json` 的 `recaptured`）
+
+工单 10（风格残留）与 iOS Cursor 对齐分支合流后，界面变化涉及 8 张：iOS `01-dashboard`、`02-codex-task`（en-US / zh-Hans）、macOS `01-dashboard-approval`（en-US / zh-Hans）、watchOS `02-quota`（en-US / zh-Hans）。全部从分支 `feat/style-residue` 的 Release 产物重拍：iOS / watchOS 用专用模拟器（iPhone 17 Pro Max、Apple Watch Series 11 46mm，iOS / watchOS 26.5，拍完即删），`simctl io screenshot --type=jpeg`，无后期处理；任务表由 App 新增的 `VIBEBUDDY_DEMO_PAGE=task/<title>` 演示开关打开，不再需要临时 XCUITest。Mac 两张由 Release 构建改 bundle id `com.vibebuddy.store-shots` 后以 1280×800 窗口采集并转为 RGB JPEG。手表模拟器不支持状态栏覆盖，时间为系统时间。`reviewer/ios-pairing` 与 `watchos/01-task-overview` 的视图未变，沿用第一轮文件与哈希。全部仍 **未上传**；版本号仍是源码树中的 1.3.13(27)。

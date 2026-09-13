@@ -267,7 +267,7 @@ struct HistoryWorkbenchView: View {
             .padding(.horizontal, 12).padding(.top, 12)
             if isSearching && history.searching { ProgressView("Searching…") }
             if isSearching, let error = history.searchError {
-                Text("Search could not complete: \(error)").font(MacTheme.font(10)).foregroundStyle(.red).padding(12)
+                Text("Search could not complete: \(error)").font(MacTheme.font(10)).foregroundStyle(MacTheme.status(.error)).padding(12)
             }
             ScrollView {
                 LazyVStack(spacing: 2) {
@@ -317,7 +317,7 @@ struct HistoryWorkbenchView: View {
             else if !session.warnings.isEmpty { Label("Partial or limited record", systemImage: "info.circle").font(MacTheme.font(10)) }
         }
         .frame(maxWidth: .infinity, alignment: .leading).padding(10)
-        .background(active ? MacTheme.ink.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(active ? MacTheme.accent.opacity(0.14) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .contentShape(Rectangle())
     }
 
@@ -328,11 +328,7 @@ struct HistoryWorkbenchView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(session.title).font(MacTheme.font(17, .semibold)).textSelection(.enabled).lineLimit(3)
                     Text("\(session.agent.displayName) · \(session.projectPath)").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2).textSelection(.enabled)
-                    ViewThatFits(in: .horizontal) {
-                        HStack { sessionActions(session) }
-                        VStack(alignment: .leading) { sessionActions(session) }
-                    }
-                    HistorySessionActions(session: session, model: model)
+                    HistorySessionActions(session: session, model: model, history: history) { export(session) }
                     ForEach(session.warnings, id: \.self) { warning in
                         Text(warning).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                     }
@@ -345,8 +341,9 @@ struct HistoryWorkbenchView: View {
                     ProgressView("Reading conversation…").frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let error = history.readingError {
                     VStack(spacing: 12) {
-                        Text(error).foregroundStyle(MacTheme.ink2)
+                        Text(error).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
                         Button("Retry") { Task { await history.read(metadata.id) } }
+                            .buttonStyle(PillButtonStyle(kind: .ghost, size: .small))
                     }.frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     VStack(spacing: 0) {
@@ -372,20 +369,6 @@ struct HistoryWorkbenchView: View {
             value.isAvailable = metadata.isAvailable && loaded.isAvailable
         }
         return value
-    }
-
-    @ViewBuilder private func sessionActions(_ session: SessionHistorySession) -> some View {
-        Button { Task { await history.toggleFavorite(session) } } label: {
-            Label(session.isFavorite ? "Unfavorite" : "Favorite", systemImage: session.isFavorite ? "star.fill" : "star")
-        }
-        Button(session.isPinned == true ? "Unpin" : "Pin") { Task { await history.togglePinned(session) } }
-        Button(session.archivedLocally == true ? "Unarchive in library" : "Archive in library") {
-            Task { await history.toggleArchive(session) }
-        }.help("Organizes this library only; the original agent and current tasks are unchanged.")
-        Button("Export Markdown…") { export(session) }
-            .disabled(history.reading || history.transcript?.id != session.id || history.readingError != nil)
-        Button("Show source") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: session.sourcePath)]) }
-            .disabled(!session.isAvailable)
     }
 
     private func clearSelection() { selection = nil; targetMessage = nil }

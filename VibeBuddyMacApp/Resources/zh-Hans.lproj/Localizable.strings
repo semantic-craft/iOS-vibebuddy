@@ -894,3 +894,48 @@
 "Expanded" = "已展开";
 "Collapsed" = "已收起";
 "That folder is no longer available." = "该文件夹已不可用。";
+
+/* MARK: Ticket 10 — style residue. Detail card notification chips */
+"Auto" = "自动";
+"Followed" = "关注";
+"Normal" = "普通";
+"Muted" = "静音";
+"Automatic (%@)" = "自动（%@）";
+"Everything about this session interrupts you." = "这个会话的一切都会打扰你。";
+"Only approvals and failures interrupt; the rest waits in Notification Center." = "只有审批和失败会打扰你；其余的在通知中心等着。";
+"Approvals show silently; nothing else interrupts." = "审批静默显示；其余的不会打扰你。";
+"Automatic: %@ — followed while you're driving it, normal otherwise." = "自动：%@——你正在操作它时为关注，其余时间为普通。";
+
+/* History reading pane action row */
+"More actions" = "更多操作";
+"Pin, archive in this library, export or show the source file. Archiving organizes this library only; the original agent and current tasks are unchanged." = "置顶、在资料库归档、导出或显示来源文件。归档只整理这个资料库；原始代理与当前任务不受影响。";
+"The live session is no longer available." = "该实时会话已不可用。";
+"Resume command copied. Run it in your terminal to continue." = "已复制恢复命令。在终端运行它即可继续。";
+"The resume command is no longer available." = "恢复命令已不可用。";
+"The task changed. Review its current state before sending." = "任务已变化。发送前请先查看它的当前状态。";
+"Source unavailable. Cached history does not establish a recoverable session." = "来源不可用。缓存的历史无法确认可恢复的会话。";
+"Archived in Codex. Unarchive the original task in Codex before continuing." = "已在 Codex 归档。继续前请先在 Codex 中取消归档原任务。";
+"This archive does not establish a Codex CLI or Desktop target. Open the original task in Codex to continue." = "这份归档无法确定 Codex CLI 或桌面端目标。请在 Codex 中打开原任务继续。";
+"The original project directory is unavailable." = "原项目目录不可用。";
+"This record has no valid session identity for resuming." = "这条记录没有可用于恢复的会话标识。";
+"Copy the resume command and run it in your terminal. Copying does not start or continue a task." = "复制恢复命令并在终端运行。复制本身不会开始或继续任务。";
+
+/* Diagnostics — product words for the delivery enums */
+"Allowed" = "已允许";
+"Denied" = "已拒绝";
+"Not asked yet" = "尚未询问";
+"Unknown" = "未知";
+"Attempted" = "已尝试";
+"Scheduled" = "已排定";
+"Accepted" = "已接受";
+"Skipped" = "已跳过";
+"None" = "无";
+"No devices" = "没有设备";
+"unknown" = "未知";
+
+/* Demo data label on the quota plinth */
+"Opus week" = "Opus 周";
+
+/* Voice page — the two-tier control line's cell labels (decision B) */
+"Provider" = "服务商";
+"Model" = "模型";

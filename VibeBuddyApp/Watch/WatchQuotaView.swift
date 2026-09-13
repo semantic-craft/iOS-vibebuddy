@@ -121,7 +121,7 @@ private struct WatchQuotaDetail: View {
                 ProgressView(value: Double(remaining), total: 100)
                     .tint(status == .stale
                           ? CompanionPalette.ink3
-                          : QuotaPresentation.tint(identity: .primary, usedPercent: 100 - remaining))
+                          : QuotaPresentation.severity(usedPercent: 100 - remaining).tint)
             }
             if status == .awaitingReset {
                 Text("Reset reached · awaiting update")
@@ -155,23 +155,14 @@ private struct WatchAllowanceRing: View {
     let now: Date
     let provider: AccountUsageProvider
 
-    /// Provider identity while there is room; the severity tint once the
-    /// window crosses 80%, so the ring that is about to run out stops looking
-    /// like the other four.
+    /// The phone's rule (`QuotaBullet`): the accent while there is room, the
+    /// severity tint once the window crosses 80 %. This page shows one
+    /// provider at a time, so the rings need no identity hue of their own;
+    /// the complication keeps one, where several providers nest.
     private var tint: Color {
         guard reading.status(now: now) == .live else { return CompanionPalette.ink3 }
-        return QuotaPresentation.tint(identity: identity,
+        return QuotaPresentation.tint(identity: CompanionPalette.accent,
                                       usedPercent: reading.currentRemainingPercent(now: now).map { 100 - $0 })
-    }
-
-    private var identity: Color {
-        switch provider {
-        case .codex: return .cyan
-        case .claude: return .orange
-        case .cursor: return .purple
-        case .grok: return .indigo
-        case .grokBot: return .mint
-        }
     }
 
     var body: some View {
@@ -190,7 +181,9 @@ private struct WatchAllowanceRing: View {
                     .font(CompanionType.font(16, .semibold)).monospacedDigit()
                     .minimumScaleFactor(0.7).lineLimit(1)
                 if status == .stale {
-                    Text("Cached reading").font(CompanionType.font(9)).lineLimit(1).minimumScaleFactor(0.7)
+                    // One word inside the ring; the row beneath says "Cached
+                    // reading" in full, and so does the accessibility value.
+                    Text("Cached").font(CompanionType.font(9)).lineLimit(1).minimumScaleFactor(0.6)
                 }
             }.padding(5)
         }

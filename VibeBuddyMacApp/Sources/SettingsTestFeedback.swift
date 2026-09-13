@@ -26,10 +26,10 @@ struct SettingsTestFeedback: View {
                         case .cancelled: EmptyView()
                         case .failure(let message):
                             Label(LocalizedStringKey(message), systemImage: "exclamationmark.triangle")
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(MacTheme.status(.requiresInput))
                         case .success(let output):
                             Label(LocalizedStringKey(output.message), systemImage: "checkmark.circle")
-                                .foregroundStyle(.green)
+                                .foregroundStyle(MacTheme.accent)
                             if let text = output.text {
                                 Text(text).textSelection(.enabled)
                                     .accessibilityIdentifier("completionSummaryTestResult")

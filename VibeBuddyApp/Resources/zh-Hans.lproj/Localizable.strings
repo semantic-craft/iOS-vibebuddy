@@ -404,7 +404,7 @@
 "Token spend · %@" = "Token 花费 · %@";
 "No spend in this window" = "此窗口无花费";
 "Estimated cost" = "预估费用";
-"Tokens" = "Token";
+"Tokens" = "Token 数";
 "Billed / cache" = "计费／缓存";
 "Sessions" = "会话数";
 "By agent" = "按 Agent";
@@ -441,3 +441,39 @@
 "Answer an approval" = "回应审批";
 "Approval" = "审批";
 "Allow" = "允许";
+
+/* MARK: Ticket 10 — style residue. Task sheet facts and the pairing steps */
+"Model" = "模型";
+"Cost" = "费用";
+"Effort" = "推理强度";
+"PR" = "PR";
+"Worktree" = "工作树";
+"Open “Pair a phone” in the Mac menu bar. Use the same LAN, or connect both devices to Tailscale for remote access." = "在 Mac 菜单栏打开“配对手机”（Pair a phone）。使用同一局域网，或把两台设备都连到 Tailscale 以便远程访问。";
+
+/* Phone chrome (Cursor alignment, 2026-09-13) */
+"now" = "刚刚";
+"%lldm" = "%lld 分钟";
+"%lldh" = "%lld 小时";
+"%lldd" = "%lld 天";
+"Offline · showing last snapshot" = "离线 · 显示上次快照";
+"Reconnecting · showing last snapshot" = "重新连接中 · 显示上次快照";
+"Offline · reconnect to respond" = "离线 · 重新连接后可回应";
+
+/* New task editor (2026-09-13) */
+"your Mac" = "你的 Mac";
+"Couldn't reach your Mac — not started" = "连不上你的 Mac——未启动";
+"Offline · the task can't start until %@ is reachable" = "离线 · 连上 %@ 后才能启动任务";
+"How this runs" = "运行方式";
+"Directory path" = "目录路径";
+"Show the full path" = "显示完整路径";
+"No folder yet" = "还没有目录";
+"Default model" = "默认模型";
+"New worktree" = "新建 worktree";
+"Runs on %@ as a Codex thread with your usual settings." = "在 %@ 上作为 Codex 线程运行，使用你的常规设置。";
+"Runs on %@ over the Cursor CLI, hosted by vibebuddy." = "在 %@ 上通过 Cursor CLI 运行，由 vibebuddy 托管。";
+"Runs on %@ as a Claude Code background session." = "在 %@ 上作为 Claude Code 后台会话运行。";
+"Hosted by vibebuddy on your Mac over the Cursor CLI. It appears in Working here and can be stopped, continued and answered from this phone; it ends if vibebuddy quits. A new worktree is created on your Mac under ~/.cursor/worktrees/<repo>/<name>; Plan and Ask are read-only." = "由 vibebuddy 在你的 Mac 上通过 Cursor CLI 托管。它会出现在这里的“进行中”，可以从这台手机停止、继续和回答；vibebuddy 退出时它随之结束。新 worktree 创建在 Mac 的 ~/.cursor/worktrees/<repo>/<name>；Plan 和 Ask 为只读。";
+"Sends as a new task — you pick the folder and agent next" = "将作为新任务发送——下一步选择目录和 agent";
+
+/* VoiceStrip error when the companion has no key (seen in zh QA, 2026-09-13) */
+"Add your %@ API key in Settings first." = "请先在设置中填写 %@ 的 API 密钥。";

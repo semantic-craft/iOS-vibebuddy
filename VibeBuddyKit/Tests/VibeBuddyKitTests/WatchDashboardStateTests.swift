@@ -668,3 +668,126 @@ struct WaitDestinationTests {
         #expect(action.begin(alert: alert, choice: .allow, attemptId: "tap") == nil)
     }
 }
+
+// MARK: - Results: what is worth a look without waiting on you
+
+@Suite("Watch results")
+struct WatchResultsTests {
+    private let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+    private func session(_ id: String, _ status: SessionStatus = .done,
+                         failed: Bool? = nil, unread: Bool = false,
+                         attention: SessionAttention? = nil,
+                         agoSeconds: TimeInterval = 60) -> AgentSession {
+        var s = AgentSession(id: id, agent: .codex, project: id, status: status,
+                             failed: failed, hasUnreadCompletion: unread, attention: attention,
+                             statusSince: now.addingTimeInterval(-agoSeconds),
+                             updatedAt: now.addingTimeInterval(-agoSeconds))
+        s.completionID = unread ? "\(id)-round" : nil
+        return s
+    }
+
+    private func project(_ sessions: [AgentSession]) -> WatchDashboardState {
+        WatchDashboardProjection.make(
+            snapshot: Snapshot(sessions: sessions, serverTime: now, sourceID: "mac-a"),
+            quotas: [], relay: .live, now: now)
+    }
+
+    @Test("unread completions of ordinary sessions reach the wrist, newest first")
+    func unreadCompletionsAreResults() {
+        let state = project([
+            session("older", unread: true, agoSeconds: 600),
+            session("read"),
+            session("newer", unread: true, agoSeconds: 30),
+            session("running", .working),
+        ])
+        #expect(state.unreadResults.map(\.sessionID) == ["newer", "older"])
+        #expect(state.stuckTasks.isEmpty)
+        #expect(state.followedTasks.isEmpty)
+        #expect(state.unreadResults.first?.presentation == .completeUnread)
+        #expect(state.unreadResults.first?.completionID == "newer-round")
+    }
+
+    @Test("a session that ended badly is listed before any completion")
+    func stuckLeads() {
+        let state = project([
+            session("done", unread: true, agoSeconds: 10),
+            session("broke", failed: true, agoSeconds: 900),
+        ])
+        #expect(state.results?.map(\.sessionID) == ["broke", "done"])
+        #expect(state.stuckTasks.map(\.sessionID) == ["broke"])
+        #expect(state.stuckTasks.first?.presentation == .error)
+    }
+
+    @Test("a muted session's result is left off, as its completion cue is everywhere else")
+    func mutedIsLeftOff() {
+        let state = project([session("quiet", unread: true, attention: .muted),
+                             session("loud", unread: true, attention: .normal)])
+        #expect(state.unreadResults.map(\.sessionID) == ["loud"])
+    }
+
+    @Test("the list is bounded and a waiting session is never a result")
+    func boundedAndNoWaiting() {
+        var many = (0..<10).map { session("done-\($0)", unread: true, agoSeconds: TimeInterval($0)) }
+        many.append(session("asked", .needsResponse))
+        let state = project(many)
+        #expect(state.results?.count == WatchDashboardState.maxResults)
+        #expect(state.results?.contains { $0.sessionID == "asked" } == false)
+        #expect(state.alerts.map(\.sessionId) == ["asked"])
+    }
+
+    @Test("a link opens a result the same way it opens a followed task, and marks it read")
+    func linkResolvesResults() {
+        var state = project([session("done", unread: true)])
+        state.pairingEpoch = "epoch-1"
+        let link = WatchTaskLink(sourceID: "mac-a", pairingEpoch: "epoch-1",
+                                 sessionID: "done", completionID: "done-round")
+        #expect(link.task(in: state)?.sessionID == "done")
+        #expect(link.alert(in: state) == nil)
+        var queue = WatchCompletionQueue()
+        queue.viewed(link, state: state)
+        #expect(queue.links == [link])
+        // The list cannot establish why a normal result disappeared. Only
+        // the exact daemon receipt retires the pending delivery in that case.
+        var read = project([session("done", unread: false)])
+        read.pairingEpoch = "epoch-1"
+        queue.reconcile(with: read)
+        #expect(queue.links == [link])
+        queue.received(.accepted, for: link)
+        #expect(queue.links.isEmpty)
+        #expect(read.results?.isEmpty == true)
+    }
+
+    @Test("a link to a waiting session finds its alert, not a task")
+    func linkResolvesAlerts() {
+        var state = project([session("asked", .needsResponse)])
+        state.pairingEpoch = "epoch-1"
+        let link = WatchTaskLink(sourceID: "mac-a", pairingEpoch: "epoch-1", sessionID: "asked", completionID: nil)
+        #expect(link.alert(in: state)?.sessionId == "asked")
+        #expect(link.task(in: state) == nil)
+        #expect(state.knows("asked"))
+        #expect(!state.knows("stranger"))
+    }
+
+    @Test("a relay or cache from before results existed still decodes")
+    func decodesWithoutResults() throws {
+        var state = project([session("done", unread: true)])
+        state.results = nil
+        let data = try JSONEncoder().encode(state)
+        let decoded = try JSONDecoder().decode(WatchDashboardState.self, from: data)
+        #expect(decoded.results == nil)
+        #expect(decoded.unreadResults.isEmpty)
+    }
+
+    @Test("a result entering the wrist's list earns the completion tap; refreshing it does not")
+    func resultsFeelOnce() {
+        var transitions = WatchHapticTransitions()
+        var first = project([session("run", .working)])
+        first.pairingEpoch = "e"
+        _ = transitions.advance(to: first, now: now)
+        var done = project([session("run", unread: true)])
+        done.pairingEpoch = "e"
+        #expect(transitions.advance(to: done, now: now) == [.agentDone])
+        #expect(transitions.advance(to: done, now: now).isEmpty)
+    }
+}

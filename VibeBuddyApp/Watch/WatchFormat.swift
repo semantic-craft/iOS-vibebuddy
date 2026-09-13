@@ -1,40 +1,6 @@
 import SwiftUI
 import VibeBuddyKit
 
-/// One of the three canonical buckets, bound to the shared presentation
-/// vocabulary so the Watch borrows the Mac and iPhone's colour and symbol
-/// instead of inventing a second status language.
-enum WatchBucket: CaseIterable {
-    case needsResponse
-    case working
-    case done
-
-    var presentation: TaskPresentationState {
-        switch self {
-        case .needsResponse: return .requiresInput
-        case .working: return .thinking
-        case .done: return .completeUnread
-        }
-    }
-
-    var title: LocalizedStringResource {
-        switch self {
-        case .needsResponse: return "Needs you"
-        case .working: return "Working"
-        case .done: return "Done"
-        }
-    }
-
-    func count(in counts: WatchSessionCounts) -> Int {
-        switch self {
-        case .needsResponse: return counts.needsResponse
-        case .working: return counts.working
-        case .done: return counts.done
-        }
-    }
-
-}
-
 /// The wrist's own sizes; every colour and face comes from the Kit.
 enum WatchMetrics {
     /// The lane the status dot rides in: a 7pt dot and the 6pt gap after it,

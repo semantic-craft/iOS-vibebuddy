@@ -90,6 +90,8 @@ struct DashboardView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(MacTheme.bg)
+        // Same tint as Settings, so system controls here pick up the buddy's green.
+        .tint(MacTheme.accent)
         .onReceive(DashboardRoute.shared.$requested) { library in
             guard let library else { return }
             libraryScope = library.rawValue
@@ -331,7 +333,7 @@ private struct SummaryRow: View {
         .overlay {
             if isSelected {
                 RoundedRectangle(cornerRadius: MacTheme.cardRadius, style: .continuous)
-                    .strokeBorder(MacTheme.ink.opacity(0.28), lineWidth: CompanionType.hairline)
+                    .strokeBorder(MacTheme.accent.opacity(0.6), lineWidth: CompanionType.hairline)
                     .allowsHitTesting(false)
             }
         }
@@ -414,9 +416,9 @@ private struct DetailCard: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Notifications").font(MacTheme.font(11, .heavy)).foregroundStyle(MacTheme.ink3)
                     .textCase(.uppercase).kerning(0.6)
-                AttentionPicker(session: session, model: model, style: .segmented)
+                AttentionPicker(session: session, model: model, style: .chips)
                 Text(session.attentionOverride == nil
-                     ? "Automatic: \(session.effectiveAttention.title.lowercased()) — followed while you're driving it, normal otherwise."
+                     ? String(localized: "Automatic: \(session.effectiveAttention.title.lowercased()) — followed while you're driving it, normal otherwise.")
                      : session.effectiveAttention.explanation)
                     .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink3)
                     .fixedSize(horizontal: false, vertical: true)
@@ -526,8 +528,10 @@ struct VoiceConsentSheet: View {
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }
+                    .buttonStyle(PillButtonStyle(kind: .ghost, size: .small))
                 Button("Enable") { voice.enableCompanion(); dismiss() }
-                    .keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(PillButtonStyle(kind: .filled(MacTheme.accent), size: .small))
             }
         }
         .padding(20).frame(width: 380)
@@ -616,7 +620,8 @@ private struct RecentOutputPane: View {
             HStack {
                 Text("Recent output").font(MacTheme.font(13, .semibold))
                 Spacer()
-                Button("Refresh") { Task { await reload() } }.disabled(loading)
+                Button("Refresh") { Task { await reload() } }
+                    .buttonStyle(PillButtonStyle(kind: .ghost, size: .small)).disabled(loading)
             }
             if let output {
                 Text(output.sourceLabel).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
@@ -681,10 +686,12 @@ struct InstructionComposer: View {
 }
 
 /// The one control for how much a session may interrupt you, in two shapes:
-/// a segmented picker in the detail pane and radio items in a row's context
-/// menu. `nil` is "automatic" — the daemon's own reading of recent interaction.
+/// a row of filter chips in the detail pane (the list head's chips, so the
+/// card carries no system segmented control) and radio items in a row's
+/// context menu. `nil` is "automatic" — the daemon's own reading of recent
+/// interaction.
 private struct AttentionPicker: View {
-    enum Style { case segmented, menu }
+    enum Style { case chips, menu }
     let session: AgentSession
     @ObservedObject var model: MenuBarModel
     let style: Style
@@ -696,16 +703,27 @@ private struct AttentionPicker: View {
 
     var body: some View {
         switch style {
-        case .segmented: picker.pickerStyle(.segmented)
+        case .chips: chips
         case .menu: picker.pickerStyle(.inline)
         }
     }
 
+    private var chips: some View {
+        HStack(spacing: 6) {
+            FilterChip(title: "Auto", selected: session.attentionOverride == nil) { selection.wrappedValue = nil }
+            ForEach(SessionAttention.allCases, id: \.self) { level in
+                FilterChip(title: LocalizedStringKey(level.titleKey), selected: session.attentionOverride == level) {
+                    selection.wrappedValue = level
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Notifications")
+    }
+
     private var picker: some View {
         Picker("Notifications", selection: selection) {
-            Text(style == .menu
-                 ? "Automatic (\(autoLevel.title.lowercased()))"
-                 : "Auto").tag(SessionAttention?.none)
+            Text("Automatic (\(autoLevel.title.lowercased()))").tag(SessionAttention?.none)
             ForEach(SessionAttention.allCases, id: \.self) { level in
                 Label(level.title, systemImage: level.symbol).tag(SessionAttention?.some(level))
             }
@@ -722,13 +740,15 @@ private struct AttentionPicker: View {
 }
 
 extension SessionAttention {
-    var title: String {
+    /// The English key; `title` is its localized form.
+    var titleKey: String {
         switch self {
         case .followed: "Followed"
         case .normal: "Normal"
         case .muted: "Muted"
         }
     }
+    var title: String { String(localized: String.LocalizationValue(titleKey)) }
     var symbol: String {
         switch self {
         case .followed: "bell.badge"
@@ -740,9 +760,9 @@ extension SessionAttention {
     var rowGlyph: String? { self == .normal ? nil : symbol }
     var explanation: String {
         switch self {
-        case .followed: "Everything about this session interrupts you."
-        case .normal: "Only approvals and failures interrupt; the rest waits in Notification Center."
-        case .muted: "Approvals show silently; nothing else interrupts."
+        case .followed: String(localized: "Everything about this session interrupts you.")
+        case .normal: String(localized: "Only approvals and failures interrupt; the rest waits in Notification Center.")
+        case .muted: String(localized: "Approvals show silently; nothing else interrupts.")
         }
     }
 }

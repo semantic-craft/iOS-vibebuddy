@@ -9,6 +9,8 @@ struct AccountQuotaView: View {
 
     var body: some View {
         NavigationStack {
+            VStack(spacing: 0) {
+            PhoneSheetHeader(title: String(localized: "Usage")) { dismiss() }
             TimelineView(.periodic(from: .now, by: 30)) { context in
                 List {
                     Section {
@@ -122,9 +124,9 @@ struct AccountQuotaView: View {
                 }
             }
             .phoneList()
-            .navigationTitle("Usage")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            }
+            .background(CompanionPalette.bg)
+            .toolbar(.hidden, for: .navigationBar)
         }
     }
 

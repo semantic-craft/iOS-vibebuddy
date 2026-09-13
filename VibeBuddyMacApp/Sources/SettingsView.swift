@@ -221,7 +221,7 @@ private struct SettingsSidebar: View {
                     .foregroundStyle(selected ? MacTheme.accent : MacTheme.ink2)
                 Text(page.title)
                     .font(SettingsChrome.font(13, selected ? .semibold : .medium))
-                    .foregroundStyle(selected ? MacTheme.accent : MacTheme.ink)
+                    .foregroundStyle(selected ? MacTheme.accentText : MacTheme.ink)
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
@@ -619,17 +619,24 @@ private struct DiagnosticsPage: View {
                             footnote: "Honest outcomes only: attempted, scheduled, accepted, failed, skipped. A local banner is scheduled; APNs 2xx is accepted by Apple's servers. Neither is proof the device showed it.") {
                 SettingsGrid(items: [
                     SettingsGrid.Item(id: "auth", title: "Local authorization") {
-                        SettingsValue(verbatim: model.notificationDeliveryHealth.authorization.rawValue)
+                        SettingsValue(model.notificationDeliveryHealth.authorization.settingsTitle)
                     },
                     SettingsGrid.Item(id: "apns", title: "APNs") {
                         SettingsValue(model.notificationDeliveryHealth.apnsConfigured
                                       ? "configured" : "not configured")
                     },
                     SettingsGrid.Item(id: "devices", title: "Registered devices") {
+                        // A count is a value like its neighbours; the pill is
+                        // only for the state worth a word — pushes configured
+                        // but nowhere to send them.
                         let count = model.deviceRegistry.count
-                        let dead = count == 0 && model.notificationDeliveryHealth.apnsConfigured
-                        SettingsPill(verbatim: count == 0 ? "none" : "\(count)",
-                                     tone: dead ? .warn : .neutral)
+                        if count == 0 && model.notificationDeliveryHealth.apnsConfigured {
+                            SettingsPill("No devices", tone: .warn)
+                        } else if count == 0 {
+                            SettingsValue("None")
+                        } else {
+                            SettingsValue(verbatim: "\(count)")
+                        }
                     },
                     SettingsGrid.Item(id: "missed", title: "Missed this week") {
                         SettingsValue(verbatim: "\(model.missedThisWeek.count)")
@@ -638,7 +645,7 @@ private struct DiagnosticsPage: View {
                 if let last = model.notificationDeliveryHealth.lastAttempt {
                     SettingsRow("Last attempt",
                                 detailText: lastAttemptDetail(last)) {
-                        SettingsPill(verbatim: last.outcome.rawValue,
+                        SettingsPill(last.outcome.settingsTitle,
                                      tone: last.outcome == .failed ? .warn : .neutral)
                     }
                 } else {
@@ -646,7 +653,7 @@ private struct DiagnosticsPage: View {
                 }
                 if let failure = model.notificationDeliveryHealth.latchedFailure {
                     SettingsRow("Latched failure") {
-                        SettingsPill(verbatim: failure.failureReason ?? "unknown", tone: .critical)
+                        SettingsPill(verbatim: failure.failureReason ?? String(localized: "unknown"), tone: .critical)
                     }
                 }
             }
@@ -727,7 +734,7 @@ private struct DiagnosticsPage: View {
                 hookTrust: model.codexAppServerDiagnostics.hookTrust) : nil
         HStack(alignment: .top, spacing: 9) {
             Image(systemName: issue != nil ? "exclamationmark.triangle.fill" : source.diagnosticIcon)
-                .foregroundStyle(issue != nil ? .orange : source.diagnosticColor)
+                .foregroundStyle(issue != nil ? MacTheme.status(.requiresInput) : source.diagnosticColor)
                 .frame(width: 16)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 5) {
@@ -812,7 +819,7 @@ struct TailscalePairingSettings: View {
             Text("Connect Mac and iPhone to the same tailnet. For Headscale, use this Mac’s 100.x.x.x address.")
                 .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
             if model.pairing == nil {
-                Text("Enter a valid Tailscale address.").foregroundStyle(.orange)
+                Text("Enter a valid Tailscale address.").foregroundStyle(MacTheme.status(.requiresInput))
             }
         }
     }
@@ -832,7 +839,7 @@ struct HotkeyRecorderView: View {
     var body: some View {
         HStack(spacing: 8) {
             if hint {
-                Text("needs a modifier").font(MacTheme.font(10)).foregroundStyle(.red)
+                Text("needs a modifier").font(MacTheme.font(10)).foregroundStyle(MacTheme.status(.error))
             }
             (recording ? Text("Press a combo…") : Text(verbatim: current.displayString))
                 .font(MacTheme.mono(12.5))
@@ -892,6 +899,31 @@ struct HotkeyRecorderView: View {
         default:
             let c = event.charactersIgnoringModifiers ?? ""
             return c.isEmpty ? "Key\(event.keyCode)" : c.uppercased()
+        }
+    }
+}
+
+/// Product words for the delivery enums Diagnostics shows; the raw cases
+/// (`notDetermined`, `attempted`) are wire values, not copy.
+extension NotificationAuthorization {
+    var settingsTitle: LocalizedStringKey {
+        switch self {
+        case .authorized: "Allowed"
+        case .denied: "Denied"
+        case .notDetermined: "Not asked yet"
+        case .unknown: "Unknown"
+        }
+    }
+}
+
+extension NotificationDeliveryOutcome {
+    var settingsTitle: LocalizedStringKey {
+        switch self {
+        case .attempted: "Attempted"
+        case .scheduled: "Scheduled"
+        case .accepted: "Accepted"
+        case .failed: "Failed"
+        case .skipped: "Skipped"
         }
     }
 }

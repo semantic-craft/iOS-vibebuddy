@@ -27,7 +27,7 @@ final class AppWindows: NSObject, NSWindowDelegate {
     func showSettings() {
         if settingsWindow == nil {
             settingsWindow = makeWindow(
-                content: settingsContent, title: "Settings", id: "settings",
+                content: settingsContent, title: String(localized: "Settings"), id: "settings",
                 // Ten pages that each fit without scrolling need the room:
                 // the tallest (Notifications) measures 727pt of content at
                 // 1080 wide; Phone & remote carries the Connection & delivery

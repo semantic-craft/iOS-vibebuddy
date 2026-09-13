@@ -174,3 +174,14 @@
 "%@ wants to %@" = "%@ 想要%@";
 "Your iPhone can't reach your Mac, so this can't be sent." = "你的 iPhone 连不上 Mac，所以无法发送。";
 "Enable quota collection for your signed-in account on your Mac to see allowance here." = "在 Mac 上为已登录账号开启额度收集，这里就会显示额度。";
+
+/* Ticket 10 — the one word inside a stale allowance ring */
+"Cached" = "缓存";
+/* MARK: Wrist-first home (ADR-0021): needs you first, then results */
+"Also waiting" = "还在等你";
+"Results" = "结果";
+"Followed" = "关注中";
+"Stopped with an error" = "出错停止";
+"Previously viewed result" = "刚才查看的结果";
+"This task is not in the current Watch list. Open it on your iPhone or Mac." = "当前手表列表中没有这个任务。请在 iPhone 或 Mac 上打开。";
+"This is no longer waiting on you. It was handled on another device, or the task moved on." = "这个已经不用你处理了：已在其他设备处理，或任务已推进。";

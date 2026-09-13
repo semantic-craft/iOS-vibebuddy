@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import VibeBuddyKit
 import VibeBuddyMacCore
 
 struct HistoryMessageReader: View {
@@ -17,6 +18,7 @@ struct HistoryMessageReader: View {
                     Color.clear.frame(height: 1).id("page-top")
                     if pageStart > 0 {
                         Button("Earlier messages") { pageStart = max(0, pageStart - pageSize); proxy.scrollTo("page-top", anchor: .top) }
+                            .buttonStyle(PillButtonStyle(kind: .ghost, size: .small))
                     }
                     if !rows.isEmpty {
                         Text("Messages \(pageStart + 1)–\(min(pageStart + pageSize, rows.count)) of \(rows.count)")
@@ -27,11 +29,12 @@ struct HistoryMessageReader: View {
                     }
                     ForEach(Array(rows.dropFirst(pageStart).prefix(pageSize))) { row in
                         message(row).padding(10)
-                            .background(row.contains(targetMessage) ? Color.accentColor.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 8))
+                            .background(row.contains(targetMessage) ? MacTheme.ink.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                             .id(row.id)
                     }
                     if pageStart + pageSize < rows.count {
                         Button("Later messages") { pageStart += pageSize; proxy.scrollTo("page-top", anchor: .top) }
+                            .buttonStyle(PillButtonStyle(kind: .ghost, size: .small))
                     }
                     if rows.isEmpty { Text("No dialogue to display.").foregroundStyle(MacTheme.ink2) }
                 }.padding(16)
@@ -54,7 +57,7 @@ struct HistoryMessageReader: View {
         if row.kind == .compactSummary {
             Text("Context compacted").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 .padding(.horizontal, 12).padding(.vertical, 5)
-                .background(.quaternary, in: Capsule()).frame(maxWidth: .infinity)
+                .background(MacTheme.bg2, in: Capsule()).overlay(Capsule().strokeBorder(MacTheme.line, lineWidth: CompanionType.hairline)).frame(maxWidth: .infinity)
         } else if row.kind == .meta {
             DisclosureGroup("Injected context · search match", isExpanded: .constant(true)) {
                 Text(row.text).font(MacTheme.font(10)).textSelection(.enabled)
@@ -88,7 +91,7 @@ struct HistoryMessageReader: View {
                         VStack(alignment: .leading, spacing: 12) {
                             ForEach(row.tools) { tool in
                                 VStack(alignment: .leading, spacing: 7) {
-                                    HStack { Text(tool.name).fontWeight(.medium); if tool.isError { Label("Failed", systemImage: "exclamationmark.circle").foregroundStyle(.red) } }
+                                    HStack { Text(tool.name).fontWeight(.medium); if tool.isError { Label("Failed", systemImage: "exclamationmark.circle").foregroundStyle(MacTheme.status(.error)) } }
                                     if !tool.input.isEmpty { toolSection("Input", text: tool.input) }
                                     if let output = tool.output { toolSection("Output", text: output) }
                                 }
@@ -100,9 +103,9 @@ struct HistoryMessageReader: View {
                             Text(row.tools.count == 1 ? row.tools[0].name : "\(row.tools.count) tool calls").fontWeight(.medium)
                             Text(row.tools.count == 1 ? row.tools[0].preview : row.tools.map(\.name).joined(separator: " · ")).lineLimit(1).foregroundStyle(MacTheme.ink2)
                             let failures = row.tools.filter(\.isError).count
-                            if failures > 0 { Text("\(failures) failed").foregroundStyle(.red) }
+                            if failures > 0 { Text("\(failures) failed").foregroundStyle(MacTheme.status(.error)) }
                         }.font(MacTheme.font(10))
-                    }.padding(10).background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+                    }.padding(10).background(MacTheme.bg2, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
             }
         }

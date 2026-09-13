@@ -13,6 +13,7 @@ enum MacTheme {
     static let ink2 = CompanionPalette.ink2
     static let ink3 = CompanionPalette.ink3
     static let accent = CompanionPalette.accent
+    static let accentText = CompanionPalette.accentText
     /// Ground of the expanded glance card and the capsule-mode pill. The
     /// collapsed pill in notch mode stays pure black so it merges with the
     /// hardware notch.

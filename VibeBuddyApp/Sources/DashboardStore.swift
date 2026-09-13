@@ -729,21 +729,33 @@ final class DashboardStore: ObservableObject {
     @Published var toast: String?
     private var toastTask: Task<Void, Never>?
 
-    /// Start a new task on the Mac. Returns the Mac's answer as a toast-ready
-    /// line; nil when it could not be reached.
-    func dispatch(_ request: DispatchRequest) async -> String? {
+    /// What the Mac said to a New task request, for the sheet that asked.
+    struct DispatchFeedback: Equatable {
+        let started: Bool
+        let message: String
+    }
+
+    /// Start a new task on the Mac. A start is announced on the dashboard
+    /// (the sheet closes); a refusal is returned to the sheet, which keeps the
+    /// draft and says why under it.
+    func dispatch(_ request: DispatchRequest) async -> DispatchFeedback {
         if isDemo {
-            showToast(String(localized: "Demo mode: nothing was started"))
-            return nil
+            let message = String(localized: "Demo mode: nothing was started")
+            showToast(message)
+            return DispatchFeedback(started: false, message: message)
         }
-        guard let pairing else { showToast(String(localized: "Couldn't reach your Mac")); return nil }
-        let result = await decisionClient.dispatch(pairing, request: request)
-        switch result {
-        case .started: showToast(String(localized: "Started — it will appear in Working"))
-        case .rejected(let why), .unsupported(let why), .unavailable(let why): showToast(why)
-        case nil: showToast(String(localized: "Couldn't reach your Mac"))
+        guard let pairing else {
+            return DispatchFeedback(started: false, message: String(localized: "Couldn't reach your Mac — not started"))
         }
-        return result.map { "\($0)" }
+        switch await decisionClient.dispatch(pairing, request: request) {
+        case .started:
+            showToast(String(localized: "Started — it will appear in Working"))
+            return DispatchFeedback(started: true, message: "")
+        case .rejected(let why), .unsupported(let why), .unavailable(let why):
+            return DispatchFeedback(started: false, message: why)
+        case nil:
+            return DispatchFeedback(started: false, message: String(localized: "Couldn't reach your Mac — not started"))
+        }
     }
 
     func jump(_ sessionId: String) {

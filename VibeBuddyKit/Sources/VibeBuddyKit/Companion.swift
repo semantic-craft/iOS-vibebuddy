@@ -28,6 +28,9 @@ public enum CompanionPalette {
     /// orange on the brand, not on the product's buttons. Darkened for the
     /// neutral ground so white label text keeps its contrast.
     public static let accent = dynamic(0x3E7A4A, 0x7FC48F)
+    /// Accent as text on a 14 % accent wash over `bg2` (selected sidebar
+    /// titles): light `accent` composites to 3.9:1 there, this to 5.5:1.
+    public static let accentText = dynamic(0x2F6139, 0x7FC48F)
     /// Ground of dark "glance" surfaces: the Mac notch card, the Live Activity.
     public static let glance = dynamic(0x141414, 0x0F0F0F)
 

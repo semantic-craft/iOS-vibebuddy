@@ -72,7 +72,7 @@ final class VoiceChat: ObservableObject {
     private func startRealtime() {
         errorText = nil
         guard isAvailable else {
-            errorText = "Add your \(VoiceSettings.provider.display) API key in Settings first."; return
+            errorText = String(localized: "Add your \(VoiceSettings.provider.display) API key in Settings first."); return
         }
         let id = UUID(); startID = id; phase = .connecting
         // The mic permission prompt is delivered on a background thread, so request
@@ -107,7 +107,7 @@ final class VoiceChat: ObservableObject {
             phase = .idle; return
         }
         guard let key = provider.apiKey, !key.isEmpty else {
-            errorText = "Add your \(provider.display) API key in Settings first."
+            errorText = String(localized: "Add your \(provider.display) API key in Settings first.")
             phase = .idle; return
         }
         let language = VoiceSettings.conversationLanguage
