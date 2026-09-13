@@ -15,6 +15,26 @@ public struct DashboardSessionList: Sendable {
         }
     }
 
+    /// The chip row's groups. `needsYou` is the same word the menu panel, the
+    /// phone and the Watch use: a failed session needs the user as much as a
+    /// question does, so both land in one filter (`TaskPresentationSummary.needsYou`).
+    public enum StatusFilter: String, CaseIterable, Hashable, Sendable {
+        case needsYou, working, done, idle
+
+        public var states: [TaskPresentationState] {
+            switch self {
+            case .needsYou: [.requiresInput, .error]
+            case .working: [.thinking]
+            case .done: [.completeUnread]
+            case .idle: [.idle]
+            }
+        }
+
+        public func matches(_ session: AgentSession) -> Bool {
+            states.contains(session.presentationState)
+        }
+    }
+
     public struct Project: Identifiable, Sendable {
         public let id: ProjectScope
         public let count: Int
@@ -26,7 +46,7 @@ public struct DashboardSessionList: Sendable {
     public let total: Int
 
     public init(_ sessions: [AgentSession], project: ProjectScope = .all,
-                status: TaskPresentationState? = nil, query: String = "", selection: String? = nil) {
+                status: StatusFilter? = nil, query: String = "", selection: String? = nil) {
         total = sessions.count
         let counts = Dictionary(grouping: sessions, by: ProjectScope.of).mapValues(\.count)
         var scopes = counts.keys.sorted { lhs, rhs in
@@ -42,7 +62,7 @@ public struct DashboardSessionList: Sendable {
         projects = [.init(id: .all, count: total)] + scopes.map { .init(id: $0, count: counts[$0, default: 0]) }
         let visible = SessionFilter.apply(sessions, status: nil, agent: nil, query: query)
             .filter { (project == .all || ProjectScope.of($0) == project)
-                && (status == nil || $0.presentationState == status) }
+                && (status?.matches($0) ?? true) }
             .sorted {
                 $0.presentationState.attentionRank != $1.presentationState.attentionRank
                     ? $0.presentationState.attentionRank < $1.presentationState.attentionRank

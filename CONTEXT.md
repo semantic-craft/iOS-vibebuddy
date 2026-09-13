@@ -110,6 +110,13 @@ code, and tests — don't drift to synonyms.
   shown under the housing with its actions (Approve / Deny / Jump), timed by
   `GlanceCardQueue`. While the glance is on screen the card *replaces* the
   macOS banner for session cues; hidden glance → banner as before.
+- **Right slot** — the dashboard detail column's one place for a session's
+  records that are not the conversation, after Cursor's right sidebar
+  (`RightSlotState`, ticket 11): the **shelf** (the `On <project>` rows —
+  Changes with its `+N`, Output, Activity), a **pane** (one row opened in
+  the shelf's place, tabs to switch, expand / close), or the **rail** (the
+  slot hidden to a floating strip; ⌥⌘B). The reading column keeps the
+  result and the decision; the foot keeps the request's keys or the composer.
 - **Menu-bar entry** — a fixed cat icon that opens a panel centred under it: a
   command row you type into to narrow the list, with the voice companion's mic
   at its head; one summary line for the whole snapshot, led by the status dot

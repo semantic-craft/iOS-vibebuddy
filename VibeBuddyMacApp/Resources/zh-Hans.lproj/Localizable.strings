@@ -872,8 +872,6 @@
 "Neutral notes: goal, key decisions, results and verification, open work." = "中性记录：目标、关键决策、结果与验证、未完成工作。";
 
 /* MARK: Dashboard sidebar and New task (Cursor layout) */
-"Errors" = "错误";
-"Unassigned" = "未分配";
 "All" = "全部";
 "Reset" = "重置";
 "Message matches" = "消息匹配";
@@ -978,3 +976,28 @@
 "Workspace changes" = "工作区变化";
 
 "Mark current result read" = "将当前结果标为已读";
+
+/* MARK: Dashboard — right slot (ticket 11: shelf, pane, rail) */
+"Changes" = "变更";
+"Output" = "输出";
+"Activity" = "活动记录";
+"On %@" = "在 %@";
+"Jump to the agent's own window (⏎)" = "跳到 Agent 自己的窗口（⏎）";
+"Show tools (⌥⌘B)" = "显示工具（⌥⌘B）";
+"Hide tools (⌥⌘B)" = "隐藏工具（⌥⌘B）";
+"Show tools" = "显示工具";
+"Hide tools" = "隐藏工具";
+"Open Changes" = "打开变更";
+"Open Output" = "打开输出";
+"Open Activity" = "打开活动记录";
+"Session" = "会话";
+"Back to the session" = "回到会话";
+"Restore the reading column" = "恢复阅读区";
+"Expand this tool" = "展开这个工具";
+"Collapse tool" = "收起工具";
+"Expand tool" = "展开工具";
+"Close this tool" = "关闭这个工具";
+"Close tool" = "关闭工具";
+"The change count could not be read." = "无法读取变更计数。";
+"%lld lines added in uncommitted tracked files" = "未提交的已跟踪文件新增 %lld 行";
+"No uncommitted changes" = "没有未提交的变化";

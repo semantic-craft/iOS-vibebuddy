@@ -209,3 +209,5 @@
 "Git could not read the selected comparison (HEAD may not exist yet)." = "Git 无法读取选定的比较范围（HEAD 可能尚不存在）。";
 "That file is not in this comparison. Refresh the file list." = "此文件不在当前比较范围内，请刷新文件列表。";
 "The selected file diff is unavailable." = "所选文件的差异不可用。";
+"Untracked · %lld" = "未跟踪 · %lld";
+"%lld added, %lld deleted" = "新增 %lld，删除 %lld";

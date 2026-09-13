@@ -26,3 +26,27 @@ public struct WorkspaceChanges: Codable, Equatable, Sendable {
         self.stat = stat; self.diff = diff; self.truncated = truncated; self.unavailableReason = unavailableReason
     }
 }
+
+public extension WorkspaceChanges {
+    /// Lines added across tracked files in this comparison, read from the
+    /// stat's summary line ("3 files changed, 187 insertions(+), 4 deletions(-)").
+    /// `nil` means the count is unknown — the workspace could not be read, or
+    /// the summary is not in a form we recognise — so a failure is never shown
+    /// as "no changes". `0` is only returned when Git reported a clean comparison.
+    var addedLineCount: Int? { statCount(of: "insertion") }
+    /// Lines deleted, on the same terms as `addedLineCount`.
+    var deletedLineCount: Int? { statCount(of: "deletion") }
+
+    private func statCount(of noun: String) -> Int? {
+        guard unavailableReason == nil else { return nil }
+        let trimmed = stat.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return 0 }
+        guard let summary = trimmed.split(separator: "\n").last, summary.contains("changed") else { return nil }
+        // "187 insertions(+)" / "1 insertion(+)"; absent when that side is zero.
+        guard let match = summary.firstMatch(of: try! Regex("(\\d+) \(noun)s?\\(")) ,
+              let value = Int(match.output[1].substring ?? "") else {
+            return summary.contains(noun) ? nil : 0
+        }
+        return value
+    }
+}

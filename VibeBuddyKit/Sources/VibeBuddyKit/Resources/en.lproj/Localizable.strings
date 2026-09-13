@@ -178,3 +178,5 @@
 "Git could not read the selected comparison (HEAD may not exist yet)." = "Git could not read the selected comparison (HEAD may not exist yet).";
 "That file is not in this comparison. Refresh the file list." = "That file is not in this comparison. Refresh the file list.";
 "The selected file diff is unavailable." = "The selected file diff is unavailable.";
+"Untracked · %lld" = "Untracked · %lld";
+"%lld added, %lld deleted" = "%lld added, %lld deleted";

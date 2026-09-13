@@ -18,7 +18,7 @@ struct DashboardSessionListTests {
                      session("miss", "Alpha", .working, summary: "different"),
                      session("blank", "  ", .done), session("named", "Unknown project", .done)]
         let before = input
-        let list = DashboardSessionList(input, project: .project("Alpha"), status: .thinking, query: "needle")
+        let list = DashboardSessionList(input, project: .project("Alpha"), status: .working, query: "needle")
         #expect(list.visible.map(\.id) == ["new", "old"])
         #expect(list.total == 7)
         #expect(list.projects.first?.count == 7)
@@ -35,7 +35,7 @@ struct DashboardSessionListTests {
         let input = [first, other]
         #expect(DashboardSessionList(input, selection: "selected").selected?.id == "selected")
         #expect(DashboardSessionList(input, project: .project("Beta"), selection: "selected").selected == nil)
-        #expect(DashboardSessionList(input, status: .requiresInput, selection: "selected").selected == nil)
+        #expect(DashboardSessionList(input, status: .needsYou, selection: "selected").selected == nil)
         #expect(DashboardSessionList(input, query: "Beta", selection: "selected").selected == nil)
         #expect(DashboardSessionList(input).selected == nil)
         let updated = session("selected", "Alpha", .working, summary: "new result")
@@ -44,5 +44,18 @@ struct DashboardSessionListTests {
         #expect(removed.selected == nil)
         #expect(removed.visible.isEmpty)
         #expect(removed.projects.contains { $0.id == .project("Alpha") && $0.count == 0 })
+    }
+
+    @Test func needsYouCoversQuestionsAndFailuresLikeEveryOtherSurface() {
+        var broke = session("broke", "Alpha", .done)
+        broke.failed = true
+        let input = [session("ask", "Alpha", .needsResponse), broke,
+                     session("busy", "Alpha", .working), session("done", "Alpha", .done)]
+        let needsYou = DashboardSessionList(input, status: .needsYou)
+        #expect(needsYou.visible.map(\.id) == ["broke", "ask"])
+        #expect(DashboardSessionList(input, status: .working).visible.map(\.id) == ["busy"])
+        #expect(DashboardSessionList(input, status: .done).visible.map(\.id) == ["done"])
+        #expect(DashboardSessionList.StatusFilter.allCases.flatMap(\.states).count
+                == Set(DashboardSessionList.StatusFilter.allCases.flatMap(\.states)).count)
     }
 }

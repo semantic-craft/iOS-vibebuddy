@@ -107,8 +107,9 @@ stay an ink wash (4 % / 7 %). *(2026-09-13: was an ink wash, never the accent;
 the owner asked the dashboard to carry Settings' green.)*
 
 Content: list column (240–380 pt) + detail column. The list head is the scope
-title, the search pill and a row of filter chips (All / Needs you / Errors /
-Working / Done / Idle; the selected chip is accent-filled). Rows are summary-first
+title, the search pill and a row of filter chips (All / Needs you /
+Working / Done / Idle; Needs you includes failed sessions, as in the menu
+panel; the selected chip is accent-filled). Rows are summary-first
 cards on `bg3`; the selected row sits on `bg2` with an accent hairline. The
 live mic disc is accent-filled. History uses
 the same head with agent / archive dropdown pills and a `···` menu (Refresh,
@@ -116,14 +117,40 @@ Rebuild index, source notices). Empty panes are `QuietEmptyState`: a 22 pt
 glyph, a body-size title and one line of guidance, centred, no card — never
 the system `ContentUnavailableView`.
 
-Detail is one `bg3` card. Approval: request card (agent avatar CC/CX/GK, header,
-path label, diff or command block, then `Approve ▾` split button whose menu
-holds *Always allow this* and *Allow all this session*, `Deny` and
-`Jump` as ghost buttons). Non-approval: title, state pill, summary, primary
-`Jump to terminal`, `Recent output`, a Notifications row of filter chips
-(Auto / Followed / Normal / Muted — the list head's chips, never a system
-segmented control), model line. Usage bars sit under the detail card; the
-Recent output pane's `Refresh` is a small ghost pill.
+Detail (*revised 2026-09-13, ticket 11, after Cursor's right sidebar*;
+`DashboardDetail.swift`, `RightSlotState` in MacCore) is three parts:
+
+- **Title bar** (36 pt): the project and branch in the mono face on the
+  left, a small bell when the session is Followed or Muted (its meaning in
+  the tooltip), and on the right the session's actions, once — `Jump ↗`
+  (text and an outward arrow, no border; ⏎ still jumps), a `···` menu
+  (Mark as read / unread, Replay this previous result, Notifications ›
+  Auto / Followed / Normal / Muted) and the slot toggle (⌥⌘B). Only actions
+  the session actually supports appear; there is no Pin, Rename or Fork.
+- **Reading column**: a document on `bg`, at most 680 pt wide and centred —
+  title, the state as a dot and a word, the activity, progress, the
+  current completion's text (read-on-view unchanged), and under *Your
+  decision* the request card (who asks, path, diff or command; a question's
+  card; the wait explanation). Its **foot** is pinned and shares the
+  column's width: the `Approve ▾ / Deny` keys while a request can be
+  decided here, else the composer with a scope line (`Claude ·
+  claude-opus-4-8 · feat/reminders`) above it. The whole request stays in
+  the reading; only its keys sit in the foot.
+- **Right slot**, one place in three states. *Shelf* (176 pt, `bg`, a
+  hairline on its left): `On <project>` and three rows — **Changes**
+  (with `+N` added lines in the accent, `—` when the workspace cannot be
+  read, nothing when clean), **Output**, **Activity**. *Pane*: a row opened
+  in the shelf's place (320–560 pt, ~42 % of the column), with a tab strip
+  (`Changes | Output | Activity`, the showing one on `bg2`), expand and
+  close on the right; Changes is the Kit's `WorkspaceChangesView` in its
+  embedded form (scope as a dropdown pill, `+a −d`, `Refresh`), Output the
+  bounded recent excerpt with its source line and "limited excerpt" note,
+  Activity the tool ledger. *Rail*: the slot hidden to a small floating
+  strip at the top right of the reading column, which then recentres.
+  Widths that cannot hold the reading column (≥ 400 pt) beside the slot
+  degrade the slot first: a pane goes full-width with a `‹ Session` way
+  back, a shelf collapses to the rail. The state and the tab are
+  remembered across sessions and launches.
 
 History's reading pane (*2026-09-13, ticket 10*): under the title and the
 agent · path line, one action row — the filled small pill is the thing you
@@ -138,7 +165,7 @@ status tints, and the message the search landed on sits on the ink wash
 (7 %), not the accent. No system button, picker or `accentColor` remains in
 the dashboard window.
 
-Keyboard: ⌘F search, A / D approve / deny, ⏎ jump, ⌘1–5 / ⌘0 status filters
+Keyboard: ⌘F search, A / D approve / deny, ⏎ jump, ⌘1–4 / ⌘0 status filters
 narrow the groups.
 
 ### Menu bar dropdown

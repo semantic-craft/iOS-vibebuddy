@@ -1132,7 +1132,16 @@ final class MenuBarModel: ObservableObject {
     }
 
     func workspaceChanges(for session: AgentSession, scope: ChangesScope, baseline: String?, file: String?) async -> WorkspaceChanges {
-        await store.workspaceChanges(sessionID: session.id, scope: scope, baseline: baseline, file: file)
+        // `VIBEBUDDY_DEMO_WORKSPACE=<repo path>` gives the demo's approval
+        // session a real, read-only Git workspace so the Changes pane can be
+        // screenshotted with content; demo only, never a production session.
+        if E2ERunConfiguration.current == nil, ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1",
+           session.id == "demo-edit", let path = ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO_WORKSPACE"] {
+            return await Task.detached(priority: .utility) {
+                WorkspaceChangesReader.read(cwd: path, scope: scope, baseline: baseline, file: file, shared: false)
+            }.value
+        }
+        return await store.workspaceChanges(sessionID: session.id, scope: scope, baseline: baseline, file: file)
     }
 
     var completionSourceID: String? { snapshotSourceID }
