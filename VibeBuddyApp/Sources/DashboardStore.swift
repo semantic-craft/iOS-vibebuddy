@@ -524,6 +524,23 @@ final class DashboardStore: ObservableObject {
         case .answer(let project, let text):
             guard let s = match(project) else { return "No unique matching session." }
             return await answer(s.id, answer: text).message
+        case .markRead(let project):
+            // Confirms the exact round on screen now; nothing more. Reviewed,
+            // verified and accepted stay the person's words (ADR-0020).
+            guard let s = match(project) else { return "No unique matching session." }
+            guard s.status == .done, s.completionID != nil else { return "\(s.displayTitle) has no finished result to mark read." }
+            guard s.hasUnreadCompletion else { return "\(s.displayTitle) is already marked read." }
+            acknowledge(s.id, displayedCompletion: completionRequest(for: s))
+            return "Marked \(s.displayTitle)'s current result read. The Mac confirms it; nothing was reviewed or accepted."
+        case .instruct(let project, let text):
+            guard let s = match(project) else { return "No unique matching session." }
+            guard s.pendingQuestion == nil, s.pendingApproval == nil else {
+                return "\(s.displayTitle) is waiting for an answer or approval, not an instruction. Answer or approve it instead."
+            }
+            let support = SessionActionSupport.resolve(for: s)
+            guard support.isAvailable else { return support.unsupportedReason ?? "Instructions are unavailable for \(s.displayTitle)." }
+            let receipt = await answer(s.id, answer: text)
+            return "\(receipt.message) Sent to \(s.displayTitle) as \(support.intent == .continue ? "the next turn" : "a supplement to the running turn"); the agent has not confirmed doing it."
         case .none: return ""
         }
     }

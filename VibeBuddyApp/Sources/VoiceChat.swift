@@ -19,6 +19,15 @@ final class VoiceChat: ObservableObject {
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var lastUserText = ""
     @Published private(set) var lastReply = ""
+    /// The exchange so far, for the voice page (ticket 05): one entry per
+    /// final user utterance and per reply, newest last. Cleared per call.
+    @Published private(set) var transcript: [VoiceTurn] = []
+    struct VoiceTurn: Identifiable, Equatable {
+        enum Role { case user, companion }
+        let id = UUID()
+        let role: Role
+        let text: String
+    }
     @Published private(set) var activeProvider: VoiceProvider?
     @Published var errorText: String?
     /// Drives the inline consent sheet when a disabled buddy is tapped.
@@ -99,6 +108,7 @@ final class VoiceChat: ObservableObject {
     }
 
     private func beginRealtimeSession() {
+        transcript = []
         let provider = VoiceSettings.provider
         // `VoiceSettings.provider` only yields vendors that speak; this keeps the
         // switch below honest rather than inventing a session for a text model.
@@ -276,6 +286,17 @@ final class VoiceChat: ObservableObject {
 
     private func syncFromCoordinator(_ coordinator: VoiceCallCoordinator) {
         phase = Self.phase(from: coordinator.phase)
+        if coordinator.lastUserText != lastUserText, !coordinator.lastUserText.isEmpty {
+            transcript.append(VoiceTurn(role: .user, text: coordinator.lastUserText))
+        }
+        if coordinator.lastReply != lastReply, !coordinator.lastReply.isEmpty {
+            // A reply grows as it streams: replace the trailing companion turn.
+            if transcript.last?.role == .companion, lastReply.isEmpty == false,
+               coordinator.lastReply.hasPrefix(lastReply) {
+                transcript.removeLast()
+            }
+            transcript.append(VoiceTurn(role: .companion, text: coordinator.lastReply))
+        }
         lastUserText = coordinator.lastUserText
         lastReply = coordinator.lastReply
         errorText = coordinator.errorText
