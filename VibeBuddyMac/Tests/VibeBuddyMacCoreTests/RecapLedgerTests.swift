@@ -119,6 +119,71 @@ struct RecapLedgerTests {
         #expect(recap.entries.map(\.endedAt) == [t0.addingTimeInterval(90), t0.addingTimeInterval(30)])
     }
 
+    @Test("Mark Unread puts a read round back into Mark all's reach")
+    func markUnreadIsUnreadAgain() async throws {
+        let store = SessionStore(sourceID: "mac")
+        await store.ingest(prompt("s", at: 0))
+        await store.ingest(stop("s", at: 30))
+        let entry = try #require(await store.snapshot(now: t0.addingTimeInterval(31)).recap?.entries.first)
+        let completionID = try #require(entry.completionID)
+        let read = CompletionReadRequest(sourceID: "mac", sessionID: "s", completionID: completionID)
+        #expect(await store.acknowledgeCompletion(read, now: t0.addingTimeInterval(40)).outcome == .accepted)
+        #expect(await store.snapshot(now: t0.addingTimeInterval(41)).recap?.entries.first?.isRead == true)
+
+        let unread = CompletionReadRequest(sourceID: "mac", sessionID: "s", completionID: completionID, markUnread: true)
+        #expect(await store.acknowledgeCompletion(unread, now: t0.addingTimeInterval(50)).outcome == .accepted)
+        let after = try #require(await store.snapshot(now: t0.addingTimeInterval(51)).recap)
+        #expect(after.entries.map(\.id) == [entry.id])
+        #expect(after.entries.first?.isRead == false)
+    }
+
+    @Test("a round read before the next one stays read after the next one is read")
+    func earlierRoundKeepsItsReadMark() async throws {
+        let store = SessionStore(sourceID: "mac")
+        await store.ingest(prompt("s", at: 0, turn: "t1"))
+        await store.ingest(stop("s", at: 30, turn: "t1", text: "First result."))
+        let first = try #require(await store.snapshot(now: t0.addingTimeInterval(31)).recap?.entries.first)
+        let firstID = try #require(first.completionID)
+        let readFirst = CompletionReadRequest(sourceID: "mac", sessionID: "s", completionID: firstID)
+        #expect(await store.acknowledgeCompletion(readFirst, now: t0.addingTimeInterval(40)).outcome == .accepted)
+        #expect(await store.snapshot(now: t0.addingTimeInterval(41)).recap?.entries.first?.isRead == true)
+
+        await store.ingest(prompt("s", at: 60, turn: "t2"))
+        await store.ingest(stop("s", at: 90, turn: "t2", text: "Second result."))
+        let second = try #require(await store.snapshot(now: t0.addingTimeInterval(91)).recap)
+        #expect(second.entries.map(\.isRead) == [false, true])      // newest first: t2 unread, t1 still read
+
+        let secondID = try #require(second.entries.first?.completionID)
+        #expect(secondID != firstID)
+        let readSecond = CompletionReadRequest(sourceID: "mac", sessionID: "s", completionID: secondID)
+        #expect(await store.acknowledgeCompletion(readSecond, now: t0.addingTimeInterval(100)).outcome == .accepted)
+        let both = try #require(await store.snapshot(now: t0.addingTimeInterval(101)).recap)
+        #expect(both.entries.map(\.isRead) == [true, true])
+    }
+
+    @Test("an earlier round's read mark survives a restart")
+    func readMarkPersists() async throws {
+        let dir = try tempDir()
+        let journal = dir.appendingPathComponent("lifecycle-journal.json")
+        do {
+            let store = SessionStore(sourceID: "mac", journalURL: journal, now: t0)
+            await store.ingest(prompt("s", at: 0, turn: "t1"))
+            await store.ingest(stop("s", at: 30, turn: "t1", text: "First result."))
+            let first = try #require(await store.snapshot(now: t0.addingTimeInterval(31)).recap?.entries.first)
+            let read = CompletionReadRequest(sourceID: "mac", sessionID: "s", completionID: try #require(first.completionID))
+            #expect(await store.acknowledgeCompletion(read, now: t0.addingTimeInterval(40)).outcome == .accepted)
+            await store.ingest(prompt("s", at: 60, turn: "t2"))
+            await store.ingest(stop("s", at: 90, turn: "t2", text: "Second result."))
+            #expect(await store.snapshot(now: t0.addingTimeInterval(91)).recap?.entries.map(\.isRead) == [false, true])
+        }
+        do {
+            let store = SessionStore(sourceID: "mac", journalURL: journal, now: t0.addingTimeInterval(3600))
+            let recap = try #require(await store.snapshot(now: t0.addingTimeInterval(3600)).recap)
+            #expect(recap.entries.map { $0.points.first } == ["Second result.", "First result."])
+            #expect(recap.entries.last?.isRead == true)
+        }
+    }
+
     @Test("a Claude round with no readable transcript records the round without a sentence")
     func claudeWithoutTranscript() async throws {
         let store = SessionStore(sourceID: "mac")

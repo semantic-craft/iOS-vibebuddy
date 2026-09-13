@@ -195,11 +195,14 @@ lands as an amendment rather than a new decision record.
   (ticket 05 of the effort). Viewing stays viewing (decision 4): opening,
   turning and leaving the recap send nothing.
 - **Mark all is explicit confirmation in bulk.** The end page's one action
-  moves the Mac's horizon to the newest round the recap showed (`POST
-  /recap-read`, forward only, idempotent) and reads each completed round it
-  showed through the existing exact-round `/acknowledge`, so the phone's and
+  reads each completed round the recap showed through the existing
+  exact-round `/acknowledge`, then moves the Mac's horizon to the newest round
+  it showed (`POST /recap-read`, forward only, idempotent), so the phone's and
   Mac's badges and the followed completion reminders (decision 5) stop
-  together. It is queued and persisted on the Watch (`WatchRecapQueue`, the
+  together. The reads go first because a snapshot whose horizon has moved is
+  what retires the queued request: a read that failed after the horizon would
+  never be retried. A round the user had put back to unread counts as unread
+  here. It is queued and persisted on the Watch (`WatchRecapQueue`, the
   same rules as the exact-round read: offline retry, a definitive receipt
   stops retries, only an authority snapshot whose horizon has reached the
   request changes what is shown), plays one local `.success` tap, and has no

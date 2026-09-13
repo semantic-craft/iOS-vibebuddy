@@ -346,10 +346,13 @@ final class DashboardStore: ObservableObject {
         return result(outcome)
     }
 
-    /// Mark all from the wrist: the horizon first, then each named round as an
-    /// exact-round read. The Mac decides everything; this phone keeps no record
-    /// of its own — the Watch holds the retryable intent. Outcomes that are
-    /// final for a round (already read, a later round, an unknown session)
+    /// Mark all from the wrist: each named round as an exact-round read first,
+    /// the horizon last. The order matters: a snapshot whose horizon has moved
+    /// retires the Watch's queued request, so the horizon must not move until
+    /// every read has been delivered — otherwise a read that failed after it
+    /// would never be retried. The Mac decides everything; this phone keeps no
+    /// record of its own — the Watch holds the retryable intent. Outcomes that
+    /// are final for a round (already read, a later round, an unknown session)
     /// are done; only a delivery failure is reported as `failed`, so the Watch
     /// tries the whole thing again and the Mac's idempotent routes absorb it.
     func recapReadFromWatch(_ message: WatchRecapReadRequest) async -> WatchRecapReadResult {
@@ -359,15 +362,6 @@ final class DashboardStore: ObservableObject {
         guard message.pairingEpoch == ConnectionStore.pairingEpoch else { return result(.sourceMismatch) }
         guard state == .connected, let pairing, let sourceID else { return result(.failed) }
         guard message.sourceID == sourceID, message.pairingEpoch == pairingEpoch else { return result(.sourceMismatch) }
-        let horizon = await decisionClient.advanceRecapHorizon(pairing, request: message.recapRead)
-        guard self.pairing == pairing, message.sourceID == self.sourceID,
-              message.pairingEpoch == self.pairingEpoch,
-              pairingEpoch == ConnectionStore.pairingEpoch else { return result(.sourceMismatch) }
-        switch horizon {
-        case .failed: return result(.failed)
-        case .sourceMismatch: return result(.sourceMismatch)
-        case .accepted: break
-        }
         for link in message.completions {
             guard link.sourceID == sourceID, link.pairingEpoch == pairingEpoch,
                   let request = link.readRequest else { continue }
@@ -379,7 +373,15 @@ final class DashboardStore: ObservableObject {
             case .failed: return result(.failed)
             }
         }
-        return result(.accepted)
+        let horizon = await decisionClient.advanceRecapHorizon(pairing, request: message.recapRead)
+        guard self.pairing == pairing, message.sourceID == self.sourceID,
+              message.pairingEpoch == self.pairingEpoch,
+              pairingEpoch == ConnectionStore.pairingEpoch else { return result(.sourceMismatch) }
+        switch horizon {
+        case .failed: return result(.failed)
+        case .sourceMismatch: return result(.sourceMismatch)
+        case .accepted: return result(.accepted)
+        }
     }
 
     /// Register this Live Activity's APNs push token with the Mac. Best-effort.

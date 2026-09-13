@@ -373,6 +373,9 @@ code, and tests — don't drift to synonyms.
   the snapshot; no other device ever creates one. It is not a Completion
   notice (a wording decision) and not an Unread result (one round's reading
   state): it is the fact that a round ended, kept long enough to be reviewed.
+  Each completed entry carries its own read mark: the session's while the
+  round is the session's current one (so Mark Unread shows again as unread),
+  the last mark recorded once a later round has replaced it.
 - **Recap horizon** — the single moment the Mac keeps as "the user last read
   the recap": entries that ended before it are no longer in the recap. Moved
   forward only, by Mark all (`POST /recap-read`), shared by every device. It

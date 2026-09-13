@@ -29,6 +29,11 @@ struct RecapLedger {
         var ledgerLine: String?
         var endedAt: Date
         var recordedAt: Date
+        /// The round's own read mark, kept here because a session carries only
+        /// its latest completion's read state: once the session moves on, this
+        /// is the only record that an earlier round was read (or put back to
+        /// unread). Absent in files written before it existed.
+        var isRead: Bool?
     }
 
     struct File: Codable, Equatable, Sendable {
@@ -71,7 +76,7 @@ struct RecapLedger {
     @discardableResult
     mutating func observe(_ sessions: [AgentSession], sourceID: String?, now: Date) -> Bool {
         guard let sourceID, !sourceID.isEmpty else { return false }
-        var added = false
+        var changed = false
         liveRounds.formIntersection(sessions.map(\.id))
         for session in sessions where session.historyOnly != true {
             // A tool may fail while the agent continues recovering. `isStuck`
@@ -90,7 +95,7 @@ struct RecapLedger {
                                          fallbackSummary: Self.sentence(session.summary),
                                          ledgerLine: RecapEntry.ledgerLine(for: session),
                                          endedAt: session.statusSince, recordedAt: now)
-                    added = true
+                    changed = true
                 }
             } else if session.status == .done, let completionID = session.completionID, !completionID.isEmpty {
                 let id = RecapEntry.completedID(sourceID: sourceID, sessionID: session.id, completionID: completionID)
@@ -100,22 +105,32 @@ struct RecapLedger {
                     // sentence in once, never replace one already kept.
                     if existing.fallbackSummary == nil, let sentence = Self.sentence(session.completionText) {
                         existing.fallbackSummary = sentence
-                        entries[id] = existing
-                        added = true
+                        changed = true
                     }
+                    // While this is the session's current round, its read mark
+                    // follows the session (read, then Mark Unread, then read
+                    // again); the last value observed is what the entry keeps
+                    // once a later round replaces it.
+                    if let read = Self.readState(of: existing, in: session), existing.isRead != read {
+                        existing.isRead = read
+                        changed = true
+                    }
+                    entries[id] = existing
                 } else if observedLive {
-                    entries[id] = Stored(id: id, kind: .completed, sessionID: session.id, completionID: completionID,
-                                         agent: session.agent, project: session.project,
-                                         title: Self.title(of: session),
-                                         fallbackSummary: Self.sentence(session.completionText ?? session.summary),
-                                         ledgerLine: RecapEntry.ledgerLine(for: session),
-                                         endedAt: session.statusSince, recordedAt: now)
-                    added = true
+                    var stored = Stored(id: id, kind: .completed, sessionID: session.id, completionID: completionID,
+                                        agent: session.agent, project: session.project,
+                                        title: Self.title(of: session),
+                                        fallbackSummary: Self.sentence(session.completionText ?? session.summary),
+                                        ledgerLine: RecapEntry.ledgerLine(for: session),
+                                        endedAt: session.statusSince, recordedAt: now)
+                    stored.isRead = Self.readState(of: stored, in: session)
+                    entries[id] = stored
+                    changed = true
                 }
             }
         }
-        if added { save(now: now) }
-        return added
+        if changed { save(now: now) }
+        return changed
     }
 
     /// Move the horizon forward. Returns whether it moved; an older or equal
@@ -143,8 +158,9 @@ struct RecapLedger {
                 points.append(line)
             }
             if let ledger = stored.ledgerLine { points.append(ledger) }
-            let read = stored.kind == .completed && stored.completionID != nil
-                && session?.acknowledgedCompletionID == stored.completionID
+            // The session is authoritative for its current round; every earlier
+            // round keeps the mark the ledger recorded while it was current.
+            let read = Self.readState(of: stored, in: session) ?? stored.isRead ?? false
             return RecapEntry(id: stored.id, kind: stored.kind, sessionID: stored.sessionID,
                               completionID: stored.completionID, agent: stored.agent, project: stored.project,
                               title: stored.title, points: points, endedAt: stored.endedAt, isRead: read)
@@ -153,6 +169,16 @@ struct RecapLedger {
     }
 
     // MARK: helpers
+
+    /// The session's own read mark for a completed round, or nil when this
+    /// round is not the one the session currently carries. Read means
+    /// acknowledged and not put back to unread: `markCompletionUnread` keeps
+    /// `acknowledgedCompletionID` and raises `hasUnreadCompletion`.
+    private static func readState(of stored: Stored, in session: AgentSession?) -> Bool? {
+        guard stored.kind == .completed, let completionID = stored.completionID,
+              let session, session.completionID == completionID else { return nil }
+        return session.acknowledgedCompletionID == completionID && !session.hasUnreadCompletion
+    }
 
     private static func title(of session: AgentSession) -> String {
         let title = session.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
