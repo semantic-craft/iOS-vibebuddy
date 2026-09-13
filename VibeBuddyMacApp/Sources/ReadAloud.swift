@@ -7,6 +7,11 @@ final class ReadAloud: ObservableObject {
     /// The key keeps its original name on purpose: renaming it would silently
     /// switch read-aloud off for everyone who already has it on.
     static let enabledKey = "qwenReadAloudEnabled"
+    static let silenceViewedKey = "readAloudSilenceViewedTask"
+    @Published private(set) var paused = false
+    @Published private(set) var hasMoreResults = false
+    @Published private(set) var canReplay = false
+    private var latest: (text: String, id: String)?
     @Published private(set) var busy = false
     @Published private(set) var status = ""
     @Published private(set) var previewStatus = ""
@@ -19,7 +24,18 @@ final class ReadAloud: ObservableObject {
     private var queueBusy = false
     var automaticBusy: Bool { queueBusy }
 
-    init(automaticKey: @escaping @MainActor (VoiceProvider) -> String? = { $0.apiKey },
+    init(automaticKey: @escaping @MainActor (VoiceProvider) -> String? = { provider in
+        if E2ERunConfiguration.current != nil {
+            let env = ProcessInfo.processInfo.environment
+            switch provider {
+            case .qwen: return env["DASHSCOPE_API_KEY"]
+            case .openai: return env["OPENAI_API_KEY"]
+            case .gemini: return env["GEMINI_API_KEY"]
+            default: return nil
+            }
+        }
+        return provider.apiKey
+    },
          makeSynthesizer: @escaping @Sendable (SpeechSynthesisConfiguration) -> (any SpeechSynthesizer)? = SpeechSynthesis.synthesizer) {
         self.automaticKey = automaticKey
         self.makeSynthesizer = makeSynthesizer
@@ -34,9 +50,38 @@ final class ReadAloud: ObservableObject {
             self.queueBusy = value
             self.updateBusy()
         }
+        queue.onOverflow = { [weak self] in self?.hasMoreResults = true }
         return queue
     }()
     private var generation = UUID()
+
+    func togglePause() {
+        paused.toggle()
+        if paused { queue.pause(); player?.pause(); status = "Read-aloud paused" }
+        else { queue.resume() }
+    }
+
+    func skip() {
+        player?.stop(); player = nil
+        generation = UUID()
+        queue.skip()
+        status = "Skipped; result remains unread"
+    }
+
+    func replayLatest() {
+        guard let latest else { return }
+        speak((VoiceSettings.conversationLanguage() == .chinese ? "此前结果。" : "Previous result. ") + latest.text, id: "replay/" + UUID().uuidString, remember: false)
+    }
+
+    func voiceStarted() { cancelPreview(); player?.pause() }
+
+    private func waitUntilAllowed() async throws {
+        while paused || !canSpeak() {
+            player?.pause()
+            try await Task.sleep(for: .milliseconds(100))
+            try Task.checkCancellation()
+        }
+    }
 
     func stop() {
         cancelPreview()
@@ -62,17 +107,21 @@ final class ReadAloud: ObservableObject {
         }
     }
 
-    func speak(_ text: String, id: String = UUID().uuidString,
+    func speak(_ fallbackText: String, id: String = UUID().uuidString, priority: Bool = false, remember: Bool = true,
+               prepareText: (@MainActor () async -> String?)? = nil,
                validate: @escaping @MainActor () async -> Bool = { true }) {
-        guard E2ERunConfiguration.current?.audioEnabled ?? true, canSpeak() else { return }
-        queue.enqueue(id: id) { [weak self] in
+        guard E2ERunConfiguration.current?.audioEnabled ?? true else { return }
+        queue.enqueue(id: id, priority: priority) { [weak self] in
             guard let self else { return }
             let current = self.generation
             // Preserve queued automatic speech, but never play over a Settings preview.
             if let preview = self.previewTask { _ = await preview.value }
             do {
-                guard !Task.isCancelled, self.generation == current, self.canSpeak() else { return }
-                guard await validate(), !Task.isCancelled, self.generation == current, self.canSpeak() else { return }
+                try await self.waitUntilAllowed()
+                guard !Task.isCancelled, self.generation == current else { return }
+                guard await validate(), !Task.isCancelled, self.generation == current else { return }
+                let text = await prepareText?() ?? fallbackText
+                guard await validate(), !Task.isCancelled, self.generation == current else { return }
                 let readAloud = VoiceSettings.readAloudStatus()
                 guard case .ready(let provider) = readAloud else {
                     self.status = Self.unavailability(readAloud) ?? ""; return
@@ -85,25 +134,56 @@ final class ReadAloud: ObservableObject {
                     self.status = SpeechSynthesisFailure.configuration.message; return
                 }
                 let data = try await synthesizer.synthesize(text, apiKey: key)
-                guard !Task.isCancelled, self.generation == current, self.canSpeak() else { return }
-                guard await validate(), !Task.isCancelled, self.generation == current, self.canSpeak() else { return }
+                guard !Task.isCancelled, self.generation == current else { return }
+                guard await validate(), !Task.isCancelled, self.generation == current else { return }
+                try await self.waitUntilAllowed()
+                guard await validate(), self.generation == current else { return }
+                let evidenceID = UUID().uuidString
+                if let run = E2ERunConfiguration.current {
+                    try? data.write(to: run.file("speech-" + evidenceID + ".audio"), options: .atomic)
+                    self.recordPlayback("generated", id: evidenceID, text: text)
+                }
                 let player = try AVAudioPlayer(data: data)
                 self.player = player
                 guard player.play() else { self.status = "Your Mac could not play the audio."; self.player = nil; return }
+                self.recordPlayback("started", id: evidenceID, text: text)
+                if remember { self.latest = (text, id); self.canReplay = true }
                 self.status = "Playing speech"
-                while player.isPlaying && !Task.isCancelled {
+                while (player.isPlaying || self.paused || !self.canSpeak()) && !Task.isCancelled {
+                    try await self.waitUntilAllowed()
+                    guard await validate(), !Task.isCancelled, self.generation == current else {
+                        player.stop()
+                        if self.generation == current { self.player = nil; self.status = "Read-aloud stopped" }
+                        return
+                    }
+                    if !player.isPlaying && player.currentTime < player.duration { player.play() }
                     try await Task.sleep(for: .milliseconds(100))
-                    guard await validate(), !Task.isCancelled, self.generation == current, self.canSpeak() else {
+                    guard await validate(), !Task.isCancelled, self.generation == current else {
                         player.stop()
                         if self.generation == current { self.player = nil; self.status = "Read-aloud stopped" }
                         return
                     }
                 }
-                if self.generation == current { self.status = "Playback complete"; self.player = nil }
+                if self.generation == current {
+                    self.status = "Playback complete"; self.player = nil
+                    self.recordPlayback("completed", id: evidenceID, text: text)
+                }
             } catch is CancellationError { }
               catch { if self.generation == current { self.status = Self.copy(for: error) } }
         }
     }
+    /// Isolated acceptance evidence only; no production audio or text is persisted.
+    private func recordPlayback(_ phase: String, id: String, text: String) {
+        guard let run = E2ERunConfiguration.current,
+              let data = try? JSONSerialization.data(withJSONObject: ["phase": phase, "id": id,
+                  "text": text, "at": Date().timeIntervalSince1970]) else { return }
+        let file = run.file("speech-events.jsonl")
+        if !FileManager.default.fileExists(atPath: file.path) { FileManager.default.createFile(atPath: file.path, contents: nil) }
+        guard let handle = try? FileHandle(forWritingTo: file) else { return }
+        defer { try? handle.close() }
+        try? handle.seekToEnd(); try? handle.write(contentsOf: data + Data([10]))
+    }
+
     /// Graded, actionable, and never the provider's own words — a raw response
     /// can carry the credential that was sent with it.
     static func copy(for error: any Error) -> String {

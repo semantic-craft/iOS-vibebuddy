@@ -34,6 +34,12 @@ final class PhoneCompletionReads {
         onChange?()
     }
 
+    func forget(_ request: CompletionReadRequest) {
+        jobs[request]?.cancel(); jobs[request] = nil
+        confirmed.remove(request)
+        replace(entries.filter { $0.request != request })
+    }
+
     func select(epoch: String) {
         pause()
         confirmed = []
@@ -60,6 +66,7 @@ final class PhoneCompletionReads {
         let previousConfirmed = confirmed
         confirmed = confirmed.filter {
             $0.sourceID == source && sessions[$0.sessionID]?.completionID == $0.completionID
+                && sessions[$0.sessionID]?.hasUnreadCompletion == false
         }
         replace(entries.filter { entry in
             guard entry.epoch == epoch, entry.request.sourceID == source,

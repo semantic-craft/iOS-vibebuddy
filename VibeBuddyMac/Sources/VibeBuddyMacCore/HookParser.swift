@@ -37,11 +37,13 @@ public enum HookParser {
             }
             return HookEvent(kind: .sessionMetadataChanged, sessionID: sessionID, agent: agent,
                              cwd: raw.cwd, message: line, transcriptPath: raw.transcriptPath,
-                             timestamp: receivedAt)
+                             timestamp: receivedAt, permissionModeRaw: raw.permissionMode)
         }
 
         let message: String?
-        if raw.hookEventName == "PermissionRequest" {
+        if raw.hookEventName == "UserPromptSubmit" {
+            message = raw.prompt ?? raw.message
+        } else if raw.hookEventName == "PermissionRequest" {
             message = raw.toolName.map { "Permission required for \($0)" } ?? "Permission required"
         } else if raw.hookEventName == "PermissionDenied" {
             message = raw.toolName.map { "Permission denied for \($0)" } ?? "Permission denied"
@@ -74,7 +76,7 @@ public enum HookParser {
             ? Self.nonEmpty(raw.agentId).map { "subagent:\($0)" }
             : nil
 
-        return HookEvent(
+        var event = HookEvent(
             kind: kind,
             sessionID: sessionID,
             agent: agent,
@@ -92,8 +94,11 @@ public enum HookParser {
             childType: child.type,
             childAction: child.action,
             completionText: raw.hookEventName == "Stop" ? raw.lastAssistantMessage : nil,
-            completionSucceeded: raw.hookEventName == "Stop"
+            completionSucceeded: raw.hookEventName == "Stop",
+            permissionModeRaw: raw.permissionMode
         )
+        event.startsNewSession = agent == .claudeCode && raw.hookEventName == "SessionStart" && raw.source == "startup"
+        return event
     }
 
     /// Did this tool result report a failure? Read defensively with
@@ -222,11 +227,13 @@ public enum HookParser {
 
     struct RawHook: Decodable {
         let hookEventName: String
+        let source: String?
         let sessionId: String?
         let cwd: String?
         let toolName: String?
         let notificationType: String?
         let message: String?
+        let prompt: String?
         let error: String?
         let lastAssistantMessage: String?
         let transcriptPath: String?
@@ -237,6 +244,7 @@ public enum HookParser {
         let teammateName: String?
         let teamName: String?
         let model: String?
+        let permissionMode: String?
         let toModel: String?
         let newCwd: String?
     }

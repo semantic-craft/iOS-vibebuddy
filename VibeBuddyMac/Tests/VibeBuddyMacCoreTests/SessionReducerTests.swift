@@ -50,16 +50,16 @@ struct SessionReducerTests {
         #expect(r.sessions["s1"]?.activeTool == nil)
     }
 
-    @Test("a tool error before Stop marks the done session failed")
-    func toolErrorThenStopIsFailed() {
+    @Test("a tool error does not prove terminal failure")
+    func toolErrorThenStopIsNotConfirmedFailure() {
         var r = SessionReducer()
         r.apply(ev(.sessionStart))
         r.apply(ev(.postToolUse, tool: "Bash", toolError: true, at: 1))
         r.apply(ev(.stop, at: 2))
         #expect(r.sessions["s1"]?.status == .done)
-        #expect(r.sessions["s1"]?.isStuck == true)
-        #expect(r.sessions["s1"]?.hasUnreadCompletion == false)
-        #expect(r.sessions["s1"]?.presentationState == .error)
+        #expect(r.sessions["s1"]?.isStuck == false)
+        #expect(r.sessions["s1"]?.hasUnreadCompletion == true)
+        #expect(r.sessions["s1"]?.presentationState == .completeUnread)
     }
 
     @Test("a clean turn ends not-failed")
@@ -153,13 +153,13 @@ struct SessionReducerTests {
         #expect(genuine.sessions["s1"]?.hasUnreadCompletion == true)
     }
 
-    @Test("a failure-looking Stop message marks failed even without a tool error")
+    @Test("failure words without a terminal signal do not prove failure")
     func failureStopMessage() {
         var r = SessionReducer()
         r.apply(ev(.sessionStart))
         r.apply(ev(.stop, message: "Build failed: 3 errors", at: 1))
-        #expect(r.sessions["s1"]?.isStuck == true)
-        #expect(r.sessions["s1"]?.hasUnreadCompletion == false)
+        #expect(r.sessions["s1"]?.isStuck == false)
+        #expect(r.sessions["s1"]?.hasUnreadCompletion == true)
     }
 
     @Test("spentTokens accumulates distinct per-turn readings, ignoring re-reads")
@@ -266,6 +266,7 @@ struct SessionReducerTests {
         #expect(session?.statusSince == statusSince)
         #expect(session?.activeTool == "Edit")
         #expect(session?.project == "new")
+        #expect(session?.checkoutPath == "/x/new")
         #expect(session?.model == "claude-opus-5")
         #expect(session?.updatedAt == t0.addingTimeInterval(3))
     }

@@ -118,9 +118,14 @@ public actor CursorTranscriptMonitor {
             cursor.lastAssistantText = text
             return base(cursor, kind: .sessionMetadataChanged, at: now,
                         message: String(text.prefix(220)))
-        case .toolUse(let name, _):
-            return base(cursor, kind: .preToolUse, at: now,
-                        tool: CursorToolVocabulary.canonicalTool(name))
+        case .toolUse(let name, let detail):
+            var observed = base(cursor, kind: .preToolUse, at: now,
+                                tool: CursorToolVocabulary.canonicalTool(name))
+            observed.toolCall = ToolCallRecord(id: UUID().uuidString, tool: name,
+                command: ToolActivity.phrase(for: name) == "Running" ? detail : nil,
+                observedAt: now, source: "transcript",
+                coverage: "Cursor transcript intent only; no result or exit code is recorded")
+            return observed
         case .turnEnded(let status, let error):
             let message: String? = status == "success"
                 ? cursor.lastAssistantText.map { String($0.prefix(220)) }

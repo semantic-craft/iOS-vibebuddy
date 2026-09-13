@@ -116,7 +116,8 @@ public struct CodexAppServerReducer: Sendable, Equatable {
             return [event(.stop, threadID: id, receivedAt: receivedAt, message: message?.trimmingCharacters(in: .whitespacesAndNewlines),
                           turnID: turn["id"] as? String,
                           completionText: status == "completed" && turn["status"] != nil
-                            ? message : nil, completionSucceeded: turn["status"] as? String == "completed")]
+                            ? message : nil, completionSucceeded: (turn["status"] as? String).flatMap { value in
+                                value == "completed" ? true : (["failed", "interrupted"].contains(value) ? false : nil) })]
         case "item/started", "item/completed":
             if method == "item/completed", let id = params["threadId"] as? String,
                let turnID = params["turnId"] as? String,
@@ -139,13 +140,24 @@ public struct CodexAppServerReducer: Sendable, Equatable {
                 guard endedTurns[id]?.contains(itemTurn) != true else { return [] }
                 if let active = threads[id]?.activeTurnID, itemTurn != active { return [] }
             } else if inactiveThreads.contains(id) { return [] }
-            if method == "item/started" {
-                return [event(.preToolUse, threadID: id, receivedAt: receivedAt, toolName: tool,
-                              turnID: params["turnId"] as? String)]
-            }
+            let completed = method == "item/completed"
             let failed = item["status"] as? String == "failed"
-            return [event(.postToolUse, threadID: id, receivedAt: receivedAt, toolName: tool,
-                          toolError: failed, turnID: params["turnId"] as? String)]
+            var observed = event(completed ? .postToolUse : .preToolUse, threadID: id,
+                                 receivedAt: receivedAt, toolName: tool, toolError: failed,
+                                 turnID: params["turnId"] as? String)
+            let changes = item["changes"] as? [[String: Any]] ?? []
+            let diffs = changes.compactMap { $0["diff"] as? String }
+            let lines = diffs.flatMap { $0.components(separatedBy: .newlines) }
+            let status = item["status"] as? String
+            observed.toolCall = ToolCallRecord(id: item["id"] as? String ?? UUID().uuidString,
+                tool: tool, command: item["command"] as? String,
+                files: changes.compactMap { $0["path"] as? String },
+                linesAdded: diffs.isEmpty ? nil : lines.filter { $0.hasPrefix("+") && !$0.hasPrefix("+++") }.count,
+                linesRemoved: diffs.isEmpty ? nil : lines.filter { $0.hasPrefix("-") && !$0.hasPrefix("---") }.count,
+                result: completed && (status == "completed" || status == "failed") ? (failed ? .failed : .succeeded) : .unconfirmed,
+                exitCode: item["exitCode"] as? Int, observedAt: receivedAt, source: "appserver",
+                coverage: "Observed app-server items; retained 50, snapshot 20")
+            return [observed]
         case "thread/tokenUsage/updated":
             guard let id = params["threadId"] as? String,
                   let usage = params["tokenUsage"] as? [String: Any] else { return [] }

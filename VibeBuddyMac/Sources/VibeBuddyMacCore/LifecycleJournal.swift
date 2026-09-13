@@ -23,6 +23,7 @@ public struct LifecycleJournalEntry: Codable, Sendable, Equatable, Identifiable 
     public let completionID: String?
     public let hasUnreadCompletion: Bool?
     public let statusSince: Date?
+    public let acknowledgedCompletionID: String?
     public let failed: Bool?
 
     /// A hook may hand the reducer an arbitrarily long slash-free `cwd`, which
@@ -43,7 +44,8 @@ public struct LifecycleJournalEntry: Codable, Sendable, Equatable, Identifiable 
         completionID: String? = nil,
         hasUnreadCompletion: Bool? = nil,
         statusSince: Date? = nil,
-        failed: Bool? = nil
+        failed: Bool? = nil,
+        acknowledgedCompletionID: String? = nil
     ) {
         self.id = id
         self.sessionID = sessionID
@@ -58,6 +60,7 @@ public struct LifecycleJournalEntry: Codable, Sendable, Equatable, Identifiable 
         self.hasUnreadCompletion = hasUnreadCompletion
         self.statusSince = statusSince
         self.failed = failed
+        self.acknowledgedCompletionID = acknowledgedCompletionID
     }
 
     /// The label cut to `maxProjectBytes` of UTF-8 on a character boundary.
@@ -153,7 +156,7 @@ struct LifecycleJournal {
                   (status == .working || status == .needsResponse || entry.completionID != nil),
                   (entry.completionID != nil || now.timeIntervalSince(entry.timestamp) <= max(0, meaningfulFor))
             else { return nil }
-            return AgentSession(
+            var session = AgentSession(
                 id: entry.sessionID,
                 agent: entry.agent,
                 project: entry.project ?? "—",
@@ -170,6 +173,8 @@ struct LifecycleJournal {
                 statusSince: entry.statusSince ?? entry.timestamp,
                 updatedAt: entry.timestamp
             )
+            session.acknowledgedCompletionID = entry.acknowledgedCompletionID
+            return session
         }
     }
 

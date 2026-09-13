@@ -70,3 +70,14 @@ its hover `bg2`.
   work that is no longer current (`SessionCurrency`) into a fourth, initially
   collapsed `Older` group rather than into `Done`, and its summary line counts
   current sessions only — the same numbers as the phone and the Watch.
+
+## New decision (2026-09-13): results and confirmed failures
+
+ADR-0020 changes the information order to title, activity or this round's result,
+agent-reported progress, unread marker and time, using the same Cursor tokens.
+Needs you remains unfolded and now orders question/plan, approval, then confirmed
+terminal failure. A tool failure during recovery remains Working; an observation
+error does not establish failure. Done sorts unread results first. These are new
+decisions, not claims about the original grouping contract. Next pending visits
+Needs you and then unread Done, while Return retains its existing Jump action.
+Jump does not mark read. The summary separates needs-you and unread-result counts.

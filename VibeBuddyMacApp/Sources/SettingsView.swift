@@ -3,7 +3,7 @@ import AppKit
 import VibeBuddyKit
 import VibeBuddyMacCore
 
-/// Settings. Ten pages under five sidebar groups, each page sized to be read
+/// Settings. Eleven pages under five sidebar groups, each page sized to be read
 /// without scrolling at the window's default size — the five broad categories
 /// this replaced had grown long enough (quota and token spend arrived in one
 /// tab) that every one of them scrolled. Chrome lives in `SettingsChrome.swift`.
@@ -51,6 +51,8 @@ struct SettingsView: View {
             PhonePage(model: model, setup: hookSetup, showDiagnostics: showDiagnostics)
         case .agentCLIs:
             AgentCLIsPage(model: model, setup: hookSetup)
+        case .connect:
+            HistoryConnectPage()
         case .quota:
             PlanAndQuotaPage(model: model)
         case .tokenSpend:
@@ -94,7 +96,7 @@ enum SettingsGroupID: String, CaseIterable, Identifiable {
 enum SettingsPageID: String, CaseIterable, Identifiable {
     case general, notifications
     case voice, providerKeys
-    case phone, agentCLIs
+    case phone, agentCLIs, connect
     case quota, tokenSpend, usageSources
     case diagnostics
 
@@ -104,7 +106,7 @@ enum SettingsPageID: String, CaseIterable, Identifiable {
         switch self {
         case .general, .notifications: .everyday
         case .voice, .providerKeys: .voice
-        case .phone, .agentCLIs: .connections
+        case .phone, .agentCLIs, .connect: .connections
         case .quota, .tokenSpend, .usageSources: .usage
         case .diagnostics: .advanced
         }
@@ -118,6 +120,7 @@ enum SettingsPageID: String, CaseIterable, Identifiable {
         case .providerKeys: "Provider keys"
         case .phone: "Phone & remote"
         case .agentCLIs: "Agent CLIs"
+        case .connect: "Connect"
         case .quota: "Plan & quota"
         case .tokenSpend: "Token spend"
         case .usageSources: "Usage sources"
@@ -133,6 +136,7 @@ enum SettingsPageID: String, CaseIterable, Identifiable {
         case .providerKeys: "One key per provider, shared by every feature"
         case .phone: "Pairing and remote access"
         case .agentCLIs: "Hooks, daemons and who answers first"
+        case .connect: "Read local history from your agents"
         case .quota: "When an allowance should warn you"
         case .tokenSpend: "What this Mac has spent locally"
         case .usageSources: "Where the numbers are read from"
@@ -148,6 +152,7 @@ enum SettingsPageID: String, CaseIterable, Identifiable {
         case .providerKeys: "key"
         case .phone: "iphone.gen3"
         case .agentCLIs: "terminal"
+        case .connect: "link"
         case .quota: "gauge.with.dots.needle.50percent"
         case .tokenSpend: "chart.bar"
         case .usageSources: "dot.radiowaves.left.and.right"
@@ -244,7 +249,7 @@ private struct GeneralPage: View {
     @ObservedObject var model: MenuBarModel
     @ObservedObject var setup: HookSetup
     @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
-    @AppStorage("showMenuBarTaskStatus") private var showMenuBarTaskStatus = false
+    @AppStorage("showMenuBarTaskStatus") private var showMenuBarTaskStatus = true
     @State private var showHideIconNote = false
 
     var body: some View {
@@ -277,6 +282,9 @@ private struct GeneralPage: View {
                 SettingsRow("Open Dashboard",
                             detail: "Works from any app. Hyper (⌃⌥⇧⌘) combos recommended.") {
                     HotkeyRecorderView(current: model.openDashboardHotkey, onRecord: model.setHotkey)
+                }
+                SettingsRow("Next pending task", detail: "Needs you, then unread results.") {
+                    HotkeyRecorderView(current: model.nextPendingHotkey, onRecord: model.setNextPendingHotkey)
                 }
                 SettingsRow("Toggle Glance",
                             detail: "Show or hide the floating glance from the keyboard — handy on a notchless screen where it would otherwise sit on top of your work.") {
@@ -359,7 +367,7 @@ private struct NotificationsPage: View {
             }
 
             SettingsSection("Quiet",
-                            footnote: "Quiet mode keeps approvals and questions silent and suppresses other session alerts. Enabled quota alerts still follow the Sound setting.") {
+                            footnote: "Quiet mode keeps questions, plan decisions and approvals visible but silent. Failures stay in the list; completions are quiet. Enabled quota alerts still follow the Sound setting.") {
                 SettingsRow("Quiet mode",
                             detail: "Approvals and questions stay silent; other session alerts are suppressed.") {
                     Toggle("", isOn: $quiet).labelsHidden().toggleStyle(.switch).disabled(!notify)
@@ -542,6 +550,17 @@ private struct AgentCLIsPage: View {
                                          : (status.configured ? .warn : .neutral))
                         }
                     })
+                }
+            }
+
+            SettingsSection("Reported permission mode",
+                            footnote: "Latest observed session per agent. Mode describes the agent; real waiting requests still need you. Unknown is not autonomous. Codex approval and sandbox policies are independent.") {
+                ForEach([AgentKind.claudeCode, AgentKind.codex, AgentKind.cursor], id: \.rawValue) { (agent: AgentKind) in
+                    let latest = model.sessions.filter { $0.agent == agent }
+                        .max { ($0.permissionObservedAt ?? $0.updatedAt) < ($1.permissionObservedAt ?? $1.updatedAt) }
+                    SettingsRow(verbatim: agent.displayName) {
+                        SettingsValue(verbatim: latest?.permissionDescription ?? "Unknown")
+                    }
                 }
             }
 

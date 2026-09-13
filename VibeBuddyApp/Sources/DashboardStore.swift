@@ -806,9 +806,18 @@ final class DashboardStore: ObservableObject {
         return CompletionReadRequest(sourceID: sourceID, sessionID: session.id, completionID: completionID)
     }
 
+    func markUnread(_ session: AgentSession) {
+        guard let pairing, let request = completionRequest(for: session) else { return }
+        completionReads.forget(request)
+        Task {
+            let result = await decisionClient.acknowledge(pairing, request: CompletionReadRequest(sourceID: request.sourceID, sessionID: request.sessionID, completionID: request.completionID, markUnread: true))
+            if result != .accepted && result != .alreadyAcknowledged { showToast(String(localized: "Couldn’t update unread status")) }
+        }
+    }
+
     func completionReadStatus(for session: AgentSession) -> String? {
         guard let request = completionRequest(for: session) else { return nil }
-        if completionReads.confirmed.contains(request) || !session.hasUnreadCompletion {
+        if !session.hasUnreadCompletion {
             return String(localized: "Read — confirmed by Mac")
         }
         if completionReads.entries.contains(where: { $0.request == request }) {
@@ -818,6 +827,20 @@ final class DashboardStore: ObservableObject {
     }
 
     /// Fetch the bounded recent-output slice. Does not acknowledge completions.
+    func workspaceChanges(for session: AgentSession, scope: ChangesScope, baseline: String?, file: String?) async -> WorkspaceChanges? {
+        guard let pairing else { return nil }
+        return await decisionClient.workspaceChanges(pairing, sessionId: session.id, scope: scope, baseline: baseline, file: file)
+    }
+
+    var completionSourceID: String? { sourceID }
+
+    func completionBody(for session: AgentSession) async -> CompletionBody? {
+        guard let pairing, let completionID = session.completionID else { return nil }
+        let body = await decisionClient.completionBody(pairing, sessionId: session.id, completionId: completionID)
+        guard body?.sourceID == sourceID else { return nil }
+        return body
+    }
+
     func loadRecentOutput(_ sessionId: String) async {
         if isDemo {
             recentOutputs[sessionId] = Self.demoRecentOutput(sessionId, from: allSessions)

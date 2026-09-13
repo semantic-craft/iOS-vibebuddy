@@ -477,3 +477,28 @@
 
 /* VoiceStrip error when the companion has no key (seen in zh QA, 2026-09-13) */
 "Add your %@ API key in Settings first." = "请先在设置中填写 %@ 的 API 密钥。";
+"Unread" = "未读";
+"Last observed: %@" = "最后观察：%@";
+
+"Mark as read" = "标为已读";
+"Mark as unread" = "标回未读";
+"Couldn’t update unread status" = "无法更新未读状态";
+"Agent final response · this completion · not independently verified" = "Agent 最终回复 · 本次完成 · 未经独立验证";
+"Loading this completion…" = "正在读取本次完成结果…";
+"Your decision" = "需要你的决定";
+"Actions" = "可执行操作";
+"Activity and file changes" = "活动记录与文件变化";
+"Permission mode" = "权限模式";
+"Unknown" = "未知";
+"AI summary · this completion · agent-reported results" = "AI 摘要 · 本次完成 · 结果由 Agent 自述";
+"Completion notice · this completion" = "完成通知 · 本次完成";
+"Latest observed activity · limited coverage" = "最近观察到的活动 · 覆盖有限";
+"Next pending task" = "下一个待处理任务";
+"Next pending" = "下一个待处理";
+
+"No call identity; result cannot be linked to intent" = "缺少调用身份，无法将结果关联到执行意图";
+"Observed hook calls only; retained 50, snapshot 20" = "仅记录已观察到的 Hook 调用；保留 50 条，快照显示 20 条";
+"This completion is no longer current." = "这次完成结果已不再是当前轮次。";
+"The final result could not be verified for this completion. Recent output remains available with limited coverage." = "无法核实最终结果与本次完成的对应关系；仍可查看覆盖有限的最近输出。";
+
+"Workspace changes" = "工作区变化";
