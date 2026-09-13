@@ -46,6 +46,28 @@ final class CursorHistoryTests: XCTestCase {
         XCTAssertEqual(flatSession.messages.first?.text, "Unwrapped question")
     }
 
+    func testMinuteBearingUTCOffsetsAndInvalidFallback() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+        let fallback = Date(timeIntervalSince1970: 1234)
+        let cases: [(String, String?)] = [
+            ("+5:30", "2026-09-08T21:44:00Z"),
+            ("-3:30", "2026-09-09T06:44:00Z"),
+            ("-0:30", "2026-09-09T03:44:00Z"),
+            ("+5:45", "2026-09-08T21:29:00Z"),
+            ("+5:60", nil),
+            ("+14:01", nil)
+        ]
+        for (offset, expected) in cases {
+            let text = "<timestamp>Wednesday, Sep 9, 2026, 3:14 AM (UTC\(offset))</timestamp>\n<user_query>Offset check</user_query>"
+            try fixture.write([["role": "user", "message": ["content": [["type": "text", "text": text]]]]], to: fixture.source)
+            let session = try SessionHistoryParser.read(url: fixture.source, agent: .cursor, updatedAt: fallback)
+            let date = expected.flatMap { ISO8601DateFormatter().date(from: $0) }
+            XCTAssertEqual(session.messages.first?.timestamp, date, offset)
+            XCTAssertEqual(session.updatedAt, date ?? fallback, offset)
+        }
+    }
+
     func testRepositoryIndexesCursorWithAgentKeysAndReadOnlyToolParity() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }
