@@ -37,10 +37,26 @@ struct DashboardView: View {
     @StateObject private var history = HistoryLibraryModel()
     // Demo instance pre-selects the approval session so the detail pane (diff +
     // Approve/Deny) is shown for screenshots; nil in normal use.
+    // `VIBEBUDDY_DEMO_SELECT=<demo session id>` picks another row for
+    // screenshots of the done / working readings.
     @State private var selection: String? =
-        ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1" ? "demo-edit" : nil
+        ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1"
+            ? (ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO_SELECT"] ?? "demo-edit") : nil
     @FocusState private var searchFocused: Bool
     @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
+    /// The detail column's right slot — shelf, pane or rail, and which tool —
+    /// remembered across sessions and launches (ticket 11).
+    @AppStorage("dashboard.rightSlot") private var rightSlot = RightSlotState()
+    /// Composer drafts by session id, for this window's lifetime: a draft
+    /// survives opening, expanding or closing a tool and the narrow-window
+    /// pane (which all rebuild the reading column), and a selection change
+    /// shows the other session's own draft, never this one.
+    @State private var composerDrafts: [String: String] = [:]
+
+    private func draftBinding(for sessionID: String) -> Binding<String> {
+        Binding(get: { composerDrafts[sessionID] ?? "" },
+                set: { composerDrafts[sessionID] = $0.isEmpty ? nil : $0 })
+    }
 
     private var projection: DashboardSessionList {
         DashboardSessionList(model.sessions, project: projectScope, status: statusFilter,
@@ -123,6 +139,9 @@ struct DashboardView: View {
                 Button("") { statusFilter = nil }.keyboardShortcut("0", modifiers: .command)
                 // ⌘F focuses the search field, leaving Usage first if needed.
                 Button("", action: focusSearch).keyboardShortcut("f", modifiers: .command)
+                // ⌥⌘B hides the right slot to its rail and brings it back, as
+                // Cursor's sidebar toggle does.
+                Button("") { rightSlot = rightSlot.reduced(.toggleRail) }.keyboardShortcut("b", modifiers: [.command, .option])
                 // ⏎ jumps to the selected session's terminal. Ignored while typing in
                 // search so it doesn't shadow the field's own Return.
                 Button("") {
@@ -231,19 +250,12 @@ struct DashboardView: View {
         }
     }
 
+    /// Title bar, reading column and the right slot (shelf / pane / rail),
+    /// laid out by `RightSlotState` for the width the split gives it.
     @ViewBuilder private var detailColumn: some View {
         if let s = selectedSession {
-            ScrollView {
-                VStack(spacing: 0) {
-                    DetailCard(session: s, model: model)
-                    Divider()
-                    RecentOutputPane(session: s, model: model)
-                }
-                .id(s.id)
-                .companionCard(radius: MacTheme.panelRadius)
-                .padding(12)
-            }
-            .frame(minWidth: 340, idealWidth: 380, maxWidth: .infinity)
+            SessionDetailColumn(session: s, model: model, slot: $rightSlot, draft: draftBinding(for: s.id))
+                .frame(minWidth: 340, idealWidth: 520, maxWidth: .infinity)
         } else {
             QuietEmptyState(title: "Select a session", message: "Pick a task on the left to see its details.")
                 .frame(minWidth: 340, idealWidth: 380, maxWidth: .infinity, maxHeight: .infinity)
@@ -373,233 +385,6 @@ private struct AgentTile: View {
     }
 }
 
-/// Goal, progress, decision, actions, then supporting records.
-private struct DetailCard: View {
-    let session: AgentSession
-    @ObservedObject var model: MenuBarModel
-    @State private var showChanges = false
-    @State private var showTranscript = false
-    @State private var completionBody: CompletionBody?
-    @State private var resultIsVisible = false
-    @State private var acknowledgedBodyID: String?
-    private var resultKey: String { (model.completionSourceID ?? "unknown") + "/" + session.id + "/" + (session.completionID ?? "working") }
-    private var currentBody: CompletionBody? {
-        guard let completionBody, completionBody.sourceID == model.completionSourceID, completionBody.sessionID == session.id,
-              completionBody.completionID == session.completionID else { return nil }
-        return completionBody
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(session.taskGoal).lineLimit(3).font(MacTheme.font(20, .semibold)).foregroundStyle(MacTheme.ink)
-                .fixedSize(horizontal: false, vertical: true)
-            if session.name != nil {
-                Text(session.project).font(MacTheme.font(12, .bold)).foregroundStyle(MacTheme.ink3)
-            }
-            HStack(spacing: 6) {
-                Image(systemName: session.presentationState.symbolName).font(.system(size: 10, weight: .bold))
-                Text(session.statusLabel)
-            }
-            .font(MacTheme.font(12, .heavy))
-            .foregroundStyle(MacTheme.status(session.presentationState))
-            .padding(.horizontal, 12).padding(.vertical, 4)
-            .background(MacTheme.status(session.presentationState).opacity(0.14), in: Capsule())
-
-            Text(ToolActivity.label(for: session)).font(MacTheme.font(12, .medium))
-                .foregroundStyle(MacTheme.ink2)
-            if let progress = session.detailProgress, !progress.isEmpty {
-                Text(progress).font(MacTheme.font(14)).foregroundStyle(MacTheme.ink)
-                    .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
-                Text(session.detailProgressSource).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink3)
-            }
-            if session.status == .done, session.completionID != nil {
-                if let body = currentBody {
-                    if let text = body.text {
-                        Text(text).font(MacTheme.font(14)).foregroundStyle(MacTheme.ink)
-                            .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
-                                .completionReadingVisibility { visible in
-                                    resultIsVisible = visible; acknowledgeVisibleBody()
-                                }
-                        Text("Agent final response · this completion · not independently verified")
-                            .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink3)
-                    } else if let reason = body.unavailableReason {
-                        Text(LocalizedStringKey(reason)).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink3)
-                    }
-                } else { Text("Loading this completion…").font(MacTheme.font(11)) }
-                Button(session.hasUnreadCompletion ? "Mark as read" : "Mark as unread") {
-                    acknowledgedBodyID = resultKey
-                    if session.hasUnreadCompletion { model.acknowledge(session.id, displayedCompletionID: session.completionID) }
-                    else { model.markUnread(session) }
-                }.buttonStyle(PillButtonStyle(kind: .soft, size: .small))
-            }
-            if session.status == .needsResponse {
-                Text("Your decision").font(MacTheme.font(12, .semibold)).foregroundStyle(MacTheme.ink2)
-                if let approval = session.pendingApproval {
-                    RequestCard(session: session, approval: approval, model: model)
-                } else if let question = session.pendingQuestion {
-                    if WaitHandling.resolve(for: session) == .remoteAvailable {
-                        QuestionCardView(question: question) { answers in model.answer(session.id, answers: answers) }
-                    } else {
-                        Text(question.prompt).font(MacTheme.font(14)).foregroundStyle(MacTheme.ink)
-                        Text(WaitHandling.resolve(for: session).message).font(MacTheme.font(11))
-                    }
-                } else {
-                    Text(WaitHandling.resolve(for: session).message).font(MacTheme.font(11))
-                }
-            }
-            Text("Actions").font(MacTheme.font(12, .semibold)).foregroundStyle(MacTheme.ink2)
-            if session.status == .done {
-                Button("Replay this previous result") { model.replayResult(session, body: currentBody) }
-                    .buttonStyle(PillButtonStyle(kind: .soft, size: .small))
-            }
-            if session.status != .needsResponse && SessionActionSupport.resolve(for: session).isAvailable {
-                InstructionComposer(placeholder: session.status == .done ? "Start a new turn…" : "Add to the current turn…") { text in
-                    model.answer(session.id, answers: [:], text: text)
-                }
-            }
-            if let feedback = model.answerFeedback[session.id] {
-                Text(feedback).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
-            }
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) { detailActions }
-                VStack(alignment: .leading, spacing: 8) { detailActions }
-            }
-            // What the last jump actually achieved — focused the pane, only
-            // raised the app, or found nothing to raise. Same wording as the
-            // glance rows.
-            if let outcome = model.jumpFeedback[session.id] {
-                Label(outcome.macMessage(for: session), systemImage: "arrow.uturn.forward")
-                    .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink2)
-                    .contentTransition(.opacity)
-            }
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Notifications").font(MacTheme.font(11, .heavy)).foregroundStyle(MacTheme.ink3)
-                    .textCase(.uppercase).kerning(0.6)
-                AttentionPicker(session: session, model: model, style: .chips)
-                Text(session.attentionOverride == nil
-                     ? String(localized: "Automatic: \(session.effectiveAttention.title.lowercased()) — followed while you're driving it, normal otherwise.")
-                     : session.effectiveAttention.explanation)
-                    .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink3)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            HStack(spacing: 6) {
-                if let m = session.model { Label(m, systemImage: "cpu") }
-                if let observation = session.observationDescription {
-                    Text("·"); Text(observation)
-                    if let last = session.lastObservedAt { Text(last, style: .relative) }
-                }
-            }
-            .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink3)
-            DisclosureGroup("Activity and file changes") {
-                Button("Changes") { showChanges = true }.buttonStyle(PillButtonStyle(kind: .soft, size: .small))
-                ToolLedgerView(session: session)
-            }
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .animation(.smooth(duration: 0.18), value: model.jumpFeedback)
-        .task(id: resultKey) {
-            completionBody = nil
-            resultIsVisible = false
-            let key = resultKey
-            let loaded = await model.completionBody(for: session)
-            guard !Task.isCancelled, key == resultKey else { return }
-            completionBody = loaded
-        }
-        .onChange(of: currentBody) { _, _ in acknowledgeVisibleBody() }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in acknowledgeVisibleBody() }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in acknowledgeVisibleBody() }
-        .sheet(isPresented: $showChanges) {
-            WorkspaceChangesView { scope, baseline, file in
-                await model.workspaceChanges(for: session, scope: scope, baseline: baseline, file: file)
-            }.frame(minWidth: 540, minHeight: 500)
-        }
-        .sheet(isPresented: $showTranscript) {
-            TranscriptSheet(session: session, model: model)
-        }
-    }
-    private func acknowledgeVisibleBody() {
-        guard resultIsVisible, currentBody?.text?.isEmpty == false, session.hasUnreadCompletion,
-              acknowledgedBodyID != resultKey, model.isViewing(session.id), NSApp.isActive,
-              NSApp.keyWindow?.identifier?.rawValue == "com.vibebuddy.dashboard" else { return }
-        acknowledgedBodyID = resultKey
-        model.acknowledge(session.id, displayedCompletionID: session.completionID)
-    }
-
-    @ViewBuilder private var detailActions: some View {
-        Button(session.agent == .grokBot ? "Open Grok Bot" : session.jumpsToDesktopThread ? "Open thread in ChatGPT" : "Jump to terminal") { model.jump(session) }
-            .buttonStyle(PillButtonStyle(kind: .filled(MacTheme.accent)))
-        Button { showTranscript = true } label: { Label("Recent output", systemImage: "text.alignleft") }
-            .buttonStyle(PillButtonStyle(kind: .soft))
-    }
-
-}
-
-/// Round 4, detail pane: the request as a card you can judge before answering —
-/// who asks, what for, the diff or command, then Approve ▾ / Deny / Jump.
-private struct RequestCard: View {
-    let session: AgentSession
-    let approval: PendingApproval
-    @ObservedObject var model: MenuBarModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                AgentAvatar(agent: session.agent)
-                VStack(alignment: .leading, spacing: 1) {
-                    (Text(session.project).fontWeight(.black) + Text(" wants to \(MacSummaryCopy.requestVerb(approval))"))
-                        .font(MacTheme.font(13, .semibold)).foregroundStyle(MacTheme.ink)
-                    Text([approval.tool, session.summary].compactMap { $0 }.joined(separator: " · "))
-                        .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink3).lineLimit(1)
-                }
-            }
-            ApprovalBody(approval: approval)
-            if ApprovalEligibility.approval(for: session) == nil {
-                // Capability does not establish whether the person is present.
-                Label(WaitHandling.resolve(for: session).message, systemImage: "keyboard")
-                    .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink2)
-                if session.canJump {
-                Button(session.agent == .grokBot ? "Open Grok Bot" : session.jumpsToDesktopThread ? "Open thread" : "Jump ⏎") { model.jump(session) }
-                    .buttonStyle(PillButtonStyle(kind: .filled(MacTheme.accent)))
-                }
-            } else {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) { approvalActions }
-                VStack(alignment: .leading, spacing: 8) { approvalActions }
-            }
-            if let rule = approval.suggestedRule {
-                Text("Always allow adds \(rule) to Claude's own permission rules — the same rule the terminal dialog offers.")
-                    .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink3)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            }
-            if session.agent == .grok, let mode = approval.permissionMode, mode != "bypassPermissions" {
-                Label {
-                    Text("Grok will still ask in the terminal after Allow (permission mode: \(mode)). Set permission_mode = \"always-approve\" to approve from here.")
-                } icon: {
-                    Image(systemName: "terminal")
-                }
-                .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink2)
-            }
-        }
-    }
-
-    @ViewBuilder private var approvalActions: some View {
-        SplitApproveButton(
-            approve: { model.decide(approval.id, .allow) },
-            always: { model.decide(approval.id, .alwaysAllow) },
-            session: { model.decide(approval.id, .allowSession) },
-            allowsPersistentDecision: approval.canPersistDecision)
-            .background { Button("") { model.decide(approval.id, .allow) }.keyboardShortcut("a", modifiers: []).opacity(0) }
-        Button("Deny") { model.decide(approval.id, .deny) }
-            .buttonStyle(PillButtonStyle(kind: .ghost))
-            .keyboardShortcut("d", modifiers: [])
-        Button(session.agent == .grokBot ? "Open Grok Bot" : session.jumpsToDesktopThread ? "Open thread" : "Jump ⏎") { model.jump(session) }
-            .buttonStyle(PillButtonStyle(kind: .ghost))
-    }
-
-}
-
 struct VoiceConsentSheet: View {
     @ObservedObject var voice: VoiceChat
     @Environment(\.dismiss) private var dismiss
@@ -626,132 +411,20 @@ struct VoiceConsentSheet: View {
     }
 }
 
-private struct TranscriptSheet: View {
-    let session: AgentSession
-    @ObservedObject var model: MenuBarModel
-    @Environment(\.dismiss) private var dismiss
-    @State private var output: RecentOutput?
-    @State private var loaded = false
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Recent output").font(MacTheme.font(13, .semibold))
-                    Text(session.project).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
-                }
-                Spacer()
-                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
-            }
-            .padding()
-            Divider()
-            content
-        }
-        .frame(minWidth: 460, minHeight: 360)
-        .task {
-            output = await model.recentOutput(for: session.id)
-            loaded = true
-        }
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        if !loaded {
-            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if let output, output.entries.isEmpty {
-            QuietEmptyState(title: "No recent output",
-                            message: output.statusLine.isEmpty
-                                ? "This session hasn't reported a transcript yet." : LocalizedStringKey(output.statusLine),
-                            systemName: "text.alignleft")
-        } else if let output {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 6) {
-                        Text(output.sourceLabel)
-                        if let updatedAt = output.updatedAt {
-                            Text("·")
-                            Text(updatedAt, style: .relative).monospacedDigit()
-                        }
-                    }
-                    .font(MacTheme.font(10, .semibold))
-                    .foregroundStyle(MacTheme.ink2)
-                    if !output.statusLine.isEmpty {
-                        Text(output.statusLine).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
-                    }
-                    ForEach(Array(output.entries.enumerated()), id: \.offset) { _, entry in
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(entry.role == "assistant" ? "Assistant" : "You")
-                                .font(MacTheme.font(10, .semibold))
-                                .foregroundStyle(entry.role == "assistant" ? Color.blue : MacTheme.ink2)
-                            Text(entry.text)
-                                .font(MacTheme.font(12))
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                }
-                .padding()
-            }
-        }
-    }
-}
-
-/// Bounded live output in the main reading pane; never described as full history.
-private struct RecentOutputPane: View {
-    let session: AgentSession
-    @ObservedObject var model: MenuBarModel
-    @State private var output: RecentOutput?
-    @State private var loading = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("Recent output").font(MacTheme.font(13, .semibold))
-                Spacer()
-                Button("Refresh") { Task { await reload() } }
-                    .buttonStyle(PillButtonStyle(kind: .ghost, size: .small)).disabled(loading)
-            }
-            if let output {
-                Text(output.sourceLabel).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
-                if !output.statusLine.isEmpty {
-                    Text(output.statusLine).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
-                }
-                Text("A limited recent excerpt. Open History to read indexed local conversations.")
-                    .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
-                if output.entries.isEmpty {
-                    Text("No recent output is available from this source.")
-                        .foregroundStyle(MacTheme.ink2)
-                }
-                ForEach(Array(output.entries.enumerated()), id: \.offset) { _, entry in
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(entry.role == "assistant" ? "Assistant" : "You")
-                            .font(MacTheme.font(10, .semibold)).foregroundStyle(MacTheme.ink2)
-                        Text(entry.text).font(MacTheme.font(13)).textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-            } else { ProgressView() }
-        }
-        .padding(20)
-        .task(id: session.id) { await reload() }
-    }
-
-    private func reload() async {
-        loading = true
-        output = await model.recentOutput(for: session.id)
-        loading = false
-    }
-}
-
 /// One line of free text for a session, sent with ⌘↩ or the button.
 struct InstructionComposer: View {
     let placeholder: String
+    /// A draft owned outside the composer (the dashboard keeps one per
+    /// session, so it survives the reading column being rebuilt and never
+    /// follows a selection change); `nil` keeps a private one.
+    var externalDraft: Binding<String>? = nil
     let send: (String) -> Void
-    @State private var draft = ""
+    @State private var localDraft = ""
+    private var draft: Binding<String> { externalDraft ?? $localDraft }
 
     var body: some View {
         HStack(spacing: 8) {
-            TextField(placeholder, text: $draft, axis: .vertical)
+            TextField(placeholder, text: draft, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(MacTheme.font(13, .semibold))
                 .lineLimit(1...4)
@@ -761,15 +434,15 @@ struct InstructionComposer: View {
             Button("Send", action: submit)
                 .buttonStyle(PillButtonStyle(kind: .filled(MacTheme.accent)))
                 .keyboardShortcut(.return, modifiers: .command)
-                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
     }
 
     private func submit() {
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         send(text)
-        draft = ""
+        draft.wrappedValue = ""
     }
 }
 

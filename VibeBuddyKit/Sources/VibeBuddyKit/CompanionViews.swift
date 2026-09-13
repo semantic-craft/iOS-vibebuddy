@@ -162,6 +162,37 @@ public struct BucketTitle: View {
 }
 
 #if os(iOS) || os(macOS)
+/// The "Uncommitted ⌄" kind of dropdown Cursor uses for scope and model
+/// pickers: an outlined, quiet capsule with the current value and a chevron.
+/// The Mac dashboard's `MenuPill` is the same shape.
+public struct CompanionMenuPill<Content: View>: View {
+    public let title: String
+    @ViewBuilder public var content: () -> Content
+
+    public init(title: String, @ViewBuilder content: @escaping () -> Content) {
+        self.title = title
+        self.content = content
+    }
+
+    public var body: some View {
+        Menu(content: content) {
+            HStack(spacing: 4) {
+                Text(title).font(CompanionType.font(10.5, .medium)).foregroundStyle(CompanionPalette.ink2).lineLimit(1)
+                Image(systemName: "chevron.down").font(.system(size: 7, weight: .bold)).foregroundStyle(CompanionPalette.ink3)
+            }
+            .padding(.horizontal, 9).padding(.vertical, 3)
+            .overlay(Capsule().strokeBorder(CompanionPalette.line, lineWidth: CompanionType.hairline))
+            .contentShape(Capsule())
+        }
+        #if os(macOS)
+        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
+        #endif
+        .fixedSize()
+    }
+}
+#endif
+
+#if os(iOS) || os(macOS)
 /// `Approve ▾`: the left half approves once, the chevron opens the two wider
 /// grants. One green pill, because the system's split menu button ignores the
 /// prominent tint on macOS.
