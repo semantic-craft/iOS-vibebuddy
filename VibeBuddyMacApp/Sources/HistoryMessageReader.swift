@@ -14,7 +14,9 @@ struct HistoryMessageReader: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 20) {
+                // Pagination already bounds this stack to 30 rows. Eager placement
+                // keeps search scrolling stable while Markdown row heights update.
+                VStack(alignment: .leading, spacing: 20) {
                     Color.clear.frame(height: 1).id("page-top")
                     if pageStart > 0 {
                         Button("Earlier messages") { pageStart = max(0, pageStart - pageSize); proxy.scrollTo("page-top", anchor: .top) }
@@ -45,10 +47,12 @@ struct HistoryMessageReader: View {
                 guard !Task.isCancelled else { return }
                 rows = projected
                 if let index = rows.firstIndex(where: { $0.contains(target) }) {
+                    let targetRowID = rows[index].id
                     pageStart = index
-                    toolsOpen.insert(rows[index].id); thinkingOpen.insert(rows[index].id)
+                    toolsOpen.insert(targetRowID); thinkingOpen.insert(targetRowID)
                     await Task.yield()
-                    proxy.scrollTo(rows[index].id, anchor: .top)
+                    guard !Task.isCancelled else { return }
+                    proxy.scrollTo(targetRowID, anchor: .top)
                 } else { pageStart = min(pageStart, max(0, rows.count - 1)) }
             }
         }

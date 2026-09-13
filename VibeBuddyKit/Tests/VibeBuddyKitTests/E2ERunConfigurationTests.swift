@@ -13,6 +13,13 @@ struct E2ERunConfigurationTests {
         #expect(try E2ERunConfiguration(environment: ["PATH": "/bin"], bundleIdentifier: "com.vibebuddy.mac") == nil)
     }
 
+    @Test("An E2E app relaunched without its environment refuses production fallback")
+    func isolatedBundleWithoutEnvironment() {
+        #expect(throws: E2ERunConfiguration.ConfigurationError.self) {
+            try E2ERunConfiguration(environment: ["PATH": "/bin"], bundleIdentifier: "com.vibebuddy.e2e.probe-1")
+        }
+    }
+
     @Test("Valid run confines names, paths and flags to the explicit namespace")
     func validRun() throws {
         let config = try #require(try E2ERunConfiguration(environment: environment, bundleIdentifier: "com.vibebuddy.e2e.probe-1"))

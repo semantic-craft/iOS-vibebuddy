@@ -45,15 +45,15 @@ Project `.agents/skills/` entries link to originals in `xw-skills`;
 Edit the original, preserve valid links, and follow global wiring rules only
 when links or names change.
 
-This repo owns one skill, tracked in Git because it encodes these routes,
-ports and QA conventions: `docs/agents/skills/verify-vibebuddy/` drives an
-isolated `vibebuddyd` and the iPhone Demo the way a user does. Edit it here,
-not in `xw-skills`. Link it into the machine-local skill face so every agent
-can discover it:
+Repository-owned skills under `docs/agents/skills/` are tracked here. They include
+`verify-vibebuddy` for isolated runtime acceptance and `vibebuddy-history` for
+prior-work context, plus `vibebuddy-handoff` for source-identified handoff notes.
+Edit these originals here, not in `xw-skills`. Link each
+needed skill into the machine-local face, for example:
 
-    ln -s ../../docs/agents/skills/verify-vibebuddy .agents/skills/verify-vibebuddy
+    ln -s ../../docs/agents/skills/vibebuddy-history .agents/skills/vibebuddy-history
 
-The link is untracked like the rest of `.agents/`; the skill itself is not.
+These links are untracked like the rest of `.agents/`; the skills themselves are not.
 
 Use skills for their actual task triggers. Ordinary work does not require a PRD,
 ticket, multiple models, test-first development, or a full suite. Explicitly
@@ -89,3 +89,10 @@ follow `docs/agents/domain.md`, read `CONTEXT.md` and the relevant ADRs. Read
 unrelated ADRs only if the task reaches their subject. Flag conflicts with an
 existing ADR before implementing a conflicting decision. Documentation or
 mechanical edits that do not affect domain meaning need no domain exploration.
+
+## Resuming work
+
+Use `docs/agents/skills/vibebuddy-history/SKILL.md` for prior-work context; read the newest relevant handoff, then saved `summary` and necessary `show` records.
+Check summary coverage and stale status; a summary must not override a newer handoff.
+Optional `status --exclude-session '<own-native-session-id>'` observes other sessions in the same checkout; report busy sessions and let the user decide how to proceed.
+History tools are read-only; unknown live status is not a lock or a reason to start a daemon.

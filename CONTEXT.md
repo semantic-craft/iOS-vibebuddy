@@ -486,3 +486,18 @@ Mac presence suppresses ordinary cues only while the verdict is current; leaving
   label them History. RecentOutput carries a bounded dialogue slice. As `done`
   rows dated by their history time they are current for a day and then older,
   like any other finished session.
+
+- **Session key** — an agent-prefixed native session identity, such as
+  `claude-code:<id>`, `codex:<id>`, `cursor:<id>` or `grok-build:<id>`.
+  Different agents may use the same native ID without sharing an identity.
+- **History reference** — `vibebuddy://session/<key>#<seq>`, pointing to a one-based
+  transcript record in the reported source revision. It is not a permanent
+  reference across source changes; hidden Thinking records retain their sequence.
+- **Live status (tool)** — a read-only observation of current sessions grouped
+  by checkout, excluding the caller's known identity. It is a collaboration hint,
+  not a lock; an unreachable daemon means unknown, not idle.
+- **Handoff note** — the writer's task context and remaining work under
+  `.scratch/<feature>/handoffs/<yyyy-mm-dd>-<from-agent>-<to-agent>.md`.
+  Its first line, `Source session: <key>`, names the writer's own verified Session
+  key, or `unknown` when unavailable; the newest project session is not evidence
+  of authorship. Saved summaries cannot override a newer Handoff note.

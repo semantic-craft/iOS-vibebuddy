@@ -33,6 +33,12 @@ targets:
         product: VibeBuddyKit
       - package: Sparkle
         product: Sparkle
+    postCompileScripts:
+      - name: Build and bundle history MCP CLI
+        script: '"$SRCROOT/../tools/bundle-history-cli.sh"'
+        basedOnDependencyAnalysis: false
+        outputFiles:
+          - "$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/vibebuddy-mcp"
     info:
       path: Sources/Info.plist
       properties:
