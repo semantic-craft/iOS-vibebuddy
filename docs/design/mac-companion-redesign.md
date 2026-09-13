@@ -101,13 +101,16 @@ live and history libraries; only this list scrolls, the rows above stay put.
 At the bottom the account-quota plinth, collapsed by default to one line (the
 provider with the least left, its reset, and any source that cannot be read)
 and expanded to the per-provider rows on click, remembered across launches;
-under it a **Settings** row, where Cursor keeps its gear. Selection and hover
-are an ink wash (7 % / 4 %), never the accent.
+under it a **Settings** row, where Cursor keeps its gear. Selection matches the
+Settings sidebar — accent glyph and title on a 14 % accent wash; hover and press
+stay an ink wash (4 % / 7 %). *(2026-09-13: was an ink wash, never the accent;
+the owner asked the dashboard to carry Settings' green.)*
 
 Content: list column (240–380 pt) + detail column. The list head is the scope
 title, the search pill and a row of filter chips (All / Needs you / Errors /
-Working / Done / Idle; the selected chip is ink-filled). Rows are summary-first
-cards on `bg3`; the selected row sits on `bg2` with a hairline. History uses
+Working / Done / Idle; the selected chip is accent-filled). Rows are summary-first
+cards on `bg3`; the selected row sits on `bg2` with an accent hairline. The
+live mic disc is accent-filled. History uses
 the same head with agent / archive dropdown pills and a `···` menu (Refresh,
 Rebuild index, source notices). Empty panes are `QuietEmptyState`: a 22 pt
 glyph, a body-size title and one line of guidance, centred, no card — never

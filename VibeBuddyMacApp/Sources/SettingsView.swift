@@ -221,7 +221,7 @@ private struct SettingsSidebar: View {
                     .foregroundStyle(selected ? MacTheme.accent : MacTheme.ink2)
                 Text(page.title)
                     .font(SettingsChrome.font(13, selected ? .semibold : .medium))
-                    .foregroundStyle(selected ? MacTheme.accent : MacTheme.ink)
+                    .foregroundStyle(selected ? MacTheme.accentText : MacTheme.ink)
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }

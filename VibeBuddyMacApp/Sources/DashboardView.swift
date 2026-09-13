@@ -90,6 +90,8 @@ struct DashboardView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(MacTheme.bg)
+        // Same tint as Settings, so system controls here pick up the buddy's green.
+        .tint(MacTheme.accent)
         .onReceive(DashboardRoute.shared.$requested) { library in
             guard let library else { return }
             libraryScope = library.rawValue
@@ -331,7 +333,7 @@ private struct SummaryRow: View {
         .overlay {
             if isSelected {
                 RoundedRectangle(cornerRadius: MacTheme.cardRadius, style: .continuous)
-                    .strokeBorder(MacTheme.ink.opacity(0.28), lineWidth: CompanionType.hairline)
+                    .strokeBorder(MacTheme.accent.opacity(0.6), lineWidth: CompanionType.hairline)
                     .allowsHitTesting(false)
             }
         }
