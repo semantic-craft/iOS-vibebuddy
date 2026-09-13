@@ -39,9 +39,22 @@ public actor SessionHistoryRepository {
         if let data = try? Data(contentsOf: directory.appendingPathComponent("index.json")), let cache = try? JSONDecoder().decode(Cache.self, from: data), [4, 5, 6, 7].contains(cache.version) {
             usableIndex = true
             // Never reuse another configured source home's cached content.
-            let configuredRoots = roots
-            entries = cache.entries.filter { path, _ in configuredRoots.contains { URL(fileURLWithPath: path).resolvingSymlinksInPath().path.hasPrefix($0.0.path + "/") } }
-            pendingPaths = Set((cache.pendingPaths ?? []).filter { path in configuredRoots.contains { URL(fileURLWithPath: path).resolvingSymlinksInPath().path.hasPrefix($0.0.path + "/") } })
+            // A removed leaf cannot resolve symlinks. Keep both spellings of
+            // existing configured roots so /private/var caches survive deletion.
+            let prefixes = roots.flatMap { root, _ -> [String] in
+                var paths = [root.path + "/"]
+                if let physical = realpath(root.path, nil) {
+                    paths.append(String(cString: physical) + "/")
+                    free(physical)
+                }
+                return paths
+            }
+            func belongsToRoots(_ path: String) -> Bool {
+                let resolved = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+                return prefixes.contains { path.hasPrefix($0) || resolved.hasPrefix($0) }
+            }
+            entries = cache.entries.filter { belongsToRoots($0.key) }
+            pendingPaths = Set((cache.pendingPaths ?? []).filter(belongsToRoots))
             if cache.version < 7 { pendingPaths.formUnion(entries.keys) }
         }
     }
