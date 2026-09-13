@@ -18,7 +18,13 @@ this coverage limit instead of treating the source as an index that needs repair
 | Grok Build | Official local session IDs, dates and titles | Unavailable in the first version | List dates have day precision; remote-only rows are excluded |
 
 Grok workspace directory names under `$GROK_HOME/sessions` (default `~/.grok`)
-locate candidate working directories; the importer does not read `updates.jsonl`.
+locate candidate working directories. For long paths stored as slug-hash names,
+the importer reads only standalone `summary.json` identity/cwd fields to locate
+the workspace: summaries are capped at 64 KiB, symbolic links are skipped, IDs
+must match their directories, and conflicting cwd values are rejected. It does
+not read `updates.jsonl`. The shared executable resolver honors `$GROK_HOME/bin`,
+standard installation locations and `PATH`, with `~/.local/bin/grok` retained
+as a fallback for App launches whose `PATH` omits it.
 Each local row must match a directory in that workspace, since official list
 output may include sibling worktrees or remote sessions without their absolute
 working directories. Unmatched or malformed rows are omitted with a coverage
