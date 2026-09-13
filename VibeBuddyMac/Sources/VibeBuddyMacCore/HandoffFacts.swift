@@ -152,7 +152,8 @@ public enum HandoffFacts {
         out.append("")
         out.append("## Facts (recorded by VibeBuddy, as of \(stamp))")
         out.append(contentsOf: lifecycleLines(entries, agent: reference.agent, now: now))
-        out.append("- Checkout: \(checkout.map(line) ?? "unknown") (\(checkoutOrigin))")
+        out.append("- Checkout: \(checkout.map(line) ?? "unknown") (\(checkoutOrigin))"
+                   + (checkout == nil ? entries.last?.project.map { " · project label: " + line($0) } ?? "" : ""))
         out.append(contentsOf: gitLines(state, checkout: checkout, stamp: stamp))
         let tickets = ticketCandidates(edited)
         out.append("- Tickets touched: " + (tickets.isEmpty ? "none seen" : tickets.map(line).joined(separator: ", ")))

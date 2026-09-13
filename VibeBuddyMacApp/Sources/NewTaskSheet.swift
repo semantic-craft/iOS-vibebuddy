@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import VibeBuddyKit
+import VibeBuddyMacCore
 
 /// Start a new agent task from the Mac: pick the agent, the directory, write
 /// the prompt, optionally name it. Claude Code starts as a `claude --bg`
