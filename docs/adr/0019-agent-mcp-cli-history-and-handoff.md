@@ -1,6 +1,6 @@
 # ADR-0019: Agents read local session history and live status through one read-only `vibebuddy-mcp` binary; relay between agents is a handoff note that names its source session
 
-- Status: accepted in direction, first version scoped by the owner on 2026-09-13; implementation authorized by the owner on 2026-09-13 (tickets in `.scratch/agent-mcp-cli/`)
+- Status: accepted; first version scoped by the owner on 2026-09-13; implementation authorized by the owner on 2026-09-13 (tickets in `.scratch/agent-mcp-cli/`)
 - Date: 2026-09-13
 - Supersedes / amends: nothing. Sits beside ADR-0009 (daemon routes need the
   bearer token), ADR-0011 (Codex through the app-server daemon), ADR-0016 and
@@ -8,6 +8,9 @@
   `docs/session-history.md` from future work into a decision.
 
 ## Context
+
+The following describes the pre-implementation state checked on 2026-09-13.
+The accepted decision below governs the implemented first version.
 
 vibebuddy already owns the data this decision exposes. `SessionHistoryRepository`
 indexes Claude Code and Codex conversations under
@@ -88,7 +91,7 @@ the prefix so prompts and habits transfer; the last two are vibebuddy's own.
 | --- | --- |
 | `vibebuddy_list_sessions` | most recently updated sessions; `project` (path or unique name), `agents`, `since`, `starred`, `limit` |
 | `vibebuddy_search` | FTS over readable message text; each snippet carries `vibebuddy://session/<key>#<seq>` |
-| `vibebuddy_get_session` | one transcript as compact Markdown with `[seq N]` markers, tool calls folded to a line, Meta and Thinking omitted unless asked; paged by `from_seq` |
+| `vibebuddy_get_session` | one transcript as compact Markdown with `[seq N]` markers, tool calls folded to a line, Meta always omitted; Thinking included only when requested; paged by `from_seq` |
 | `vibebuddy_list_projects` | projects with indexed sessions, most recent first |
 | `vibebuddy_get_summary` | the persisted conversation summary for a key with its style, provider, model, date, **coverage**, and whether the source changed since it was written; never generates one |
 | `vibebuddy_live_status` | the daemon's current sessions for a project: three states, `waitKind`, control channel, agent, checkout directory, last activity |

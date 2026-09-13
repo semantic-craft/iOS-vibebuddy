@@ -6,16 +6,17 @@ reads local Claude Code, Codex and Cursor conversation files independently; sele
 searching an archive never inserts it into the live snapshot.
 
 Grok Build also appears as **list and title metadata only**, from its official
-`grok sessions list` command. The first-version transcript acceptance gate was
-not completed; `show 'grok-build:<id>'` reports that this source has no transcript.
+`grok sessions list` command. The first-version transcript fidelity gate did
+not pass (three exports were readable, but zero of three protected TUI comparisons completed); `show 'grok-build:<id>'` reports that this source has no transcript.
 No Grok messages or titles enter the full-text index. Search explicitly states
 this coverage limit instead of treating the source as an index that needs repair.
 
-| Source | History list | Transcript / full-text search | Limits |
-| --- | --- | --- | --- |
-| Claude Code | Local conversation metadata | Readable conversation records | Source warnings report omitted or bounded records |
-| Codex | Local and archived conversation metadata | Readable conversation records | Source warnings report omitted or bounded records |
-| Grok Build | Official local session IDs, dates and titles | Unavailable in the first version | List dates have day precision; remote-only rows are excluded |
+| Source | Full-text source | Tool results | Thinking | Time and coverage |
+| --- | --- | --- | --- | --- |
+| Claude Code | Local conversation JSONL; validated cache or read-only source fallback | Available | Available plaintext; explicit show option | Record timestamps, then file mtime; child sessions excluded |
+| Codex | Local and archived rollout JSONL; validated cache or read-only source fallback | Available | Available plaintext; encrypted reasoning not decoded | Record timestamps, then file mtime; attachment and resource-limit warnings |
+| Cursor | Local agent-transcripts JSONL; validated cache or read-only source fallback | Unavailable; tool inputs are readable | Unavailable | Timestamp envelopes, then file mtime; files do not identify IDE versus CLI; no encrypted database/cloud content |
+| Grok Build | Unavailable; official local list/title metadata only | Unavailable | Unavailable | Official list dates have day precision; remote-only rows excluded; no full-text search |
 
 Grok workspace directory names under `$GROK_HOME/sessions` (default `~/.grok`)
 locate candidate working directories; the importer does not read `updates.jsonl`.
@@ -55,11 +56,6 @@ aborted turn endings remain visible warnings. Agent-prefixed IDs keep the same
 native ID from different agents separate. Multiple available files for one key
 remain ambiguous for CLI transcript reads and search references.
 
-| Source | Readable content | Coverage limits |
-| --- | --- | --- |
-| Claude Code | User/assistant text, tool calls/results, available plaintext thinking | Child sessions excluded; attachment and resource-limit notices apply |
-| Codex | User/assistant text, tool calls/results, available plaintext thinking and compaction | Encrypted reasoning is not decoded; attachment and resource-limit notices apply |
-| Cursor local transcript | User/assistant text and tool call inputs | No tool results or thinking; no encrypted IDE database or cloud agents; transcript files do not identify IDE versus CLI provenance |
 
 Cursor is available in the Mac History agent filter and in `sessions --agent cursor`,
 `search QUERY --agent cursor`, and `show 'cursor:<composer id>'`. Read-only output
@@ -146,6 +142,48 @@ A local Cursor record with a valid ID and existing project directory offers
 never executes the command or claims that the CLI is signed in. Source visibility alone does not
 establish approval or control capability.
 
-SSH history mirroring and MCP/CLI access are separate future work. This feature does
-not install hooks, synchronize repositories or replace the running app. Mac App Store
-sandbox acceptance is separate from this direct-distribution implementation.
+## Connect an agent
+
+Settings → Connect shows the bundled `vibebuddy-mcp` path and copyable Claude Code,
+Codex and Cursor connection snippets. The CLI `setup` prints the same instructions;
+neither surface installs software or edits configuration. See
+[connection instructions](getting-started.md#connect-an-agent-to-local-history).
+One binary runs stdio MCP without arguments and CLI subcommands with arguments.
+Both expose the same read-only queries:
+
+| CLI | MCP tool |
+| --- | --- |
+| `sessions` | `vibebuddy_list_sessions` |
+| `projects` | `vibebuddy_list_projects` |
+| `search` | `vibebuddy_search` |
+| `show` | `vibebuddy_get_session` |
+| `summary` | `vibebuddy_get_summary` |
+| `status` | `vibebuddy_live_status` |
+
+Quote Session keys and History references: `summary 'codex:<id>'` and
+`show 'vibebuddy://session/codex:<id>#12'`. Sequence numbers are one-based within the reported source
+revision, including hidden Thinking records. CLI/MCP search omits Meta and Thinking;
+show always omits Meta and includes Thinking only with `--thinking`.
+The App reader's explicit-search reveal behavior is separate.
+
+Summary reads only an existing saved summary, including coverage and stale status;
+absence is a normal result. Read the newest handoff first, then its source summary,
+and read transcript records only for unresolved questions. A summary cannot replace
+a newer handoff or establish current authorization, completion or verification.
+
+Queries never refresh or lazily populate the index. A stale transcript cache is
+replaced in memory by a read-only parse of the source, without writing it back.
+Show and summary can resolve supported source files even without an index. List and
+search report a missing index with instructions to open History or explicitly run
+`vibebuddy-mcp index`; `index --rebuild` is separate maintenance, absent from MCP.
+Search uses only committed matching revisions and reports incomplete coverage.
+
+Status reads the authenticated daemon snapshot, excludes a supplied real caller
+key (`status --exclude-session 'codex:<own-id>'`), and groups by checkout directory.
+Another busy session is a collaboration hint for the user's decision, not a lock.
+An unreachable daemon produces unknown and exits 0. Status does not start a daemon
+or automatically change checkout; older daemons may lack checkout information.
+
+This feature does not install hooks, synchronize repositories or replace the
+running app. Cross-machine history mirroring and Mac App Store sandbox acceptance
+are outside this first version.
