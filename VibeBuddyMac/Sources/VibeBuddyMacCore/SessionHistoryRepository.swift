@@ -256,20 +256,12 @@ public actor SessionHistoryRepository {
         let current = modified.flatMap { date in size.map { "\(date.timeIntervalSince1970)|\($0)" } }
         if let current, let slot = transcriptSlot, slot.path == file.path, slot.revision == current { return slot.transcript }
         let indexed = matches.first.map { "\($0.modified.timeIntervalSince1970)|\($0.size)" }
-        let cacheURL = directory.appendingPathComponent(contentFilename(file.path))
-        if let data = try? Data(contentsOf: cacheURL), var cached = try? JSONDecoder().decode(SessionHistorySession.self, from: data),
-           cached.sourcePath == file.path, cached.agent == reference.agent, cached.nativeSessionID == reference.nativeID {
-            let cacheTime = (try? cacheURL.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-            let indexTime = (try? directory.appendingPathComponent("index.json").resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-            let legacyPublished = cacheTime.flatMap { cache in indexTime.map { cache <= $0 } } == true
-            let revision = cached.sourceRevision ?? (legacyPublished ? indexed : nil)
-            if let revision, (current == nil || current == revision), indexed == revision {
-                cached.sourceRevision = revision
-                cached.isAvailable = current != nil && FileManager.default.isReadableFile(atPath: file.path)
-                let result = HistoryTranscript(session: cached, provenance: "cache")
-                if let current { transcriptSlot = (file.path, current, result) }
-                return result
-            }
+        if var cached = verifiedCache(metadata, indexedRevision: indexed),
+           current == nil || current == cached.sourceRevision {
+            cached.isAvailable = current != nil && FileManager.default.isReadableFile(atPath: file.path)
+            let result = HistoryTranscript(session: cached, provenance: "cache")
+            if let current { transcriptSlot = (file.path, current, result) }
+            return result
         }
         guard let modified, let current else { throw HistoryToolError.executionFailed("Source unavailable and no verifiable transcript cache.") }
         var session = try SessionHistoryParser.read(url: file, agent: reference.agent, updatedAt: modified)
@@ -280,6 +272,24 @@ public actor SessionHistoryRepository {
         let result = HistoryTranscript(session: session, provenance: "source, index stale")
         transcriptSlot = (file.path, current, result)
         return result
+    }
+
+    /// Legacy caches have no embedded revision. They are usable only when
+    /// published no later than index.json; otherwise a refresh may have replaced
+    /// the cache while metadata/FTS still describe the previous generation.
+    private func verifiedCache(_ metadata: SessionHistorySession, indexedRevision: String?) -> SessionHistorySession? {
+        let cacheURL = directory.appendingPathComponent(contentFilename(metadata.sourcePath))
+        guard let data = try? Data(contentsOf: cacheURL),
+              var cached = try? JSONDecoder().decode(SessionHistorySession.self, from: data),
+              cached.sourcePath == metadata.sourcePath, cached.agent == metadata.agent,
+              cached.nativeSessionID == metadata.nativeSessionID else { return nil }
+        let cacheTime = (try? cacheURL.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        let indexTime = (try? directory.appendingPathComponent("index.json").resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        let legacyPublished = cacheTime.flatMap { cache in indexTime.map { cache <= $0 } } == true
+        guard let revision = cached.sourceRevision ?? (legacyPublished ? indexedRevision : nil),
+              revision == indexedRevision else { return nil }
+        cached.sourceRevision = revision
+        return cached
     }
 
     /// Snapshots retain metadata only; load the selected transcript off the main actor.
@@ -338,6 +348,56 @@ public actor SessionHistoryRepository {
         let searchIndex = try SessionHistorySearchIndex(directory: directory, readOnly: true)
         return try searchIndex.search(needle, sessions: sessions, limit: limit)
     }
+    /// Reference-bearing search shares the App's raw FTS path, but accepts only
+    /// hits whose cached dialogue projection and source revision can be verified.
+    /// No source discovery, transcript reparsing or store writes happen here.
+    public func search(_ query: String, sessionIDs: Set<String>, limit: Int = 200) throws -> HistorySearchPage {
+        let sessions = snapshot().sessions.filter { sessionIDs.contains($0.id) }
+        guard !sessions.isEmpty else { return HistorySearchPage(hits: [], notIndexed: [], unavailable: []) }
+        guard FileManager.default.fileExists(atPath: directory.appendingPathComponent("search.sqlite").path) else {
+            return HistorySearchPage(hits: [], notIndexed: sessions, unavailable: [])
+        }
+        var notIndexed: [SessionHistorySession] = []
+        let current = sessions.filter { session in
+            let values = try? URL(fileURLWithPath: session.sourcePath).resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+            if let modified = values?.contentModificationDate, let size = values?.fileSize,
+               session.sourceRevision != "\(modified.timeIntervalSince1970)|\(size)" {
+                notIndexed.append(session)
+                return false
+            }
+            return true // An unavailable source may still have a verifiable retained cache.
+        }
+        let byID = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0) })
+        var sequences: [String: [String: Int]] = [:]
+        var unavailable = Set<String>()
+        var hits: [HistorySearchHit] = []
+        let searchIndex = try SessionHistorySearchIndex(directory: directory, readOnly: true)
+        let page = try searchIndex.page(query, sessions: current, limit: limit) { hit in
+            guard let metadata = byID[hit.sessionID], !unavailable.contains(metadata.id) else { return false }
+            if sequences[metadata.id] == nil {
+                // Decode only candidates, retaining their small ID mapping instead
+                // of keeping every full transcript in memory for the whole search.
+                guard entries.values.filter({ $0.session.agent == metadata.agent && $0.session.nativeSessionID == metadata.nativeSessionID }).count == 1,
+                      let full = verifiedCache(metadata, indexedRevision: metadata.sourceRevision), full.id == metadata.id,
+                      (try? HistorySessionReference(HistoryTools.key(metadata))) != nil else {
+                    unavailable.insert(metadata.id)
+                    return false
+                }
+                let transcript = HistoryTranscript(session: full, provenance: "cache")
+                var mapping: [String: Int] = [:]
+                for message in full.messages where message.kind != .meta && message.kind != .thinking {
+                    if let seq = transcript.seq(messageID: message.id) { mapping[message.id] = seq }
+                }
+                sequences[metadata.id] = mapping
+            }
+            guard let seq = sequences[metadata.id]?[hit.messageID] else { return false }
+            hits.append(HistorySearchHit(session: metadata, seq: seq, excerpt: hit.excerpt))
+            return true
+        }
+        notIndexed += page.notIndexed
+        return HistorySearchPage(hits: hits, notIndexed: notIndexed, unavailable: current.filter { unavailable.contains($0.id) })
+    }
+
     public func summary(sessionID: String) throws -> SessionHistorySummary? {
         let file = directory.appendingPathComponent("summary-" + contentFilename(sessionID))
         guard FileManager.default.fileExists(atPath: file.path) else { return nil }

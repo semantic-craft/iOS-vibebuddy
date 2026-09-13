@@ -11,7 +11,7 @@ final class HistoryToolsTests: XCTestCase {
 
     func testRegistryAndCLIParity() throws {
         let definitions = HistoryTools.definitions()
-        XCTAssertEqual(definitions.compactMap { $0["name"] as? String }, ["vibebuddy_get_session", "vibebuddy_list_sessions", "vibebuddy_list_projects"])
+        XCTAssertEqual(definitions.compactMap { $0["name"] as? String }, ["vibebuddy_get_session", "vibebuddy_list_sessions", "vibebuddy_list_projects", "vibebuddy_search"])
         XCTAssertEqual(Set(HistoryCLI.commands.values), Set(definitions.compactMap { $0["name"] as? String }))
         for definition in definitions {
             XCTAssertEqual((definition["annotations"] as? [String: Bool])?["readOnlyHint"], true)

@@ -29,7 +29,11 @@ struct VibeBuddyMCP {
                 text = try await HistoryTools.getSession(arguments: request.arguments, repository: repository)
             } else {
                 guard await repository.hasUsableIndex() else { fail(HistoryToolError.noIndex, code: 2) }
-                text = try HistoryTools.call(request.tool, arguments: request.arguments, snapshot: await repository.snapshot())
+                if request.tool == "vibebuddy_search" {
+                    text = try await HistoryTools.search(arguments: request.arguments, repository: repository)
+                } else {
+                    text = try HistoryTools.call(request.tool, arguments: request.arguments, snapshot: await repository.snapshot())
+                }
             }
             FileHandle.standardOutput.write(Data(HistoryCLI.output(text).utf8))
         } catch HistoryToolError.invalidArguments(let message) {

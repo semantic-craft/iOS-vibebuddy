@@ -72,9 +72,21 @@ final class SessionHistorySearchIndex {
 
     /// Literal substring semantics, including punctuation, quotes, CJK and short queries.
     /// Trigram narrows candidates for >=3 scalars; instr handles shorter text exactly.
+    struct Page {
+        var results: [SessionHistorySearchResult]
+        var notIndexed: [SessionHistorySession]
+    }
+
     func search(_ query: String, sessions: [SessionHistorySession], limit: Int) throws -> [SessionHistorySearchResult] {
+        try page(query, sessions: sessions, limit: limit).results
+    }
+
+    /// The acceptance predicate runs before the limit so hidden/unaddressable
+    /// raw records cannot crowd readable hits off the page.
+    func page(_ query: String, sessions: [SessionHistorySession], limit: Int,
+              accepting: (SessionHistorySearchResult) -> Bool = { _ in true }) throws -> Page {
         let needle = Self.fold(query)
-        guard !needle.isEmpty else { return [] }
+        guard !needle.isEmpty, limit > 0 else { return Page(results: [], notIndexed: []) }
         // Pin isCurrent and the message SELECT to one database snapshot. JSON
         // publication and SQLite commit may straddle a reader; omit mismatched
         // revisions instead of attaching new message IDs to old metadata.
@@ -85,6 +97,7 @@ final class SessionHistorySearchIndex {
             return try isCurrent(path: $0.sourcePath, stamp: "v7|" + revision)
         }
         let allowed = Dictionary(uniqueKeysWithValues: current.map { ($0.sourcePath, $0) })
+        let missing = sessions.filter { allowed[$0.sourcePath] == nil }
         let indexed = needle.unicodeScalars.count >= 3 && !needle.contains("\0")
         let sql = indexed
             ? "SELECT m.path,m.message_id,m.text FROM messages_fts JOIN messages m ON m.id=messages_fts.rowid WHERE messages_fts MATCH ? ORDER BY bm25(messages_fts),m.id"
@@ -103,10 +116,12 @@ final class SessionHistorySearchIndex {
             guard let match = body.range(of: query, options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX")) else { continue }
             let start = body.index(match.lowerBound, offsetBy: -70, limitedBy: body.startIndex) ?? body.startIndex
             let end = body.index(match.upperBound, offsetBy: 130, limitedBy: body.endIndex) ?? body.endIndex
-            results.append(SessionHistorySearchResult(sessionID: session.id, messageID: text(statement, 1), excerpt: String(body[start..<end])))
+            let result = SessionHistorySearchResult(sessionID: session.id, messageID: text(statement, 1), excerpt: String(body[start..<end]))
+            guard accepting(result) else { continue }
+            results.append(result)
             if results.count >= limit { break }
         }
-        return results
+        return Page(results: results, notIndexed: missing)
     }
 
     private static func fold(_ text: String) -> String {

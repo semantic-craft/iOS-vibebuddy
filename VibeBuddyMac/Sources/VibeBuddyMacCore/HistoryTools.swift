@@ -25,7 +25,11 @@ public enum HistoryTools {
             "since": ["type": "string"], "starred": ["type": "boolean"], "limit": ["type": "integer", "minimum": 1, "maximum": 200]
         ]), definition("vibebuddy_list_projects", description: "List projects with indexed sessions, newest activity first.", properties: [
             "since": ["type": "string"], "limit": ["type": "integer", "minimum": 1, "maximum": 200]
-        ])]
+        ]), definition("vibebuddy_search", description: "Search indexed readable message text literally, with session references and unindexed source coverage.", properties: [
+            "query": ["type": "string", "minLength": 1], "project": ["type": "string"],
+            "agents": ["type": "array", "items": ["type": "string", "enum": ["claude-code", "codex"]]],
+            "since": ["type": "string"], "limit": ["type": "integer", "minimum": 1, "maximum": 200]
+        ], required: ["query"])]
     }
 
     private static func definition(_ name: String, description: String, properties: [String: Any], required: [String] = []) -> [String: Any] {
@@ -38,11 +42,22 @@ public enum HistoryTools {
         (session.agent == .claude ? "claude-code" : "codex") + ":" + session.nativeSessionID
     }
 
-    public static func call(_ name: String, arguments: [String: Any], snapshot: SessionHistorySnapshot, now: Date = Date()) throws -> String {
-        guard name != "vibebuddy_get_session" else { throw HistoryToolError.invalidArguments("get_session requires a repository.") }
+    struct Selection {
+        var sessions: [SessionHistorySession]
+        var limit: Int
+        var freshness: String
+        var notice: String? = nil
+    }
+
+    /// One scope/validation path for listings and indexed search. Resolve project
+    /// against the complete metadata set before applying time/agent filters.
+    static func selection(_ name: String, arguments: [String: Any], snapshot: SessionHistorySnapshot, now: Date) throws -> Selection {
         guard let definition = definitions().first(where: { $0["name"] as? String == name }),
               let schema = definition["inputSchema"] as? [String: Any], let properties = schema["properties"] as? [String: Any] else {
             throw HistoryToolError.invalidArguments("Unknown tool: \(name)")
+        }
+        for required in schema["required"] as? [String] ?? [] where arguments[required] == nil {
+            throw HistoryToolError.invalidArguments("Missing argument: \(required)")
         }
         for (key, value) in arguments {
             guard properties[key] != nil else { throw HistoryToolError.invalidArguments("Unknown argument: \(key)") }
@@ -65,18 +80,12 @@ public enum HistoryTools {
         let partial = snapshot.pendingSourceCount > 0 ? " Partial index: \(snapshot.pendingSourceCount) source(s) pending; omitted activity may be older or newer." : ""
         let freshness = "Index covers activity up to \(all.first.map { stamp($0.updatedAt) } ?? "unknown (empty index)"). Cached metadata only; newer activity may not be indexed." + partial
         var sessions = all.filter { since == nil || $0.updatedAt >= since! }
-        if name == "vibebuddy_list_projects" {
-            var seen = Set<String>()
-            let rows = sessions.filter { seen.insert($0.projectPath).inserted }.prefix(limit).map { session in
-                "| \(cell(session.projectPath)) | \(stamp(session.updatedAt)) | \(sessions.filter { $0.projectPath == session.projectPath }.count) |"
-            }
-            return (["| Project | Updated | Sessions |", "| --- | --- | ---: |"] + (rows.isEmpty ? ["No projects found."] : rows) + ["", freshness]).joined(separator: "\n")
-        }
         if let project = arguments["project"] as? String {
             let known = Set(all.map(\.projectPath)).sorted()
             let matches = project.hasPrefix("/") ? known.filter { $0 == project } : known.filter { URL(fileURLWithPath: $0).lastPathComponent == project }
             guard matches.count == 1 else {
-                return (["Project not found or ambiguous. Known projects:"] + known.map { "- " + cell($0) } + ["", freshness]).joined(separator: "\n")
+                return Selection(sessions: [], limit: limit, freshness: freshness,
+                                 notice: (["Project not found or ambiguous. Known projects:"] + known.map { "- " + cell($0) }).joined(separator: "\n"))
             }
             sessions = sessions.filter { $0.projectPath == matches[0] }
         }
@@ -84,6 +93,23 @@ public enum HistoryTools {
             sessions = sessions.filter { agents.contains($0.agent == .claude ? "claude-code" : "codex") }
         }
         if let starred = arguments["starred"] as? Bool { sessions = sessions.filter { $0.isFavorite == starred } }
+        return Selection(sessions: sessions, limit: limit, freshness: freshness)
+    }
+
+    public static func call(_ name: String, arguments: [String: Any], snapshot: SessionHistorySnapshot, now: Date = Date()) throws -> String {
+        guard !["vibebuddy_get_session", "vibebuddy_search"].contains(name) else {
+            throw HistoryToolError.invalidArguments("\(name) requires a repository.")
+        }
+        let scope = try selection(name, arguments: arguments, snapshot: snapshot, now: now)
+        let sessions = scope.sessions, limit = scope.limit, freshness = scope.freshness
+        if let notice = scope.notice { return notice + "\n\n" + freshness }
+        if name == "vibebuddy_list_projects" {
+            var seen = Set<String>()
+            let rows = sessions.filter { seen.insert($0.projectPath).inserted }.prefix(limit).map { session in
+                "| \(cell(session.projectPath)) | \(stamp(session.updatedAt)) | \(sessions.filter { $0.projectPath == session.projectPath }.count) |"
+            }
+            return (["| Project | Updated | Sessions |", "| --- | --- | ---: |"] + (rows.isEmpty ? ["No projects found."] : rows) + ["", freshness]).joined(separator: "\n")
+        }
         let rows = sessions.prefix(limit).map { s in
             "| \(cell(key(s))) | \(s.agent.displayName) | \(stamp(s.updatedAt)) | \(cell(s.projectPath)) | \(cell(s.title)) | \(s.messageCount) |"
         }
@@ -112,16 +138,16 @@ public enum HistoryTools {
 
 /// Only argv shape is interpreted here; values go unchanged to the tool layer.
 public enum HistoryCLI {
-    public static let commands = ["sessions": "vibebuddy_list_sessions", "projects": "vibebuddy_list_projects", "show": "vibebuddy_get_session"]
+    public static let commands = ["sessions": "vibebuddy_list_sessions", "projects": "vibebuddy_list_projects", "show": "vibebuddy_get_session", "search": "vibebuddy_search"]
     public static func parse(_ argv: [String]) throws -> (tool: String, arguments: [String: Any]) {
         guard let command = argv.first, let tool = commands[command] else {
-            throw HistoryToolError.invalidArguments("Usage: vibebuddy-mcp sessions [--project PATH] [--agent AGENT] [--since DATE] [--starred] [--limit N] | projects [--since DATE] [--limit N] | show KEY|REF [--from-seq N] [--max-messages N] [--tools] [--thinking] | index [--rebuild]")
+            throw HistoryToolError.invalidArguments("Usage: vibebuddy-mcp sessions [--project PATH] [--agent AGENT] [--since DATE] [--starred] [--limit N] | projects [--since DATE] [--limit N] | show KEY|REF [--from-seq N] [--max-messages N] [--tools] [--thinking] | search QUERY [--project PATH] [--agent AGENT] [--since DATE] [--limit N] | index [--rebuild]")
         }
         var args: [String: Any] = [:]
         var index = 1
-        if command == "show" {
-            guard argv.count > 1, !argv[1].hasPrefix("--") else { throw HistoryToolError.invalidArguments("Usage: vibebuddy-mcp show KEY|REF [--from-seq N] [--max-messages N] [--tools] [--thinking]") }
-            args["key"] = argv[1]; index = 2
+        if command == "show" || command == "search" {
+            guard argv.count > 1, command == "search" || !argv[1].hasPrefix("--") else { throw HistoryToolError.invalidArguments("\(command) requires a positional \(command == "show" ? "key or reference" : "query").") }
+            args[command == "show" ? "key" : "query"] = argv[1]; index = 2
         }
         while index < argv.count {
             let flag = argv[index]
