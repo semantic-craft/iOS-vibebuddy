@@ -6,7 +6,7 @@ public struct HistorySessionReference: Sendable {
     public let agent: SessionHistoryAgent
     public let nativeID: String
     public let seq: Int?
-    public var key: String { (agent == .claude ? "claude-code" : "codex") + ":" + nativeID }
+    public var key: String { agent.keyName + ":" + nativeID }
     public init(_ value: String) throws {
         let prefix = "vibebuddy://session/"
         let isRef = value.hasPrefix(prefix)
@@ -16,6 +16,7 @@ public struct HistorySessionReference: Sendable {
         switch raw[..<colon] {
         case "claude-code": agent = .claude
         case "codex": agent = .codex
+        case "grok-build": agent = .grokBuild
         default: throw HistoryToolError.executionFailed("Unknown session agent.")
         }
         nativeID = String(raw[raw.index(after: colon)...])
@@ -76,6 +77,10 @@ extension HistoryTools {
         let tools = try flag("tools"), thinking = try flag("thinking")
         let transcript = try await repository.readTranscript(key: reference.key)
         let session = transcript.session
+        if !session.agent.supportsTranscript {
+            return ["# " + session.title, "Key: " + reference.key, "", GrokHistorySource.noTranscript,
+                    GrokHistorySource.coverage, "Source revision: " + (session.sourceRevision ?? "unknown") + " (official list row only)"].joined(separator: "\n")
+        }
         let rows = transcript.rows
         let page = rows.enumerated().filter { $0.offset >= from - 1 && (thinking || !$0.element.text.isEmpty || !$0.element.tools.isEmpty) }.prefix(limit)
         var lines = ["Source revision: \(session.sourceRevision ?? "unknown") (\(transcript.provenance))", "", "# \(session.title)", "Key: \(reference.key)"]

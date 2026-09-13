@@ -6,6 +6,14 @@ import VibeBuddyMacCore
 /// A demo instance seeds these and skips the server/polling entirely, so it never
 /// binds the port, pushes to a phone, or touches real session data (privacy-safe).
 enum MacDemoData {
+    static func historySessions(now: Date = Date()) -> [SessionHistorySession] {
+        let id = "00000000-0000-4000-8000-000000000007"
+        return [SessionHistorySession(id: "grokBuild:" + id, nativeSessionID: id, agent: .grokBuild,
+            projectPath: "/demo/glaux-book", title: "Demo: plan the reading workflow",
+            sourcePath: "/demo/grok-history/" + id, updatedAt: now, messages: [],
+            warnings: [GrokHistorySource.coverage], isAvailable: false, source: "official-list")]
+    }
+
     /// Sample account readings for the quota plinth and the Usage tab. One
     /// provider burns faster than its window's clock (Claude's Opus week), one
     /// is quiet, one is signed out, one carries credits and one carries spend —

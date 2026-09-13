@@ -67,8 +67,9 @@ export sessions: `grok sessions list` / `grok sessions search <query>` (search
 covers summaries and first prompts only) and `grok export <session-id> [OUTPUT]`
 (Markdown, stdout by default). Those are the documented interface; the
 `~/.grok/sessions/**/updates.jsonl` layout that live observation reads
-(`GrokSessionReader`) is not, and the CLI options suggest the commands talk to
-Grok's own leader process, which the tickets must verify.
+(`GrokSessionReader`) is not. Ticket 07 verified official list and three local
+exports without a leader while denying file writes and child-process creation.
+That proves command availability under those protections, not transcript fidelity.
 
 ## Decision
 
@@ -108,12 +109,19 @@ can be named without guessing.
 Grok Build, each reporting its own coverage.** Claude and Codex are the existing
 roots. Cursor adds the agent transcript that Cursor's hook documentation names
 as `transcript_path`, already located and parsed by `CursorTranscripts`; it has
-no tool results, and says so. Grok Build is enumerated with `grok sessions list`
-and read with `grok export <id>`, the exported Markdown parsed into the same
-message shape and indexed for full text by vibebuddy, since Grok's own search
-covers only summaries and first prompts. The `updates.jsonl` layout is not the
-first choice for history and is used only if the official commands prove
-unusable, recorded in the ticket. No source claims the same fidelity as another;
+no tool results, and says so. **Grok Build is list/title-only in the first version.**
+Ticket 07 obtained three official exports, but its protected TUI comparison did
+not complete. The owner-defined downgrade therefore applies: enumerate local
+rows with `grok sessions list`, publish no Grok messages or FTS rows, and return
+"该来源无全文" from `show`. Grok's own search covers summaries and first prompts
+only; its protected invocation failed in preflight and is not used here.
+Official list dates have day precision and cannot stand in for transcript
+revisions. Workspace directory metadata verifies the cwd of a local list row;
+remote-only and unmatched sibling rows are excluded without guessing a project.
+The process sandbox forbids file writes and child-process creation; time/output
+limits bound the inventory, and queries never invoke it. `updates.jsonl` is not
+a history source in this ticket; any future alternative needs separate scope
+and authorization. No source claims the same fidelity as another;
 the per-source capability table lives in `docs/session-history.md`. Excluded:
 Cursor IDE chats (encrypted), Cursor cloud agents (ADR-0018), Copilot history
 rows, Grok Bot.
@@ -181,8 +189,9 @@ Acceptance is same-machine relay.
   the owner: it adds a write path to a read-only binary, and "CLI only" does
   not make it human-only.
 - **Reverse-engineered `updates.jsonl` as the Grok history source.** An official
-  enumerate-and-export interface exists; the undocumented layout is a fallback,
-  not the choice.
+  enumerate-and-export interface exists. The first version applies its explicit
+  list/title downgrade when the fidelity gate is not proved; reverse engineering
+  is excluded from ticket 07.
 - **Filling `Source session` from the newest session.** Wrong whenever two
   agents work in one project, which is the case the feature exists for.
 - **A daemon-side lock on "who is working in this checkout".** The three states
