@@ -65,7 +65,8 @@ public enum TaskPresentationState: String, Codable, Sendable, CaseIterable, Hash
         failed: Bool,
         hasUnreadCompletion: Bool
     ) -> TaskPresentationState {
-        if failed { return .error }
+        // A tool error during a live turn is recovery, not a terminal failure.
+        if status == .done, failed { return .error }
         if status == .needsResponse { return .requiresInput }
         if status == .working { return .thinking }
         if status == .done, hasUnreadCompletion { return .completeUnread }
@@ -157,6 +158,9 @@ public struct TaskPresentationSummary: Codable, Sendable, Hashable {
         self.init(sessions: SessionCurrency.current(sessions, now: now, window: window))
     }
 
+    public var needsYou: Int { requiresInput + error }
+    /// Presentation categories are disjoint, so a failed unread round counts once.
+    public var pendingCount: Int { needsYou + completeUnread }
     public var total: Int { idle + thinking + completeUnread + requiresInput + error }
     public var isEmpty: Bool { total == 0 }
 

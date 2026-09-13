@@ -79,7 +79,6 @@
 "Error" = "出错";
 "Done, unread" = "完成未读";
 "Task status changed. This newer result has not been marked read." = "任务状态已变化，新的结果尚未标记已读。";
-"Viewed — syncing with Mac" = "已查看，正在同步";
 "This task is unavailable. Return to the dashboard for current tasks." = "此任务不可用，请返回总览查看当前任务。";
 "Back to dashboard" = "返回总览";
 
@@ -185,3 +184,15 @@
 "Previously viewed result" = "刚才查看的结果";
 "This task is not in the current Watch list. Open it on your iPhone or Mac." = "当前手表列表中没有这个任务。请在 iPhone 或 Mac 上打开。";
 "This is no longer waiting on you. It was handled on another device, or the task moved on." = "这个已经不用你处理了：已在其他设备处理，或任务已推进。";
+
+/* Explicit completion reading and count-only unfollowed results. */
+"Mark as read" = "标为已读";
+"Marked · awaiting Mac confirmation" = "已标记 · 等待 Mac 确认";
+"Marked · syncs when connected" = "已标记 · 连接后同步";
+"Mac-generated completion summary · not the full result" = "Mac 生成的完成摘要，非完整结果";
+"Task summary or recent status · not the full result" = "任务摘要或最近状态，非完整结果";
+"View the result on your iPhone" = "结果请在手机上看";
+"%lld unread outside Followed" = "关注列表外还有 %lld 条未读";
+"View on your iPhone" = "在手机上查看";
+"Done %lld · %lld unread" = "完成 %lld · %lld 未读";
+"%lld working" = "%lld 项运行中";

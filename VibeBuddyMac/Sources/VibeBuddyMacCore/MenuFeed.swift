@@ -80,6 +80,10 @@ public struct MenuFeed: Sendable {
     /// only when nothing current matched.
     public var topResult: AgentSession? { sections.first?.sessions.first }
 
+    public var pending: [AgentSession] {
+        PendingTasks.ordered(sections.filter { $0.kind != .older }.flatMap(\.sessions))
+    }
+
     /// Matches what the row actually shows — its title and the agent's own
     /// summary — plus the project behind a named session, so searching by
     /// project still finds one that displays a name instead.

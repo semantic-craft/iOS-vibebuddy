@@ -102,6 +102,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windows?.showDashboard()
     }
 
+    @objc private func nextPending() {
+        windows?.showDashboard()
+        NotificationCenter.default.post(name: Notification.Name("vibebuddy.selectNextPending"), object: nil)
+    }
+
     @objc private func openSettings() {
         windows?.showSettings()
     }
@@ -127,6 +132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             dashboard: AnyView(DashboardView(model: model)),
             settings: AnyView(SettingsView(model: model, initialPage: Self.demoSettingsPage ?? .general)))
         NotificationCenter.default.addObserver(self, selector: #selector(openDashboard), name: .openDashboard, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(nextPending), name: .nextPending, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(openSettings), name: .openAppSettings, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(toggleGlance), name: .toggleGlance, object: nil)
         NSApp.setActivationPolicy(.accessory)
@@ -218,11 +224,11 @@ enum MenuBarGlyph {
 /// Hiding the label cannot disconnect app commands.
 struct MenuBarLabel: View {
     @ObservedObject var model: MenuBarModel
-    @AppStorage("showMenuBarTaskStatus") private var showTaskStatus = false
+    @AppStorage("showMenuBarTaskStatus") private var showTaskStatus = true
 
     var body: some View {
         let state = model.presentationSummary.primaryState
-        let count = model.presentationSummary.count(for: state)
+        let count = model.presentationSummary.pendingCount
         HStack(spacing: 3) {
             CatHeadIcon()
                 .frame(width: 17, height: 17)
@@ -239,7 +245,7 @@ struct MenuBarLabel: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(showTaskStatus && count > 0
-            ? "VibeBuddy, \(count) \(state.label)" : "VibeBuddy")
+            ? "VibeBuddy, \(CompanionCopy.attentionLine(model.presentationSummary))" : "VibeBuddy")
         .help("Open VibeBuddy menu")
     }
 }
@@ -692,6 +698,8 @@ struct MenuContent: View {
                 PetFace(state: model.buddyState, voice: .init(model.voiceChat.phase), plain: true, scale: 0.4)
             }
 
+            AnnouncementControls(reader: model.readAloud)
+
             TextField(text: $query) { Text("Search sessions or run a command") }
                 .textFieldStyle(.plain)
                 .font(MacTheme.font(13.5))
@@ -745,11 +753,11 @@ struct MenuContent: View {
     /// narrows the list below. It sits above the scroller rather than inside
     /// it, so a long list scrolls under an answer that stays put.
     private func summaryRow(_ summary: TaskPresentationSummary) -> some View {
-        let rest = MacSummaryCopy.restLine(summary)
+        let rest = summary.thinking > 0 ? "\(summary.thinking) working" : ""
         return HStack(spacing: 7) {
             statusDot(summary)
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(MacSummaryCopy.moodLine(summary))
+                Text(MacSummaryCopy.attentionLine(summary))
                     .font(MacTheme.font(12.5, .semibold))
                     .foregroundStyle(MacTheme.ink)
                 if !rest.isEmpty {
@@ -895,6 +903,7 @@ struct MenuContent: View {
     /// second. Hover fills the whole row — there is no card.
     private func row(_ session: AgentSession, feed: MenuFeed, now: Date,
                      showsHairline: Bool) -> some View {
+        let presentation = RowPresentation(session: session)
         let isTarget = !feed.query.isEmpty && feed.topResult?.id == session.id
         return VStack(spacing: 0) {
             Button { model.jump(session) } label: {
@@ -911,6 +920,10 @@ struct MenuContent: View {
                                 .foregroundStyle(MacTheme.ink)
                                 .lineLimit(1)
                             Spacer(minLength: 0)
+                            if presentation.unread {
+                                Text("Unread").font(MacTheme.font(9.5, .medium))
+                                    .foregroundStyle(MacTheme.status(.completeUnread))
+                            }
                             if isTarget { jumpBadge }
                             Text(verbatim: MenuFeed.age(of: session.updatedAt, now: now))
                                 .font(MacTheme.mono(9.5))
@@ -920,6 +933,14 @@ struct MenuContent: View {
                                 .fixedSize()
                         }
                         activityLine(session)
+                        if let warning = presentation.observationWarning {
+                            Text(warning).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink3)
+                                .lineLimit(1)
+                            if let seen = presentation.lastObservedAt {
+                                Text("Last observed: \(seen.formatted())")
+                                    .font(MacTheme.font(9.5)).foregroundStyle(MacTheme.ink3)
+                            }
+                        }
                         if let outcome = model.jumpFeedback[session.id] {
                             Text(outcome.macMessage(for: session))
                                 .font(MacTheme.font(10, .semibold))
@@ -936,12 +957,22 @@ struct MenuContent: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .contextMenu {
+                AttentionPicker(session: session, model: model, style: .menu)
+                if session.status == .done, session.completionID != nil {
+                    Button(session.hasUnreadCompletion ? "Mark as read" : "Mark as unread") {
+                        if session.hasUnreadCompletion { model.acknowledge(session.id, displayedCompletionID: session.completionID) }
+                        else { model.markUnread(session) }
+                    }
+                }
+            }
             .onHover { hoveredSessionID = $0 ? session.id : nil }
             .help("\(session.displayTitle)\n\(session.agent.displayName) · \(session.statusLabel)\n\(session.summary ?? "")")
             // One element: title, state word, activity or summary, age.
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text(verbatim: [session.displayTitle, session.presentationState.label,
-                                                session.displaySummary ?? ToolActivity.label(for: session),
+                                                presentation.activityOrResult, presentation.progress ?? "",
+                                                presentation.unread ? String(localized: "Unread") : "",
                                                 MenuFeed.age(of: session.updatedAt, now: now)]
                 .filter { !$0.isEmpty }.joined(separator: ", ")))
             .accessibilityHint("Jump to this session")
@@ -954,9 +985,10 @@ struct MenuContent: View {
     /// What the agent is doing, in the state's own colour, then its own
     /// sentence. One line: the row's width is the budget.
     private func activityLine(_ session: AgentSession) -> some View {
-        let activity = Text(LocalizedStringKey(ToolActivity.label(for: session)))
+        let presentation = RowPresentation(session: session)
+        let activity = Text(verbatim: presentation.activityOrResult)
             .foregroundColor(MacTheme.status(session.presentationState))
-        let detail = session.displaySummary.flatMap { $0.isEmpty ? nil : Text(verbatim: $0) }
+        let detail = presentation.progress.map { Text(verbatim: $0) }
         return (detail.map { activity + Text(verbatim: "  ") + $0.foregroundColor(MacTheme.ink2) } ?? activity)
             .font(MacTheme.font(11.5))
             .lineLimit(1)

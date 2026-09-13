@@ -16,6 +16,28 @@ struct WatchFollowedTaskTests {
             quotas: [], relay: .live, now: now)
     }
 
+    @Test("Nonfollowed unread is projected from current five-state sessions, and absence is unknown")
+    func unfollowedUnread() throws {
+        var followed = session("followed", .done, unread: true)
+        followed.updatedAt = now.addingTimeInterval(-2 * SessionCurrency.window)
+        var older = session("older", .done, unread: true, followed: false)
+        older.updatedAt = followed.updatedAt
+        var failed = session("failed", .done, unread: true, followed: false)
+        failed.failed = true
+        let state = projection([followed, older, failed,
+                                session("normal", .done, unread: true, followed: false),
+                                session("read", .done, followed: false)])
+        #expect(state.presentation.completeUnread == 2)
+        #expect(state.unfollowedUnreadCount == 1)
+        #expect(state.stuckTasks.first?.presentation == .error)
+        var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as? [String: Any])
+        json.removeValue(forKey: "unfollowedUnreadCount")
+        let old = try JSONDecoder().decode(WatchDashboardState.self,
+                    from: JSONSerialization.data(withJSONObject: json))
+        #expect(old.unfollowedUnreadCount == nil)
+        #expect(old.presentation.completeUnread == 2)
+    }
+
     @Test("Completion persists through passive snapshots and waiting work preempts it")
     func progression() {
         var a = session("a", .working)

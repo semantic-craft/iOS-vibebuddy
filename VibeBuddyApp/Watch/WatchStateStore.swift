@@ -97,7 +97,7 @@ final class WatchStateStore: NSObject, ObservableObject {
             if let sessionID = environment["VIBEBUDDY_WATCH_TASK"], !sessionID.isEmpty {
                 taskLink = WatchTaskLink(sourceID: WatchDemoScenario.sourceID,
                                          pairingEpoch: WatchDemoScenario.pairingEpoch,
-                                         sessionID: sessionID, completionID: nil)
+                                         sessionID: sessionID, completionID: state?.task(sessionID)?.completionID)
             }
             if let sample = state { seedHaptics(sample) }
             if environment["VIBEBUDDY_WATCH_HAPTIC_DEMO"] == "1" {
@@ -191,8 +191,8 @@ final class WatchStateStore: NSObject, ObservableObject {
 
     /// Called only by the exact detail body after it has appeared. Viewing is
     /// viewing: for a wait it tells the Mac the request was seen (so the
-    /// missed-wait clock stops) and nothing more; for a completion it queues
-    /// the exact-round read. Neither approves, answers or resolves anything.
+    /// missed-wait clock stops) and nothing more. A completion summary is not
+    /// the full result: only markCompletionRead records that explicit intent.
     func viewed(_ link: WatchTaskLink) {
         if !isDemo, let read = waitRead(for: link), let session, isPhoneReachable {
             let request = WatchWaitReadRequest(pairingEpoch: link.pairingEpoch, read: read)
@@ -202,7 +202,12 @@ final class WatchStateStore: NSObject, ObservableObject {
                                     replyHandler: { @Sendable _ in }, errorHandler: { @Sendable _ in })
             }
         }
-        completionQueue.viewed(link, state: state)
+    }
+
+    /// The detail button supplies the round that was actually displayed.
+    /// Unreachable phones keep an explicit, exact-round retry on this Watch.
+    func markCompletionRead(_ link: WatchTaskLink) {
+        completionQueue.markRead(link, state: state)
         persistCompletions()
         flushCompletions()
     }

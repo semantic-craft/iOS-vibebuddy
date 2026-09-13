@@ -98,6 +98,7 @@ struct CompletionSummaryHTTP: Sendable {
 
     static func instructions(language: VoiceLanguage) -> String {
         """
+        \(HistorySummaryStyle.reportedResultRule)
         Write a decision-useful spoken notification from a task's final result, in 1–2 complete plain-text sentences.
         Lead with the most consequential outcome or blocker, not a generic completion announcement. Say what concretely changed and why it matters ONLY when finalText supports that consequence. If the main outcome is a failure, pending decision or inability to proceed, lead with that instead of burying it behind successful minor checks.
         Then state the remaining action or decision and who needs to take it, if the source says so. Preserve every material failure, limitation and unverified check that changes what the user can rely on. Group related limitations and routine checks rather than reciting commands, files, test counts or a chronology. Omit trivia and repeated caveats, never a distinct material condition.

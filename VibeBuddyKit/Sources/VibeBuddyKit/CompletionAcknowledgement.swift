@@ -5,7 +5,9 @@ public struct CompletionReadRequest: Codable, Equatable, Hashable, Sendable {
     public let sourceID: String
     public let sessionID: String
     public let completionID: String
-    public init(sourceID: String, sessionID: String, completionID: String) {
+    public let markUnread: Bool?
+    public init(sourceID: String, sessionID: String, completionID: String, markUnread: Bool? = nil) {
+        self.markUnread = markUnread
         self.sourceID = sourceID; self.sessionID = sessionID; self.completionID = completionID
     }
 }
@@ -52,7 +54,9 @@ public struct WatchTaskLink: Codable, Equatable, Hashable, Sendable, Identifiabl
         self.init(sourceID: source, pairingEpoch: epoch, sessionID: session, completionID: value("completion"))
     }
     public var readRequest: CompletionReadRequest? {
-        completionID.map { CompletionReadRequest(sourceID: sourceID, sessionID: sessionID, completionID: $0) }
+        guard !sourceID.isEmpty, !pairingEpoch.isEmpty, !sessionID.isEmpty,
+              let completionID, !completionID.isEmpty else { return nil }
+        return CompletionReadRequest(sourceID: sourceID, sessionID: sessionID, completionID: completionID)
     }
     public func task(in state: WatchDashboardState?) -> WatchFollowedTask? {
         guard let state, sourceID == state.sourceID, pairingEpoch == state.pairingEpoch else { return nil }
@@ -85,11 +89,29 @@ public struct WatchCompletionResult: Codable, Sendable {
 /// a completion from the face. Failed delivery keeps an exact retryable record.
 public struct WatchCompletionQueue: Codable, Equatable, Sendable {
     public private(set) var links: [WatchTaskLink] = []
+    /// A definitive receipt stops retries, but does not clear visible unread.
+    public private(set) var confirmedLinks: [WatchTaskLink] = []
+    public var markedLinks: [WatchTaskLink] { links + confirmedLinks }
     public init() {}
-    public mutating func viewed(_ link: WatchTaskLink, state: WatchDashboardState?) {
-        guard let task = link.task(in: state), task.presentation == .completeUnread,
-              let completionID = link.completionID, completionID == task.completionID,
-              !links.contains(link) else { return }
+
+    // Old `links` were populated by onAppear. Only the new key establishes
+    // explicit intent; decoding an old cache preserves its state, not its sends.
+    private enum CodingKeys: String, CodingKey { case explicitLinks, confirmedLinks }
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        links = try c.decodeIfPresent([WatchTaskLink].self, forKey: .explicitLinks) ?? []
+        confirmedLinks = try c.decodeIfPresent([WatchTaskLink].self, forKey: .confirmedLinks) ?? []
+    }
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(links, forKey: .explicitLinks)
+        try c.encode(confirmedLinks, forKey: .confirmedLinks)
+    }
+
+    public mutating func markRead(_ link: WatchTaskLink, state: WatchDashboardState?) {
+        guard link.readRequest != nil,
+              let task = link.task(in: state), task.presentation == .completeUnread,
+              link.completionID == task.completionID, !markedLinks.contains(link) else { return }
         links.append(link)
     }
     public mutating func reconcile(with state: WatchDashboardState) {
@@ -97,23 +119,29 @@ public struct WatchCompletionQueue: Codable, Equatable, Sendable {
         // snapshot. A same-epoch temporary no-data cannot acknowledge anything.
         if let epoch = state.pairingEpoch {
             links.removeAll { $0.pairingEpoch != epoch }
+            confirmedLinks.removeAll { $0.pairingEpoch != epoch }
         }
         // No-data is not an authoritative deletion or acknowledgement.
         guard state.relay == .live, state.sourceID != nil, state.pairingEpoch != nil else { return }
-        links.removeAll { link in
+        func retired(_ link: WatchTaskLink) -> Bool {
             guard link.sourceID == state.sourceID else { return true }
             // Results are a six-row window, not an authoritative inventory.
             // Absence cannot distinguish a read result from an evicted one.
             guard let task = link.task(in: state) else { return false }
             return task.completionID != link.completionID || task.presentation != .completeUnread
         }
+        links.removeAll(where: retired)
+        confirmedLinks.removeAll { retired($0) || $0.task(in: state) == nil }
     }
 
     /// The phone forwards the daemon's exact-round outcome. Retire delivery
     /// work on a definitive reply; only snapshots change the visible task list.
     public mutating func received(_ outcome: CompletionReadOutcome, for link: WatchTaskLink) {
-        guard outcome != .failed else { return }
+        guard outcome != .failed, links.contains(link) else { return }
         links.removeAll { $0 == link }
+        if outcome == .accepted || outcome == .alreadyAcknowledged {
+            confirmedLinks.append(link)
+        }
     }
 }
 

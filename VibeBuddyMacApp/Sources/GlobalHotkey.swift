@@ -6,6 +6,7 @@ import VibeBuddyKit
 extension Notification.Name {
     static let openAppSettings = Notification.Name("vibebuddy.openAppSettings")
     static let openDashboard = Notification.Name("vibebuddy.openDashboard")
+    static let nextPending = Notification.Name("vibebuddy.nextPending")
     static let toggleGlance = Notification.Name("vibebuddy.toggleGlance")
 }
 
@@ -22,12 +23,14 @@ extension Notification.Name {
 final class GlobalHotkey {
     private var dashboardRef: EventHotKeyRef?
     private var glanceRef: EventHotKeyRef?
+    private var nextRef: EventHotKeyRef?
     private var handlerInstalled = false
     private static let shared = GlobalHotkey()
 
     private static let signature = OSType(0x56424259)   // 'VBBY'
     private static let dashboardID: UInt32 = 1
     private static let glanceID: UInt32 = 2
+    private static let nextID: UInt32 = 3
 
     /// Install the Carbon handler (once) and register the saved shortcuts.
     static func install() {
@@ -47,8 +50,14 @@ final class GlobalHotkey {
         shared.register(hotkey, id: glanceID, ref: \.glanceRef)
     }
 
+    static func setNextPendingHotkey(_ hotkey: Hotkey) {
+        guard E2ERunConfiguration.current == nil else { return }
+        shared.register(hotkey, id: nextID, ref: \.nextRef)
+    }
+
     private func start() {
         installHandlerIfNeeded()
+        register(Hotkey.loadNextPending(), id: Self.nextID, ref: \.nextRef)
         register(Hotkey.loadOpenDashboard(), id: Self.dashboardID, ref: \.dashboardRef)
         register(Hotkey.loadToggleGlance(), id: Self.glanceID, ref: \.glanceRef)
     }
@@ -63,7 +72,7 @@ final class GlobalHotkey {
             GetEventParameter(event, EventParamName(kEventParamDirectObject),
                               EventParamType(typeEventHotKeyID), nil,
                               MemoryLayout<EventHotKeyID>.size, nil, &hkID)
-            let name: Notification.Name = hkID.id == GlobalHotkey.glanceID ? .toggleGlance : .openDashboard
+            let name: Notification.Name = hkID.id == GlobalHotkey.nextID ? .nextPending : (hkID.id == GlobalHotkey.glanceID ? .toggleGlance : .openDashboard)
             NotificationCenter.default.post(name: name, object: nil)
             return noErr
         }, 1, &spec, nil, nil)

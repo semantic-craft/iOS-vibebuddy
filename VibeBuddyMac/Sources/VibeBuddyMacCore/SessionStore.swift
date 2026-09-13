@@ -7,6 +7,8 @@ import VibeBuddyKit
 public actor SessionStore {
     private static let diagnosticStaleAfter: TimeInterval = 10 * 60
     private var reducer = SessionReducer()
+    private var toolLedger: ToolLedger
+    private var workingDirectories: [String: String] = [:]
     private var copilotReader: CopilotSessionReader
     private var copilotReadFailed = false
     private var copilotHistory: [String: CopilotSessionReader.Record] = [:]
@@ -362,6 +364,7 @@ public actor SessionStore {
     ) {
         self.copilotReader = copilotDatabase.map { CopilotSessionReader(database: $0) } ?? CopilotSessionReader()
         self.cursorStore = cursorDatabase.map { CursorComposerStore(database: $0) } ?? CursorComposerStore()
+        self.toolLedger = ToolLedger(url: journalURL?.deletingLastPathComponent().appendingPathComponent("tool-ledger.json"), now: now)
         self.sourceID = sourceID
         self.staleAfter = staleAfter
         self.diagnosticsHome = diagnosticsHome
@@ -480,6 +483,10 @@ public actor SessionStore {
         // hooks directly and selects a translator only for different envelopes.
         switch HookDecoder.decode(data, agent: agent, receivedAt: receivedAt) {
         case let .event(event):
+            if !appServerOutranks(event, from: .hook), !acpOutranks(event, from: .hook),
+               let record = ToolLedger.hook(data, event: event) {
+                toolLedger.observe(record, sessionID: event.sessionID, now: receivedAt)
+            }
             ingest(event, observationSource: .hook, announcesWait: announcesWait)
             return true
         case .ignored:
@@ -632,8 +639,16 @@ public actor SessionStore {
             broadcast()
             return
         }
+        if observationSource != .hook, event.childID == nil,
+           event.kind == .preToolUse || event.kind == .postToolUse {
+            let record = event.toolCall ?? ToolCallRecord(id: UUID().uuidString, tool: event.toolName ?? "Tool",
+                observedAt: event.timestamp, source: observationSource.rawValue,
+                coverage: "Tool activity observed; call identity and result details unavailable")
+            toolLedger.observe(record, sessionID: event.sessionID, now: event.timestamp)
+        }
         let wasWaiting = reducer.sessions[event.sessionID]?.status == .needsResponse
         rememberDirectory(event.cwd, at: event.timestamp)
+        if let cwd = event.cwd, cwd.hasPrefix("/") { workingDirectories[event.sessionID] = cwd }
         reducer.apply(event, observationSource: observationSource, recordsEvidence: recordsEvidence)
         if let wait = explicitWaits[event.sessionID],
            reducer.sessions[event.sessionID].map(wait.matches) != true {
@@ -756,12 +771,47 @@ public actor SessionStore {
 
     /// Wait at most until two seconds after the original ending. Results are
     /// memory-only and must be revalidated again by the eventual notification owner.
-    public func completionResult(sessionID: String, completionID: String) async -> CompletionResultAvailability {
+    public func workspaceChanges(sessionID: String, scope: ChangesScope, baseline: String?, file: String?) async -> WorkspaceChanges {
+        let session = reducer.sessions[sessionID]
+        let cwd = workingDirectories[sessionID] ?? session?.terminalRef?.cwd ?? session?.worktree
+        let shared = cwd.map { path in workingDirectories.values.filter { $0 == path }.count > 1 } ?? false
+        return await Task.detached(priority: .utility) {
+            WorkspaceChangesReader.read(cwd: cwd, scope: scope, baseline: baseline, file: file, shared: shared)
+        }.value
+    }
+
+    public func completionBody(sessionID: String, completionID: String) async -> CompletionBody {
+        let result = await completionResult(sessionID: sessionID, completionID: completionID, forReading: true)
+        switch result {
+        case .ready(let frozen):
+            return CompletionBody(sourceID: frozen.sourceID, sessionID: sessionID, completionID: completionID, text: frozen.finalText)
+        case .cancelled:
+            return CompletionBody(sourceID: sourceID, sessionID: sessionID, completionID: completionID, unavailableReason: "This completion is no longer current.")
+        default:
+            // Reading is allowed after the notification deadline; it must still
+            // prove the same turn against the transcript and recheck identity.
+            if let candidate = completionResults.candidates[sessionID], candidate.completionID == completionID,
+               let path = candidate.transcriptPath {
+                let text = await Task.detached {
+                    ClaudeCompletionReader.read(path: path, sessionID: sessionID, startedAt: candidate.startedAt,
+                        completedAt: candidate.completedAt, expectedText: candidate.expectedText)
+                }.value
+                if let text, text.count <= 12_000, reducer.sessions[sessionID]?.completionID == completionID,
+                   reducer.sessions[sessionID]?.status == .done {
+                    return CompletionBody(sourceID: sourceID, sessionID: sessionID, completionID: completionID, text: text)
+                }
+            }
+            return CompletionBody(sourceID: sourceID, sessionID: sessionID, completionID: completionID,
+                                  unavailableReason: "The final result could not be verified for this completion. Recent output remains available with limited coverage.")
+        }
+    }
+
+    public func completionResult(sessionID: String, completionID: String, forReading: Bool = false) async -> CompletionResultAvailability {
         var waited = false
         while true {
             guard !Task.isCancelled,
                   let session = reducer.sessions[sessionID], session.status == .done,
-                  !session.isStuck, session.probeRetired != true, session.hasUnreadCompletion,
+                  !session.isStuck, session.probeRetired != true, (forReading || session.hasUnreadCompletion),
                   session.completionID == completionID else { return .cancelled }
             guard let sourceID, !sourceID.isEmpty,
                   let candidate = completionResults.candidates[sessionID],
@@ -969,16 +1019,21 @@ public actor SessionStore {
               !request.completionID.isEmpty else {
             return CompletionReadResponse(outcome: .staleCompletion)
         }
-        guard session.hasUnreadCompletion else {
+        let unread = request.markUnread == true
+        guard session.hasUnreadCompletion != unread else {
             return CompletionReadResponse(outcome: .alreadyAcknowledged)
         }
         let previousReducer = reducer
         let previousJournal = lifecycleJournal
-        guard reducer.acknowledgeCompletion(sessionID: request.sessionID, completionID: request.completionID) else {
-            return CompletionReadResponse(outcome: .staleCompletion)
+        if unread {
+            _ = reducer.markCompletionUnread(sessionID: request.sessionID, completionID: request.completionID)
+        } else {
+            guard reducer.acknowledgeCompletion(sessionID: request.sessionID, completionID: request.completionID) else {
+                return CompletionReadResponse(outcome: .staleCompletion)
+            }
         }
         guard appendJournal(sessionID: request.sessionID, agent: session.agent,
-                            event: "completionAcknowledged", source: .recovery, at: now) else {
+                            event: unread ? "completionMarkedUnread" : "completionAcknowledged", source: .recovery, at: now) else {
             reducer = previousReducer
             lifecycleJournal = previousJournal
             return CompletionReadResponse(outcome: .failed)
@@ -1076,6 +1131,8 @@ public actor SessionStore {
                 reasonCode: copilotReadFailed ? "copilotHistoryUnreadable" : "copilotHistoryOnly")]))
             snapshot.observationDiagnostics = diagnostics
         }
+        toolLedger.prune(now: now)
+        snapshot.sessions = snapshot.sessions.map { toolLedger.applying(to: $0) }
         snapshot.sourceID = sourceID
         snapshot.providerQuota = providerQuota.isEmpty ? nil : providerQuota
         snapshot.tokenConsumption = tokenConsumption
@@ -1089,6 +1146,15 @@ public actor SessionStore {
             session.attention = attention[session.id]
                 ?? AutoAttention.level(lastInteractionAt: lastInteractionAt[session.id], now: now)
             session.completionNotice = completionNotice(for: session, now: now)
+            if session.status == .done, !session.isStuck,
+               let candidate = completionResults.candidates[session.id],
+               candidate.completionID == session.completionID,
+               case .ready(let result) = candidate.outcome,
+               result.sourceID == sourceID {
+                session.completionText = RowPresentation.firstSentence(result.finalText)
+            } else {
+                session.completionText = nil
+            }
             session.controlChannel = controlChannel(for: session, now: now)
             return session
         }
@@ -1260,10 +1326,11 @@ public actor SessionStore {
     /// in-memory timeline when on-disk data could not be removed, allowing retry.
     @discardableResult
     public func clearLifecycleJournal() -> Bool {
-        guard var journal = lifecycleJournal else { return true }
+        let ledgerRemoved = toolLedger.clear()
+        guard var journal = lifecycleJournal else { return ledgerRemoved }
         let removed = journal.clear()
         lifecycleJournal = journal
-        return removed
+        return removed && ledgerRemoved
     }
 
     /// Subscribe to live snapshots. The current snapshot is delivered immediately.
@@ -1321,7 +1388,8 @@ public actor SessionStore {
             completionID: result?.completionID,
             hasUnreadCompletion: result?.hasUnreadCompletion,
             statusSince: result?.statusSince,
-            failed: result?.failed
+            failed: result?.failed,
+            acknowledgedCompletionID: result?.acknowledgedCompletionID
         ), now: timestamp)
         lifecycleJournal = journal
         return persisted

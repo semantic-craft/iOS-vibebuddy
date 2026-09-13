@@ -44,8 +44,13 @@ public enum WatchDemoScenario: String, Codable, Sendable, CaseIterable, Identifi
 
     public func state(now: Date) -> WatchDashboardState {
         guard self != .noData else { return .noData(observedAt: now) }
+        let samples = sessions(now: now).map { session in
+            var sample = session
+            if sample.hasUnreadCompletion { sample.completionID = sample.id + "-round" }
+            return sample
+        }
         var state = WatchDashboardProjection.make(
-            snapshot: Snapshot(sessions: sessions(now: now), serverTime: now,
+            snapshot: Snapshot(sessions: samples, serverTime: now,
                                sourceID: Self.sourceID),
             quotas: quotas(now: now),
             relay: self == .macDisconnected ? .disconnected : .live,

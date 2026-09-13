@@ -35,6 +35,8 @@ protocol DecisionClient: Sendable {
     /// daemon's automatic level. The Mac owns the value.
     func setAttention(_ pairing: PairingPayload, sessionId: String, level: SessionAttention?) async
     /// Bounded recent dialogue. Nil when the Mac could not be reached.
+    func workspaceChanges(_ pairing: PairingPayload, sessionId: String, scope: ChangesScope, baseline: String?, file: String?) async -> WorkspaceChanges?
+    func completionBody(_ pairing: PairingPayload, sessionId: String, completionId: String) async -> CompletionBody?
     func recentOutput(_ pairing: PairingPayload, sessionId: String) async -> RecentOutput?
 }
 
@@ -67,6 +69,8 @@ extension DecisionClient {
     func phoneStop(_ pairing: PairingPayload, session: AgentSession, requestID: String) async -> StopDelivery { .failed }
     func acknowledgeWait(_ pairing: PairingPayload, request: WaitReadRequest) async -> Bool { false }
     func dispatch(_ pairing: PairingPayload, request: DispatchRequest) async -> DispatchOutcome? { nil }
+    func workspaceChanges(_ pairing: PairingPayload, sessionId: String, scope: ChangesScope, baseline: String?, file: String?) async -> WorkspaceChanges? { nil }
+    func completionBody(_ pairing: PairingPayload, sessionId: String, completionId: String) async -> CompletionBody? { nil }
     func recentOutput(_ pairing: PairingPayload, sessionId: String) async -> RecentOutput? { nil }
     func decideResult(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> WaitActionResult {
         await decide(pairing, approvalId: approvalId, decision: decision) ? .accepted : .failed
@@ -236,6 +240,30 @@ struct HTTPDecisionClient: DecisionClient {
         case 503: return .unavailable(fields["error"] ?? "Unavailable")
         default: return nil
         }
+    }
+
+    func workspaceChanges(_ pairing: PairingPayload, sessionId: String, scope: ChangesScope, baseline: String?, file: String?) async -> WorkspaceChanges? {
+        var items = [URLQueryItem(name: "sessionId", value: sessionId), URLQueryItem(name: "scope", value: scope.rawValue)]
+        if let baseline { items.append(URLQueryItem(name: "baseline", value: baseline)) }
+        if let file { items.append(URLQueryItem(name: "file", value: file)) }
+        guard let url = pairing.companionURL(path: "changes", queryItems: items) else { return nil }
+        var request = URLRequest(url: url); request.timeoutInterval = 30
+        request.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+        return try? JSONDecoder().decode(WorkspaceChanges.self, from: data)
+    }
+
+    func completionBody(_ pairing: PairingPayload, sessionId: String, completionId: String) async -> CompletionBody? {
+        guard let base = pairing.companionURL(path: "completion"),
+              var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else { return nil }
+        components.queryItems = [URLQueryItem(name: "sessionId", value: sessionId), URLQueryItem(name: "completionId", value: completionId)]
+        guard let url = components.url else { return nil }
+        var request = URLRequest(url: url); request.timeoutInterval = 10
+        request.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+        return try? JSONDecoder().decode(CompletionBody.self, from: data)
     }
 
     func recentOutput(_ pairing: PairingPayload, sessionId: String) async -> RecentOutput? {

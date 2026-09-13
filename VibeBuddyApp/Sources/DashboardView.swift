@@ -23,6 +23,7 @@ struct DashboardView: View {
     @State private var newTaskRequest: NewTaskRequest?
     @State private var highlightId: String?
     @State private var detailId: String?
+    @State private var pendingNavigation = PendingTaskNavigation()
     @State private var replyTo: String?
     @State private var filters = DashboardFilters()
     @State private var showFilters = false
@@ -187,25 +188,24 @@ struct DashboardView: View {
                 .environmentObject(dashboard)
         }
         .sheet(isPresented: $voice.showConsent) { VoiceConsentSheet(voice: voice) }
-        .sheet(item: Binding(get: { detailSession.map { DetailTarget(id: $0.id) } },
-                             set: { detailId = $0?.id })) { target in
-            if let session = dashboard.allSessions.first(where: { $0.id == target.id }) {
-                let displayedCompletion = dashboard.completionRequest(for: session)
-                SessionDetailSheet(session: session, completionNotificationID: detailCompletionNotificationID, onReply: { replyTo = session.id; detailId = nil })
-                    .environmentObject(dashboard)
-                    .safeAreaInset(edge: .bottom) {
-                        if let status = dashboard.completionReadStatus(for: session) {
-                            Text(status).font(CompanionType.font(12)).padding().frame(maxWidth: .infinity)
-                                .background(.regularMaterial)
-                        }
-                    }
-                    .task(id: displayedCompletion) {
-                        if let id = detailCompletionNotificationID,
-                           !dashboard.matchesCompletionNotification(id, sessionID: session.id) { return }
-                        dashboard.acknowledge(session.id, displayedCompletion: displayedCompletion)
-                    }
+        .sheet(isPresented: Binding(get: { detailId != nil }, set: { presented in
+            if !presented { detailId = nil; pendingNavigation = PendingTaskNavigation() }
+        })) {
+            Group {
+                if let session = detailSession {
+                    SessionDetailSheet(session: session, completionNotificationID: detailCompletionNotificationID,
+                                       onReply: { replyTo = session.id; detailId = nil })
+                        .id(session.id)
+                        .environmentObject(dashboard)
+                } else {
+                    Text("This task is no longer available")
+                        .font(CompanionType.font(14)).padding()
+                }
             }
+            .safeAreaInset(edge: .bottom) { pendingFooter }
         }
+        .onChange(of: filters) { _, _ in pendingNavigation = PendingTaskNavigation() }
+        .onChange(of: dashboard.completionSourceID) { _, _ in pendingNavigation = PendingTaskNavigation() }
         .alert("This completion is no longer current", isPresented: $dashboard.completionLinkUnavailable) {
             Button("OK", role: .cancel) { }
         } message: {
@@ -249,6 +249,46 @@ struct DashboardView: View {
         }
         .onDisappear { dashboard.stop() }
         }
+    }
+
+    private var pendingCandidates: [AgentSession] {
+        filters.pendingSessions(from: dashboard.allSessions, now: now)
+    }
+    private var nextPending: AgentSession? {
+        var preview = pendingNavigation
+        return preview.next(in: pendingCandidates, after: detailSession)
+    }
+    private var pendingFooter: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            if let session = detailSession, let status = dashboard.completionReadStatus(for: session) {
+                Text(status).font(CompanionType.font(12))
+            }
+            Text(filters.isActive ? String(localized: "Current filter: \(filters.summary)")
+                 : filters.includeInactive ? String(localized: "Current list · including older tasks")
+                 : String(localized: "Current tasks"))
+                .font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink2)
+            if let next = nextPending {
+                Button {
+                    // Recompute at the tap. A deleted target cannot be opened
+                    // from an earlier render, nor can this action mark it read.
+                    if let target = pendingNavigation.next(in: pendingCandidates, after: detailSession) {
+                        detailCompletionNotificationID = nil
+                        detailId = target.id
+                    }
+                } label: {
+                    Label("Next pending: \(next.displayTitle)", systemImage: "arrow.right")
+                        .lineLimit(2)
+                }
+                .buttonStyle(PhoneButtonStyle(kind: .quiet))
+                .accessibilityIdentifier("phone-next-pending")
+            } else {
+                Text("No next pending task in this scope")
+                    .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
+            }
+        }
+        .padding(.horizontal, PhoneMetrics.gutter).padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(CompanionPalette.bg)
     }
 
     /// Glyph buttons floating over the page: the account's allowance on the
@@ -316,8 +356,8 @@ struct DashboardView: View {
     /// line that says what is going on.
     private var statusLine: String {
         let summary = TaskPresentationSummary(currentIn: dashboard.allSessions, now: now)
-        let rest = CompanionCopy.restLine(summary)
-        return [CompanionCopy.moodLine(summary), rest.isEmpty ? nil : rest]
+        let rest = summary.thinking > 0 ? "\(summary.thinking) working" : ""
+        return [CompanionCopy.attentionLine(summary), rest.isEmpty ? nil : rest]
             .compactMap { $0 }.joined(separator: " · ")
     }
 
@@ -328,7 +368,6 @@ struct DashboardView: View {
                 set: { expand in if expand { collapsed.remove(id) } else { collapsed.insert(id) } })
     }
 
-    private struct DetailTarget: Identifiable { let id: String }
 
     /// What the composer's text does, decided by the message it replies to.
     private func send(_ text: String, target: AgentSession?) async -> Bool {
@@ -402,7 +441,15 @@ extension DashboardView {
     /// The long-press shows all three plus Automatic, the current choice checked.
     /// Automatic is the daemon's own inference: followed for ten minutes after
     /// you drove the session, normal otherwise.
+    @ViewBuilder
     fileprivate func attentionMenu(_ session: AgentSession) -> some View {
+        if session.status == .done, session.completionID != nil {
+            Button(session.hasUnreadCompletion ? "Mark as read" : "Mark as unread") {
+                if session.hasUnreadCompletion {
+                    dashboard.acknowledge(session.id, displayedCompletion: dashboard.completionRequest(for: session))
+                } else { dashboard.markUnread(session) }
+            }
+        }
         Picker(selection: Binding(get: { session.attentionOverride },
                                   set: { dashboard.setAttention(session.id, $0) })) {
             Label(String(localized: "Automatic"), systemImage: "wand.and.stars")
@@ -514,6 +561,7 @@ private struct TaskRow: View {
     let onReply: () -> Void
     @EnvironmentObject private var dashboard: DashboardStore
 
+    private var presentation: RowPresentation { RowPresentation(session: session) }
     private var state: TaskPresentationState { session.presentationState }
     /// The question card is the answer path when it is shown; a Reply key
     /// beside it would only be a second way to the same composer.
@@ -543,16 +591,19 @@ private struct TaskRow: View {
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(accessibilityLabel)
                     .accessibilityHint("Open details")
-                // The question card carries its own prompt; the row does not
-                // say it twice.
-                if let summary = session.displaySummary, !summary.isEmpty,
-                   !(showsQuestionCard && session.pendingQuestion?.prompt == summary) {
-                    Text(summary)
-                        .font(CompanionType.font(13))
-                        .foregroundStyle(CompanionPalette.ink2)
-                        .lineLimit(summaryLineLimit)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.leading, PhoneRowMetrics.textInset)
+                if !(showsQuestionCard && session.pendingQuestion?.prompt == presentation.activityOrResult) {
+                    activity
+                }
+                metaLine.padding(.leading, PhoneRowMetrics.textInset)
+                if let stats = session.ledgerSummary {
+                    Text(stats).font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink3).padding(.leading, PhoneRowMetrics.textInset)
+                }
+                if let warning = presentation.observationWarning {
+                    Text(warning).font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
+                    if let seen = presentation.lastObservedAt {
+                        Text("Last observed: \(seen.formatted())")
+                            .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
+                    }
                 }
                 if let approval = session.pendingApproval { approvalBlock(approval) }
                 if let question = session.pendingQuestion { questionBlock(question) }
@@ -586,7 +637,8 @@ private struct TaskRow: View {
     private var accessibilityLabel: String {
         [session.displayTitle, ToolActivity.label(for: session), session.agent.shortName,
          session.effectiveAttention == .normal ? "" : session.effectiveAttention.stateTitle,
-         session.displaySummary ?? "", PhoneRelativeTime.spoken(session.updatedAt, now: now)]
+         presentation.activityOrResult, presentation.progress ?? "",
+         presentation.unread ? String(localized: "Unread") : "", PhoneRelativeTime.spoken(session.updatedAt, now: now)]
             .filter { !$0.isEmpty }.joined(separator: ", ")
     }
 
@@ -600,7 +652,9 @@ private struct TaskRow: View {
                     .tracking(CompanionType.tracking(15))
                     .foregroundStyle(CompanionPalette.ink)
                     .lineLimit(1)
-                metaLine
+            }
+            if presentation.unread {
+                Text("Unread").font(CompanionType.font(11)).foregroundStyle(CompanionPalette.status(.completeUnread))
             }
             Spacer(minLength: 8)
             HStack(spacing: 5) {
@@ -640,6 +694,16 @@ private struct TaskRow: View {
         .font(CompanionType.font(11))
         .foregroundStyle(CompanionPalette.ink3)
         .lineLimit(1)
+    }
+
+    private var activity: some View {
+        (Text(presentation.activityOrResult).foregroundStyle(CompanionPalette.status(state))
+         + Text("  ").foregroundStyle(CompanionPalette.ink3)
+         + Text(presentation.progress ?? "").foregroundStyle(CompanionPalette.ink2))
+            .font(CompanionType.font(13))
+            .lineLimit(3)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.leading, PhoneRowMetrics.textInset)
     }
 
     @ViewBuilder private func approvalKeys(_ approval: PendingApproval) -> some View {
@@ -916,6 +980,17 @@ private struct SessionDetailSheet: View {
     let onReply: () -> Void
     @EnvironmentObject private var dashboard: DashboardStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var showChanges = false
+    @State private var completionBody: CompletionBody?
+    @State private var resultIsVisible = false
+    @State private var acknowledgedBodyID: String?
+    private var resultKey: String { (dashboard.completionSourceID ?? "unknown") + "/" + session.id + "/" + (session.completionID ?? "working") }
+    private var currentBody: CompletionBody? {
+        guard let completionBody, completionBody.sourceID == dashboard.completionSourceID, completionBody.sessionID == session.id,
+              completionBody.completionID == session.completionID else { return nil }
+        return completionBody
+    }
     @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
 
     private var state: TaskPresentationState { session.presentationState }
@@ -929,7 +1004,7 @@ private struct SessionDetailSheet: View {
                     HStack(alignment: .top, spacing: 10) {
                         AgentAvatar(agent: session.agent, size: 36)
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(session.displayTitle)
+                            Text(session.taskGoal)
                                 .font(CompanionType.font(22, .semibold))
                                 .tracking(CompanionType.tracking(22))
                                 .foregroundStyle(CompanionPalette.ink)
@@ -971,12 +1046,40 @@ private struct SessionDetailSheet: View {
                                 .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
                         }
                     }
-                    if let summary = session.displaySummary, !summary.isEmpty {
+                    if let summary = session.detailProgress, !summary.isEmpty {
                         Text(summary).font(CompanionType.font(14)).foregroundStyle(CompanionPalette.ink)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    RecentOutputCard(output: dashboard.recentOutputs[session.id])
-                    metaCard
+                    if session.status == .done, session.completionID != nil {
+                        if let body = currentBody {
+                            if let text = body.text {
+                                Text(text).font(CompanionType.font(14)).foregroundStyle(CompanionPalette.ink)
+                                    .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                                .completionReadingVisibility { visible in
+                                    resultIsVisible = visible; acknowledgeVisibleBody()
+                                }
+                                Text("Agent final response · this completion · not independently verified")
+                                    .font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink3)
+                            } else if let reason = body.unavailableReason {
+                                Text(LocalizedStringKey(reason)).font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
+                            }
+                        } else { Text("Loading this completion…").font(CompanionType.font(11)) }
+                        Button(session.hasUnreadCompletion ? "Mark as read" : "Mark as unread") {
+                            acknowledgedBodyID = resultKey
+                            if session.hasUnreadCompletion {
+                                dashboard.acknowledge(session.id, displayedCompletion: dashboard.completionRequest(for: session))
+                            } else { dashboard.markUnread(session) }
+                        }.buttonStyle(PhoneButtonStyle(kind: .quiet, size: .small))
+                    }
+                    Text(ToolActivity.label(for: session)).font(CompanionType.font(12))
+                        .foregroundStyle(CompanionPalette.ink2)
+                    Text(session.detailProgressSource).font(CompanionType.font(10))
+                        .foregroundStyle(CompanionPalette.ink3)
+                    if session.status == .needsResponse {
+                        Text("Your decision").font(CompanionType.font(12, .semibold))
+                        decision
+                    }
+                    Text("Actions").font(CompanionType.font(12, .semibold))
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Notifications").font(CompanionType.font(11, .medium)).textCase(.uppercase).kerning(0.5)
                             .foregroundStyle(CompanionPalette.ink3)
@@ -1000,7 +1103,7 @@ private struct SessionDetailSheet: View {
                             }
                             .buttonStyle(PhoneButtonStyle(kind: .primary(CompanionPalette.accent)))
                         }
-                        if session.agent != .grokBot {
+                        if SessionActionSupport.resolve(for: session).isAvailable {
                             Button { onReply() } label: { Label("Reply", systemImage: "arrowshape.turn.up.left") }
                                 .buttonStyle(PhoneButtonStyle(kind: .quiet))
                         }
@@ -1011,6 +1114,12 @@ private struct SessionDetailSheet: View {
                             .buttonStyle(PhoneButtonStyle(kind: .quiet))
                         }
                     }
+                    DisclosureGroup("Activity and file changes") {
+                        Button("Changes") { showChanges = true }.buttonStyle(PhoneButtonStyle(kind: .quiet, size: .small))
+                        ToolLedgerView(session: session)
+                        RecentOutputCard(output: dashboard.recentOutputs[session.id])
+                        metaCard
+                    }
                 }
                 .padding(.horizontal, PhoneMetrics.gutter)
                 .padding(.bottom, 24)
@@ -1019,7 +1128,53 @@ private struct SessionDetailSheet: View {
         .background(CompanionPalette.bg)
         .presentationDetents([.medium, .large])
         .tint(CompanionPalette.accent)
+        .sheet(isPresented: $showChanges) {
+            WorkspaceChangesView { scope, baseline, file in
+                await dashboard.workspaceChanges(for: session, scope: scope, baseline: baseline, file: file)
+            }
+        }
         .task { await dashboard.loadRecentOutput(session.id) }
+        .task(id: resultKey) {
+            completionBody = nil
+            resultIsVisible = false
+            let key = resultKey
+            let loaded = await dashboard.completionBody(for: session)
+            guard !Task.isCancelled, key == resultKey else { return }
+            completionBody = loaded
+        }
+        .onChange(of: currentBody) { _, _ in acknowledgeVisibleBody() }
+        .onChange(of: scenePhase) { _, _ in acknowledgeVisibleBody() }
+        .onChange(of: showChanges) { _, _ in acknowledgeVisibleBody() }
+    }
+
+    private func acknowledgeVisibleBody() {
+        guard scenePhase == .active, !showChanges, resultIsVisible, currentBody?.text?.isEmpty == false,
+              session.hasUnreadCompletion, acknowledgedBodyID != resultKey else { return }
+        acknowledgedBodyID = resultKey
+        dashboard.acknowledge(session.id, displayedCompletion: dashboard.completionRequest(for: session))
+    }
+
+    @ViewBuilder private var decision: some View {
+        if let approval = session.pendingApproval {
+            ApprovalBody(approval: approval)
+            if ApprovalEligibility.approval(for: session) != nil {
+                HStack {
+                    Button("Approve") { dashboard.decide(approval.id, .allow) }
+                        .buttonStyle(PhoneButtonStyle(kind: .primary(CompanionPalette.accent)))
+                    Button("Deny") { dashboard.decide(approval.id, .deny) }
+                        .buttonStyle(PhoneButtonStyle(kind: .primary(CompanionPalette.status(.error))))
+                }.disabled(dashboard.phoneActionDisabled(for: session))
+            } else { Text(WaitHandling.resolve(for: session).message) }
+        } else if let question = session.pendingQuestion {
+            if WaitHandling.resolve(for: session) == .remoteAvailable {
+                QuestionCardView(question: question, actionState: dashboard.phoneActionState(for: session)) { answers in
+                    await dashboard.answer(session.id, answers: answers, expected: session)
+                }.disabled(dashboard.phoneActionDisabled(for: session))
+            } else {
+                Text(question.prompt)
+                Text(WaitHandling.resolve(for: session).message)
+            }
+        } else { Text(WaitHandling.resolve(for: session).message) }
     }
 
     private var metaCard: some View {

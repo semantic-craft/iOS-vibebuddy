@@ -168,3 +168,10 @@ the two screen-edge cases that cannot be produced on a real menu bar (icon hard
 against either edge, panel wider than the display) are covered by tests rather
 than by hand. Copy lives in the Kit's shared summary functions and is tested
 there.
+
+## 2026-09-13 decision
+
+[ADR-0020](../adr/0020-autonomous-task-progress-desk.md) supersedes approval-first
+placement: keep the task list, lead details with goal and result, place decisions
+inline, and distinguish unread results from verified work. Use the existing
+Cursor tokens. Only confirmed terminal failures enter Needs you.

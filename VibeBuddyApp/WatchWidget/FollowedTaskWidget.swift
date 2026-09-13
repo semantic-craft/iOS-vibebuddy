@@ -82,7 +82,7 @@ struct FollowedTaskView: View {
                         Text(snapshot.observedAt, style: .relative)
                     }.font(CompanionType.fixedFont(11))
                 } else if pending {
-                    Text("Viewed — syncing with Mac").font(CompanionType.fixedFont(11)).lineLimit(1)
+                    Text("Marked · awaiting Mac confirmation").font(CompanionType.fixedFont(11)).lineLimit(1)
                 } else {
                     Text(task.summary ?? String(localized: statusResource))
                         .font(CompanionType.fixedFont(11)).foregroundStyle(CompanionPalette.ink2).lineLimit(1)

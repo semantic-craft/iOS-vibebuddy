@@ -330,13 +330,13 @@ struct SoundPolicyTests {
 
     // MARK: stuck heuristic — a failed/aborted ending sounds duller
 
-    @Test("done with a failure summary rings agent_stuck instead of agent_done")
-    func failureRingsStuck() {
+    @Test("failure words alone do not ring agent_stuck")
+    func failureWordsDoNotConfirmFailure() {
         let p = SoundPolicy()
         _ = p.evaluate(input([session("a", .working, since: 0)], now: 0))
         let alerts = p.evaluate(input([session("a", .done, since: 40, summary: "Build failed: 3 errors")],
                                       now: 40, appActive: false))
-        #expect(alerts.map(\.sound) == [.agentStuck])
+        #expect(alerts.map(\.sound) == [.agentDone])
     }
 
     @Test("the real failed flag rings stuck even with a benign summary")
@@ -353,8 +353,9 @@ struct SoundPolicyTests {
     func quickFailureRingsStuck() {
         let p = SoundPolicy()
         _ = p.evaluate(input([session("a", .working, since: 0)], now: 0))
-        let alerts = p.evaluate(input([session("a", .done, since: 5, summary: "fatal error: process crashed")],
-                                      now: 5, appActive: false))
+        var done = session("a", .done, since: 5, summary: "fatal error: process crashed")
+        done.failed = true
+        let alerts = p.evaluate(input([done], now: 5, appActive: false))
         #expect(alerts.map(\.sound) == [.agentStuck])
     }
 

@@ -244,7 +244,7 @@ private struct GeneralPage: View {
     @ObservedObject var model: MenuBarModel
     @ObservedObject var setup: HookSetup
     @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
-    @AppStorage("showMenuBarTaskStatus") private var showMenuBarTaskStatus = false
+    @AppStorage("showMenuBarTaskStatus") private var showMenuBarTaskStatus = true
     @State private var showHideIconNote = false
 
     var body: some View {
@@ -277,6 +277,9 @@ private struct GeneralPage: View {
                 SettingsRow("Open Dashboard",
                             detail: "Works from any app. Hyper (⌃⌥⇧⌘) combos recommended.") {
                     HotkeyRecorderView(current: model.openDashboardHotkey, onRecord: model.setHotkey)
+                }
+                SettingsRow("Next pending task", detail: "Needs you, then unread results.") {
+                    HotkeyRecorderView(current: model.nextPendingHotkey, onRecord: model.setNextPendingHotkey)
                 }
                 SettingsRow("Toggle Glance",
                             detail: "Show or hide the floating glance from the keyboard — handy on a notchless screen where it would otherwise sit on top of your work.") {
@@ -359,7 +362,7 @@ private struct NotificationsPage: View {
             }
 
             SettingsSection("Quiet",
-                            footnote: "Quiet mode keeps approvals and questions silent and suppresses other session alerts. Enabled quota alerts still follow the Sound setting.") {
+                            footnote: "Quiet mode keeps questions, plan decisions and approvals visible but silent. Failures stay in the list; completions are quiet. Enabled quota alerts still follow the Sound setting.") {
                 SettingsRow("Quiet mode",
                             detail: "Approvals and questions stay silent; other session alerts are suppressed.") {
                     Toggle("", isOn: $quiet).labelsHidden().toggleStyle(.switch).disabled(!notify)
@@ -542,6 +545,17 @@ private struct AgentCLIsPage: View {
                                          : (status.configured ? .warn : .neutral))
                         }
                     })
+                }
+            }
+
+            SettingsSection("Reported permission mode",
+                            footnote: "Latest observed session per agent. Mode describes the agent; real waiting requests still need you. Unknown is not autonomous. Codex approval and sandbox policies are independent.") {
+                ForEach([AgentKind.claudeCode, AgentKind.codex, AgentKind.cursor], id: \.rawValue) { (agent: AgentKind) in
+                    let latest = model.sessions.filter { $0.agent == agent }
+                        .max { ($0.permissionObservedAt ?? $0.updatedAt) < ($1.permissionObservedAt ?? $1.updatedAt) }
+                    SettingsRow(verbatim: agent.displayName) {
+                        SettingsValue(verbatim: latest?.permissionDescription ?? "Unknown")
+                    }
                 }
             }
 

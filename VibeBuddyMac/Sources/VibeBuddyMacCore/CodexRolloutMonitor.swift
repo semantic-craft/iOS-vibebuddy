@@ -16,6 +16,8 @@ public struct CodexRolloutParser: Sendable {
     public private(set) var awaitingUser = false
     /// Latest model named by `turn_context` / `thread_settings_applied`.
     public private(set) var model: String?
+    private var approvalPolicyRaw: String?
+    private var sandboxPolicyRaw: String?
     private var tokenRecordCount = 0
     private var cumulativeTokens: Int?
     private var contextTokens: Int?
@@ -64,14 +66,14 @@ public struct CodexRolloutParser: Sendable {
         guard let sessionID, isDesktopSession else { return [] }
 
         if recordType == "turn_context" {
-            return modelEvents(payload["model"] as? String, sessionID: sessionID, timestamp: timestamp)
+            return settingsEvents(payload, sessionID: sessionID, timestamp: timestamp)
         }
 
         if recordType == "event_msg", let eventType = payload["type"] as? String {
             switch eventType {
             case "thread_settings_applied":
                 let settings = payload["thread_settings"] as? [String: Any]
-                return modelEvents(settings?["model"] as? String, sessionID: sessionID, timestamp: timestamp)
+                return settingsEvents(settings ?? [:], sessionID: sessionID, timestamp: timestamp)
             case "token_count":
                 guard let info = payload["info"] as? [String: Any] else { return [] }
                 return usageEvents(info, sessionID: sessionID, timestamp: timestamp)
@@ -138,6 +140,24 @@ public struct CodexRolloutParser: Sendable {
             contextWindow: contextWindow)
         return event(.sessionMetadataChanged, sessionID: sessionID, model: model,
                      timestamp: timestamp, enrichment: enrichment)
+    }
+
+    private mutating func settingsEvents(_ settings: [String: Any], sessionID: String, timestamp: Date) -> [HookEvent] {
+        let policy = settings["approval_policy"] as? String
+        let sandbox: String? = {
+            guard let value = settings["sandbox_policy"] else { return nil }
+            if let text = value as? String { return text }
+            guard JSONSerialization.isValidJSONObject(value),
+                  let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]) else { return nil }
+            return String(data: data, encoding: .utf8)
+        }()
+        let changed = (policy != nil && policy != approvalPolicyRaw)
+            || (sandbox != nil && sandbox != sandboxPolicyRaw)
+        if let policy { approvalPolicyRaw = policy }
+        if let sandbox { sandboxPolicyRaw = sandbox }
+        let events = modelEvents(settings["model"] as? String, sessionID: sessionID, timestamp: timestamp)
+        if !events.isEmpty { return events }
+        return changed ? [event(.sessionMetadataChanged, sessionID: sessionID, timestamp: timestamp)] : []
     }
 
     private mutating func modelEvents(_ raw: String?, sessionID: String, timestamp: Date) -> [HookEvent] {
@@ -220,7 +240,8 @@ public struct CodexRolloutParser: Sendable {
                   childID: childID, childKind: childKind, childName: childName,
                   childType: childType, childAction: childAction,
                   turnID: turnID, enrichment: enrichment,
-                  desktopThreadID: sessionID, completionText: completionText, completionSucceeded: completionSucceeded)
+                  desktopThreadID: sessionID, completionText: completionText, completionSucceeded: completionSucceeded,
+                  approvalPolicyRaw: approvalPolicyRaw, sandboxPolicyRaw: sandboxPolicyRaw)
     }
 
     private struct PendingCollab {

@@ -12,6 +12,7 @@ struct GlanceView: View {
     @ObservedObject var voice: VoiceChat
     let layout: GlanceLayout
 
+    @State private var expandedDecisionID: String?
     @State private var hovering = false
     @State private var hoverTask: Task<Void, Never>?
 
@@ -282,8 +283,7 @@ struct GlanceView: View {
     }
 
     /// The tall content: header (mic, the mood line, close), then the pending
-    /// approval if there is one, else the session list — rows are the jump
-    /// controls.
+    /// session list. Waiting rows expand their decision in place.
     private var expanded: some View {
         VStack(alignment: .leading, spacing: 8 * s) {
             HStack(spacing: 12 * s) {
@@ -302,6 +302,7 @@ struct GlanceView: View {
                     PetFace(state: model.buddyState, voice: .init(voice.phase), bare: true, scale: 0.45 * s)
                 }
                 if voice.isActive { voiceBadge } else { moodHead }
+                AnnouncementControls(reader: model.readAloud)
                 Spacer(minLength: 8 * s)
                 Button {
                     model.setShowGlance(false)   // get out of the way; the shortcut or menu brings it back
@@ -315,7 +316,44 @@ struct GlanceView: View {
                 .buttonStyle(.plain)
                 .help("Hide glance (\(model.toggleGlanceHotkey.displayString))")
             }
-            if let p = pending, let a = p.pendingApproval {
+            ScrollView {
+            if model.sessions.isEmpty {
+                Text("No agent sessions yet")
+                    .font(MacTheme.font(12 * s, .medium))
+                    .foregroundStyle(.white.opacity(0.62))
+            } else {
+                let groups = StateGroups(SessionCurrency.current(model.sessions, now: Date()))
+                Divider().overlay(.white.opacity(0.16))
+                ForEach(groups.buckets) { group in
+                    Text("\(group.title) · \(group.sessions.count)")
+                        .font(MacTheme.font(10 * s, .heavy))
+                        .textCase(.uppercase).kerning(0.6)
+                        .foregroundStyle(.white.opacity(0.5))
+                        .padding(.top, 2 * s)
+                    ForEach(group.sessions.prefix(3)) { sess in
+                        GlanceSessionRow(session: sess, feedback: model.jumpFeedback[sess.id], scale: s) {
+                            if sess.status == .needsResponse {
+                                expandedDecisionID = expandedDecisionID == sess.id ? nil : sess.id
+                            } else { model.jump(sess) }
+                        }
+                        .onHover { hovering in
+                            model.glanceViewedSessionID = hovering ? sess.id : nil
+                        }
+                        if expandedDecisionID == sess.id {
+                            decision(for: sess)
+                        }
+                    }
+                }
+            }
+            }.frame(maxHeight: 300 * s)
+        }
+        .padding(.horizontal, 20 * s)
+        .padding(.top, 10 * s)
+        .padding(.bottom, 16 * s)
+        .animation(.smooth(duration: 0.18), value: model.jumpFeedback)
+    }
+    @ViewBuilder private func decision(for p: AgentSession) -> some View {
+        if let a = p.pendingApproval {
                 Divider().overlay(.white.opacity(0.16))
                 Text("\(p.displayTitle) wants to \(MacSummaryCopy.requestVerb(a))")
                     .font(MacTheme.font(10 * s, .heavy))
@@ -361,32 +399,20 @@ struct GlanceView: View {
                         .font(MacTheme.font(10 * s, .medium))
                         .foregroundStyle(.white.opacity(0.68))
                 }
-            } else if model.sessions.isEmpty {
-                Text("No agent sessions yet")
-                    .font(MacTheme.font(12 * s, .medium))
-                    .foregroundStyle(.white.opacity(0.62))
+
+        } else if let question = p.pendingQuestion {
+            Text("Your decision").font(MacTheme.font(11 * s, .semibold))
+            if WaitHandling.resolve(for: p) == .remoteAvailable {
+                QuestionCardView(question: question) { answers in model.answer(p.id, answers: answers) }
             } else {
-                let groups = StateGroups(SessionCurrency.current(model.sessions, now: Date()))
-                Divider().overlay(.white.opacity(0.16))
-                ForEach(groups.buckets) { group in
-                    Text("\(group.title) · \(group.sessions.count)")
-                        .font(MacTheme.font(10 * s, .heavy))
-                        .textCase(.uppercase).kerning(0.6)
-                        .foregroundStyle(.white.opacity(0.5))
-                        .padding(.top, 2 * s)
-                    ForEach(group.sessions.prefix(3)) { sess in
-                        GlanceSessionRow(session: sess, feedback: model.jumpFeedback[sess.id], scale: s) {
-                            model.jump(sess)
-                        }
-                    }
-                }
+                Text(question.prompt).font(MacTheme.font(12 * s))
+                Text(WaitHandling.resolve(for: p).message).font(MacTheme.font(10 * s))
             }
+        } else {
+            Text(WaitHandling.resolve(for: p).message).font(MacTheme.font(11 * s))
         }
-        .padding(.horizontal, 20 * s)
-        .padding(.top, 10 * s)
-        .padding(.bottom, 16 * s)
-        .animation(.smooth(duration: 0.18), value: model.jumpFeedback)
     }
+
 }
 
 /// The event layer: one cue as a card that unfolds from the housing. Actionable

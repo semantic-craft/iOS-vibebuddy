@@ -46,7 +46,7 @@ struct MenuFeedTests {
                              session("fresh", ago: 10), session("ask", ago: 400, .needsResponse),
                              session("mid", ago: 120)])
         #expect(feed.sections.map(\.kind) == [.needsYou, .working])
-        #expect(sessions(feed, .needsYou).map(\.id) == ["broke", "ask"])
+        #expect(sessions(feed, .needsYou).map(\.id) == ["ask", "broke"])
         #expect(sessions(feed, .working).map(\.id) == ["fresh", "mid", "old"])
         #expect(feed.emptyState == nil)
     }
@@ -208,9 +208,9 @@ struct MenuFeedTests {
                      session("ask", ago: 3 * 3600, .needsResponse), failed("broke", ago: 2 * 3600)]
         let feed = make(input)
         #expect(feed.sections.first?.kind == .needsYou)
-        #expect(feed.topResult?.id == "broke")
+        #expect(feed.topResult?.id == "ask")
         // Narrowing keeps the rule: the newest matching row that needs a person.
-        #expect(make(input, query: "app").topResult?.id == "broke")
+        #expect(make(input, query: "app").topResult?.id == "ask")
     }
 
     // MARK: the row's timestamp
@@ -226,5 +226,15 @@ struct MenuFeedTests {
         #expect(MenuFeed.age(of: now - 2 * 86_400, now: now) == "2d")
         // A clock that jumped backwards reads as the present, never as a negative age.
         #expect(MenuFeed.age(of: now + 30, now: now) == "now")
+    }
+    @Test func unreadAndNextPendingUseAttentionOrder() {
+        let feed = make([session("read", .done), unread("unread", ago: 30), session("wait", .needsResponse)])
+        #expect(sessions(feed, .done).map(\.id) == ["unread", "read"])
+        var navigation = PendingTaskNavigation()
+        let first = navigation.next(in: feed.pending, after: nil)
+        #expect(first?.id == "wait")
+        let next = navigation.next(in: feed.pending, after: first)
+        #expect(next?.id == "unread")
+        #expect(navigation.next(in: feed.pending, after: next)?.id == "wait")
     }
 }

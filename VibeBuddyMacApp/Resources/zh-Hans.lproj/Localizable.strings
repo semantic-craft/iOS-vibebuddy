@@ -939,3 +939,41 @@
 /* Voice page — the two-tier control line's cell labels (decision B) */
 "Provider" = "服务商";
 "Model" = "模型";
+"Unread" = "未读";
+"Last observed: %@" = "最后观察：%@";
+
+"Silence speech while viewing this task" = "查看当前任务时也静默播报";
+"Resume announcements" = "恢复播报";
+"Pause announcements" = "暂停播报";
+"Skip announcement" = "跳过当前播报";
+"Replay previous result" = "重播此前结果";
+"Replay this previous result" = "重播这条此前结果";
+"More results remain in the unread list" = "还有更多结果可在未读列表查看";
+"Read-aloud paused" = "播报已暂停";
+"Skipped; result remains unread" = "已跳过；结果仍未读";
+
+"Quiet mode keeps questions, plan decisions and approvals visible but silent. Failures stay in the list; completions are quiet. Enabled quota alerts still follow the Sound setting." = "静默模式下，提问、计划决定和审批仍显示但不响铃；失败保留在列表，完成不打扰。已开启的配额提醒仍遵循声音设置。";
+
+"Mark as read" = "标为已读";
+"Mark as unread" = "标回未读";
+"Couldn’t update unread status" = "无法更新未读状态";
+"Agent final response · this completion · not independently verified" = "Agent 最终回复 · 本次完成 · 未经独立验证";
+"Loading this completion…" = "正在读取本次完成结果…";
+"Your decision" = "需要你的决定";
+"Actions" = "可执行操作";
+"Activity and file changes" = "活动记录与文件变化";
+"Permission mode" = "权限模式";
+"AI summary · this completion · agent-reported results" = "AI 摘要 · 本次完成 · 结果由 Agent 自述";
+"Completion notice · this completion" = "完成通知 · 本次完成";
+"Latest observed activity · limited coverage" = "最近观察到的活动 · 覆盖有限";
+"Next pending task" = "下一个待处理任务";
+"Next pending" = "下一个待处理";
+
+"No call identity; result cannot be linked to intent" = "缺少调用身份，无法将结果关联到执行意图";
+"Observed hook calls only; retained 50, snapshot 20" = "仅记录已观察到的 Hook 调用；保留 50 条，快照显示 20 条";
+"This completion is no longer current." = "这次完成结果已不再是当前轮次。";
+"The final result could not be verified for this completion. Recent output remains available with limited coverage." = "无法核实最终结果与本次完成的对应关系；仍可查看覆盖有限的最近输出。";
+
+"Workspace changes" = "工作区变化";
+
+"Mark current result read" = "将当前结果标为已读";

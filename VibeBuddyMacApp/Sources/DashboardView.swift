@@ -25,6 +25,7 @@ final class DashboardRoute: ObservableObject {
 /// surface. These filters never alter the shared snapshot or Buddy scope.
 struct DashboardView: View {
     @ObservedObject var model: MenuBarModel
+    @State private var pendingNavigation = PendingTaskNavigation()
     @State private var statusFilter: TaskPresentationState? = nil
     @State private var projectScope: DashboardSessionList.ProjectScope = .all
     @State private var query: String = ""
@@ -135,9 +136,19 @@ struct DashboardView: View {
             }
             .opacity(0)
         }
-        .onChange(of: selection) { _, id in
-            if let id, filtered.contains(where: { $0.id == id }) { model.acknowledge(id) }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("vibebuddy.selectNextPending"))) { _ in
+            libraryScope = "live"
+            projectScope = .all
+            query = ""
+            statusFilter = nil
+            let current = model.sessions.first { $0.id == selection }
+            if let next = pendingNavigation.next(in: MenuFeed(model.sessions).pending, after: current) {
+                selection = next.id
+            }
         }
+        .onChange(of: selection) { _, id in model.dashboardViewedSessionID = id }
+        .onAppear { model.dashboardViewedSessionID = selection }
+        .onDisappear { model.dashboardViewedSessionID = nil }
         .onChange(of: filtered.map(\.id)) { _, ids in
             if let selection, !ids.contains(selection) { self.selection = nil }
         }
@@ -191,7 +202,15 @@ struct DashboardView: View {
                                        included: model.buddySessionIDs.contains(session.id), showInclude: companionEnabled,
                                        onSelect: { selection = session.id },
                                        onToggleInclude: { model.toggleBuddy(session.id) })
-                                .contextMenu { AttentionPicker(session: session, model: model, style: .menu) }
+                                .contextMenu {
+                                    AttentionPicker(session: session, model: model, style: .menu)
+                                    if session.status == .done, session.completionID != nil {
+                                        Button(session.hasUnreadCompletion ? "Mark as read" : "Mark as unread") {
+                                            if session.hasUnreadCompletion { model.acknowledge(session.id, displayedCompletionID: session.completionID) }
+                                            else { model.markUnread(session) }
+                                        }
+                                    }
+                                }
                         }
                     }
                 }
@@ -267,6 +286,7 @@ private struct SummaryRow: View {
     var onSelect: () -> Void
     var onToggleInclude: () -> Void
 
+    private var presentation: RowPresentation { RowPresentation(session: session) }
     private var state: TaskPresentationState { session.presentationState }
 
     var body: some View {
@@ -279,37 +299,31 @@ private struct SummaryRow: View {
                             .foregroundStyle(MacTheme.ink)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    Text(presentation.activityOrResult)
+                        .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.status(state))
+                        .lineLimit(2)
+                    if let progress = presentation.progress {
+                        Text(progress).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
+                            .lineLimit(2).help(progress)
+                    }
                     HStack(spacing: 6) {
                         AgentBadge(agent: session.agent)
+                        Text(session.project).lineLimit(1).truncationMode(.middle)
                         Spacer(minLength: 0)
+                        if presentation.unread { Text("Unread").foregroundStyle(MacTheme.status(.completeUnread)) }
                         if let glyph = session.effectiveAttention.rowGlyph {
                             Image(systemName: glyph).help(session.effectiveAttention.title)
                         }
-                        Text(session.updatedAt, style: .relative).monospacedDigit()
+                        Text(presentation.updatedAt, style: .relative).monospacedDigit()
                     }
                     .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
-                    Text(LocalizedStringKey(state.label))
-                        .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.status(state))
-                    if session.isStuck {
-                        Label("Stuck", systemImage: "exclamationmark.triangle.fill")
-                            .font(MacTheme.font(10)).foregroundStyle(MacTheme.status(.error))
+                    if let warning = presentation.observationWarning {
+                        Text(warning)
+                        if let seen = presentation.lastObservedAt {
+                            Text("Last observed: \(seen.formatted())")
+                        }
                     }
-                    if let summary = session.summary, !summary.isEmpty {
-                        Text(summary).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
-                            .lineLimit(2).help(summary)
-                    }
-                    Text("Activity: \(ToolActivity.label(for: session))")
-                    Text(session.project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                         ? String(localized: "Unknown project (unassigned)") : session.project)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if let branch = session.branch { Text(branch).font(MacTheme.mono(10)).help(branch) }
-                    if let cost = session.estimatedCostUSD {
-                        Text("\(session.costUSD == nil ? "≈ " : "")$\(cost, specifier: "%.2f")").monospacedDigit()
-                    }
-                    if let effort = session.effort { Text("effort \(effort)") }
-                    if let pr = session.prNumber { Text("PR #\(pr)") }
-                    if let worktree = session.worktree { Text(worktree).font(MacTheme.mono(10)).help(worktree) }
-                    if let observation = session.observationDescription { Text(observation) }
+                    if let stats = session.ledgerSummary { Text(stats).lineLimit(2) }
                     if let child = ToolActivity.childSummary(for: session) { Text(child) }
                 }
                 .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
@@ -340,16 +354,25 @@ private struct SummaryRow: View {
     }
 }
 
-/// The detail card: a request card while an approval is pending, otherwise the
-/// session's summary and its controls.
+/// Goal, progress, decision, actions, then supporting records.
 private struct DetailCard: View {
     let session: AgentSession
     @ObservedObject var model: MenuBarModel
+    @State private var showChanges = false
     @State private var showTranscript = false
+    @State private var completionBody: CompletionBody?
+    @State private var resultIsVisible = false
+    @State private var acknowledgedBodyID: String?
+    private var resultKey: String { (model.completionSourceID ?? "unknown") + "/" + session.id + "/" + (session.completionID ?? "working") }
+    private var currentBody: CompletionBody? {
+        guard let completionBody, completionBody.sourceID == model.completionSourceID, completionBody.sessionID == session.id,
+              completionBody.completionID == session.completionID else { return nil }
+        return completionBody
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(session.displayTitle).font(MacTheme.font(20, .semibold)).foregroundStyle(MacTheme.ink)
+            Text(session.taskGoal).lineLimit(3).font(MacTheme.font(20, .semibold)).foregroundStyle(MacTheme.ink)
                 .fixedSize(horizontal: false, vertical: true)
             if session.name != nil {
                 Text(session.project).font(MacTheme.font(12, .bold)).foregroundStyle(MacTheme.ink3)
@@ -363,43 +386,64 @@ private struct DetailCard: View {
             .padding(.horizontal, 12).padding(.vertical, 4)
             .background(MacTheme.status(session.presentationState).opacity(0.14), in: Capsule())
 
-            if session.status == .needsResponse && session.pendingApproval == nil && session.pendingQuestion == nil {
-                Text(WaitHandling.resolve(for: session).message).font(MacTheme.font(10))
+            Text(ToolActivity.label(for: session)).font(MacTheme.font(12, .medium))
+                .foregroundStyle(MacTheme.ink2)
+            if let progress = session.detailProgress, !progress.isEmpty {
+                Text(progress).font(MacTheme.font(14)).foregroundStyle(MacTheme.ink)
+                    .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                Text(session.detailProgressSource).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink3)
             }
-            if let approval = session.pendingApproval {
-                RequestCard(session: session, approval: approval, model: model)
-            } else {
-                if let question = session.pendingQuestion {
+            if session.status == .done, session.completionID != nil {
+                if let body = currentBody {
+                    if let text = body.text {
+                        Text(text).font(MacTheme.font(14)).foregroundStyle(MacTheme.ink)
+                            .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                                .completionReadingVisibility { visible in
+                                    resultIsVisible = visible; acknowledgeVisibleBody()
+                                }
+                        Text("Agent final response · this completion · not independently verified")
+                            .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink3)
+                    } else if let reason = body.unavailableReason {
+                        Text(LocalizedStringKey(reason)).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink3)
+                    }
+                } else { Text("Loading this completion…").font(MacTheme.font(11)) }
+                Button(session.hasUnreadCompletion ? "Mark as read" : "Mark as unread") {
+                    acknowledgedBodyID = resultKey
+                    if session.hasUnreadCompletion { model.acknowledge(session.id, displayedCompletionID: session.completionID) }
+                    else { model.markUnread(session) }
+                }.buttonStyle(PillButtonStyle(kind: .soft, size: .small))
+            }
+            if session.status == .needsResponse {
+                Text("Your decision").font(MacTheme.font(12, .semibold)).foregroundStyle(MacTheme.ink2)
+                if let approval = session.pendingApproval {
+                    RequestCard(session: session, approval: approval, model: model)
+                } else if let question = session.pendingQuestion {
                     if WaitHandling.resolve(for: session) == .remoteAvailable {
-                        QuestionCardView(question: question) { answers in
-                            model.answer(session.id, answers: answers)
-                        }
+                        QuestionCardView(question: question) { answers in model.answer(session.id, answers: answers) }
                     } else {
-                        Text(question.prompt).font(MacTheme.font(14, .heavy)).foregroundStyle(MacTheme.ink)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Label(WaitHandling.resolve(for: session).message, systemImage: "keyboard")
-                            .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink2)
+                        Text(question.prompt).font(MacTheme.font(14)).foregroundStyle(MacTheme.ink)
+                        Text(WaitHandling.resolve(for: session).message).font(MacTheme.font(11))
                     }
-                } else if let s = session.summary, !s.isEmpty {
-                    Text(s).font(MacTheme.font(14, .semibold)).foregroundStyle(MacTheme.ink2)
-                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text(WaitHandling.resolve(for: session).message).font(MacTheme.font(11))
                 }
-                if session.agent == .codex && session.status != .needsResponse && SessionActionSupport.resolve(for: session).isAvailable {
-                    // Free text for a Codex thread: joins the running turn or
-                    // opens a new one, through the app-server daemon.
-                    InstructionComposer(placeholder: session.status == .done
-                                        ? "Start a new turn…" : "Add to the current turn…") { text in
-                        model.answer(session.id, answers: [:], text: text)
-                    }
+            }
+            Text("Actions").font(MacTheme.font(12, .semibold)).foregroundStyle(MacTheme.ink2)
+            if session.status == .done {
+                Button("Replay this previous result") { model.replayResult(session, body: currentBody) }
+                    .buttonStyle(PillButtonStyle(kind: .soft, size: .small))
+            }
+            if session.status != .needsResponse && SessionActionSupport.resolve(for: session).isAvailable {
+                InstructionComposer(placeholder: session.status == .done ? "Start a new turn…" : "Add to the current turn…") { text in
+                    model.answer(session.id, answers: [:], text: text)
                 }
-                if let feedback = model.answerFeedback[session.id] {
-                    Label(feedback, systemImage: "exclamationmark.bubble")
-                        .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink2)
-                }
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 8) { detailActions }
-                    VStack(alignment: .leading, spacing: 8) { detailActions }
-                }
+            }
+            if let feedback = model.answerFeedback[session.id] {
+                Text(feedback).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
+            }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { detailActions }
+                VStack(alignment: .leading, spacing: 8) { detailActions }
             }
             // What the last jump actually achieved — focused the pane, only
             // raised the app, or found nothing to raise. Same wording as the
@@ -408,10 +452,6 @@ private struct DetailCard: View {
                 Label(outcome.macMessage(for: session), systemImage: "arrow.uturn.forward")
                     .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink2)
                     .contentTransition(.opacity)
-            }
-            if session.pendingApproval != nil {
-                Button { showTranscript = true } label: { Label("Recent output", systemImage: "text.alignleft") }
-                    .buttonStyle(PillButtonStyle(kind: .soft, size: .small))
             }
             VStack(alignment: .leading, spacing: 6) {
                 Text("Notifications").font(MacTheme.font(11, .heavy)).foregroundStyle(MacTheme.ink3)
@@ -427,17 +467,46 @@ private struct DetailCard: View {
                 if let m = session.model { Label(m, systemImage: "cpu") }
                 if let observation = session.observationDescription {
                     Text("·"); Text(observation)
+                    if let last = session.lastObservedAt { Text(last, style: .relative) }
                 }
             }
             .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink3)
+            DisclosureGroup("Activity and file changes") {
+                Button("Changes") { showChanges = true }.buttonStyle(PillButtonStyle(kind: .soft, size: .small))
+                ToolLedgerView(session: session)
+            }
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .animation(.smooth(duration: 0.18), value: model.jumpFeedback)
+        .task(id: resultKey) {
+            completionBody = nil
+            resultIsVisible = false
+            let key = resultKey
+            let loaded = await model.completionBody(for: session)
+            guard !Task.isCancelled, key == resultKey else { return }
+            completionBody = loaded
+        }
+        .onChange(of: currentBody) { _, _ in acknowledgeVisibleBody() }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in acknowledgeVisibleBody() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in acknowledgeVisibleBody() }
+        .sheet(isPresented: $showChanges) {
+            WorkspaceChangesView { scope, baseline, file in
+                await model.workspaceChanges(for: session, scope: scope, baseline: baseline, file: file)
+            }.frame(minWidth: 540, minHeight: 500)
+        }
         .sheet(isPresented: $showTranscript) {
             TranscriptSheet(session: session, model: model)
         }
     }
+    private func acknowledgeVisibleBody() {
+        guard resultIsVisible, currentBody?.text?.isEmpty == false, session.hasUnreadCompletion,
+              acknowledgedBodyID != resultKey, model.isViewing(session.id), NSApp.isActive,
+              NSApp.keyWindow?.identifier?.rawValue == "com.vibebuddy.dashboard" else { return }
+        acknowledgedBodyID = resultKey
+        model.acknowledge(session.id, displayedCompletionID: session.completionID)
+    }
+
     @ViewBuilder private var detailActions: some View {
         Button(session.agent == .grokBot ? "Open Grok Bot" : session.jumpsToDesktopThread ? "Open thread in ChatGPT" : "Jump to terminal") { model.jump(session) }
             .buttonStyle(PillButtonStyle(kind: .filled(MacTheme.accent)))
@@ -690,7 +759,7 @@ struct InstructionComposer: View {
 /// card carries no system segmented control) and radio items in a row's
 /// context menu. `nil` is "automatic" — the daemon's own reading of recent
 /// interaction.
-private struct AttentionPicker: View {
+struct AttentionPicker: View {
     enum Style { case chips, menu }
     let session: AgentSession
     @ObservedObject var model: MenuBarModel

@@ -473,6 +473,12 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     public var waitKind: WaitKind?
     public var pendingApproval: PendingApproval?
     public var pendingQuestion: PendingQuestion?
+    /// Optional fields preserve snapshots from peers predating permission metadata.
+    public var permissionMode: PermissionMode? = nil
+    public var permissionModeRaw: String? = nil
+    public var approvalPolicyRaw: String? = nil
+    public var sandboxPolicyRaw: String? = nil
+    public var permissionObservedAt: Date? = nil
     public var terminalRef: TerminalRef?
     /// The Codex Desktop thread this session *is*, when it was observed from a
     /// rollout rather than a terminal. Codex Desktop runs no CLI hook, so such a
@@ -493,8 +499,13 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     public var failed: Bool?
     /// A clean completion result that has not yet been explicitly opened,
     /// selected, or jumped to. The Mac reducer is authoritative for this value.
+    /// Once read, this completion never restarts automatic follow-up reminders.
+    public var acknowledgedCompletionID: String? = nil
     public var hasUnreadCompletion: Bool
     /// Authoritative completion identity, populated by the Mac lifecycle.
+    /// Bounded first sentence of the final result, bound to completionID.
+    /// The full result remains in the daemon; this excerpt is only a reading aid.
+    public var completionText: String? = nil
     public var completionNotice: CompletionNotice? = nil
     public var completionID: String?
     /// Cumulative tokens spent across this session's turns (input+output),
@@ -536,6 +547,13 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     /// generated title, the effort level, the client-side cost estimate, the
     /// open pull request and the worktree the session runs in.
     public var name: String?
+    public var ledger: [ToolCallRecord]? = nil
+    public var changedFiles: [String]? = nil
+    public var linesAdded: Int? = nil
+    public var linesRemoved: Int? = nil
+    public var commandsRun: Int? = nil
+    /// First user request after a provider-confirmed new session, bounded to 4000 characters; never persisted in the lifecycle journal.
+    public var firstUserPrompt: String? = nil
     public var effort: String?
     public var costUSD: Double?
     public var prNumber: Int?

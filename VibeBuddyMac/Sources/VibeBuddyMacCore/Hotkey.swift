@@ -97,4 +97,13 @@ public struct Hotkey: Codable, Equatable, Sendable {
             defaults.set(data, forKey: Self.glanceStorageKey)
         }
     }
+    public static let nextPendingDefault = Hotkey(keyCode: 45, cocoaModifiers: cocoaOption | cocoaCommand, displayKey: "N")
+    public static func loadNextPending(_ defaults: UserDefaults = .standard) -> Hotkey {
+        guard let data = defaults.data(forKey: "nextPendingHotkey"),
+              let value = try? JSONDecoder().decode(Hotkey.self, from: data) else { return .nextPendingDefault }
+        return value
+    }
+    public func saveAsNextPending(_ defaults: UserDefaults = .standard) {
+        if let data = try? JSONEncoder().encode(self) { defaults.set(data, forKey: "nextPendingHotkey") }
+    }
 }
