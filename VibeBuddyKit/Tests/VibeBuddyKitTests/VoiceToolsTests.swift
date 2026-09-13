@@ -7,7 +7,8 @@ struct VoiceToolsTests {
 
     @Test("Qwen and Doubao wire configurations include fresh status and hangup")
     func conversationToolsOnBothWires() throws {
-        let expected: Set<String> = ["get_session_status", "end_voice_call", "approve_session", "deny_session", "answer_session"]
+        let expected: Set<String> = ["get_session_status", "end_voice_call", "approve_session", "deny_session", "answer_session",
+                                     "mark_read_session", "instruct_session"]
         let qwen = QwenRealtimeSession.sessionConfig(instructions: "test", voice: "Cherry", tools: VoiceTools.conversation)
         let qwenTools = try #require(qwen["tools"] as? [[String: Any]])
         #expect(Set(qwenTools.compactMap { ($0["function"] as? [String: Any])?["name"] as? String }) == expected)
@@ -19,10 +20,19 @@ struct VoiceToolsTests {
 
     // MARK: Catalog — the three tools the model is given
 
-    @Test("the catalog exposes approve, deny, and answer tools")
+    @Test("the catalog exposes approve, deny, answer, mark-read and instruct tools")
     func catalog() {
         let names = Set(VoiceTools.all.map(\.name))
-        #expect(names == ["approve_session", "deny_session", "answer_session"])
+        #expect(names == ["approve_session", "deny_session", "answer_session", "mark_read_session", "instruct_session"])
+    }
+
+    @Test("mark-read and instruct decode strictly, like the others")
+    func markReadAndInstructDecode() {
+        #expect(VoiceTools.action(name: "mark_read_session", arguments: #"{"project":"payments-api"}"#) == .markRead(project: "payments-api"))
+        #expect(VoiceTools.action(name: "mark_read_session", arguments: #"{"project":"  "}"#) == .none)
+        #expect(VoiceTools.action(name: "instruct_session", arguments: #"{"project":"release-check","text":"skip codesign and rebuild"}"#)
+                == .instruct(project: "release-check", text: "skip codesign and rebuild"))
+        #expect(VoiceTools.action(name: "instruct_session", arguments: #"{"project":"release-check"}"#) == .none)
     }
 
     @Test("approve/deny require a project; answer requires project and text")

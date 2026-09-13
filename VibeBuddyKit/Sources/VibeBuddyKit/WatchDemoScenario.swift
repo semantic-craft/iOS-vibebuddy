@@ -102,13 +102,17 @@ public enum WatchDemoScenario: String, Codable, Sendable, CaseIterable, Identifi
             // rehearsing.
             return [Self.openQuestionSession(now: now)] + Self.workingAndDone(now: now)
         case .permission:
-            return [Self.permissionSession(now: now), Self.questionSession(now: now)]
+            // Two approvals, no question: on every surface a question outranks
+            // an approval (`PendingTasks`), so a question here would take the
+            // home over instead of the permission this scenario rehearses.
+            return [Self.permissionSession(now: now), Self.editPermissionSession(now: now)]
                 + Self.workingAndDone(now: now).prefix(2)
         case .question:
             // Both shapes of question, because the wrist answers them
             // differently: an open one takes the fixed phrases, one with
-            // choices takes the agent's own. The open one leads so the home
-            // takeover rehearses the phrases; the other is a task detail away
+            // choices takes the agent's own. The open one is the newer wait,
+            // so it leads the shared queue and the home takeover rehearses the
+            // phrases; the other is a task detail away
             // (`VIBEBUDDY_WATCH_TASK=demo-watch-question`).
             return [Self.openQuestionSession(now: now), Self.questionSession(now: now)]
                 + Self.workingAndDone(now: now).prefix(3)
@@ -128,6 +132,21 @@ public enum WatchDemoScenario: String, Codable, Sendable, CaseIterable, Identifi
                 command: "xcodebuild -scheme VibeBuddyWatch -destination 'platform=watchOS Simulator' build"),
             summary: "Build the Watch app",
             statusSince: now.addingTimeInterval(-38), updatedAt: now.addingTimeInterval(-38))
+    }
+
+    /// The second approval of the permission scenario: an edit, older than the
+    /// build, so the build stays the top card.
+    private static func editPermissionSession(now: Date) -> AgentSession {
+        AgentSession(
+            id: "demo-watch-permission-edit", agent: .claudeCode, project: "docs-review",
+            branch: "main", model: "claude-opus-4-8",
+            status: .needsResponse, waitKind: .permission,
+            pendingApproval: PendingApproval(
+                id: "demo-watch-approval-edit", tool: "Edit",
+                commandPreview: "docs/adr/0021-wrist-first-attention.md",
+                filePath: "docs/adr/0021-wrist-first-attention.md"),
+            summary: "Tighten the ADR's consequences",
+            statusSince: now.addingTimeInterval(-3 * 60), updatedAt: now.addingTimeInterval(-3 * 60))
     }
 
     /// The sample question with no choices attached: the fixed phrases are the
@@ -152,7 +171,7 @@ public enum WatchDemoScenario: String, Codable, Sendable, CaseIterable, Identifi
                 prompt: "The migration touches two schemas. Should I keep going?"),
             summary: "Waiting on a go-ahead",
             attention: .followed,
-            statusSince: now.addingTimeInterval(-6 * 60), updatedAt: now.addingTimeInterval(-6 * 60))
+            statusSince: now.addingTimeInterval(-4 * 60), updatedAt: now.addingTimeInterval(-4 * 60))
     }
 
     private static func questionSession(now: Date) -> AgentSession {
@@ -168,7 +187,7 @@ public enum WatchDemoScenario: String, Codable, Sendable, CaseIterable, Identifi
                 ]),
             summary: "Waiting on a revision style",
             attention: .followed,
-            statusSince: now.addingTimeInterval(-4 * 60), updatedAt: now.addingTimeInterval(-4 * 60))
+            statusSince: now.addingTimeInterval(-6 * 60), updatedAt: now.addingTimeInterval(-6 * 60))
     }
 
     private static func workingAndDone(now: Date) -> [AgentSession] {
