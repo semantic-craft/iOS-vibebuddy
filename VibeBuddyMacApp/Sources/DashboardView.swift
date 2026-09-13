@@ -292,29 +292,28 @@ private struct SummaryRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             Button(action: onSelect) {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(alignment: .top, spacing: 8) {
-                        StateGlyph(state: state, size: 18)
+                HStack(alignment: .top, spacing: 10) {
+                    AgentTile(agent: session.agent, state: state, ground: isSelected ? MacTheme.bg2 : MacTheme.bg3)
+                    VStack(alignment: .leading, spacing: 6) {
                         Text(session.displayTitle).font(MacTheme.font(13, .medium))
                             .foregroundStyle(MacTheme.ink)
                             .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Text(presentation.activityOrResult)
-                        .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.status(state))
-                        .lineLimit(2)
-                    if let progress = presentation.progress {
-                        Text(progress).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
-                            .lineLimit(2).help(progress)
-                    }
-                    HStack(spacing: 6) {
-                        AgentBadge(agent: session.agent)
-                        Text(session.project).lineLimit(1).truncationMode(.middle)
-                        Spacer(minLength: 0)
-                        if presentation.unread { Text("Unread").foregroundStyle(MacTheme.status(.completeUnread)) }
-                        if let glyph = session.effectiveAttention.rowGlyph {
-                            Image(systemName: glyph).help(session.effectiveAttention.title)
+                        Text(presentation.activityOrResult)
+                            .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.status(state))
+                            .lineLimit(2)
+                        if let progress = presentation.progress {
+                            Text(progress).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
+                                .lineLimit(2).help(progress)
                         }
-                        Text(presentation.updatedAt, style: .relative).monospacedDigit()
+                        HStack(spacing: 6) {
+                            Text(session.project).lineLimit(1).truncationMode(.middle)
+                                .help(session.agent.displayName + " · " + session.project)
+                            Spacer(minLength: 0)
+                            if presentation.unread { Text("Unread").foregroundStyle(MacTheme.status(.completeUnread)) }
+                            if let glyph = session.effectiveAttention.rowGlyph {
+                                Image(systemName: glyph).help(session.effectiveAttention.title)
+                            }
+                            Text(presentation.updatedAt, style: .relative).monospacedDigit()
                     }
                     .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                     if let warning = presentation.observationWarning {
@@ -325,8 +324,9 @@ private struct SummaryRow: View {
                     }
                     if let stats = session.ledgerSummary { Text(stats).lineLimit(2) }
                     if let child = ToolActivity.childSummary(for: session) { Text(child) }
+                    }
+                    .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 }
-                .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
@@ -351,6 +351,27 @@ private struct SummaryRow: View {
                     .allowsHitTesting(false)
             }
         }
+    }
+}
+
+/// The row's leading mark: the agent's product tile so the eye can tell a
+/// Claude row from a Codex row without reading, with the task state as a
+/// small dot on the tile's bottom-right corner. The dot's ring is the row's
+/// own ground so it reads as sitting on the card, not stuck onto the tile.
+private struct AgentTile: View {
+    let agent: AgentKind
+    let state: TaskPresentationState
+    let ground: Color
+
+    var body: some View {
+        AgentAvatar(agent: agent, size: 28)
+            .overlay(alignment: .bottomTrailing) {
+                StateGlyph(state: state, size: 12)
+                    .padding(1.5)
+                    .background(ground, in: Circle())
+                    .offset(x: 4, y: 4)
+            }
+            .accessibilityElement(children: .combine)
     }
 }
 
