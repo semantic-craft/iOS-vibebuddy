@@ -34,6 +34,39 @@ final class HistoryLiveStatusTests: XCTestCase {
         XCTAssertTrue(onlyA.contains("- other |")); XCTAssertFalse(onlyA.contains("## /checkout/b"))
     }
 
+    func testDesktopCheckoutSurvivesReducerAndSnapshotWithoutTerminalRef() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        var source = CodexAppServerReducer()
+        var reducer = SessionReducer()
+        for (id, cwd) in [("desktop-a", "/clones/a/repo"), ("desktop-b", "/clones/b/repo")] {
+            let thread: [String: Any] = ["id": id, "sessionId": id, "cwd": cwd, "source": "vscode",
+                                        "status": ["type": "active", "activeFlags": []], "turns": []]
+            for event in source.seed(thread: thread, receivedAt: now) { reducer.apply(event) }
+        }
+        let snapshot = try JSONDecoder().decode(Snapshot.self, from: JSONEncoder().encode(
+            Snapshot(sessions: Array(reducer.sessions.values), serverTime: now)))
+        XCTAssertEqual(snapshot.sessions.count, 2)
+        XCTAssertTrue(snapshot.sessions.allSatisfy { $0.terminalRef == nil && $0.desktopThreadID == $0.id })
+        let result = HistoryLiveStatus.render(snapshot, project: nil, excludeSession: nil)
+        XCTAssertTrue(result.contains("## /clones/a/repo"))
+        XCTAssertTrue(result.contains("## /clones/b/repo"))
+        let filtered = HistoryLiveStatus.render(snapshot, project: "/clones/a/repo/", excludeSession: nil)
+        XCTAssertTrue(filtered.contains("- desktop-a |")); XCTAssertFalse(filtered.contains("- desktop-b |"))
+        let typo = HistoryLiveStatus.render(snapshot, project: "/clones/typo/repo", excludeSession: nil)
+        XCTAssertTrue(typo.contains("project not found or ambiguous"))
+        XCTAssertFalse(typo.contains("No other live sessions found."))
+
+        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot.sessions[0])) as? [String: Any])
+        legacy.removeValue(forKey: "checkoutPath")
+        legacy.removeValue(forKey: "controlChannel")
+        let oldSession = try JSONDecoder().decode(AgentSession.self, from: JSONSerialization.data(withJSONObject: legacy))
+        XCTAssertNil(oldSession.checkoutPath)
+        XCTAssertTrue(HistoryLiveStatus.render(Snapshot(sessions: [oldSession], serverTime: now), project: nil, excludeSession: nil).contains("controlChannel: appserver"))
+        reducer.apply(HookEvent(kind: .sessionMetadataChanged, sessionID: "desktop-a", agent: .codex,
+                               cwd: "https://example.com/repo", timestamp: now))
+        XCTAssertEqual(reducer.sessions["desktop-a"]?.checkoutPath, "/clones/a/repo")
+    }
+
     func testUnknownStatusAndMissingTokenNeverCreateState() async throws {
         let result = try await HistoryLiveStatus.call(arguments: [:], environment: ["VIBEBUDDY_TOKEN": "synthetic", "VIBEBUDDY_PORT": "1"])
         XCTAssertEqual(result, "live status unknown (daemon not reachable at 127.0.0.1:1)")

@@ -48,7 +48,7 @@ public enum HistoryLiveStatus {
         let grouped = Dictionary(grouping: current.filter { $0.id != excludeSession }, by: checkout)
         var paths = Set(current.map(checkout)).sorted()
         if let project {
-            let matching = project.hasPrefix("/") ? [project] : paths.filter { URL(fileURLWithPath: $0).lastPathComponent == project }
+            let matching = project.hasPrefix("/") ? paths.filter { $0 == normalizedPath(project) } : paths.filter { URL(fileURLWithPath: $0).lastPathComponent == project }
             guard matching.count == 1 else {
                 return (["Live status: project not found or ambiguous. Known checkouts:"] + paths.map { "- " + line($0) } + ["Collaboration hint only; this observation does not reserve a checkout."]).joined(separator: "\n")
             }
@@ -67,7 +67,7 @@ public enum HistoryLiveStatus {
             for row in rows {
                 lines.append("- " + line(row.id) + " | agent: " + row.agent.rawValue + " | " + row.status.rawValue
                     + " | waitKind: " + (row.waitKind?.rawValue ?? "none")
-                    + " | controlChannel: " + (row.controlChannel?.rawValue ?? "unknown")
+                    + " | controlChannel: " + (ControlChannel.infer(for: row)?.rawValue ?? "unknown")
                     + " | last activity: " + ISO8601DateFormatter().string(from: row.updatedAt))
             }
         }
@@ -75,9 +75,11 @@ public enum HistoryLiveStatus {
     }
 
     private static func checkout(_ session: AgentSession) -> String {
-        if let cwd = session.terminalRef?.cwd, cwd.hasPrefix("/") { return cwd }
-        return session.project.hasPrefix("/") ? session.project : "unknown checkout (" + session.project + ")"
+        if let cwd = session.checkoutPath, cwd.hasPrefix("/") { return normalizedPath(cwd) }
+        if let cwd = session.terminalRef?.cwd, cwd.hasPrefix("/") { return normalizedPath(cwd) }
+        return session.project.hasPrefix("/") ? normalizedPath(session.project) : "unknown checkout (" + session.project + ")"
     }
+    private static func normalizedPath(_ path: String) -> String { URL(fileURLWithPath: path).standardizedFileURL.path }
     private static func line(_ text: String) -> String { text.components(separatedBy: .controlCharacters).joined(separator: " ") }
     private static func unknown(port: Int) -> String { "live status unknown (daemon not reachable at 127.0.0.1:\(port))" }
 
