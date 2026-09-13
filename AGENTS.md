@@ -93,5 +93,5 @@ mechanical edits that do not affect domain meaning need no domain exploration.
 
 Use `docs/agents/skills/vibebuddy-history/SKILL.md` for prior-work context; read the newest relevant handoff, then saved `summary` and necessary `show` records.
 Check summary coverage and stale status; a summary must not override a newer handoff.
-Optional `status --exclude-session '<own-session-key>'` observes other sessions in the same checkout; report busy sessions and let the user decide how to proceed.
+Optional `status --exclude-session '<own-native-session-id>'` observes other sessions in the same checkout; report busy sessions and let the user decide how to proceed.
 History tools are read-only; unknown live status is not a lock or a reason to start a daemon.

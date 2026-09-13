@@ -179,7 +179,7 @@ search report a missing index with instructions to open History or explicitly ru
 Search uses only committed matching revisions and reports incomplete coverage.
 
 Status reads the authenticated daemon snapshot, excludes a supplied real caller
-key (`status --exclude-session 'codex:<own-id>'`), and groups by checkout directory.
+native ID (`status --exclude-session '<own-native-thread-id>'`), and groups by checkout directory.
 Another busy session is a collaboration hint for the user's decision, not a lock.
 An unreachable daemon produces unknown and exits 0. Status does not start a daemon
 or automatically change checkout; older daemons may lack checkout information.

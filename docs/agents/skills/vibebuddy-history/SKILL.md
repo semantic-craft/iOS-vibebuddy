@@ -37,7 +37,7 @@ vibebuddy-mcp sessions --project '/absolute/checkout'
 vibebuddy-mcp summary 'claude-code:<native-id>'
 vibebuddy-mcp search 'literal error text'
 vibebuddy-mcp show 'vibebuddy://session/claude-code:<native-id>#12'
-vibebuddy-mcp status --exclude-session 'codex:<own-thread-id>'
+vibebuddy-mcp status --exclude-session '<own-native-thread-id>'
 ```
 
 `show` omits Meta; Thinking requires `--thinking`. Search omits both.
@@ -57,7 +57,7 @@ files by key. Explain that opening Mac History or explicitly running
 `vibebuddy-mcp index` builds an index. Do not turn a read request into index writes.
 `index --rebuild` is explicit maintenance, not a query or MCP tool.
 
-Live status is optional. Supply only your own verified native Session key through
+Live status is optional. Supply only your own verified raw native session ID (without an agent prefix) through
 `exclude_session` / `--exclude-session`; if unavailable, keep the uncertainty
 explicit. When another session is busy in this checkout, tell the user and leave
 concurrency decisions to them. Status is an observation, not a lock; an unreachable
