@@ -12,14 +12,15 @@ public enum GrokHistorySource {
         var issues: [String] = []
     }
 
-    /// Directory names locate workspaces only; all record metadata comes from
-    /// `sessions list`. The local directory verifies which cwd owns each row,
+    /// Directory names or summary info locate workspaces only; record metadata
+    /// comes from `sessions list`. The local directory verifies each row's cwd,
     /// since the CLI may also list siblings and remote-only sessions.
     static func scan(home: URL) -> Inventory {
         let root = home.appendingPathComponent("sessions").resolvingSymlinksInPath()
         let fm = FileManager.default
         guard fm.fileExists(atPath: root.path) else { return Inventory() }
-        guard let executable = executable(), fm.isExecutableFile(atPath: "/usr/bin/sandbox-exec") else {
+        guard let executable = GrokUsageProvider.resolveGrokExecutable(grokHome: home),
+              fm.isExecutableFile(atPath: "/usr/bin/sandbox-exec") else {
             return Inventory(issues: ["Grok history unavailable: official CLI or read-only process sandbox unavailable."])
         }
         guard let directories = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey], options: [.skipsHiddenFiles]) else {
@@ -30,7 +31,7 @@ public enum GrokHistorySource {
         for directory in directories.sorted(by: { $0.path < $1.path }) {
             guard let properties = try? directory.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
                   properties.isDirectory == true, properties.isSymbolicLink != true else { continue }
-            guard let cwd = directory.lastPathComponent.removingPercentEncoding,
+            guard let cwd = workspaceCwd(directory: directory, deadline: deadline),
                   cwd.hasPrefix("/"), !cwd.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains),
                   fm.fileExists(atPath: cwd) else {
                 result.issues.append("Grok history: a workspace path is unavailable; its inventory was not refreshed.")
@@ -118,10 +119,34 @@ public enum GrokHistorySource {
         return result
     }
 
-    private static func executable() -> URL? {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let paths = [home.appendingPathComponent(".local/bin/grok").path, home.appendingPathComponent(".grok/bin/grok").path,
-                     "/opt/homebrew/bin/grok", "/usr/local/bin/grok"]
-        return paths.first(where: FileManager.default.isExecutableFile(atPath:)).map { URL(fileURLWithPath: $0) }
+    /// Long encoded paths use slug-hash folders. Only their standalone summary
+    /// identity/cwd fields locate the workspace; never open a transcript stream.
+    static func workspaceCwd(directory: URL, deadline: Date = .distantFuture) -> String? {
+        if let cwd = directory.lastPathComponent.removingPercentEncoding, cwd.hasPrefix("/") { return cwd }
+        let fm = FileManager.default
+        guard let children = try? fm.contentsOfDirectory(at: directory,
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey], options: [.skipsHiddenFiles]) else { return nil }
+        var cwd: String?
+        for child in children {
+            guard Date() < deadline else { return nil }
+            guard let id = UUID(uuidString: child.lastPathComponent),
+                  let properties = try? child.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
+                  properties.isDirectory == true, properties.isSymbolicLink != true else { continue }
+            let summary = child.appendingPathComponent("summary.json")
+            guard let values = try? summary.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]),
+                  values.isRegularFile == true, values.isSymbolicLink != true,
+                  let size = values.fileSize, size <= 64 * 1024,
+                  let file = try? FileHandle(forReadingFrom: summary) else { continue }
+            defer { try? file.close() }
+            guard let data = try? file.read(upToCount: 64 * 1024 + 1), data.count <= 64 * 1024,
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let info = object["info"] as? [String: Any],
+                  let nativeID = info["id"] as? String, UUID(uuidString: nativeID) == id,
+                  let recordedCwd = info["cwd"] as? String, recordedCwd.hasPrefix("/"),
+                  !recordedCwd.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) else { continue }
+            if let cwd, cwd != recordedCwd { return nil }
+            cwd = recordedCwd
+        }
+        return cwd
     }
 }
