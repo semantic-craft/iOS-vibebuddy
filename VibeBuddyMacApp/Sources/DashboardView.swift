@@ -164,8 +164,6 @@ struct DashboardView: View {
                 selection = next.id
             }
         }
-        .onChange(of: selection) { _, id in model.dashboardViewedSessionID = id }
-        .onAppear { model.dashboardViewedSessionID = selection }
         .onDisappear { model.dashboardViewedSessionID = nil }
         .onChange(of: filtered.map(\.id)) { _, ids in
             if let selection, !ids.contains(selection) { self.selection = nil }

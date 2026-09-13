@@ -22,6 +22,10 @@ struct SessionDetailColumn: View {
     var body: some View {
         GeometryReader { geo in
             let layout = slot.layout(availableWidth: geo.size.width)
+            let viewedSessionID: String? = {
+                if case .full = layout { return nil }
+                return session.id
+            }()
             VStack(spacing: 0) {
                 SessionTitleBar(session: session, model: model, slot: $slot, layout: layout,
                                 acknowledgedBodyID: $acknowledgedBodyID)
@@ -54,8 +58,16 @@ struct SessionDetailColumn: View {
                     }
                 }
             }
+            .onChange(of: viewedSessionID, initial: true) { _, id in
+                model.dashboardViewedSessionID = id
+            }
         }
         .background(MacTheme.bg)
+        .onDisappear {
+            if model.dashboardViewedSessionID == session.id {
+                model.dashboardViewedSessionID = nil
+            }
+        }
     }
 }
 
@@ -444,12 +456,16 @@ private struct ToolShelf: View {
         .padding(.horizontal, 8)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(MacTheme.bg)
-        .task(id: session.id + "/" + String(session.updatedAt.timeIntervalSince1970)) {
+        .task(id: session.id) {
             count = .loading
-            let changes = await model.workspaceChanges(for: session, scope: .uncommitted, baseline: nil, file: nil)
-            guard !Task.isCancelled else { return }
-            if let added = changes.addedLineCount { count = .value(added) }
-            else { count = .unknown(changes.unavailableReason ?? String(localized: "The change count could not be read.")) }
+            while !Task.isCancelled {
+                let changes = await model.workspaceChanges(for: session, scope: .uncommitted, baseline: nil, file: nil)
+                guard !Task.isCancelled else { return }
+                if let added = changes.addedLineCount { count = .value(added) }
+                else { count = .unknown(changes.unavailableReason ?? String(localized: "The change count could not be read.")) }
+                do { try await Task.sleep(for: .seconds(5)) }
+                catch { return }
+            }
         }
     }
 
