@@ -11,15 +11,15 @@ final class HistoryToolsTests: XCTestCase {
 
     func testRegistryAndCLIParity() throws {
         let definitions = HistoryTools.definitions()
-        XCTAssertEqual(definitions.compactMap { $0["name"] as? String }, ["vibebuddy_list_sessions", "vibebuddy_list_projects"])
+        XCTAssertEqual(definitions.compactMap { $0["name"] as? String }, ["vibebuddy_get_session", "vibebuddy_list_sessions", "vibebuddy_list_projects"])
         XCTAssertEqual(Set(HistoryCLI.commands.values), Set(definitions.compactMap { $0["name"] as? String }))
         for definition in definitions {
             XCTAssertEqual((definition["annotations"] as? [String: Bool])?["readOnlyHint"], true)
             XCTAssertEqual((definition["inputSchema"] as? [String: Any])?["additionalProperties"] as? Bool, false)
         }
         let schemas = definitions.compactMap { $0["inputSchema"] as? [String: Any] }
-        XCTAssertEqual(Set((schemas[0]["properties"] as? [String: Any] ?? [:]).keys), Set(["project", "agents", "since", "starred", "limit"]))
-        XCTAssertEqual(Set((schemas[1]["properties"] as? [String: Any] ?? [:]).keys), Set(["since", "limit"]))
+        XCTAssertEqual(Set((schemas[1]["properties"] as? [String: Any] ?? [:]).keys), Set(["project", "agents", "since", "starred", "limit"]))
+        XCTAssertEqual(Set((schemas[2]["properties"] as? [String: Any] ?? [:]).keys), Set(["since", "limit"]))
         let snapshot = SessionHistorySnapshot(sessions: [session("native-id", project: "/a/repo")])
         let request = try HistoryCLI.parse(["sessions", "--project", "/a/repo", "--limit", "5", "--agent", "codex"])
         XCTAssertEqual(request.arguments["limit"] as? String, "5")
@@ -71,7 +71,7 @@ final class HistoryToolsTests: XCTestCase {
         XCTAssertTrue(snapshot.sessions.first?.isFavorite == true)
         XCTAssertTrue(snapshot.sessions.first?.isPinned == true)
         XCTAssertTrue(snapshot.sessions.first?.archivedLocally == true)
-        for tool in HistoryCLI.commands.values { _ = try HistoryTools.call(tool, arguments: [:], snapshot: snapshot) }
+        for tool in ["vibebuddy_list_sessions", "vibebuddy_list_projects"] { _ = try HistoryTools.call(tool, arguments: [:], snapshot: snapshot) }
         _ = try await reader.session(id: id)
         _ = try await reader.summary(sessionID: id)
         do { _ = try await reader.refresh(rebuild: true); XCTFail("refresh wrote") } catch {}
@@ -107,7 +107,7 @@ final class HistoryToolsTests: XCTestCase {
         let snapshot = await reader.snapshot()
         XCTAssertEqual(snapshot.sessions.count, 1)
         XCTAssertEqual(snapshot.pendingSourceCount, 1)
-        for tool in HistoryCLI.commands.values {
+        for tool in ["vibebuddy_list_sessions", "vibebuddy_list_projects"] {
             let text = try HistoryTools.call(tool, arguments: [:], snapshot: snapshot)
             XCTAssertTrue(text.contains("Partial index: 1 source(s) pending"))
             XCTAssertTrue(text.contains("older or newer"))
