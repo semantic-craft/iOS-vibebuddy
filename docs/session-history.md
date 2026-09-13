@@ -165,6 +165,7 @@ Both expose the same read-only queries:
 | `show` | `vibebuddy_get_session` |
 | `summary` | `vibebuddy_get_summary` |
 | `status` | `vibebuddy_live_status` |
+| `facts` | `vibebuddy_handoff_facts` |
 
 Quote Session keys and History references: `summary 'codex:<id>'` and
 `show 'vibebuddy://session/codex:<id>#12'`. Sequence numbers are one-based within the reported source
@@ -183,6 +184,17 @@ Show and summary can resolve supported source files even without an index. List 
 search report a missing index with instructions to open History or explicitly run
 `vibebuddy-mcp index`; `index --rebuild` is separate maintenance, absent from MCP.
 Search uses only committed matching revisions and reports incomplete coverage.
+
+Facts prints, for one Session key, the header lines a handoff note starts with
+and a Facts section from the Mac's lifecycle journal and tool ledger (seven days;
+`~/Library/Application Support/vibebuddy/`), plus a read-only git probe of the
+checkout (`--cwd`, else derived from the files the session edited). It lists at
+most `--commands N` (default 20, max 50) commands with exit codes, states per
+source what could be observed (hooks and the Codex app-server carry commands and
+exit codes; Cursor ACP and the rollout tailer carry tool names only), and ends
+with a data-freshness line. It never writes, never opens the daemon, and never
+chooses a session: a bare native id resolves only when one agent recorded it,
+and "Not recorded" is a normal exit-0 answer. See ADR-0023.
 
 Status reads the authenticated daemon snapshot, excludes a supplied real caller
 native ID (`status --exclude-session '<own-native-thread-id>'`), and groups by checkout directory.

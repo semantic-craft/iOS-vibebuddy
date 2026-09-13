@@ -92,7 +92,8 @@ mechanical edits that do not affect domain meaning need no domain exploration.
 
 ## Resuming work
 
-Use `docs/agents/skills/vibebuddy-history/SKILL.md` for prior-work context; read the newest relevant handoff, then saved `summary` and necessary `show` records.
+Use `docs/agents/skills/vibebuddy-history/SKILL.md` for prior-work context; read the newest relevant handoff, then `facts` for its source key (drift check), then saved `summary` and necessary `show` records.
+Writing a handoff follows `docs/agents/skills/vibebuddy-handoff/SKILL.md`: `vibebuddy-mcp facts '<own key>'` first, its block at the top of the note.
 Check summary coverage and stale status; a summary must not override a newer handoff.
 Optional `status --exclude-session '<own-native-session-id>'` observes other sessions in the same checkout; report busy sessions and let the user decide how to proceed.
 History tools are read-only; unknown live status is not a lock or a reason to start a daemon.
