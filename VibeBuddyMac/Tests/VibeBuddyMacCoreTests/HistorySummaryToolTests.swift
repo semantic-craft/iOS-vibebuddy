@@ -39,6 +39,23 @@ final class HistorySummaryToolTests: XCTestCase {
         XCTAssertTrue(unavailable.hasPrefix("stale: true;"))
         XCTAssertTrue(unavailable.contains("Source unavailable")); XCTAssertTrue(unavailable.hasSuffix(summary.text))
         XCTAssertEqual(try fixture.storeBytes(), before)
+        // Codex archive moves retain an unavailable old index entry. Summary shares
+        // show's canonical available-source selection and must not become ambiguous.
+        let archived = fixture.root.appendingPathComponent("codex/archived_sessions/native.jsonl")
+        try FileManager.default.createDirectory(at: archived.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try source.write(to: archived)
+        _ = try await writer.refresh()
+        let index = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: fixture.cache.appendingPathComponent("index.json"))) as? [String: Any])
+        let entries = try XCTUnwrap(index["entries"] as? [String: [String: Any]])
+        let candidates = entries.values.compactMap { $0["session"] as? [String: Any] }.filter { $0["nativeSessionID"] as? String == "native" }
+        XCTAssertEqual(candidates.count, 2)
+        XCTAssertEqual(candidates.filter { $0["isAvailable"] as? Bool == true }.count, 1)
+        let movedBefore = try fixture.storeBytes()
+        let writerRead = try await HistoryTools.getSummary(arguments: ["key": "codex:native"], repository: writer)
+        XCTAssertTrue(writerRead.hasSuffix(summary.text))
+        let moved = try await HistoryTools.getSummary(arguments: ["key": "codex:native"], repository: fixture.repository(readOnly: true))
+        XCTAssertTrue(moved.hasPrefix("stale: true;")); XCTAssertTrue(moved.hasSuffix(summary.text))
+        XCTAssertEqual(try fixture.storeBytes(), movedBefore)
     }
 
     func testKeyFailuresAndUnknownRevisionAreExplicit() async throws {
@@ -103,7 +120,11 @@ final class HistorySummaryToolTests: XCTestCase {
         var source: URL { root.appendingPathComponent("codex/sessions/native.jsonl") }
         var cache: URL { root.appendingPathComponent("cache") }
         init() throws {
-            root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            // Avoid macOS /var vs /private/var aliases hiding a retained missing source
+            // when a new repository reloads the persisted index after an archive move.
+            root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+                .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+                .appendingPathComponent(".scratch/summary-tests-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
             let header = #"{"type":"session_meta","payload":{"id":"native","cwd":"/repo"}}"#
             let message = #"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}}"#

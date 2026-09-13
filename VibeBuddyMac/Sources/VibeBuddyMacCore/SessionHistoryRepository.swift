@@ -152,12 +152,28 @@ public actor SessionHistoryRepository {
         }
         return snapshot()
     }
+    /// Prefer an available source over retained unavailable paths, as snapshot does.
+    /// Multiple eligible files remain ambiguous; callers must not guess an identity.
+    public func resolveIndexedSession(key: String) throws -> SessionHistorySession? {
+        let reference = try HistorySessionReference(key)
+        ensureLoaded()
+        let candidates = entries.values.filter { $0.session.agent == reference.agent && $0.session.nativeSessionID == reference.nativeID }
+        let available = candidates.filter { $0.session.isAvailable }
+        let matches = available.isEmpty ? candidates : available
+        guard matches.count <= 1 else { throw HistoryToolError.executionFailed("Ambiguous session key: multiple source files.") }
+        guard let entry = matches.first else { return nil }
+        var session = entry.session
+        session.sourceRevision = "\(entry.modified.timeIntervalSince1970)|\(entry.size)"
+        session.isFavorite = favorites.contains(session.id)
+        session.isPinned = pins.contains(session.id)
+        session.archivedLocally = archives.contains(session.id)
+        return session
+    }
+
     /// Resolve one native identity before reading either transcript or saved summary.
     private func locateSession(_ reference: HistorySessionReference) throws -> (session: SessionHistorySession, indexedRevision: String?) {
-        ensureLoaded()
-        let matches = entries.values.filter { $0.session.agent == reference.agent && $0.session.nativeSessionID == reference.nativeID }
-        guard matches.count <= 1 else { throw HistoryToolError.executionFailed("Ambiguous session key: multiple source files.") }
-        var metadata = matches.first?.session
+        var metadata = try resolveIndexedSession(key: reference.key)
+        let indexed = metadata?.sourceRevision
         if metadata == nil {
             // Locate by native filename only; never parse every conversation to find one ID.
             var candidates: [URL] = []
@@ -179,7 +195,7 @@ public actor SessionHistoryRepository {
             metadata = SessionHistorySession(id: "\(reference.agent.rawValue):\(reference.nativeID)", nativeSessionID: reference.nativeID, agent: reference.agent, projectPath: "", title: "", sourcePath: file.path, updatedAt: .distantPast, messages: [])
         }
         guard let metadata else { throw HistoryToolError.executionFailed("Unknown session key.") }
-        return (metadata, matches.first.map { "\($0.modified.timeIntervalSince1970)|\($0.size)" })
+        return (metadata, indexed)
     }
 
     /// Bounded read-only access; never refreshes or publishes a cache.
