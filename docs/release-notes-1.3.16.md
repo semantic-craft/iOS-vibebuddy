@@ -14,7 +14,7 @@
 
 ## 范围与限制 / Scope and limits
 
-- Continue with… 只在 Mac；iPhone / Watch 的入口、跨机交接、事实的 LLM 摘要不在本版。血缘（谁接了谁）只保存在运行中的 App 内。
+- Continue with… 只在 Mac；iPhone / Watch 的入口、跨机交接、事实的 LLM 摘要不在本版。血缘（谁接了谁）只保存在运行中的 App 内。Codex 在 agent worktree 里接续时，`.scratch`（指向主 checkout 的符号链接）可能在其沙箱可写范围之外，需要读方按提示处理。
 - `facts` 的命令与退出码来自 Claude 系 hook 与 Codex app-server；Cursor ACP 与 rollout 只能报告工具名，输出会明写。
 - Recap 的真机分页手感、`.success` 触感与 Double Tap 未在实体设备验收。
 - Continue with… is Mac-only in this release; lineage lives in the running app. `facts` carries command text and exit codes for Claude-shaped hooks and the Codex app-server only. Recap's on-device feel remains unverified.

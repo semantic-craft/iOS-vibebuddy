@@ -2,8 +2,11 @@
 
 - Status: accepted as the design on 2026-09-14 (owner decisions: Mac first,
   fact collection on by default, follow the `handoff` skill's thinking
-  throughout). Implementation is not yet authorized; tickets in
-  `.scratch/handoff-continue/`.
+  throughout); implementation authorized the same day and delivered on
+  `feat/handoff-continue` (tickets 01–05 in `.scratch/handoff-continue/`,
+  acceptance in `acceptance/05/README.md`: a real Codex continued from the
+  handoff path alone; pressing Start could not be exercised in the isolated
+  instance, which has no launchers by design).
 - Date: 2026-09-14
 - Amends: ADR-0019 (the relay half). Its read-only contract for
   `vibebuddy-mcp`, its Session key / History reference / Handoff note terms
