@@ -392,7 +392,8 @@ public actor SessionHistoryRepository {
             if sequences[metadata.id] == nil {
                 // Decode only candidates, retaining their small ID mapping instead
                 // of keeping every full transcript in memory for the whole search.
-                guard entries.values.filter({ $0.session.agent == metadata.agent && $0.session.nativeSessionID == metadata.nativeSessionID }).count == 1,
+                guard let canonical = try? resolveIndexedSession(key: HistoryTools.key(metadata)),
+                      canonical.sourcePath == metadata.sourcePath, canonical.sourceRevision == metadata.sourceRevision,
                       let full = verifiedCache(metadata, indexedRevision: metadata.sourceRevision), full.id == metadata.id,
                       (try? HistorySessionReference(HistoryTools.key(metadata))) != nil else {
                     unavailable.insert(metadata.id)
