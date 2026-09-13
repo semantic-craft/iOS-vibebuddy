@@ -8,7 +8,7 @@ public struct HistorySummaryRead: Sendable {
 }
 
 extension HistoryTools {
-    public static func getSummary(arguments: [String: Any], repository: SessionHistoryRepository) async throws -> String {
+    public static func getSummary(arguments: [String: Any], repository: SessionHistoryRepository, isolation: isolated (any Actor)? = #isolation) async throws -> String {
         guard Set(arguments.keys) == ["key"], let key = arguments["key"] as? String else {
             throw HistoryToolError.invalidArguments("get_summary requires only a string key.")
         }

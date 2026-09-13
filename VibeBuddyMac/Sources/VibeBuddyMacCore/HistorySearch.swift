@@ -14,7 +14,7 @@ public struct HistorySearchPage: Sendable {
 }
 
 extension HistoryTools {
-    public static func search(arguments: [String: Any], repository: SessionHistoryRepository, now: Date = Date()) async throws -> String {
+    public static func search(arguments: [String: Any], repository: SessionHistoryRepository, now: Date = Date(), isolation: isolated (any Actor)? = #isolation) async throws -> String {
         let scope = try selection("vibebuddy_search", arguments: arguments, snapshot: await repository.snapshot(), now: now)
         guard let query = arguments["query"] as? String, !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw HistoryToolError.invalidArguments("query must contain non-whitespace text.")

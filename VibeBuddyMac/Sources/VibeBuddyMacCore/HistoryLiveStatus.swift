@@ -10,7 +10,7 @@ public enum HistoryLiveStatus {
     }
 
     public static func call(arguments: [String: Any], environment: [String: String] = ProcessInfo.processInfo.environment,
-                            fetch: (@Sendable (URLRequest) async throws -> (Data, URLResponse))? = nil) async throws -> String {
+                            fetch: (@Sendable (URLRequest) async throws -> (Data, URLResponse))? = nil, isolation: isolated (any Actor)? = #isolation) async throws -> String {
         let options = try Options(arguments: arguments, callerID: environment["CODEX_THREAD_ID"])
         guard environment["VIBEBUDDY_PORT"] == nil || environment["VIBEBUDDY_PORT"].flatMap(Int.init) != nil else { return "live status unknown (invalid daemon port)" }
         let port = environment["VIBEBUDDY_PORT"].flatMap(Int.init) ?? 9876
