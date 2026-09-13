@@ -7,7 +7,7 @@ final class HistoryMCPTests: XCTestCase {
     private func fixture() async throws -> (URL, SessionHistoryRepository) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let claude = root.appendingPathComponent("claude"), codex = root.appendingPathComponent("codex")
-        let source = codex.appendingPathComponent("sessions/one.jsonl")
+        let source = codex.appendingPathComponent("sessions/native.jsonl")
         try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data((#"{"type":"session_meta","payload":{"id":"native","cwd":"/repo","source":"cli"}}"# + "\n" + #"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"中文 context"}]}}"#).utf8).write(to: source)
         let directory = root.appendingPathComponent("history")
@@ -62,7 +62,7 @@ final class HistoryMCPTests: XCTestCase {
         let executor = HistoryToolExecutor(repository: repository)
         let server = HistoryMCPServer(executor: executor)
         _ = try await initialize(server)
-        for (command, name) in HistoryCLI.commands {
+        for (command, name) in HistoryCLI.commands where name != "vibebuddy_get_session" {
             let parsed = try HistoryCLI.parse([command, "--limit", "5"])
             XCTAssertEqual(parsed.arguments["limit"] as? String, "5")
             let arguments = try HistoryTools.normalizeCLIArguments(name, arguments: parsed.arguments)
@@ -104,6 +104,42 @@ final class HistoryMCPTests: XCTestCase {
         _ = try await writer.refresh()
         let third = try await request(server, "tools/call", ["name": "vibebuddy_list_sessions"])
         XCTAssertTrue(try text(third).contains("codex:second"))
+    }
+
+    func testGetSessionWireParityAndBadKeyErrorsWithoutIndex() async throws {
+        let (root, repository) = try await fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let executor = HistoryToolExecutor(repository: repository)
+        let server = HistoryMCPServer(executor: executor)
+        _ = try await initialize(server)
+        for key in ["codex:native", "vibebuddy://session/codex:native#1"] {
+            let response = try await request(server, "tools/call", ["name": "vibebuddy_get_session", "arguments": ["key": key, "max_messages": 2]])
+            let parsed = try HistoryCLI.parse(["show", key, "--max-messages", "2"])
+            let arguments = try HistoryTools.normalizeCLIArguments(parsed.tool, arguments: parsed.arguments)
+            let cli = try await executor.execute(parsed.tool, arguments: arguments)
+            XCTAssertEqual(try text(response), cli)
+            XCTAssertTrue(cli.contains("[seq 1]"))
+        }
+        for arguments: [String: Any] in [[:], ["key": 42]] {
+            let response = try await request(server, "tools/call", ["name": "vibebuddy_get_session", "arguments": arguments])
+            XCTAssertEqual((response["error"] as? [String: Any])?["code"] as? Int, -32602)
+        }
+        for key in ["not-a-key", "codex:missing"] {
+            let response = try await request(server, "tools/call", ["name": "vibebuddy_get_session", "arguments": ["key": key]])
+            XCTAssertNil(response["error"])
+            XCTAssertEqual((response["result"] as? [String: Any])?["isError"] as? Bool, true)
+        }
+        let absent = root.appendingPathComponent("absent-index")
+        let sourceOnly = SessionHistoryRepository(claudeHome: root.appendingPathComponent("claude"), codexHome: root.appendingPathComponent("codex"), cacheDirectory: absent, readOnly: true)
+        let sourceServer = HistoryMCPServer(executor: HistoryToolExecutor(repository: sourceOnly))
+        _ = try await initialize(sourceServer)
+        let source = try await request(sourceServer, "tools/call", ["name": "vibebuddy_get_session", "arguments": ["key": "codex:native"]])
+        XCTAssertTrue(try text(source).contains("中文 context"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: absent.path))
+        let missingIndex = try await request(sourceServer, "tools/call", ["name": "vibebuddy_list_sessions"])
+        XCTAssertEqual((missingIndex["result"] as? [String: Any])?["isError"] as? Bool, true)
+        XCTAssertTrue(try text(missingIndex).contains("Open History"))
+        XCTAssertFalse(try text(missingIndex).contains("vibebuddy-mcp index"))
     }
 
     func testMalformedJSONAndShapeAreProtocolErrors() async throws {

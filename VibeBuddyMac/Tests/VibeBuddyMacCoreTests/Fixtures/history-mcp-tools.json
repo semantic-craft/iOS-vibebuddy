@@ -1,5 +1,42 @@
 [
   {
+    "name": "vibebuddy_get_session",
+    "description": "Read a transcript by native key or reference; sequence positions are stable for its source revision.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "from_seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_messages": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        },
+        "tools": {
+          "type": "boolean"
+        },
+        "thinking": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "key"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
     "name": "vibebuddy_list_sessions",
     "description": "List indexed local sessions, newest activity first.",
     "inputSchema": {
@@ -30,7 +67,8 @@
           "maximum": 200
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "required": []
     },
     "annotations": {
       "readOnlyHint": true,
@@ -54,7 +92,8 @@
           "maximum": 200
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "required": []
     },
     "annotations": {
       "readOnlyHint": true,

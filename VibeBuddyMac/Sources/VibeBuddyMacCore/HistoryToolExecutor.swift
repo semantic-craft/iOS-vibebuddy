@@ -13,6 +13,10 @@ public struct HistoryToolExecutor: Sendable {
 
     public func execute(_ name: String, arguments: [String: Any], isolation: isolated (any Actor)? = #isolation) async throws -> String {
         try HistoryTools.validateArguments(name, arguments: arguments)
+        if name == "vibebuddy_get_session" {
+            try await repository.reloadReadOnlyMetadata()
+            return try await HistoryTools.getSession(arguments: arguments, repository: repository)
+        }
         if Self.requiresIndex(name) {
             try await repository.reloadReadOnlyMetadata()
             guard await repository.hasUsableIndex() else { throw HistoryToolError.noIndex }
