@@ -107,8 +107,9 @@ stay an ink wash (4 % / 7 %). *(2026-09-13: was an ink wash, never the accent;
 the owner asked the dashboard to carry Settings' green.)*
 
 Content: list column (240–380 pt) + detail column. The list head is the scope
-title, the search pill and a row of filter chips (All / Needs you / Errors /
-Working / Done / Idle; the selected chip is accent-filled). Rows are summary-first
+title, the search pill and a row of filter chips (All / Needs you /
+Working / Done / Idle; Needs you includes failed sessions, as in the menu
+panel; the selected chip is accent-filled). Rows are summary-first
 cards on `bg3`; the selected row sits on `bg2` with an accent hairline. The
 live mic disc is accent-filled. History uses
 the same head with agent / archive dropdown pills and a `···` menu (Refresh,
@@ -138,7 +139,7 @@ status tints, and the message the search landed on sits on the ink wash
 (7 %), not the accent. No system button, picker or `accentColor` remains in
 the dashboard window.
 
-Keyboard: ⌘F search, A / D approve / deny, ⏎ jump, ⌘1–5 / ⌘0 status filters
+Keyboard: ⌘F search, A / D approve / deny, ⏎ jump, ⌘1–4 / ⌘0 status filters
 narrow the groups.
 
 ### Menu bar dropdown

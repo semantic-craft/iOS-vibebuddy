@@ -26,7 +26,7 @@ final class DashboardRoute: ObservableObject {
 struct DashboardView: View {
     @ObservedObject var model: MenuBarModel
     @State private var pendingNavigation = PendingTaskNavigation()
-    @State private var statusFilter: TaskPresentationState? = nil
+    @State private var statusFilter: DashboardSessionList.StatusFilter? = nil
     @State private var projectScope: DashboardSessionList.ProjectScope = .all
     @State private var query: String = ""
     @State private var showNewTask = false
@@ -116,11 +116,10 @@ struct DashboardView: View {
                 // ⌘N opens New task; the sheet itself explains when no agent
                 // can start yet, so the entry is never disabled.
                 Button("") { showNewTask = true }.keyboardShortcut("n", modifiers: .command)
-                Button("") { statusFilter = .error }.keyboardShortcut("1", modifiers: .command)
-                Button("") { statusFilter = .requiresInput }.keyboardShortcut("2", modifiers: .command)
-                Button("") { statusFilter = .thinking }.keyboardShortcut("3", modifiers: .command)
-                Button("") { statusFilter = .completeUnread }.keyboardShortcut("4", modifiers: .command)
-                Button("") { statusFilter = .idle }.keyboardShortcut("5", modifiers: .command)
+                Button("") { statusFilter = .needsYou }.keyboardShortcut("1", modifiers: .command)
+                Button("") { statusFilter = .working }.keyboardShortcut("2", modifiers: .command)
+                Button("") { statusFilter = .done }.keyboardShortcut("3", modifiers: .command)
+                Button("") { statusFilter = .idle }.keyboardShortcut("4", modifiers: .command)
                 Button("") { statusFilter = nil }.keyboardShortcut("0", modifiers: .command)
                 // ⌘F focuses the search field, leaving Usage first if needed.
                 Button("", action: focusSearch).keyboardShortcut("f", modifiers: .command)
@@ -171,8 +170,8 @@ struct DashboardView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
                         FilterChip(title: "All", selected: statusFilter == nil) { statusFilter = nil }
-                        ForEach([TaskPresentationState.requiresInput, .error, .thinking, .completeUnread, .idle], id: \.self) { state in
-                            FilterChip(title: Self.chipTitle(state), selected: statusFilter == state) { statusFilter = state }
+                        ForEach(DashboardSessionList.StatusFilter.allCases, id: \.self) { group in
+                            FilterChip(title: Self.chipTitle(group), selected: statusFilter == group) { statusFilter = group }
                         }
                         if projectScope != .all || !query.isEmpty {
                             Button("Reset") {
@@ -221,15 +220,14 @@ struct DashboardView: View {
     }
 
     /// The chips use the menu panel's group words (Needs you / Working / Done),
-    /// not the long state labels, so six of them fit on one line.
-    static func chipTitle(_ state: TaskPresentationState) -> LocalizedStringKey {
-        switch state {
-        case .requiresInput: "Needs you"
-        case .error: "Errors"
-        case .thinking: "Working"
-        case .completeUnread: "Done"
+    /// not the long state labels, so all five fit on one line. Errors are part
+    /// of Needs you here as everywhere else.
+    static func chipTitle(_ group: DashboardSessionList.StatusFilter) -> LocalizedStringKey {
+        switch group {
+        case .needsYou: "Needs you"
+        case .working: "Working"
+        case .done: "Done"
         case .idle: "Idle"
-        case .unassigned: "Unassigned"
         }
     }
 
