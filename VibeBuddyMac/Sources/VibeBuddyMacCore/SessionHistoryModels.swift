@@ -54,8 +54,9 @@ public struct SessionHistorySnapshot: Sendable {
     public var sessions: [SessionHistorySession]
     public var issues: [String]
     public var refreshedAt: Date?
-    public init(sessions: [SessionHistorySession] = [], issues: [String] = [], refreshedAt: Date? = nil) {
-        self.sessions = sessions; self.issues = issues; self.refreshedAt = refreshedAt
+    public var pendingSourceCount: Int
+    public init(sessions: [SessionHistorySession] = [], issues: [String] = [], refreshedAt: Date? = nil, pendingSourceCount: Int = 0) {
+        self.sessions = sessions; self.issues = issues; self.refreshedAt = refreshedAt; self.pendingSourceCount = pendingSourceCount
     }
 }
 public struct SessionHistorySearchResult: Identifiable, Sendable {
