@@ -165,6 +165,7 @@ public struct SessionReducer: Sendable {
             applyChildLifecycle(event)
         }
         if event.kind != .sessionEnd {
+            if let cwd = event.cwd, cwd.hasPrefix("/") { sessions[event.sessionID]?.checkoutPath = cwd }
             if event.permissionModeRaw != nil || event.approvalPolicyRaw != nil || event.sandboxPolicyRaw != nil,
                var session = sessions[event.sessionID],
                event.timestamp >= (session.permissionObservedAt ?? .distantPast) {
@@ -204,7 +205,10 @@ public struct SessionReducer: Sendable {
     public mutating func applyStatusLine(_ sample: StatusLineSample) -> Bool {
         guard var s = sessions[sample.sessionID] else { return false }
         if let model = sample.model { s.model = model }
-        if let cwd = sample.cwd { s.project = Self.projectName(cwd) }
+        if let cwd = sample.cwd {
+            s.project = Self.projectName(cwd)
+            if cwd.hasPrefix("/") { s.checkoutPath = cwd }
+        }
         if let name = sample.sessionName { s.name = name }
         if let effort = sample.effort { s.effort = effort }
         if let cost = sample.costUSD { s.costUSD = cost }

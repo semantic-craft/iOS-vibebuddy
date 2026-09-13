@@ -963,6 +963,7 @@
 "Actions" = "可执行操作";
 "Activity and file changes" = "活动记录与文件变化";
 "Permission mode" = "权限模式";
+"Unknown" = "未知";
 "AI summary · this completion · agent-reported results" = "AI 摘要 · 本次完成 · 结果由 Agent 自述";
 "Completion notice · this completion" = "完成通知 · 本次完成";
 "Latest observed activity · limited coverage" = "最近观察到的活动 · 覆盖有限";

@@ -341,9 +341,9 @@ struct WatchDashboardStateTests {
         #expect(state.presentation.idle == 1)
     }
 
-    @Test("A failed session counts under Needs you, whatever its status says")
+    @Test("A confirmed terminal failure counts under Needs you")
     func stuckIsNeedsYou() {
-        var failed = session(id: "a", status: .working)
+        var failed = session(id: "a", status: .done)
         failed.failed = true
         let state = project([failed, session(id: "b", status: .working)])
         #expect(state.counts.needsResponse == 1)    // the attention groups, as on the phone

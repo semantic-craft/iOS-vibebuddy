@@ -13,6 +13,7 @@ enum SessionHistoryParser {
     }
     static let byteLimit = 32 * 1024 * 1024
     static func read(url: URL, agent: SessionHistoryAgent, updatedAt: Date) throws -> SessionHistorySession {
+        guard agent.supportsTranscript else { throw HistoryToolError.executionFailed(GrokHistorySource.noTranscript) }
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         let data = try handle.read(upToCount: byteLimit + 1) ?? Data()
@@ -28,6 +29,16 @@ enum SessionHistoryParser {
         var nativeID = url.deletingPathExtension().lastPathComponent
         var cwd = ""
         var source: String?
+        if agent == .cursor {
+            var directory = url.deletingLastPathComponent()
+            if directory.lastPathComponent != "agent-transcripts" { directory.deleteLastPathComponent() }
+            if directory.lastPathComponent == "agent-transcripts" {
+                cwd = CursorTranscripts.projectPath(forDirectoryName: directory.deletingLastPathComponent().lastPathComponent) ?? ""
+            }
+            source = "local-transcript"
+            warnings.append(SessionHistoryAgent.cursorCoverage)
+            if cwd.isEmpty { warnings.append("Original project path could not be resolved from the Cursor transcript directory.") }
+        }
         var conversationUpdatedAt: Date?
         var messages: [SessionHistoryMessage] = []
         var fallback: [SessionHistoryMessage] = []
@@ -53,10 +64,10 @@ enum SessionHistoryParser {
         for (lineNumber, line) in content.split(separator: 10).enumerated() {
             guard let root = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any] else { malformed += 1; continue }
             if agent == .claude, root["isSidechain"] as? Bool == true { omitted += 1; continue }
-            let date = stamp(root["timestamp"])
+            let date = stamp(root["timestamp"]) ?? (agent == .cursor ? cursorTimestamp(root) : nil)
             if let date { conversationUpdatedAt = max(conversationUpdatedAt ?? date, date) }
             let type = root["type"] as? String ?? ""
-            if let path = root["cwd"] as? String { cwd = path }
+            if agent != .cursor, let path = root["cwd"] as? String { cwd = path }
             if agent == .claude, let id = root["sessionId"] as? String { nativeID = id }
             func append(_ role: SessionHistoryRole, _ text: String, _ suffix: String, _ tool: String? = nil, fallbackOnly: Bool = false, kind: SessionHistoryMessageKind? = nil, groupID: String? = nil, callID: String? = nil, output: Bool = false, isError: Bool = false) {
                 guard !text.isEmpty else { return }
@@ -77,7 +88,21 @@ enum SessionHistoryParser {
                 let message = SessionHistoryMessage(id: key, role: role, text: bounded, timestamp: date, toolName: tool, kind: kind ?? (role == .user && isInjectedContext(text) ? .meta : .text), groupID: groupID, toolCallID: callID, isToolOutput: output, isError: isError)
                 if fallbackOnly { fallback.append(message) } else { messages.append(message) }
             }
-            if agent == .claude {
+            if agent == .cursor {
+                let events = CursorTranscripts.parse(line: String(decoding: line, as: UTF8.self), fullContent: true)
+                for (index, event) in events.enumerated() {
+                    switch event {
+                    case .prompt(let text): append(.user, text, "\(index)")
+                    case .assistantText(let text): append(.assistant, text, "\(index)", groupID: "cursor-line-\(lineNumber)")
+                    case .toolUse(let name, let detail):
+                        append(.tool, detail ?? "[Tool call]", "\(index)", name, groupID: "cursor-line-\(lineNumber)")
+                    case .turnEnded(let status, let error):
+                        if status == "error" || status == "aborted" {
+                            warnings.append("Cursor turn ended: \(status)\(error.map { ": " + String($0.prefix(600)) } ?? "").")
+                        }
+                    }
+                }
+            } else if agent == .claude {
                 if type == "system", root["subtype"] as? String == "compact_boundary" {
                     append(.system, "Context compacted", "compact", kind: .compactSummary); continue
                 }
@@ -164,5 +189,46 @@ enum SessionHistoryParser {
         if messages.isEmpty { warnings.append("No readable messages in this source.") }
         let title = messages.first(where: { $0.role == .user && !isInjectedContext($0.text) })?.text.components(separatedBy: .newlines).first ?? nativeID
         return SessionHistorySession(id: agent.rawValue + ":" + nativeID, nativeSessionID: nativeID, agent: agent, projectPath: cwd, title: String(title.prefix(120)), sourcePath: url.path, updatedAt: conversationUpdatedAt ?? updatedAt, messages: messages, warnings: warnings, source: source)
+    }
+
+    /// Cursor's observed envelope is English text with an explicit UTC offset,
+    /// e.g. `Wednesday, Sep 9, 2026, 3:14 AM (UTC+8)`. Never use the Mac's zone.
+    private static func cursorTimestamp(_ root: [String: Any]) -> Date? {
+        guard root["role"] as? String == "user",
+              let blocks = (root["message"] as? [String: Any])?["content"] as? [[String: Any]] else { return nil }
+        for block in blocks {
+            guard let text = block["text"] as? String,
+                  let start = text.range(of: "<timestamp>"), let end = text.range(of: "</timestamp>"),
+                  start.upperBound <= end.lowerBound else { continue }
+            let value = String(text[start.upperBound..<end.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let iso = ISO8601DateFormatter()
+            if let date = iso.date(from: value) { return date }
+            iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = iso.date(from: value) { return date }
+            guard let zone = value.range(of: " (UTC"), value.hasSuffix(")") else { continue }
+            let offset = String(value[zone.upperBound..<value.index(before: value.endIndex)])
+            let seconds: Int
+            if offset.contains(":") {
+                let parts = offset.dropFirst().split(separator: ":", omittingEmptySubsequences: false)
+                guard let sign = offset.first, sign == "+" || sign == "-", parts.count == 2,
+                      (1...2).contains(parts[0].count), parts[1].count == 2,
+                      parts.allSatisfy({ $0.utf8.allSatisfy { (48...57).contains($0) } }),
+                      let hours = Int(parts[0]), (0...14).contains(hours),
+                      let minutes = Int(parts[1]), (0..<60).contains(minutes) else { continue }
+                seconds = (hours * 60 + minutes) * 60 * (sign == "-" ? -1 : 1)
+            } else {
+                guard let hours = Double(offset), hours.isFinite, (-12...14).contains(hours) else { continue }
+                seconds = Int(hours * 3600)
+            }
+            guard (-43_200...50_400).contains(seconds),
+                  let timezone = TimeZone(secondsFromGMT: seconds) else { continue }
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.calendar = Calendar(identifier: .gregorian)
+            formatter.timeZone = timezone
+            formatter.dateFormat = "EEEE, MMM d, yyyy, h:mm a"
+            if let date = formatter.date(from: String(value[..<zone.lowerBound])) { return date }
+        }
+        return nil
     }
 }

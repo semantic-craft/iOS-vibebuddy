@@ -266,6 +266,7 @@ struct SessionReducerTests {
         #expect(session?.statusSince == statusSince)
         #expect(session?.activeTool == "Edit")
         #expect(session?.project == "new")
+        #expect(session?.checkoutPath == "/x/new")
         #expect(session?.model == "claude-opus-5")
         #expect(session?.updatedAt == t0.addingTimeInterval(3))
     }

@@ -581,7 +581,6 @@ private struct TaskRow: View {
         guard dashboard.state != .connected, session.status == .needsResponse else { return false }
         return WaitHandling.resolve(for: session) == .remoteAvailable
     }
-    private var summaryLineLimit: Int { session.status == .needsResponse ? 3 : 2 }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -635,10 +634,11 @@ private struct TaskRow: View {
     /// Title, state word, activity or summary, and the relative time, read as
     /// one element; the approve / deny / reply keys below stay separate.
     private var accessibilityLabel: String {
-        [session.displayTitle, ToolActivity.label(for: session), session.agent.shortName,
+        [session.displayTitle, state.label, presentation.activityOrResult,
+         presentation.progress ?? "", session.agent.shortName,
          session.effectiveAttention == .normal ? "" : session.effectiveAttention.stateTitle,
-         presentation.activityOrResult, presentation.progress ?? "",
-         presentation.unread ? String(localized: "Unread") : "", PhoneRelativeTime.spoken(session.updatedAt, now: now)]
+         presentation.unread ? String(localized: "Unread") : "",
+         PhoneRelativeTime.spoken(session.updatedAt, now: now)]
             .filter { !$0.isEmpty }.joined(separator: ", ")
     }
 
@@ -653,10 +653,10 @@ private struct TaskRow: View {
                     .foregroundStyle(CompanionPalette.ink)
                     .lineLimit(1)
             }
+            Spacer(minLength: 8)
             if presentation.unread {
                 Text("Unread").font(CompanionType.font(11)).foregroundStyle(CompanionPalette.status(.completeUnread))
             }
-            Spacer(minLength: 8)
             HStack(spacing: 5) {
                 if session.effectiveAttention != .normal {
                     Image(systemName: session.effectiveAttention == .followed ? "bell.badge" : "bell.slash")
@@ -1003,8 +1003,8 @@ private struct SessionDetailSheet: View {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack(alignment: .top, spacing: 10) {
                         AgentAvatar(agent: session.agent, size: 36)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(session.taskGoal)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(session.taskGoal).lineLimit(3)
                                 .font(CompanionType.font(22, .semibold))
                                 .tracking(CompanionType.tracking(22))
                                 .foregroundStyle(CompanionPalette.ink)

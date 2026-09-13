@@ -465,6 +465,8 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     public let id: String
     public let agent: AgentKind
     public var project: String
+    /// Full local checkout directory, independent of terminal/jump capabilities.
+    public var checkoutPath: String?
     /// Read-only stored conversation; no live task state is known.
     public var historyOnly: Bool? = nil
     public var branch: String?
@@ -579,6 +581,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         id: String,
         agent: AgentKind,
         project: String,
+        checkoutPath: String? = nil,
         branch: String? = nil,
         model: String? = nil,
         status: SessionStatus,
@@ -616,6 +619,7 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
         self.id = id
         self.agent = agent
         self.project = project
+        self.checkoutPath = checkoutPath
         self.branch = branch
         self.model = model
         self.status = status

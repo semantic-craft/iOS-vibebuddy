@@ -1,8 +1,15 @@
 import Foundation
 
 public enum SessionHistoryAgent: String, Codable, Sendable, CaseIterable {
-    case claude, codex
-    public var displayName: String { self == .claude ? "Claude Code" : "Codex" }
+    case claude, codex, cursor, grokBuild
+    public var displayName: String {
+        switch self { case .claude: "Claude Code"; case .codex: "Codex"; case .cursor: "Cursor"; case .grokBuild: "Grok Build" }
+    }
+    public var keyName: String {
+        switch self { case .claude: "claude-code"; case .codex: "codex"; case .cursor: "cursor"; case .grokBuild: "grok-build" }
+    }
+    public var supportsTranscript: Bool { self != .grokBuild }
+    public static let cursorCoverage = "Cursor local transcript: user/assistant text and tool calls only; no tool results or thinking. IDE/CLI provenance is not recorded; encrypted IDE history and cloud agents are not covered."
 }
 public enum SessionHistoryRole: String, Codable, Sendable { case user, assistant, tool, system }
 public enum SessionHistoryMessageKind: String, Codable, Sendable { case text, meta, thinking, compactSummary }
@@ -54,8 +61,9 @@ public struct SessionHistorySnapshot: Sendable {
     public var sessions: [SessionHistorySession]
     public var issues: [String]
     public var refreshedAt: Date?
-    public init(sessions: [SessionHistorySession] = [], issues: [String] = [], refreshedAt: Date? = nil) {
-        self.sessions = sessions; self.issues = issues; self.refreshedAt = refreshedAt
+    public var pendingSourceCount: Int
+    public init(sessions: [SessionHistorySession] = [], issues: [String] = [], refreshedAt: Date? = nil, pendingSourceCount: Int = 0) {
+        self.sessions = sessions; self.issues = issues; self.refreshedAt = refreshedAt; self.pendingSourceCount = pendingSourceCount
     }
 }
 public struct SessionHistorySearchResult: Identifiable, Sendable {
@@ -63,6 +71,9 @@ public struct SessionHistorySearchResult: Identifiable, Sendable {
     public var messageID: String
     public var excerpt: String
     public var id: String { sessionID + "|" + messageID }
+    public init(sessionID: String, messageID: String, excerpt: String) {
+        self.sessionID = sessionID; self.messageID = messageID; self.excerpt = excerpt
+    }
 }
 public enum SessionHistoryExport {
     public static func markdown(session: SessionHistorySession) -> String {

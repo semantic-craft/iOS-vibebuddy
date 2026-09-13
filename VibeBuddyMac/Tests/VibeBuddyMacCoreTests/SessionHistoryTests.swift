@@ -28,7 +28,7 @@ final class SessionHistoryTests: XCTestCase {
         let contents = #"{"type":"session_meta","payload":{"id":"747b278b-e90a-462f-bc5a-9608a8ca31ae","cwd":"/tmp","source":"cli"}}"# + "\n" +
             #"{"timestamp":"2026-09-01T10:00:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"中文查询 café useEffect( 100% _literal_ \"quoted\""}]}}"# + "\n"
         try Data(contents.utf8).write(to: source)
-        let repo = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cacheDirectory: cache)
+        let repo = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cursorHome: root.appendingPathComponent("cursor"), cacheDirectory: cache)
         let initial = try await repo.refresh()
         let session = try XCTUnwrap(initial.sessions.first)
         XCTAssertEqual(session.source, "cli")
@@ -56,7 +56,7 @@ final class SessionHistoryTests: XCTestCase {
         try await repo.setArchived(sessionID: session.id, isArchived: false)
         let nativeArchived = try await repo.search("cafe", favoritesOnly: true, archived: true)
         XCTAssertEqual(nativeArchived.count, 1)
-        let restarted = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cacheDirectory: cache)
+        let restarted = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cursorHome: root.appendingPathComponent("cursor"), cacheDirectory: cache)
         let rebuilt = try await restarted.refresh(rebuild: true)
         XCTAssertTrue(rebuilt.sessions.first?.isPinned == true)
         XCTAssertTrue(rebuilt.sessions.first?.isFavorite == true)
@@ -88,7 +88,7 @@ final class SessionHistoryTests: XCTestCase {
         let child = claude.appendingPathComponent("projects/project/subagents/agent-child.jsonl")
         try FileManager.default.createDirectory(at: child.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(original.replacingOccurrences(of: "中文恢复 await worker()", with: "child must not replace parent").utf8).write(to: child)
-        let repository = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cacheDirectory: cache)
+        let repository = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cursorHome: root.appendingPathComponent("cursor"), cacheDirectory: cache)
         let initial = try await repository.refresh()
         XCTAssertEqual(initial.sessions.count, 2)
         XCTAssertTrue(initial.sessions.allSatisfy { $0.messages.isEmpty })
@@ -110,7 +110,7 @@ final class SessionHistoryTests: XCTestCase {
         XCTAssertFalse(incremental.sessions.first(where: { $0.agent == .claude })!.warnings.isEmpty)
         let stable = try await repository.search("恢复")
         XCTAssertEqual(stable.first?.messageID, chinese.first?.messageID)
-        let restarted = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cacheDirectory: cache)
+        let restarted = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cursorHome: root.appendingPathComponent("cursor"), cacheDirectory: cache)
         let restored = await restarted.snapshot()
         XCTAssertTrue(restored.sessions.first(where: { $0.agent == .claude })!.isFavorite)
         let rebuilt = try await restarted.refresh(rebuild: true)
@@ -134,7 +134,7 @@ final class SessionHistoryTests: XCTestCase {
             let row = "{\"uuid\":\"u\",\"sessionId\":\"\(id)\",\"message\":{\"role\":\"user\",\"content\":\"hello\"}}"
             try Data(row.utf8).write(to: project.appendingPathComponent(id + ".jsonl"))
         }
-        let repo = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cacheDirectory: cache, refreshByteBudget: 1)
+        let repo = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cursorHome: root.appendingPathComponent("cursor"), cacheDirectory: cache, refreshByteBudget: 1)
         let first = try await repo.refresh()
         XCTAssertEqual(first.sessions.count, 1)
         XCTAssertTrue(first.issues.contains { $0.contains("Indexing:") })
@@ -163,11 +163,11 @@ final class SessionHistoryTests: XCTestCase {
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(#"{"uuid":"u","sessionId":"s","message":{"role":"user","content":"hello"}}"#.utf8).write(to: file)
         try Data("blocked".utf8).write(to: cache)
-        let repo = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cacheDirectory: cache)
+        let repo = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cursorHome: root.appendingPathComponent("cursor"), cacheDirectory: cache)
         do { _ = try await repo.refresh(); XCTFail("Expected cache write failure") } catch { }
         try FileManager.default.removeItem(at: cache)
         _ = try await repo.refresh()
-        let reopened = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cacheDirectory: cache)
+        let reopened = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cursorHome: root.appendingPathComponent("cursor"), cacheDirectory: cache)
         let restored = await reopened.snapshot()
         XCTAssertEqual(restored.sessions.count, 1)
     }
