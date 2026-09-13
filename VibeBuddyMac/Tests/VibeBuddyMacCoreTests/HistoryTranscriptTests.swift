@@ -63,7 +63,7 @@ final class HistoryTranscriptTests: XCTestCase {
         XCTAssertEqual(try bytes(cache), before)
         let again = try await reader.readTranscript(key: "codex:native")
         XCTAssertEqual(again.session, stale.session)
-        let content = try XCTUnwrap(FileManager.default.contentsOfDirectory(at: cache, includingPropertiesForKeys: nil).first { $0.lastPathComponent != "index.json" })
+        let content = try XCTUnwrap(FileManager.default.contentsOfDirectory(at: cache, includingPropertiesForKeys: nil).first { $0.pathExtension == "json" && $0.lastPathComponent != "index.json" })
         var full = try JSONDecoder().decode(SessionHistorySession.self, from: Data(contentsOf: content))
         full.sourceRevision = "mismatched-revision"
         try JSONEncoder().encode(full).write(to: content)

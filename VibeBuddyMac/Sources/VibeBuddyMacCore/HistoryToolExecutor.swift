@@ -8,7 +8,7 @@ public struct HistoryToolExecutor: Sendable {
     public init(repository: SessionHistoryRepository) { self.repository = repository }
 
     public static func requiresIndex(_ name: String) -> Bool {
-        ["vibebuddy_list_sessions", "vibebuddy_list_projects"].contains(name)
+        ["vibebuddy_list_sessions", "vibebuddy_list_projects", "vibebuddy_search"].contains(name)
     }
 
     public func execute(_ name: String, arguments: [String: Any], isolation: isolated (any Actor)? = #isolation) async throws -> String {
@@ -20,6 +20,9 @@ public struct HistoryToolExecutor: Sendable {
         if Self.requiresIndex(name) {
             try await repository.reloadReadOnlyMetadata()
             guard await repository.hasUsableIndex() else { throw HistoryToolError.noIndex }
+            if name == "vibebuddy_search" {
+                return try await HistoryTools.search(arguments: arguments, repository: repository)
+            }
             let snapshot = await repository.snapshot()
             do { return try HistoryTools.call(name, arguments: arguments, snapshot: snapshot) }
             catch HistoryToolError.invalidArguments(let message) {

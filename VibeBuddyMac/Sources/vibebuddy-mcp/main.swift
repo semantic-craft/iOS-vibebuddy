@@ -9,6 +9,19 @@ struct VibeBuddyMCP {
         signal(SIGPIPE, SIG_IGN)
         let argv = Array(CommandLine.arguments.dropFirst())
         let directory = ProcessInfo.processInfo.environment["VIBEBUDDY_HISTORY_DIRECTORY"].map { URL(fileURLWithPath: $0) }
+        if argv.first == "index" {
+            guard argv == ["index"] || argv == ["index", "--rebuild"] else {
+                fail(HistoryToolError.invalidArguments("Usage: vibebuddy-mcp index [--rebuild]"), code: 2)
+            }
+            do {
+                let repository = SessionHistoryRepository(cacheDirectory: directory)
+                let snapshot = try await repository.index(rebuild: argv.contains("--rebuild"))
+                let text = snapshot.map { "Indexed \($0.sessions.count) sessions.\n" + $0.issues.joined(separator: "\n") }
+                    ?? "Index already exists. Use --rebuild to refresh all sources."
+                FileHandle.standardOutput.write(Data(HistoryCLI.output(text).utf8))
+                return
+            } catch { fail(error, code: 2) }
+        }
         let repository = SessionHistoryRepository(cacheDirectory: directory, readOnly: true)
         let executor = HistoryToolExecutor(repository: repository)
         if argv.isEmpty {
