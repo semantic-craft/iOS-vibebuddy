@@ -1,6 +1,6 @@
 # The iPhone dashboard is a flat task list; the pet leaves it
 
-**Status:** Accepted (2026-09-12) — amends ADR-0007 for one surface.
+**Status:** Accepted (2026-09-12) — amends ADR-0007 for one surface. *Amended by ADR-0022 (2026-09-13): the flat list is no longer the root; the iPhone home is an inbox hub and this list is its bucket page, without inline keys.*
 
 ## Context
 

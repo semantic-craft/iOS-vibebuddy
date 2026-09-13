@@ -50,8 +50,37 @@ final class DashboardFiltersTests: XCTestCase {
 
     func testStatusGroupingNamesTheBucketsItActuallyHas() {
         let sessions = [session("a", .needsResponse, hoursAgo: 1), session("b", .working, hoursAgo: 1)]
-        let sections = DashboardFilters().sections(from: sessions, now: now)
+        var filters = DashboardFilters()
+        filters.grouping = .status
+        let sections = filters.sections(from: sessions, now: now)
         XCTAssertEqual(sections.map(\.title), [String(localized: "Needs you"), String(localized: "Working")])
         XCTAssertEqual(sections.first?.sessions.map(\.id), ["a"])
+    }
+
+    func testRecentsLeadsThenEveryProjectRepeatsItsRows() {
+        var a = session("a", .working, hoursAgo: 1); a.project = "alpha"
+        var b = session("b", .done, hoursAgo: 2, unread: true); b.project = "beta"
+        var c = session("c", .working, hoursAgo: 3); c.project = "alpha"
+        let sections = DashboardFilters().sections(from: [c, a, b], now: now)
+        XCTAssertEqual(sections.map(\.id), ["recent", "alpha", "beta"])
+        XCTAssertEqual(sections[0].sessions.map(\.id), ["a", "b", "c"], "Recents is newest first")
+        XCTAssertEqual(sections[1].sessions.map(\.id), ["a", "c"])
+
+        var scoped = DashboardFilters()
+        scoped.project = "alpha"
+        XCTAssertEqual(scoped.sections(from: [c, a, b], now: now).map(\.id), ["alpha"],
+                       "from a project row there is no Recents group")
+    }
+
+    func testSearchMatchesTitleProjectOrBranch() {
+        var a = session("a", .working, hoursAgo: 1); a.project = "payments-api"; a.branch = "feat/refund"
+        var b = session("b", .working, hoursAgo: 1); b.project = "docs-site"
+        var filters = DashboardFilters()
+        filters.query = "refund"
+        XCTAssertEqual(filters.sessions(from: [a, b], now: now).map(\.id), ["a"])
+        filters.query = "DOCS"
+        XCTAssertEqual(filters.sessions(from: [a, b], now: now).map(\.id), ["b"])
+        filters.query = "  "
+        XCTAssertEqual(filters.sessions(from: [a, b], now: now).count, 2)
     }
 }

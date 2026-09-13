@@ -13,6 +13,8 @@ struct DashboardView: View {
     @EnvironmentObject private var voice: VoiceChat
     @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
     @StateObject private var settingsConnectionTest = VoiceConnectionTest()
+    /// Reads the pending queue aloud (ticket 04); paused by a live voice call.
+    @StateObject private var announcer = PhoneAnnouncer()
     @State private var showSettings = false
     @State private var showQuota = false
     /// The New task sheet is presented by item, not by a flag: a sheet
@@ -26,7 +28,15 @@ struct DashboardView: View {
     @State private var pendingNavigation = PendingTaskNavigation()
     @State private var replyTo: String?
     @State private var filters = DashboardFilters()
+    /// The inbox hub is the root (ticket 01, `.scratch/iphone-board`); the
+    /// grouped list is one level down, opened from a tile or a project row.
+    @State private var page: Page = .inbox
     @State private var showFilters = false
+    /// The search circle on the list page reveals a field under the title.
+    @State private var showSearch = false
+    /// The voice page (ticket 05): opened by the mic or the voice strip.
+    @State private var showVoicePage = false
+    @FocusState private var searchFocused: Bool
     @State private var waitingForFilterDismiss = false
     @State private var collapsed: Set<String> = []
     /// The recency window moves with the clock, so the list re-cuts on a slow
@@ -34,7 +44,10 @@ struct DashboardView: View {
     @State private var now = Date()
     private let clock = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
+    private enum Page { case inbox, list }
+
     private var sections: [DashboardSection] { filters.sections(from: dashboard.allSessions, now: now) }
+    private var inbox: InboxProjection { InboxProjection(sessions: dashboard.allSessions, now: now) }
     private var stream: [AgentSession] { filters.sessions(from: dashboard.allSessions, now: now) }
     private var hiddenCount: Int { filters.hiddenCount(from: dashboard.allSessions, now: now) }
     private var replyTarget: AgentSession? { replyTo.flatMap { id in dashboard.allSessions.first { $0.id == id } } }
@@ -49,10 +62,12 @@ struct DashboardView: View {
     var body: some View {
         ScrollViewReader { proxy in
         List {
-            header
-                .listRowInsets(.init(top: 2, leading: PhoneMetrics.gutter, bottom: 4, trailing: PhoneMetrics.gutter))
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
+            if page == .list {
+                header
+                    .listRowInsets(.init(top: 2, leading: PhoneMetrics.gutter, bottom: 4, trailing: PhoneMetrics.gutter))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+            }
             // The connection is said once, here. Rows only add what the
             // offline state changes for them (a disabled key), and the
             // composer only speaks up when there is a draft it cannot send.
@@ -72,8 +87,25 @@ struct DashboardView: View {
                 .listRowBackground(Color.clear)
             }
             if dashboard.allSessions.isEmpty {
+                if page == .inbox {
+                    inboxTitle
+                        .listRowInsets(.init(top: 2, leading: 0, bottom: 0, trailing: 0))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                }
                 EmptyStateView(state: dashboard.state)
                     .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+            } else if page == .inbox {
+                InboxHomeView(projection: inbox, now: now, macName: macTitle, statusLine: statusLine,
+                              hiddenCount: DashboardFilters().hiddenCount(from: dashboard.allSessions, now: now),
+                              openSession: { detailCompletionNotificationID = nil; detailId = $0.id },
+                              openBucket: { open(bucket: $0) },
+                              openProject: { open(project: $0) },
+                              showOlder: { filters.bucket = nil; filters.project = nil; filters.includeInactive = true; page = .list },
+                              readPending: { readPending() })
+                    .listRowInsets(.init(top: 2, leading: 0, bottom: 12, trailing: 0))
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
             } else if stream.isEmpty {
@@ -89,17 +121,15 @@ struct DashboardView: View {
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
             }
-            ForEach(sections) { section in
+            ForEach(page == .list ? sections : []) { section in
                 Section {
                     if isExpanded(section.id) {
                         ForEach(Array(section.sessions.enumerated()), id: \.element.id) { index, session in
                             TaskRow(session: session,
                                     now: now,
-                                    isSelected: highlightId == session.id,
-                                    isReplyTarget: replyTo == session.id,
+                                    isSelected: highlightId == session.id || replyTo == session.id,
                                     showsDivider: index < section.sessions.count - 1,
-                                    onOpen: { detailCompletionNotificationID = nil; detailId = session.id },
-                                    onReply: { replyTo = session.id })
+                                    onOpen: { detailCompletionNotificationID = nil; detailId = session.id })
                                 .id(session.id)
                                 .swipeActions(edge: .leading, allowsFullSwipe: true) { attentionSwipeButtons(session) }
                                 .contextMenu { attentionMenu(session) }
@@ -119,7 +149,7 @@ struct DashboardView: View {
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
             }
-            if hiddenCount > 0 {
+            if page == .list, hiddenCount > 0 {
                 Button { filters.includeInactive = true } label: {
                     Label("Show \(hiddenCount) older", systemImage: "clock.arrow.circlepath")
                 }
@@ -147,8 +177,15 @@ struct DashboardView: View {
         .safeAreaInset(edge: .top, spacing: 0) { toolbar }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 0) {
+                if announcer.isBusy || announcer.status != nil {
+                    AnnouncerStrip(announcer: announcer, replay: { announcer.replayLatest(live: { dashboard.allSessions }) })
+                }
                 if voice.phase != .idle || voice.errorText != nil {
                     VoiceStrip(voice: voice)
+                        .contentShape(Rectangle())
+                        .onTapGesture { showVoicePage = true }
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityHint("Open the voice page")
                 }
                 StreamComposer(target: replyTarget,
                                macName: connection.pairing?.macName,
@@ -157,9 +194,18 @@ struct DashboardView: View {
                                voice: voice,
                                clearTarget: { replyTo = nil },
                                newTask: { newTaskRequest = NewTaskRequest(draft: "") },
+                               openVoicePage: { showVoicePage = true },
                                send: send(_:target:))
             }
             .background(CompanionPalette.bg)
+            // The page fades into the composer's ground, the way Cursor's list
+            // slides under its composer, instead of ending on a hard edge.
+            .background(alignment: .top) {
+                LinearGradient(colors: [CompanionPalette.bg.opacity(0), CompanionPalette.bg],
+                               startPoint: .top, endPoint: .bottom)
+                    .frame(height: 28)
+                    .offset(y: -28)
+            }
         }
         .animation(.smooth, value: dashboard.groups)
         .animation(.smooth, value: replyTo)
@@ -188,6 +234,14 @@ struct DashboardView: View {
                 .environmentObject(dashboard)
         }
         .sheet(isPresented: $voice.showConsent) { VoiceConsentSheet(voice: voice) }
+        .sheet(isPresented: $showVoicePage) {
+            VoicePageView(voice: voice, announcer: announcer,
+                          scopeCount: dashboard.buddyContext.count, scopeTotal: dashboard.allSessions.count,
+                          replay: { announcer.replayLatest(live: { dashboard.allSessions }) },
+                          openScope: { showVoicePage = false; showFilters = true })
+                .environmentObject(dashboard)
+                .presentationDetents([.large])
+        }
         .sheet(isPresented: Binding(get: { detailId != nil }, set: { presented in
             if !presented { detailId = nil; pendingNavigation = PendingTaskNavigation() }
         })) {
@@ -205,6 +259,8 @@ struct DashboardView: View {
             .safeAreaInset(edge: .bottom) { pendingFooter }
         }
         .onChange(of: filters) { _, _ in pendingNavigation = PendingTaskNavigation() }
+        .onChange(of: page) { _, _ in pendingNavigation = PendingTaskNavigation() }
+        .onChange(of: voice.phase) { _, phase in if phase != .idle { announcer.voiceStarted() } }
         .onChange(of: dashboard.completionSourceID) { _, _ in pendingNavigation = PendingTaskNavigation() }
         .alert("This completion is no longer current", isPresented: $dashboard.completionLinkUnavailable) {
             Button("OK", role: .cancel) { }
@@ -239,7 +295,18 @@ struct DashboardView: View {
             case "customize": showFilters = true
             case "usage": showQuota = true
             case "newtask": newTaskRequest = NewTaskRequest(draft: "")
+            case "list": open(bucket: .all)
+            case "read": readPending()
+            case "voice": readPending(); showVoicePage = true
             default:
+                if page.hasPrefix("bucket/"), let bucket = InboxBucket(rawValue: String(page.dropFirst("bucket/".count))) {
+                    open(bucket: bucket)
+                    return
+                }
+                if page.hasPrefix("project/") {
+                    open(project: String(page.dropFirst("project/".count)))
+                    return
+                }
                 guard page.hasPrefix("task/") else { return }
                 let needle = String(page.dropFirst("task/".count))
                 detailId = dashboard.allSessions.first {
@@ -251,8 +318,30 @@ struct DashboardView: View {
         }
     }
 
+    /// Speak the pending queue of the page in view: the whole snapshot from
+    /// the hub, the scope from a list. Reading never marks anything read.
+    private func readPending() {
+        let pending = page == .inbox ? inbox.pending : pendingCandidates
+        announcer.announce(pending, startPaused: voice.phase != .idle, live: { dashboard.allSessions })
+    }
+
+    /// The scope a tile or project set, then Customize's picks: what the
+    /// detail's "Next" walks through.
+    private var scopeSummary: String {
+        [filters.bucket != nil || filters.project != nil ? filters.scopeTitle(summary: inbox.summary) : nil,
+         filters.hasCustomizePicks ? filters.summary : nil].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    /// The queue the detail's "Next" walks (ticket 03): the whole snapshot
+    /// from the hub — "First up" is its head — and the list's scope from a
+    /// bucket or project page.
     private var pendingCandidates: [AgentSession] {
-        filters.pendingSessions(from: dashboard.allSessions, now: now)
+        page == .inbox ? inbox.pending : filters.pendingSessions(from: dashboard.allSessions, now: now)
+    }
+    /// `2 / 3` for the open detail, or nothing when it is not in the queue.
+    private var pendingPosition: String? {
+        guard let detailSession, let index = pendingCandidates.firstIndex(where: { $0.id == detailSession.id }) else { return nil }
+        return "\(index + 1) / \(pendingCandidates.count)"
     }
     private var nextPending: AgentSession? {
         var preview = pendingNavigation
@@ -263,10 +352,19 @@ struct DashboardView: View {
             if let session = detailSession, let status = dashboard.completionReadStatus(for: session) {
                 Text(status).font(CompanionType.font(12))
             }
-            Text(filters.isActive ? String(localized: "Current filter: \(filters.summary)")
-                 : filters.includeInactive ? String(localized: "Current list · including older tasks")
-                 : String(localized: "Current tasks"))
-                .font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink2)
+            HStack(spacing: 6) {
+                Text(page == .inbox ? String(localized: "All sessions")
+                     : filters.isActive ? scopeSummary
+                     : filters.includeInactive ? String(localized: "Current list · including older tasks")
+                     : String(localized: "All sessions"))
+                if let pendingPosition {
+                    Text("·")
+                    Text(pendingPosition).font(CompanionType.mono(10)).monospacedDigit()
+                }
+            }
+            .font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink2)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("phone-next-scope")
             if let next = nextPending {
                 Button {
                     // Recompute at the tap. A deleted target cannot be opened
@@ -291,18 +389,70 @@ struct DashboardView: View {
         .background(CompanionPalette.bg)
     }
 
-    /// Glyph buttons floating over the page: the account's allowance on the
-    /// left, what the list shows and how the phone behaves on the right.
+    /// A tile narrows the list to its bucket; a project row to its project.
+    /// Customize's own picks (agent, attention, grouping) carry over — the
+    /// tile only sets the scope the person tapped.
+    private func open(bucket: InboxBucket) {
+        filters.project = nil
+        filters.bucket = bucket == .all ? nil : bucket
+        enterList()
+    }
+
+    private func open(project: String) {
+        filters.bucket = nil
+        filters.project = project
+        enterList()
+    }
+
+    /// Every entry starts with the groups open and no search: the list is
+    /// a fresh look at the scope, not the last visit's state.
+    private func enterList() {
+        collapsed = []
+        filters.query = ""
+        showSearch = false
+        page = .list
+    }
+
+    /// Back clears the scope a tile or row set and returns to the hub.
+    private func backToInbox() {
+        filters.bucket = nil
+        filters.project = nil
+        filters.query = ""
+        showSearch = false
+        searchFocused = false
+        page = .inbox
+    }
+
+    /// Glyph buttons floating over the page. On the hub: the connection on the
+    /// left, the account's allowance and Settings on the right. On the list:
+    /// Back on the left, Customize and Settings on the right.
     private var toolbar: some View {
         HStack(spacing: 10) {
-            PhoneCircleButton("chart.bar") { showQuota = true }
-                .accessibilityLabel("Account quota")
-            Spacer(minLength: 0)
-            PhoneCircleButton("line.3.horizontal.decrease",
-                              tint: filters.isActive ? CompanionPalette.accent : CompanionPalette.ink) {
-                showFilters = true
+            if page == .inbox {
+                connectionButton
+            } else {
+                PhoneCircleButton("chevron.left") { backToInbox() }
+                    .accessibilityLabel("Back")
+                    .accessibilityIdentifier("phone-list-back")
             }
-            .accessibilityLabel("Customize")
+            Spacer(minLength: 0)
+            if page == .inbox {
+                PhoneCircleButton("chart.bar") { showQuota = true }
+                    .accessibilityLabel("Account quota")
+            } else {
+                PhoneCircleButton("magnifyingglass",
+                                  tint: showSearch || !filters.query.isEmpty ? CompanionPalette.accent : CompanionPalette.ink) {
+                    showSearch.toggle()
+                    if showSearch { searchFocused = true } else { filters.query = ""; searchFocused = false }
+                }
+                .accessibilityLabel("Search")
+                .accessibilityIdentifier("phone-list-search")
+                PhoneCircleButton("line.3.horizontal.decrease",
+                                  tint: filters.hasCustomizePicks ? CompanionPalette.accent : CompanionPalette.ink) {
+                    showFilters = true
+                }
+                .accessibilityLabel("Customize")
+            }
             PhoneCircleButton("gearshape") { showSettings = true }
                 .accessibilityLabel("Settings")
         }
@@ -311,25 +461,88 @@ struct DashboardView: View {
         .background(CompanionPalette.bg)
     }
 
-    /// The page title is the paired Mac: a dot for the link, its name, and a
-    /// menu holding everything about the connection. Under it, one line about
-    /// the whole snapshot — what the cat used to say.
+    /// The paired Mac as a circle button: a dot for the link state, and inside
+    /// it the address, reconnect, copy and forget — the menu the page title
+    /// used to carry (ADR-0014).
+    private var connectionButton: some View {
+        MacConnectionMenu(title: macTitle, pairing: connection.pairing, demo: connection.demo,
+                          state: dashboard.state,
+                          reconnect: { if let p = connection.pairing { dashboard.start(p) } },
+                          copyAddress: {
+                              if let p = connection.pairing {
+                                  UIPasteboard.general.string = "\(p.host):\(String(p.port))"
+                                  dashboard.showToast(String(localized: "Address copied"))
+                              }
+                          },
+                          disconnect: { connection.clear(); dashboard.forgetPairing() })
+    }
+
+    /// The hub's title over an empty snapshot, so the page is still the inbox
+    /// while the Mac has nothing to show.
+    private var inboxTitle: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Inbox")
+                .font(CompanionType.font(30, .semibold))
+                .tracking(CompanionType.tracking(30))
+                .foregroundStyle(CompanionPalette.ink)
+            Text(macTitle)
+                .font(CompanionType.font(13))
+                .foregroundStyle(CompanionPalette.ink2)
+        }
+        .padding(.horizontal, PhoneMetrics.gutter)
+    }
+
+    /// The list page's title is the scope it was opened from — a bucket's word
+    /// or a project — over the same one line about the whole snapshot.
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            MacTitleMenu(title: macTitle, pairing: connection.pairing, demo: connection.demo,
-                         state: dashboard.state,
-                         reconnect: { if let p = connection.pairing { dashboard.start(p) } },
-                         copyAddress: {
-                             if let p = connection.pairing {
-                                 UIPasteboard.general.string = "\(p.host):\(String(p.port))"
-                                 dashboard.showToast(String(localized: "Address copied"))
-                             }
-                         },
-                         disconnect: { connection.clear(); dashboard.forgetPairing() })
+            Text(filters.scopeTitle(summary: inbox.summary))
+                .font(CompanionType.font(30, .semibold))
+                .tracking(CompanionType.tracking(30))
+                .foregroundStyle(CompanionPalette.ink)
+                .lineLimit(1)
+                .accessibilityIdentifier("phone-list-title")
             Text(statusLine)
                 .font(CompanionType.font(13))
                 .foregroundStyle(CompanionPalette.ink2)
                 .lineLimit(2)
+            if !pendingCandidates.isEmpty {
+                Button { readPending() } label: {
+                    Label("Read pending", systemImage: "speaker.wave.2")
+                }
+                .buttonStyle(PhoneButtonStyle(kind: .quiet, size: .small))
+                .padding(.top, 6)
+                .accessibilityIdentifier("phone-list-read-pending")
+            }
+            if showSearch {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(CompanionPalette.ink3)
+                    TextField(String(localized: "Search tasks"), text: $filters.query)
+                        .font(CompanionType.font(14))
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .submitLabel(.search)
+                        .focused($searchFocused)
+                        .accessibilityIdentifier("phone-list-search-field")
+                    if !filters.query.isEmpty {
+                        Button { filters.query = "" } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 14))
+                                .foregroundStyle(CompanionPalette.ink3)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Clear search")
+                    }
+                }
+                .padding(.horizontal, 12)
+                .frame(height: PhoneMetrics.control)
+                .background(CompanionPalette.bg3, in: RoundedRectangle(cornerRadius: PhoneMetrics.controlRadius))
+                .overlay(RoundedRectangle(cornerRadius: PhoneMetrics.controlRadius)
+                    .strokeBorder(CompanionPalette.line, lineWidth: CompanionType.hairline))
+                .padding(.top, 8)
+            }
             // The buddy's scope used to be the cat's subline; it is still the
             // one thing about a conversation worth a line before it starts.
             if companionEnabled, !dashboard.buddySessionIDs.isEmpty {
@@ -337,7 +550,7 @@ struct DashboardView: View {
                     .font(CompanionType.font(11))
                     .foregroundStyle(CompanionPalette.ink3)
             }
-            if filters.isActive {
+            if filters.hasCustomizePicks {
                 Button { showFilters = true } label: {
                     HStack(spacing: 5) {
                         Image(systemName: "line.3.horizontal.decrease")
@@ -356,7 +569,7 @@ struct DashboardView: View {
     /// line that says what is going on.
     private var statusLine: String {
         let summary = TaskPresentationSummary(currentIn: dashboard.allSessions, now: now)
-        let rest = summary.thinking > 0 ? "\(summary.thinking) working" : ""
+        let rest = summary.thinking > 0 ? String(localized: "\(summary.thinking) working") : ""
         return [CompanionCopy.attentionLine(summary), rest.isEmpty ? nil : rest]
             .compactMap { $0 }.joined(separator: " · ")
     }
@@ -407,7 +620,7 @@ struct DashboardView: View {
         detailCompletionNotificationID = nil
         detailId = id
         dashboard.clearFocus()
-        if stream.contains(where: { $0.id == id }) {
+        if page == .list, stream.contains(where: { $0.id == id }) {
             withAnimation(.smooth) { proxy.scrollTo(id, anchor: .center) }
         }
         highlightId = id
@@ -546,257 +759,99 @@ enum ReplyMeaning: Equatable {
     }
 }
 
-/// One task as a row, in Cursor's two-line shape: the state dot and the title,
-/// then one quiet line — the `ToolActivity` word in the state's colour, the
-/// agent, the branch — and, when there is one, the summary under that. A
-/// pending approval or question is answered in place. Rows sit on the page
-/// and are told apart by a hairline, not a card.
+/// One row of the bucket page (ticket 02): the dot, the title and the time,
+/// then one line — the state word in its colour, the one fact worth a
+/// glance (`+41 −12`, a step, the question or the result) and the project
+/// when the title does not already say it. No keys: the detail decides,
+/// the swipe follows or mutes.
 private struct TaskRow: View {
     let session: AgentSession
     let now: Date
     let isSelected: Bool
-    let isReplyTarget: Bool
     let showsDivider: Bool
     let onOpen: () -> Void
-    let onReply: () -> Void
-    @EnvironmentObject private var dashboard: DashboardStore
 
     private var presentation: RowPresentation { RowPresentation(session: session) }
     private var state: TaskPresentationState { session.presentationState }
-    /// The question card is the answer path when it is shown; a Reply key
-    /// beside it would only be a second way to the same composer.
-    private var showsQuestionCard: Bool {
-        session.pendingQuestion != nil && WaitHandling.resolve(for: session) == .remoteAvailable
+    private var stateWord: String { ToolActivity.label(for: session) }
+    private var detail: String? {
+        if let stats = session.ledgerSummary, !stats.isEmpty { return stats }
+        if let progress = presentation.progress, !progress.isEmpty { return progress }
+        let activity = presentation.activityOrResult
+        return activity.isEmpty || activity == stateWord ? nil : activity
     }
-    private var canReply: Bool {
-        guard session.agent != .grokBot else { return false }
-        if session.pendingQuestion != nil {
-            return !showsQuestionCard && SessionActionSupport.resolve(for: session).isAvailable
-        }
-        return session.agent == .codex && session.status != .needsResponse
-    }
-    /// Keys this row offers that the offline state has disabled: only then
-    /// does the row say so, in one short line.
-    private var offlineBlocksAction: Bool {
-        guard dashboard.state != .connected, session.status == .needsResponse else { return false }
-        return WaitHandling.resolve(for: session) == .remoteAvailable
+    private var projectTitle: String? {
+        let title = DashboardFilters.projectTitle(session.project)
+        return title == session.displayTitle ? nil : title
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
-                Button(action: onOpen) { headline }
-                    .buttonStyle(.plain)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(accessibilityLabel)
-                    .accessibilityHint("Open details")
-                if !(showsQuestionCard && session.pendingQuestion?.prompt == presentation.activityOrResult) {
-                    activity
-                }
-                metaLine.padding(.leading, PhoneRowMetrics.textInset)
-                if let stats = session.ledgerSummary {
-                    Text(stats).font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink3).padding(.leading, PhoneRowMetrics.textInset)
-                }
-                if let warning = presentation.observationWarning {
-                    Text(warning).font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
-                    if let seen = presentation.lastObservedAt {
-                        Text("Last observed: \(seen.formatted())")
-                            .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
+            Button(action: onOpen) {
+                HStack(alignment: .top, spacing: PhoneRowMetrics.textInset - PhoneRowMetrics.dot) {
+                    StatusDot(state: state, size: PhoneRowMetrics.dot)
+                        .padding(.top, 7)
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(session.displayTitle)
+                                .font(CompanionType.font(16))
+                                .tracking(CompanionType.tracking(16))
+                                .foregroundStyle(CompanionPalette.ink)
+                                .lineLimit(1)
+                            Spacer(minLength: 8)
+                            HStack(spacing: 5) {
+                                if session.effectiveAttention != .normal {
+                                    Image(systemName: session.effectiveAttention == .followed ? "bell.badge" : "bell.slash")
+                                        .font(.system(size: 10, weight: .medium))
+                                        .accessibilityLabel(session.effectiveAttention.stateTitle)
+                                }
+                                Text(PhoneRelativeTime.short(session.updatedAt, now: now))
+                                    .font(CompanionType.font(11)).monospacedDigit()
+                            }
+                            .foregroundStyle(CompanionPalette.ink3)
+                        }
+                        HStack(spacing: 5) {
+                            Text(stateWord).foregroundStyle(CompanionPalette.status(state))
+                            if let detail {
+                                Text("·")
+                                Text(detail).lineLimit(1).truncationMode(.tail)
+                                    .font(detail == session.ledgerSummary ? CompanionType.mono(12) : CompanionType.font(13))
+                            }
+                            if let projectTitle {
+                                Text("·")
+                                Text(projectTitle).lineLimit(1).layoutPriority(1)
+                            }
+                        }
+                        .font(CompanionType.font(13))
+                        .foregroundStyle(CompanionPalette.ink3)
+                        .lineLimit(1)
                     }
                 }
-                if let approval = session.pendingApproval { approvalBlock(approval) }
-                if let question = session.pendingQuestion { questionBlock(question) }
-                if let child = ToolActivity.childSummary(for: session) {
-                    Text(child).font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
-                        .monospacedDigit().lineLimit(1)
-                        .padding(.leading, PhoneRowMetrics.textInset)
-                }
-                if session.status == .needsResponse && session.pendingApproval == nil && session.pendingQuestion == nil {
-                    Label(WaitHandling.resolve(for: session).message, systemImage: "keyboard")
-                        .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
-                        .padding(.leading, PhoneRowMetrics.textInset)
-                }
-                if offlineBlocksAction {
-                    Label(String(localized: "Offline · reconnect to respond"), systemImage: "wifi.exclamationmark")
-                        .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
-                        .padding(.leading, PhoneRowMetrics.textInset)
-                }
-                actions
+                .padding(.horizontal, PhoneMetrics.gutter)
+                .padding(.vertical, 11)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(isSelected ? CompanionPalette.accent.opacity(0.08) : .clear)
+                // The whole row, blank space included, opens the task.
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, PhoneMetrics.gutter)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isSelected || isReplyTarget ? CompanionPalette.accent.opacity(0.08) : .clear)
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(accessibilityLabel)
+            .accessibilityHint("Open details")
             if showsDivider { PhoneDivider(leading: PhoneMetrics.gutter + PhoneRowMetrics.textInset) }
         }
     }
 
-    /// Title, state word, activity or summary, and the relative time, read as
-    /// one element; the approve / deny / reply keys below stay separate.
     private var accessibilityLabel: String {
-        [session.displayTitle, state.label, presentation.activityOrResult,
-         presentation.progress ?? "", session.agent.shortName,
+        [session.displayTitle, stateWord, detail ?? "", projectTitle ?? "",
          session.effectiveAttention == .normal ? "" : session.effectiveAttention.stateTitle,
          presentation.unread ? String(localized: "Unread") : "",
          PhoneRelativeTime.spoken(session.updatedAt, now: now)]
             .filter { !$0.isEmpty }.joined(separator: ", ")
     }
-
-    private var headline: some View {
-        HStack(alignment: .top, spacing: PhoneRowMetrics.textInset - PhoneRowMetrics.dot) {
-            StatusDot(state: state, size: PhoneRowMetrics.dot)
-                .padding(.top, 6)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(session.displayTitle)
-                    .font(CompanionType.font(15, .medium))
-                    .tracking(CompanionType.tracking(15))
-                    .foregroundStyle(CompanionPalette.ink)
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 8)
-            if presentation.unread {
-                Text("Unread").font(CompanionType.font(11)).foregroundStyle(CompanionPalette.status(.completeUnread))
-            }
-            HStack(spacing: 5) {
-                if session.effectiveAttention != .normal {
-                    Image(systemName: session.effectiveAttention == .followed ? "bell.badge" : "bell.slash")
-                        .font(.system(size: 10, weight: .medium))
-                        .accessibilityLabel(session.effectiveAttention.stateTitle)
-                }
-                Text(PhoneRelativeTime.short(session.updatedAt, now: now))
-                    .font(CompanionType.font(11)).monospacedDigit()
-            }
-            .foregroundStyle(CompanionPalette.ink3)
-            .padding(.top, 2)
-        }
-        // The whole row, blank space included, opens the task.
-        .contentShape(Rectangle())
-    }
-
-    /// `Working · Claude · feat/auth`: the state word first, in its colour,
-    /// then who is doing it and where. One line, always.
-    private var metaLine: some View {
-        HStack(spacing: 5) {
-            Text(ToolActivity.label(for: session))
-                .foregroundStyle(CompanionPalette.status(state))
-            Text("·")
-            AgentMark(agent: session.agent)
-            Text(session.agent.shortName)
-            if DashboardFilters.projectTitle(session.project) != session.displayTitle {
-                Text("·")
-                Text(DashboardFilters.projectTitle(session.project)).lineLimit(1)
-            }
-            if let branch = session.branch {
-                Text("·")
-                Text(branch).font(CompanionType.mono(10)).lineLimit(1).truncationMode(.middle)
-            }
-        }
-        .font(CompanionType.font(11))
-        .foregroundStyle(CompanionPalette.ink3)
-        .lineLimit(1)
-    }
-
-    private var activity: some View {
-        (Text(presentation.activityOrResult).foregroundStyle(CompanionPalette.status(state))
-         + Text("  ").foregroundStyle(CompanionPalette.ink3)
-         + Text(presentation.progress ?? "").foregroundStyle(CompanionPalette.ink2))
-            .font(CompanionType.font(13))
-            .lineLimit(3)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.leading, PhoneRowMetrics.textInset)
-    }
-
-    @ViewBuilder private func approvalKeys(_ approval: PendingApproval) -> some View {
-        PhoneApproveButton(
-            approve: { dashboard.decide(approval.id, .allow) },
-            always: { dashboard.decide(approval.id, .alwaysAllow) },
-            session: { dashboard.decide(approval.id, .allowSession) },
-            allowsPersistentDecision: approval.canPersistDecision)
-        Button("Deny") { dashboard.decide(approval.id, .deny) }
-            .buttonStyle(PhoneButtonStyle(kind: .quiet))
-    }
-
-    @ViewBuilder private func approvalBlock(_ approval: PendingApproval) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("wants to \(CompanionCopy.requestVerb(approval)) · \(approval.tool)")
-                .font(CompanionType.font(11, .medium)).textCase(.uppercase).kerning(0.4)
-                .foregroundStyle(CompanionPalette.status(.requiresInput))
-            ApprovalBody(approval: approval)
-            if ApprovalEligibility.approval(for: session) == nil {
-                Label(WaitHandling.resolve(for: session).message, systemImage: "keyboard")
-                    .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink2)
-            } else {
-                // At large type the two keys stack instead of clipping.
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 8) { approvalKeys(approval) }
-                    VStack(alignment: .leading, spacing: 8) { approvalKeys(approval) }
-                }
-                .disabled(dashboard.phoneActionDisabled(for: session))
-                if let result = dashboard.phoneActionState(for: session) {
-                    Text(result.message).font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
-                }
-                if let rule = approval.suggestedRule {
-                    Text("Always allow adds \(rule) to Claude's own rules.")
-                        .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
-                }
-            }
-            if session.agent == .grok, let mode = approval.permissionMode, mode != "bypassPermissions" {
-                Label {
-                    Text("Grok will still ask in the terminal after Allow (permission mode: \(mode)). Set permission_mode = \"always-approve\" to approve from here.")
-                } icon: {
-                    Image(systemName: "terminal")
-                }
-                .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
-            }
-        }
-        .padding(.leading, PhoneRowMetrics.textInset)
-        .padding(.top, 2)
-    }
-
-    @ViewBuilder private func questionBlock(_ question: PendingQuestion) -> some View {
-        Group {
-            if showsQuestionCard {
-                QuestionCardView(question: question, actionState: dashboard.phoneActionState(for: session)) { answers in
-                    await dashboard.answer(session.id, answers: answers, expected: session)
-                }
-                .disabled(dashboard.phoneActionDisabled(for: session))
-            } else {
-                VStack(alignment: .leading, spacing: 4) {
-                    if question.prompt != session.displaySummary {
-                        Text(question.prompt).font(CompanionType.font(14, .medium)).foregroundStyle(CompanionPalette.ink)
-                    }
-                    Label(WaitHandling.resolve(for: session).message, systemImage: "keyboard")
-                        .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
-                }
-            }
-        }
-        .padding(.leading, PhoneRowMetrics.textInset)
-        .padding(.top, 2)
-    }
-
-    /// Small text keys, the way Cursor's `View PR` sits under a message.
-    @ViewBuilder private var actions: some View {
-        if canReply || session.canJump {
-            HStack(spacing: 8) {
-                if canReply {
-                    Button("Reply", action: onReply)
-                        .buttonStyle(PhoneButtonStyle(
-                            kind: isReplyTarget ? .primary(CompanionPalette.accent) : .soft, size: .small))
-                }
-                if session.canJump {
-                    Button(session.agent == .grokBot ? "Open Grok Bot" : session.jumpsToDesktopThread ? "Open thread" : "Jump") { dashboard.jump(session.id) }
-                        .buttonStyle(PhoneButtonStyle(kind: .soft, size: .small))
-                }
-            }
-            .padding(.leading, PhoneRowMetrics.textInset)
-            .padding(.top, 2)
-        }
-    }
 }
 
-/// The row's own measures: the dot, and the inset every line under the title
-/// shares so summaries, keys and the divider align on the title's left edge.
-private enum PhoneRowMetrics {
+enum PhoneRowMetrics {
     static let dot: CGFloat = 8
     static let textInset: CGFloat = 18
 }
@@ -812,6 +867,7 @@ private struct StreamComposer: View {
     @ObservedObject var voice: VoiceChat
     let clearTarget: () -> Void
     let newTask: () -> Void
+    let openVoicePage: () -> Void
     let send: (String, AgentSession?) async -> Bool
     @State private var sending = false
     @State private var draftTarget: AgentSession?
@@ -881,7 +937,10 @@ private struct StreamComposer: View {
                                   tint: voice.phase == .idle ? CompanionPalette.ink2 : .onAccent,
                                   ground: voice.phase == .idle ? CompanionPalette.bg2 : CompanionPalette.accent) {
                     micHintSeen = true
+                    let starting = voice.phase == .idle
                     voice.toggle()
+                    // Starting a call opens the page; ending one just ends it.
+                    if starting, voice.isEnabled { openVoicePage() }
                 }
                 .accessibilityLabel(voice.phase == .idle ? "Start voice conversation" : "End voice conversation")
                 if hasDraft {
@@ -1327,10 +1386,10 @@ private struct ContextBar: View {
     private func short(_ n: Int) -> String { n >= 1000 ? "\(n / 1000)k" : "\(n)" }
 }
 
-/// The page title as a menu about the paired Mac: a dot for the link state,
-/// the Mac's name, and inside it the address, reconnect, copy and forget.
-/// Tapping the name is the one place to manage the connection.
-private struct MacTitleMenu: View {
+/// The connection as a menu behind a circle button: a dot for the link state,
+/// and inside it the Mac's name and address, reconnect, copy and forget.
+/// Tapping the circle is the one place to manage the connection.
+private struct MacConnectionMenu: View {
     let title: String
     let pairing: PairingPayload?
     let demo: Bool
@@ -1342,27 +1401,26 @@ private struct MacTitleMenu: View {
     var body: some View {
         Menu {
             if let pairing {
-                Text(verbatim: "\(statusText) · \(pairing.host):\(String(pairing.port))")   // no "9,877" grouping
+                Text(verbatim: "\(title) · \(statusText) · \(pairing.host):\(String(pairing.port))")   // no "9,877" grouping
                 Button(action: reconnect) { Label("Reconnect", systemImage: "arrow.clockwise") }
                 Button(action: copyAddress) { Label("Copy address", systemImage: "doc.on.doc") }
+            } else {
+                Text(verbatim: "\(title) · \(statusText)")
             }
             Button(role: .destructive, action: disconnect) {
                 Label(demo ? LocalizedStringKey("Exit demo") : LocalizedStringKey("Disconnect"), systemImage: "eject")
             }
         } label: {
-            HStack(spacing: 8) {
-                Circle().fill(color).frame(width: 9, height: 9)
-                Text(title)
-                    .font(CompanionType.font(30, .semibold))
-                    .tracking(CompanionType.tracking(30))
-                    .foregroundStyle(CompanionPalette.ink)
-                    .lineLimit(1)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(CompanionPalette.ink3)
-            }
+            Circle().fill(color).frame(width: 9, height: 9)
+                .frame(width: PhoneMetrics.control, height: PhoneMetrics.control)
+                .background(CompanionPalette.bg3, in: Circle())
+                .overlay(Circle().strokeBorder(CompanionPalette.line, lineWidth: CompanionType.hairline))
+                .frame(width: max(PhoneMetrics.control, 44), height: max(PhoneMetrics.control, 44))
+                .contentShape(Circle())
         }
+        .padding(-max(0, (44 - PhoneMetrics.control) / 2))
         .accessibilityLabel(Text(verbatim: "\(title), \(statusText)"))
+        .accessibilityIdentifier("phone-inbox-connection")
     }
 
     private var color: Color {

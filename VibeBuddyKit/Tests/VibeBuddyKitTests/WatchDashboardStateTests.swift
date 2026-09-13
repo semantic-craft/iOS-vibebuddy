@@ -169,26 +169,29 @@ struct WatchDashboardStateTests {
         #expect(state.stuck == 1)
     }
 
-    @Test("Resolving the top alert promotes the next one, in the same order")
+    @Test("Resolving the top alert promotes the next one, in the shared queue order")
     func resolvingTheTopAlertPromotesTheNext() throws {
         let approval = PendingApproval(id: "ap", tool: "Bash", commandPreview: "swift test")
         let question = PendingQuestion(id: "q", prompt: "Which style?")
+        // A question outranks an approval on every surface (`PendingTasks`),
+        // whatever order the snapshot lists them in.
         let waitingBoth = [
             session(id: "first", status: .needsResponse, waitKind: .permission, approval: approval),
             session(id: "second", status: .needsResponse, waitKind: .question, question: question),
             session(id: "busy", status: .working),
         ]
-        #expect(project(waitingBoth).topAlert?.sessionId == "first")
+        #expect(project(waitingBoth).alerts.map(\.sessionId) == ["second", "first"])
+        #expect(project(waitingBoth).topAlert?.sessionId == "second")
 
-        // The Mac resolved the permission; the same session is now working.
-        let afterDecision = [
-            session(id: "first", status: .working),
-            session(id: "second", status: .needsResponse, waitKind: .question, question: question),
+        // The Mac took the answer; the same session is now working.
+        let afterAnswer = [
+            session(id: "first", status: .needsResponse, waitKind: .permission, approval: approval),
+            session(id: "second", status: .working),
             session(id: "busy", status: .working),
         ]
-        let promoted = project(afterDecision)
-        #expect(promoted.alerts.map(\.sessionId) == ["second"])
-        #expect(promoted.topAlert?.waitKind == .question)
+        let promoted = project(afterAnswer)
+        #expect(promoted.alerts.map(\.sessionId) == ["first"])
+        #expect(promoted.topAlert?.waitKind == .permission)
         #expect(promoted.counts.working == 2)
     }
 

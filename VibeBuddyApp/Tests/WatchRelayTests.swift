@@ -315,7 +315,10 @@ final class WatchRelayTests: XCTestCase {
     func testTheRichEditApprovalCannotBeResolvedFromTheWrist() async throws {
         let transport = FakeWatchTransport()
         let store = demoStore(transport)
-        let displayOnly = try relayedAlert(transport, decidable: false)
+        // The display-only approval: with the shared queue a question outranks
+        // it, so it is found by kind, not by position.
+        let relayed = try XCTUnwrap(transport.states.last)
+        let displayOnly = try XCTUnwrap(relayed.alerts.first { $0.waitKind == .permission && !$0.isDecidable })
         // Its real approval id, taken from the phone — the Watch was never told it.
         let hidden = try XCTUnwrap(store.allSessions
             .first { $0.id == displayOnly.sessionId }?.pendingApproval?.id)

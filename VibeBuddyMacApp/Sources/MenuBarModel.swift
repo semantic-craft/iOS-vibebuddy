@@ -1195,6 +1195,10 @@ final class MenuBarModel: ObservableObject {
             case .failed(let reason), .refused(let reason): return reason
             default: return "Result unknown. Check the task before sending again."
             }
+        case .markRead, .instruct:
+            // Phone-only for now (`.scratch/iphone-board`, ticket 05): the Mac
+            // reads results and steers turns in its own dashboard.
+            return "That voice action is available on the phone; on the Mac, use the dashboard."
         case .none: return ""
         }
     }

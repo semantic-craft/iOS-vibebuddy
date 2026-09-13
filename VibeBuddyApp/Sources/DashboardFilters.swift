@@ -4,10 +4,13 @@ import VibeBuddyKit
 /// How the dashboard cuts the stream into groups. Status is the default: the
 /// phone's job is "what needs me, what is running, what finished".
 enum DashboardGrouping: String, CaseIterable, Identifiable {
-    case status, project, agent, none
+    /// The bucket page's own layout (ticket 02): a Recents group, then the
+    /// same rows again under their projects.
+    case recent, status, project, agent, none
     var id: String { rawValue }
     var title: String {
         switch self {
+        case .recent: String(localized: "Recents + projects")
         case .status: String(localized: "Status")
         case .project: String(localized: "Project")
         case .agent: String(localized: "Agent")
@@ -25,23 +28,50 @@ struct DashboardSection: Identifiable, Equatable {
 
 /// In-memory presentation selection. Never writes to the snapshot or action store.
 struct DashboardFilters: Equatable {
+    /// The inbox tile the list was opened from (ticket 01). A bucket admits a
+    /// set of presentation states; `status` below is Customize's single pick
+    /// and the two narrow together.
+    var bucket: InboxBucket?
     var project: String?
     var status: TaskPresentationState?
     var agent: AgentKind?
     var attention: SessionAttention?
-    var grouping: DashboardGrouping = .status
+    var grouping: DashboardGrouping = .recent
+    /// The search circle's text: a row must carry it in its title, project or
+    /// branch. Cleared when the list is left.
+    var query: String = ""
     /// Off by default: a session that is not current (`SessionCurrency`) is
     /// history, not today's list. Waiting, failed, running and followed-unread
     /// sessions stay either way.
     var includeInactive = false
 
-    var isActive: Bool { project != nil || status != nil || agent != nil || attention != nil }
+    var isActive: Bool { bucket != nil || project != nil || status != nil || agent != nil || attention != nil }
+    /// Customize's own picks, apart from the scope a tile or project row set:
+    /// the list page shows these as a chip under its title.
+    var hasCustomizePicks: Bool { status != nil || agent != nil || attention != nil }
+
+    /// The list page's title: the bucket or project it was opened from, else
+    /// every session.
+    func scopeTitle(summary: TaskPresentationSummary) -> String {
+        if let project { return DashboardFilters.projectTitle(project) }
+        if let bucket { return bucket.title(for: summary) }
+        return String(localized: "All sessions")
+    }
 
     func matches(_ session: AgentSession) -> Bool {
-        (project == nil || project == session.project)
+        matchesQuery(session)
+            && (bucket?.admits(session) ?? true)
+            && (project == nil || project == session.project)
             && (status == nil || status == session.presentationState)
             && (agent == nil || agent == session.agent)
             && (attention == nil || attention == session.effectiveAttention)
+    }
+
+    private func matchesQuery(_ session: AgentSession) -> Bool {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty else { return true }
+        return [session.displayTitle, session.project, session.branch ?? ""]
+            .contains { $0.localizedCaseInsensitiveContains(needle) }
     }
 
     /// Everything the selection admits, newest first.
@@ -66,6 +96,12 @@ struct DashboardFilters: Equatable {
     func sections(from sessions: [AgentSession], now: Date = Date()) -> [DashboardSection] {
         let visible = self.sessions(from: sessions, now: now)
         switch grouping {
+        case .recent:
+            // From a project row there is one project: its group alone. From a
+            // bucket, Recents leads and every project repeats its rows.
+            let byProject = keyed(visible) { Self.projectTitle($0.project) }
+            if project != nil || visible.isEmpty { return byProject }
+            return [DashboardSection(id: "recent", title: String(localized: "Recents"), sessions: visible)] + byProject
         case .none:
             return visible.isEmpty ? [] : [DashboardSection(id: "all", title: String(localized: "Tasks"), sessions: visible)]
         case .status:
@@ -100,8 +136,10 @@ struct DashboardFilters: Equatable {
         return projects.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 
+    /// Customize's picks in words; the scope (bucket or project) is the
+    /// list's title and is not repeated here.
     var summary: String {
-        [project.map(DashboardFilters.projectTitle), status?.filterTitle,
+        [status?.filterTitle,
          agent?.displayName, attention?.stateTitle].compactMap { $0 }.joined(separator: " · ")
     }
 
@@ -170,7 +208,7 @@ struct DashboardCustomizeSheet: View {
                 } footer: {
                     Text("A finished task drops off the list a day after its last update. A task that is waiting on you, running, failed, or followed with an unread result always stays, however old it is.")
                 }
-                if selection.isActive || selection.grouping != .status || selection.includeInactive {
+                if selection.isActive || selection.grouping != .recent || selection.includeInactive {
                     Section {
                         Button("Reset", role: .destructive) { selection = DashboardFilters() }
                     }

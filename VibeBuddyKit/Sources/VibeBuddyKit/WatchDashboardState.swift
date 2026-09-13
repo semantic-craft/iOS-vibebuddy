@@ -448,17 +448,21 @@ public enum WatchDashboardProjection {
         // as the phone's summary line; a followed task stays listed because the
         // person chose it, and every alert is current by definition.
         let current = SessionCurrency.current(sessions, now: now)
-        let groups = SessionGroups(current)
+        // One queue on every surface (ticket 03, `.scratch/iphone-board`):
+        // the wrist's alerts and results keep the relative order of
+        // `PendingTasks.ordered`, so the first card here is the phone's
+        // "First up" and the first thing the phone reads aloud.
+        let pending = PendingTasks.ordered(current)
         return WatchDashboardState(
             sourceID: snapshot.sourceID,
             followedTasks: sessions.filter { $0.effectiveAttention == .followed }.map(WatchFollowedTask.init),
-            results: results(in: current),
+            results: results(in: pending),
             unfollowedUnreadCount: current.filter {
                 $0.presentationState == .completeUnread && $0.effectiveAttention != .followed
             }.count,
             counts: WatchSessionCounts(StateGroups(current)),
             presentation: TaskPresentationSummary(sessions: current),
-            alerts: groups.needsResponse.map(alert(for:)),
+            alerts: pending.filter { $0.status == .needsResponse }.map(alert(for:)),
             quotas: quotas,
             relay: relay,
             observedAt: now,
@@ -471,19 +475,14 @@ public enum WatchDashboardProjection {
     /// can list. Attention is not consulted — a normal session's result is a
     /// result too; only a muted one is left off, as its completion is dropped
     /// everywhere else (`DeliveryMatrix`).
-    private static func results(in current: [AgentSession]) -> [WatchFollowedTask] {
-        let worth = current.filter {
+    private static func results(in pending: [AgentSession]) -> [WatchFollowedTask] {
+        // `pending` is already in queue order: failures precede unread
+        // results, newest first within each.
+        let worth = pending.filter {
             $0.effectiveAttention != .muted
                 && ($0.presentationState == .error || $0.presentationState == .completeUnread)
         }
-        let ordered = worth.sorted { a, b in
-            let ra = a.presentationState == .error ? 0 : 1
-            let rb = b.presentationState == .error ? 0 : 1
-            if ra != rb { return ra < rb }
-            if a.statusSince != b.statusSince { return a.statusSince > b.statusSince }
-            return a.id < b.id
-        }
-        return ordered.prefix(WatchDashboardState.maxResults).map(WatchFollowedTask.init)
+        return worth.prefix(WatchDashboardState.maxResults).map(WatchFollowedTask.init)
     }
 
     private static func alert(for session: AgentSession) -> WatchAlert {

@@ -93,6 +93,28 @@ public enum VoiceTools {
                       description: "The exact answer to send to the session."),
             ],
             required: ["project", "text"]),
+        VoiceTool(
+            name: "mark_read_session",
+            description: "Mark the current unread result of a finished coding session as read. "
+                + "Only call this when the user explicitly says they are done with that result; "
+                + "it confirms reading, not review or acceptance.",
+            parameters: [
+                .init(name: "project", type: "string",
+                      description: "The project name of the session whose result to mark read, taken from the session list."),
+            ],
+            required: ["project"]),
+        VoiceTool(
+            name: "instruct_session",
+            description: "Send free-text instructions to a coding session that is running or finished — "
+                + "a supplement to the running turn or the next turn. Not for answering a pending question. "
+                + "Only call this when the user dictates what to tell that session.",
+            parameters: [
+                .init(name: "project", type: "string",
+                      description: "The project name of the session to instruct, taken from the session list."),
+                .init(name: "text", type: "string",
+                      description: "The exact instruction to send."),
+            ],
+            required: ["project", "text"]),
     ]
 
     /// Decode a tool call `(name, JSON arguments)` into a `VoiceAction`. Returns
@@ -118,6 +140,12 @@ public enum VoiceTools {
         case "answer_session":
             guard let project = nonEmpty("project"), let text = nonEmpty("text") else { return .none }
             return .answer(project: project, text: text)
+        case "mark_read_session":
+            guard let project = nonEmpty("project") else { return .none }
+            return .markRead(project: project)
+        case "instruct_session":
+            guard let project = nonEmpty("project"), let text = nonEmpty("text") else { return .none }
+            return .instruct(project: project, text: text)
         default:
             return .none
         }

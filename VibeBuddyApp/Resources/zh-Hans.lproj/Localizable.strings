@@ -510,3 +510,63 @@
 "Next pending: %@" = "下一个待处理：%@";
 "No next pending task in this scope" = "此范围没有下一个待处理任务";
 "This task is no longer available" = "此任务已不可用";
+
+/* MARK: Inbox home (ticket 01, .scratch/iphone-board) */
+"Inbox" = "收件箱";
+"First up" = "先看这个";
+"All sessions" = "全部会话";
+"Unread results" = "结果待读";
+"Projects" = "项目";
+"%lld pending" = "%lld 项待处理";
+"All quiet" = "一切安静";
+"Nothing has moved in the last 24 hours." = "过去 24 小时没有任务更新。";
+"Back" = "返回";
+"Open details" = "打开详情";
+
+/* MARK: Bucket page (ticket 02, .scratch/iphone-board) */
+"Recents" = "最近";
+"Recents + projects" = "最近 + 项目";
+"Search" = "搜索";
+"Search tasks" = "搜索任务";
+"Clear search" = "清除搜索";
+
+/* MARK: Phone read-aloud (ticket 04, .scratch/iphone-board) */
+"Read pending" = "播报待读";
+"Nothing pending to read" = "没有待读的内容";
+"Paused" = "已暂停";
+"Skipped · still unread" = "已跳过 · 仍未读";
+"Skipped %@ · no longer pending" = "已跳过 %@ · 已不在待处理中";
+"Generating speech…" = "正在生成语音…";
+"Could not play the audio." = "无法播放音频。";
+"Read %lld · %lld more in the list" = "已播 %lld 条 · 列表里还有 %lld 条";
+"Read %lld · nothing marked read" = "已播 %lld 条 · 没有标为已读";
+"Reading…" = "正在播报…";
+"Resume reading" = "继续播报";
+"Pause reading" = "暂停播报";
+"Skip" = "跳过";
+"Replay last" = "重播上一条";
+"Stop reading" = "停止播报";
+
+/* MARK: Voice page (ticket 05, .scratch/iphone-board) */
+"Voice" = "语音";
+"Scope: all %lld" = "范围：全部 %lld";
+"Scope: %lld of %lld" = "范围：%lld / %lld";
+"Read-aloud queue" = "播报队列";
+"Nothing queued. \"Read pending\" on the inbox reads what is waiting." = "队列为空。收件箱的“播报待读”会读出等你的内容。";
+"%lld more in the list" = "列表里还有 %lld 条";
+"Read" = "已播";
+"Queued" = "排队";
+"Conversation" = "对话";
+"Tap the mic and say what to do: \"mark payments-api read\", \"tell release-check to skip codesign and rebuild\"." = "点一下麦克风说要做什么：“把 payments-api 标已读”“让 release-check 跳过签名重新构建”。";
+"Listening…" = "正在听…";
+"Companion" = "伙伴";
+"Reading · tap the mic to talk" = "正在播报 · 点麦克风说话";
+"Tap the mic to talk" = "点麦克风说话";
+"Connecting…" = "连接中…";
+"Recovering audio…" = "正在恢复音频…";
+"Listening · reading is paused while you talk" = "正在听 · 你说话时播报暂停";
+"Thinking…" = "思考中…";
+"Speaking · mic is off until it finishes" = "正在说 · 说完前麦克风关闭";
+"Reading never marks a result read." = "播报不会把结果标为已读。";
+"Open the voice page" = "打开语音页";
+"Paused while the voice call is live" = "语音通话中 · 已暂停";
