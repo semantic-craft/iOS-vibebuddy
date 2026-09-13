@@ -77,9 +77,9 @@
 "No phone paired" = "未配对手机";
 "No active sessions" = "没有活动会话";
 "Pair a phone" = "配对手机";
-"Scan this in the vibebuddy iOS app" = "在 vibebuddy iOS app 里扫描";
+"Scan this in the VibeBuddy iOS app" = "在 VibeBuddy iOS app 里扫描";
 "Settings…" = "设置…";
-"Quit vibebuddy" = "退出 vibebuddy";
+"Quit VibeBuddy" = "退出 VibeBuddy";
 
 /* MARK: Glance (notch / floating) */
 "Speaking" = "说话中";
@@ -574,9 +574,9 @@
 
 /* MARK: Settings — Phone & remote (ADR-0017) */
 "Pairing" = "配对";
-"Scan the QR code in the vibebuddy iOS app." = "在 vibebuddy iOS app 里扫描二维码。";
+"Scan the QR code in the VibeBuddy iOS app." = "在 VibeBuddy iOS app 里扫描二维码。";
 "Cancel pairing" = "取消配对";
-"Scan this in the vibebuddy iOS app within 2 minutes." = "请在 2 分钟内用 vibebuddy iOS app 扫描。";
+"Scan this in the VibeBuddy iOS app within 2 minutes." = "请在 2 分钟内用 VibeBuddy iOS app 扫描。";
 "Saved pairing. Live connection status unavailable." = "已保存配对。无法获知当前在线状态。";
 "Registered before pairing confirmation was recorded. Choose Pair a phone to confirm, or forget it." = "在记录配对确认之前就已注册。选择“配对手机”确认，或忘记它。";
 "Forget" = "忘记";
@@ -595,7 +595,7 @@
 "not hooked" = "未接入";
 "not installed" = "未安装";
 "Maintenance" = "维护";
-"Wires (or removes) the vibebuddy hook in every detected CLI's config (~/.claude/settings.json …) via the bundled installer. Reversible. Re-run after installing a new CLI. Codex Desktop is monitored automatically from its local rollout stream; Codex CLI hooks still require explicit trust — start a fresh CLI session, run /hooks, review the VibeBuddy entries, and trust them." = "通过内置安装器，把 vibebuddy 的 hook 写入（或移出）每个已检测到的 CLI 的配置（~/.claude/settings.json 等）。可逆；安装新 CLI 后请重新运行。Codex Desktop 会从其本地 rollout 流自动监控；Codex CLI 的 hook 仍需明确信任——新开一个 CLI 会话，运行 /hooks，检查 VibeBuddy 条目并信任它们。";
+"Wires (or removes) the VibeBuddy hook in every detected CLI's config (~/.claude/settings.json …) via the bundled installer. Reversible. Re-run after installing a new CLI. Codex Desktop is monitored automatically from its local rollout stream; Codex CLI hooks still require explicit trust — start a fresh CLI session, run /hooks, review the VibeBuddy entries, and trust them." = "通过内置安装器，把 VibeBuddy 的 hook 写入（或移出）每个已检测到的 CLI 的配置（~/.claude/settings.json 等）。可逆；安装新 CLI 后请重新运行。Codex Desktop 会从其本地 rollout 流自动监控；Codex CLI 的 hook 仍需明确信任——新开一个 CLI 会话，运行 /hooks，检查 VibeBuddy 条目并信任它们。";
 "Hook installation" = "Hook 安装";
 "Touches the CLI configs on this Mac, so it only ever runs from this button." = "会改动这台 Mac 上的 CLI 配置，所以只会由这个按钮触发。";
 "Install / repair" = "安装／修复";

@@ -1060,7 +1060,7 @@ final class MenuBarModel: ObservableObject {
             // stopped and answered from the phone; a terminal window otherwise.
             if await cursorACP.isSupported() { return await cursorACP.dispatch(request) }
             return await cursorLauncher.dispatch(request)
-        default: return .unsupported("vibebuddy cannot start \(request.agent.displayName) sessions yet.")
+        default: return .unsupported("VibeBuddy cannot start \(request.agent.displayName) sessions yet.")
         }
     }
 

@@ -418,7 +418,7 @@ private struct PhonePage: View {
     var body: some View {
         SettingsPageScaffold(SettingsPageID.phone.title, subtitle: SettingsPageID.phone.subtitle) {
             SettingsSection("Pairing") {
-                SettingsRow("Pair a phone", detail: "Scan the QR code in the vibebuddy iOS app.") {
+                SettingsRow("Pair a phone", detail: "Scan the QR code in the VibeBuddy iOS app.") {
                     Button(model.pairingInProgress ? "Cancel pairing" : "Pair a phone") {
                         if model.pairingInProgress { model.endPairing() } else { model.beginPairing() }
                     }
@@ -431,7 +431,7 @@ private struct PhonePage: View {
                                 Image(nsImage: qr).interpolation(.none).resizable()
                                     .frame(width: 176, height: 176).padding(12).background(.white)
                                     .accessibilityLabel("Pairing QR code")
-                                Text("Scan this in the vibebuddy iOS app within 2 minutes.")
+                                Text("Scan this in the VibeBuddy iOS app within 2 minutes.")
                                     .font(SettingsChrome.font(12.5)).foregroundStyle(MacTheme.ink2)
                             }
                         } else {
@@ -565,7 +565,7 @@ private struct AgentCLIsPage: View {
             }
 
             SettingsSection("Maintenance",
-                            footnote: "Wires (or removes) the vibebuddy hook in every detected CLI's config (~/.claude/settings.json …) via the bundled installer. Reversible. Re-run after installing a new CLI. Codex Desktop is monitored automatically from its local rollout stream; Codex CLI hooks still require explicit trust — start a fresh CLI session, run /hooks, review the VibeBuddy entries, and trust them.") {
+                            footnote: "Wires (or removes) the VibeBuddy hook in every detected CLI's config (~/.claude/settings.json …) via the bundled installer. Reversible. Re-run after installing a new CLI. Codex Desktop is monitored automatically from its local rollout stream; Codex CLI hooks still require explicit trust — start a fresh CLI session, run /hooks, review the VibeBuddy entries, and trust them.") {
                 SettingsRow("Hook installation",
                             detail: "Touches the CLI configs on this Mac, so it only ever runs from this button.") {
                     HStack(spacing: 8) {

@@ -119,7 +119,7 @@ public struct SessionActionSupport: Equatable, Sendable {
                                       session: AgentSession) -> SessionActionSupport {
         guard session.observations?.contains(where: { $0.source == .hook }) == true else {
             return SessionActionSupport(intent: intent,
-                unsupportedReason: String(localized: "Install vibebuddy's Cursor hooks to send instructions from here.", bundle: .module))
+                unsupportedReason: String(localized: "Install VibeBuddy's Cursor hooks to send instructions from here.", bundle: .module))
         }
         switch intent {
         case .steer:
@@ -165,7 +165,7 @@ public struct SessionActionSupport: Equatable, Sendable {
                 unsupportedReason: String(localized: "Add a Cursor API key on your Mac to reach cloud agents from here.", bundle: .module))
         }
         return SessionActionSupport(intent: intent,
-            unsupportedReason: String(localized: "Install vibebuddy's Cursor hooks to send instructions from here.", bundle: .module))
+            unsupportedReason: String(localized: "Install VibeBuddy's Cursor hooks to send instructions from here.", bundle: .module))
     }
 
     /// A `cursor-agent` vibebuddy hosts over ACP takes every instruction, but

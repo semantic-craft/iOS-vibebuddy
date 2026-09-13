@@ -1058,7 +1058,7 @@ public struct VibeBuddyServer: Sendable {
                     outcome = await cursorLauncher.dispatch(req)
                 }
             } else {
-                outcome = .unsupported("vibebuddy cannot start \(agent.displayName) sessions yet")
+                outcome = .unsupported("VibeBuddy cannot start \(agent.displayName) sessions yet")
             }
             switch outcome {
             case .started(let id): return reply(.ok, ["sessionId": id])

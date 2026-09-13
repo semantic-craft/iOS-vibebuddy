@@ -92,7 +92,7 @@ public enum ObservationHealth: String, Codable, Sendable, CaseIterable {
             case .transcript: return "The transcript cannot be read."
             case .hook: return "The hook configuration cannot be read."
             case .recovery: return "The recovery source cannot be read."
-            case .acp: return "The Cursor CLI process vibebuddy started is not answering. Check that cursor-agent is installed and signed in."
+            case .acp: return "The Cursor CLI process VibeBuddy started is not answering. Check that cursor-agent is installed and signed in."
             }
         case .notInstalled:
             return "The agent is not installed or has no local configuration."

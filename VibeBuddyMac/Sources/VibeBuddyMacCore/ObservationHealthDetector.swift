@@ -62,7 +62,7 @@ public enum CodexHookConfigurationIssue: Sendable, Equatable {
         case .hooksNotTrusted(let trust):
             let events = trust.blockedEvents.joined(separator: ", ")
             let scope = events.isEmpty ? "" : " (\(events))"
-            return "Codex is skipping \(trust.blocked) of \(trust.installed) vibebuddy hooks\(scope) because it has not trusted them since they last changed, and it reports that nowhere else. Start a fresh Codex session, run /hooks, and trust the vibebuddy entries. Repairing the installation changes them again, so trust them after repairing, not before."
+            return "Codex is skipping \(trust.blocked) of \(trust.installed) VibeBuddy hooks\(scope) because it has not trusted them since they last changed, and it reports that nowhere else. Start a fresh Codex session, run /hooks, and trust the VibeBuddy entries. Repairing the installation changes them again, so trust them after repairing, not before."
         }
     }
 }

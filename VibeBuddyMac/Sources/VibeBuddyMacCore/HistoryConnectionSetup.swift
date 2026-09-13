@@ -53,7 +53,7 @@ public struct HistoryConnectionSetup: Sendable {
     }
 
     public func instructions(indexAvailable: Bool) -> String {
-        var sections = ["vibebuddy MCP / CLI", "Executable: " + executablePath]
+        var sections = ["VibeBuddy MCP / CLI", "Executable: " + executablePath]
         if !indexAvailable {
             sections.append("Note: No usable History index. Open History in the Mac App, or explicitly run \(Self.shellQuote(executablePath)) index. Setup does not create an index.")
         }

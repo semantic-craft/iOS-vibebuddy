@@ -141,7 +141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // observed ~4-min clean exits). Opt out, since we run an HTTP/WS server.
         ProcessInfo.processInfo.disableSuddenTermination()
         ProcessInfo.processInfo.disableAutomaticTermination(
-            "vibebuddy runs a background daemon (HTTP/WebSocket server + hooks) that must stay alive")
+            "VibeBuddy runs a background daemon (HTTP/WebSocket server + hooks) that must stay alive")
         openRequestObserver = AppRuntime.observeOpenRequests()
         GlobalHotkey.install()
         Self.log.notice("didFinishLaunching")
@@ -545,7 +545,7 @@ struct MenuContent: View {
                         .scaledToFit().frame(width: 176, height: 176)
                         .padding(12).background(.white)
                         .accessibilityLabel("Pairing QR code")
-                    Text("Scan this in the vibebuddy iOS app within 2 minutes.")
+                    Text("Scan this in the VibeBuddy iOS app within 2 minutes.")
                 }
             }
             .fixedSize(horizontal: false, vertical: true)
@@ -661,7 +661,7 @@ struct MenuContent: View {
                 NSApp.activate(ignoringOtherApps: true)
                 Updater.shared.checkForUpdates()
             }
-            Button("Quit vibebuddy") { NSApplication.shared.terminate(nil) }
+            Button("Quit VibeBuddy") { NSApplication.shared.terminate(nil) }
                 .keyboardShortcut("q", modifiers: .command)
         } label: {
             Image(systemName: "ellipsis")
