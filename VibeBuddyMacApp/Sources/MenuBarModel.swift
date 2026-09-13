@@ -228,7 +228,10 @@ final class MenuBarModel: ObservableObject {
             attentionURL: AttentionOverrides.defaultURL(),
             missedURL: (E2ERunConfiguration.current == nil ? ProcessInfo.processInfo.environment["VIBEBUDDY_MISSED_PATH"] : nil).map {
                 URL(fileURLWithPath: $0)
-            } ?? MissedLedgerLocation.defaultURL()
+            } ?? MissedLedgerLocation.defaultURL(),
+            grokHome: E2ERunConfiguration.current?.file("agents").appendingPathComponent("grok"),
+            copilotDatabase: E2ERunConfiguration.current?.file("agents").appendingPathComponent("copilot/session-store.db"),
+            cursorDatabase: E2ERunConfiguration.current?.file("agents").appendingPathComponent("cursor/state.vscdb")
         )
         // File-based store (owner-only): no Keychain ACL, so an ad-hoc rebuild
         // never re-prompts. Shared with vibebuddyd's default store.

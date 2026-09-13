@@ -5,6 +5,20 @@ import VibeBuddyKit
 
 @Suite("Historical session action boundaries")
 struct HistoryResumePolicyTests {
+    @Test func cursorResumeNeedsCLIAndNeverMatchesAnotherAgent() {
+        var item = history()
+        item.agent = .cursor
+        item.id = "cursor:" + item.nativeSessionID
+        #expect(HistoryResumePolicy.command(for: item, directoryExists: true) == nil)
+        #expect(HistoryResumePolicy.command(for: item, directoryExists: false, cursorCLIAvailable: true) == nil)
+        #expect(HistoryResumePolicy.command(for: item, directoryExists: true, cursorCLIAvailable: true) ==
+                "cd -- '/tmp/project' && cursor-agent --resume '019c6e27-e55b-73d1-87d8-4e01f1f75043'")
+        let codex = AgentSession(id: item.nativeSessionID, agent: .codex, project: "project", status: .done,
+                                 terminalRef: TerminalRef(cwd: item.projectPath), statusSince: Date(), updatedAt: Date())
+        #expect(HistoryResumePolicy.liveSession(for: item, in: [codex]) == nil)
+        item.nativeSessionID = "bc-" + item.nativeSessionID
+        #expect(HistoryResumePolicy.command(for: item, directoryExists: true, cursorCLIAvailable: true) == nil)
+    }
     private func history() -> SessionHistorySession {
         SessionHistorySession(id: "claude:test", nativeSessionID: "019c6e27-e55b-73d1-87d8-4e01f1f75043", agent: .claude,
                               projectPath: "/tmp/project", title: "Example", sourcePath: "/tmp/source.jsonl",

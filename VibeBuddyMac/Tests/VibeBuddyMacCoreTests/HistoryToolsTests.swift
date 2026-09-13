@@ -42,7 +42,7 @@ final class HistoryToolsTests: XCTestCase {
         XCTAssertTrue(recent.contains("codex:new")); XCTAssertFalse(recent.contains("codex:old"))
         XCTAssertTrue(try HistoryTools.call(tool, arguments: ["starred": true], snapshot: snapshot).contains("codex:old"))
         XCTAssertTrue(try HistoryTools.call(tool, arguments: ["limit": 1], snapshot: snapshot).contains("codex:new"))
-        let invalidArguments: [[String: Any]] = [["limit": 0], ["limit": true], ["limit": 1.5], ["starred": 1], ["since": "yesterday"], ["agents": ["cursor"]], ["dispatch": true]]
+        let invalidArguments: [[String: Any]] = [["limit": 0], ["limit": true], ["limit": 1.5], ["starred": 1], ["since": "yesterday"], ["agents": ["unknown-agent"]], ["dispatch": true]]
         for invalid in invalidArguments {
             XCTAssertThrowsError(try HistoryTools.call(tool, arguments: invalid, snapshot: snapshot))
         }
@@ -58,14 +58,14 @@ final class HistoryToolsTests: XCTestCase {
         let file = codex.appendingPathComponent("sessions/test.jsonl")
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data((#"{"type":"session_meta","payload":{"id":"native","cwd":"/repo","source":"cli"}}"# + "\n" + #"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}}"#).utf8).write(to: file)
-        let writer = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cacheDirectory: cache)
+        let writer = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cursorHome: root.appendingPathComponent("cursor"), cacheDirectory: cache)
         let original = try await writer.refresh()
         let id = try XCTUnwrap(original.sessions.first?.id)
         try await writer.setFavorite(sessionID: id, isFavorite: true)
         try await writer.setPinned(sessionID: id, isPinned: true)
         try await writer.setArchived(sessionID: id, isArchived: true)
         let before = try bytes(cache)
-        let reader = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cacheDirectory: cache, readOnly: true)
+        let reader = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cursorHome: root.appendingPathComponent("cursor"), cacheDirectory: cache, readOnly: true)
         let usable = await reader.hasUsableIndex(); XCTAssertTrue(usable)
         let snapshot = await reader.snapshot()
         XCTAssertTrue(snapshot.sessions.first?.isFavorite == true)
@@ -100,11 +100,11 @@ final class HistoryToolsTests: XCTestCase {
             let data = try JSONSerialization.data(withJSONObject: ["type": "session_meta", "payload": ["id": id, "cwd": "/repo", "source": "cli"]])
             try data.write(to: sources.appendingPathComponent(id + ".jsonl"))
         }
-        let writer = SessionHistoryRepository(claudeHome: root.appendingPathComponent("claude"), codexHome: codex, cacheDirectory: cache, refreshByteBudget: 1)
+        let writer = SessionHistoryRepository(claudeHome: root.appendingPathComponent("claude"), codexHome: codex, cursorHome: root.appendingPathComponent("cursor"), cacheDirectory: cache, refreshByteBudget: 1)
         let initial = try await writer.refresh()
         XCTAssertEqual(initial.pendingSourceCount, 1)
         let before = try bytes(cache)
-        let reader = SessionHistoryRepository(claudeHome: root.appendingPathComponent("claude"), codexHome: codex, cacheDirectory: cache, readOnly: true)
+        let reader = SessionHistoryRepository(claudeHome: root.appendingPathComponent("claude"), codexHome: codex, cursorHome: root.appendingPathComponent("cursor"), cacheDirectory: cache, readOnly: true)
         let snapshot = await reader.snapshot()
         XCTAssertEqual(snapshot.sessions.count, 1)
         XCTAssertEqual(snapshot.pendingSourceCount, 1)
@@ -119,7 +119,7 @@ final class HistoryToolsTests: XCTestCase {
         try FileManager.default.removeItem(atPath: pending)
         let afterRemoval = try await writer.refresh()
         XCTAssertEqual(afterRemoval.pendingSourceCount, 0, "root=\(codex.path) resolved=\(codex.resolvingSymlinksInPath().path) pending=\(pending)")
-        let reopened = SessionHistoryRepository(claudeHome: root.appendingPathComponent("claude"), codexHome: codex, cacheDirectory: cache, readOnly: true)
+        let reopened = SessionHistoryRepository(claudeHome: root.appendingPathComponent("claude"), codexHome: codex, cursorHome: root.appendingPathComponent("cursor"), cacheDirectory: cache, readOnly: true)
         let final = await reopened.snapshot()
         XCTAssertEqual(final.pendingSourceCount, 0)
     }

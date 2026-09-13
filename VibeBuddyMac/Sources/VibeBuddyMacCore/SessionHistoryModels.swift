@@ -1,8 +1,17 @@
 import Foundation
 
 public enum SessionHistoryAgent: String, Codable, Sendable, CaseIterable {
-    case claude, codex
-    public var displayName: String { self == .claude ? "Claude Code" : "Codex" }
+    case claude, codex, cursor
+    public var displayName: String {
+        switch self {
+        case .claude: "Claude Code"
+        case .codex: "Codex"
+        case .cursor: "Cursor"
+        }
+    }
+    /// Public tool spelling; persisted Claude history IDs keep their existing prefix.
+    public var keyName: String { self == .claude ? "claude-code" : rawValue }
+    public static let cursorCoverage = "Cursor local transcript: user/assistant text and tool calls only; no tool results or thinking. IDE/CLI provenance is not recorded; encrypted IDE history and cloud agents are not covered."
 }
 public enum SessionHistoryRole: String, Codable, Sendable { case user, assistant, tool, system }
 public enum SessionHistoryMessageKind: String, Codable, Sendable { case text, meta, thinking, compactSummary }
@@ -64,6 +73,9 @@ public struct SessionHistorySearchResult: Identifiable, Sendable {
     public var messageID: String
     public var excerpt: String
     public var id: String { sessionID + "|" + messageID }
+    public init(sessionID: String, messageID: String, excerpt: String) {
+        self.sessionID = sessionID; self.messageID = messageID; self.excerpt = excerpt
+    }
 }
 public enum SessionHistoryExport {
     public static func markdown(session: SessionHistorySession) -> String {

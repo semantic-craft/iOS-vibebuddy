@@ -21,13 +21,13 @@ public enum HistoryTools {
             "max_messages": ["type": "integer", "minimum": 1, "maximum": 200],
             "tools": ["type": "boolean"], "thinking": ["type": "boolean"]
         ], required: ["key"]), definition("vibebuddy_list_sessions", description: "List indexed local sessions, newest activity first.", properties: [
-            "project": ["type": "string"], "agents": ["type": "array", "items": ["type": "string", "enum": ["claude-code", "codex"]]],
+            "project": ["type": "string"], "agents": ["type": "array", "items": ["type": "string", "enum": SessionHistoryAgent.allCases.map(\.keyName)]],
             "since": ["type": "string"], "starred": ["type": "boolean"], "limit": ["type": "integer", "minimum": 1, "maximum": 200]
         ]), definition("vibebuddy_list_projects", description: "List projects with indexed sessions, newest activity first.", properties: [
             "since": ["type": "string"], "limit": ["type": "integer", "minimum": 1, "maximum": 200]
         ]), definition("vibebuddy_search", description: "Search indexed readable message text literally, with session references and unindexed source coverage.", properties: [
             "query": ["type": "string", "minLength": 1], "project": ["type": "string"],
-            "agents": ["type": "array", "items": ["type": "string", "enum": ["claude-code", "codex"]]],
+            "agents": ["type": "array", "items": ["type": "string", "enum": SessionHistoryAgent.allCases.map(\.keyName)]],
             "since": ["type": "string"], "limit": ["type": "integer", "minimum": 1, "maximum": 200]
         ], required: ["query"])]
     }
@@ -39,7 +39,7 @@ public enum HistoryTools {
     }
 
     public static func key(_ session: SessionHistorySession) -> String {
-        (session.agent == .claude ? "claude-code" : "codex") + ":" + session.nativeSessionID
+        session.agent.keyName + ":" + session.nativeSessionID
     }
 
     struct Selection {
@@ -69,7 +69,7 @@ public enum HistoryTools {
                 } else if let string = value as? String, let number = Int(string) { valid = (1...200).contains(number) }
                 else { valid = false }
             case "starred": valid = (value as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() } ?? false
-            case "agents": valid = (value as? [String]).map { $0.allSatisfy { ["claude-code", "codex"].contains($0) } } ?? false
+            case "agents": valid = (value as? [String]).map { $0.allSatisfy { SessionHistoryAgent.allCases.map(\.keyName).contains($0) } } ?? false
             default: valid = value is String
             }
             guard valid else { throw HistoryToolError.invalidArguments("Invalid argument: \(key)") }
@@ -90,7 +90,7 @@ public enum HistoryTools {
             sessions = sessions.filter { $0.projectPath == matches[0] }
         }
         if let agents = arguments["agents"] as? [String], !agents.isEmpty {
-            sessions = sessions.filter { agents.contains($0.agent == .claude ? "claude-code" : "codex") }
+            sessions = sessions.filter { agents.contains($0.agent.keyName) }
         }
         if let starred = arguments["starred"] as? Bool { sessions = sessions.filter { $0.isFavorite == starred } }
         return Selection(sessions: sessions, limit: limit, freshness: freshness)
@@ -113,7 +113,8 @@ public enum HistoryTools {
         let rows = sessions.prefix(limit).map { s in
             "| \(cell(key(s))) | \(s.agent.displayName) | \(stamp(s.updatedAt)) | \(cell(s.projectPath)) | \(cell(s.title)) | \(s.messageCount) |"
         }
-        return (["| Key | Agent | Updated | Project | Title | Messages |", "| --- | --- | --- | --- | --- | ---: |"] + (rows.isEmpty ? ["No sessions found."] : rows) + ["", freshness]).joined(separator: "\n")
+        let coverage = sessions.contains { $0.agent == .cursor } ? ["", SessionHistoryAgent.cursorCoverage] : []
+        return (["| Key | Agent | Updated | Project | Title | Messages |", "| --- | --- | --- | --- | --- | ---: |"] + (rows.isEmpty ? ["No sessions found."] : rows) + coverage + ["", freshness]).joined(separator: "\n")
     }
 
     private static func stamp(_ date: Date) -> String { ISO8601DateFormatter().string(from: date) }
