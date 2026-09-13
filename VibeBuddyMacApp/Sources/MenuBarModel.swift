@@ -32,6 +32,10 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var recentDirectories: [String] = []
     /// Agents a new task can be started for from this Mac.
     @Published private(set) var dispatchAgents: [AgentKind] = []
+    /// Handoff documents found under the recent directories (ADR-0023).
+    @Published private(set) var handoffs: [HandoffRecord] = []
+    /// A Continue with… the dashboard should open the New task sheet for.
+    @Published var continueRequest: NewTaskPrefill?
     /// Local Claude Code / Codex token spend, beside quota. Nil until the first scan.
     @Published private(set) var tokenConsumption: TokenConsumptionSnapshot?
     private let claudeLauncher: ClaudeBackgroundLauncher = {
@@ -551,6 +555,7 @@ final class MenuBarModel: ObservableObject {
                 self.sessions = snapshot.sessions
                 self.observationDiagnostics = snapshot.observationDiagnostics ?? []
                 self.recentDirectories = snapshot.recentDirectories ?? []
+                self.handoffs = snapshot.handoffs ?? []
                 self.codexAppServerDiagnostics = await self.codexAppServerMonitor.diagnostics()
                 var agents: [AgentKind] = []
                 if await self.claudeLauncher.isSupported() { agents.append(.claudeCode) }
@@ -1041,7 +1046,29 @@ final class MenuBarModel: ObservableObject {
     /// user picked it in this Mac's open panel just now (`userChoseDirectory`):
     /// that choice is the authorization the known-directory rule stands in
     /// for when a request arrives from the phone.
-    func dispatch(_ request: DispatchRequest, userChoseDirectory: Bool = false) async -> DispatchOutcome {
+    /// Continue with…: prefill the New task sheet from a finished session and
+    /// its newest handoff, if one names it. The dashboard presents the sheet.
+    func requestContinue(_ session: AgentSession, with agent: AgentKind) {
+        guard let key = ContinueWith.sessionKey(for: session) else { return }
+        let handoff = ContinueWith.handoff(for: session, in: handoffs)
+        continueRequest = NewTaskPrefill(
+            agent: agent,
+            directory: session.checkoutPath ?? session.terminalRef?.cwd ?? recentDirectories.first ?? "",
+            name: ContinueWith.taskName(for: session),
+            prompt: ContinueWith.prompt(sessionKey: key, handoffPath: handoff?.path),
+            continuing: NewTaskPrefill.Continuation(sessionID: session.id, sourceKey: key, handoffPath: handoff?.path))
+    }
+
+    func dispatch(_ request: DispatchRequest, userChoseDirectory: Bool = false,
+                  continuing: NewTaskPrefill.Continuation? = nil) async -> DispatchOutcome {
+        let outcome = await start(request, userChoseDirectory: userChoseDirectory)
+        if case .started(let id) = outcome, let continuing {
+            await store.recordContinuation(sessionID: id, sourceKey: continuing.sourceKey, handoffPath: continuing.handoffPath)
+        }
+        return outcome
+    }
+
+    private func start(_ request: DispatchRequest, userChoseDirectory: Bool) async -> DispatchOutcome {
         if userChoseDirectory {
             var isDirectory: ObjCBool = false
             guard request.cwd.hasPrefix("/"),

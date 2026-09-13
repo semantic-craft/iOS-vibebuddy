@@ -561,6 +561,10 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     public var prNumber: Int?
     public var prURL: String?
     public var worktree: String?
+    /// The Session key this session was started to continue (Continue with…,
+    /// ADR-0023). Set by the Mac at dispatch, kept for the session's life in
+    /// that process; nil for every other session.
+    public var continuesSessionKey: String? = nil
     /// The attention level in effect for this session: the user's own choice
     /// when there is one, else what the daemon inferred from recent
     /// interaction. Absent means `normal`. Only the daemon writes it.
@@ -710,6 +714,9 @@ public struct Snapshot: Codable, Sendable, Equatable {
     /// (`Recap`). Optional so older phones ignore it. Composed outside the
     /// session reducer: it is a record of ended rounds, not session state.
     public var recap: Recap?
+    /// Handoff documents found under the recent directories' `.scratch`
+    /// (`HandoffRecord`, ADR-0023). Optional so older clients ignore it.
+    public var handoffs: [HandoffRecord]?
 
     public init(
         sessions: [AgentSession],
@@ -721,7 +728,8 @@ public struct Snapshot: Codable, Sendable, Equatable {
         dispatchAgents: [AgentKind]? = nil,
         tokenConsumption: TokenConsumptionSnapshot? = nil,
         cursorModels: [String]? = nil,
-        recap: Recap? = nil
+        recap: Recap? = nil,
+        handoffs: [HandoffRecord]? = nil
     ) {
         self.sessions = sessions
         self.serverTime = serverTime
@@ -733,11 +741,12 @@ public struct Snapshot: Codable, Sendable, Equatable {
         self.tokenConsumption = tokenConsumption
         self.cursorModels = cursorModels
         self.recap = recap
+        self.handoffs = handoffs
     }
 
     enum CodingKeys: String, CodingKey {
         case sourceID, sessions, serverTime, observationDiagnostics
-        case providerQuota, recentDirectories, dispatchAgents, tokenConsumption, cursorModels, recap
+        case providerQuota, recentDirectories, dispatchAgents, tokenConsumption, cursorModels, recap, handoffs
     }
 
     public init(from decoder: Decoder) throws {
@@ -759,6 +768,7 @@ public struct Snapshot: Codable, Sendable, Equatable {
         tokenConsumption = try c.decodeIfPresent(TokenConsumptionSnapshot.self, forKey: .tokenConsumption)
         cursorModels = try c.decodeIfPresent([String].self, forKey: .cursorModels)
         recap = try c.decodeIfPresent(Recap.self, forKey: .recap)
+        handoffs = try c.decodeIfPresent([HandoffRecord].self, forKey: .handoffs)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -773,6 +783,7 @@ public struct Snapshot: Codable, Sendable, Equatable {
         try c.encodeIfPresent(tokenConsumption, forKey: .tokenConsumption)
         try c.encodeIfPresent(cursorModels, forKey: .cursorModels)
         try c.encodeIfPresent(recap, forKey: .recap)
+        try c.encodeIfPresent(handoffs, forKey: .handoffs)
     }
 }
 
