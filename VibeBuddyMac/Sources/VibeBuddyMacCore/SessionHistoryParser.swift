@@ -207,8 +207,21 @@ enum SessionHistoryParser {
             if let date = iso.date(from: value) { return date }
             guard let zone = value.range(of: " (UTC"), value.hasSuffix(")") else { continue }
             let offset = String(value[zone.upperBound..<value.index(before: value.endIndex)])
-            guard let hours = Double(offset), hours.isFinite, (-12...14).contains(hours),
-                  let timezone = TimeZone(secondsFromGMT: Int(hours * 3600)) else { continue }
+            let seconds: Int
+            if offset.contains(":") {
+                let parts = offset.dropFirst().split(separator: ":", omittingEmptySubsequences: false)
+                guard let sign = offset.first, sign == "+" || sign == "-", parts.count == 2,
+                      (1...2).contains(parts[0].count), parts[1].count == 2,
+                      parts.allSatisfy({ $0.utf8.allSatisfy { (48...57).contains($0) } }),
+                      let hours = Int(parts[0]), (0...14).contains(hours),
+                      let minutes = Int(parts[1]), (0..<60).contains(minutes) else { continue }
+                seconds = (hours * 60 + minutes) * 60 * (sign == "-" ? -1 : 1)
+            } else {
+                guard let hours = Double(offset), hours.isFinite, (-12...14).contains(hours) else { continue }
+                seconds = Int(hours * 3600)
+            }
+            guard (-43_200...50_400).contains(seconds),
+                  let timezone = TimeZone(secondsFromGMT: seconds) else { continue }
             let formatter = DateFormatter()
             formatter.locale = Locale(identifier: "en_US_POSIX")
             formatter.calendar = Calendar(identifier: .gregorian)
