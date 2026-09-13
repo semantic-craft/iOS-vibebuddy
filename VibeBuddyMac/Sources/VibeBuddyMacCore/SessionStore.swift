@@ -344,6 +344,8 @@ public actor SessionStore {
     private var lifecycleJournal: LifecycleJournal?
     /// Missed `needsResponse` waits (Q13). Beside the journal; muted counts.
     private var missedLedger: MissedLedger
+    /// Ended rounds and the recap horizon, beside the journal (`RecapLedger`).
+    private var recapLedger: RecapLedger
     /// The user's hand-set attention levels, layered onto every snapshot.
     private var attention: AttentionOverrides
     /// When the user last drove each session (prompt, jump, decision, answer);
@@ -365,6 +367,7 @@ public actor SessionStore {
         self.copilotReader = copilotDatabase.map { CopilotSessionReader(database: $0) } ?? CopilotSessionReader()
         self.cursorStore = cursorDatabase.map { CursorComposerStore(database: $0) } ?? CursorComposerStore()
         self.toolLedger = ToolLedger(url: journalURL?.deletingLastPathComponent().appendingPathComponent("tool-ledger.json"), now: now)
+        self.recapLedger = RecapLedger(url: journalURL?.deletingLastPathComponent().appendingPathComponent("recap-ledger.json"), now: now)
         self.sourceID = sourceID
         self.staleAfter = staleAfter
         self.diagnosticsHome = diagnosticsHome
@@ -1053,6 +1056,18 @@ public actor SessionStore {
         return true
     }
 
+    /// Mark all from a recap: move the recap horizon forward to the newest
+    /// entry the user saw. The horizon only advances, so a retried or reordered
+    /// request is harmless; it changes no round's read state and writes no
+    /// lifecycle event — reading a round stays an exact-round `/acknowledge`.
+    public func advanceRecapHorizon(_ request: RecapReadRequest, now: Date = Date()) -> RecapReadOutcome {
+        guard let sourceID, !sourceID.isEmpty, request.sourceID == sourceID else { return .sourceMismatch }
+        if recapLedger.advanceHorizon(to: request.horizon, now: now) {
+            broadcast()
+        }
+        return .accepted
+    }
+
     /// Record any wait that has sat in `needsResponse` for five minutes
     /// without an acknowledgement. Safe to call on every poll.
     public func evaluateMissed(now: Date) {
@@ -1157,6 +1172,17 @@ public actor SessionStore {
             }
             session.controlChannel = controlChannel(for: session, now: now)
             return session
+        }
+        // Ended rounds are recorded from the assembled sessions — after tool
+        // evidence and attention are layered on — so every observation path
+        // records the same facts, and the recap reads mute and acknowledgement
+        // from the very list the other surfaces show.
+        recapLedger.observe(snapshot.sessions, sourceID: sourceID, now: now)
+        snapshot.recap = recapLedger.recap(now: now, sessions: snapshot.sessions) { [noticeLedger] id in
+            guard let notice = noticeLedger?.notices[id], notice.state == .summary,
+                  let text = notice.text?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !text.isEmpty, text.count <= 180 else { return nil }
+            return text
         }
         let active = Set(snapshot.sessions.compactMap { $0.completionNotice?.id })
         for id in noticeTasks.keys where !active.contains(id) {

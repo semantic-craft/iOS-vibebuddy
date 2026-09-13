@@ -29,6 +29,9 @@ protocol DecisionClient: Sendable {
     func jump(_ pairing: PairingPayload, sessionId: String) async -> JumpOutcome?
     func acknowledgeWait(_ pairing: PairingPayload, request: WaitReadRequest) async -> Bool
     func acknowledge(_ pairing: PairingPayload, request: CompletionReadRequest) async -> CompletionReadOutcome
+    /// Mark all on the wrist: move the Mac's recap horizon forward. Rounds are
+    /// still read one by one with `acknowledge`; this only narrows the recap.
+    func advanceRecapHorizon(_ pairing: PairingPayload, request: RecapReadRequest) async -> RecapReadOutcome
     /// Start a new task; nil when the Mac could not be reached.
     func dispatch(_ pairing: PairingPayload, request: DispatchRequest) async -> DispatchOutcome?
     /// Set how much a session may interrupt you, or `nil` to return it to the
@@ -68,6 +71,7 @@ extension DecisionClient {
     }
     func phoneStop(_ pairing: PairingPayload, session: AgentSession, requestID: String) async -> StopDelivery { .failed }
     func acknowledgeWait(_ pairing: PairingPayload, request: WaitReadRequest) async -> Bool { false }
+    func advanceRecapHorizon(_ pairing: PairingPayload, request: RecapReadRequest) async -> RecapReadOutcome { .failed }
     func dispatch(_ pairing: PairingPayload, request: DispatchRequest) async -> DispatchOutcome? { nil }
     func workspaceChanges(_ pairing: PairingPayload, sessionId: String, scope: ChangesScope, baseline: String?, file: String?) async -> WorkspaceChanges? { nil }
     func completionBody(_ pairing: PairingPayload, sessionId: String, completionId: String) async -> CompletionBody? { nil }
@@ -179,6 +183,23 @@ struct HTTPDecisionClient: DecisionClient {
               let result = try? JSONDecoder().decode(CompletionReadResponse.self, from: data)
         else { return .failed }
         return result.outcome
+    }
+
+    func advanceRecapHorizon(_ pairing: PairingPayload, request: RecapReadRequest) async -> RecapReadOutcome {
+        guard let url = pairing.companionURL(path: "recap-read") else { return .failed }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 15
+        req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONEncoder().encode(request)
+        guard let (_, response) = try? await URLSession.shared.data(for: req),
+              let http = response as? HTTPURLResponse else { return .failed }
+        switch http.statusCode {
+        case 200..<300: return .accepted
+        case 409: return .sourceMismatch
+        default: return .failed
+        }
     }
 
     func setAttention(_ pairing: PairingPayload, sessionId: String, level: SessionAttention?) async {

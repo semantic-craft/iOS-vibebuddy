@@ -221,7 +221,9 @@ cmd_launch() {
   [[ "$PAIR" == "1" ]] && args+=(--pair)
 
   echo "→ starting isolated vibebuddyd on :$PORT (HOME=$STATE_DIR/home pair=$PAIR)" | log_transcript launch
+  # Foundation on macOS ignores HOME alone for homeDirectoryForCurrentUser.
   HOME="$STATE_DIR/home" \
+    CFFIXED_USER_HOME="$STATE_DIR/home" \
     VIBEBUDDY_PORT="$PORT" \
     VIBEBUDDY_TOKEN="$TOKEN" \
     VIBEBUDDY_JOURNAL_PATH="$STATE_DIR/journal.json" \
@@ -380,6 +382,23 @@ for s in sessions:
         id=s.get("id"), status=s.get("status"), wait=s.get("waitKind"),
         project=s.get("project")))
 PY
+    if python3 - "$snap" "$VIBEBUDDY_HOME/Library/Application Support/vibebuddy/source-id" >>"$report" <<'PY'
+import json, pathlib, sys
+try:
+    actual = json.load(open(sys.argv[1])).get("sourceID")
+    isolated = pathlib.Path(sys.argv[2]).read_text().strip()
+    if not isolated or actual != isolated:
+        raise ValueError("source identity mismatch")
+except (OSError, ValueError):
+    print("FAIL Foundation source identity is not in the disposable home")
+    sys.exit(1)
+print("ok Foundation source identity belongs to disposable home")
+PY
+    then
+      :
+    else
+      issues=1
+    fi
   else
     echo "FAIL GET /snapshot with token => $snap_code" >>"$report"
     issues=1
