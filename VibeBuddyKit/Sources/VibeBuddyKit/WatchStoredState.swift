@@ -26,18 +26,23 @@ public struct WatchStoredState: Codable, Equatable, Sendable {
         self.state = cached
         self.queue = queue
         complication = WatchComplicationSnapshot(state: cached, previous: previous)
-        complication.pendingCompletionIDs = queue.links.filter {
+        complication.pendingCompletionIDs = queue.markedLinks.filter {
             $0.sourceID == state.sourceID && $0.pairingEpoch == state.pairingEpoch
         }.compactMap(\.completionID)
     }
 
     public static func decode(_ data: Data) -> Self? {
-        guard let value = try? JSONDecoder().decode(Self.self, from: data),
+        guard var value = try? JSONDecoder().decode(Self.self, from: data),
               value.state.relayRevision > 0,
               value.state.observedAt == value.complication.observedAt,
               value.state.sourceID == value.complication.sourceID,
               value.state.pairingEpoch == value.complication.pairingEpoch,
               value.state.followedTasks.map(\.complicationTask) == value.complication.tasks else { return nil }
+        // A legacy cache may carry pending ids from implicit page views.
+        // Derive this marker from recovered explicit intent, never that old list.
+        value.complication.pendingCompletionIDs = value.queue.markedLinks.filter {
+            $0.sourceID == value.state.sourceID && $0.pairingEpoch == value.state.pairingEpoch
+        }.compactMap(\.completionID)
         return value
     }
 }

@@ -25,6 +25,7 @@ final class DashboardRoute: ObservableObject {
 /// surface. These filters never alter the shared snapshot or Buddy scope.
 struct DashboardView: View {
     @ObservedObject var model: MenuBarModel
+    @State private var pendingNavigation = PendingTaskNavigation()
     @State private var statusFilter: TaskPresentationState? = nil
     @State private var projectScope: DashboardSessionList.ProjectScope = .all
     @State private var query: String = ""
@@ -140,7 +141,10 @@ struct DashboardView: View {
             projectScope = .all
             query = ""
             statusFilter = nil
-            selection = MenuFeed(model.sessions).nextPending(after: selection)?.id
+            let current = model.sessions.first { $0.id == selection }
+            if let next = pendingNavigation.next(in: MenuFeed(model.sessions).pending, after: current) {
+                selection = next.id
+            }
         }
         .onChange(of: selection) { _, id in model.dashboardViewedSessionID = id }
         .onAppear { model.dashboardViewedSessionID = selection }

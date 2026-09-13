@@ -230,8 +230,11 @@ struct MenuFeedTests {
     @Test func unreadAndNextPendingUseAttentionOrder() {
         let feed = make([session("read", .done), unread("unread", ago: 30), session("wait", .needsResponse)])
         #expect(sessions(feed, .done).map(\.id) == ["unread", "read"])
-        #expect(feed.nextPending(after: nil)?.id == "wait")
-        #expect(feed.nextPending(after: "wait")?.id == "unread")
-        #expect(feed.nextPending(after: "unread")?.id == "wait")
+        var navigation = PendingTaskNavigation()
+        let first = navigation.next(in: feed.pending, after: nil)
+        #expect(first?.id == "wait")
+        let next = navigation.next(in: feed.pending, after: first)
+        #expect(next?.id == "unread")
+        #expect(navigation.next(in: feed.pending, after: next)?.id == "wait")
     }
 }

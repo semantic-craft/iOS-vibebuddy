@@ -216,6 +216,9 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
     /// a relay or cache from before this field decodes as "none known" rather
     /// than failing.
     public var results: [WatchFollowedTask]?
+    /// Current completion-unread sessions outside Followed, included in the
+    /// total. Missing on an older relay means unavailable, never zero.
+    public var unfollowedUnreadCount: Int?
     public var counts: WatchSessionCounts
     /// The app's five-state aggregate, shared with the Mac, the iPhone list,
     /// the Live Activity and the widget. It is a different partition, not a
@@ -247,6 +250,7 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
         relayRevision: UInt64 = 0,
         followedTasks: [WatchFollowedTask] = [],
         results: [WatchFollowedTask]? = nil,
+        unfollowedUnreadCount: Int? = nil,
         counts: WatchSessionCounts = WatchSessionCounts(),
         presentation: TaskPresentationSummary = TaskPresentationSummary(),
         alerts: [WatchAlert] = [],
@@ -263,6 +267,7 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
         self.relayRevision = relayRevision
         self.followedTasks = followedTasks
         self.results = results
+        self.unfollowedUnreadCount = unfollowedUnreadCount
         self.counts = counts
         self.presentation = presentation
         self.alerts = alerts
@@ -448,6 +453,9 @@ public enum WatchDashboardProjection {
             sourceID: snapshot.sourceID,
             followedTasks: sessions.filter { $0.effectiveAttention == .followed }.map(WatchFollowedTask.init),
             results: results(in: current),
+            unfollowedUnreadCount: current.filter {
+                $0.presentationState == .completeUnread && $0.effectiveAttention != .followed
+            }.count,
             counts: WatchSessionCounts(StateGroups(current)),
             presentation: TaskPresentationSummary(sessions: current),
             alerts: groups.needsResponse.map(alert(for:)),

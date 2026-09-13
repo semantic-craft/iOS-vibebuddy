@@ -85,7 +85,7 @@ struct WatchRecoveryTests {
     func pairingQueue() {
         let fixture = WatchCompletionTests()
         var queue = WatchCompletionQueue()
-        queue.viewed(fixture.link, state: fixture.state())
+        queue.markRead(fixture.link, state: fixture.state())
         var disconnected = fixture.state(); disconnected.relay = .disconnected
         queue.reconcile(with: disconnected)
         #expect(queue.links.count == 1)

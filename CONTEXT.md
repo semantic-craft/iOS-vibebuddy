@@ -348,14 +348,22 @@ code, and tests — don't drift to synonyms.
   collapse id as the original cue, so one banner is replaced, not stacked.
   The cadence backs off because every reminder is mirrored to the wrist as a
   fresh buzz (ADR-0021). The Watch carries no attention state.
-- **Watch results** — `WatchDashboardState.results`: the current sessions
-  worth a look without waiting on you — ended badly (`error`) first, then
-  unread completions, newest first, at most six, muted ones excluded. Listed
-  on the Watch home under *Also waiting* (errors, with the alerts) and
-  *Results*; opening one reads that exact round through the Mac, whether or
-  not the session is followed. The home order is headline → top card → also
-  waiting → results → followed → quota (ADR-0021). A notification tap on the
-  Watch opens its session; viewing a wait only marks it seen.
+- **Watch results** — the bounded current result projection on the wrist:
+  failures and followed unread completions can be opened from the home;
+  completion-unread sessions outside Followed are shown as a count with an
+  iPhone destination. The total unread count includes them. The existing
+  bounded result payload still lets a notification open its exact task.
+  A completion summary is not the full result: opening it leaves the round
+  unread and its reminder budget intact. **Mark as read** explicitly confirms
+  the displayed source/session/completion. Offline intent remains pending until
+  the Mac confirms; opening a wait only marks that wait seen (ADR-0021).
+- **Next pending** — an explicit navigation step through Needs you, then unread
+  Done, using the same priority and stable newest-first order on Mac and iPhone.
+  The iPhone follows its current list filters, including the Older choice;
+  grouping and collapse do not narrow the tour or change the global counts.
+  Reading the current result never moves the page, and removing that result from
+  unread does not restart the tour at an unresolved wait. Navigation itself
+  neither acknowledges results nor resolves waits.
 - **Missed** — one wait in `needsResponse` that reaches five minutes without
   acknowledgement on any surface, counted once for that wait even if the session
   is muted. Its time is the five-minute deadline. Mac Settings shows the current

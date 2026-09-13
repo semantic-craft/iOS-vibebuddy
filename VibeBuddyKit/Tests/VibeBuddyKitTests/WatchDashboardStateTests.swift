@@ -745,7 +745,7 @@ struct WatchResultsTests {
         #expect(link.task(in: state)?.sessionID == "done")
         #expect(link.alert(in: state) == nil)
         var queue = WatchCompletionQueue()
-        queue.viewed(link, state: state)
+        queue.markRead(link, state: state)
         #expect(queue.links == [link])
         // The list cannot establish why a normal result disappeared. Only
         // the exact daemon receipt retires the pending delivery in that case.

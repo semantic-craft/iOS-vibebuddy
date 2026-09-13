@@ -51,6 +51,13 @@ struct DashboardFilters: Equatable {
         return current.sorted { $0.updatedAt > $1.updatedAt }
     }
 
+    /// Pending navigation has the same scope as this list, independent of
+    /// its grouping and collapsed rows. The original input order breaks ties.
+    func pendingSessions(from sessions: [AgentSession], now: Date) -> [AgentSession] {
+        let selected = sessions.filter(matches)
+        return PendingTasks.ordered(includeInactive ? selected : SessionCurrency.current(selected, now: now))
+    }
+
     /// How many rows the recency window is holding back right now.
     func hiddenCount(from sessions: [AgentSession], now: Date = Date()) -> Int {
         includeInactive ? 0 : SessionCurrency.older(sessions.filter(matches), now: now).count

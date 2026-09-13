@@ -81,16 +81,7 @@ public struct MenuFeed: Sendable {
     public var topResult: AgentSession? { sections.first?.sessions.first }
 
     public var pending: [AgentSession] {
-        sections.flatMap { section in
-            section.kind == .needsYou ? section.sessions :
-                (section.kind == .done ? section.sessions.filter(\.hasUnreadCompletion) : [])
-        }
-    }
-
-    public func nextPending(after id: String?) -> AgentSession? {
-        guard !pending.isEmpty else { return nil }
-        guard let id, let index = pending.firstIndex(where: { $0.id == id }) else { return pending.first }
-        return pending[(index + 1) % pending.count]
+        PendingTasks.ordered(sections.filter { $0.kind != .older }.flatMap(\.sessions))
     }
 
     /// Matches what the row actually shows — its title and the agent's own

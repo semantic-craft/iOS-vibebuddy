@@ -322,9 +322,13 @@ final class DashboardStore: ObservableObject {
             WatchCompletionResult(attemptID: message.attemptID, outcome: outcome)
         }
         let link = message.link
-        guard link.sourceID == sourceID, link.pairingEpoch == pairingEpoch,
-              pairingEpoch == ConnectionStore.pairingEpoch else { return result(.sourceMismatch) }
-        guard state == .connected, let pairing, let request = link.readRequest else { return result(.failed) }
+        // A cold/background phone may have no Mac snapshot yet. Absence is
+        // temporary, not proof of another source: keep the Watch's explicit
+        // retry. Only the persistent pairing epoch can be judged at this point.
+        guard link.pairingEpoch == ConnectionStore.pairingEpoch else { return result(.sourceMismatch) }
+        guard state == .connected, let pairing, let sourceID,
+              let request = link.readRequest else { return result(.failed) }
+        guard link.sourceID == sourceID, link.pairingEpoch == pairingEpoch else { return result(.sourceMismatch) }
         // The daemon is authoritative for round and read state. A stale phone
         // snapshot must not manufacture a positive or negative receipt.
         let outcome = await decisionClient.acknowledge(pairing, request: request)

@@ -130,11 +130,8 @@ public struct WatchFollowedTask: Codable, Equatable, Sendable, Identifiable {
                   !line.contains("$") else { return nil }
             return String(line.prefix(100))
         }
-        // Explicit input wins over error on this surface (the PRD's proposed
-        // default); retain the shared presentation vocabulary and color tokens.
-        presentation = session.status == .needsResponse ? .requiresInput :
-            TaskPresentationState.project(status: session.status, waitKind: session.waitKind,
-                failed: session.failed == true, hasUnreadCompletion: session.hasUnreadCompletion)
+        // Share the same failure/recovery interpretation as the phone counts.
+        presentation = session.presentationState
         waitKind = session.status == .needsResponse
             ? (session.waitKind ?? (session.pendingApproval != nil ? .permission : .question)) : nil
         pendingID = session.pendingApproval?.id ?? session.pendingQuestion?.id

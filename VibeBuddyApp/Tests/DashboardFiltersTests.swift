@@ -33,6 +33,21 @@ final class DashboardFiltersTests: XCTestCase {
         XCTAssertEqual(filters.hiddenCount(from: sessions, now: now), 1)
     }
 
+    func testPendingNavigationHonorsFiltersButNotGrouping() {
+        var outside = session("outside", .needsResponse, hoursAgo: 0)
+        outside.project = "other"
+        let input = [session("done-a", .done, hoursAgo: 1, unread: true),
+                     session("done-b", .done, hoursAgo: 1, unread: true),
+                     session("wait", .needsResponse, hoursAgo: 2), outside]
+        var filters = DashboardFilters()
+        filters.project = "p"
+        XCTAssertEqual(filters.pendingSessions(from: input, now: now).map(\.id), ["wait", "done-a", "done-b"])
+        filters.grouping = .agent
+        XCTAssertEqual(filters.pendingSessions(from: input, now: now).map(\.id), ["wait", "done-a", "done-b"])
+        filters.status = .completeUnread
+        XCTAssertEqual(filters.pendingSessions(from: input, now: now).map(\.id), ["done-a", "done-b"])
+    }
+
     func testStatusGroupingNamesTheBucketsItActuallyHas() {
         let sessions = [session("a", .needsResponse, hoursAgo: 1), session("b", .working, hoursAgo: 1)]
         let sections = DashboardFilters().sections(from: sessions, now: now)

@@ -47,6 +47,30 @@ private actor DecisionRecorder: DecisionClient {
 
 @MainActor
 final class DashboardStoreTests: XCTestCase {
+    func testColdPhoneKeepsAnExplicitWatchReadRetryableUntilAuthorityArrives() async {
+        let decisions = DecisionRecorder()
+        let store = DashboardStore(streamer: EmptyStreamer(), notifier: SilentNotifier(), decisionClient: decisions)
+        let epoch = ConnectionStore.pairingEpoch
+        let at = Date(timeIntervalSince1970: 1_800_000_000)
+        var task = AgentSession(id: "task", agent: .claudeCode, project: "p", status: .done,
+                                hasUnreadCompletion: true, attention: .followed, statusSince: at, updatedAt: at)
+        task.completionID = "round"
+        let state = WatchDashboardState(sourceID: "mac", pairingEpoch: epoch,
+                    followedTasks: [WatchFollowedTask(task)], relay: .live, observedAt: at)
+        let link = WatchTaskLink(sourceID: "mac", pairingEpoch: epoch, sessionID: "task", completionID: "round")
+        var queue = WatchCompletionQueue()
+        queue.markRead(link, state: state)
+        let reply = await store.acknowledgeFromWatch(WatchCompletionRequest(attemptID: "read", link: link))
+        XCTAssertEqual(reply.outcome, .failed)
+        queue.received(reply.outcome, for: link)
+        XCTAssertEqual(queue.links, [link])
+        let sent = await decisions.completionRequests
+        XCTAssertTrue(sent.isEmpty)
+        let oldPair = WatchTaskLink(sourceID: "mac", pairingEpoch: "old-pair", sessionID: "task", completionID: "round")
+        let rejected = await store.acknowledgeFromWatch(WatchCompletionRequest(attemptID: "old", link: oldPair))
+        XCTAssertEqual(rejected.outcome, .sourceMismatch)
+    }
+
     func testColdStartDeepLinkDoesNotAcknowledgeAnUnseenRound() async throws {
         let decisions = DecisionRecorder()
         let store = DashboardStore(streamer: EmptyStreamer(), notifier: SilentNotifier(),

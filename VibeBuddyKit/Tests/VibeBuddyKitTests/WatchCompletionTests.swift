@@ -31,8 +31,8 @@ struct WatchCompletionTests {
     func durableRead() throws {
         var queue = WatchCompletionQueue()
         var offline = state(); offline.relay = .disconnected
-        queue.viewed(link, state: offline)
-        queue.viewed(link, state: offline)
+        queue.markRead(link, state: offline)
+        queue.markRead(link, state: offline)
         #expect(queue.links == [link])
         queue = try JSONDecoder().decode(WatchCompletionQueue.self, from: JSONEncoder().encode(queue))
         queue.reconcile(with: state())
@@ -40,12 +40,35 @@ struct WatchCompletionTests {
         queue.reconcile(with: state(unread: false))
         #expect(queue.links.isEmpty)
     }
+    @Test("Legacy automatic reads cannot become explicit intent after an upgrade")
+    func legacyReads() throws {
+        let legacy = try JSONSerialization.data(withJSONObject: [
+            "links": [["sourceID": "mac-a", "pairingEpoch": "pair-1",
+                       "sessionID": "task / ?", "completionID": "round-1"]]
+        ])
+        let recovered = try JSONDecoder().decode(WatchCompletionQueue.self, from: legacy)
+        #expect(recovered.links.isEmpty)
+    }
+
+    @Test("A receipt stops retries without permitting a duplicate click on the old snapshot")
+    func acceptedReadWaitsForSnapshot() throws {
+        var queue = WatchCompletionQueue()
+        queue.markRead(link, state: state())
+        queue.received(.accepted, for: link)
+        queue.markRead(link, state: state())
+        #expect(queue.links.isEmpty)
+        #expect(queue.markedLinks == [link])
+        queue = try JSONDecoder().decode(WatchCompletionQueue.self, from: JSONEncoder().encode(queue))
+        queue.reconcile(with: state(unread: false))
+        #expect(queue.markedLinks.isEmpty)
+    }
+
     @Test("A stale click and an old queued read never acknowledge the newer round")
     func newerRound() {
         var queue = WatchCompletionQueue()
-        queue.viewed(link, state: state(round: "round-2"))
+        queue.markRead(link, state: state(round: "round-2"))
         #expect(queue.links.isEmpty)
-        queue.viewed(link, state: state())
+        queue.markRead(link, state: state())
         queue.reconcile(with: state(round: "round-2"))
         #expect(queue.links.isEmpty)
         #expect(state(round: "round-2").followedTasks.first?.presentation == .completeUnread)
@@ -54,7 +77,7 @@ struct WatchCompletionTests {
     @Test("A result evicted from the wrist window keeps its exact retry until a definitive receipt")
     func evictedResult() throws {
         var queue = WatchCompletionQueue()
-        queue.viewed(link, state: state())
+        queue.markRead(link, state: state())
         var window = state()
         window.followedTasks = []
         window.results = (0..<6).map { index in

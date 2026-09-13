@@ -502,3 +502,11 @@
 "The final result could not be verified for this completion. Recent output remains available with limited coverage." = "无法核实最终结果与本次完成的对应关系；仍可查看覆盖有限的最近输出。";
 
 "Workspace changes" = "工作区变化";
+
+/* Scoped pending navigation. */
+"Current filter: %@" = "当前筛选：%@";
+"Current list · including older tasks" = "当前列表 · 包含较早任务";
+"Current tasks" = "当前任务";
+"Next pending: %@" = "下一个待处理：%@";
+"No next pending task in this scope" = "此范围没有下一个待处理任务";
+"This task is no longer available" = "此任务已不可用";

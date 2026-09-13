@@ -23,6 +23,7 @@ struct DashboardView: View {
     @State private var newTaskRequest: NewTaskRequest?
     @State private var highlightId: String?
     @State private var detailId: String?
+    @State private var pendingNavigation = PendingTaskNavigation()
     @State private var replyTo: String?
     @State private var filters = DashboardFilters()
     @State private var showFilters = false
@@ -187,21 +188,24 @@ struct DashboardView: View {
                 .environmentObject(dashboard)
         }
         .sheet(isPresented: $voice.showConsent) { VoiceConsentSheet(voice: voice) }
-        .sheet(item: Binding(get: { detailSession.map { DetailTarget(id: $0.id) } },
-                             set: { detailId = $0?.id })) { target in
-            if let session = dashboard.allSessions.first(where: { $0.id == target.id }) {
-                let displayedCompletion = dashboard.completionRequest(for: session)
-                SessionDetailSheet(session: session, completionNotificationID: detailCompletionNotificationID, onReply: { replyTo = session.id; detailId = nil })
-                    .environmentObject(dashboard)
-                    .safeAreaInset(edge: .bottom) {
-                        if let status = dashboard.completionReadStatus(for: session) {
-                            Text(status).font(CompanionType.font(12)).padding().frame(maxWidth: .infinity)
-                                .background(.regularMaterial)
-                        }
-                    }
-
+        .sheet(isPresented: Binding(get: { detailId != nil }, set: { presented in
+            if !presented { detailId = nil; pendingNavigation = PendingTaskNavigation() }
+        })) {
+            Group {
+                if let session = detailSession {
+                    SessionDetailSheet(session: session, completionNotificationID: detailCompletionNotificationID,
+                                       onReply: { replyTo = session.id; detailId = nil })
+                        .id(session.id)
+                        .environmentObject(dashboard)
+                } else {
+                    Text("This task is no longer available")
+                        .font(CompanionType.font(14)).padding()
+                }
             }
+            .safeAreaInset(edge: .bottom) { pendingFooter }
         }
+        .onChange(of: filters) { _, _ in pendingNavigation = PendingTaskNavigation() }
+        .onChange(of: dashboard.completionSourceID) { _, _ in pendingNavigation = PendingTaskNavigation() }
         .alert("This completion is no longer current", isPresented: $dashboard.completionLinkUnavailable) {
             Button("OK", role: .cancel) { }
         } message: {
@@ -245,6 +249,46 @@ struct DashboardView: View {
         }
         .onDisappear { dashboard.stop() }
         }
+    }
+
+    private var pendingCandidates: [AgentSession] {
+        filters.pendingSessions(from: dashboard.allSessions, now: now)
+    }
+    private var nextPending: AgentSession? {
+        var preview = pendingNavigation
+        return preview.next(in: pendingCandidates, after: detailSession)
+    }
+    private var pendingFooter: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            if let session = detailSession, let status = dashboard.completionReadStatus(for: session) {
+                Text(status).font(CompanionType.font(12))
+            }
+            Text(filters.isActive ? String(localized: "Current filter: \(filters.summary)")
+                 : filters.includeInactive ? String(localized: "Current list · including older tasks")
+                 : String(localized: "Current tasks"))
+                .font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink2)
+            if let next = nextPending {
+                Button {
+                    // Recompute at the tap. A deleted target cannot be opened
+                    // from an earlier render, nor can this action mark it read.
+                    if let target = pendingNavigation.next(in: pendingCandidates, after: detailSession) {
+                        detailCompletionNotificationID = nil
+                        detailId = target.id
+                    }
+                } label: {
+                    Label("Next pending: \(next.displayTitle)", systemImage: "arrow.right")
+                        .lineLimit(2)
+                }
+                .buttonStyle(PhoneButtonStyle(kind: .quiet))
+                .accessibilityIdentifier("phone-next-pending")
+            } else {
+                Text("No next pending task in this scope")
+                    .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
+            }
+        }
+        .padding(.horizontal, PhoneMetrics.gutter).padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(CompanionPalette.bg)
     }
 
     /// Glyph buttons floating over the page: the account's allowance on the
@@ -324,7 +368,6 @@ struct DashboardView: View {
                 set: { expand in if expand { collapsed.remove(id) } else { collapsed.insert(id) } })
     }
 
-    private struct DetailTarget: Identifiable { let id: String }
 
     /// What the composer's text does, decided by the message it replies to.
     private func send(_ text: String, target: AgentSession?) async -> Bool {
@@ -547,7 +590,9 @@ private struct TaskRow: View {
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(accessibilityLabel)
                     .accessibilityHint("Open details")
-                activity
+                if !(showsQuestionCard && session.pendingQuestion?.prompt == presentation.activityOrResult) {
+                    activity
+                }
                 metaLine.padding(.leading, PhoneRowMetrics.textInset)
                 if let stats = session.ledgerSummary {
                     Text(stats).font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink3).padding(.leading, PhoneRowMetrics.textInset)

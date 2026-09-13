@@ -3,9 +3,9 @@ import VibeBuddyKit
 
 /// The home answers, in this order: how many things need you and which one
 /// is first (the headline and the card); what else is waiting (rows you can
-/// open); what finished and is worth a look (rows that mark themselves read);
+/// open); what finished and is worth a look (rows that open summaries);
 /// and only then what is merely running, and the allowance. Counting tables,
-/// the pet and logs do not get a line of a 40mm screen (ADR-0019).
+/// the pet and logs do not get a line of a 40mm screen (ADR-0021).
 struct WatchHomeView: View {
     @ObservedObject var store: WatchStateStore
     let state: WatchDashboardState
@@ -68,11 +68,12 @@ struct WatchHomeView: View {
         }
     }
 
-    /// Finished work nobody has read. Opening a row reads it — through the
-    /// Mac, so every other device stops reminding.
+    /// Followed unread results stay one tap away. Other completions are a
+    /// count and an iPhone destination; opening a summary never marks it read.
     @ViewBuilder
     private var results: some View {
-        let unread = state.unreadResults
+        let followedIDs = Set(state.followedTasks.map(\.sessionID))
+        let unread = state.unreadResults.filter { followedIDs.contains($0.sessionID) }
         if !unread.isEmpty {
             WatchSection(title: Text("Results"), count: unread.count) {
                 ForEach(unread) { task in
@@ -84,6 +85,16 @@ struct WatchHomeView: View {
                     }
                 }
             }
+        }
+        if let count = state.unfollowedUnreadCount, count > 0 {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("\(count) unread outside Followed")
+                    .font(CompanionType.font(12, .medium)).monospacedDigit()
+                Text("View on your iPhone")
+                    .font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink2)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .combine)
         }
     }
 
@@ -145,13 +156,14 @@ private struct WatchHeadline: View {
                         .foregroundStyle(CompanionPalette.ink)
                         .lineLimit(2)
                         .minimumScaleFactor(0.8)
-                    let rest = CompanionCopy.restLine(state.presentation)
-                    if !rest.isEmpty {
-                        Text(rest)
-                            .font(CompanionType.font(10))
-                            .monospacedDigit()
-                            .foregroundStyle(CompanionPalette.ink2)
+                    if state.presentation.needsYou > 0, state.counts.working > 0 {
+                        Text("\(state.counts.working) working")
+                            .font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink2)
                     }
+                    Text("Done \(state.counts.done) · \(state.presentation.completeUnread) unread")
+                        .font(CompanionType.font(10)).monospacedDigit()
+                        .foregroundStyle(CompanionPalette.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
             }

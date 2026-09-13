@@ -81,3 +81,13 @@ spoken briefings and a Watch redesign are deferred or removed. Implementation,
 automated evidence, isolated runtime evidence and human acceptance remain separate;
 local ticket 12 is owned by the human. This ADR authorizes no installation, push,
 deployment or cross-machine synchronization.
+
+## Amendment: shared pending navigation on iPhone (2026-09-13)
+
+The mobile/Watch implementation extends the original phase's Watch boundary as
+recorded in ADR-0021's amendment. The iPhone's **Next pending** follows the owner's
+chosen current list filters (including whether Older is shown), states that scope,
+and shares candidate ordering and tour progression with the Mac. Mac's existing
+navigation scope remains unchanged. Equal input timestamps preserve input order;
+reading a result removes it from pending without moving the page or restarting the
+tour at a skipped wait. Navigation is not a read or a control action.

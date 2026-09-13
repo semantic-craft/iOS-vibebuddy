@@ -12,8 +12,8 @@ import VibeBuddyKit
 /// projection carries only as an alert gets the card alone. Anything else is
 /// unavailable, and says so. An opened completion retains only its reading
 /// content when it leaves the list. Appearing *views*: it tells the Mac the wait was seen
-/// and queues the exact-round read of a completion — never an approval or an
-/// answer, which are the card's buttons and nothing else.
+/// but leaves completion summaries unread. Explicit buttons alone mark read,
+/// approve or answer.
 struct WatchTaskDetailView: View {
     @ObservedObject var store: WatchStateStore
     let link: WatchTaskLink
@@ -36,12 +36,8 @@ struct WatchTaskDetailView: View {
                         Text(retainedResult.title).font(CompanionType.font(15, .semibold))
                         Text("Previously viewed result")
                             .font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink2)
-                        if let summary = retainedResult.detailSummary ?? retainedResult.summary {
-                            Text(summary).font(CompanionType.font(12))
-                        }
-                        if completionPending {
-                            Text("Viewed — syncing with Mac").font(CompanionType.font(10))
-                        }
+                        summaryBody(retainedResult)
+                        completionStatus
                         footer
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -87,15 +83,15 @@ struct WatchTaskDetailView: View {
                 Text("Task status changed. This newer result has not been marked read.")
                     .font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink2)
             }
-            if let summary = task.detailSummary ?? task.summary {
-                CompanionHairline()
-                Text(summary)
-                    .font(CompanionType.font(12))
-                    .foregroundStyle(CompanionPalette.ink)
-            }
-            if completionPending {
-                Text("Viewed — syncing with Mac")
-                    .font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink2)
+            CompanionHairline()
+            summaryBody(task)
+            completionStatus
+            if task.presentation == .completeUnread,
+               let displayedLink = displayedCompletionLink, displayedLink.readRequest != nil,
+               !completionPending {
+                Button("Mark as read") { store.markCompletionRead(displayedLink) }
+                    .buttonStyle(CompanionButtonStyle(kind: .quiet, size: .wide))
+                    .accessibilityIdentifier("watch-mark-completion-read")
             }
             if let alert = link.alert(in: store.state), task.presentation == .requiresInput {
                 WatchAlertCard(store: store, alert: alert, now: Date(), alsoWaiting: 0)
@@ -109,10 +105,13 @@ struct WatchTaskDetailView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear {
-            if task.presentation == .completeUnread, task.completionID == link.completionID {
+            if task.presentation == .completeUnread {
                 retainedResult = task
             }
             store.viewed(link)
+        }
+        .onChange(of: task) { _, updated in
+            if updated.presentation == .completeUnread { retainedResult = updated }
         }
     }
 
@@ -146,7 +145,44 @@ struct WatchTaskDetailView: View {
         return "This task is unavailable. Return to the dashboard for current tasks."
     }
 
-    private var completionPending: Bool { store.completionQueue.links.contains(link) }
+    @ViewBuilder
+    private func summaryBody(_ task: WatchFollowedTask) -> some View {
+        let completion = task.detailSummary?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let fallback = task.summary?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !completion.isEmpty || !fallback.isEmpty {
+            Text(completion.isEmpty ? fallback : completion)
+                .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink)
+            Text(completion.isEmpty ? String(localized: "Task summary or recent status · not the full result")
+                                    : String(localized: "Mac-generated completion summary · not the full result"))
+                .font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink2)
+                .fixedSize(horizontal: false, vertical: true)
+        } else if task.completionID != nil {
+            Text("View the result on your iPhone")
+                .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
+        }
+    }
+
+    @ViewBuilder private var completionStatus: some View {
+        if completionPending {
+            Text(displayedCompletionLink.map { store.completionQueue.confirmedLinks.contains($0) } == true || store.isPhoneReachable
+                 ? String(localized: "Marked · awaiting Mac confirmation")
+                 : String(localized: "Marked · syncs when connected"))
+                .font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink2)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("watch-completion-marked")
+        }
+    }
+
+    /// Notification/deep-link identity never acknowledges a newer round by itself.
+    /// The explicit button binds to the result currently rendered on this page.
+    private var displayedCompletionLink: WatchTaskLink? {
+        guard let task = link.task(in: store.state) ?? retainedResult else { return nil }
+        return WatchTaskLink(sourceID: link.sourceID, pairingEpoch: link.pairingEpoch,
+                             sessionID: link.sessionID, completionID: task.completionID)
+    }
+    private var completionPending: Bool {
+        displayedCompletionLink.map { store.completionQueue.markedLinks.contains($0) } ?? false
+    }
     private func status(_ task: WatchFollowedTask) -> String {
         switch task.presentation {
         case .requiresInput: String(localized: "Needs response")
