@@ -20,21 +20,27 @@ public protocol AttentionNotifier {
 public final class NotificationCoordinator: @unchecked Sendable {
     private let notifier: AttentionNotifier
     private let policy: SoundPolicy
+    private let onEligible: @Sendable (SoundAlert) -> Void
     private let onScheduled: @Sendable (SoundAlert) -> Void
     private let delivery: (any NotificationDeliveryRecording)?
     /// What was posted for each waiting session, so it can be withdrawn the
     /// moment the session stops waiting. Completions are never tracked.
     private var ledger = WaitingNotificationLedger()
+    private var speechStartedAt: Date?
+    private var speechCompletions: [String: String] = [:]
+    private var pendingSpeechCompletions: [String: String] = [:]
 
     public init(
         notifier: AttentionNotifier,
         policy: SoundPolicy = SoundPolicy(),
         delivery: (any NotificationDeliveryRecording)? = nil,
+        onEligible: @escaping @Sendable (SoundAlert) -> Void = { _ in },
         onScheduled: @escaping @Sendable (SoundAlert) -> Void = { _ in }
     ) {
         self.notifier = notifier
         self.policy = policy
         self.delivery = delivery
+        self.onEligible = onEligible
         self.onScheduled = onScheduled
     }
 
@@ -73,11 +79,40 @@ public final class NotificationCoordinator: @unchecked Sendable {
     public func observe(_ sessions: [AgentSession], now: Date = Date(),
                         appActive: Bool, quietMode: Bool,
                         focusedSessionIDs: Set<String> = [],
+                        viewedSessionIDs: Set<String> = [],
                         categories: NotificationCategoryPrefs = .default) async -> [SoundAlert] {
         let input = SoundPolicyInput(sessions: sessions, now: now,
-                                     appActive: appActive, quietMode: quietMode,
+                                     appActive: false, quietMode: quietMode,
                                      focusedSessionIDs: focusedSessionIDs)
         let earned = policy.evaluate(input)
+        // Completion speech is driven by the existing round identity, not the
+        // cue sound's 30-second noise threshold or whether polling saw Working.
+        // The first snapshot is a baseline; historical results never auto-play.
+        if let startedAt = speechStartedAt {
+            for session in sessions where session.status == .done {
+                guard let id = session.completionID, session.statusSince >= startedAt,
+                      session.probeRetired != true, session.userStopped != true else { continue }
+                if speechCompletions[session.id] != id { pendingSpeechCompletions[session.id] = id }
+            }
+        } else { speechStartedAt = now }
+        speechCompletions = Dictionary(uniqueKeysWithValues: sessions.compactMap { session in
+            session.completionID.map { (session.id, $0) }
+        })
+        let current = Dictionary(uniqueKeysWithValues: sessions.map { ($0.id, $0) })
+        for (sessionID, identity) in pendingSpeechCompletions.sorted(by: {
+            let left = current[$0.key]?.statusSince ?? now, right = current[$1.key]?.statusSince ?? now
+            return left == right ? $0.key < $1.key : left < right
+        }) {
+            guard let session = current[sessionID], session.status == .done,
+                  session.completionID == identity else { pendingSpeechCompletions[sessionID] = nil; continue }
+            pendingSpeechCompletions[sessionID] = nil
+            let sound: NotificationSound = session.isStuck ? .agentStuck : .agentDone
+            // Reading can cancel a pending summary notice; the same current
+            // completed round still speaks using its available result text.
+            guard !quietMode,
+                  categories.isEnabled(sound), session.effectiveAttention != .muted else { continue }
+            onEligible(SoundAlert(session: session, sound: sound, delivery: .list))
+        }
         let alerts = categories.filter(earned)
         // A cue this Mac's switches dropped is a decision, not an absence: say so,
         // the same way the push path says why a phone heard nothing.
@@ -96,7 +131,11 @@ public final class NotificationCoordinator: @unchecked Sendable {
         for alert in alerts {
             if alert.sound == .agentDone, let notice = alert.session.completionNotice,
                !(await CompletionNoticeAttempts.shared.claim(notice, recipient: "mac-local")) { continue }
-            let attempt = await notifier.notify(alert)
+            // Speech is an independent eligible channel, including a list-only cue.
+            if alert.session.completionID == nil || (alert.sound != .agentDone && alert.sound != .agentStuck) { onEligible(alert) }
+            let localAlert = alert.sound == .agentDone && viewedSessionIDs.contains(alert.sessionID)
+                ? SoundAlert(session: alert.session, sound: alert.sound, delivery: .list) : alert
+            let attempt = await notifier.notify(localAlert)
             if attempt.outcome == .scheduled { onScheduled(alert) }
             guard attempt.shouldRecord else { continue }
             await delivery?.record(NotificationDeliveryRecord(

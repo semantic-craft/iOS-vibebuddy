@@ -18,6 +18,7 @@ public struct SessionReducer: Sendable {
     /// (`HookEvent.turnID`). Grok dispatches a cancelled turn's report off the
     /// command loop, so it can land after the next turn already started.
     private var currentTurnID: [String: String] = [:]
+    private var awaitingOriginalPrompt: Set<String> = []
 
     public init() {}
 
@@ -40,6 +41,8 @@ public struct SessionReducer: Sendable {
     ) {
         switch event.kind {
         case .sessionStart:
+            if event.startsNewSession { awaitingOriginalPrompt.insert(event.sessionID) }
+            else { awaitingOriginalPrompt.remove(event.sessionID) }
             // Starting or resuming opens a session but does not mean a turn is
             // running yet. Mature monitors call this free/idle; in our three
             // buckets that is `done` until UserPromptSubmit arrives.
@@ -51,6 +54,11 @@ public struct SessionReducer: Sendable {
         case .userPromptSubmit:
             if let turnID = event.turnID { currentTurnID[event.sessionID] = turnID }
             upsert(event, status: .working, waitKind: nil)
+            if awaitingOriginalPrompt.remove(event.sessionID) != nil,
+               sessions[event.sessionID]?.firstUserPrompt == nil,
+               let prompt = event.message?.trimmingCharacters(in: .whitespacesAndNewlines), !prompt.isEmpty {
+                sessions[event.sessionID]?.firstUserPrompt = String(prompt.prefix(4000))
+            }
             sessions[event.sessionID]?.hasUnreadCompletion = false
             sessions[event.sessionID]?.completionID = nil
             sessions[event.sessionID]?.failed = false
@@ -58,6 +66,7 @@ public struct SessionReducer: Sendable {
             sessions[event.sessionID]?.userStopped = nil
             sessions[event.sessionID]?.activeTool = nil
         case .preToolUse, .postToolUse:
+            if event.childID == nil { awaitingOriginalPrompt.remove(event.sessionID) }
             if event.childID != nil {
                 // Nested subagent tools describe the child, not parent progress.
                 applyNestedChildTool(event)
@@ -125,9 +134,9 @@ public struct SessionReducer: Sendable {
                 sessions[event.sessionID]?.completionID = nil
                 break
             }
-            // Carry the last tool's outcome; also treat a failure-looking stop
-            // message as stuck even when no tool error was reported.
-            if FailureHeuristic.looksFailed(event.message) { sessions[event.sessionID]?.failed = true }
+            // Only a terminal outcome confirms failure. A tool error or words in
+            // the final prose cannot establish that autonomous recovery failed.
+            sessions[event.sessionID]?.failed = event.completionSucceeded == false || event.toolError
             // A clean result remains green until an explicit read acknowledgement.
             // Failed endings stay red and do not manufacture a completion unread.
             let cleanCompletion = sessions[event.sessionID]?.isStuck == false
@@ -157,6 +166,21 @@ public struct SessionReducer: Sendable {
         }
         if event.kind != .sessionEnd {
             if let cwd = event.cwd, cwd.hasPrefix("/") { sessions[event.sessionID]?.checkoutPath = cwd }
+            if event.permissionModeRaw != nil || event.approvalPolicyRaw != nil || event.sandboxPolicyRaw != nil,
+               var session = sessions[event.sessionID],
+               event.timestamp >= (session.permissionObservedAt ?? .distantPast) {
+                if let raw = event.permissionModeRaw {
+                    session.permissionModeRaw = event.agent == .cursor ? nil : raw
+                    session.permissionMode = PermissionMode.reported(raw, by: event.agent)
+                }
+                if event.agent == .codex {
+                    if let policy = event.approvalPolicyRaw { session.approvalPolicyRaw = policy }
+                    if let sandbox = event.sandboxPolicyRaw { session.sandboxPolicyRaw = sandbox }
+                    session.permissionMode = .unknown
+                }
+                session.permissionObservedAt = event.timestamp
+                sessions[event.sessionID] = session
+            }
             if let name = event.sessionName { sessions[event.sessionID]?.name = name }
             // A Desktop thread id is a durable fact about the session, not about
             // this event: carry it onto the session so `/jump` can resolve a
@@ -284,6 +308,7 @@ public struct SessionReducer: Sendable {
             // The per-session side tables outlive nothing: a session id that
             // comes back (grok resumes one) must start its accounting fresh.
             currentTurnID[id] = nil
+            awaitingOriginalPrompt.remove(id)
             lastCountedTurn[id] = nil
         }
     }
@@ -425,6 +450,16 @@ public struct SessionReducer: Sendable {
         sessions[sessionID] = s
     }
 
+    @discardableResult
+    public mutating func markCompletionUnread(sessionID: String, completionID: String) -> Bool {
+        guard var session = sessions[sessionID], session.status == .done,
+              session.completionID == completionID else { return false }
+        session.hasUnreadCompletion = true
+        session.acknowledgedCompletionID = completionID
+        sessions[sessionID] = session
+        return true
+    }
+
     /// Mark a clean completion as read without changing lifecycle timestamps or
     /// list order. Returns whether authoritative state changed.
     @discardableResult
@@ -432,6 +467,7 @@ public struct SessionReducer: Sendable {
         guard var session = sessions[sessionID], session.status == .done,
               session.completionID == completionID, session.hasUnreadCompletion else { return false }
         session.hasUnreadCompletion = false
+        session.acknowledgedCompletionID = completionID
         sessions[sessionID] = session
         return true
     }

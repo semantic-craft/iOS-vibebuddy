@@ -160,7 +160,10 @@ public enum CompanionType {
 
 /// What the cat says about the whole snapshot, and how a request is worded.
 public enum CompanionCopy {
-    public static func needsYou(_ s: TaskPresentationSummary) -> Int { s.error + s.requiresInput }
+    public static func needsYou(_ s: TaskPresentationSummary) -> Int { s.needsYou }
+    public static func attentionLine(_ s: TaskPresentationSummary) -> String {
+        String(localized: "Needs you \(s.needsYou) · Unread results \(s.completeUnread)", bundle: .module)
+    }
 
     /// `3 things need you` / `1 thing needs you` / `All quiet — 2 working` / `All quiet`.
     public static func moodLine(_ s: TaskPresentationSummary) -> String {
@@ -207,9 +210,38 @@ public struct StateGroups: Equatable, Sendable {
     public let done: [AgentSession]
 
     public init(_ sessions: [AgentSession]) {
-        needsYou = sessions.filter { $0.presentationState == .error || $0.presentationState == .requiresInput }
+        needsYou = sessions.enumerated()
+            .filter { $0.element.presentationState == .error || $0.element.presentationState == .requiresInput }
+            .sorted {
+                let lhs = Self.needsYouRank($0.element), rhs = Self.needsYouRank($1.element)
+                if lhs != rhs { return lhs < rhs }
+                if $0.element.updatedAt != $1.element.updatedAt {
+                    return $0.element.updatedAt > $1.element.updatedAt
+                }
+                return $0.offset < $1.offset
+            }.map(\.element)
         working = sessions.filter { $0.presentationState == .thinking }
-        done = sessions.filter { $0.presentationState == .completeUnread || $0.presentationState == .idle }
+        done = sessions.enumerated()
+            .filter { $0.element.presentationState == .completeUnread || $0.element.presentationState == .idle }
+            .sorted {
+                if $0.element.hasUnreadCompletion != $1.element.hasUnreadCompletion {
+                    return $0.element.hasUnreadCompletion
+                }
+                if $0.element.updatedAt != $1.element.updatedAt {
+                    return $0.element.updatedAt > $1.element.updatedAt
+                }
+                return $0.offset < $1.offset
+            }.map(\.element)
+    }
+
+    private static func needsYouRank(_ session: AgentSession) -> Int {
+        if session.status == .needsResponse {
+            if session.waitKind == .question || session.pendingApproval?.tool == "ExitPlanMode" {
+                return 0
+            }
+            return 1
+        }
+        return 2
     }
 
     public struct Bucket: Identifiable, Equatable, Sendable {

@@ -26,11 +26,10 @@ code, and tests — don't drift to synonyms.
   - **done** — finished and not waiting.
 - **waitKind** — when `needsResponse`, *why*: **permission** (approve/deny a
   tool/command/edit) or **question** (free-text answer).
-- **failed / stuck** — a real failure signal: the Mac hook flags `PostToolUse`
-  tool errors (`HookEvent.toolError`, parsed from `is_error` in `tool_response`),
-  the reducer sets `AgentSession.failed` on stop, and `isStuck` drives the pet's
-  stuck mood + stuck sound. The summary-keyword `FailureHeuristic` is now only a
-  fallback.
+- **failed / stuck** — a confirmed terminal failure. A tool error while a turn
+  continues is recovery activity, not a request for human intervention. Lost or
+  unreadable observation is uncertainty, not a terminal outcome.
+
 
 ## Mac side
 
@@ -118,8 +117,8 @@ code, and tests — don't drift to synonyms.
   **Needs you / Working / Done**, newest first inside each, the phone's own list
   at panel scale (ADR-0015); and a footer row of controls (Dashboard, the Glance
   toggle, Settings, phone state, updates and quit). "Show task status in menu bar"
-  optionally adds a state dot and the primary state count to the icon; it is off
-  by default. The Glance owns ambient status and actionable alerts. Both
+  optionally adds a state dot and the primary state count to the icon; it is on
+  by default when no explicit choice has been saved. The Glance owns ambient status and actionable alerts. Both
   surfaces are enabled by default and can be hidden independently.
 - **Pairing** — the owner's explicit consent to link a phone to a Mac over the
   LAN, using a QR carrying the address and bearer token. A new phone needs an
@@ -194,7 +193,7 @@ code, and tests — don't drift to synonyms.
   longer matches. Codex only in this release; every other agent is stopped
   where it runs (ADR-0011, third amendment). The ending it produces is marked
   `userStopped`: Codex words a requested stop and a crash the same
-  ("interrupted"), so without that mark the failure heuristic would ring the
+  ("interrupted"), so without that mark its terminal failure signal would ring the
   error cue for something the user asked for. An interruption this Mac did not
   send is unmarked and still reads as a failure. Since 2026-09-13 a Cursor
   conversation on the `acp` channel is stopped the same way (`session/cancel`,
@@ -345,7 +344,7 @@ code, and tests — don't drift to synonyms.
   `agentDone` cue for a `done`, unread session whose effective attention is
   `followed`, after 5, 10, 20 and then 40 minutes — at most 4 times per
   completion (keyed by `statusSince`), the last 75 minutes after it — on the
-  Mac and over APNs; any acknowledgement stops it. Same notification id and
+  Mac and over APNs; any acknowledgement retires it for that completion, even when later marked unread. Same notification id and
   collapse id as the original cue, so one banner is replaced, not stacked.
   The cadence backs off because every reminder is mirrored to the wrist as a
   fresh buzz (ADR-0021). The Watch carries no attention state.
@@ -464,8 +463,8 @@ code, and tests — don't drift to synonyms.
   does not change session state or delay permission/question cues. The Mac
   commits the decision by completion + 12 seconds; an updated phone waits for
   that decision rather than independently choosing competing wording.
-- **Read aloud (Mac)** — a separate opt-in which synthesizes the initial AI
-  completion summary through the `SpeechSynthesizer` protocol and plays it on the
+- **Read aloud (Mac)** — a separate opt-in which synthesizes an attributed result
+  or confirmed blocker announcement through the `SpeechSynthesizer` protocol and plays it on the
   Mac's current output. Its provider follows the completion summary provider
   unless pinned; model and voice are stored per provider, prefilled, and have a
   sample preview. It does not open a microphone, replay completion reminders, or
@@ -501,3 +500,30 @@ Mac presence suppresses ordinary cues only while the verdict is current; leaving
   Its first line, `Source session: <key>`, names the writer's own verified Session
   key, or `unknown` when unavailable; the newest project session is not evidence
   of authorship. Saved summaries cannot override a newer Handoff note.
+## Autonomous task desk (2026-09-13)
+
+- **Permission mode** — what the agent explicitly reports about how it runs.
+  Auto, bypass, accept-edits, plan, default and unknown remain distinct. Approval
+  policy and sandbox describe different facts. A real wait needs attention in
+  any mode, and unknown does not mean autonomous.
+- **Unread result / read / mark unread** — a particular round's reading state.
+  Read means that its result was presented to an active reader or explicitly
+  confirmed. Automatic confirmation on macOS 15+ and iOS 18+ requires the result
+  body to enter the viewport while its task is viewed in the foreground; older
+  OS versions retain explicit read buttons. Loading offscreen text is not reading. It says nothing about review, validation or acceptance. Mark unread
+  restores the browsing marker without renewing notifications or reminders.
+- **Next pending task** — the next task needing a decision, followed by unread
+  results. Reading and acting are separate from jumping to an agent's application.
+- **Announcement** — an opt-in spoken account of a round's result or a real
+  blocker, with task identity and source limitations. Hearing, skipping and
+  replaying do not mark the result read. The queue holds at most ten items,
+  including current playback. It does not open the microphone.
+- **Activity ledger** — bounded, partial observations of tool intent and outcomes.
+  Unconfirmed means no matching result was observed. Cumulative edit volume is
+  distinct from the current net workspace diff.
+- **Workspace changes** — read-only Git differences in an explicit uncommitted,
+  staged or branch range. They describe the workspace, not one task's exclusive
+  authorship; missing paths and repositories remain explicit limitations.
+  Uncommitted compares the tracked working tree with HEAD, including staged
+  changes; staged compares the index with HEAD; branch uses the selected
+  baseline’s merge base.
