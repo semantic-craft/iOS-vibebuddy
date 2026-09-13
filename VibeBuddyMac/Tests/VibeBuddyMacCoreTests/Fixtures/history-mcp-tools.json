@@ -1,0 +1,66 @@
+[
+  {
+    "name": "vibebuddy_list_sessions",
+    "description": "List indexed local sessions, newest activity first.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "string"
+        },
+        "agents": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "claude-code",
+              "codex"
+            ]
+          }
+        },
+        "since": {
+          "type": "string"
+        },
+        "starred": {
+          "type": "boolean"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        }
+      },
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "vibebuddy_list_projects",
+    "description": "List projects with indexed sessions, newest activity first.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "since": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        }
+      },
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  }
+]

@@ -2,12 +2,12 @@ import Foundation
 import CoreFoundation
 
 public enum HistoryToolError: Error, LocalizedError {
-    case readOnly, noIndex, invalidArguments(String)
+    case readOnly, noIndex, invalidArguments(String), invalidValue(String), executionFailed(String)
     public var errorDescription: String? {
         switch self {
         case .readOnly: "History repository is read-only."
-        case .noIndex: "No usable index. Open History in the Mac App (index command arrives in a later slice)."
-        case .invalidArguments(let text): text
+        case .noIndex: "No usable index. Run vibebuddy-mcp index or open History in the Mac App."
+        case .invalidArguments(let text), .invalidValue(let text), .executionFailed(let text): text
         }
     }
 }
@@ -108,8 +108,15 @@ public enum HistoryTools {
 public enum HistoryCLI {
     public static let commands = ["sessions": "vibebuddy_list_sessions", "projects": "vibebuddy_list_projects"]
     public static func parse(_ argv: [String]) throws -> (tool: String, arguments: [String: Any]) {
+        if argv.first == "call" {
+            guard argv.count == 3, let data = argv[2].data(using: .utf8),
+                  let arguments = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+                throw HistoryToolError.invalidArguments("Usage: vibebuddy-mcp call <tool> '<JSON object>'")
+            }
+            return (argv[1], arguments)
+        }
         guard let command = argv.first, let tool = commands[command] else {
-            throw HistoryToolError.invalidArguments("Usage: vibebuddy-mcp sessions [--project PATH] [--agent AGENT] [--since DATE] [--starred] [--limit N] | projects [--since DATE] [--limit N]")
+            throw HistoryToolError.invalidArguments("Usage: vibebuddy-mcp sessions [--project PATH] [--agent AGENT] [--since DATE] [--starred] [--limit N] | projects [--since DATE] [--limit N] | call <tool> '<JSON object>'; no arguments starts stdio MCP")
         }
         var args: [String: Any] = [:]
         var index = 1
