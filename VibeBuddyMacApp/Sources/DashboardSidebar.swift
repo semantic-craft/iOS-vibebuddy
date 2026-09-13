@@ -181,7 +181,7 @@ struct SidebarRow: View {
             HStack(spacing: 8) {
                 Image(systemName: systemName).font(.system(size: 11, weight: .medium))
                     .foregroundStyle(selected ? MacTheme.accent : MacTheme.ink2).frame(width: 14)
-                Text(title).font(MacTheme.font(12, .medium)).foregroundStyle(selected ? MacTheme.accent : MacTheme.ink).lineLimit(1)
+                Text(title).font(MacTheme.font(12, .medium)).foregroundStyle(selected ? MacTheme.accentText : MacTheme.ink).lineLimit(1)
                 Spacer(minLength: 4)
                 if count > 0 {
                     Text("\(count)").font(MacTheme.mono(10, .medium)).foregroundStyle(countTint)
@@ -207,7 +207,7 @@ struct ProjectRow: View {
     var body: some View {
         Button(action: action) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(title).font(MacTheme.font(12)).foregroundStyle(selected ? MacTheme.accent : MacTheme.ink2)
+                Text(title).font(MacTheme.font(12)).foregroundStyle(selected ? MacTheme.accentText : MacTheme.ink2)
                     .lineLimit(1).truncationMode(.middle)
                 Spacer(minLength: 4)
                 Text("\(count)").font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink3)
