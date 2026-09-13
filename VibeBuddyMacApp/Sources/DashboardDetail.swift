@@ -284,7 +284,7 @@ private struct ReadingColumn: View {
                     Text(WaitHandling.resolve(for: session).message).font(MacTheme.font(11))
                 }
             }
-            if let feedback = model.answerFeedback[session.id] {
+            if !composerAtFoot, let feedback = model.answerFeedback[session.id] {
                 Text(feedback).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
             }
             // What the last jump actually achieved — focused the pane, only
@@ -323,6 +323,9 @@ private struct ReadingColumn: View {
                     InstructionComposer(placeholder: session.status == .done ? "Start a new turn…" : "Add to the current turn…",
                                         externalDraft: $draft) { text in
                         model.answer(session.id, answers: [:], text: text)
+                    }
+                    if let feedback = model.answerFeedback[session.id] {
+                        Text(feedback).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
                     }
                 }
             }
