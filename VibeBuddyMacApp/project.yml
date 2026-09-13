@@ -42,7 +42,7 @@ targets:
     info:
       path: Sources/Info.plist
       properties:
-        CFBundleDisplayName: vibebuddy
+        CFBundleDisplayName: VibeBuddy
         # Without these two, xcodegen writes its own defaults (1.0 / 1) into the
         # generated Info.plist and MARKETING_VERSION / CURRENT_PROJECT_VERSION below
         # never reach the bundle — which is how 0.1 shipped as "1.0 (1)".

@@ -52,7 +52,7 @@
 "Your Mac isn't connected to Codex right now." = "你的 Mac 现在没连上 Codex。";
 "This task has already finished." = "这个任务已经结束了。";
 "This task is waiting on you, not running." = "这个任务在等你，没有在跑。";
-"Install vibebuddy's Cursor hooks to send instructions from here." = "安装 vibebuddy 的 Cursor hooks 后，才能从这里发送指令。";
+"Install VibeBuddy's Cursor hooks to send instructions from here." = "安装 VibeBuddy 的 Cursor hooks 后，才能从这里发送指令。";
 "Cursor can't be interrupted mid-turn. This is queued and sent the moment the turn ends." = "Cursor 不能在一轮进行中被打断。这条已排队，本轮一结束就发送。";
 "Continues this chat in a terminal with the Cursor CLI." = "用 Cursor CLI 在终端里继续这段对话。";
 "Stop this in Cursor on your Mac." = "请在 Mac 上的 Cursor 里停。";
