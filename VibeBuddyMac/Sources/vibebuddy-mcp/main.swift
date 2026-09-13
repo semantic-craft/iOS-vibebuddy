@@ -13,6 +13,8 @@ struct VibeBuddyMCP {
             let text: String
             if request.tool == "vibebuddy_get_session" {
                 text = try await HistoryTools.getSession(arguments: request.arguments, repository: repository)
+            } else if request.tool == "vibebuddy_get_summary" {
+                text = try await HistoryTools.getSummary(arguments: request.arguments, repository: repository)
             } else {
                 guard await repository.hasUsableIndex() else { fail(HistoryToolError.noIndex, code: 2) }
                 text = try HistoryTools.call(request.tool, arguments: request.arguments, snapshot: await repository.snapshot())

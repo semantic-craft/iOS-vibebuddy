@@ -11,15 +11,15 @@ final class HistoryToolsTests: XCTestCase {
 
     func testRegistryAndCLIParity() throws {
         let definitions = HistoryTools.definitions()
-        XCTAssertEqual(definitions.compactMap { $0["name"] as? String }, ["vibebuddy_get_session", "vibebuddy_list_sessions", "vibebuddy_list_projects"])
+        XCTAssertEqual(definitions.compactMap { $0["name"] as? String }, ["vibebuddy_get_session", "vibebuddy_get_summary", "vibebuddy_list_sessions", "vibebuddy_list_projects"])
         XCTAssertEqual(Set(HistoryCLI.commands.values), Set(definitions.compactMap { $0["name"] as? String }))
         for definition in definitions {
             XCTAssertEqual((definition["annotations"] as? [String: Bool])?["readOnlyHint"], true)
             XCTAssertEqual((definition["inputSchema"] as? [String: Any])?["additionalProperties"] as? Bool, false)
         }
         let schemas = definitions.compactMap { $0["inputSchema"] as? [String: Any] }
-        XCTAssertEqual(Set((schemas[1]["properties"] as? [String: Any] ?? [:]).keys), Set(["project", "agents", "since", "starred", "limit"]))
-        XCTAssertEqual(Set((schemas[2]["properties"] as? [String: Any] ?? [:]).keys), Set(["since", "limit"]))
+        XCTAssertEqual(Set((schemas[2]["properties"] as? [String: Any] ?? [:]).keys), Set(["project", "agents", "since", "starred", "limit"]))
+        XCTAssertEqual(Set((schemas[3]["properties"] as? [String: Any] ?? [:]).keys), Set(["since", "limit"]))
         let snapshot = SessionHistorySnapshot(sessions: [session("native-id", project: "/a/repo")])
         let request = try HistoryCLI.parse(["sessions", "--project", "/a/repo", "--limit", "5", "--agent", "codex"])
         XCTAssertEqual(request.arguments["limit"] as? String, "5")
