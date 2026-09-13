@@ -355,7 +355,8 @@ code, and tests — don't drift to synonyms.
   collapse id as the original cue, so one banner is replaced, not stacked.
   The cadence backs off because every reminder is mirrored to the wrist as a
   fresh buzz (ADR-0021). The Watch carries no attention state.
-- **Watch results** — the bounded current result projection on the wrist:
+- **Watch results** — the bounded current result projection on the wrist, in
+  **pending queue** order (ADR-0022, a subsequence of the phone's queue):
   failures and followed unread completions can be opened from the home;
   completion-unread sessions outside Followed are shown as a count with an
   iPhone destination. The total unread count includes them. The existing
@@ -366,8 +367,11 @@ code, and tests — don't drift to synonyms.
   the Mac confirms; opening a wait only marks that wait seen (ADR-0021).
 - **Next pending** — an explicit navigation step through Needs you, then unread
   Done, using the same priority and stable newest-first order on Mac and iPhone.
-  The iPhone follows its current list filters, including the Older choice;
-  grouping and collapse do not narrow the tour or change the global counts.
+  The iPhone follows the scope it entered the detail from (ADR-0022): the
+  whole snapshot from **First up**, the bucket or project from a list page,
+  plus any Customize picks and the Older choice; the footer names that scope
+  and the position (`All sessions · 2 / 5`). Grouping and collapse do not
+  narrow the tour or change the global counts.
   Reading the current result never moves the page, and removing that result from
   unread does not restart the tour at an unresolved wait. Navigation itself
   neither acknowledges results nor resolves waits.
@@ -515,6 +519,41 @@ Mac presence suppresses ordinary cues only while the verdict is current; leaving
   Its first line, `Source session: <key>`, names the writer's own verified Session
   key, or `unknown` when unavailable; the newest project session is not evidence
   of authorship. Saved summaries cannot override a newer Handoff note.
+## iPhone inbox (2026-09-13, ADR-0022)
+
+- **Inbox** — the iPhone's home: the mood line, **First up**, four **buckets**,
+  the **Projects** list and the composer. Every number is the current-session
+  summary the Mac panel and the Watch also read. Read results have no bucket;
+  they are reached through *All sessions*.
+- **Bucket** — one of the four tiles, a slice of the current sessions by
+  presentation state: *All sessions*, *Unread results* (`completeUnread`),
+  *Needs you* (`requiresInput` + `error`; worded **Stuck** while only
+  confirmed failures are in it), *Working* (`thinking`). Tapping one opens the
+  **bucket page**: the scope's name as the title, a *Recents* group and then
+  the same rows under their projects, two lines per row, no inline keys.
+  Search on that page matches title, project and branch.
+- **First up** — the head of the **pending queue** (`PendingTasks.ordered`
+  over every current session). The same task is the Watch's first card and
+  the first item read aloud. Opening it never marks anything read.
+- **Pending queue** — the one order every surface walks: questions and plan
+  decisions, then approvals, then confirmed failures, then unread results,
+  newest first within each. First up, Next pending, Read pending and the
+  Watch's alerts and results are all views of it; a project's number on the
+  inbox is its share of it.
+- **Read pending** — the phone's read-aloud: the pending queue spoken in
+  order (stuck and waiting first, then unread results), ten at most, each
+  item bound to its round and re-checked before it is spoken; pause, skip,
+  replay, stop. The voice companion's provider speaks when it has a key,
+  otherwise the system voice. Nothing it does marks a result read; a live
+  voice call pauses it. Background, automatic reading remains the Mac's
+  **Announcement**.
+- **Voice page** — the sheet behind the mic: the read-aloud queue, the
+  conversation, and pause / mic / skip. It says which side the microphone is
+  on (half duplex, ADR-0004). Closing it stops nothing. Its two extra voice
+  tools, *mark read* and *instruct*, confirm a displayed round as read or
+  send free text to a running or finished session; both report the
+  application's receipt, never the agent's completion.
+
 ## Autonomous task desk (2026-09-13)
 
 - **Permission mode** — what the agent explicitly reports about how it runs.
