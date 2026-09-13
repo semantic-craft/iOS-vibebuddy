@@ -12,6 +12,77 @@ final class GrokHistorySourceTests: XCTestCase {
     00000000-0000-4000-8000-000000000008  2026-09-08  2026-09-09  remote  Remote conversation
     """
 
+    func testSharedExecutableResolverPreservesConfiguredPriorityAndLocalFallback() {
+        let home = URL(fileURLWithPath: "/fixture/grok")
+        let configured = home.appendingPathComponent("bin/grok")
+        let local = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin/grok")
+        let path = URL(fileURLWithPath: "/fixture/path/grok")
+        XCTAssertEqual(GrokUsageProvider.resolveGrokExecutable(environment: ["PATH": "/usr/bin:/bin"], grokHome: home,
+            fileManager: GrokExecutableFiles([local.path])), local)
+        XCTAssertEqual(GrokUsageProvider.resolveGrokExecutable(environment: ["PATH": "/fixture/path"], grokHome: home,
+            fileManager: GrokExecutableFiles([configured.path, path.path, local.path])), configured)
+        XCTAssertEqual(GrokUsageProvider.resolveGrokExecutable(environment: ["PATH": "/fixture/path"], grokHome: home,
+            fileManager: GrokExecutableFiles([path.path, local.path])), path)
+    }
+
+    func testCustomHomeExecutableListsSlugWorkspaceUsingOnlySummaryMetadata() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("grok-list-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cwd = root.appendingPathComponent(String(repeating: "long project ", count: 14))
+        try FileManager.default.createDirectory(at: cwd, withIntermediateDirectories: true)
+        XCTAssertGreaterThan(GrokSessionLocator.encode(cwd: cwd.path)!.utf8.count, 255)
+        let home = root.appendingPathComponent("custom-grok")
+        let directory = home.appendingPathComponent("sessions/project-0123456789abcdef/" + id)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let metadata = try JSONSerialization.data(withJSONObject: ["info": ["id": id, "cwd": cwd.path]])
+        try metadata.write(to: directory.appendingPathComponent("summary.json"))
+        let bin = home.appendingPathComponent("bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let executable = bin.appendingPathComponent("grok")
+        // A fixture executable, never the installed CLI. Shell builtins work
+        // inside the same write/fork-denying sandbox as the production source.
+        let script = """
+        #!/bin/sh
+        [ "$1" = "--cwd" ] && [ -d "$2" ] && [ "$3" = "sessions" ] && [ "$4" = "list" ] || exit 64
+        printf '%s\\n' '\(sample)'
+        """
+        try script.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        let inventory = GrokHistorySource.scan(home: home)
+        XCTAssertEqual(inventory.issues, [])
+        XCTAssertEqual(inventory.sessions.count, 1)
+        XCTAssertEqual(inventory.sessions.first?.projectPath, cwd.path)
+        XCTAssertEqual(inventory.sessions.first?.nativeSessionID, id)
+        XCTAssertEqual(inventory.sessions.first?.messages, [])
+        XCTAssertEqual(try Data(contentsOf: directory.appendingPathComponent("summary.json")), metadata)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory.path), ["summary.json"])
+    }
+
+    func testSlugWorkspaceRejectsConflictingIdentityAndSymlinkMetadata() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("grok-cwd-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workspace = root.appendingPathComponent("project-0123456789abcdef")
+        let first = workspace.appendingPathComponent(id)
+        let secondID = "00000000-0000-4000-8000-000000000009"
+        let second = workspace.appendingPathComponent(secondID)
+        for directory in [first, second] { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true) }
+        func metadata(_ id: String, _ cwd: String) throws -> Data {
+            try JSONSerialization.data(withJSONObject: ["info": ["id": id, "cwd": cwd]])
+        }
+        let summary = first.appendingPathComponent("summary.json")
+        try metadata(id, "/first").write(to: summary)
+        try metadata(secondID, "/second").write(to: second.appendingPathComponent("summary.json"))
+        XCTAssertNil(GrokHistorySource.workspaceCwd(directory: workspace))
+        try FileManager.default.removeItem(at: second)
+        try metadata(secondID, "/first").write(to: summary)
+        XCTAssertNil(GrokHistorySource.workspaceCwd(directory: workspace), "A different native ID cannot supply cwd.")
+        try FileManager.default.removeItem(at: summary)
+        let outside = root.appendingPathComponent("outside.json")
+        try metadata(id, "/first").write(to: outside)
+        try FileManager.default.createSymbolicLink(at: summary, withDestinationURL: outside)
+        XCTAssertNil(GrokHistorySource.workspaceCwd(directory: workspace))
+    }
+
     func testOfficialListIsMetadataOnlyAndRejectsMalformedRows() {
         let parsed = GrokHistorySource.parse(sample + "\nmalformed row", cwd: "/project", directory: URL(fileURLWithPath: "/grok/sessions/%2Fproject"))
         XCTAssertEqual(parsed.sessions.count, 1)
@@ -103,4 +174,10 @@ final class GrokHistorySourceTests: XCTestCase {
         XCTAssertEqual(persisted.pendingSourceCount, 0)
         XCTAssertFalse(FileManager.default.fileExists(atPath: grok.path))
     }
+}
+
+private final class GrokExecutableFiles: FileManager, @unchecked Sendable {
+    let executablePaths: Set<String>
+    init(_ paths: Set<String>) { executablePaths = paths; super.init() }
+    override func isExecutableFile(atPath path: String) -> Bool { executablePaths.contains(path) }
 }

@@ -484,7 +484,10 @@ public final class GrokUsageProvider: AccountUsageProviding, Sendable {
         let fromPath = (environment["PATH"] ?? "")
             .split(separator: ":")
             .map { String($0) + "/grok" }
-        return (fixed + fromPath)
+        // Finder/LaunchServices may omit ~/.local/bin from PATH. Retain all
+        // configured/fixed priorities before this standard-install fallback.
+        let local = fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin/grok").path
+        return (fixed + fromPath + [local])
             .first(where: fileManager.isExecutableFile(atPath:))
             .map { URL(fileURLWithPath: $0) }
     }
