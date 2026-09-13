@@ -24,6 +24,14 @@ public struct TokenStore: Sendable {
         return TokenStore(fileURL: base.appendingPathComponent("vibebuddy/token"))
     }
 
+    /// Read-only clients must never create a token as a side effect of a query.
+    public func load() -> String? {
+        guard let data = try? Data(contentsOf: fileURL),
+              let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty else { return nil }
+        return text
+    }
+
     public func loadOrCreate() throws -> String {
         if let data = try? Data(contentsOf: fileURL),
            let existing = String(data: data, encoding: .utf8)?
