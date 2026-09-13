@@ -7,6 +7,13 @@ struct VibeBuddyMCP {
         let request: (tool: String, arguments: [String: Any])
         do { request = try HistoryCLI.parse(Array(CommandLine.arguments.dropFirst())) }
         catch { fail(error, code: 2) }
+        if request.tool == "vibebuddy_live_status" {
+            do {
+                let text = try await HistoryLiveStatus.call(arguments: request.arguments)
+                FileHandle.standardOutput.write(Data(HistoryCLI.output(text).utf8))
+                return
+            } catch { fail(error, code: 2) }
+        }
         let directory = ProcessInfo.processInfo.environment["VIBEBUDDY_HISTORY_DIRECTORY"].map { URL(fileURLWithPath: $0) }
         let repository = SessionHistoryRepository(cacheDirectory: directory, readOnly: true)
         guard await repository.hasUsableIndex() else { fail(HistoryToolError.noIndex, code: 2) }

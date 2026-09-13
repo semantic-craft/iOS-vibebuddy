@@ -20,7 +20,7 @@ public enum HistoryTools {
             "since": ["type": "string"], "starred": ["type": "boolean"], "limit": ["type": "integer", "minimum": 1, "maximum": 200]
         ]), definition("vibebuddy_list_projects", description: "List projects with indexed sessions, newest activity first.", properties: [
             "since": ["type": "string"], "limit": ["type": "integer", "minimum": 1, "maximum": 200]
-        ])]
+        ])] + [HistoryLiveStatus.definition]
     }
 
     private static func definition(_ name: String, description: String, properties: [String: Any]) -> [String: Any] {
@@ -34,6 +34,7 @@ public enum HistoryTools {
     }
 
     public static func call(_ name: String, arguments: [String: Any], snapshot: SessionHistorySnapshot, now: Date = Date()) throws -> String {
+        guard name != "vibebuddy_live_status" else { throw HistoryToolError.invalidArguments("Use the live status reader for this tool.") }
         guard let definition = definitions().first(where: { $0["name"] as? String == name }),
               let schema = definition["inputSchema"] as? [String: Any], let properties = schema["properties"] as? [String: Any] else {
             throw HistoryToolError.invalidArguments("Unknown tool: \(name)")
@@ -106,22 +107,22 @@ public enum HistoryTools {
 
 /// Only argv shape is interpreted here; values go unchanged to the tool layer.
 public enum HistoryCLI {
-    public static let commands = ["sessions": "vibebuddy_list_sessions", "projects": "vibebuddy_list_projects"]
+    public static let commands = ["sessions": "vibebuddy_list_sessions", "projects": "vibebuddy_list_projects", "status": "vibebuddy_live_status"]
     public static func parse(_ argv: [String]) throws -> (tool: String, arguments: [String: Any]) {
         guard let command = argv.first, let tool = commands[command] else {
-            throw HistoryToolError.invalidArguments("Usage: vibebuddy-mcp sessions [--project PATH] [--agent AGENT] [--since DATE] [--starred] [--limit N] | projects [--since DATE] [--limit N]")
+            throw HistoryToolError.invalidArguments("Usage: vibebuddy-mcp sessions [--project PATH] [--agent AGENT] [--since DATE] [--starred] [--limit N] | projects [--since DATE] [--limit N] | status [--project PATH] [--exclude-session ID]")
         }
         var args: [String: Any] = [:]
         var index = 1
         while index < argv.count {
             let flag = argv[index]
             if flag == "--starred" { args["starred"] = true; index += 1; continue }
-            guard ["--project", "--agent", "--since", "--limit"].contains(flag), index + 1 < argv.count else {
+            guard ["--project", "--agent", "--since", "--limit", "--exclude-session"].contains(flag), index + 1 < argv.count else {
                 throw HistoryToolError.invalidArguments("Unknown option or missing value: \(flag)")
             }
             let value = argv[index + 1]
             if flag == "--agent" { args["agents"] = (args["agents"] as? [String] ?? []) + [value] }
-            else { args[String(flag.dropFirst(2))] = value }
+            else { args[String(flag.dropFirst(2)).replacingOccurrences(of: "-", with: "_")] = value }
             index += 2
         }
         return (tool, args)

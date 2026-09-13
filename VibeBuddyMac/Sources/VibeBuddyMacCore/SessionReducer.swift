@@ -156,6 +156,7 @@ public struct SessionReducer: Sendable {
             applyChildLifecycle(event)
         }
         if event.kind != .sessionEnd {
+            if let cwd = event.cwd, cwd.hasPrefix("/") { sessions[event.sessionID]?.checkoutPath = cwd }
             if let name = event.sessionName { sessions[event.sessionID]?.name = name }
             // A Desktop thread id is a durable fact about the session, not about
             // this event: carry it onto the session so `/jump` can resolve a
@@ -180,7 +181,10 @@ public struct SessionReducer: Sendable {
     public mutating func applyStatusLine(_ sample: StatusLineSample) -> Bool {
         guard var s = sessions[sample.sessionID] else { return false }
         if let model = sample.model { s.model = model }
-        if let cwd = sample.cwd { s.project = Self.projectName(cwd) }
+        if let cwd = sample.cwd {
+            s.project = Self.projectName(cwd)
+            if cwd.hasPrefix("/") { s.checkoutPath = cwd }
+        }
         if let name = sample.sessionName { s.name = name }
         if let effort = sample.effort { s.effort = effort }
         if let cost = sample.costUSD { s.costUSD = cost }
