@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import Darwin
 
 /// Local history is a read-only projection, independent of the live Session reducer.
 public actor SessionHistoryRepository {
@@ -12,7 +13,6 @@ public actor SessionHistoryRepository {
     private var favorites = Set<String>()
     private var pins = Set<String>()
     private var archives = Set<String>()
-    private var searchIndex: SessionHistorySearchIndex?
     private var issues: [String] = []
     private var refreshedAt: Date?
     private var pendingPaths = Set<String>()
@@ -39,9 +39,22 @@ public actor SessionHistoryRepository {
         if let data = try? Data(contentsOf: directory.appendingPathComponent("index.json")), let cache = try? JSONDecoder().decode(Cache.self, from: data), [4, 5, 6, 7].contains(cache.version) {
             usableIndex = true
             // Never reuse another configured source home's cached content.
-            let configuredRoots = roots
-            entries = cache.entries.filter { path, _ in configuredRoots.contains { URL(fileURLWithPath: path).resolvingSymlinksInPath().path.hasPrefix($0.0.path + "/") } }
-            pendingPaths = Set((cache.pendingPaths ?? []).filter { path in configuredRoots.contains { URL(fileURLWithPath: path).resolvingSymlinksInPath().path.hasPrefix($0.0.path + "/") } })
+            // A removed leaf cannot resolve symlinks. Keep both spellings of
+            // existing configured roots so /private/var caches survive deletion.
+            let prefixes = roots.flatMap { root, _ -> [String] in
+                var paths = [root.path + "/"]
+                if let physical = realpath(root.path, nil) {
+                    paths.append(String(cString: physical) + "/")
+                    free(physical)
+                }
+                return paths
+            }
+            func belongsToRoots(_ path: String) -> Bool {
+                let resolved = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+                return prefixes.contains { path.hasPrefix($0) || resolved.hasPrefix($0) }
+            }
+            entries = cache.entries.filter { belongsToRoots($0.key) }
+            pendingPaths = Set((cache.pendingPaths ?? []).filter(belongsToRoots))
             if cache.version < 7 { pendingPaths.formUnion(entries.keys) }
         }
     }
@@ -65,21 +78,51 @@ public actor SessionHistoryRepository {
     }
     public func refresh(rebuild: Bool = false) throws -> SessionHistorySnapshot {
         guard !readOnly else { throw HistoryToolError.readOnly }
+        let lock: HistoryRefreshLock
+        do { lock = try HistoryRefreshLock(directory: directory) }
+        catch HistoryToolError.refreshBusy {
+            issues = ["another refresh is running; skipped this refresh."]
+            return snapshot()
+        }
+        defer { withExtendedLifetime(lock) {} }
+        return try refreshLocked(rebuild: rebuild)
+    }
+
+    /// Explicit CLI maintenance, never exposed as an MCP tool. A nil result means
+    /// an existing usable index was left alone; contention always throws.
+    public func index(rebuild: Bool = false) throws -> SessionHistorySnapshot? {
+        guard !readOnly else { throw HistoryToolError.readOnly }
+        let lock = try HistoryRefreshLock(directory: directory)
+        defer { withExtendedLifetime(lock) {} }
+        reloadForRefresh()
+        if usableIndex && !rebuild { return nil }
+        return try refreshLocked(rebuild: rebuild, full: true)
+    }
+
+    private func reloadForRefresh() {
+        // Another writer may have advanced a bounded batch since this actor last ran.
+        loaded = false
+        entries = [:]; pendingPaths = []; usableIndex = false
         ensureLoaded()
+    }
+
+    private func refreshLocked(rebuild: Bool, full: Bool = false) throws -> SessionHistorySnapshot {
+        reloadForRefresh()
         let fm = FileManager.default
         issues = []
-        var changed = rebuild
+        var changed = rebuild || !usableIndex
         var cacheFailure: Error?
         var discovered = Set<String>()
         var totalBytes = 0
         var pendingCount = 0
         var excludedChildren = 0
-        if rebuild {
-            searchIndex = nil
-            let indexFile = directory.appendingPathComponent("search.sqlite")
-            if fm.fileExists(atPath: indexFile.path) { try fm.removeItem(at: indexFile) }
-            pendingPaths.formUnion(entries.keys)
-        }
+        // Rebuild into a private database then rename it atomically. Readers with
+        // an open connection finish on the previous complete database; corrupt
+        // derived databases can be replaced without deleting a reader's inode.
+        let staging = rebuild ? directory.appendingPathComponent(".rebuild-" + UUID().uuidString) : nil
+        defer { if let staging { try? fm.removeItem(at: staging) } }
+        let searchIndex = try SessionHistorySearchIndex(directory: staging ?? directory)
+        if rebuild { pendingPaths.formUnion(entries.keys) }
         for (root, agent) in roots {
             guard fm.fileExists(atPath: root.path) else { issues.append("Source directory unavailable: \(root.path)"); continue }
             var enumerationErrors = 0
@@ -99,19 +142,24 @@ public actor SessionHistoryRepository {
                     let size = values.fileSize ?? 0
                     let modified = values.contentModificationDate ?? .distantPast
                     if !pendingPaths.contains(file.path), let cached = entries[file.path], cached.modified == modified, cached.size == size, cached.session.isAvailable { continue }
-                    if totalBytes > 0 && totalBytes + min(size, SessionHistoryParser.byteLimit) > refreshByteBudget {
+                    if !full && totalBytes > 0 && totalBytes + min(size, SessionHistoryParser.byteLimit) > refreshByteBudget {
                         pendingPaths.insert(file.path)
                         pendingCount += 1
                         continue
                     }
                     totalBytes += min(size, SessionHistoryParser.byteLimit)
-                    entries[file.path] = try autoreleasepool {
-                        var session = try SessionHistoryParser.read(url: file, agent: agent, updatedAt: modified)
-                        session.sourceArchived = agent == .codex && root.lastPathComponent == "archived_sessions"
-                        do { try save(session, name: contentFilename(file.path)) } catch { cacheFailure = error; throw error }
-                        session.messages = []
-                        return Entry(modified: modified, size: size, session: session)
+                    var session = try autoreleasepool {
+                        try SessionHistoryParser.read(url: file, agent: agent, updatedAt: modified)
                     }
+                    session.sourceArchived = agent == .codex && root.lastPathComponent == "archived_sessions"
+                    let revision = "\(modified.timeIntervalSince1970)|\(size)"
+                    session.sourceRevision = revision
+                    do {
+                        try save(session, name: contentFilename(file.path))
+                        try searchIndex.replace(session, stamp: "v7|" + revision)
+                    } catch { cacheFailure = error; throw error }
+                    session.messages = []
+                    entries[file.path] = Entry(modified: modified, size: size, session: session)
                     pendingPaths.remove(file.path)
                     changed = true
                 } catch {
@@ -142,12 +190,33 @@ public actor SessionHistoryRepository {
         }
         if excludedChildren > 0 { issues.append("Scope: \(excludedChildren) Claude child-session directories/files excluded from parent history.") }
         if pendingCount > 0 { issues.append("Indexing: \(pendingCount) sources pending; refresh continues the next bounded batch.") }
+        if let cacheFailure { throw cacheFailure }
+        // Migrate old lazy indexes and repair missing FTS rows only while holding
+        // the writer lock. No query ever decodes caches or writes SQLite rows.
+        for entry in entries.values {
+            let stamp = "v7|\(entry.modified.timeIntervalSince1970)|\(entry.size)"
+            if try !searchIndex.isCurrent(path: entry.session.sourcePath, stamp: stamp) {
+                let session = try autoreleasepool { try load(entry.session) }
+                let revision = "\(entry.modified.timeIntervalSince1970)|\(entry.size)"
+                if let cachedRevision = session.sourceRevision, cachedRevision != revision {
+                    issues.append("Not indexed yet: cache revision differs from metadata for \(entry.session.sourcePath).")
+                    continue
+                }
+                try searchIndex.replace(session, stamp: stamp)
+            }
+        }
+        if let staging {
+            guard rename(staging.appendingPathComponent("search.sqlite").path,
+                         directory.appendingPathComponent("search.sqlite").path) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+        }
         refreshedAt = Date()
         indexDirty = indexDirty || changed
-        if let cacheFailure { throw cacheFailure }
         if indexDirty {
             try save(Cache(entries: entries, pendingPaths: pendingPaths), name: "index.json")
             indexDirty = false
+            usableIndex = true
         }
         return snapshot()
     }
@@ -162,7 +231,7 @@ public actor SessionHistoryRepository {
         guard full.id == metadata.id, full.sourcePath == metadata.sourcePath else {
             throw CocoaError(.fileReadCorruptFile)
         }
-        full.sourceRevision = metadata.sourceRevision
+        full.sourceRevision = full.sourceRevision ?? metadata.sourceRevision
         full.archivedLocally = metadata.archivedLocally
         full.isPinned = metadata.isPinned
         full.sourceArchived = metadata.sourceArchived
@@ -198,25 +267,13 @@ public actor SessionHistoryRepository {
     public func search(_ query: String, projectPath: String? = nil, favoritesOnly: Bool = false,
                        agent: SessionHistoryAgent? = nil, archived: Bool? = nil,
                        limit: Int = 200) throws -> [SessionHistorySearchResult] {
-        guard !readOnly else { throw HistoryToolError.readOnly }
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !needle.isEmpty, limit > 0 else { return [] }
         let sessions = snapshot().sessions.filter {
             (projectPath == nil || $0.projectPath == projectPath) && (!favoritesOnly || $0.isFavorite)
                 && (agent == nil || $0.agent == agent) && (archived == nil || $0.isArchived == archived)
         }
-        if searchIndex == nil { searchIndex = try SessionHistorySearchIndex(directory: directory) }
-        guard let searchIndex else { return [] }
-        // Reconcile derived index by source version, including after a restart or cache migration.
-        // Warm queries do not decode transcript caches. A failing cache remains an explicit error.
-        for session in sessions {
-            try Task.checkCancellation()
-            guard let entry = entries[session.sourcePath] else { continue }
-            let stamp = "v7|\(entry.modified.timeIntervalSince1970)|\(entry.size)"
-            if try !searchIndex.isCurrent(path: session.sourcePath, stamp: stamp) {
-                try autoreleasepool { try searchIndex.replace(load(session), stamp: stamp) }
-            }
-        }
+        let searchIndex = try SessionHistorySearchIndex(directory: directory, readOnly: true)
         return try searchIndex.search(needle, sessions: sessions, limit: limit)
     }
     public func summary(sessionID: String) throws -> SessionHistorySummary? {
