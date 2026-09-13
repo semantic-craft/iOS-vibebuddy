@@ -238,13 +238,29 @@ public actor SessionHistoryRepository {
         }
         return snapshot()
     }
+    /// Prefer an available source over retained unavailable paths, as snapshot does.
+    /// Multiple eligible files remain ambiguous; callers must not guess an identity.
+    public func resolveIndexedSession(key: String) throws -> SessionHistorySession? {
+        let reference = try HistorySessionReference(key)
+        ensureLoaded()
+        let candidates = entries.values.filter { $0.session.agent == reference.agent && $0.session.nativeSessionID == reference.nativeID }
+        let available = candidates.filter { $0.session.isAvailable }
+        let matches = available.isEmpty ? candidates : available
+        guard matches.count <= 1 else { throw HistoryToolError.executionFailed("Ambiguous session key: multiple source files.") }
+        guard let entry = matches.first else { return nil }
+        var session = entry.session
+        if session.agent.supportsTranscript { session.sourceRevision = "\(entry.modified.timeIntervalSince1970)|\(entry.size)" }
+        session.isFavorite = favorites.contains(session.id)
+        session.isPinned = pins.contains(session.id)
+        session.archivedLocally = archives.contains(session.id)
+        return session
+    }
+
     /// Bounded read-only access; never refreshes or publishes a cache.
     public func readTranscript(key: String) throws -> HistoryTranscript {
         let reference = try HistorySessionReference(key)
-        ensureLoaded()
-        let matches = entries.values.filter { $0.session.agent == reference.agent && $0.session.nativeSessionID == reference.nativeID }
-        guard matches.count <= 1 else { throw HistoryToolError.executionFailed("Ambiguous session key: multiple source files.") }
-        var metadata = matches.first?.session
+        var metadata = try resolveIndexedSession(key: reference.key)
+        let indexed = metadata?.sourceRevision
         if reference.agent == .grokBuild {
             guard let metadata else { throw HistoryToolError.executionFailed("Unknown session key.") }
             return HistoryTranscript(session: metadata, provenance: "official list metadata, no transcript")
@@ -276,7 +292,6 @@ public actor SessionHistoryRepository {
         let size = values?.fileSize
         let current = modified.flatMap { date in size.map { "\(date.timeIntervalSince1970)|\($0)" } }
         if let current, let slot = transcriptSlot, slot.path == file.path, slot.revision == current { return slot.transcript }
-        let indexed = matches.first.map { "\($0.modified.timeIntervalSince1970)|\($0.size)" }
         if var cached = verifiedCache(metadata, indexedRevision: indexed),
            current == nil || current == cached.sourceRevision {
             cached.isAvailable = current != nil && FileManager.default.isReadableFile(atPath: file.path)
@@ -400,7 +415,8 @@ public actor SessionHistoryRepository {
             if sequences[metadata.id] == nil {
                 // Decode only candidates, retaining their small ID mapping instead
                 // of keeping every full transcript in memory for the whole search.
-                guard entries.values.filter({ $0.session.agent == metadata.agent && $0.session.nativeSessionID == metadata.nativeSessionID }).count == 1,
+                guard let canonical = try? resolveIndexedSession(key: HistoryTools.key(metadata)),
+                      canonical.sourcePath == metadata.sourcePath, canonical.sourceRevision == metadata.sourceRevision,
                       let full = verifiedCache(metadata, indexedRevision: metadata.sourceRevision), full.id == metadata.id,
                       (try? HistorySessionReference(HistoryTools.key(metadata))) != nil else {
                     unavailable.insert(metadata.id)
