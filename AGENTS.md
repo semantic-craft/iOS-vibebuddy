@@ -47,7 +47,8 @@ when links or names change.
 
 Repository-owned skills under `docs/agents/skills/` are tracked here. They include
 `verify-vibebuddy` for isolated runtime acceptance and `vibebuddy-history` for
-prior-work context. Edit these originals here, not in `xw-skills`. Link each
+prior-work context, plus `vibebuddy-handoff` for source-identified handoff notes.
+Edit these originals here, not in `xw-skills`. Link each
 needed skill into the machine-local face, for example:
 
     ln -s ../../docs/agents/skills/vibebuddy-history .agents/skills/vibebuddy-history
