@@ -647,6 +647,19 @@ public struct VibeBuddyServer: Sendable {
             return Response(status: accepted ? .ok : .conflict)
         }
 
+        // Mark all on a recap. Moves the recap horizon forward (never back) and
+        // nothing else: rounds are still read one by one through `/acknowledge`.
+        // A repeat is 200; another Mac's source id is 409.
+        authed.post("recap-read") { request, _ -> HTTPResponse.Status in
+            let buffer = try await request.body.collect(upTo: 4096)
+            guard let read = try? JSONDecoder().decode(RecapReadRequest.self, from: Data(buffer: buffer)),
+                  !read.sourceID.isEmpty else { throw HTTPError(.badRequest) }
+            switch await store.advanceRecapHorizon(read) {
+            case .accepted: return .ok
+            case .sourceMismatch, .failed: return .conflict
+            }
+        }
+
         // Blocking approval intake — bearer-token gated (the approval hook reads
         // the token file and sends it). Parse the gate payload, run the
         // permission matcher, and either decide immediately (allow/deny) or hold

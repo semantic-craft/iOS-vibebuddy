@@ -706,6 +706,10 @@ public struct Snapshot: Codable, Sendable, Equatable {
     /// Models the signed-in Cursor CLI lists (`cursor-agent --list-models`),
     /// for a Cursor dispatch's `model`. Nil or empty: offer no choice.
     public var cursorModels: [String]?
+    /// What ended since the user last read, from the Mac's `RecapLedger`
+    /// (`Recap`). Optional so older phones ignore it. Composed outside the
+    /// session reducer: it is a record of ended rounds, not session state.
+    public var recap: Recap?
 
     public init(
         sessions: [AgentSession],
@@ -716,7 +720,8 @@ public struct Snapshot: Codable, Sendable, Equatable {
         recentDirectories: [String]? = nil,
         dispatchAgents: [AgentKind]? = nil,
         tokenConsumption: TokenConsumptionSnapshot? = nil,
-        cursorModels: [String]? = nil
+        cursorModels: [String]? = nil,
+        recap: Recap? = nil
     ) {
         self.sessions = sessions
         self.serverTime = serverTime
@@ -727,11 +732,12 @@ public struct Snapshot: Codable, Sendable, Equatable {
         self.dispatchAgents = dispatchAgents
         self.tokenConsumption = tokenConsumption
         self.cursorModels = cursorModels
+        self.recap = recap
     }
 
     enum CodingKeys: String, CodingKey {
         case sourceID, sessions, serverTime, observationDiagnostics
-        case providerQuota, recentDirectories, dispatchAgents, tokenConsumption, cursorModels
+        case providerQuota, recentDirectories, dispatchAgents, tokenConsumption, cursorModels, recap
     }
 
     public init(from decoder: Decoder) throws {
@@ -752,6 +758,7 @@ public struct Snapshot: Codable, Sendable, Equatable {
         dispatchAgents = try c.decodeIfPresent([AgentKind].self, forKey: .dispatchAgents)
         tokenConsumption = try c.decodeIfPresent(TokenConsumptionSnapshot.self, forKey: .tokenConsumption)
         cursorModels = try c.decodeIfPresent([String].self, forKey: .cursorModels)
+        recap = try c.decodeIfPresent(Recap.self, forKey: .recap)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -765,6 +772,7 @@ public struct Snapshot: Codable, Sendable, Equatable {
         try c.encodeIfPresent(dispatchAgents, forKey: .dispatchAgents)
         try c.encodeIfPresent(tokenConsumption, forKey: .tokenConsumption)
         try c.encodeIfPresent(cursorModels, forKey: .cursorModels)
+        try c.encodeIfPresent(recap, forKey: .recap)
     }
 }
 

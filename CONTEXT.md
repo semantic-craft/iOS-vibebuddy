@@ -355,16 +355,37 @@ code, and tests — don't drift to synonyms.
   collapse id as the original cue, so one banner is replaced, not stacked.
   The cadence backs off because every reminder is mirrored to the wrist as a
   fresh buzz (ADR-0021). The Watch carries no attention state.
-- **Watch results** — the bounded current result projection on the wrist, in
-  **pending queue** order (ADR-0022, a subsequence of the phone's queue):
-  failures and followed unread completions can be opened from the home;
-  completion-unread sessions outside Followed are shown as a count with an
-  iPhone destination. The total unread count includes them. The existing
-  bounded result payload still lets a notification open its exact task.
-  A completion summary is not the full result: opening it leaves the round
-  unread and its reminder budget intact. **Mark as read** explicitly confirms
-  the displayed source/session/completion. Offline intent remains pending until
-  the Mac confirms; opening a wait only marks that wait seen (ADR-0021).
+- **Watch results** — the bounded current result payload on the wire
+  (`WatchDashboardState.results`: failures and unread completions in
+  **pending queue** order, ADR-0022, a subsequence of the phone's queue; at
+  most six). Since the recap (below) it is no longer rendered on the home — failures sit under *Also waiting* and ended rounds in the recap — but
+  it still lets a mirrored notification open its exact task. A completion
+  summary is not the full result: opening it leaves the round unread and its
+  reminder budget intact. **Mark as read** on a task, or **Mark all** on the
+  recap, explicitly confirms the displayed source/session/completion. Offline
+  intent remains pending until the Mac confirms; opening a wait only marks
+  that wait seen (ADR-0021 and its 2026-09-14 amendment).
+- **Recap entry** (`RecapEntry`) — a read-only record of one ended round of one
+  session: `completed` or `failed`, with agent, project, title, up to three
+  points, the moment it ended and its identity (`<sourceID>/<sessionID>/<completionID>`,
+  or `…/failed/<statusSince>` for a failure). Produced by the Mac's
+  `RecapLedger` (seven days, never a round the user stopped) and carried in
+  the snapshot; no other device ever creates one. It is not a Completion
+  notice (a wording decision) and not an Unread result (one round's reading
+  state): it is the fact that a round ended, kept long enough to be reviewed.
+  Each completed entry carries its own read mark: the session's while the
+  round is the session's current one (so Mark Unread shows again as unread),
+  the last mark recorded once a later round has replaced it.
+- **Recap horizon** — the single moment the Mac keeps as "the user last read
+  the recap": entries that ended before it are no longer in the recap. Moved
+  forward only, by Mark all (`POST /recap-read`), shared by every device. It
+  changes no round's read/unread state and re-sends no cue.
+- **Recap** (`Recap`) — the ordered set of recap entries after the horizon and
+  within the last 24 hours, newest first, at most twelve; read on the wrist by
+  turning the Digital Crown through one page per round, with Mark all on the
+  last page. Its 24-hour window is the recap's own rule and only coincides in
+  number with *Current session*'s 24 hours: the recap decides what a recap
+  shows, `SessionCurrency` decides what a list shows and a count counts.
 - **Next pending** — an explicit navigation step through Needs you, then unread
   Done, using the same priority and stable newest-first order on Mac and iPhone.
   The iPhone follows the scope it entered the detail from (ADR-0022): the

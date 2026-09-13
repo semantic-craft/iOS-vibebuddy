@@ -6,6 +6,7 @@ import VibeBuddyKit
 private final class FakeWatchTransport: WatchStateTransport {
     var onWaitReadRequest: ((WatchWaitReadRequest) async -> Bool)?
     var onCompletionRequest: ((WatchCompletionRequest) async -> WatchCompletionResult)?
+    var onRecapReadRequest: ((WatchRecapReadRequest) async -> WatchRecapReadResult)?
     var isAvailable = true
     var onReady: (() -> Void)?
     var onSessionAction: ((WatchSessionActionRequest) async -> WatchSessionActionResult)?
@@ -28,6 +29,14 @@ private final class FakeWatchTransport: WatchStateTransport {
 
     var queuedStates: [WatchDashboardState] {
         queued.compactMap { try? JSONDecoder().decode(WatchDashboardState.self, from: $0) }
+    }
+
+    /// Mark all from the wrist, delivered the way WatchConnectivity delivers it.
+    func markAll(_ request: WatchRecapReadRequest) async -> WatchRecapReadResult {
+        guard let onRecapReadRequest else {
+            return WatchRecapReadResult(attemptID: request.attemptID, outcome: .failed)
+        }
+        return await onRecapReadRequest(request)
     }
 
     /// A tap on the wrist, delivered the way WatchConnectivity delivers one.
@@ -206,6 +215,152 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertEqual(relayed?.stuckTasks.count, 1)
         XCTAssertEqual(relayed?.unreadResults.isEmpty, false)
         XCTAssertEqual(Set(relayed?.quotas.map(\.provider) ?? []), Set([.codex, .claude, .grok, .cursor, .grokBot]))
+        XCTAssertEqual(relayed?.recap?.entries.count, 7)
+        await store.stop().value
+    }
+
+    func testTheMacsRecapIsRelayedAsIs() async throws {
+        let transport = FakeWatchTransport()
+        let recap = Recap(horizon: now.addingTimeInterval(-3_600), entries: [
+            RecapEntry(id: "fixture-mac/s/c", kind: .completed, sessionID: "s", completionID: "c",
+                       agent: .claudeCode, project: "vibebuddy", title: "Shipped", points: ["one", "two"],
+                       endedAt: now.addingTimeInterval(-120)),
+            RecapEntry(id: "fixture-mac/f/failed/1", kind: .failed, sessionID: "f", agent: .codex,
+                       project: "release", title: "Build failed", points: ["signing"],
+                       endedAt: now.addingTimeInterval(-600)),
+        ])
+        let snapshot = Snapshot(sessions: [], serverTime: now, sourceID: "fixture-mac", recap: recap)
+        let store = DashboardStore(
+            streamer: ScriptedStreamer(snapshots: [snapshot]),
+            notifier: SilentNotifier(), decisionClient: NullDecisionClient(),
+            watchRelay: WatchRelay(transport: transport), reportDevice: { _ in })
+        store.start(PairingPayload(host: "127.0.0.1", port: 9, token: "test"))
+        for _ in 0..<50 {
+            if transport.states.last?.recap != nil { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(transport.states.last?.recap, recap)
+        XCTAssertEqual(transport.states.last?.sourceID, "fixture-mac")
+        // A dropped connection relays the last known recap, like the last
+        // known quota; forgetting the Mac is what leaves it behind.
+        await store.stop().value
+        XCTAssertEqual(transport.states.last?.recap, recap)
+        XCTAssertEqual(transport.states.last?.relay, .disconnected)
+        store.forgetPairing()
+        XCTAssertNil(transport.states.last?.recap)
+    }
+
+    // MARK: Mark all
+
+    /// A Mac that answers the recap routes with scripted outcomes and records
+    /// every call, in order.
+    private actor RecapMac: DecisionClient {
+        var horizon: RecapReadOutcome
+        var acknowledgements: [String: CompletionReadOutcome]
+        private(set) var calls: [String] = []
+        init(horizon: RecapReadOutcome = .accepted, acknowledgements: [String: CompletionReadOutcome] = [:]) {
+            self.horizon = horizon
+            self.acknowledgements = acknowledgements
+        }
+        nonisolated func decide(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> Bool { false }
+        nonisolated func jump(_ pairing: PairingPayload, sessionId: String) async -> JumpOutcome? { nil }
+        nonisolated func setAttention(_ pairing: PairingPayload, sessionId: String, level: SessionAttention?) async {}
+        func advanceRecapHorizon(_ pairing: PairingPayload, request: RecapReadRequest) async -> RecapReadOutcome {
+            calls.append("recap-read@\(request.horizon.timeIntervalSince1970)")
+            return horizon
+        }
+        func acknowledge(_ pairing: PairingPayload, request: CompletionReadRequest) async -> CompletionReadOutcome {
+            calls.append("acknowledge:\(request.sessionID)/\(request.completionID)")
+            return acknowledgements[request.sessionID] ?? .accepted
+        }
+    }
+
+    private func recapStore(_ mac: RecapMac, transport: FakeWatchTransport) async throws -> (DashboardStore, WatchRecapReadRequest) {
+        let recap = Recap(horizon: nil, entries: [
+            RecapEntry(id: "fixture-mac/a/ca", kind: .completed, sessionID: "a", completionID: "ca", agent: .claudeCode,
+                       project: "p", title: "A", points: [], endedAt: now.addingTimeInterval(-60)),
+            RecapEntry(id: "fixture-mac/f/failed/1", kind: .failed, sessionID: "f", agent: .codex,
+                       project: "p", title: "F", points: [], endedAt: now.addingTimeInterval(-120)),
+            RecapEntry(id: "fixture-mac/b/cb", kind: .completed, sessionID: "b", completionID: "cb", agent: .claudeCode,
+                       project: "p", title: "B", points: [], endedAt: now.addingTimeInterval(-180)),
+        ])
+        let snapshot = Snapshot(sessions: [], serverTime: now, sourceID: "fixture-mac", recap: recap)
+        let store = DashboardStore(
+            streamer: ScriptedStreamer(snapshots: [snapshot]),
+            notifier: SilentNotifier(), decisionClient: mac,
+            watchRelay: WatchRelay(transport: transport), reportDevice: { _ in })
+        store.start(PairingPayload(host: "127.0.0.1", port: 9, token: "test"))
+        for _ in 0..<50 {
+            if transport.states.last?.recap != nil { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let state = try XCTUnwrap(transport.states.last)
+        var queue = WatchRecapQueue()
+        let request = try XCTUnwrap(queue.markAll(recap, state: state, attemptID: "mark-1"))
+        return (store, request)
+    }
+
+    func testMarkAllReadsEachRoundOnceThenMovesTheHorizon() async throws {
+        let transport = FakeWatchTransport()
+        let mac = RecapMac()
+        let (store, request) = try await recapStore(mac, transport: transport)
+        XCTAssertEqual(request.completions.map(\.sessionID), ["a", "b"])
+
+        let result = await transport.markAll(request)
+        XCTAssertEqual(result.attemptID, "mark-1")
+        XCTAssertEqual(result.outcome, .accepted)
+        // Reads before the horizon: the horizon is what retires the Watch's
+        // queued request, so it must be the last thing that can still fail.
+        let calls = await mac.calls
+        XCTAssertEqual(calls, ["acknowledge:a/ca", "acknowledge:b/cb",
+                               "recap-read@\(now.addingTimeInterval(-60).timeIntervalSince1970)"])
+        await store.stop().value
+    }
+
+    func testAStaleOrAlreadyReadRoundIsDoneNotRetried() async throws {
+        let transport = FakeWatchTransport()
+        let mac = RecapMac(acknowledgements: ["a": .staleCompletion, "b": .alreadyAcknowledged])
+        let (store, request) = try await recapStore(mac, transport: transport)
+        let result = await transport.markAll(request)
+        XCTAssertEqual(result.outcome, .accepted)
+        let calls = await mac.calls
+        XCTAssertEqual(calls.count, 3)
+        await store.stop().value
+    }
+
+    func testANetworkFailureAnywhereReportsFailedSoTheWatchRetries() async throws {
+        let transport = FakeWatchTransport()
+        let mac = RecapMac(acknowledgements: ["a": .failed])
+        let (store, request) = try await recapStore(mac, transport: transport)
+        let first = await transport.markAll(request)
+        XCTAssertEqual(first.outcome, .failed)
+        let calls = await mac.calls
+        XCTAssertEqual(calls, ["acknowledge:a/ca"])          // the first read failed: stop there, horizon untouched
+        await store.stop().value
+
+        // A horizon the Mac could not be reached for: the reads landed, the
+        // request stays queued, and the retry repeats them harmlessly.
+        let offline = RecapMac(horizon: .failed)
+        let transport2 = FakeWatchTransport()
+        let (store2, request2) = try await recapStore(offline, transport: transport2)
+        let second = await transport2.markAll(request2)
+        XCTAssertEqual(second.outcome, .failed)
+        let offlineCalls = await offline.calls
+        XCTAssertEqual(offlineCalls.count, 3)
+        XCTAssertTrue(offlineCalls.last?.hasPrefix("recap-read@") == true)
+        await store2.stop().value
+    }
+
+    func testAnotherPairingIsRefusedWithoutReachingTheMac() async throws {
+        let transport = FakeWatchTransport()
+        let mac = RecapMac()
+        let (store, request) = try await recapStore(mac, transport: transport)
+        let foreign = WatchRecapReadRequest(attemptID: "mark-x", sourceID: request.sourceID, pairingEpoch: "someone-else",
+                                            horizon: request.horizon, completions: request.completions)
+        let refused = await transport.markAll(foreign)
+        XCTAssertEqual(refused.outcome, .sourceMismatch)
+        let calls = await mac.calls
+        XCTAssertEqual(calls.count, 0)
         await store.stop().value
     }
 

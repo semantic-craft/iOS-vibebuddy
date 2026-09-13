@@ -21,8 +21,22 @@ final class WatchStateStore: NSObject, ObservableObject {
     @Published var quotaSelection: WatchQuotaSelection? {
         didSet { cancelPendingNavigation() }
     }
+    /// The recap sheet. Opening it, turning through it and leaving it send
+    /// nothing anywhere: viewing is viewing (ADR-0021).
+    @Published var isRecapOpen = false {
+        didSet { cancelPendingNavigation() }
+    }
+    /// Demo Mode only: the recap page to open on at launch
+    /// (`VIBEBUDDY_WATCH_RECAP_INDEX`; 0 is the overview).
+    let recapInitialPage: Int
     @Published private(set) var completionQueue = WatchCompletionQueue()
     private var completionAttempt: WatchCompletionRequest?
+    /// The one Mark all not yet seen to land (`WatchRecapQueue`): persisted,
+    /// retried while the phone is out of reach, retired only by a snapshot
+    /// whose horizon has reached it.
+    @Published private(set) var recapQueue = WatchRecapQueue()
+    private var recapAttempt: WatchRecapReadRequest?
+    private var recapRetryAfter: Date = .distantPast
     private var retryTask: Task<Void, Never>?
     private var actionReplyTimeout: Task<Void, Never>?
     private var retryAfter: [WatchTaskLink: Date] = [:]
@@ -80,6 +94,7 @@ final class WatchStateStore: NSObject, ObservableObject {
         isDemo = environment["VIBEBUDDY_DEMO"] == "1"
         initialPage = environment["VIBEBUDDY_WATCH_PAGE"]
             .flatMap(WatchPage.init(rawValue:)) ?? .home
+        recapInitialPage = environment["VIBEBUDDY_WATCH_RECAP_INDEX"].flatMap(Int.init) ?? 0
         demoAnswerDraft = isDemo
             ? environment["VIBEBUDDY_WATCH_ANSWER"].flatMap { $0.isEmpty ? nil : $0 }
             : nil
@@ -99,6 +114,9 @@ final class WatchStateStore: NSObject, ObservableObject {
                                          pairingEpoch: WatchDemoScenario.pairingEpoch,
                                          sessionID: sessionID, completionID: state?.task(sessionID)?.completionID)
             }
+            if environment["VIBEBUDDY_WATCH_RECAP"] == "1" {
+                isRecapOpen = true
+            }
             if let sample = state { seedHaptics(sample) }
             if environment["VIBEBUDDY_WATCH_HAPTIC_DEMO"] == "1" {
                 rehearseHapticTransition()
@@ -109,6 +127,8 @@ final class WatchStateStore: NSObject, ObservableObject {
             // verdict, so old numbers cannot masquerade as live ones.
             if let saved = WatchComplicationStore.loadState() {
                 completionQueue = saved.queue
+                recapQueue = saved.recapQueue ?? WatchRecapQueue()
+                recapQueue.reconcile(with: saved.state)
                 inbox = WatchStateInbox(state: saved.state)
                 state = saved.state
                 seedHaptics(saved.state)
@@ -125,6 +145,7 @@ final class WatchStateStore: NSObject, ObservableObject {
                     try? await Task.sleep(for: .seconds(5))
                     guard !Task.isCancelled else { return }
                     self?.flushCompletions()
+                    self?.flushRecap()
                 }
             }
         }
@@ -151,12 +172,21 @@ final class WatchStateStore: NSObject, ObservableObject {
     func openTask(_ url: URL) {
         if let selection = WatchQuotaSelection(url: url) {
             taskLink = nil
+            isRecapOpen = false
             quotaSelection = selection
             return
         }
         guard let link = WatchTaskLink(url: url) else { return }
         quotaSelection = nil
+        isRecapOpen = false
         taskLink = link
+    }
+
+    /// The Recap row on the home. One sheet at a time, like the others.
+    func openRecap() {
+        taskLink = nil
+        quotaSelection = nil
+        isRecapOpen = true
     }
 
     /// A session the wrist was pointed at by id — a Needs-you or Results row,
@@ -176,6 +206,7 @@ final class WatchStateStore: NSObject, ObservableObject {
         }
         pendingSessionID = nil
         quotaSelection = nil
+        isRecapOpen = false
         taskLink = WatchTaskLink(sourceID: source, pairingEpoch: epoch, sessionID: sessionID,
                                  completionID: state.task(sessionID)?.completionID)
     }
@@ -234,7 +265,7 @@ final class WatchStateStore: NSObject, ObservableObject {
         guard !isDemo else { return }
         retryAfter = retryAfter.filter { completionQueue.links.contains($0.key) }
         retryCount = retryCount.filter { completionQueue.links.contains($0.key) }
-        if let state, WatchComplicationStore.save(state, queue: completionQueue) {
+        if let state, WatchComplicationStore.save(state, queue: completionQueue, recapQueue: recapQueue) {
             WidgetCenter.shared.reloadTimelines(ofKind: WatchComplicationStore.kind)
             WidgetCenter.shared.reloadTimelines(ofKind: WatchComplicationStore.quotaKind)
         }
@@ -276,6 +307,82 @@ final class WatchStateStore: NSObject, ObservableObject {
         // A receipt retires this retry only. The face still follows snapshots.
         if let state { completionQueue.reconcile(with: state); persistCompletions() }
         flushCompletions()
+    }
+
+    /// Mark all on the recap that is on screen. The horizon is the newest
+    /// round it showed and the rounds are the completed ones it showed, so a
+    /// recap that grew while the sheet was open is not marked further than
+    /// what was read. Queued and persisted at once; the visible recap changes
+    /// only when a snapshot says the Mac moved on. Returns false when there was
+    /// nothing to mark (already queued, or no Mac to name).
+    @discardableResult
+    func markRecapRead(_ recap: Recap) -> Bool {
+        guard let state, let request = recapQueue.markAll(recap, state: state, attemptID: UUID().uuidString)
+        else { return false }
+        recapRetryAfter = .distantPast
+        if isDemo {
+            resolveRecapLocally(request)
+            return true
+        }
+        persistCompletions()
+        flushRecap()
+        return true
+    }
+
+    /// What the end page may say about the queued Mark all, if it covers the
+    /// recap on screen.
+    func recapMarkPhase(for recap: Recap) -> WatchRecapMarkPhase? {
+        guard let state, recapQueue.covers(recap, state: state) else { return nil }
+        if recapQueue.confirmed != nil { return .accepted }
+        if recapAttempt != nil { return .sending }
+        if recapQueue.failures > 0 { return .failed }
+        return isPhoneReachable ? .sending : .queued
+    }
+
+    private func flushRecap() {
+        guard !isDemo, recapAttempt == nil, isPhoneReachable,
+              let session, session.isReachable, let state,
+              let request = recapQueue.pending,
+              request.sourceID == state.sourceID, request.pairingEpoch == state.pairingEpoch,
+              recapRetryAfter <= Date(),
+              let payload = try? JSONEncoder().encode(request) else { return }
+        recapAttempt = request
+        session.sendMessage([WatchRecapReadRequest.messageKey: payload], replyHandler: { @Sendable [weak self] reply in
+            let data = reply[WatchRecapReadResult.messageKey] as? Data
+            let result = data.flatMap { try? JSONDecoder().decode(WatchRecapReadResult.self, from: $0) }
+            Task { @MainActor [weak self] in self?.recapReturned(result, request: request) }
+        }, errorHandler: { @Sendable [weak self] _ in
+            Task { @MainActor [weak self] in self?.recapReturned(nil, request: request) }
+        })
+        // Replies are not guaranteed. Release this attempt; the persisted
+        // request stays retryable until a snapshot retires it.
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(20))
+            self?.recapReturned(nil, request: request)
+        }
+    }
+
+    private func recapReturned(_ result: WatchRecapReadResult?, request: WatchRecapReadRequest) {
+        guard recapAttempt?.attemptID == request.attemptID else { return }
+        guard result == nil || result?.attemptID == request.attemptID else { return }
+        recapAttempt = nil
+        recapQueue.received(result?.outcome ?? .failed, attemptID: request.attemptID)
+        let tries = max(1, recapQueue.failures)
+        recapRetryAfter = Date().addingTimeInterval(min(60, 5 * pow(2, Double(tries - 1))))
+        if let state { recapQueue.reconcile(with: state); persistCompletions() }
+        flushRecap()
+    }
+
+    /// Demo Mode: the sample is accepted, and a moment later the "next
+    /// snapshot" says the horizon moved — the recap empties because the world
+    /// changed, exactly as it would with a Mac.
+    private func resolveRecapLocally(_ request: WatchRecapReadRequest) {
+        recapQueue.received(.accepted, attemptID: request.attemptID)
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard let self, let current = self.state else { return }
+            self.install(current.resolvingRecap())
+        }
     }
 
     /// Whether a decision could be sent at all. Demo Mode resolves its samples
@@ -497,13 +604,19 @@ final class WatchStateStore: NSObject, ObservableObject {
         state = next
         pendingAction.reconcile(with: next)
         completionQueue.reconcile(with: next)
+        recapQueue.reconcile(with: next)
         if let pendingSessionID { openSession(pendingSessionID) }
         persistCompletions()
         if let request = completionAttempt,
            request.link.sourceID != next.sourceID || request.link.pairingEpoch != next.pairingEpoch {
             completionAttempt = nil
         }
+        if let request = recapAttempt,
+           request.sourceID != next.sourceID || request.pairingEpoch != next.pairingEpoch {
+            recapAttempt = nil
+        }
         flushCompletions()
+        flushRecap()
         feel(next)
     }
 

@@ -164,3 +164,62 @@ identify ordinary unread results after the notification. No new notification
 intensity, session observation-health projection or automatic iPhone navigation
 is introduced. These are local implementation decisions, not evidence that
 physical-device delivery or owner acceptance has passed.
+
+## Amendment: the recap — what ended while you were not looking (2026-09-14)
+
+The owner's 2026-09-13 direction (`.scratch/watch-recap-crown`, eight decision
+tickets) extends *tell me why* to the stretch of time the owner was away: the
+wrist answers "which rounds ended since I last read, and how", not only "who
+needs me now". This is an extension of this ADR, not a new dashboard, and it
+lands as an amendment rather than a new decision record.
+
+- **Recap entry, Recap horizon, Recap** (terms in `CONTEXT.md`). The Mac's
+  `RecapLedger` records every ended round — `completed` or `failed`, never one
+  the user stopped — for seven days, and the snapshot carries `recap`: the
+  entries after the **horizon** (the moment the user last confirmed a recap)
+  and within 24 hours, newest first, at most twelve. The iPhone relays it as
+  is; the Watch filters nothing and generates nothing. A round already read
+  elsewhere stays in the recap with a read mark, so the recap still tells the
+  whole story of the period.
+- **The home's Recap row replaces the Results section and the "N unread outside
+  Followed · View on your iPhone" line** of the 2026-09-13 amendment above: one
+  row — "N since you last read · k failed · newest 12m ago" — that opens the
+  recap. The attention order of decision 1 is unchanged (headline and card,
+  *Also waiting*, then the recap, then *Followed* — now only running sessions —
+  then quota and footer), and every row still opens. The bounded `results`
+  payload stays on the wire for notification targeting; the wrist no longer
+  renders it.
+- **The recap is read with the Digital Crown**: `TabView(.verticalPage)` — an
+  overview page (count, a static timeline, failures), one page per round, and
+  an end page. No custom crown handling, no focus management, no playhead
+  (ticket 05 of the effort). Viewing stays viewing (decision 4): opening,
+  turning and leaving the recap send nothing.
+- **Mark all is explicit confirmation in bulk.** The end page's one action
+  reads each completed round the recap showed through the existing
+  exact-round `/acknowledge`, then moves the Mac's horizon to the newest round
+  it showed (`POST /recap-read`, forward only, idempotent), so the phone's and
+  Mac's badges and the followed completion reminders (decision 5) stop
+  together. The reads go first because a snapshot whose horizon has moved is
+  what retires the queued request: a read that failed after the horizon would
+  never be retried. A round the user had put back to unread counts as unread
+  here. It is queued and persisted on the Watch (`WatchRecapQueue`, the
+  same rules as the exact-round read: offline retry, a definitive receipt
+  stops retries, only an authority snapshot whose horizon has reached the
+  request changes what is shown), plays one local `.success` tap, and has no
+  confirmation page. A recap that refills after being emptied opens on its
+  overview, never on the end page.
+- **Ordered by time, not by the queue.** ADR-0022 §5 orders the wrist's alerts
+  and its `results` payload by the shared pending queue, and that stands. The
+  recap is a different thing — a review of a stretch of time, not a queue of
+  things to act on — so its pages run newest first by the moment each round
+  ended, and the home's Recap row sits where the Results section did, after
+  *Also waiting*, without changing the queue order of what is above it.
+- **No new cue.** There is no scheduled "your recap is ready" notification, no
+  Watch-side scheduler and no new notification category (ADR-0012 stands);
+  each completion keeps its own mirrored cue. The recap's 24-hour window is
+  its own rule, distinct from `SessionCurrency`'s 24 hours, which governs
+  what a list shows and a count counts.
+
+What a simulator cannot prove stays listed in tickets 11–13 of the effort:
+detent feel and paging speed, the `.success` tap, Double Tap reaching Mark
+all, and the mirrored notifications' behaviour, all need a paired device.

@@ -412,6 +412,43 @@ struct WatchDashboardStateTests {
         }
     }
 
+    @Test("Every demo scenario with sessions carries a seven-round recap: one failed, one already read")
+    func demoScenariosCarryARecap() {
+        for scenario in WatchDemoScenario.allCases {
+            let state = scenario.state(now: now)
+            if scenario == .noData || scenario == .empty {
+                #expect(state.recap == nil)
+                continue
+            }
+            let recap = state.recap
+            #expect(state.isDemo)
+            #expect(recap?.entries.count == 7)
+            #expect(recap?.failedCount == 1)
+            #expect(recap?.entries.filter(\.isRead).count == 1)
+            #expect(recap?.horizon != nil)
+            // Newest first, every round inside the window the Mac would use.
+            let ended = recap?.entries.map(\.endedAt) ?? []
+            #expect(ended == ended.sorted(by: >))
+            #expect(recap.map { Recap.compose(entries: $0.entries, horizon: $0.horizon, now: now) } == recap)
+            // A completed round links to its session the way a result row does.
+            for entry in recap?.entries ?? [] where entry.kind == .completed {
+                #expect(entry.completionID?.hasPrefix(entry.sessionID) == true)
+            }
+        }
+    }
+
+    @Test("the projection relays the Mac's recap as is, and none when the Mac sent none")
+    func projectionPassesRecapThrough() {
+        let recap = Recap(horizon: now.addingTimeInterval(-3_600), entries: [
+            RecapEntry(id: "mac/s/c", kind: .completed, sessionID: "s", completionID: "c", agent: .codex,
+                       project: "p", title: "t", points: ["one"], endedAt: now.addingTimeInterval(-60)),
+        ])
+        var snapshot = Snapshot(sessions: [], serverTime: now, sourceID: "mac")
+        #expect(WatchDashboardProjection.make(snapshot: snapshot, quotas: [], relay: .live, now: now).recap == nil)
+        snapshot.recap = recap
+        #expect(WatchDashboardProjection.make(snapshot: snapshot, quotas: [], relay: .live, now: now).recap == recap)
+    }
+
     @Test("normal has work in flight, one failure to look at, and nobody waiting")
     func normalScenario() {
         let state = WatchDemoScenario.normal.state(now: now)

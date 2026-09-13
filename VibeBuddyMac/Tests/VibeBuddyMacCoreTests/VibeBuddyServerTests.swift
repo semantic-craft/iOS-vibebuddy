@@ -173,6 +173,45 @@ struct VibeBuddyServerTests {
         }
     }
 
+    @Test("/recap-read is token-gated, refuses another source with 409, and repeats as 200")
+    func recapRead() async throws {
+        let store = SessionStore(sourceID: "mac")
+        await store.ingest(Data(#"{"hook_event_name":"UserPromptSubmit","session_id":"s","cwd":"/x/demo"}"#.utf8),
+                           receivedAt: Date(timeIntervalSince1970: 1))
+        await store.ingest(Data(#"{"hook_event_name":"Stop","session_id":"s","cwd":"/x/demo"}"#.utf8),
+                           receivedAt: Date(timeIntervalSince1970: 2))
+        let horizon = Date(timeIntervalSince1970: 2)
+        let body = ByteBuffer(bytes: try JSONEncoder().encode(RecapReadRequest(sourceID: "mac", horizon: horizon)))
+        let foreign = ByteBuffer(bytes: try JSONEncoder().encode(RecapReadRequest(sourceID: "other", horizon: horizon)))
+        let server = VibeBuddyServer(store: store, token: "t0k")
+
+        try await server.buildApplication().test(.router) { client in
+            try await client.execute(uri: "/recap-read", method: .post, body: body) { response in
+                #expect(response.status == .unauthorized)
+            }
+            try await client.execute(uri: "/recap-read", method: .post,
+                                     headers: [.authorization: "Bearer t0k"],
+                                     body: ByteBuffer(string: #"{"sourceID":"mac"}"#)) { response in
+                #expect(response.status == .badRequest)
+            }
+            try await client.execute(uri: "/recap-read", method: .post,
+                                     headers: [.authorization: "Bearer t0k"], body: foreign) { response in
+                #expect(response.status == .conflict)
+            }
+            #expect(await store.snapshot(now: .now).recap?.horizon == nil)
+            for _ in 0..<2 {
+                try await client.execute(uri: "/recap-read", method: .post,
+                                         headers: [.authorization: "Bearer t0k"], body: body) { response in
+                    #expect(response.status == .ok)
+                }
+            }
+            let snapshot = await store.snapshot(now: .now)
+            #expect(snapshot.recap?.horizon == horizon)
+            #expect(snapshot.recap?.entries.isEmpty == true)
+            #expect(snapshot.sessions.first?.hasUnreadCompletion == true)   // horizon is not a read
+        }
+    }
+
     @Test("a followed unread completion is reminded about on schedule, and only a delivered reminder spends a slot")
     func completionRemindersCountOnlyDeliveries() async throws {
         final class Box: @unchecked Sendable { var deliver = false; var asked: [String] = [] }
