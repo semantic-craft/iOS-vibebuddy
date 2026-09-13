@@ -122,6 +122,39 @@ final class HistorySearchTests: XCTestCase {
         XCTAssertEqual(try fixture.bytes(), before)
     }
 
+    func testArchivedMoveSearchReferenceUsesSameCanonicalSourceAsShow() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let writer = fixture.repository()
+        _ = try await writer.refresh()
+        let original = fixture.root.appendingPathComponent("codex/sessions/older.jsonl")
+        let archived = fixture.root.appendingPathComponent("codex/archived_sessions/older.jsonl")
+        try FileManager.default.createDirectory(at: archived.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: original, to: archived)
+        _ = try await writer.refresh()
+        let before = try fixture.bytes()
+        let reader = fixture.repository(readOnly: true)
+        let text = try await HistoryTools.search(arguments: ["query": "中文结果", "agents": ["codex"]], repository: reader)
+        XCTAssertEqual(reference(text), "vibebuddy://session/codex:older#1")
+        let shown = try await HistoryTools.getSession(arguments: ["key": reference(text), "max_messages": 1], repository: reader)
+        XCTAssertTrue(shown.contains("## [seq 1] User"))
+        XCTAssertTrue(shown.contains("中文结果"))
+        XCTAssertEqual(try fixture.bytes(), before)
+
+        // Two genuinely available files with the same native identity must still
+        // refuse a reference; only the retained unavailable old path is ignored.
+        try FileManager.default.copyItem(at: archived, to: original)
+        _ = try await writer.refresh()
+        let ambiguousBefore = try fixture.bytes()
+        let ambiguousReader = fixture.repository(readOnly: true)
+        let ambiguous = try await HistoryTools.search(arguments: ["query": "中文结果", "agents": ["codex"]], repository: ambiguousReader)
+        XCTAssertTrue(ambiguous.contains("References unavailable:"))
+        XCTAssertFalse(ambiguous.contains("ref: "))
+        do { _ = try await ambiguousReader.readTranscript(key: "codex:older"); XCTFail("ambiguous source accepted") }
+        catch HistoryToolError.executionFailed { }
+        XCTAssertEqual(try fixture.bytes(), ambiguousBefore)
+    }
+
     private func reference(_ text: String) -> String {
         text.components(separatedBy: "\n").first { $0.hasPrefix("ref: ") }.map { String($0.dropFirst(5)) } ?? "missing"
     }
