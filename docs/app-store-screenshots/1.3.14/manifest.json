@@ -9,11 +9,11 @@
       "width": 1320,
       "height": 2868,
       "mode": "RGB",
-      "bytes": 343525,
-      "sha256": "c6c0e236b6b7715d2beba58d82d16752ef554159ac5e10da9a9a27b0bb61110a",
-      "sourceHead": "29dabd5fd101ae855da0f9365ec37b6f1a93b744",
+      "bytes": 357698,
+      "sha256": "ef56da122fc5413ef6327a4fafb1dc48dc267bd30f560e76260254ee67830e7c",
+      "sourceHead": "40db483cf6b5b32e3add945f7ded381c8d1d3a61",
       "sourceVersion": "1.3.13(27) source tree, pre-1.3.14 bump",
-      "sourceNote": "Captured 2026-09-13 from a Release simulator build of source HEAD 29dabd5 (iOS/watchOS 26.5 runtime, demo mode, no post-processing). Launched with simctl; no taps.",
+      "sourceNote": "Recaptured 2026-09-13 from a Release simulator build of source HEAD 40db483c (feat/style-residue, PR #167 with the Cursor-alignment merge; iOS 26.5 runtime, demo mode, no post-processing). Launched with simctl; no taps. Task list (three groups, an approval and a question).",
       "uploaded": false
     },
     {
@@ -21,11 +21,11 @@
       "width": 1320,
       "height": 2868,
       "mode": "RGB",
-      "bytes": 302101,
-      "sha256": "8360544037ede01e8b282a8f781a4f86721e9c5df3b3c306474d4bbf75064e41",
-      "sourceHead": "29dabd5fd101ae855da0f9365ec37b6f1a93b744",
+      "bytes": 295544,
+      "sha256": "fcbf02d0b30d907eca3c371a8a811844c3ecd8acc4e296ba1310cffa2bda4d23",
+      "sourceHead": "40db483cf6b5b32e3add945f7ded381c8d1d3a61",
       "sourceVersion": "1.3.13(27) source tree, pre-1.3.14 bump",
-      "sourceNote": "Captured 2026-09-13 from a Release simulator build of source HEAD 29dabd5 (iOS/watchOS 26.5 runtime, demo mode, no post-processing). Sheet opened by a temporary XCUITest driver; image taken with simctl.",
+      "sourceNote": "Recaptured 2026-09-13 from a Release simulator build of source HEAD 40db483c (feat/style-residue, PR #167 with the Cursor-alignment merge; iOS 26.5 runtime, demo mode, no post-processing). Launched with simctl; no taps. Codex task sheet opened with VIBEBUDDY_DEMO_PAGE=task/search-indexer (no taps).",
       "uploaded": false
     },
     {
@@ -33,11 +33,11 @@
       "width": 1320,
       "height": 2868,
       "mode": "RGB",
-      "bytes": 331396,
-      "sha256": "3db4ddc28569cf319f9672ec847690e6a68407dfd786334a1524b98020e29bc5",
-      "sourceHead": "29dabd5fd101ae855da0f9365ec37b6f1a93b744",
+      "bytes": 350074,
+      "sha256": "f95ad064119ea4c46849d44681b3b9757af00c21d25719e600f5384b82543502",
+      "sourceHead": "40db483cf6b5b32e3add945f7ded381c8d1d3a61",
       "sourceVersion": "1.3.13(27) source tree, pre-1.3.14 bump",
-      "sourceNote": "Captured 2026-09-13 from a Release simulator build of source HEAD 29dabd5 (iOS/watchOS 26.5 runtime, demo mode, no post-processing). Launched with simctl; no taps.",
+      "sourceNote": "Recaptured 2026-09-13 from a Release simulator build of source HEAD 40db483c (feat/style-residue, PR #167 with the Cursor-alignment merge; iOS 26.5 runtime, demo mode, no post-processing). Launched with simctl; no taps. 任务列表（三组，含审批与提问）。",
       "uploaded": false
     },
     {
@@ -45,11 +45,11 @@
       "width": 1320,
       "height": 2868,
       "mode": "RGB",
-      "bytes": 290922,
-      "sha256": "39cb05fa5e1a8ceb408d8a31ddc5541e7eb38c68f4dc253d42a9e0f4589ae417",
-      "sourceHead": "29dabd5fd101ae855da0f9365ec37b6f1a93b744",
+      "bytes": 289517,
+      "sha256": "3447317374decfaa67ae0b5de5d015e9b16ac1bcbfee7b8a543f1247b730a46e",
+      "sourceHead": "40db483cf6b5b32e3add945f7ded381c8d1d3a61",
       "sourceVersion": "1.3.13(27) source tree, pre-1.3.14 bump",
-      "sourceNote": "Captured 2026-09-13 from a Release simulator build of source HEAD 29dabd5 (iOS/watchOS 26.5 runtime, demo mode, no post-processing). Sheet opened by a temporary XCUITest driver; image taken with simctl.",
+      "sourceNote": "Recaptured 2026-09-13 from a Release simulator build of source HEAD 40db483c (feat/style-residue, PR #167 with the Cursor-alignment merge; iOS 26.5 runtime, demo mode, no post-processing). Launched with simctl; no taps. Codex 任务表，由 VIBEBUDDY_DEMO_PAGE=task/search-indexer 打开（无需点击）。",
       "uploaded": false
     },
     {
@@ -57,20 +57,24 @@
       "width": 2560,
       "height": 1600,
       "mode": "RGB",
-      "bytes": 369637,
-      "sha256": "e1059c1eab38a57e0db5363f5763483009c088e68c0b67dbc67edc38e925691c",
-      "sourceNote": "Captured by the separate Mac round (commit 136239f7 'docs: 1.3.14 Mac store screenshot'); provenance is recorded by that round, not verified here.",
-      "uploaded": false
+      "bytes": 406723,
+      "sha256": "836235d76ae9ce3d451e435aa86f1b6e184af23408564971bd9effe84b96532a",
+      "sourceNote": "Recaptured 2026-09-13 from a Release build of source HEAD 40db483c run as bundle id com.vibebuddy.store-shots with VIBEBUDDY_DEMO=1 VIBEBUDDY_PORT=9977 VIBEBUDDY_DEMO_PAGE=dashboard/live; screencapture -x -o -l <windowID>, converted to RGB JPEG. Dashboard with the demo-edit approval selected; 1280×800 window via a pre-written NSWindow frame.",
+      "uploaded": false,
+      "sourceHead": "40db483cf6b5b32e3add945f7ded381c8d1d3a61",
+      "sourceVersion": "1.3.13(27) source tree, pre-1.3.14 bump"
     },
     {
       "file": "macos/zh-Hans/01-dashboard-approval.jpg",
       "width": 2560,
       "height": 1600,
       "mode": "RGB",
-      "bytes": 343717,
-      "sha256": "e6dd519b9c5379edda5293c5364535e58d1129fa36c826e5b382980daa2df101",
-      "sourceNote": "Captured by the separate Mac round (commit 136239f7 'docs: 1.3.14 Mac store screenshot'); provenance is recorded by that round, not verified here.",
-      "uploaded": false
+      "bytes": 376401,
+      "sha256": "ccade8aed989969c0395a8bbb1f0137bc87f03f0d201b301c58c8871c27e8342",
+      "sourceNote": "Recaptured 2026-09-13 from a Release build of source HEAD 40db483c run as bundle id com.vibebuddy.store-shots with VIBEBUDDY_DEMO=1 VIBEBUDDY_PORT=9977 VIBEBUDDY_DEMO_PAGE=dashboard/live; screencapture -x -o -l <windowID>, converted to RGB JPEG. 仪表盘，demo-edit 审批已选中；1280×800 窗口由预写 NSWindow frame 定下。",
+      "uploaded": false,
+      "sourceHead": "40db483cf6b5b32e3add945f7ded381c8d1d3a61",
+      "sourceVersion": "1.3.13(27) source tree, pre-1.3.14 bump"
     },
     {
       "file": "reviewer/en-US/ios-pairing.jpg",
@@ -113,11 +117,11 @@
       "width": 416,
       "height": 496,
       "mode": "RGB",
-      "bytes": 41169,
-      "sha256": "e6063d624be91923db1f21a8cfc6580c5f7358722ee3c26f2abce72cc59cc7ae",
-      "sourceHead": "29dabd5fd101ae855da0f9365ec37b6f1a93b744",
+      "bytes": 39664,
+      "sha256": "796407f66b9e8a412bc0ede0e24e255f6bf10ef607214454ea479b3aa144679a",
+      "sourceHead": "40db483cf6b5b32e3add945f7ded381c8d1d3a61",
       "sourceVersion": "1.3.13(27) source tree, pre-1.3.14 bump",
-      "sourceNote": "Captured 2026-09-13 from a Release simulator build of source HEAD 29dabd5 (iOS/watchOS 26.5 runtime, demo mode, no post-processing). Apple Watch Series 11 (46mm) simulator, VIBEBUDDY_WATCH_SCENARIO=normal.",
+      "sourceNote": "Recaptured 2026-09-13 from a Release simulator build of source HEAD 40db483c (watchOS 26.5 runtime, demo mode, no post-processing). Quota page, scenario normal.",
       "uploaded": false
     },
     {
@@ -137,16 +141,31 @@
       "width": 416,
       "height": 496,
       "mode": "RGB",
-      "bytes": 41061,
-      "sha256": "da0916600e4b64d843deea7f7a0bb7b55286044710b04991a3132dfb8d03faeb",
-      "sourceHead": "29dabd5fd101ae855da0f9365ec37b6f1a93b744",
+      "bytes": 39549,
+      "sha256": "6b17b2e69381ac089f57b2adb95a221c3e7a89f969d6e37838aa62ca417fe250",
+      "sourceHead": "40db483cf6b5b32e3add945f7ded381c8d1d3a61",
       "sourceVersion": "1.3.13(27) source tree, pre-1.3.14 bump",
-      "sourceNote": "Captured 2026-09-13 from a Release simulator build of source HEAD 29dabd5 (iOS/watchOS 26.5 runtime, demo mode, no post-processing). Apple Watch Series 11 (46mm) simulator, VIBEBUDDY_WATCH_SCENARIO=normal.",
+      "sourceNote": "Recaptured 2026-09-13 from a Release simulator build of source HEAD 40db483c (watchOS 26.5 runtime, demo mode, no post-processing). 额度页，场景 normal。",
       "uploaded": false
     }
   ],
   "status": "captured-not-uploaded",
   "sourceNote": "10 mobile/reviewer images captured from a Release simulator build of 29dabd5 (feat/cursor-visual-language, PR #161); 2 Mac images come from the separate Mac round (136239f7).",
   "uploadedImageCount": 0,
-  "uploadScope": "none yet; ios and watchos are the marketing set, reviewer and macos are reference only"
+  "uploadScope": "none yet; ios and watchos are the marketing set, reviewer and macos are reference only",
+  "recaptured": {
+    "date": "2026-09-13",
+    "sourceHead": "40db483cf6b5b32e3add945f7ded381c8d1d3a61",
+    "files": [
+      "ios/en-US/01-dashboard.jpg",
+      "ios/en-US/02-codex-task.jpg",
+      "ios/zh-Hans/01-dashboard.jpg",
+      "ios/zh-Hans/02-codex-task.jpg",
+      "macos/en-US/01-dashboard-approval.jpg",
+      "macos/zh-Hans/01-dashboard-approval.jpg",
+      "watchos/en-US/02-quota.jpg",
+      "watchos/zh-Hans/02-quota.jpg"
+    ],
+    "note": "Eight images retaken after the Cursor-language residue round (ticket 10) and the iOS Cursor-alignment merge. reviewer/ios-pairing en/zh and watchos/01-task-overview en/zh are unchanged from 29dabd5 (their views did not change)."
+  }
 }

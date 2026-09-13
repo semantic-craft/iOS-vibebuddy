@@ -34,15 +34,15 @@ public enum ObservationSource: String, Codable, Sendable, CaseIterable, Comparab
 
     public var displayName: String {
         switch self {
-        case .appserver: "App server"
-        case .cloud: "Cursor cloud"
-        case .gateway: "Grok Bot gateway"
-        case .hook: "Hook"
-        case .statusline: "Status line"
-        case .rollout: "Rollout"
-        case .transcript: "Transcript"
-        case .recovery: "Recovery"
-        case .acp: "Cursor CLI (ACP)"
+        case .appserver: String(localized: "App server", bundle: .module)
+        case .cloud: String(localized: "Cursor cloud", bundle: .module)
+        case .gateway: String(localized: "Grok Bot gateway", bundle: .module)
+        case .hook: String(localized: "Hook", bundle: .module)
+        case .statusline: String(localized: "Status line", bundle: .module)
+        case .rollout: String(localized: "Rollout", bundle: .module)
+        case .transcript: String(localized: "Transcript", bundle: .module)
+        case .recovery: String(localized: "Recovery", bundle: .module)
+        case .acp: String(localized: "Cursor CLI (ACP)", bundle: .module)
         }
     }
 }
@@ -60,13 +60,13 @@ public enum ObservationHealth: String, Codable, Sendable, CaseIterable {
 
     public var displayName: String {
         switch self {
-        case .healthy: "Healthy"
-        case .temporarilySilent: "Temporarily silent"
-        case .eventsMissing: "Events missing"
-        case .asyncIncompatible: "Async incompatible"
-        case .sourceUnreadable: "Unreadable"
-        case .notInstalled: "Not installed"
-        case .unknownVersion: "Unknown version"
+        case .healthy: String(localized: "Healthy", bundle: .module)
+        case .temporarilySilent: String(localized: "Temporarily silent", bundle: .module)
+        case .eventsMissing: String(localized: "Events missing", bundle: .module)
+        case .asyncIncompatible: String(localized: "Async incompatible", bundle: .module)
+        case .sourceUnreadable: String(localized: "Unreadable", bundle: .module)
+        case .notInstalled: String(localized: "Not installed", bundle: .module)
+        case .unknownVersion: String(localized: "Unknown version", bundle: .module)
         }
     }
 
@@ -187,7 +187,7 @@ public struct AgentObservationDiagnostic: Codable, Sendable, Equatable, Identifi
 public extension AgentSession {
     /// Compact copy shared by the Mac and iOS session rows.
     var observationDescription: String? {
-        if historyOnly == true { return "Stored conversation · live status unavailable" }
+        if historyOnly == true { return String(localized: "Stored conversation · live status unavailable", bundle: .module) }
         guard let observations, !observations.isEmpty else { return nil }
         let sorted = observations.sorted { $0.source < $1.source }
         let sources = sorted.map(\.source.displayName).joined(separator: " + ")

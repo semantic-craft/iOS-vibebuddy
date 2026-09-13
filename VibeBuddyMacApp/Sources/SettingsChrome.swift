@@ -286,6 +286,10 @@ struct SettingsGrid: View {
 }
 
 /// The small status word beside a row — "hooked", "stale 2h", "Key saved".
+/// ADR-0017 §4: status is a dot and a word. The dot carries the tone, the
+/// word sits in the same colour, and the capsule is a hairline outline like
+/// every other pill on the dashboard — never a tinted fill. One shape for
+/// Agent CLIs, Phone & remote, Voice and Diagnostics alike.
 struct SettingsPill: View {
     enum Tone { case neutral, ok, warn, critical }
 
@@ -303,30 +307,32 @@ struct SettingsPill: View {
     }
 
     var body: some View {
-        text
-            .font(SettingsChrome.font(11.5, .semibold))
-            .foregroundStyle(foreground)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 3)
-            .background(Capsule().fill(background))
-            .fixedSize()
+        HStack(spacing: 5) {
+            Circle().fill(dot).frame(width: 6, height: 6).accessibilityHidden(true)
+            text.font(SettingsChrome.font(10.5, .medium)).foregroundStyle(word).lineLimit(1)
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 3)
+        .overlay(Capsule().strokeBorder(MacTheme.line, lineWidth: CompanionType.hairline))
+        .contentShape(Capsule())
+        .fixedSize()
     }
 
-    private var foreground: Color {
+    private var dot: Color {
         switch tone {
-        case .neutral: MacTheme.ink2
+        case .neutral: MacTheme.ink3
         case .ok: MacTheme.accent
         case .warn: CompanionPalette.status(.requiresInput)
         case .critical: CompanionPalette.status(.error)
         }
     }
 
-    private var background: Color {
+    private var word: Color {
         switch tone {
-        case .neutral: MacTheme.line.opacity(0.55)
-        case .ok: MacTheme.accent.opacity(0.15)
-        case .warn: CompanionPalette.status(.requiresInput).opacity(0.17)
-        case .critical: CompanionPalette.status(.error).opacity(0.16)
+        case .neutral: MacTheme.ink2
+        case .ok: MacTheme.accent
+        case .warn: CompanionPalette.status(.requiresInput)
+        case .critical: CompanionPalette.status(.error)
         }
     }
 }

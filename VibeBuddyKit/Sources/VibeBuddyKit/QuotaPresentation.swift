@@ -59,8 +59,9 @@ public enum QuotaPace: String, Sendable {
     }
 }
 
-/// Local remaining/reset wording. English like the rest of the usage surfaces;
-/// not CodexBar's localization stack.
+/// Local remaining/reset wording, from the Kit's own string table so the
+/// Mac plinth, the phone's Usage sheet and the Watch read one form of
+/// "in 2d 15h" (ticket 10 of `.scratch/cursor-visual-language/`).
 public enum QuotaPresentation {
     public static func remainingLine(usedPercent: Int) -> String {
         let remaining = max(0, min(100, 100 - usedPercent))
@@ -75,19 +76,21 @@ public enum QuotaPresentation {
 
     public static func resetCountdown(from date: Date, now: Date) -> String {
         let seconds = date.timeIntervalSince(now)
-        if seconds <= 0 { return "now" }
+        if seconds <= 0 { return String(localized: "now", bundle: .module) }
         let totalMinutes = max(1, Int(ceil(seconds / 60)))
         let days = totalMinutes / (24 * 60)
         let hours = (totalMinutes / 60) % 24
         let minutes = totalMinutes % 60
         if days > 0 {
-            if hours > 0 { return "in \(days)d \(hours)h" }
-            return "in \(days)d"
+            if hours > 0 { return String(localized: "in \(days)d \(hours)h", bundle: .module) }
+            return String(localized: "in \(days)d", bundle: .module)
         }
         if hours > 0 {
-            return minutes > 0 ? "in \(hours)h \(minutes)m" : "in \(hours)h"
+            return minutes > 0
+                ? String(localized: "in \(hours)h \(minutes)m", bundle: .module)
+                : String(localized: "in \(hours)h", bundle: .module)
         }
-        return "in \(totalMinutes)m"
+        return String(localized: "in \(totalMinutes)m", bundle: .module)
     }
 
     public static func resetAbsolute(from date: Date, now: Date, calendar: Calendar = .current) -> String {
@@ -96,15 +99,15 @@ public enum QuotaPresentation {
         }
         if let tomorrow = calendar.date(byAdding: .day, value: 1, to: now),
            calendar.isDate(date, inSameDayAs: tomorrow) {
-            return "tomorrow, \(date.formatted(date: .omitted, time: .shortened))"
+            return String(localized: "tomorrow, \(date.formatted(date: .omitted, time: .shortened))", bundle: .module)
         }
         return date.formatted(date: .abbreviated, time: .shortened)
     }
 
     public static func resetLine(from date: Date, now: Date, calendar: Calendar = .current) -> String {
+        if date.timeIntervalSince(now) <= 0 { return String(localized: "Resets now", bundle: .module) }
         let countdown = resetCountdown(from: date, now: now)
-        if countdown == "now" { return "Resets now" }
-        return "Resets \(countdown) · \(resetAbsolute(from: date, now: now, calendar: calendar))"
+        return String(localized: "Resets \(countdown) · \(resetAbsolute(from: date, now: now, calendar: calendar))", bundle: .module)
     }
 
     public static func creditsLine(_ credits: QuotaCredits) -> String {

@@ -174,3 +174,6 @@
 "%@ wants to %@" = "%@ 想要%@";
 "Your iPhone can't reach your Mac, so this can't be sent." = "你的 iPhone 连不上 Mac，所以无法发送。";
 "Enable quota collection for your signed-in account on your Mac to see allowance here." = "在 Mac 上为已登录账号开启额度收集，这里就会显示额度。";
+
+/* Ticket 10 — the one word inside a stale allowance ring */
+"Cached" = "缓存";

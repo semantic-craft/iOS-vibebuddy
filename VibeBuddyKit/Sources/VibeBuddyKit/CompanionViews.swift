@@ -115,7 +115,9 @@ public struct AgentAvatar: View {
     }
 }
 
-/// The agent's short name in a small rounded badge.
+/// The agent's short name in a small rounded badge — the rectangle of a
+/// state chip, not a pill, so it reads as a tag beside the title rather than
+/// as a control.
 public struct AgentBadge: View {
     public let agent: AgentKind
     public var onDark: Bool
@@ -129,8 +131,9 @@ public struct AgentBadge: View {
         Text(agent.shortName)
             .font(CompanionType.font(10, .heavy))
             .foregroundStyle(onDark ? .white : CompanionPalette.ink2)
-            .padding(.horizontal, 7).padding(.vertical, 2)
-            .background(onDark ? Color.white.opacity(0.14) : CompanionPalette.bg2, in: Capsule())
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(onDark ? Color.white.opacity(0.14) : CompanionPalette.bg2,
+                        in: RoundedRectangle(cornerRadius: 5, style: .continuous))
     }
 }
 
