@@ -30,6 +30,8 @@ struct DashboardView: View {
     @State private var projectScope: DashboardSessionList.ProjectScope = .all
     @State private var query: String = ""
     @State private var showNewTask = false
+    /// What Continue with… put into the New task sheet; nil for a plain ⌘N.
+    @State private var newTaskPrefill: NewTaskPrefill?
     @State private var libraryScope = "live"
     /// History and Favorites filter by project path; the sidebar owns the
     /// choice so both libraries share one project list.
@@ -117,12 +119,7 @@ struct DashboardView: View {
             DispatchQueue.main.async { DashboardRoute.shared.requested = nil }
         }
         .sheet(isPresented: $showNewTask, onDismiss: { newTaskPrefill = nil }) { NewTaskSheet(model: model, prefill: newTaskPrefill) }
-        .onChange(of: model.continueRequest) { _, request in
-            guard let request else { return }
-            newTaskPrefill = request
-            showNewTask = true
-            model.continueRequest = nil
-        }
+        .onChange(of: model.continueRequest) { _, request in presentContinue(request) }
         .onAppear {
             // `VIBEBUDDY_DEMO_PAGE=dashboard/<live|history|favorites|usage|newtask>`
             // lands on that library, or opens New task, for screenshots and QA.
@@ -243,6 +240,14 @@ struct DashboardView: View {
             }
         }
         .frame(minWidth: 240, idealWidth: 300, maxWidth: 380, maxHeight: .infinity)
+    }
+
+    /// Continue with… asked for the sheet: prefill it and consume the request.
+    private func presentContinue(_ request: NewTaskPrefill?) {
+        guard let request else { return }
+        newTaskPrefill = request
+        showNewTask = true
+        model.continueRequest = nil
     }
 
     /// "continues Codex · title" for a session the Mac started from another
