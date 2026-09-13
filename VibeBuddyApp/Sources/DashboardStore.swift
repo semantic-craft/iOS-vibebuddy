@@ -106,6 +106,9 @@ final class DashboardStore: ObservableObject {
     /// untouched — normalization already happened where the provider's own
     /// convention was still known.
     @Published private(set) var lastProviderQuota: [ProviderQuota] = []
+    /// The Mac's recap as the last snapshot carried it, relayed to the Watch
+    /// as is. This phone renders none of it (the recap is a wrist surface).
+    private var lastRecap: Recap?
     /// Local Claude Code / Codex token spend as the Mac last reported it.
     @Published private(set) var lastTokenConsumption: TokenConsumptionSnapshot?
     private var runTask: Task<Void, Never>?
@@ -160,6 +163,10 @@ final class DashboardStore: ObservableObject {
         watchRelay?.onCompletionRequest = { [weak self] request in
             guard let self else { return WatchCompletionResult(attemptID: request.attemptID, outcome: .failed) }
             return await self.acknowledgeFromWatch(request)
+        }
+        watchRelay?.onRecapReadRequest = { [weak self] request in
+            guard let self else { return WatchRecapReadResult(attemptID: request.attemptID, outcome: .failed) }
+            return await self.recapReadFromWatch(request)
         }
         // The wrist's only way to act. It asks; this decides.
         watchRelay?.onSessionAction = { [weak self] request in
@@ -339,6 +346,42 @@ final class DashboardStore: ObservableObject {
         return result(outcome)
     }
 
+    /// Mark all from the wrist: the horizon first, then each named round as an
+    /// exact-round read. The Mac decides everything; this phone keeps no record
+    /// of its own — the Watch holds the retryable intent. Outcomes that are
+    /// final for a round (already read, a later round, an unknown session)
+    /// are done; only a delivery failure is reported as `failed`, so the Watch
+    /// tries the whole thing again and the Mac's idempotent routes absorb it.
+    func recapReadFromWatch(_ message: WatchRecapReadRequest) async -> WatchRecapReadResult {
+        func result(_ outcome: RecapReadOutcome) -> WatchRecapReadResult {
+            WatchRecapReadResult(attemptID: message.attemptID, outcome: outcome)
+        }
+        guard message.pairingEpoch == ConnectionStore.pairingEpoch else { return result(.sourceMismatch) }
+        guard state == .connected, let pairing, let sourceID else { return result(.failed) }
+        guard message.sourceID == sourceID, message.pairingEpoch == pairingEpoch else { return result(.sourceMismatch) }
+        let horizon = await decisionClient.advanceRecapHorizon(pairing, request: message.recapRead)
+        guard self.pairing == pairing, message.sourceID == self.sourceID,
+              message.pairingEpoch == self.pairingEpoch,
+              pairingEpoch == ConnectionStore.pairingEpoch else { return result(.sourceMismatch) }
+        switch horizon {
+        case .failed: return result(.failed)
+        case .sourceMismatch: return result(.sourceMismatch)
+        case .accepted: break
+        }
+        for link in message.completions {
+            guard link.sourceID == sourceID, link.pairingEpoch == pairingEpoch,
+                  let request = link.readRequest else { continue }
+            let outcome = await decisionClient.acknowledge(pairing, request: request)
+            guard self.pairing == pairing, pairingEpoch == ConnectionStore.pairingEpoch else { return result(.sourceMismatch) }
+            completionReads.received(outcome, request: request)
+            switch outcome {
+            case .accepted, .alreadyAcknowledged, .staleCompletion, .unavailable, .sourceMismatch: continue
+            case .failed: return result(.failed)
+            }
+        }
+        return result(.accepted)
+    }
+
     /// Register this Live Activity's APNs push token with the Mac. Best-effort.
     private func uploadActivityToken(_ token: String) {
         guard !isDemo, let pairing,
@@ -362,6 +405,7 @@ final class DashboardStore: ObservableObject {
         isDemo = false
         lastProviderQuota = []
         lastTokenConsumption = nil
+        lastRecap = nil
         if self.pairing != pairing { phoneActions = [:]; phoneActionIdentity = [:] }
         self.pairing = pairing
         ConnectionStore.observePairing(pairing)
@@ -434,6 +478,7 @@ final class DashboardStore: ObservableObject {
         groups = SessionGroups([])
         lastProviderQuota = []
         lastTokenConsumption = nil
+        lastRecap = nil
         relayToWatch([])
     }
 
@@ -480,7 +525,8 @@ final class DashboardStore: ObservableObject {
         guard let watchRelay else { return }
         let now = Date()
         var projection = WatchDashboardProjection.make(
-            snapshot: Snapshot(sessions: sessions, serverTime: lastServerTime, sourceID: sourceID),
+            snapshot: Snapshot(sessions: sessions, serverTime: lastServerTime, sourceID: sourceID,
+                               recap: isDemo ? WatchDemoScenario.recap(now: now) : lastRecap),
             quotas: isDemo ? WatchDemoScenario.normal.quotas(now: now) : lastProviderQuota,
             relay: state == .connected ? .live : .disconnected,
             now: lastServerTime,
@@ -1002,6 +1048,7 @@ final class DashboardStore: ObservableObject {
         guard !Task.isCancelled else { return }
         lastProviderQuota = snapshot.providerQuota ?? []
         lastTokenConsumption = snapshot.tokenConsumption
+        lastRecap = snapshot.recap
         buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: snapshot.sessions)
         state = .connected
         confirmConnectedPairing()

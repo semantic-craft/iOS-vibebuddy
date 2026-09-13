@@ -57,6 +57,9 @@ private struct WatchWindow: View {
             .sheet(item: $store.taskLink) { link in
                 WatchTaskDetailView(store: store, link: link)
             }
+            .sheet(isPresented: $store.isRecapOpen) {
+                WatchRecapView(store: store)
+            }
     }
 }
 

@@ -3,7 +3,7 @@ import VibeBuddyKit
 
 /// The home answers, in this order: how many things need you and which one
 /// is first (the headline and the card); what else is waiting (rows you can
-/// open); what finished and is worth a look (rows that open summaries);
+/// open); what ended since you last read (one row that opens the recap);
 /// and only then what is merely running, and the allowance. Counting tables,
 /// the pet and logs do not get a line of a 40mm screen (ADR-0021).
 struct WatchHomeView: View {
@@ -22,10 +22,11 @@ struct WatchHomeView: View {
                         // An open task or quota sheet covers this card, so it
                         // stops being the one a Double Tap should resolve.
                         WatchAlertCard(store: store, alert: alert, now: now, alsoWaiting: 0,
-                                       isFrontmost: store.taskLink == nil && store.quotaSelection == nil)
+                                       isFrontmost: store.taskLink == nil && store.quotaSelection == nil
+                                           && !store.isRecapOpen)
                     }
                     alsoWaiting
-                    results
+                    recap
                     followed
                     WatchQuotaStrips(state: state, now: now)
                     WatchFooter(state: state, connection: connection, now: now)
@@ -68,42 +69,35 @@ struct WatchHomeView: View {
         }
     }
 
-    /// Followed unread results stay one tap away. Other completions are a
-    /// count and an iPhone destination; opening a summary never marks it read.
+    /// What ended since you last read, as one row: the count, how many of
+    /// those failed, and how fresh the newest is. Tapping opens the recap; the
+    /// row itself claims nothing about reading. With nothing ended, no row —
+    /// the home does not spend a line saying so.
     @ViewBuilder
-    private var results: some View {
-        let followedIDs = Set(state.followedTasks.map(\.sessionID))
-        let unread = state.unreadResults.filter { followedIDs.contains($0.sessionID) }
-        if !unread.isEmpty {
-            WatchSection(title: Text("Results"), count: unread.count) {
-                ForEach(unread) { task in
-                    WatchSessionRow(state: .completeUnread,
-                                    title: task.title.isEmpty ? String(localized: "Unnamed task") : task.title,
-                                    detail: task.summary ?? String(localized: "Done"),
-                                    trailing: nil) {
-                        store.openSession(task.sessionID)
-                    }
+    private var recap: some View {
+        if let recap = state.recap, !recap.entries.isEmpty {
+            WatchSection(title: Text("Recap"), count: recap.unreadCount) {
+                WatchSessionRow(state: recap.failedCount > 0 ? .error : .completeUnread,
+                                title: String(localized: "\(recap.entries.count) since you last read"),
+                                detail: WatchRecapCopy.rowDetail(recap, now: now),
+                                trailing: nil) {
+                    store.openRecap()
                 }
+                .accessibilityIdentifier("watch-recap-row")
             }
-        }
-        if let count = state.unfollowedUnreadCount, count > 0 {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("\(count) unread outside Followed")
-                    .font(CompanionType.font(12, .medium)).monospacedDigit()
-                Text("View on your iPhone")
-                    .font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink2)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityElement(children: .combine)
         }
     }
 
     /// Followed sessions not already listed above — in practice the ones
     /// still running. Secondary by design: a running task asks nothing of you.
+    /// A followed session that is waiting sits under Needs you, one that ended
+    /// badly under Also waiting, and one whose round ended is in the recap.
     @ViewBuilder
     private var followed: some View {
-        let listed = Set(state.alerts.map(\.sessionId) + (state.results ?? []).map(\.sessionID))
-        let rest = state.followedTasks.filter { !listed.contains($0.sessionID) }
+        let listed = Set(state.alerts.map(\.sessionId))
+        let rest = state.followedTasks.filter {
+            !listed.contains($0.sessionID) && $0.presentation != .completeUnread && $0.presentation != .error
+        }
         if let source = state.sourceID, !source.isEmpty,
            let epoch = state.pairingEpoch, !epoch.isEmpty, !rest.isEmpty {
             WatchSection(title: Text("Followed"), count: rest.count) {
