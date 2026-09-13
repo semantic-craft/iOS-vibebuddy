@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import VibeBuddyKit
 import VibeBuddyMacCore
 
 struct HistoryConnectPage: View {
