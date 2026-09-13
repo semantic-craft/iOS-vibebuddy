@@ -50,4 +50,28 @@ struct WatchCompletionTests {
         #expect(queue.links.isEmpty)
         #expect(state(round: "round-2").followedTasks.first?.presentation == .completeUnread)
     }
+
+    @Test("A result evicted from the wrist window keeps its exact retry until a definitive receipt")
+    func evictedResult() throws {
+        var queue = WatchCompletionQueue()
+        queue.viewed(link, state: state())
+        var window = state()
+        window.followedTasks = []
+        window.results = (0..<6).map { index in
+            var task = state().followedTasks[0]
+            task.sessionID = "newer-\(index)"
+            return task
+        }
+        queue.reconcile(with: window)
+        queue = try JSONDecoder().decode(WatchCompletionQueue.self, from: JSONEncoder().encode(queue))
+        #expect(queue.links == [link])
+        queue.received(.failed, for: link)
+        #expect(queue.links == [link])
+        let otherRound = WatchTaskLink(sourceID: link.sourceID, pairingEpoch: link.pairingEpoch,
+                                      sessionID: link.sessionID, completionID: "round-2")
+        queue.received(.accepted, for: otherRound)
+        #expect(queue.links == [link])
+        queue.received(.alreadyAcknowledged, for: link)
+        #expect(queue.links.isEmpty)
+    }
 }

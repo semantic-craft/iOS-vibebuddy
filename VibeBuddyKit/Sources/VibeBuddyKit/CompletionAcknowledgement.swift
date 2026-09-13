@@ -101,9 +101,19 @@ public struct WatchCompletionQueue: Codable, Equatable, Sendable {
         // No-data is not an authoritative deletion or acknowledgement.
         guard state.relay == .live, state.sourceID != nil, state.pairingEpoch != nil else { return }
         links.removeAll { link in
-            guard let task = link.task(in: state) else { return true }
+            guard link.sourceID == state.sourceID else { return true }
+            // Results are a six-row window, not an authoritative inventory.
+            // Absence cannot distinguish a read result from an evicted one.
+            guard let task = link.task(in: state) else { return false }
             return task.completionID != link.completionID || task.presentation != .completeUnread
         }
+    }
+
+    /// The phone forwards the daemon's exact-round outcome. Retire delivery
+    /// work on a definitive reply; only snapshots change the visible task list.
+    public mutating func received(_ outcome: CompletionReadOutcome, for link: WatchTaskLink) {
+        guard outcome != .failed else { return }
+        links.removeAll { $0 == link }
     }
 }
 

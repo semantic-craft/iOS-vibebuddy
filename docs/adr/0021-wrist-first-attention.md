@@ -1,4 +1,4 @@
-# ADR-0019: The Watch is a reminder entry, not a dashboard
+# ADR-0021: The Watch is a reminder entry, not a dashboard
 
 - Status: accepted
 - Date: 2026-09-13
@@ -76,8 +76,10 @@ what lets a wrist action travel while the phone is in a pocket.
    `UNUserNotificationCenterDelegate` at launch (`WatchAppDelegate`), reads the
    session id from the mirrored notification's `userInfo` — the same key both
    channels already put there — and opens that session's detail through
-   `WatchStateStore.openSession`, holding the id until a relayed state knows
-   it. Only the default action is handled here; Approve / Deny / Reply on a
+   `WatchStateStore.openSession`, holding the id only until a relay supplies
+   the source and pairing. A target absent from that projection opens an unavailable page; changing
+   the pairing or navigating elsewhere cancels a pending cold-start target.
+   Only the default action is handled here; Approve / Deny / Reply on a
    forwarded notification are answered by the iPhone, as Apple routes them. A
    notification arriving while the app is on screen is not presented on top
    of it: the store taps out the boundary itself.
@@ -86,8 +88,11 @@ what lets a wrist action travel while the phone is in a pocket.
    nothing more; opening a result queues the *read* of that exact round. The
    card's buttons are the only way to approve, deny or answer, and their
    sentences never say "approved" or "answered" — the alert leaves the screen
-   when the next snapshot says the world changed. A session the current state
-   no longer knows opens as "no longer waiting on you", never as a live card.
+   when the next snapshot says the world changed. A session absent from the
+   bounded projection opens an explicit unavailable page, never a live card. A result already opened stays readable after its
+   row disappears, without retaining controls. Missing rows do not cancel
+   offline read retries: only a newer observed round, a changed source/pairing
+   or the daemon's exact-round outcome retires them.
 5. **Completion reminders back off.** `CompletionReminderSchedule` re-issues
    the `agentDone` cue for a followed, unread completion after 5, 10, 20 and
    then 40 minutes — four reminders, the last 75 minutes after the completion —

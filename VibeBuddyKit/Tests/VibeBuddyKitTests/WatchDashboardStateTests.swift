@@ -747,10 +747,13 @@ struct WatchResultsTests {
         var queue = WatchCompletionQueue()
         queue.viewed(link, state: state)
         #expect(queue.links == [link])
-        // Read through the Mac: the result leaves the list and the queue.
+        // The list cannot establish why a normal result disappeared. Only
+        // the exact daemon receipt retires the pending delivery in that case.
         var read = project([session("done", unread: false)])
         read.pairingEpoch = "epoch-1"
         queue.reconcile(with: read)
+        #expect(queue.links == [link])
+        queue.received(.accepted, for: link)
         #expect(queue.links.isEmpty)
         #expect(read.results?.isEmpty == true)
     }

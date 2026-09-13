@@ -10,12 +10,14 @@ import VibeBuddyKit
 /// Three shapes. A task the projection carries (followed, or a result) gets
 /// the task header, and its card when it is waiting. A waiting session the
 /// projection carries only as an alert gets the card alone. Anything else is
-/// gone, and says so. Appearing *views*: it tells the Mac the wait was seen
+/// unavailable, and says so. An opened completion retains only its reading
+/// content when it leaves the list. Appearing *views*: it tells the Mac the wait was seen
 /// and queues the exact-round read of a completion — never an approval or an
 /// answer, which are the card's buttons and nothing else.
 struct WatchTaskDetailView: View {
     @ObservedObject var store: WatchStateStore
     let link: WatchTaskLink
+    @State private var retainedResult: WatchFollowedTask?
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -25,6 +27,24 @@ struct WatchTaskDetailView: View {
                     taskBody(task)
                 } else if let alert = link.alert(in: store.state) {
                     alertBody(alert)
+                } else if let retainedResult,
+                          store.state?.sourceID == link.sourceID,
+                          store.state?.pairingEpoch == link.pairingEpoch {
+                    // Keep the opened result readable when acknowledgement
+                    // removes its row. Never retain an approval or Stop control.
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(retainedResult.title).font(CompanionType.font(15, .semibold))
+                        Text("Previously viewed result")
+                            .font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink2)
+                        if let summary = retainedResult.detailSummary ?? retainedResult.summary {
+                            Text(summary).font(CompanionType.font(12))
+                        }
+                        if completionPending {
+                            Text("Viewed — syncing with Mac").font(CompanionType.font(10))
+                        }
+                        footer
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     Text(unavailableText)
                         .font(CompanionType.font(12))
@@ -88,7 +108,12 @@ struct WatchTaskDetailView: View {
             footer
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .onAppear { store.viewed(link) }
+        .onAppear {
+            if task.presentation == .completeUnread, task.completionID == link.completionID {
+                retainedResult = task
+            }
+            store.viewed(link)
+        }
     }
 
     /// A waiting session the projection knows only as an alert — not
@@ -111,13 +136,12 @@ struct WatchTaskDetailView: View {
         }
     }
 
-    /// Gone means different things: a wait that was resolved somewhere else
-    /// is the common case and the good news; a task the wrist never knew is
-    /// the other. Only the first can be named.
+    /// A bounded list cannot tell whether an absent task was resolved or
+    /// simply fell outside the window. Point to the full task on another device.
     private var unavailableText: LocalizedStringResource {
         if let state = store.state, state.sourceID == link.sourceID, state.pairingEpoch == link.pairingEpoch,
            state.relay == .live {
-            return "This is no longer waiting on you. It was handled on another device, or the task moved on."
+            return "This task is not in the current Watch list. Open it on your iPhone or Mac."
         }
         return "This task is unavailable. Return to the dashboard for current tasks."
     }

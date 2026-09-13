@@ -177,9 +177,11 @@
 
 /* Ticket 10 — the one word inside a stale allowance ring */
 "Cached" = "缓存";
-/* MARK: Wrist-first home (ADR-0019): needs you first, then results */
+/* MARK: Wrist-first home (ADR-0021): needs you first, then results */
 "Also waiting" = "还在等你";
 "Results" = "结果";
 "Followed" = "关注中";
 "Stopped with an error" = "出错停止";
+"Previously viewed result" = "刚才查看的结果";
+"This task is not in the current Watch list. Open it on your iPhone or Mac." = "当前手表列表中没有这个任务。请在 iPhone 或 Mac 上打开。";
 "This is no longer waiting on you. It was handled on another device, or the task moved on." = "这个已经不用你处理了：已在其他设备处理，或任务已推进。";

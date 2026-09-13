@@ -15,8 +15,12 @@ import WidgetKit
 @MainActor
 final class WatchStateStore: NSObject, ObservableObject {
     @Published private(set) var state: WatchDashboardState?
-    @Published var taskLink: WatchTaskLink?
-    @Published var quotaSelection: WatchQuotaSelection?
+    @Published var taskLink: WatchTaskLink? {
+        didSet { cancelPendingNavigation() }
+    }
+    @Published var quotaSelection: WatchQuotaSelection? {
+        didSet { cancelPendingNavigation() }
+    }
     @Published private(set) var completionQueue = WatchCompletionQueue()
     private var completionAttempt: WatchCompletionRequest?
     private var retryTask: Task<Void, Never>?
@@ -158,13 +162,16 @@ final class WatchStateStore: NSObject, ObservableObject {
     /// A session the wrist was pointed at by id — a Needs-you or Results row,
     /// or the tap on a mirrored notification. The link is minted from the
     /// state on screen, so it is bound to the Mac, the pairing and (for a
-    /// result) the exact round the wearer is about to read. A session the
-    /// current state does not know is held until one that does arrives; a
-    /// notification can wake this app before the relay has said anything.
+    /// result) the exact round the wearer is about to read. A target with a
+    /// missing identity is held until the first relay arrives. With an identity,
+    /// an unknown target opens an unavailable page instead of waiting forever.
     func openSession(_ sessionID: String) {
         guard let state, let source = state.sourceID, !source.isEmpty,
-              let epoch = state.pairingEpoch, !epoch.isEmpty, state.knows(sessionID) else {
+              let epoch = state.pairingEpoch, !epoch.isEmpty else {
+            taskLink = nil
+            quotaSelection = nil
             pendingSessionID = sessionID
+            pendingPairingEpoch = self.state?.pairingEpoch
             return
         }
         pendingSessionID = nil
@@ -175,6 +182,12 @@ final class WatchStateStore: NSObject, ObservableObject {
 
     /// A session named before the state could place it (`openSession`).
     private var pendingSessionID: String?
+    private var pendingPairingEpoch: String?
+
+    func cancelPendingNavigation() {
+        pendingSessionID = nil
+        pendingPairingEpoch = nil
+    }
 
     /// Called only by the exact detail body after it has appeared. Viewing is
     /// viewing: for a wait it tells the Mac the request was seen (so the
@@ -254,8 +267,8 @@ final class WatchStateStore: NSObject, ObservableObject {
         let tries = min(4, (retryCount[request.link] ?? 0) + 1)
         retryCount[request.link] = tries
         retryAfter[request.link] = Date().addingTimeInterval(min(60, 5 * pow(2, Double(tries - 1))))
-        // Even accepted/alreadyAcknowledged is only a receipt. Reconciliation
-        // with the Mac's next snapshot clears this record and the face candidate.
+        if let result { completionQueue.received(result.outcome, for: request.link) }
+        // A receipt retires this retry only. The face still follows snapshots.
         if let state { completionQueue.reconcile(with: state); persistCompletions() }
         flushCompletions()
     }
@@ -468,6 +481,9 @@ final class WatchStateStore: NSObject, ObservableObject {
 
     /// Record a new state and let any in-flight decision see it.
     private func install(_ next: WatchDashboardState) {
+        if let epoch = pendingPairingEpoch, let nextEpoch = next.pairingEpoch, epoch != nextEpoch {
+            cancelPendingNavigation()
+        }
         if state?.sourceID != next.sourceID || state?.pairingEpoch != next.pairingEpoch {
             // A different Mac or a different pairing: nothing in flight was
             // ever about this world. Clear it rather than let it describe one.

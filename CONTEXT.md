@@ -348,14 +348,14 @@ code, and tests — don't drift to synonyms.
   Mac and over APNs; any acknowledgement stops it. Same notification id and
   collapse id as the original cue, so one banner is replaced, not stacked.
   The cadence backs off because every reminder is mirrored to the wrist as a
-  fresh buzz (ADR-0019). The Watch carries no attention state.
+  fresh buzz (ADR-0021). The Watch carries no attention state.
 - **Watch results** — `WatchDashboardState.results`: the current sessions
   worth a look without waiting on you — ended badly (`error`) first, then
   unread completions, newest first, at most six, muted ones excluded. Listed
   on the Watch home under *Also waiting* (errors, with the alerts) and
   *Results*; opening one reads that exact round through the Mac, whether or
   not the session is followed. The home order is headline → top card → also
-  waiting → results → followed → quota (ADR-0019). A notification tap on the
+  waiting → results → followed → quota (ADR-0021). A notification tap on the
   Watch opens its session; viewing a wait only marks it seen.
 - **Missed** — one wait in `needsResponse` that reaches five minutes without
   acknowledgement on any surface, counted once for that wait even if the session
