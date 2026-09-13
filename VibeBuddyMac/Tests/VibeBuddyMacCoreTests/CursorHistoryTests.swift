@@ -7,7 +7,7 @@ final class CursorHistoryTests: XCTestCase {
         let fixture = try Fixture()
         defer { fixture.cleanup() }
         let prompt = "Fix the search field\n" + String(repeating: "完整正文", count: 300)
-        let reply = String(repeating: "Readable response. ", count: 70)
+        let reply = String(repeating: "Readable response. ", count: 70).trimmingCharacters(in: .whitespaces)
         let input = String(repeating: "echo searchable-tool-input; ", count: 50)
         let text = "<timestamp>Wednesday, Sep 9, 2026, 3:14 AM (UTC+8)</timestamp>\n<user_query>\(prompt)</user_query>"
         try fixture.write([

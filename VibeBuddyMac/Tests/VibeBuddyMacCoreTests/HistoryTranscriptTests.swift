@@ -85,7 +85,7 @@ final class HistoryTranscriptTests: XCTestCase {
         let source = #"{"type":"session_meta","payload":{"id":"native","cwd":"/repo"}}"# + "\n" +
             #"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Retain this dialogue after archive"}]}}"#
         try Data(source.utf8).write(to: file)
-        let writer = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cacheDirectory: cache)
+        let writer = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cursorHome: root.appendingPathComponent("cursor"), cacheDirectory: cache)
         _ = try await writer.refresh()
         try FileManager.default.moveItem(at: file, to: archived)
         let refreshed = try await writer.refresh()
@@ -100,7 +100,7 @@ final class HistoryTranscriptTests: XCTestCase {
         XCTAssertEqual(persisted.count, 2)
         XCTAssertTrue(persisted.allSatisfy { $0["nativeSessionID"] as? String == "native" })
         XCTAssertEqual(persisted.filter { $0["isAvailable"] as? Bool == true }.count, 1)
-        let reader = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cacheDirectory: cache, readOnly: true)
+        let reader = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cursorHome: root.appendingPathComponent("cursor"), cacheDirectory: cache, readOnly: true)
         let transcript = try await reader.readTranscript(key: "codex:native")
         XCTAssertEqual(transcript.session.sourcePath, canonical.sourcePath)
         let retained = try await writer.readTranscript(key: "codex:native")
@@ -113,7 +113,7 @@ final class HistoryTranscriptTests: XCTestCase {
         // Distinct available files remain ambiguous, unlike the retained unavailable path.
         try Data(source.utf8).write(to: file)
         _ = try await writer.refresh()
-        let duplicateReader = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cacheDirectory: cache, readOnly: true)
+        let duplicateReader = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cursorHome: root.appendingPathComponent("cursor"), cacheDirectory: cache, readOnly: true)
         do { _ = try await duplicateReader.readTranscript(key: "codex:native"); XCTFail("available duplicates accepted") }
         catch HistoryToolError.executionFailed { }
     }
