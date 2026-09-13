@@ -46,6 +46,20 @@ public actor SessionHistoryRepository {
             if cache.version < 7 { pendingPaths.formUnion(entries.keys) }
         }
     }
+    /// Long-lived MCP readers see the next atomically published metadata files.
+    /// This deliberately leaves transcript caches alone and never invokes refresh.
+    public func reloadReadOnlyMetadata() throws {
+        guard readOnly else { throw HistoryToolError.executionFailed("Metadata reload requires a read-only repository.") }
+        loaded = false
+        usableIndex = false
+        entries.removeAll()
+        favorites.removeAll()
+        pins.removeAll()
+        archives.removeAll()
+        pendingPaths.removeAll()
+        ensureLoaded()
+    }
+
     public func hasUsableIndex() -> Bool { ensureLoaded(); return usableIndex }
 
     public func snapshot() -> SessionHistorySnapshot {

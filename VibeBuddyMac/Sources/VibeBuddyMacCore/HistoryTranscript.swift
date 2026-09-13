@@ -51,7 +51,7 @@ public struct HistoryTranscript: Sendable {
 }
 
 extension HistoryTools {
-    public static func getSession(arguments: [String: Any], repository: SessionHistoryRepository) async throws -> String {
+    public static func getSession(arguments: [String: Any], repository: SessionHistoryRepository, isolation: isolated (any Actor)? = #isolation) async throws -> String {
         guard Set(arguments.keys).isSubset(of: ["key", "from_seq", "max_messages", "tools", "thinking"]), let key = arguments["key"] as? String else {
             throw HistoryToolError.invalidArguments("get_session requires key and only its documented arguments.")
         }
