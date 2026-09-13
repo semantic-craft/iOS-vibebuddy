@@ -73,6 +73,51 @@ final class HistoryTranscriptTests: XCTestCase {
         XCTAssertEqual(mismatched.provenance, "source, index stale")
         XCTAssertEqual(try bytes(cache), mismatchedBefore)
     }
+    func testNativeArchiveMoveSelectsAvailableSourceWithoutWriting() async throws {
+        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent(".scratch/history-archive-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let claude = root.appendingPathComponent("claude"), codex = root.appendingPathComponent("codex"), cache = root.appendingPathComponent("cache")
+        let file = codex.appendingPathComponent("sessions/native.jsonl")
+        let archived = codex.appendingPathComponent("archived_sessions/native.jsonl")
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: archived.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let source = #"{"type":"session_meta","payload":{"id":"native","cwd":"/repo"}}"# + "\n" +
+            #"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Retain this dialogue after archive"}]}}"#
+        try Data(source.utf8).write(to: file)
+        let writer = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cacheDirectory: cache)
+        _ = try await writer.refresh()
+        try FileManager.default.moveItem(at: file, to: archived)
+        let refreshed = try await writer.refresh()
+        XCTAssertEqual(refreshed.sessions.count, 1)
+        let canonical = try XCTUnwrap(refreshed.sessions.first)
+        XCTAssertTrue(canonical.isAvailable)
+        XCTAssertEqual(canonical.sourceArchived, true)
+        let before = try bytes(cache)
+        let index = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: cache.appendingPathComponent("index.json"))) as? [String: Any])
+        let entries = try XCTUnwrap(index["entries"] as? [String: [String: Any]])
+        let persisted = entries.values.compactMap { $0["session"] as? [String: Any] }
+        XCTAssertEqual(persisted.count, 2)
+        XCTAssertTrue(persisted.allSatisfy { $0["nativeSessionID"] as? String == "native" })
+        XCTAssertEqual(persisted.filter { $0["isAvailable"] as? Bool == true }.count, 1)
+        let reader = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cacheDirectory: cache, readOnly: true)
+        let transcript = try await reader.readTranscript(key: "codex:native")
+        XCTAssertEqual(transcript.session.sourcePath, canonical.sourcePath)
+        let retained = try await writer.readTranscript(key: "codex:native")
+        XCTAssertEqual(retained.session.sourcePath, canonical.sourcePath)
+        let request = try HistoryCLI.parse(["show", "vibebuddy://session/codex:native#1"])
+        let output = try await HistoryTools.getSession(arguments: request.arguments, repository: reader)
+        XCTAssertTrue(output.contains("[seq 1] User"))
+        XCTAssertTrue(output.contains("Retain this dialogue after archive"))
+        XCTAssertEqual(try bytes(cache), before)
+        // Distinct available files remain ambiguous, unlike the retained unavailable path.
+        try Data(source.utf8).write(to: file)
+        _ = try await writer.refresh()
+        let duplicateReader = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cacheDirectory: cache, readOnly: true)
+        do { _ = try await duplicateReader.readTranscript(key: "codex:native"); XCTFail("available duplicates accepted") }
+        catch HistoryToolError.executionFailed { }
+    }
+
     private func bytes(_ directory: URL) throws -> [String: Data] {
         try Dictionary(uniqueKeysWithValues: FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).map { ($0.lastPathComponent, try Data(contentsOf: $0)) })
     }
