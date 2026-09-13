@@ -128,6 +128,27 @@ struct DashboardView: View {
             let target = String(page.dropFirst("dashboard/".count))
             if target == "newtask" { showNewTask = true } else if let library = DashboardRoute.Library(rawValue: target) {
                 libraryScope = library.rawValue
+            } else if target.hasPrefix("continue:") {
+                // `dashboard/continue:<session id>:<agent raw value>` opens Continue
+                // with… for that session once it is listed — the isolated QA
+                // instance has no pointer and no launcher of its own.
+                let parts = target.dropFirst("continue:".count).split(separator: ":", maxSplits: 1).map(String.init)
+                guard let id = parts.first, let agent = parts.count > 1 ? AgentKind(rawValue: parts[1]) : .claudeCode else { return }
+                Task { @MainActor in
+                    // Wait for the row, then one more poll so the snapshot that
+                    // named its checkout (and scanned its handoffs) has landed.
+                    var ready: AgentSession?
+                    for _ in 0..<120 {
+                        if let session = model.sessions.first(where: { $0.id == id }), session.checkoutPath != nil {
+                            if ready != nil { break }
+                            ready = session
+                        }
+                        try? await Task.sleep(nanoseconds: 2_500_000_000)
+                    }
+                    guard let session = model.sessions.first(where: { $0.id == id }) ?? ready else { return }
+                    selection = id
+                    model.requestContinue(session, with: agent)
+                }
             }
         }
         .background {

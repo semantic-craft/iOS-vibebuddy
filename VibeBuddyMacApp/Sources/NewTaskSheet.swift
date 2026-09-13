@@ -84,8 +84,10 @@ struct NewTaskSheet: View {
             }
 
             // Without an agent there is nothing to type for; `.disabled` alone
-            // still lets the editor take focus and swallow Escape.
-            if !model.dispatchAgents.isEmpty {
+            // still lets the editor take focus and swallow Escape. A Continue
+            // with… prefill is still shown, so what would be sent can be read
+            // and copied even when nothing can start from this Mac.
+            if !model.dispatchAgents.isEmpty || prefill?.continuing != nil {
                 VStack(alignment: .leading, spacing: 0) {
                     TextField("Task name (optional)", text: $name)
                         .textFieldStyle(.plain).font(MacTheme.font(12, .medium)).foregroundStyle(MacTheme.ink)
