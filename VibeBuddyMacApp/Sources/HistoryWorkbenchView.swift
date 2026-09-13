@@ -317,7 +317,7 @@ struct HistoryWorkbenchView: View {
             else if !session.warnings.isEmpty { Label("Partial or limited record", systemImage: "info.circle").font(MacTheme.font(10)) }
         }
         .frame(maxWidth: .infinity, alignment: .leading).padding(10)
-        .background(active ? MacTheme.ink.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(active ? MacTheme.accent.opacity(0.14) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .contentShape(Rectangle())
     }
 

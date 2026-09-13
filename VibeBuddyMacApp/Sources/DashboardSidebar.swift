@@ -180,8 +180,8 @@ struct SidebarRow: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 Image(systemName: systemName).font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(selected ? MacTheme.ink : MacTheme.ink2).frame(width: 14)
-                Text(title).font(MacTheme.font(12, .medium)).foregroundStyle(MacTheme.ink).lineLimit(1)
+                    .foregroundStyle(selected ? MacTheme.accent : MacTheme.ink2).frame(width: 14)
+                Text(title).font(MacTheme.font(12, .medium)).foregroundStyle(selected ? MacTheme.accent : MacTheme.ink).lineLimit(1)
                 Spacer(minLength: 4)
                 if count > 0 {
                     Text("\(count)").font(MacTheme.mono(10, .medium)).foregroundStyle(countTint)
@@ -207,7 +207,7 @@ struct ProjectRow: View {
     var body: some View {
         Button(action: action) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(title).font(MacTheme.font(12)).foregroundStyle(selected ? MacTheme.ink : MacTheme.ink2)
+                Text(title).font(MacTheme.font(12)).foregroundStyle(selected ? MacTheme.accent : MacTheme.ink2)
                     .lineLimit(1).truncationMode(.middle)
                 Spacer(minLength: 4)
                 Text("\(count)").font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink3)
@@ -232,7 +232,8 @@ struct SidebarHeading: View {
     }
 }
 
-/// Hover lifts the row a shade; selection holds it there.
+/// Hover lifts the row a shade of ink; selection is the Settings sidebar's
+/// green wash, so both windows mark "you are here" the same way.
 struct SidebarRowStyle: ButtonStyle {
     var selected: Bool
     @State private var hovering = false
@@ -242,13 +243,14 @@ struct SidebarRowStyle: ButtonStyle {
             .onHover { hovering = $0 }
     }
     private func ground(_ pressed: Bool) -> Color {
-        if selected || pressed { return MacTheme.ink.opacity(0.07) }
+        if selected { return MacTheme.accent.opacity(0.14) }
+        if pressed { return MacTheme.ink.opacity(0.07) }
         return hovering ? MacTheme.ink.opacity(0.04) : .clear
     }
 }
 
-/// The mic as Cursor draws it in the composer: a 20pt disc, filled with ink
-/// while a conversation is live, quiet ground otherwise.
+/// The mic as Cursor draws it in the composer: a 20pt disc, filled with the
+/// accent while a conversation is live, quiet ground otherwise.
 struct MicGlyph: View {
     let phase: VoiceChat.Phase
     let enabled: Bool
@@ -257,7 +259,7 @@ struct MicGlyph: View {
             .font(.system(size: 9, weight: .semibold))
             .foregroundStyle(phase == .idle ? MacTheme.ink2 : MacTheme.bg)
             .frame(width: 20, height: 20)
-            .background(phase == .idle ? MacTheme.bg3 : MacTheme.ink, in: Circle())
+            .background(phase == .idle ? MacTheme.bg3 : MacTheme.accent, in: Circle())
             .overlay(Circle().strokeBorder(MacTheme.line, lineWidth: CompanionType.hairline))
     }
     private var glyph: String {
@@ -271,7 +273,7 @@ struct MicGlyph: View {
     }
 }
 
-/// Cursor's filter chip: outlined at rest, ink-filled when on.
+/// Cursor's filter chip: outlined at rest, accent-filled when on.
 struct FilterChip: View {
     let title: LocalizedStringKey
     let selected: Bool
@@ -281,7 +283,7 @@ struct FilterChip: View {
             Text(title).font(MacTheme.font(10.5, .medium))
                 .foregroundStyle(selected ? MacTheme.bg : MacTheme.ink2)
                 .padding(.horizontal, 9).padding(.vertical, 3)
-                .background(selected ? MacTheme.ink : .clear, in: Capsule())
+                .background(selected ? MacTheme.accent : .clear, in: Capsule())
                 .overlay(Capsule().strokeBorder(selected ? .clear : MacTheme.line, lineWidth: CompanionType.hairline))
                 .contentShape(Capsule())
         }
