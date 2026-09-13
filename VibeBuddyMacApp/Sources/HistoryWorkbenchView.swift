@@ -35,9 +35,10 @@ final class HistoryLibraryModel: ObservableObject {
                 claudeHome: url.appendingPathComponent("agents/claude"),
                 codexHome: url.appendingPathComponent("agents/codex"),
                 cursorHome: url.appendingPathComponent("agents/cursor"),
+                grokHome: url.appendingPathComponent("agents/grok"),
                 cacheDirectory: url.appendingPathComponent("history"))
         } else {
-            repository = SessionHistoryRepository(readOnly: isDemo)
+            repository = SessionHistoryRepository(grokHome: isDemo ? nil : GrokHome.url, readOnly: isDemo)
         }
         if isDemo { snapshot = SessionHistorySnapshot(sessions: MacDemoData.historySessions(), refreshedAt: Date()) }
     }
@@ -115,7 +116,7 @@ final class HistoryLibraryModel: ObservableObject {
     }
 
     func generateSummary() {
-        guard !isDemo, !summarizing, let selected = transcript else { return }
+        guard !isDemo, !summarizing, let selected = transcript, selected.agent.supportsTranscript else { return }
         let generation = readGeneration
         let config = CompletionSummaryConfiguration.load()
         let style = HistorySummaryStyle.load()
@@ -255,6 +256,9 @@ struct HistoryWorkbenchView: View {
                 // The dashboard's one query; the sidebar's Search row and ⌘F
                 // land here while a history library is showing.
                 SearchPill(query: $query, focused: searchFocused)
+                if agent == .grokBuild || (isSearching && sessions.contains { !$0.agent.supportsTranscript }) {
+                    Text(GrokHistorySource.coverage).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
+                }
                 HStack(spacing: 6) {
                     MenuPill(title: agent?.displayName ?? String(localized: "All agents")) {
                         Button("All agents") { agent = nil }
@@ -372,6 +376,9 @@ struct HistoryWorkbenchView: View {
                         Button("Retry") { Task { await history.read(metadata.id) } }
                             .buttonStyle(PillButtonStyle(kind: .ghost, size: .small))
                     }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if !session.agent.supportsTranscript {
+                    QuietEmptyState(title: "Full transcript unavailable", message: "This source provides a session list and titles only.", systemName: "text.book.closed")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     VStack(spacing: 0) {
                         if !history.isDemo {

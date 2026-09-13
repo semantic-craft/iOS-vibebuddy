@@ -88,7 +88,12 @@ enum MacDemoData {
                 SessionHistoryMessage(id: "demo-cursor-assistant", role: .assistant, text: "The search field now keeps its focus while the result list changes.", groupID: "demo-cursor-turn"),
                 SessionHistoryMessage(id: "demo-cursor-tool", role: .tool, text: #"{"command":"swift test --filter SearchFocus"}"#, toolName: "Shell", groupID: "demo-cursor-turn")
             ], warnings: ["Demo sample. No source files were read.", SessionHistoryAgent.cursorCoverage],
-            isAvailable: false, source: "local-transcript")]
+            isAvailable: false, source: "local-transcript"),
+        SessionHistorySession(id: "grokBuild:00000000-0000-4000-8000-000000000007",
+            nativeSessionID: "00000000-0000-4000-8000-000000000007", agent: .grokBuild,
+            projectPath: "/demo/glaux-book", title: "Demo: plan the reading workflow",
+            sourcePath: "/demo/grok-history/00000000-0000-4000-8000-000000000007", updatedAt: now,
+            messages: [], warnings: [GrokHistorySource.coverage], isAvailable: false, source: "official-list")]
     }
 
     static func sessions(now: Date = Date()) -> [AgentSession] {

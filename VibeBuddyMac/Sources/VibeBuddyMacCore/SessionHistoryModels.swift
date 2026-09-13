@@ -1,16 +1,14 @@
 import Foundation
 
 public enum SessionHistoryAgent: String, Codable, Sendable, CaseIterable {
-    case claude, codex, cursor
+    case claude, codex, cursor, grokBuild
     public var displayName: String {
-        switch self {
-        case .claude: "Claude Code"
-        case .codex: "Codex"
-        case .cursor: "Cursor"
-        }
+        switch self { case .claude: "Claude Code"; case .codex: "Codex"; case .cursor: "Cursor"; case .grokBuild: "Grok Build" }
     }
-    /// Public tool spelling; persisted Claude history IDs keep their existing prefix.
-    public var keyName: String { self == .claude ? "claude-code" : rawValue }
+    public var keyName: String {
+        switch self { case .claude: "claude-code"; case .codex: "codex"; case .cursor: "cursor"; case .grokBuild: "grok-build" }
+    }
+    public var supportsTranscript: Bool { self != .grokBuild }
     public static let cursorCoverage = "Cursor local transcript: user/assistant text and tool calls only; no tool results or thinking. IDE/CLI provenance is not recorded; encrypted IDE history and cloud agents are not covered."
 }
 public enum SessionHistoryRole: String, Codable, Sendable { case user, assistant, tool, system }

@@ -10,6 +10,7 @@ public enum HistoryResumePolicy {
         case .claude: agent = .claudeCode
         case .codex: agent = .codex
         case .cursor: agent = .cursor
+        case .grokBuild: agent = .grok
         }
         let matches = sessions.filter {
             guard $0.id == history.nativeSessionID,
@@ -26,7 +27,7 @@ public enum HistoryResumePolicy {
     /// Copying never invokes an agent. Only explicit CLI provenance can supply
     /// a Codex terminal command; Desktop and child sessions keep their own route.
     public static func command(for history: SessionHistorySession, directoryExists: Bool, cursorCLIAvailable: Bool = false) -> String? {
-        guard (history.agent == .claude || (history.agent == .codex && history.source == "cli") ||
+        guard (history.agent == .claude || history.agent == .grokBuild || (history.agent == .codex && history.source == "cli") ||
                (history.agent == .cursor && cursorCLIAvailable)),
               history.sourceArchived != true, history.isAvailable, directoryExists,
               UUID(uuidString: history.nativeSessionID) != nil,
@@ -38,6 +39,7 @@ public enum HistoryResumePolicy {
         case .claude: command = "claude --resume"
         case .codex: command = "codex resume"
         case .cursor: command = "cursor-agent --resume"
+        case .grokBuild: command = "grok --resume"
         }
         return "cd -- \(quote(history.projectPath)) && \(command) \(quote(history.nativeSessionID))"
     }

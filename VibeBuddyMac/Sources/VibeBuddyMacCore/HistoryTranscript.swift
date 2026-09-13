@@ -17,6 +17,7 @@ public struct HistorySessionReference: Sendable {
         case "claude-code": agent = .claude
         case "codex": agent = .codex
         case "cursor": agent = .cursor
+        case "grok-build": agent = .grokBuild
         default: throw HistoryToolError.executionFailed("Unknown session agent.")
         }
         nativeID = String(raw[raw.index(after: colon)...])
@@ -77,6 +78,10 @@ extension HistoryTools {
         let tools = try flag("tools"), thinking = try flag("thinking")
         let transcript = try await repository.readTranscript(key: reference.key)
         let session = transcript.session
+        if !session.agent.supportsTranscript {
+            return ["# " + session.title, "Key: " + reference.key, "", GrokHistorySource.noTranscript,
+                    GrokHistorySource.coverage, "Source revision: " + (session.sourceRevision ?? "unknown") + " (official list row only)"].joined(separator: "\n")
+        }
         let rows = transcript.rows
         let page = rows.enumerated().filter { $0.offset >= from - 1 && (thinking || !$0.element.text.isEmpty || !$0.element.tools.isEmpty) }.prefix(limit)
         var lines = ["Source revision: \(session.sourceRevision ?? "unknown") (\(transcript.provenance))", "", "# \(session.title)", "Key: \(reference.key)"]

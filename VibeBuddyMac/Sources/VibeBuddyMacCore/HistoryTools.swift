@@ -110,10 +110,11 @@ public enum HistoryTools {
             }
             return (["| Project | Updated | Sessions |", "| --- | --- | ---: |"] + (rows.isEmpty ? ["No projects found."] : rows) + ["", freshness]).joined(separator: "\n")
         }
+        var coverage = sessions.contains { !$0.agent.supportsTranscript } ? ["", GrokHistorySource.coverage] : []
         let rows = sessions.prefix(limit).map { s in
-            "| \(cell(key(s))) | \(s.agent.displayName) | \(stamp(s.updatedAt)) | \(cell(s.projectPath)) | \(cell(s.title)) | \(s.messageCount) |"
+            "| \(cell(key(s))) | \(s.agent.displayName) | \(stamp(s.updatedAt)) | \(cell(s.projectPath)) | \(cell(s.title)) | \(s.agent.supportsTranscript ? String(s.messageCount) : "unavailable") |"
         }
-        let coverage = sessions.contains { $0.agent == .cursor } ? ["", SessionHistoryAgent.cursorCoverage] : []
+        coverage += sessions.contains { $0.agent == .cursor } ? ["", SessionHistoryAgent.cursorCoverage] : []
         return (["| Key | Agent | Updated | Project | Title | Messages |", "| --- | --- | --- | --- | --- | ---: |"] + (rows.isEmpty ? ["No sessions found."] : rows) + coverage + ["", freshness]).joined(separator: "\n")
     }
 

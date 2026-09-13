@@ -19,7 +19,7 @@ struct HistorySessionActions: View {
 
     private var live: AgentSession? { Self.liveSession(for: session, in: model.sessions) }
     private var canExport: Bool {
-        !history.reading && history.transcript?.id == session.id && history.readingError == nil
+        session.agent.supportsTranscript && !history.reading && history.transcript?.id == session.id && history.readingError == nil
     }
 
     var body: some View {
