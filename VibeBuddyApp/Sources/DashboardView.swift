@@ -322,7 +322,7 @@ struct DashboardView: View {
     /// the hub, the scope from a list. Reading never marks anything read.
     private func readPending() {
         let pending = page == .inbox ? inbox.pending : pendingCandidates
-        announcer.announce(pending, live: { dashboard.allSessions })
+        announcer.announce(pending, startPaused: voice.phase != .idle, live: { dashboard.allSessions })
     }
 
     /// The scope a tile or project set, then Customize's picks: what the

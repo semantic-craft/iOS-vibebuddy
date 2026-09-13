@@ -526,12 +526,23 @@ final class DashboardStore: ObservableObject {
             return await answer(s.id, answer: text).message
         case .markRead(let project):
             // Confirms the exact round on screen now; nothing more. Reviewed,
-            // verified and accepted stay the person's words (ADR-0020).
+            // verified and accepted stay the person's words (ADR-0020). The
+            // read is a request the Mac confirms, so the reply says which
+            // step it reached — never that the Mac confirmed it.
             guard let s = match(project) else { return "No unique matching session." }
-            guard s.status == .done, s.completionID != nil else { return "\(s.displayTitle) has no finished result to mark read." }
+            guard s.status == .done, s.completionID != nil, s.failed != true else {
+                return "\(s.displayTitle) has no finished result to mark read."
+            }
             guard s.hasUnreadCompletion else { return "\(s.displayTitle) is already marked read." }
-            acknowledge(s.id, displayedCompletion: completionRequest(for: s))
-            return "Marked \(s.displayTitle)'s current result read. The Mac confirms it; nothing was reviewed or accepted."
+            guard let request = completionRequest(for: s) else {
+                return "Could not identify \(s.displayTitle)'s current result round. Open it on the phone."
+            }
+            acknowledge(s.id, displayedCompletion: request)
+            if isDemo { return "Marked \(s.displayTitle)'s current result read in the sample data." }
+            if completionReads.entries.contains(where: { $0.request == request }) {
+                return "Recorded \(s.displayTitle)'s current result as read on this phone; the Mac still has to confirm it. Nothing was reviewed or accepted."
+            }
+            return "Could not record the read for \(s.displayTitle). Open the result on the phone to retry."
         case .instruct(let project, let text):
             guard let s = match(project) else { return "No unique matching session." }
             guard s.pendingQuestion == nil, s.pendingApproval == nil else {
@@ -539,7 +550,14 @@ final class DashboardStore: ObservableObject {
             }
             let support = SessionActionSupport.resolve(for: s)
             guard support.isAvailable else { return support.unsupportedReason ?? "Instructions are unavailable for \(s.displayTitle)." }
+            // The phone's instruction path (`sendAnswer`) carries free text
+            // for a non-waiting session only to Codex; say so rather than
+            // let the request expire on the way.
+            guard s.agent == .codex else {
+                return "Instructions to \(s.agent.displayName) sessions cannot be sent from the phone yet. Use the Mac."
+            }
             let receipt = await answer(s.id, answer: text)
+            guard receipt == .received else { return receipt.message }
             return "\(receipt.message) Sent to \(s.displayTitle) as \(support.intent == .continue ? "the next turn" : "a supplement to the running turn"); the agent has not confirmed doing it."
         case .none: return ""
         }

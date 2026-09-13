@@ -101,7 +101,8 @@ final class PhoneAnnouncer: ObservableObject {
 
     /// Read the pending queue in order. `live` is asked again before each
     /// item so a round that moved on is skipped, not announced as news.
-    func announce(_ pending: [AgentSession], live: @escaping @MainActor () -> [AgentSession]) {
+    func announce(_ pending: [AgentSession], startPaused: Bool = false,
+                  live: @escaping @MainActor () -> [AgentSession]) {
         let plan = AnnouncementPlan(pending: pending)
         guard !plan.items.isEmpty else {
             status = String(localized: "Nothing pending to read")
@@ -121,6 +122,12 @@ final class PhoneAnnouncer: ObservableObject {
                 guard let self, self.run == runID else { return }
                 await self.speak(item, position: index + 1, live: live)
             }
+        }
+        // A live voice call owns the audio route: the run is queued but
+        // waits for the person to resume it once the call is over.
+        if startPaused {
+            pause()
+            status = String(localized: "Paused while the voice call is live")
         }
     }
 

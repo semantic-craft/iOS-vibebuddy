@@ -287,6 +287,13 @@ final class VoiceChat: ObservableObject {
     private func syncFromCoordinator(_ coordinator: VoiceCallCoordinator) {
         phase = Self.phase(from: coordinator.phase)
         if coordinator.lastUserText != lastUserText, !coordinator.lastUserText.isEmpty {
+            // A caption grows as the person speaks (the Live backend sends
+            // fragments): replace the trailing user turn instead of stacking
+            // "mark", "mark payments", the sentence.
+            if transcript.last?.role == .user, !lastUserText.isEmpty,
+               coordinator.lastUserText.hasPrefix(lastUserText) || lastUserText.hasPrefix(coordinator.lastUserText) {
+                transcript.removeLast()
+            }
             transcript.append(VoiceTurn(role: .user, text: coordinator.lastUserText))
         }
         if coordinator.lastReply != lastReply, !coordinator.lastReply.isEmpty {
