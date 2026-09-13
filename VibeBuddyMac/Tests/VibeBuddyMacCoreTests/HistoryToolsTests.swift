@@ -78,7 +78,8 @@ final class HistoryToolsTests: XCTestCase {
         do { try await reader.setFavorite(sessionID: id, isFavorite: false); XCTFail("favorite wrote") } catch {}
         do { try await reader.setPinned(sessionID: id, isPinned: false); XCTFail("pin wrote") } catch {}
         do { try await reader.setArchived(sessionID: id, isArchived: false); XCTFail("archive wrote") } catch {}
-        do { _ = try await reader.search("hello"); XCTFail("search wrote") } catch {}
+        let hits = try await reader.search("hello")
+        XCTAssertEqual(hits.count, 1)
         XCTAssertEqual(try bytes(cache), before)
         let missing = root.appendingPathComponent("missing")
         let empty = SessionHistoryRepository(cacheDirectory: missing, readOnly: true)

@@ -4,10 +4,24 @@ import VibeBuddyMacCore
 @main
 struct VibeBuddyMCP {
     static func main() async {
+        let argv = Array(CommandLine.arguments.dropFirst())
+        let directory = ProcessInfo.processInfo.environment["VIBEBUDDY_HISTORY_DIRECTORY"].map { URL(fileURLWithPath: $0) }
+        if argv.first == "index" {
+            guard argv == ["index"] || argv == ["index", "--rebuild"] else {
+                fail(HistoryToolError.invalidArguments("Usage: vibebuddy-mcp index [--rebuild]"), code: 2)
+            }
+            do {
+                let repository = SessionHistoryRepository(cacheDirectory: directory)
+                let snapshot = try await repository.index(rebuild: argv.contains("--rebuild"))
+                let text = snapshot.map { "Indexed \($0.sessions.count) sessions.\n" + $0.issues.joined(separator: "\n") }
+                    ?? "Index already exists. Use --rebuild to refresh all sources."
+                FileHandle.standardOutput.write(Data(HistoryCLI.output(text).utf8))
+                return
+            } catch { fail(error, code: 2) }
+        }
         let request: (tool: String, arguments: [String: Any])
         do { request = try HistoryCLI.parse(Array(CommandLine.arguments.dropFirst())) }
         catch { fail(error, code: 2) }
-        let directory = ProcessInfo.processInfo.environment["VIBEBUDDY_HISTORY_DIRECTORY"].map { URL(fileURLWithPath: $0) }
         let repository = SessionHistoryRepository(cacheDirectory: directory, readOnly: true)
         do {
             let text: String

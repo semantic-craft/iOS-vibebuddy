@@ -2,11 +2,12 @@ import Foundation
 import CoreFoundation
 
 public enum HistoryToolError: Error, LocalizedError {
-    case readOnly, noIndex, invalidArguments(String), executionFailed(String)
+    case readOnly, noIndex, refreshBusy, invalidArguments(String), executionFailed(String)
     public var errorDescription: String? {
         switch self {
         case .readOnly: "History repository is read-only."
-        case .noIndex: "No usable index. Open History in the Mac App (index command arrives in a later slice)."
+        case .noIndex: "No usable index. Run vibebuddy-mcp index or open History in the Mac App."
+        case .refreshBusy: "another refresh is running"
         case .invalidArguments(let text), .executionFailed(let text): text
         }
     }
@@ -114,7 +115,7 @@ public enum HistoryCLI {
     public static let commands = ["sessions": "vibebuddy_list_sessions", "projects": "vibebuddy_list_projects", "show": "vibebuddy_get_session"]
     public static func parse(_ argv: [String]) throws -> (tool: String, arguments: [String: Any]) {
         guard let command = argv.first, let tool = commands[command] else {
-            throw HistoryToolError.invalidArguments("Usage: vibebuddy-mcp sessions [--project PATH] [--agent AGENT] [--since DATE] [--starred] [--limit N] | projects [--since DATE] [--limit N] | show KEY|REF [--from-seq N] [--max-messages N] [--tools] [--thinking]")
+            throw HistoryToolError.invalidArguments("Usage: vibebuddy-mcp sessions [--project PATH] [--agent AGENT] [--since DATE] [--starred] [--limit N] | projects [--since DATE] [--limit N] | show KEY|REF [--from-seq N] [--max-messages N] [--tools] [--thinking] | index [--rebuild]")
         }
         var args: [String: Any] = [:]
         var index = 1

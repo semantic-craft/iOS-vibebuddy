@@ -11,18 +11,21 @@ final class SessionHistorySearchIndex {
         var errorDescription: String? { "History search index: \(detail). Rebuild the index to retry." }
     }
 
-    init(directory: URL) throws {
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
-                                               attributes: [.posixPermissions: 0o700])
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+    init(directory: URL, readOnly: Bool = false) throws {
+        if !readOnly {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+                                                   attributes: [.posixPermissions: 0o700])
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        }
         let path = directory.appendingPathComponent("search.sqlite").path
-        guard sqlite3_open_v2(path, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nil) == SQLITE_OK else {
+        guard sqlite3_open_v2(path, &db, readOnly ? SQLITE_OPEN_READONLY : SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nil) == SQLITE_OK else {
             let detail = db.map { String(cString: sqlite3_errmsg($0)) } ?? "Cannot open database"
             sqlite3_close(db); db = nil
             throw Failure(detail: detail)
         }
         do {
             sqlite3_busy_timeout(db, 1000)
+            if readOnly { return }
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
             try execute("""
                 CREATE TABLE IF NOT EXISTS sources(path TEXT PRIMARY KEY, stamp TEXT NOT NULL);
@@ -72,7 +75,16 @@ final class SessionHistorySearchIndex {
     func search(_ query: String, sessions: [SessionHistorySession], limit: Int) throws -> [SessionHistorySearchResult] {
         let needle = Self.fold(query)
         guard !needle.isEmpty else { return [] }
-        let allowed = Dictionary(uniqueKeysWithValues: sessions.map { ($0.sourcePath, $0) })
+        // Pin isCurrent and the message SELECT to one database snapshot. JSON
+        // publication and SQLite commit may straddle a reader; omit mismatched
+        // revisions instead of attaching new message IDs to old metadata.
+        try execute("BEGIN")
+        defer { try? execute("ROLLBACK") }
+        let current = try sessions.filter {
+            guard let revision = $0.sourceRevision else { return false }
+            return try isCurrent(path: $0.sourcePath, stamp: "v7|" + revision)
+        }
+        let allowed = Dictionary(uniqueKeysWithValues: current.map { ($0.sourcePath, $0) })
         let indexed = needle.unicodeScalars.count >= 3 && !needle.contains("\0")
         let sql = indexed
             ? "SELECT m.path,m.message_id,m.text FROM messages_fts JOIN messages m ON m.id=messages_fts.rowid WHERE messages_fts MATCH ? ORDER BY bm25(messages_fts),m.id"

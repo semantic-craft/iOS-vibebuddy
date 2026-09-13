@@ -35,8 +35,14 @@ placeholders. There is no syntax-coloring guarantee.
 The app checks sources on opening the library, on Refresh, and every 30 seconds
 while the library is open. Initial indexing advances in bounded batches; pending
 coverage is reported. The local index stores metadata and separate per-source text
-caches under `~/Library/Application Support/VibeBuddy/SessionHistory`. Selected text is loaded for reading; the first query builds missing message indexes
-from cached text. Warm queries reuse those indexes. Conversation timestamps drive
+caches under `~/Library/Application Support/VibeBuddy/SessionHistory`. Selected text is loaded for reading; refresh eagerly builds message indexes.
+Queries open SQLite read-only and omit rows whose source revision differs from
+the loaded metadata. An exclusive `.refresh.lock` coordinates App and CLI refreshes;
+an App refresh skips a busy writer and reports the reason. JSON files publish
+atomically, and SQLite publishes each source in a transaction. Readers see complete
+files and committed matching message revisions, without waiting for the full scan.
+`vibebuddy-mcp index` builds an absent index; `index --rebuild` refreshes all sources.
+The explicit command exits 2 when another refresh holds the lock. Conversation timestamps drive
 list order, with file timestamps as a fallback. Agent-injected setup blocks remain
 searchable but are excluded when deriving titles. Rebuild index re-reads the sources; favorites, pins and library archives are saved
 separately and retained. Missing sources retain their last indexed copy with an
