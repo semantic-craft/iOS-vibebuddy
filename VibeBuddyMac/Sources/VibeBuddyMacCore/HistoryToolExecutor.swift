@@ -13,29 +13,29 @@ public struct HistoryToolExecutor: Sendable {
 
     public func execute(_ name: String, arguments: [String: Any], isolation: isolated (any Actor)? = #isolation) async throws -> String {
         try HistoryTools.validateArguments(name, arguments: arguments)
-        if name == "vibebuddy_get_summary" {
+        do {
+            // Live observation does not load History metadata or require an index.
+            if name == "vibebuddy_live_status" {
+                return try await HistoryLiveStatus.call(arguments: arguments)
+            }
             try await repository.reloadReadOnlyMetadata()
-            return try await HistoryTools.getSummary(arguments: arguments, repository: repository)
-        }
-        if name == "vibebuddy_get_session" {
-            try await repository.reloadReadOnlyMetadata()
-            return try await HistoryTools.getSession(arguments: arguments, repository: repository)
-        }
-        if Self.requiresIndex(name) {
-            try await repository.reloadReadOnlyMetadata()
-            guard await repository.hasUsableIndex() else { throw HistoryToolError.noIndex }
-            if name == "vibebuddy_search" {
+            if Self.requiresIndex(name), !(await repository.hasUsableIndex()) {
+                throw HistoryToolError.noIndex
+            }
+            switch name {
+            case "vibebuddy_get_session":
+                return try await HistoryTools.getSession(arguments: arguments, repository: repository)
+            case "vibebuddy_get_summary":
+                return try await HistoryTools.getSummary(arguments: arguments, repository: repository)
+            case "vibebuddy_search":
                 return try await HistoryTools.search(arguments: arguments, repository: repository)
+            default:
+                return try HistoryTools.call(name, arguments: arguments, snapshot: await repository.snapshot())
             }
-            let snapshot = await repository.snapshot()
-            do { return try HistoryTools.call(name, arguments: arguments, snapshot: snapshot) }
-            catch HistoryToolError.invalidArguments(let message) {
-                // Shape already passed the schema. Date syntax and other domain
-                // failures are tool results that the model can act on.
-                throw HistoryToolError.invalidValue(message)
-            }
+        } catch HistoryToolError.invalidArguments(let message) {
+            // Shape already passed the schema; domain errors are tool results.
+            throw HistoryToolError.invalidValue(message)
         }
-        throw HistoryToolError.executionFailed("Tool execution is unavailable: \(name)")
     }
 }
 

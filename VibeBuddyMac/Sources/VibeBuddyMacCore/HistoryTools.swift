@@ -31,7 +31,7 @@ public enum HistoryTools {
             "query": ["type": "string", "minLength": 1], "project": ["type": "string"],
             "agents": ["type": "array", "items": ["type": "string", "enum": SessionHistoryAgent.allCases.map(\.keyName)]],
             "since": ["type": "string"], "limit": ["type": "integer", "minimum": 1, "maximum": 200]
-        ], required: ["query"])]
+        ], required: ["query"])] + [HistoryLiveStatus.definition]
     }
 
     private static func definition(_ name: String, description: String, properties: [String: Any], required: [String] = []) -> [String: Any] {
@@ -99,7 +99,7 @@ public enum HistoryTools {
     }
 
     public static func call(_ name: String, arguments: [String: Any], snapshot: SessionHistorySnapshot, now: Date = Date()) throws -> String {
-        guard !["vibebuddy_get_session", "vibebuddy_search", "vibebuddy_get_summary"].contains(name) else {
+        guard !["vibebuddy_get_session", "vibebuddy_search", "vibebuddy_get_summary", "vibebuddy_live_status"].contains(name) else {
             throw HistoryToolError.invalidArguments("\(name) requires a repository.")
         }
         let scope = try selection(name, arguments: arguments, snapshot: snapshot, now: now)
@@ -142,7 +142,7 @@ public enum HistoryTools {
 
 /// Only argv shape is interpreted here; values go unchanged to the tool layer.
 public enum HistoryCLI {
-    public static let commands = ["sessions": "vibebuddy_list_sessions", "projects": "vibebuddy_list_projects", "show": "vibebuddy_get_session", "search": "vibebuddy_search", "summary": "vibebuddy_get_summary"]
+    public static let commands = ["sessions": "vibebuddy_list_sessions", "projects": "vibebuddy_list_projects", "show": "vibebuddy_get_session", "search": "vibebuddy_search", "summary": "vibebuddy_get_summary", "status": "vibebuddy_live_status"]
     public static func parse(_ argv: [String]) throws -> (tool: String, arguments: [String: Any]) {
         if argv.first == "call" {
             guard argv.count == 3, let data = argv[2].data(using: .utf8),
@@ -152,7 +152,7 @@ public enum HistoryCLI {
             return (argv[1], arguments)
         }
         guard let command = argv.first, let tool = commands[command] else {
-            throw HistoryToolError.invalidArguments("Usage: vibebuddy-mcp sessions [--project PATH] [--agent AGENT] [--since DATE] [--starred] [--limit N] | projects [--since DATE] [--limit N] | show KEY|REF [--from-seq N] [--max-messages N] [--tools] [--thinking] | search QUERY [--project PATH] [--agent AGENT] [--since DATE] [--limit N] | summary KEY|REF | index [--rebuild] | call <tool> '<JSON object>'; no arguments starts stdio MCP")
+            throw HistoryToolError.invalidArguments("Usage: vibebuddy-mcp sessions [--project PATH] [--agent AGENT] [--since DATE] [--starred] [--limit N] | projects [--since DATE] [--limit N] | show KEY|REF [--from-seq N] [--max-messages N] [--tools] [--thinking] | search QUERY [--project PATH] [--agent AGENT] [--since DATE] [--limit N] | summary KEY|REF | status [--project PATH] [--exclude-session ID] | index [--rebuild] | call <tool> '<JSON object>'; no arguments starts stdio MCP")
         }
         var args: [String: Any] = [:]
         var index = 1
@@ -163,7 +163,7 @@ public enum HistoryCLI {
         while index < argv.count {
             let flag = argv[index]
             if ["--starred", "--tools", "--thinking"].contains(flag) { args[String(flag.dropFirst(2))] = true; index += 1; continue }
-            guard ["--project", "--agent", "--since", "--limit", "--from-seq", "--max-messages"].contains(flag), index + 1 < argv.count else {
+            guard ["--project", "--agent", "--since", "--limit", "--from-seq", "--max-messages", "--exclude-session"].contains(flag), index + 1 < argv.count else {
                 throw HistoryToolError.invalidArguments("Unknown option or missing value: \(flag)")
             }
             let value = argv[index + 1]
