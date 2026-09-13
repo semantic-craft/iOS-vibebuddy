@@ -22,6 +22,7 @@ extension HistoryTools {
         if let notice = scope.notice { return notice + "\n\n" + scope.freshness }
         let page = try await repository.search(query, sessionIDs: Set(scope.sessions.map(\.id)), limit: scope.limit)
         var lines = ["# Search results", "", "Coverage: indexed readable dialogue and tool text; Meta and Thinking omitted. Use show REF --tools to expand tool details."]
+        if scope.sessions.contains(where: { $0.agent == .cursor }) { lines += ["", SessionHistoryAgent.cursorCoverage] }
         if page.hits.isEmpty { lines += ["", "No matches found."] }
         for hit in page.hits {
             lines += ["", "## \(oneLine(hit.session.title))", "Key: \(key(hit.session)) | Project: \(oneLine(hit.session.projectPath))",

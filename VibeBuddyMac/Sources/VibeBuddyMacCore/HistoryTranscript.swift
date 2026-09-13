@@ -6,7 +6,7 @@ public struct HistorySessionReference: Sendable {
     public let agent: SessionHistoryAgent
     public let nativeID: String
     public let seq: Int?
-    public var key: String { (agent == .claude ? "claude-code" : "codex") + ":" + nativeID }
+    public var key: String { agent.keyName + ":" + nativeID }
     public init(_ value: String) throws {
         let prefix = "vibebuddy://session/"
         let isRef = value.hasPrefix(prefix)
@@ -16,6 +16,7 @@ public struct HistorySessionReference: Sendable {
         switch raw[..<colon] {
         case "claude-code": agent = .claude
         case "codex": agent = .codex
+        case "cursor": agent = .cursor
         default: throw HistoryToolError.executionFailed("Unknown session agent.")
         }
         nativeID = String(raw[raw.index(after: colon)...])

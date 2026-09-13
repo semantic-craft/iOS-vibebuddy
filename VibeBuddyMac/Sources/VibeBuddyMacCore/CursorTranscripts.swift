@@ -142,7 +142,9 @@ public enum CursorTranscripts {
         case turnEnded(status: String, error: String?)
     }
 
-    public static func parse(line raw: String) -> [Line] {
+    /// History requests full text/input, then applies its own explicit resource
+    /// limits. Live observation keeps the existing short previews by default.
+    public static func parse(line raw: String, fullContent: Bool = false) -> [Line] {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let data = trimmed.data(using: .utf8),
               let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
@@ -162,14 +164,19 @@ public enum CursorTranscripts {
             case "text":
                 guard let text = nonEmpty(block["text"] as? String) else { continue }
                 if role == "user" {
-                    lines.append(.prompt(userQuery(in: text)))
+                    lines.append(.prompt(userQuery(in: text, fullContent: fullContent)))
                 } else {
-                    lines.append(.assistantText(String(text.prefix(600))))
+                    lines.append(.assistantText(fullContent ? text : String(text.prefix(600))))
                 }
             case "tool_use":
                 guard let name = nonEmpty(block["name"] as? String) else { continue }
-                lines.append(.toolUse(name: name,
-                                      detail: toolDetail(block["input"] as? [String: Any])))
+                let input = block["input"] as? [String: Any]
+                let detail: String?
+                if fullContent, let input,
+                   let data = try? JSONSerialization.data(withJSONObject: input, options: [.sortedKeys]) {
+                    detail = String(data: data, encoding: .utf8)
+                } else { detail = toolDetail(input) }
+                lines.append(.toolUse(name: name, detail: detail))
             default:
                 continue
             }
@@ -179,15 +186,18 @@ public enum CursorTranscripts {
 
     /// The person's words, without the `<timestamp>` / `<user_query>` wrapper
     /// Cursor prepends. A line that carries no wrapper is already the query.
-    public static func userQuery(in text: String) -> String {
+    public static func userQuery(in text: String, fullContent: Bool = false) -> String {
         let opening = "<user_query>"
         let closing = "</user_query>"
         guard let start = text.range(of: opening), let end = text.range(of: closing),
               start.upperBound <= end.lowerBound else {
-            return String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(600))
+            guard fullContent else { return String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(600)) }
+            let query = text.replacingOccurrences(of: "<timestamp>.*?</timestamp>", with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return fullContent ? query : String(query.prefix(600))
         }
-        return String(text[start.upperBound..<end.lowerBound]
-            .trimmingCharacters(in: .whitespacesAndNewlines).prefix(600))
+        let query = text[start.upperBound..<end.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+        return fullContent ? query : String(query.prefix(600))
     }
 
     /// A one-line summary of what the tool was asked to do, for the recent

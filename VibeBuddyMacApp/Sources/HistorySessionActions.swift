@@ -57,7 +57,8 @@ struct HistorySessionActions: View {
     static func resumeCommand(for history: SessionHistorySession) -> String? {
         var isDirectory: ObjCBool = false
         let exists = FileManager.default.fileExists(atPath: history.projectPath, isDirectory: &isDirectory)
-        return HistoryResumePolicy.command(for: history, directoryExists: exists && isDirectory.boolValue)
+        return HistoryResumePolicy.command(for: history, directoryExists: exists && isDirectory.boolValue,
+                                           cursorCLIAvailable: CursorCLI.resolveExecutable() != nil)
     }
 
     @discardableResult
@@ -72,6 +73,9 @@ struct HistorySessionActions: View {
         if history.sourceArchived == true { return "Archived in Codex. Unarchive the original task in Codex before continuing." }
         if history.agent == .codex && history.source != "cli" {
             return "This archive does not establish a Codex CLI or Desktop target. Open the original task in Codex to continue."
+        }
+        if history.agent == .cursor && CursorCLI.resolveExecutable() == nil {
+            return "Install the Cursor CLI to copy a resume command for this local conversation."
         }
         var isDirectory: ObjCBool = false
         if !FileManager.default.fileExists(atPath: history.projectPath, isDirectory: &isDirectory) || !isDirectory.boolValue {

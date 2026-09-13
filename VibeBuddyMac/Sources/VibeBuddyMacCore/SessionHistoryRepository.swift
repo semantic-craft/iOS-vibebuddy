@@ -21,14 +21,17 @@ public actor SessionHistoryRepository {
     private let readOnly: Bool
     private var transcriptSlot: (path: String, revision: String, transcript: HistoryTranscript)?
     private var usableIndex = false
-    public init(claudeHome: URL? = nil, codexHome: URL? = nil, cacheDirectory: URL? = nil, refreshByteBudget: Int = 256 * 1024 * 1024, readOnly: Bool = false) {
+    public init(claudeHome: URL? = nil, codexHome: URL? = nil, cursorHome: URL? = nil, cacheDirectory: URL? = nil, refreshByteBudget: Int = 256 * 1024 * 1024, readOnly: Bool = false) {
         self.readOnly = readOnly
         self.refreshByteBudget = max(1, refreshByteBudget)
         let home = FileManager.default.homeDirectoryForCurrentUser
         let env = ProcessInfo.processInfo.environment
         let claude = claudeHome ?? env["CLAUDE_CONFIG_DIR"].map { URL(fileURLWithPath: $0) } ?? home.appendingPathComponent(".claude")
         let codex = codexHome ?? env["CODEX_HOME"].map { URL(fileURLWithPath: $0) } ?? home.appendingPathComponent(".codex")
-        roots = [(claude.appendingPathComponent("projects").resolvingSymlinksInPath(), .claude), (codex.appendingPathComponent("sessions").resolvingSymlinksInPath(), .codex), (codex.appendingPathComponent("archived_sessions").resolvingSymlinksInPath(), .codex)]
+        let cursorRoot = cursorHome.map { $0.appendingPathComponent("projects") }
+            ?? env["VIBEBUDDY_CURSOR_HOME"].map { URL(fileURLWithPath: $0).appendingPathComponent("projects") }
+            ?? CursorTranscripts.projectsRoot(home: home)
+        roots = [(claude.appendingPathComponent("projects").resolvingSymlinksInPath(), .claude), (codex.appendingPathComponent("sessions").resolvingSymlinksInPath(), .codex), (codex.appendingPathComponent("archived_sessions").resolvingSymlinksInPath(), .codex), (cursorRoot.resolvingSymlinksInPath(), .cursor)]
         directory = cacheDirectory ?? home.appendingPathComponent("Library/Application Support/VibeBuddy/SessionHistory")
     }
     private func ensureLoaded() {
@@ -128,11 +131,18 @@ public actor SessionHistoryRepository {
             guard fm.fileExists(atPath: root.path) else { issues.append("Source directory unavailable: \(root.path)"); continue }
             var enumerationErrors = 0
             var seenPaths = Set<String>()
-            guard let iterator = fm.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey], options: [.skipsHiddenFiles], errorHandler: { _, _ in enumerationErrors += 1; return true }) else {
-                issues.append("Unable to enumerate source: \(root.path)"); continue
+            let files: AnySequence<URL>
+            let iterator: FileManager.DirectoryEnumerator?
+            if agent == .cursor {
+                iterator = nil
+                files = AnySequence(cursorSources(root: root).map(\.url))
+            } else {
+                iterator = fm.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey], options: [.skipsHiddenFiles], errorHandler: { _, _ in enumerationErrors += 1; return true })
+                guard let iterator else { issues.append("Unable to enumerate source: \(root.path)"); continue }
+                files = AnySequence { AnyIterator { iterator.nextObject() as? URL } }
             }
-            for case let file as URL in iterator {
-                if agent == .claude, file.lastPathComponent == "subagents" { iterator.skipDescendants(); excludedChildren += 1; continue }
+            for file in files {
+                if agent == .claude, file.lastPathComponent == "subagents" { iterator?.skipDescendants(); excludedChildren += 1; continue }
                 guard file.pathExtension == "jsonl" else { continue }
                 if agent == .claude, file.lastPathComponent.hasPrefix("agent-") { excludedChildren += 1; continue }
                 seenPaths.insert(file.path)
@@ -232,6 +242,10 @@ public actor SessionHistoryRepository {
             // Locate by native filename only; never parse every conversation to find one ID.
             var candidates: [URL] = []
             for (root, agent) in roots where agent == reference.agent {
+                if agent == .cursor {
+                    candidates += cursorSources(root: root).filter { $0.conversationID == reference.nativeID }.map(\.url)
+                    continue
+                }
                 guard let iterator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey], options: [.skipsHiddenFiles]) else { continue }
                 for case let file as URL in iterator {
                     if file.lastPathComponent == "subagents" { iterator.skipDescendants(); continue }
@@ -313,6 +327,15 @@ public actor SessionHistoryRepository {
     }
     private func contentFilename(_ path: String) -> String {
         SHA256.hash(data: Data(path.utf8)).map { String(format: "%02x", $0) }.joined() + ".json"
+    }
+    /// The transcript adapter owns Cursor's layouts; other project JSONL files
+    /// and cloud agent IDs are outside this local source's coverage.
+    private func cursorSources(root: URL) -> [CursorTranscripts.Located] {
+        CursorTranscripts.discover(root: root).filter {
+            !$0.conversationID.hasPrefix("bc-") &&
+            $0.url.resolvingSymlinksInPath().path.hasPrefix(root.path + "/") &&
+            (try? $0.url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true
+        }
     }
     public func setFavorite(sessionID: String, isFavorite: Bool) throws {
         ensureLoaded()
