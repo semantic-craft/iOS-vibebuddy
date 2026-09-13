@@ -13,6 +13,7 @@ enum SessionHistoryParser {
     }
     static let byteLimit = 32 * 1024 * 1024
     static func read(url: URL, agent: SessionHistoryAgent, updatedAt: Date) throws -> SessionHistorySession {
+        guard agent.supportsTranscript else { throw HistoryToolError.executionFailed(GrokHistorySource.noTranscript) }
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         let data = try handle.read(upToCount: byteLimit + 1) ?? Data()

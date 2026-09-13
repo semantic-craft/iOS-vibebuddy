@@ -24,21 +24,26 @@ final class HistoryLibraryModel: ObservableObject {
     private var readGeneration = 0
     private let repository: SessionHistoryRepository
     private var searchGeneration = 0
+    let isDemo: Bool
 
     init() {
         let environment = ProcessInfo.processInfo.environment
+        isDemo = environment["VIBEBUDDY_E2E_ROOT"] == nil && environment["VIBEBUDDY_DEMO"] == "1"
         if let root = environment["VIBEBUDDY_E2E_ROOT"] {
             let url = URL(fileURLWithPath: root)
             repository = SessionHistoryRepository(
                 claudeHome: url.appendingPathComponent("agents/claude"),
                 codexHome: url.appendingPathComponent("agents/codex"),
+                grokHome: url.appendingPathComponent("agents/grok"),
                 cacheDirectory: url.appendingPathComponent("history"))
         } else {
-            repository = SessionHistoryRepository()
+            repository = SessionHistoryRepository(grokHome: isDemo ? nil : GrokHome.url, readOnly: isDemo)
         }
+        if isDemo { snapshot = SessionHistorySnapshot(sessions: MacDemoData.historySessions(), refreshedAt: Date()) }
     }
 
     func refresh(rebuild: Bool = false) async {
+        guard !isDemo else { return }
         guard !loading else { return }
         loading = true
         defer { loading = false }
@@ -49,6 +54,18 @@ final class HistoryLibraryModel: ObservableObject {
     }
 
     func search(_ query: String, project: String?, favorites: Bool, agent: SessionHistoryAgent?, archived: Bool?) async {
+        if isDemo {
+            let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            results = needle.isEmpty ? [] : Array(snapshot.sessions.filter {
+                (project == nil || $0.projectPath == project) && (!favorites || $0.isFavorite)
+                    && (agent == nil || $0.agent == agent) && (archived == nil || $0.isArchived == archived)
+            }.flatMap { session in
+                session.messages.filter { $0.kind != .meta && $0.kind != .thinking && $0.text.localizedCaseInsensitiveContains(needle) }
+                    .map { SessionHistorySearchResult(sessionID: session.id, messageID: $0.id, excerpt: String($0.text.prefix(240))) }
+            }.prefix(200))
+            searching = false; searchError = nil
+            return
+        }
         searchGeneration += 1
         let generation = searchGeneration
         searching = true
@@ -78,6 +95,7 @@ final class HistoryLibraryModel: ObservableObject {
         readingError = nil
         summaryTask?.cancel(); summaryTask = nil; summarizing = false; summary = nil; summaryError = nil
         guard let id else { transcript = nil; reading = false; return }
+        if isDemo { transcript = snapshot.sessions.first { $0.id == id }; reading = false; return }
         if transcript?.id != id { transcript = nil }
         reading = true
         do {
@@ -97,7 +115,7 @@ final class HistoryLibraryModel: ObservableObject {
     }
 
     func generateSummary() {
-        guard !summarizing, let selected = transcript else { return }
+        guard !isDemo, !summarizing, let selected = transcript, selected.agent.supportsTranscript else { return }
         let generation = readGeneration
         let config = CompletionSummaryConfiguration.load()
         let style = HistorySummaryStyle.load()
@@ -126,12 +144,14 @@ final class HistoryLibraryModel: ObservableObject {
     func cancelSummary() { summaryTask?.cancel() }
 
     func togglePinned(_ session: SessionHistorySession) async {
+        if isDemo { updateDemo(session.id) { $0.isPinned = $0.isPinned != true }; return }
         do {
             try await repository.setPinned(sessionID: session.id, isPinned: session.isPinned != true)
             snapshot = await repository.snapshot()
         } catch { self.error = error.localizedDescription }
     }
     func toggleArchive(_ session: SessionHistorySession) async {
+        if isDemo { updateDemo(session.id) { $0.archivedLocally = $0.archivedLocally != true }; return }
         do {
             try await repository.setArchived(sessionID: session.id, isArchived: session.archivedLocally != true)
             snapshot = await repository.snapshot()
@@ -139,11 +159,18 @@ final class HistoryLibraryModel: ObservableObject {
     }
 
     func toggleFavorite(_ session: SessionHistorySession) async {
+        if isDemo { updateDemo(session.id) { $0.isFavorite.toggle() }; return }
         do {
             try await repository.setFavorite(sessionID: session.id, isFavorite: !session.isFavorite)
             snapshot = await repository.snapshot()
             if transcript?.id == session.id { transcript?.isFavorite = !session.isFavorite }
         } catch { self.error = error.localizedDescription }
+    }
+
+    private func updateDemo(_ id: String, change: (inout SessionHistorySession) -> Void) {
+        guard let index = snapshot.sessions.firstIndex(where: { $0.id == id }) else { return }
+        change(&snapshot.sessions[index])
+        if transcript?.id == id { transcript = snapshot.sessions[index] }
     }
 }
 
@@ -228,6 +255,9 @@ struct HistoryWorkbenchView: View {
                 // The dashboard's one query; the sidebar's Search row and ⌘F
                 // land here while a history library is showing.
                 SearchPill(query: $query, focused: searchFocused)
+                if agent == .grokBuild || (isSearching && sessions.contains { !$0.agent.supportsTranscript }) {
+                    Text(GrokHistorySource.coverage).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
+                }
                 HStack(spacing: 6) {
                     MenuPill(title: agent?.displayName ?? String(localized: "All agents")) {
                         Button("All agents") { agent = nil }
@@ -348,10 +378,15 @@ struct HistoryWorkbenchView: View {
                         Text(error).foregroundStyle(MacTheme.ink2)
                         Button("Retry") { Task { await history.read(metadata.id) } }
                     }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if !session.agent.supportsTranscript {
+                    QuietEmptyState(title: "Full transcript unavailable", message: "This source provides a session list and titles only.", systemName: "text.book.closed")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     VStack(spacing: 0) {
-                        HistorySummaryView(history: history, session: session)
-                        Divider()
+                        if !history.isDemo {
+                            HistorySummaryView(history: history, session: session)
+                            Divider()
+                        }
                         HistoryMessageReader(session: session, targetMessage: targetMessage)
                     }
                 }
@@ -383,7 +418,7 @@ struct HistoryWorkbenchView: View {
             Task { await history.toggleArchive(session) }
         }.help("Organizes this library only; the original agent and current tasks are unchanged.")
         Button("Export Markdown…") { export(session) }
-            .disabled(history.reading || history.transcript?.id != session.id || history.readingError != nil)
+            .disabled(!session.agent.supportsTranscript || history.reading || history.transcript?.id != session.id || history.readingError != nil)
         Button("Show source") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: session.sourcePath)]) }
             .disabled(!session.isAvailable)
     }

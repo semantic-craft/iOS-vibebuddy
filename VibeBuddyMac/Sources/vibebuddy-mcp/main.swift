@@ -11,7 +11,7 @@ struct VibeBuddyMCP {
                 fail(HistoryToolError.invalidArguments("Usage: vibebuddy-mcp index [--rebuild]"), code: 2)
             }
             do {
-                let repository = SessionHistoryRepository(cacheDirectory: directory)
+                let repository = SessionHistoryRepository(grokHome: GrokHome.url, cacheDirectory: directory)
                 let snapshot = try await repository.index(rebuild: argv.contains("--rebuild"))
                 let text = snapshot.map { "Indexed \($0.sessions.count) sessions.\n" + $0.issues.joined(separator: "\n") }
                     ?? "Index already exists. Use --rebuild to refresh all sources."
@@ -22,7 +22,7 @@ struct VibeBuddyMCP {
         let request: (tool: String, arguments: [String: Any])
         do { request = try HistoryCLI.parse(Array(CommandLine.arguments.dropFirst())) }
         catch { fail(error, code: 2) }
-        let repository = SessionHistoryRepository(cacheDirectory: directory, readOnly: true)
+        let repository = SessionHistoryRepository(grokHome: GrokHome.url, cacheDirectory: directory, readOnly: true)
         do {
             let text: String
             if request.tool == "vibebuddy_get_session" {

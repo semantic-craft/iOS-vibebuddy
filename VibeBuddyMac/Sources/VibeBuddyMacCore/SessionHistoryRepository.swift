@@ -8,6 +8,7 @@ public actor SessionHistoryRepository {
     private struct Cache: Codable { var version: Int = 7; var entries: [String: Entry]; var pendingPaths: Set<String>? = nil }
     private let roots: [(URL, SessionHistoryAgent)]
     private let directory: URL
+    private let grokHome: URL?
     private let refreshByteBudget: Int
     private var entries: [String: Entry] = [:]
     private var favorites = Set<String>()
@@ -21,8 +22,9 @@ public actor SessionHistoryRepository {
     private let readOnly: Bool
     private var transcriptSlot: (path: String, revision: String, transcript: HistoryTranscript)?
     private var usableIndex = false
-    public init(claudeHome: URL? = nil, codexHome: URL? = nil, cacheDirectory: URL? = nil, refreshByteBudget: Int = 256 * 1024 * 1024, readOnly: Bool = false) {
+    public init(claudeHome: URL? = nil, codexHome: URL? = nil, grokHome: URL? = nil, cacheDirectory: URL? = nil, refreshByteBudget: Int = 256 * 1024 * 1024, readOnly: Bool = false) {
         self.readOnly = readOnly
+        self.grokHome = grokHome?.resolvingSymlinksInPath()
         self.refreshByteBudget = max(1, refreshByteBudget)
         let home = FileManager.default.homeDirectoryForCurrentUser
         let env = ProcessInfo.processInfo.environment
@@ -54,9 +56,12 @@ public actor SessionHistoryRepository {
                 let resolved = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
                 return prefixes.contains { path.hasPrefix($0) || resolved.hasPrefix($0) }
             }
-            entries = cache.entries.filter { belongsToRoots($0.key) }
+            let grokPrefix = grokHome?.appendingPathComponent("sessions").resolvingSymlinksInPath().path.appending("/")
+            entries = cache.entries.filter { path, entry in
+                belongsToRoots(path) || (entry.session.agent == .grokBuild && grokPrefix.map { path.hasPrefix($0) } == true)
+            }
             pendingPaths = Set((cache.pendingPaths ?? []).filter(belongsToRoots))
-            if cache.version < 7 { pendingPaths.formUnion(entries.keys) }
+            if cache.version < 7 { pendingPaths.formUnion(entries.filter { $0.value.session.agent.supportsTranscript }.keys) }
         }
     }
     public func hasUsableIndex() -> Bool { ensureLoaded(); return usableIndex }
@@ -66,7 +71,7 @@ public actor SessionHistoryRepository {
         var byID: [String: SessionHistorySession] = [:]
         for entry in entries.values {
             var session = entry.session; session.isFavorite = favorites.contains(session.id); session.isPinned = pins.contains(session.id); session.archivedLocally = archives.contains(session.id)
-            session.sourceRevision = "\(entry.modified.timeIntervalSince1970)|\(entry.size)"
+            if session.agent.supportsTranscript { session.sourceRevision = "\(entry.modified.timeIntervalSince1970)|\(entry.size)" }
             if let existing = byID[session.id] {
                 if existing.isAvailable != session.isAvailable {
                     if existing.isAvailable { continue }
@@ -123,7 +128,7 @@ public actor SessionHistoryRepository {
         let staging = rebuild ? directory.appendingPathComponent(".rebuild-" + UUID().uuidString) : nil
         defer { if let staging { try? fm.removeItem(at: staging) } }
         let searchIndex = try SessionHistorySearchIndex(directory: staging ?? directory)
-        if rebuild { pendingPaths.formUnion(entries.keys) }
+        if rebuild { pendingPaths.formUnion(entries.filter { $0.value.session.agent.supportsTranscript }.keys) }
         for (root, agent) in roots {
             guard fm.fileExists(atPath: root.path) else { issues.append("Source directory unavailable: \(root.path)"); continue }
             var enumerationErrors = 0
@@ -185,6 +190,19 @@ public actor SessionHistoryRepository {
                 if !removed.isEmpty { pendingPaths.subtract(removed); changed = true }
             }
         }
+        if let grokHome {
+            let inventory = GrokHistorySource.scan(home: grokHome)
+            issues += inventory.issues
+            if !inventory.sessions.isEmpty { issues.append(GrokHistorySource.coverage) }
+            for session in inventory.sessions {
+                discovered.insert(session.sourcePath)
+                pendingPaths.remove(session.sourcePath)
+                if entries[session.sourcePath]?.session != session {
+                    entries[session.sourcePath] = Entry(modified: session.updatedAt, size: 0, session: session)
+                    changed = true
+                }
+            }
+        }
         for path in entries.keys where !discovered.contains(path) {
             // Retain a cached transcript for provenance/favorites, but never claim its source is available.
             if entries[path]?.session.isAvailable == true { entries[path]?.session.isAvailable = false; changed = true }
@@ -194,7 +212,7 @@ public actor SessionHistoryRepository {
         if let cacheFailure { throw cacheFailure }
         // Migrate old lazy indexes and repair missing FTS rows only while holding
         // the writer lock. No query ever decodes caches or writes SQLite rows.
-        for entry in entries.values {
+        for entry in entries.values where entry.session.agent.supportsTranscript {
             let stamp = "v7|\(entry.modified.timeIntervalSince1970)|\(entry.size)"
             if try !searchIndex.isCurrent(path: entry.session.sourcePath, stamp: stamp) {
                 let session = try autoreleasepool { try load(entry.session) }
@@ -232,7 +250,7 @@ public actor SessionHistoryRepository {
         guard matches.count <= 1 else { throw HistoryToolError.executionFailed("Ambiguous session key: multiple source files.") }
         guard let entry = matches.first else { return nil }
         var session = entry.session
-        session.sourceRevision = "\(entry.modified.timeIntervalSince1970)|\(entry.size)"
+        if session.agent.supportsTranscript { session.sourceRevision = "\(entry.modified.timeIntervalSince1970)|\(entry.size)" }
         session.isFavorite = favorites.contains(session.id)
         session.isPinned = pins.contains(session.id)
         session.archivedLocally = archives.contains(session.id)
@@ -244,6 +262,10 @@ public actor SessionHistoryRepository {
         let reference = try HistorySessionReference(key)
         var metadata = try resolveIndexedSession(key: reference.key)
         let indexed = metadata?.sourceRevision
+        if reference.agent == .grokBuild {
+            guard let metadata else { throw HistoryToolError.executionFailed("Unknown session key.") }
+            return HistoryTranscript(session: metadata, provenance: "official list metadata, no transcript")
+        }
         if metadata == nil {
             // Locate by native filename only; never parse every conversation to find one ID.
             var candidates: [URL] = []
@@ -313,6 +335,7 @@ public actor SessionHistoryRepository {
         return try load(metadata)
     }
     private func load(_ metadata: SessionHistorySession) throws -> SessionHistorySession {
+        if !metadata.agent.supportsTranscript { return metadata }
         let data = try Data(contentsOf: directory.appendingPathComponent(contentFilename(metadata.sourcePath)))
         var full = try JSONDecoder().decode(SessionHistorySession.self, from: data)
         guard full.id == metadata.id, full.sourcePath == metadata.sourcePath else {
@@ -357,9 +380,10 @@ public actor SessionHistoryRepository {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !needle.isEmpty, limit > 0 else { return [] }
         let sessions = snapshot().sessions.filter {
-            (projectPath == nil || $0.projectPath == projectPath) && (!favoritesOnly || $0.isFavorite)
+            $0.agent.supportsTranscript && (projectPath == nil || $0.projectPath == projectPath) && (!favoritesOnly || $0.isFavorite)
                 && (agent == nil || $0.agent == agent) && (archived == nil || $0.isArchived == archived)
         }
+        guard !sessions.isEmpty else { return [] }
         let searchIndex = try SessionHistorySearchIndex(directory: directory, readOnly: true)
         return try searchIndex.search(needle, sessions: sessions, limit: limit)
     }
@@ -367,7 +391,7 @@ public actor SessionHistoryRepository {
     /// hits whose cached dialogue projection and source revision can be verified.
     /// No source discovery, transcript reparsing or store writes happen here.
     public func search(_ query: String, sessionIDs: Set<String>, limit: Int = 200) throws -> HistorySearchPage {
-        let sessions = snapshot().sessions.filter { sessionIDs.contains($0.id) }
+        let sessions = snapshot().sessions.filter { $0.agent.supportsTranscript && sessionIDs.contains($0.id) }
         guard !sessions.isEmpty else { return HistorySearchPage(hits: [], notIndexed: [], unavailable: []) }
         guard FileManager.default.fileExists(atPath: directory.appendingPathComponent("search.sqlite").path) else {
             return HistorySearchPage(hits: [], notIndexed: sessions, unavailable: [])

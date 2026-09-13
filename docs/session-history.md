@@ -5,6 +5,40 @@ The Dashboard has three library scopes: **Current tasks**, **History**, and
 reads local Claude Code and Codex conversation files independently; selecting or
 searching an archive never inserts it into the live snapshot.
 
+Grok Build also appears as **list and title metadata only**, from its official
+`grok sessions list` command. The first-version transcript acceptance gate was
+not completed; `show 'grok-build:<id>'` reports that this source has no transcript.
+No Grok messages or titles enter the full-text index. Search explicitly states
+this coverage limit instead of treating the source as an index that needs repair.
+
+| Source | History list | Transcript / full-text search | Limits |
+| --- | --- | --- | --- |
+| Claude Code | Local conversation metadata | Readable conversation records | Source warnings report omitted or bounded records |
+| Codex | Local and archived conversation metadata | Readable conversation records | Source warnings report omitted or bounded records |
+| Grok Build | Official local session IDs, dates and titles | Unavailable in the first version | List dates have day precision; remote-only rows are excluded |
+
+Grok workspace directory names under `$GROK_HOME/sessions` (default `~/.grok`)
+locate candidate working directories; the importer does not read `updates.jsonl`.
+Each local row must match a directory in that workspace, since official list
+output may include sibling worktrees or remote sessions without their absolute
+working directories. Unmatched or malformed rows are omitted with a coverage
+notice. Missing working directories and command time/output limits also produce
+partial-coverage notices; existing metadata is retained as unavailable.
+
+Only the App's locked refresh or explicit `vibebuddy-mcp index --rebuild` runs
+the inventory command. Queries read cached metadata and never launch Grok.
+The command runs through the macOS process sandbox with file writes and child
+process creation denied, a three-second per-workspace timeout, a 15-second scan
+budget and a 1 MiB combined output limit. If that protection is unavailable or
+the command fails, no unprotected retry occurs and no leader is started.
+List-row revisions fingerprint metadata; they are not transcript revisions and
+cannot detect unchanged titles after dialogue changes on the same day.
+
+**Copy resume command** can prepare `grok --resume <id>` for an available local
+row with a valid native UUID and working directory. Copying does not run it.
+The History agent filter includes Grok Build; Demo uses an in-memory Grok metadata
+sample and does not scan user history, generate summaries or contact providers.
+
 Open History to index `~/.claude/projects`, `~/.codex/sessions`, and
 `~/.codex/archived_sessions`. `CLAUDE_CONFIG_DIR` and `CODEX_HOME` replace the
 respective home directory. Project groups use the original full working directory;

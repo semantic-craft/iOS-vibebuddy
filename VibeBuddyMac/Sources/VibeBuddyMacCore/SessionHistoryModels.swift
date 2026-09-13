@@ -1,8 +1,14 @@
 import Foundation
 
 public enum SessionHistoryAgent: String, Codable, Sendable, CaseIterable {
-    case claude, codex
-    public var displayName: String { self == .claude ? "Claude Code" : "Codex" }
+    case claude, codex, grokBuild
+    public var displayName: String {
+        switch self { case .claude: "Claude Code"; case .codex: "Codex"; case .grokBuild: "Grok Build" }
+    }
+    public var keyName: String {
+        switch self { case .claude: "claude-code"; case .codex: "codex"; case .grokBuild: "grok-build" }
+    }
+    public var supportsTranscript: Bool { self != .grokBuild }
 }
 public enum SessionHistoryRole: String, Codable, Sendable { case user, assistant, tool, system }
 public enum SessionHistoryMessageKind: String, Codable, Sendable { case text, meta, thinking, compactSummary }
@@ -64,6 +70,9 @@ public struct SessionHistorySearchResult: Identifiable, Sendable {
     public var messageID: String
     public var excerpt: String
     public var id: String { sessionID + "|" + messageID }
+    public init(sessionID: String, messageID: String, excerpt: String) {
+        self.sessionID = sessionID; self.messageID = messageID; self.excerpt = excerpt
+    }
 }
 public enum SessionHistoryExport {
     public static func markdown(session: SessionHistorySession) -> String {
