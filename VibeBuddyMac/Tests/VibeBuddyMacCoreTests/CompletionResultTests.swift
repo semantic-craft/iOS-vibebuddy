@@ -66,7 +66,7 @@ struct CompletionResultTests {
         apply(HookEvent(kind: .stop, sessionID: "s", agent: .codex, timestamp: now, turnID: "t", probeRetirement: true))
         #expect(results.candidates["s"] == nil)
         apply(HookEvent(kind: .userPromptSubmit, sessionID: "s", agent: .codex, timestamp: now, turnID: "new"))
-        apply(HookEvent(kind: .stop, sessionID: "s", agent: .codex, message: "Turn interrupted", timestamp: now, turnID: "new"))
+        apply(HookEvent(kind: .stop, sessionID: "s", agent: .codex, message: "Turn interrupted", timestamp: now, turnID: "new", completionSucceeded: false))
         #expect(results.candidates["s"] == nil)
     }
     @Test func unknownRunAndOpaqueFailureFailClosed() throws {

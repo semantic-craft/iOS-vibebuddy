@@ -538,7 +538,6 @@ private struct TaskRow: View {
         guard dashboard.state != .connected, session.status == .needsResponse else { return false }
         return WaitHandling.resolve(for: session) == .remoteAvailable
     }
-    private var summaryLineLimit: Int { session.status == .needsResponse ? 3 : 2 }
 
     var body: some View {
         VStack(spacing: 0) {
