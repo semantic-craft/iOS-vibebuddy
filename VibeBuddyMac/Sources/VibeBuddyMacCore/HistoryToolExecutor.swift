@@ -13,6 +13,10 @@ public struct HistoryToolExecutor: Sendable {
 
     public func execute(_ name: String, arguments: [String: Any], isolation: isolated (any Actor)? = #isolation) async throws -> String {
         try HistoryTools.validateArguments(name, arguments: arguments)
+        if name == "vibebuddy_get_summary" {
+            try await repository.reloadReadOnlyMetadata()
+            return try await HistoryTools.getSummary(arguments: arguments, repository: repository)
+        }
         if name == "vibebuddy_get_session" {
             try await repository.reloadReadOnlyMetadata()
             return try await HistoryTools.getSession(arguments: arguments, repository: repository)

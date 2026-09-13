@@ -281,14 +281,13 @@ public actor SessionHistoryRepository {
         return session
     }
 
-    /// Bounded read-only access; never refreshes or publishes a cache.
-    public func readTranscript(key: String) throws -> HistoryTranscript {
-        let reference = try HistorySessionReference(key)
+    /// Resolve one native identity before reading either transcript or saved summary.
+    private func locateSession(_ reference: HistorySessionReference) throws -> (session: SessionHistorySession, indexedRevision: String?) {
         var metadata = try resolveIndexedSession(key: reference.key)
         let indexed = metadata?.sourceRevision
         if reference.agent == .grokBuild {
             guard let metadata else { throw HistoryToolError.executionFailed("Unknown session key.") }
-            return HistoryTranscript(session: metadata, provenance: "official list metadata, no transcript")
+            return (metadata, nil)
         }
         if metadata == nil {
             // Locate by native filename only; never parse every conversation to find one ID.
@@ -312,9 +311,19 @@ public actor SessionHistoryRepository {
             }
             guard candidates.count == 1 else { throw HistoryToolError.executionFailed(candidates.isEmpty ? "Unknown session key." : "Ambiguous session key: multiple source files.") }
             let file = candidates[0]
-            metadata = SessionHistorySession(id: "", nativeSessionID: reference.nativeID, agent: reference.agent, projectPath: "", title: "", sourcePath: file.path, updatedAt: .distantPast, messages: [])
+            metadata = SessionHistorySession(id: "\(reference.agent.rawValue):\(reference.nativeID)", nativeSessionID: reference.nativeID, agent: reference.agent, projectPath: "", title: "", sourcePath: file.path, updatedAt: .distantPast, messages: [])
         }
         guard let metadata else { throw HistoryToolError.executionFailed("Unknown session key.") }
+        return (metadata, indexed)
+    }
+
+    /// Bounded read-only access; never refreshes or publishes a cache.
+    public func readTranscript(key: String) throws -> HistoryTranscript {
+        let reference = try HistorySessionReference(key)
+        let (metadata, indexed) = try locateSession(reference)
+        if !metadata.agent.supportsTranscript {
+            return HistoryTranscript(session: metadata, provenance: "official list metadata, no transcript")
+        }
         let file = URL(fileURLWithPath: metadata.sourcePath)
         let values = try? file.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
         let modified = values?.contentModificationDate
@@ -473,6 +482,21 @@ public actor SessionHistoryRepository {
         }
         notIndexed += page.notIndexed
         return HistorySearchPage(hits: hits, notIndexed: notIndexed, unavailable: current.filter { unavailable.contains($0.id) })
+    }
+
+    /// Reads only the persisted summary and source attributes; never parses or generates content.
+    public func readSummary(key: String) throws -> HistorySummaryRead? {
+        let reference = try HistorySessionReference(key)
+        let (metadata, _) = try locateSession(reference)
+        guard let saved = try summary(sessionID: metadata.id) else { return nil }
+        let file = URL(fileURLWithPath: metadata.sourcePath)
+        let values = try? file.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey])
+        let current: String?
+        if metadata.agent.supportsTranscript, values?.isRegularFile == true, let modified = values?.contentModificationDate, let size = values?.fileSize {
+            current = "\(modified.timeIntervalSince1970)|\(size)"
+        } else { current = nil }
+        return HistorySummaryRead(summary: saved, currentSourceRevision: current,
+            isStale: current == nil || saved.sourceRevision == nil || saved.sourceRevision != current || saved.sourcePath != file.path)
     }
 
     public func summary(sessionID: String) throws -> SessionHistorySummary? {
