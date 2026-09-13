@@ -9,10 +9,14 @@ struct VibeBuddyMCP {
         catch { fail(error, code: 2) }
         let directory = ProcessInfo.processInfo.environment["VIBEBUDDY_HISTORY_DIRECTORY"].map { URL(fileURLWithPath: $0) }
         let repository = SessionHistoryRepository(cacheDirectory: directory, readOnly: true)
-        guard await repository.hasUsableIndex() else { fail(HistoryToolError.noIndex, code: 2) }
-        let snapshot = await repository.snapshot()
         do {
-            let text = try HistoryTools.call(request.tool, arguments: request.arguments, snapshot: snapshot)
+            let text: String
+            if request.tool == "vibebuddy_get_session" {
+                text = try await HistoryTools.getSession(arguments: request.arguments, repository: repository)
+            } else {
+                guard await repository.hasUsableIndex() else { fail(HistoryToolError.noIndex, code: 2) }
+                text = try HistoryTools.call(request.tool, arguments: request.arguments, snapshot: await repository.snapshot())
+            }
             FileHandle.standardOutput.write(Data(HistoryCLI.output(text).utf8))
         } catch HistoryToolError.invalidArguments(let message) {
             fail(HistoryToolError.invalidArguments(message), code: 2)

@@ -33,7 +33,7 @@ public struct HistoryMessageRow: Identifiable, Sendable {
 
 /// A read-only presentation projection. Raw IDs remain addressable by search/export.
 public enum SessionHistoryPresentation {
-    public static func rows(_ messages: [SessionHistoryMessage], revealing target: String? = nil) -> [HistoryMessageRow] {
+    public static func rows(_ messages: [SessionHistoryMessage], revealing target: String? = nil, includingThinking: Bool = false) -> [HistoryMessageRow] {
         var rows: [HistoryMessageRow] = []
         var calls: [String: (Int, Int)] = [:]
         for message in messages {
@@ -77,7 +77,7 @@ public enum SessionHistoryPresentation {
         return rows.filter { row in
             if row.contains(target) { return true }
             if row.kind == .meta { return false }
-            return row.kind == .compactSummary || !row.text.isEmpty || !row.tools.isEmpty
+            return row.kind == .compactSummary || !row.text.isEmpty || !row.tools.isEmpty || (includingThinking && !row.thinking.isEmpty)
         }
     }
 }

@@ -19,6 +19,7 @@ public actor SessionHistoryRepository {
     private var loaded = false
     private var indexDirty = false
     private let readOnly: Bool
+    private var transcriptSlot: (path: String, revision: String, transcript: HistoryTranscript)?
     private var usableIndex = false
     public init(claudeHome: URL? = nil, codexHome: URL? = nil, cacheDirectory: URL? = nil, refreshByteBudget: Int = 256 * 1024 * 1024, readOnly: Bool = false) {
         self.readOnly = readOnly
@@ -151,6 +152,82 @@ public actor SessionHistoryRepository {
         }
         return snapshot()
     }
+    /// Prefer an available source over retained unavailable paths, as snapshot does.
+    /// Multiple eligible files remain ambiguous; callers must not guess an identity.
+    public func resolveIndexedSession(key: String) throws -> SessionHistorySession? {
+        let reference = try HistorySessionReference(key)
+        ensureLoaded()
+        let candidates = entries.values.filter { $0.session.agent == reference.agent && $0.session.nativeSessionID == reference.nativeID }
+        let available = candidates.filter { $0.session.isAvailable }
+        let matches = available.isEmpty ? candidates : available
+        guard matches.count <= 1 else { throw HistoryToolError.executionFailed("Ambiguous session key: multiple source files.") }
+        guard let entry = matches.first else { return nil }
+        var session = entry.session
+        session.sourceRevision = "\(entry.modified.timeIntervalSince1970)|\(entry.size)"
+        session.isFavorite = favorites.contains(session.id)
+        session.isPinned = pins.contains(session.id)
+        session.archivedLocally = archives.contains(session.id)
+        return session
+    }
+
+    /// Bounded read-only access; never refreshes or publishes a cache.
+    public func readTranscript(key: String) throws -> HistoryTranscript {
+        let reference = try HistorySessionReference(key)
+        var metadata = try resolveIndexedSession(key: reference.key)
+        let indexed = metadata?.sourceRevision
+        if metadata == nil {
+            // Locate by native filename only; never parse every conversation to find one ID.
+            var candidates: [URL] = []
+            for (root, agent) in roots where agent == reference.agent {
+                guard let iterator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey], options: [.skipsHiddenFiles]) else { continue }
+                for case let file as URL in iterator {
+                    if file.lastPathComponent == "subagents" { iterator.skipDescendants(); continue }
+                    let stem = file.deletingPathExtension().lastPathComponent
+                    guard file.pathExtension == "jsonl", !stem.hasPrefix("agent-"),
+                          stem == reference.nativeID || (agent == .codex && stem.hasSuffix("-" + reference.nativeID)),
+                          file.resolvingSymlinksInPath().path.hasPrefix(root.path + "/"),
+                          let values = try? file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]),
+                          values.isRegularFile == true, values.isSymbolicLink != true else { continue }
+                    candidates.append(file)
+                }
+            }
+            guard candidates.count == 1 else { throw HistoryToolError.executionFailed(candidates.isEmpty ? "Unknown session key." : "Ambiguous session key: multiple source files.") }
+            let file = candidates[0]
+            metadata = SessionHistorySession(id: "", nativeSessionID: reference.nativeID, agent: reference.agent, projectPath: "", title: "", sourcePath: file.path, updatedAt: .distantPast, messages: [])
+        }
+        guard let metadata else { throw HistoryToolError.executionFailed("Unknown session key.") }
+        let file = URL(fileURLWithPath: metadata.sourcePath)
+        let values = try? file.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+        let modified = values?.contentModificationDate
+        let size = values?.fileSize
+        let current = modified.flatMap { date in size.map { "\(date.timeIntervalSince1970)|\($0)" } }
+        if let current, let slot = transcriptSlot, slot.path == file.path, slot.revision == current { return slot.transcript }
+        let cacheURL = directory.appendingPathComponent(contentFilename(file.path))
+        if let data = try? Data(contentsOf: cacheURL), var cached = try? JSONDecoder().decode(SessionHistorySession.self, from: data),
+           cached.sourcePath == file.path, cached.agent == reference.agent, cached.nativeSessionID == reference.nativeID {
+            let cacheTime = (try? cacheURL.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            let indexTime = (try? directory.appendingPathComponent("index.json").resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            let legacyPublished = cacheTime.flatMap { cache in indexTime.map { cache <= $0 } } == true
+            let revision = cached.sourceRevision ?? (legacyPublished ? indexed : nil)
+            if let revision, (current == nil || current == revision), indexed == revision {
+                cached.sourceRevision = revision
+                cached.isAvailable = current != nil && FileManager.default.isReadableFile(atPath: file.path)
+                let result = HistoryTranscript(session: cached, provenance: "cache")
+                if let current { transcriptSlot = (file.path, current, result) }
+                return result
+            }
+        }
+        guard let modified, let current else { throw HistoryToolError.executionFailed("Source unavailable and no verifiable transcript cache.") }
+        var session = try SessionHistoryParser.read(url: file, agent: reference.agent, updatedAt: modified)
+        let after = try file.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+        guard after.contentModificationDate == modified, after.fileSize == size else { throw HistoryToolError.executionFailed("Source changed while reading; retry for a consistent revision.") }
+        guard session.nativeSessionID == reference.nativeID else { throw HistoryToolError.executionFailed("Source identity does not match the requested key.") }
+        session.sourceRevision = current
+        let result = HistoryTranscript(session: session, provenance: "source, index stale")
+        transcriptSlot = (file.path, current, result)
+        return result
+    }
+
     /// Snapshots retain metadata only; load the selected transcript off the main actor.
     public func session(id: String) throws -> SessionHistorySession? {
         guard let metadata = snapshot().sessions.first(where: { $0.id == id }) else { return nil }
