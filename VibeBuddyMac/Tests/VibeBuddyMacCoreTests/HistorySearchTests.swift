@@ -183,7 +183,7 @@ final class HistorySearchTests: XCTestCase {
             try Data(codex.joined(separator: "\n").utf8).write(to: codexSource)
         }
         func repository(readOnly: Bool = false) -> SessionHistoryRepository {
-            SessionHistoryRepository(claudeHome: root.appendingPathComponent("claude"), codexHome: root.appendingPathComponent("codex"), cacheDirectory: cache, readOnly: readOnly)
+            SessionHistoryRepository(claudeHome: root.appendingPathComponent("claude"), codexHome: root.appendingPathComponent("codex"), cursorHome: root.appendingPathComponent("cursor"), cacheDirectory: cache, readOnly: readOnly)
         }
         func bytes() throws -> [String: Data] {
             try Dictionary(uniqueKeysWithValues: FileManager.default.contentsOfDirectory(at: cache, includingPropertiesForKeys: nil).map { ($0.lastPathComponent, try Data(contentsOf: $0)) })

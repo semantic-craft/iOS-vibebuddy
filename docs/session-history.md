@@ -2,14 +2,35 @@
 
 The Dashboard has three library scopes: **Current tasks**, **History**, and
 **Favorites**. Current tasks keeps the daemon's live state and actions. History
-reads local Claude Code and Codex conversation files independently; selecting or
+reads local Claude Code, Codex and Cursor conversation files independently; selecting or
 searching an archive never inserts it into the live snapshot.
 
 Open History to index `~/.claude/projects`, `~/.codex/sessions`, and
-`~/.codex/archived_sessions`. `CLAUDE_CONFIG_DIR` and `CODEX_HOME` replace the
-respective home directory. Project groups use the original full working directory;
+`~/.codex/archived_sessions`, and Cursor agent transcripts under
+`~/.cursor/projects/*/agent-transcripts`. `CLAUDE_CONFIG_DIR` and `CODEX_HOME` replace the
+respective home directory. `VIBEBUDDY_CURSOR_HOME` is a process-only vibebuddy override
+for the Cursor source home; it does not configure Cursor itself. Project groups use the original full working directory;
 matching basenames and worktrees are not merged. Claude child/sidechain transcripts
 are excluded so their shared parent ID cannot replace the parent conversation.
+
+Cursor discovery accepts `<id>/<id>.jsonl` and the older flat `<id>.jsonl` layout.
+It resolves the flattened project directory against existing directories, leaving an
+unknown project explicit. It never reads Cursor's `state.vscdb`. Parsed timestamp
+envelopes determine conversation time; source mtime is the fallback. Error and
+aborted turn endings remain visible warnings. Agent-prefixed IDs keep the same
+native ID from different agents separate. Multiple available files for one key
+remain ambiguous for CLI transcript reads and search references.
+
+| Source | Readable content | Coverage limits |
+| --- | --- | --- |
+| Claude Code | User/assistant text, tool calls/results, available plaintext thinking | Child sessions excluded; attachment and resource-limit notices apply |
+| Codex | User/assistant text, tool calls/results, available plaintext thinking and compaction | Encrypted reasoning is not decoded; attachment and resource-limit notices apply |
+| Cursor local transcript | User/assistant text and tool call inputs | No tool results or thinking; no encrypted IDE database or cloud agents; transcript files do not identify IDE versus CLI provenance |
+
+Cursor is available in the Mac History agent filter and in `sessions --agent cursor`,
+`search QUERY --agent cursor`, and `show 'cursor:<composer id>'`. Read-only output
+states the source's coverage. The transcript adapter preserves full readable text
+within the same 32 MiB source / 128 KiB message limits as the other sources.
 
 Search matches literal message text, including Chinese and code substrings. A local
 SQLite FTS5 trigram index handles queries of three or more characters; shorter
@@ -85,7 +106,10 @@ For a historical Claude conversation with a valid ID and existing project direct
 **Copy resume command** prepares a shell-quoted command for the user to run; copying
 does not run it. An available, unarchived Codex record with explicit `source=cli` metadata also
 provides a quoted `codex resume` command. Unknown, Desktop and subagent provenance
-is shown as unsupported rather than opening a new task or typing into a terminal. Source visibility alone does not
+is shown as unsupported rather than opening a new task or typing into a terminal.
+A local Cursor record with a valid ID and existing project directory offers
+`cursor-agent --resume <id>` for copying when the Cursor CLI is available. Copying
+never executes the command or claims that the CLI is signed in. Source visibility alone does not
 establish approval or control capability.
 
 SSH history mirroring and MCP/CLI access are separate future work. This feature does

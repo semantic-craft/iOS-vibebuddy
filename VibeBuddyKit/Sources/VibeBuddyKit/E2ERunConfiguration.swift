@@ -25,10 +25,15 @@ public struct E2ERunConfiguration: Sendable {
     }()
 
     /// Pure parsing: creates no directories, touches no secrets and starts no services.
-    /// Absence is allowed only when none of the E2E variables is present.
+    /// Absence is allowed only for ordinary bundles with no E2E variables.
     public init?(environment: [String: String], bundleIdentifier: String?) throws {
         let keys = Set(environment.keys.filter { $0.hasPrefix("VIBEBUDDY_E2E_") })
-        guard !keys.isEmpty else { return nil }
+        guard !keys.isEmpty else {
+            guard bundleIdentifier?.hasPrefix("com.vibebuddy.e2e.") != true else {
+                throw ConfigurationError.invalidEnvironment
+            }
+            return nil
+        }
         let allowed: Set<String> = ["VIBEBUDDY_E2E_ROOT", "VIBEBUDDY_E2E_ID", "VIBEBUDDY_E2E_PORT",
                                     "VIBEBUDDY_E2E_NOTIFICATIONS", "VIBEBUDDY_E2E_AUDIO",
                                     "VIBEBUDDY_E2E_HOST", "VIBEBUDDY_E2E_CODEX_THREAD"]

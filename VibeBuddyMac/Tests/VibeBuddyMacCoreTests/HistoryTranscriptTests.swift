@@ -16,7 +16,7 @@ final class HistoryTranscriptTests: XCTestCase {
             #"{"sessionId":"native","type":"user","message":{"role":"user","content":"Next"}}"#
         ]
         try Data(lines.joined(separator: "\n").utf8).write(to: source)
-        let repository = SessionHistoryRepository(claudeHome: root.appendingPathComponent("claude"), codexHome: root.appendingPathComponent("codex"), cacheDirectory: root.appendingPathComponent("absent"), readOnly: true)
+        let repository = SessionHistoryRepository(claudeHome: root.appendingPathComponent("claude"), codexHome: root.appendingPathComponent("codex"), cursorHome: root.appendingPathComponent("cursor"), cacheDirectory: root.appendingPathComponent("absent"), readOnly: true)
         let first = try await HistoryTools.getSession(arguments: ["key": "claude-code:native", "max_messages": 1], repository: repository)
         XCTAssertTrue(first.hasPrefix("Source revision:")); XCTAssertTrue(first.contains("source, index stale"))
         XCTAssertTrue(first.contains("[seq 1] User")); XCTAssertTrue(first.contains("from_seq=2")); XCTAssertFalse(first.contains("secret-meta"))
@@ -48,10 +48,10 @@ final class HistoryTranscriptTests: XCTestCase {
         let header = #"{"type":"session_meta","payload":{"id":"native","cwd":"/repo"}}"#
         let message = #"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"old"}]}}"#
         try Data((header + "\n" + message).utf8).write(to: file)
-        let writer = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cacheDirectory: cache)
+        let writer = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cursorHome: root.appendingPathComponent("cursor"), cacheDirectory: cache)
         _ = try await writer.refresh()
         let before = try bytes(cache)
-        let reader = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cacheDirectory: cache, readOnly: true)
+        let reader = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cursorHome: root.appendingPathComponent("cursor"), cacheDirectory: cache, readOnly: true)
         let warm = try await reader.readTranscript(key: "codex:native")
         XCTAssertEqual(warm.provenance, "cache")
         try Data((header + "\n" + message + "\n" + message.replacingOccurrences(of: "old", with: "fresh")).utf8).write(to: file)
@@ -68,7 +68,7 @@ final class HistoryTranscriptTests: XCTestCase {
         full.sourceRevision = "mismatched-revision"
         try JSONEncoder().encode(full).write(to: content)
         let mismatchedBefore = try bytes(cache)
-        let freshReader = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cacheDirectory: cache, readOnly: true)
+        let freshReader = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cursorHome: root.appendingPathComponent("cursor"), cacheDirectory: cache, readOnly: true)
         let mismatched = try await freshReader.readTranscript(key: "codex:native")
         XCTAssertEqual(mismatched.provenance, "source, index stale")
         XCTAssertEqual(try bytes(cache), mismatchedBefore)
@@ -85,7 +85,7 @@ final class HistoryTranscriptTests: XCTestCase {
         let source = #"{"type":"session_meta","payload":{"id":"native","cwd":"/repo"}}"# + "\n" +
             #"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Retain this dialogue after archive"}]}}"#
         try Data(source.utf8).write(to: file)
-        let writer = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cacheDirectory: cache)
+        let writer = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cursorHome: root.appendingPathComponent("cursor"), cacheDirectory: cache)
         _ = try await writer.refresh()
         try FileManager.default.moveItem(at: file, to: archived)
         let refreshed = try await writer.refresh()
@@ -100,7 +100,7 @@ final class HistoryTranscriptTests: XCTestCase {
         XCTAssertEqual(persisted.count, 2)
         XCTAssertTrue(persisted.allSatisfy { $0["nativeSessionID"] as? String == "native" })
         XCTAssertEqual(persisted.filter { $0["isAvailable"] as? Bool == true }.count, 1)
-        let reader = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cacheDirectory: cache, readOnly: true)
+        let reader = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cursorHome: root.appendingPathComponent("cursor"), cacheDirectory: cache, readOnly: true)
         let transcript = try await reader.readTranscript(key: "codex:native")
         XCTAssertEqual(transcript.session.sourcePath, canonical.sourcePath)
         let retained = try await writer.readTranscript(key: "codex:native")
@@ -113,7 +113,7 @@ final class HistoryTranscriptTests: XCTestCase {
         // Distinct available files remain ambiguous, unlike the retained unavailable path.
         try Data(source.utf8).write(to: file)
         _ = try await writer.refresh()
-        let duplicateReader = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cacheDirectory: cache, readOnly: true)
+        let duplicateReader = SessionHistoryRepository(claudeHome: claude, codexHome: codex, cursorHome: root.appendingPathComponent("cursor"), cacheDirectory: cache, readOnly: true)
         do { _ = try await duplicateReader.readTranscript(key: "codex:native"); XCTFail("available duplicates accepted") }
         catch HistoryToolError.executionFailed { }
     }
