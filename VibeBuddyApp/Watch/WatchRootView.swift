@@ -33,7 +33,7 @@ struct WatchRootView: View {
                 WatchHomeView(store: store, state: state, connection: connection, now: now)
                     .tag(WatchPage.home)
                 if state.alerts.count > 1 {
-                    WatchAlertsView(state: state, connection: connection, now: now)
+                    WatchAlertsView(store: store, state: state, connection: connection, now: now)
                         .tag(WatchPage.alerts)
                 }
                 WatchQuotaView(state: state, connection: connection, now: now)

@@ -343,10 +343,20 @@ code, and tests — don't drift to synonyms.
   frontmost is capped to `list`. `list` and `drop` never push.
 - **Completion reminder** — `CompletionReminderSchedule` re-issues the
   `agentDone` cue for a `done`, unread session whose effective attention is
-  `followed`, every 5 minutes, at most 12 times per completion (keyed by
-  `statusSince`), on the Mac and over APNs; any acknowledgement stops it. Same
-  notification id and collapse id as the original cue, so one banner is
-  replaced, not stacked. The Watch carries no attention state.
+  `followed`, after 5, 10, 20 and then 40 minutes — at most 4 times per
+  completion (keyed by `statusSince`), the last 75 minutes after it — on the
+  Mac and over APNs; any acknowledgement stops it. Same notification id and
+  collapse id as the original cue, so one banner is replaced, not stacked.
+  The cadence backs off because every reminder is mirrored to the wrist as a
+  fresh buzz (ADR-0019). The Watch carries no attention state.
+- **Watch results** — `WatchDashboardState.results`: the current sessions
+  worth a look without waiting on you — ended badly (`error`) first, then
+  unread completions, newest first, at most six, muted ones excluded. Listed
+  on the Watch home under *Also waiting* (errors, with the alerts) and
+  *Results*; opening one reads that exact round through the Mac, whether or
+  not the session is followed. The home order is headline → top card → also
+  waiting → results → followed → quota (ADR-0019). A notification tap on the
+  Watch opens its session; viewing a wait only marks it seen.
 - **Missed** — one wait in `needsResponse` that reaches five minutes without
   acknowledgement on any surface, counted once for that wait even if the session
   is muted. Its time is the five-minute deadline. Mac Settings shows the current

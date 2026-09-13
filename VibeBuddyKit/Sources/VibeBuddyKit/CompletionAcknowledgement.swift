@@ -56,7 +56,15 @@ public struct WatchTaskLink: Codable, Equatable, Hashable, Sendable, Identifiabl
     }
     public func task(in state: WatchDashboardState?) -> WatchFollowedTask? {
         guard let state, sourceID == state.sourceID, pairingEpoch == state.pairingEpoch else { return nil }
-        return state.followedTasks.first { $0.sessionID == sessionID }
+        return state.task(sessionID)
+    }
+
+    /// The waiting session this link names, when it is one. A link opened from
+    /// a notification or a Needs-you row lands on the alert, which is the
+    /// card that can resolve it.
+    public func alert(in state: WatchDashboardState?) -> WatchAlert? {
+        guard let state, sourceID == state.sourceID, pairingEpoch == state.pairingEpoch else { return nil }
+        return state.alerts.first { $0.sessionId == sessionID }
     }
 }
 
