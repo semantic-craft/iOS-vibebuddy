@@ -1,13 +1,14 @@
 # 1.3.17 integrated acceptance
 
-Candidate: Mac build 29; iPhone, iPhone widget, Watch and Watch widget build 45. Integrates PRs #195, #196 and #197 with the Watch notification/detail fixes in #198.
+Candidate: Mac build 29; iPhone, iPhone widget, Watch and Watch widget build 46. Integrates PRs #195, #196 and #197 with the Watch notification/detail fixes in #198.
 
 ## Verified before packaging
 
 - Integrated VibeBuddyKit: 557 tests passed.
 - Integrated iPhone simulator: 11 selected tests passed (AccountQuotaTests, WidgetQuotaStoreTests and WatchRelayTests.testWatchRefreshFetchesNewAuthorityContentWithoutSendingAnAnswer).
 - Native iPhone simulator connected to the running Mac, without demo data: Usage rendered Codex, Claude and Grok readings; unavailable providers showed their reason. The installed home-screen Usage widget displayed Claude weekly 44% and short-window 97%, matching the contemporaneous app reading. This is simulator UI plus live Mac data, not physical widget acceptance.
-- Direct standards/spec review of the merged refresh, projection and quota persistence paths found no release blocker.
+- PR review found callback completion preceding intent persistence and stale snapshot notification side effects. Both were fixed. The stale-snapshot regression also exposed an initial timestamp boundary; first load and connection reset now start without a server timestamp. All 19 DashboardStore/Watch refresh tests passed after correction.
+- Standards/spec review: the two reported races are addressed; production physical acceptance remains distinct from these tests.
 
 ## Physical Watch evidence carried into this candidate
 
@@ -19,6 +20,6 @@ Local traces are retained under `.scratch/watch-task-entry/` (build44 notificati
 
 ## Distribution gate
 
-The iOS archive/export completed with distribution signatures, production APNs, Time Sensitive Notifications, matching embedded Watch version/build and companion identity. TestFlight upload is a separate operation from public App Store submission.
+Build 45 iOS archive/export completed with distribution signatures, production APNs, Time Sensitive Notifications, matching embedded Watch version/build and companion identity. Build 45 was uploaded successfully but was superseded by the reviewed build 46 candidate. Build 46 archive/export is being repeated. TestFlight upload is a separate operation from public App Store submission.
 
 The production physical gate in [watch-notification-acceptance.md](../watch-notification-acceptance.md) remains pending: install the TestFlight candidate on iPhone and Watch, verify locked-phone notification and vibration, approve a real agent request on Watch, and verify the Mac/agent receipt and persistence after restart. Development acceptance above does not close this gate.

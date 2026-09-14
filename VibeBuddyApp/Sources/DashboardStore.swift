@@ -112,7 +112,7 @@ final class DashboardStore: ObservableObject {
     private let watchRelay: WatchRelay?
     /// The Mac's own clock for the last snapshot, so the relayed state says when
     /// the Mac saw the world rather than when this phone re-rendered it.
-    private var lastServerTime = Date()
+    private var lastServerTime = Date.distantPast
     private var sourceID: String?
     /// Account allowance as the Mac last reported it. The phone forwards it
     /// untouched — normalization already happened where the provider's own
@@ -452,6 +452,7 @@ final class DashboardStore: ObservableObject {
         completionReads.select(epoch: pairingEpoch)
         recentOutputs = [:]
         sourceID = nil
+        lastServerTime = .distantPast
         groups = SessionGroups([])
         state = .connecting
         relayToWatch([])
@@ -512,6 +513,7 @@ final class DashboardStore: ObservableObject {
         pairing = nil
         recentOutputs = [:]
         sourceID = nil
+        lastServerTime = .distantPast
         pairingEpoch = ConnectionStore.pairingEpoch
         state = .connecting
         groups = SessionGroups([])
@@ -1118,6 +1120,7 @@ final class DashboardStore: ObservableObject {
 
     private func apply(_ incoming: Snapshot, generation: UUID) async {
         guard generation == connectionGeneration, !Task.isCancelled else { return }
+        guard sourceID != incoming.sourceID || incoming.serverTime >= lastServerTime else { return }
         var snapshot = incoming
         snapshot.sessions = incoming.sessions.map { $0.validatingCompletionNotice(sourceID: incoming.sourceID) }
         CompletionNoticePhoneContext.sessions = snapshot.sessions
@@ -1134,6 +1137,7 @@ final class DashboardStore: ObservableObject {
             // then it earns no tap and no buddy reaction either.
             let notified = await notifier.notify(alert)
             guard generation == connectionGeneration, !Task.isCancelled else { return }
+            guard sourceID != snapshot.sourceID || snapshot.serverTime >= lastServerTime else { return }
             guard notified, alert.delivery.interrupts else { continue }
             Haptics.play(for: alert.sound)   // a tasteful tap to go with the cue
         }

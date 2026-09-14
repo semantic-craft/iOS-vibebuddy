@@ -38,8 +38,10 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate, UNUserNotificatio
         // Extract Sendable values before crossing to the UI actor.
         let isDefault = response.actionIdentifier == UNNotificationDefaultActionIdentifier
         let sessionID = response.notification.request.content.userInfo[NotificationUserInfoKey.sessionId] as? String
-        defer { completionHandler() }
         Task { @MainActor in
+            // Save the target before releasing the OS background execution
+            // opportunity. This does not wait for a window or navigation.
+            defer { completionHandler() }
             WatchNavigationDiagnostics.shared.record(isDefault ? "notification.default" : "notification.action")
             guard isDefault else { return }
             guard let sessionID, !sessionID.isEmpty else {

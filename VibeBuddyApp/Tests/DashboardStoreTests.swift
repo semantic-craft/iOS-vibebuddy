@@ -47,6 +47,25 @@ private actor DecisionRecorder: DecisionClient {
 
 @MainActor
 final class DashboardStoreTests: XCTestCase {
+    func testOlderSnapshotCannotWithdrawCurrentWaitingNotification() async throws {
+        let now = Date()
+        let waiting = AgentSession(id: "current-wait", agent: .claudeCode, project: "QA",
+            status: .needsResponse, waitKind: .question, statusSince: now, updatedAt: now)
+        let notifier = RecordingNotifier()
+        let store = DashboardStore(streamer: ScriptedStreamer(snapshots: [
+            Snapshot(sessions: [], serverTime: now, sourceID: "mac"),
+            Snapshot(sessions: [waiting], serverTime: now.addingTimeInterval(2), sourceID: "mac"),
+            Snapshot(sessions: [], serverTime: now.addingTimeInterval(1), sourceID: "mac")
+        ]), notifier: notifier, decisionClient: NullDecisionClient(), watchRelay: nil, reportDevice: { _ in })
+        store.start(PairingPayload(host: "test", port: 9, token: "test"))
+        for _ in 0..<100 where store.allSessions.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(store.allSessions.map(\.id), ["current-wait"])
+        XCTAssertFalse(notifier.posted.isEmpty)
+        XCTAssertTrue(notifier.withdrawn.isEmpty)
+        await store.stop().value
+    }
+
     func testColdPhoneKeepsAnExplicitWatchReadRetryableUntilAuthorityArrives() async {
         let decisions = DecisionRecorder()
         let store = DashboardStore(streamer: EmptyStreamer(), notifier: SilentNotifier(), decisionClient: decisions)
