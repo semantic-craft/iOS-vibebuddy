@@ -83,7 +83,8 @@ public final class NotificationCoordinator: @unchecked Sendable {
                         categories: NotificationCategoryPrefs = .default) async -> [SoundAlert] {
         let input = SoundPolicyInput(sessions: sessions, now: now,
                                      appActive: false, quietMode: quietMode,
-                                     focusedSessionIDs: focusedSessionIDs)
+                                     // App-level presence is not evidence that this task is being viewed.
+                                     focusedSessionIDs: focusedSessionIDs.intersection(viewedSessionIDs))
         let earned = policy.evaluate(input)
         // Completion speech is driven by the existing round identity, not the
         // cue sound's 30-second noise threshold or whether polling saw Working.

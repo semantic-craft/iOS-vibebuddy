@@ -570,3 +570,44 @@
 "Reading never marks a result read." = "播报不会把结果标为已读。";
 "Open the voice page" = "打开语音页";
 "Paused while the voice call is live" = "语音通话中 · 已暂停";
+
+"Headscale & Surge" = "Headscale 与 Surge";
+
+"iPhone with Surge" = "手机使用 Surge";
+
+"In Surge, add a Tailscale policy and set its control-url to your Headscale server. Sign in there and route the Mac’s private IP through that policy. Keep Surge running on cellular." = "在 Surge 添加 Tailscale 策略，将 control-url 设为你的 Headscale 服务地址，完成登录，并让 Mac 的私网 IP 通过该策略连接。使用蜂窝网络时保持 Surge 开启。";
+
+"Surge setup guide" = "Surge 配置说明";
+
+"Mac at home" = "家里的 Mac";
+
+"Keep VibeBuddy and the Tailscale app running on your Mac, joined to the same Headscale server with incoming connections allowed. Surge can stay on; its Tailscale policy alone cannot receive connections to your Mac." = "Mac 上保持 VibeBuddy 和 Tailscale 客户端运行，接入同一个 Headscale 服务并允许传入连接。Mac 可以继续开 Surge；仅靠 Surge 的 Tailscale 策略无法接收对 Mac 的访问。";
+
+"Headscale Mac setup" = "Mac 接入 Headscale";
+
+"Mac private IP (100.x.x.x)" = "Mac 私网 IP（100.x.x.x）";
+
+"Test and use this address" = "检查并使用此地址";
+
+"Checking connection…" = "正在检查连接…";
+
+"Pair with your Mac first by scanning its code. Return here to switch the saved connection to Headscale without entering the pairing token again." = "先扫描 Mac 的二维码完成配对，再回到这里切换到 Headscale 地址，无需重新输入配对令牌。";
+
+"Headscale address" = "Headscale 地址";
+
+"Use the Mac’s Tailscale IPv4 address, not the Headscale server URL or Surge node address. Your current pairing stays saved if the check fails." = "填写 Mac 的 Tailscale IPv4 地址，不是 Headscale 服务网址或 Surge 节点地址。检查失败时保留当前配对。";
+
+"Your Watch receives status through this iPhone. Turn off Wi-Fi, keep Surge connected and open VibeBuddy to check a live task on both devices. A suspended iPhone may leave the Watch showing its last update; background alerts depend on push delivery." = "Watch 通过这台 iPhone 获取状态。关闭 Wi-Fi，保持 Surge 连接，打开 VibeBuddy，在手机和手表上核对实时任务。iPhone 应用被挂起时，手表可能只显示上次更新；后台提醒依赖推送送达。";
+
+"Live Mac status received. This address is now saved. Check the Watch’s latest update next." = "已收到 Mac 的实时状态并保存此地址。接下来请核对 Watch 的最新更新时间。";
+
+"Mac refused the saved pairing. Scan its pairing code again." = "Mac 拒绝了已保存的配对。请重新扫描它的配对二维码。";
+
+"Could not receive Mac status. Check Surge’s Headscale connection and route, the Mac’s Tailscale incoming connections, and permission to reach this port. The saved address has not changed." = "未收到 Mac 状态。请检查 Surge 的 Headscale 连接与路由、Mac 的 Tailscale 传入连接，以及此端口的访问权限。已保存的地址未改变。";
+
+"Away from home? Use Tailscale or Headscale. If your iPhone uses Surge, route your Mac’s private IP through its Tailscale policy." = "不在家？可以使用 Tailscale 或 Headscale。手机使用 Surge 时，让 Mac 私网 IP 通过 Surge 的 Tailscale 策略连接。";
+
+"Set up Surge and your Mac" = "配置 Surge 与 Mac";
+"Check status away from home" = "检查外出连接";
+
+"Scan a Mac’s pairing code here to connect or replace your saved pairing. You do not need to disconnect first." = "在此扫描 Mac 的配对码，即可连接或替换已保存的配对，无需先断开连接。";

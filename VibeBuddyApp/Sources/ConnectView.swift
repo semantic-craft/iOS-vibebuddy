@@ -11,7 +11,6 @@ struct ConnectView: View {
     @State private var token = ""
     @State private var showScanner = false
     @State private var showManual = false
-    @State private var showScannerHelp = false
     @State private var connectionError: String?
 
     private var canConnect: Bool { PairingPayload(host: host, port: Int(port) ?? 0, token: token).isValidConnection }
@@ -61,8 +60,9 @@ struct ConnectView: View {
                     }
                     .font(CompanionType.font(13, .medium))
 
-                    Text("Away from home? Join the same Tailscale network on your Mac and iPhone, then use your Mac’s Tailscale address.")
+                    Text("Away from home? Use Tailscale or Headscale. If your iPhone uses Surge, route your Mac’s private IP through its Tailscale policy.")
                         .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink3)
+                    NavigationLink("Headscale & Surge") { RemoteConnectionView() }
                     if let connectionError {
                         Text(connectionError)
                             .font(CompanionType.font(13)).foregroundStyle(CompanionPalette.status(.error))
@@ -79,7 +79,9 @@ struct ConnectView: View {
         }
         .background(CompanionPalette.bg)
         .tint(CompanionPalette.accent)
-        .sheet(isPresented: $showScanner) { scannerSheet }
+        .sheet(isPresented: $showScanner) {
+            PairingScannerSheet(onManualEntry: { showManual = true })
+        }
     }
 
     private var manualFields: some View {
@@ -112,39 +114,4 @@ struct ConnectView: View {
         }
     }
 
-    private var scannerSheet: some View {
-        NavigationStack {
-            QRScannerView { payload in
-                pair(payload)
-                showScanner = false
-            }
-            .ignoresSafeArea()
-            .safeAreaInset(edge: .bottom) {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
-                        DisclosureGroup("Can't find the QR code?", isExpanded: $showScannerHelp) {
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text("Install the companion on your Mac, then open “Pair a phone” in its menu bar. Use the same local network or connect both devices to Tailscale.")
-                                    .font(CompanionType.font(15))
-                                MacCompanionDownloadActions()
-                            }.padding(.top, 12)
-                        }
-                        Button("Enter address manually") {
-                            showManual = true
-                            showScanner = false
-                        }
-                    }.padding()
-                }
-                .frame(maxHeight: showScannerHelp ? 360 : 112)
-                .background(.regularMaterial)
-            }
-            .navigationTitle("Scan pairing QR")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { showScanner = false }
-                }
-            }
-        }
-    }
 }

@@ -32,13 +32,13 @@ public enum DeliveryLevel: Int, Sendable, Comparable, CaseIterable {
 /// | needsApproval  | banner+sound | banner+sound | banner  |
 /// | needsAnswer    | banner+sound | banner+sound | banner  |
 /// | agentStuck     | banner+sound | banner       | list    |
-/// | agentDone      | banner       | banner       | drop    |
+/// | agentDone      | banner+sound | banner       | drop    |
 /// | longWaitNudge  | banner       | list         | drop    |
 ///
 /// Approvals and questions are the two cues someone is blocked on, so they
 /// interrupt at every level: a muted session still shows a silent banner. A
-/// completion banners for any session whose device has the category on; only
-/// the nudge is list-only by default. Quiet mode is the `muted` column for
+/// completion banners for any session whose device has the category on and
+/// sounds when followed; only the nudge is list-only by default. Quiet mode is the `muted` column for
 /// every session. `pairSuccess` is not a session cue and is always loud. The
 /// device's category switch is applied before this table: off means dropped.
 public enum DeliveryMatrix {
@@ -50,7 +50,8 @@ public enum DeliveryMatrix {
         case (.agentStuck, .followed): return .bannerSound
         case (.agentStuck, .normal): return .banner
         case (.agentStuck, .muted): return .list
-        case (.agentDone, .followed), (.agentDone, .normal), (.longWaitNudge, .followed): return .banner
+        case (.agentDone, .followed): return .bannerSound
+        case (.agentDone, .normal), (.longWaitNudge, .followed): return .banner
         case (.longWaitNudge, .normal): return .list
         case (.agentDone, .muted), (.longWaitNudge, .muted): return .drop
         case (.pairSuccess, _): return .bannerSound

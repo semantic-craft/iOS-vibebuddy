@@ -513,11 +513,11 @@ public struct WatchSessionActionState: Equatable, Sendable {
                 $0.sessionId == current.sessionId && $0.isAnswerable && $0.pendingId == pendingId
             }
         case .stop(let statusSince):
-            stillThere = state.followedTasks.contains {
-                $0.sessionID == current.sessionId && $0.stop?.isOffered == true
+            stillThere = state.task(current.sessionId).map {
+                $0.stop?.isOffered == true
                     && abs($0.statusSince.timeIntervalSince1970
                            - statusSince.timeIntervalSince1970) < WatchSessionActionGate.statusSinceTolerance
-            }
+            } ?? false
         }
         if !stillThere { action = nil }
     }

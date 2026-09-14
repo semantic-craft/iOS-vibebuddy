@@ -396,6 +396,21 @@ final class WatchApprovalTests: XCTestCase {
         XCTAssertNil(action.action)
     }
 
+    func testNormalWorkingTaskStopStillWaitsForAuthority() {
+        var session = running()
+        session.attention = .normal
+        let projected = state([session])
+        XCTAssertTrue(projected.followedTasks.isEmpty)
+        var action = WatchSessionActionState()
+        _ = action.begin(stop: WatchFollowedTask(session), attemptId: "normal-stop")
+        action.apply(WatchSessionActionResult(attemptId: "normal-stop", outcome: .accepted))
+        action.reconcile(with: projected)
+        XCTAssertEqual(action.action?.phase, .awaitingResolution)
+        session.status = .done
+        action.reconcile(with: state([session]))
+        XCTAssertNil(action.action)
+    }
+
     func testAnAcceptedStopClearsWhenTheNextTurnIsADifferentOne() {
         var action = WatchSessionActionState()
         _ = action.begin(stop: task(running()), attemptId: "t-1")

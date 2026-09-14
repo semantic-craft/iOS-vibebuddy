@@ -158,3 +158,16 @@ Scope of the opening, deliberately narrow:
 
 "Read-mostly" now means: the writes are the ones a person asked for — a reply
 to a request the agent itself raised, a dispatched thread, a steer, and a stop.
+
+## Amendment — idle discovery is not progress authority (2026-09-14)
+
+Physical notification acceptance exposed a five-minute blind spot after Mac
+restart: an idle thread/list or thread/resume response emitted sessionStart,
+which renewed healthy app-server evidence and suppressed the newer rollout
+turn. Discovery proves reachability, not that this connection carries live
+progress. The five-minute progress-authority window now starts or renews only
+for an app-server prompt, tool event, wait or stop; idle/metadata discovery
+cannot create or extend it. Real app-server progress still outranks competing
+rollout events during that window. SessionEnd releases this in-memory lease.
+A loaded idle thread may still disprove an ownerless retirement probe.
+Control-channel availability and approval routing remain separate.

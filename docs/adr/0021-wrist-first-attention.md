@@ -252,3 +252,53 @@ Each entry retains the upstream ledger's last observed read mark after its
 round stops being current; Mark Unread on the current round restores its unread
 mark. This remains bounded recap storage, not a permanent reading archive or
 an API for independently changing an old round's read state.
+
+### 2026-09-14: Watch Recap removed after physical acceptance
+
+The owner confirmed build 33 was running on the Watch, but Crown navigation
+remained severely laggy. The owner then requested deletion rather than a
+hidden feature. Build 34 removes the Watch Recap row, sheet, Crown pager,
+demo launch entry, and Watch-side bulk-read submission and retry handling.
+There is no enable switch. Phone and Mac Recap are unaffected. This supersedes
+the Watch Recap presentation and Mark all decisions above; individual task
+actions and their acknowledgement queue remain available. Removing the
+feature does not mark any rounds as read.
+
+## Amendment — task-specific notification suppression (2026-09-14)
+
+Physical acceptance found a followed Codex completion suppressed as
+`focusedTerminal` merely because Codex Desktop was frontmost. App-level
+presence cannot identify the selected task and must not suppress sibling
+task reminders. Only a positively identified, current task view may reduce
+that task's cue; when native tab identity is unknown, retain its configured
+notification delivery. The Mac currently identifies its own dashboard/glance
+task view. Completion-summary delivery rechecks use the same exact view.
+This does not change Presence-based approval routing or grant remote actions.
+
+## Amendment — followed completion sound (2026-09-14)
+
+Physical acceptance confirmed that a real followed task completion appeared
+on the wrist without vibration, while a separate sound-bearing push did
+vibrate. The shared delivery matrix had intentionally made all completions
+silent, causing both APNs and iPhone local delivery to omit notification
+sound. Followed completions now use bannerSound; normal completions remain
+banner-only and muted completions remain dropped. This applies to completion
+reminders too, with the existing backing-off schedule. Per-device sound
+switches and Quiet mode still apply. The system controls wrist haptics; APNs
+acceptance alone is not physical haptic proof.
+
+## Amendment: task access after removing Watch Recap (2026-09-14)
+
+Physical acceptance found a connected home showing a working count but no task row. The count was plain text, normal working sessions were absent from the task projection, and completed tasks were filtered out after the Recap entry was deleted. Keep Recap deleted. Home now lists unread current results through the existing exact-session detail, and all current working sessions through the same plain scrolling rows. These are current tasks, not historical rounds or Crown pagination. Followed remains the user's notification/complication choice; making a normal working task openable does not follow it or change its delivery policy. Opening does not acknowledge; Mark as read retains the existing exact source/session/completion operation.
+
+The separate physical failure where opening a mirrored notification spins on the app icon remains unverified and is not claimed fixed by restoring task rows.
+
+## Amendment — notification navigation waits for the main window (2026-09-14)
+
+Physical acceptance reported that tapping the notification app icon flashed away without entering the task. The cause of that physical launch failure is not established by a unit test. A reproduced lifecycle defect in the existing router dispatched its target during store construction or while the main window was inactive. The router now retains the latest tapped session until both its handler and the active main window are available. The window refreshes relay state before releasing the target; delivery consumes it once. Notification scenes cannot grant this readiness. Routing still opens the existing task detail and does not mark a completion read, approve a request, or change attention. Physical notification launch remains an acceptance gate.
+
+## Amendment — Live Activity launch on Watch (2026-09-14)
+
+The owner photo showed the system Live Activity wrapper with “Open on iPhone”, not the Watch task detail. Build 37 lacked `WKSupportsLiveActivityLaunchAttributeTypes`. Apple documents that omission as the fallback to this wrapper: https://developer.apple.com/documentation/activitykit/launching-your-app-from-a-live-activity . Opt in on the Watch app with an empty array (all current activity types). The iPhone activity emits `vibebuddy://session?id=...`; the Watch previously accepted only its source-bound task/quota URLs. Route the shared session URL through the existing buffered session router, deriving source and pairing from relayed state before offering controls. Preserve complication URLs, and do not mark read on launch. This covers the Live Activity entry separately from APNs notification default actions; APNs acceptance never proves either navigation path.
+
+Build 38 physical retest still showed the iPhone wrapper. Narrow the launch declaration to the actual `VibeBuddyActivityAttributes` name rather than an empty array; the latter has reported device failures despite the documented wildcard behavior (https://developer.apple.com/forums/thread/761052). Show the executing Watch bundle version at the bottom of quota/connection information so phone installation cannot substitute for Watch runtime verification. This is a configuration correction/probe; device launch remains unaccepted until observed.

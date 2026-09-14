@@ -15,6 +15,7 @@ struct DashboardView: View {
     @StateObject private var settingsConnectionTest = VoiceConnectionTest()
     /// Reads the pending queue aloud (ticket 04); paused by a live voice call.
     @StateObject private var announcer = PhoneAnnouncer()
+    @State private var showScanner = false
     @State private var showSettings = false
     @State private var showQuota = false
     /// The New task sheet is presented by item, not by a flag: a sheet
@@ -219,6 +220,11 @@ struct DashboardView: View {
                 DashboardCustomizeSheet(selection: $filters, sessions: dashboard.allSessions)
             }
             .presentationDetents([.large])
+        }
+        .sheet(isPresented: $showScanner) {
+            PairingScannerSheet()
+                .environmentObject(connection)
+                .environmentObject(dashboard)
         }
         .sheet(isPresented: $showQuota) {
             AccountQuotaView().environmentObject(dashboard).environmentObject(connection)
@@ -467,6 +473,7 @@ struct DashboardView: View {
     private var connectionButton: some View {
         MacConnectionMenu(title: macTitle, pairing: connection.pairing, demo: connection.demo,
                           state: dashboard.state,
+                          scan: { showScanner = true },
                           reconnect: { if let p = connection.pairing { dashboard.start(p) } },
                           copyAddress: {
                               if let p = connection.pairing {
@@ -1394,6 +1401,7 @@ private struct MacConnectionMenu: View {
     let pairing: PairingPayload?
     let demo: Bool
     let state: DashboardStore.ConnectionState
+    let scan: () -> Void
     let reconnect: () -> Void
     let copyAddress: () -> Void
     let disconnect: () -> Void
@@ -1407,6 +1415,7 @@ private struct MacConnectionMenu: View {
             } else {
                 Text(verbatim: "\(title) · \(statusText)")
             }
+            Button(action: scan) { Label("Scan to pair", systemImage: "qrcode.viewfinder") }
             Button(role: .destructive, action: disconnect) {
                 Label(demo ? LocalizedStringKey("Exit demo") : LocalizedStringKey("Disconnect"), systemImage: "eject")
             }
@@ -1426,8 +1435,7 @@ private struct MacConnectionMenu: View {
     private var color: Color {
         switch state {
         case .connected: CompanionPalette.accent
-        case .connecting: CompanionPalette.status(.requiresInput)
-        case .failed: CompanionPalette.status(.error)
+        case .connecting, .failed: CompanionPalette.status(.error)
         }
     }
 

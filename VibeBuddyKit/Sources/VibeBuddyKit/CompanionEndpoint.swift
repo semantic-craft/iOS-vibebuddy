@@ -1,6 +1,6 @@
 import Foundation
 
-/// LAN and Tailscale share the existing wire format and HTTP/WS transport.
+/// LAN, Tailscale and Headscale share the existing HTTP/WS transport.
 /// This validates an address, not whether a VPN is installed or reachable.
 public struct CompanionEndpoint: Sendable, Equatable {
     public let host: String
@@ -22,8 +22,14 @@ public struct CompanionEndpoint: Sendable, Equatable {
     }
 
     public var isTailscale: Bool {
-        if host.hasSuffix(".ts.net") { return true }
-        let parts = host.split(separator: ".").compactMap { Int($0) }
+        host.hasSuffix(".ts.net") || isTailnetIPv4
+    }
+
+    /// Headscale's usual private range, independent of its custom DNS suffix.
+    public var isTailnetIPv4: Bool {
+        let labels = host.split(separator: ".")
+        guard labels.count == 4 else { return false }
+        let parts = labels.compactMap { UInt8($0) }
         return parts.count == 4 && parts[0] == 100 && (64...127).contains(parts[1])
     }
 
@@ -39,6 +45,16 @@ public struct CompanionEndpoint: Sendable, Equatable {
 }
 
 public extension PairingPayload {
+    /// Change the route to the same Mac without asking for its bearer again.
+    /// Use an IP so custom Headscale DNS does not require a global ATS exception.
+    func usingTailnetIPv4(_ host: String, port: Int) -> PairingPayload? {
+        guard let endpoint = CompanionEndpoint(host: host, port: port), endpoint.isTailnetIPv4 else { return nil }
+        var result = self
+        result.host = endpoint.host
+        result.port = endpoint.port
+        return result.isValidConnection ? result : nil
+    }
+
     var endpoint: CompanionEndpoint? { CompanionEndpoint(host: host, port: port) }
     var isValidConnection: Bool {
         endpoint != nil && !token.isEmpty && !token.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) }

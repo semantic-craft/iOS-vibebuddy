@@ -61,6 +61,39 @@ APNs setup below. The Mac must remain running and reachable. Other VPNs on iPhon
 may conflict with Tailscale; see the official [VPN compatibility notes](https://tailscale.com/docs/reference/faq/other-vpns)
 and [MagicDNS guide](https://tailscale.com/docs/features/magicdns).
 
+### Headscale with Surge on iPhone
+
+The iPhone can use **Surge's built-in Tailscale policy** to join Headscale;
+it does not need a second active VPN. In Surge's policy editor, configure a
+Tailscale policy with your Headscale `control-url`, authorize it, and ensure
+traffic to the Mac's private IPv4 address selects that policy. Consult the
+[Surge Tailscale guide](https://manual.nssurge.com/policies/tailscale.html)
+for version requirements, sign-in and routing options.
+
+The **receiving Mac needs the system Tailscale client**, connected to the same
+Headscale server with incoming connections allowed. Its Surge proxy can keep
+running. Surge's Tailscale policy handles outbound connections only and does
+not expose services on the Mac. Use the system client's IP, not the Surge
+node's IP. See [Headscale's Apple setup](https://headscale.net/stable/usage/connect/apple/).
+The private network ACL and Mac firewall must permit the VibeBuddy service port.
+
+After pairing, on iPhone open **Settings → Connect your Mac → Headscale & Surge**.
+Enter the Mac's `100.64.0.0/10` IPv4 address and service port, then choose
+**Test and use this address**. The phone uses its saved pairing bearer to request
+a live WebSocket snapshot. Only success saves the replacement address; failure
+or leaving the screen keeps the current pairing. This checks the app's data
+path, not just whether the VPN says connected. Custom Headscale DNS suffixes
+are not covered by the app's HTTP domain exceptions, so use the private IPv4
+address here. The Headscale control-server URL is never the VibeBuddy address.
+
+For acceptance, disable iPhone Wi-Fi while keeping Surge on. Open VibeBuddy,
+verify a real running task changes, and check the same task and update time on
+the paired Watch. Repeat after a network interruption. A local simulator test
+does not establish cellular reachability. The Watch gets snapshots through
+the iPhone; iOS suspension can leave an older snapshot visible, and background
+alerts still depend on APNs. This setup does not keep the iPhone process alive
+indefinitely or give the Watch an independent VPN.
+
 ## Connect an agent to local history
 
 In the Mac app, open **Settings → Connect**. Copy the bundled executable path or
