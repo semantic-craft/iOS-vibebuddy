@@ -11,6 +11,8 @@ private let assignedStates: [TaskPresentationState] = [
 struct VibeBuddyWidgetBundle: WidgetBundle {
     var body: some Widget {
         VibeBuddyStatusWidget()
+        PhoneQuotaProviderWidget()
+        PhoneQuotaOverviewWidget()
         VibeBuddyLiveActivity()
     }
 }

@@ -1,6 +1,5 @@
 import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 import VibeBuddyKit
 import VibeBuddyMacCore
 
@@ -23,6 +22,11 @@ final class HistoryLibraryModel: ObservableObject {
     private var summaryTask: Task<Void, Never>?
     private var readGeneration = 0
     private let repository: SessionHistoryRepository
+    /// A second, read-only actor over the same roots and cache for the reader's
+    /// transcript reads, so opening a conversation never queues behind the
+    /// index refresh the writer actor is running (ADR-0024).
+    private let readerRepository: SessionHistoryRepository
+    private var readerMetadataStamp: Date?
     private var searchGeneration = 0
     let isDemo: Bool
 
@@ -31,14 +35,19 @@ final class HistoryLibraryModel: ObservableObject {
         isDemo = environment["VIBEBUDDY_E2E_ROOT"] == nil && environment["VIBEBUDDY_DEMO"] == "1"
         if let root = environment["VIBEBUDDY_E2E_ROOT"] {
             let url = URL(fileURLWithPath: root)
-            repository = SessionHistoryRepository(
-                claudeHome: url.appendingPathComponent("agents/claude"),
-                codexHome: url.appendingPathComponent("agents/codex"),
-                cursorHome: url.appendingPathComponent("agents/cursor"),
-                grokHome: url.appendingPathComponent("agents/grok"),
-                cacheDirectory: url.appendingPathComponent("history"))
+            let make = { (readOnly: Bool) in
+                SessionHistoryRepository(
+                    claudeHome: url.appendingPathComponent("agents/claude"),
+                    codexHome: url.appendingPathComponent("agents/codex"),
+                    cursorHome: url.appendingPathComponent("agents/cursor"),
+                    grokHome: url.appendingPathComponent("agents/grok"),
+                    cacheDirectory: url.appendingPathComponent("history"), readOnly: readOnly)
+            }
+            repository = make(false)
+            readerRepository = make(true)
         } else {
             repository = SessionHistoryRepository(grokHome: isDemo ? nil : GrokHome.url, readOnly: isDemo)
+            readerRepository = SessionHistoryRepository(grokHome: isDemo ? nil : GrokHome.url, readOnly: true)
         }
         if isDemo { snapshot = SessionHistorySnapshot(sessions: MacDemoData.historySessions(), refreshedAt: Date()) }
     }
@@ -90,6 +99,18 @@ final class HistoryLibraryModel: ObservableObject {
         searching = false
     }
 
+    /// A transcript by exact key, fresh from the source when the index is
+    /// stale (ADR-0024). Read only; never refreshes or publishes the index.
+    func readTranscript(key: String) async throws -> HistoryTranscript {
+        guard !isDemo else { throw HistoryToolError.executionFailed("Demo mode reads no transcripts.") }
+        // Pick up the writer's latest published metadata once per refresh, not per read.
+        if let stamp = snapshot.refreshedAt, stamp != readerMetadataStamp {
+            try await readerRepository.reloadReadOnlyMetadata()
+            readerMetadataStamp = stamp
+        }
+        return try await readerRepository.readTranscript(key: key)
+    }
+
     func read(_ id: String?) async {
         readGeneration += 1
         let generation = readGeneration
@@ -100,7 +121,19 @@ final class HistoryLibraryModel: ObservableObject {
         if transcript?.id != id { transcript = nil }
         reading = true
         do {
-            let result = try await repository.session(id: id)
+            let result: SessionHistorySession?
+            if let record = snapshot.sessions.first(where: { $0.id == id }), record.agent.supportsTranscript {
+                // The watcher must see source changes immediately, without
+                // waiting for the next index publication (Wake's reader rule).
+                var fresh = try await readTranscript(key: record.agent.keyName + ":" + record.nativeSessionID).session
+                fresh.isFavorite = record.isFavorite
+                fresh.isPinned = record.isPinned
+                fresh.archivedLocally = record.archivedLocally
+                fresh.sourceArchived = record.sourceArchived
+                result = fresh
+            } else {
+                result = try await repository.session(id: id)
+            }
             guard generation == readGeneration, !Task.isCancelled else { return }
             transcript = result
             do {
@@ -178,6 +211,7 @@ final class HistoryLibraryModel: ObservableObject {
 struct HistoryWorkbenchView: View {
     @ObservedObject var history: HistoryLibraryModel
     @ObservedObject var model: MenuBarModel
+    @ObservedObject var reader: SessionReaderModel
     @Binding var query: String
     let favoritesOnly: Bool
     /// The sidebar owns the project choice (shared with the live library).
@@ -188,7 +222,6 @@ struct HistoryWorkbenchView: View {
     private var archived: Bool? { archiveScope == "all" ? nil : archiveScope == "archived" }
     @State private var selection: String?
     @State private var targetMessage: String?
-    @State private var exportError: String?
 
     private var archiveTitle: String {
         switch archiveScope {
@@ -208,10 +241,6 @@ struct HistoryWorkbenchView: View {
         guard let selection else { return nil }
         return sessions.first { $0.id == selection }
     }
-    private var readKey: String {
-        guard let selected else { return "" }
-        return "\(selected.id)|\(selected.sourcePath)|\(selected.sourceRevision ?? "")|\(selected.updatedAt.timeIntervalSince1970)|\(selected.isAvailable)"
-    }
     private var searchKey: String {
         "\(agent?.rawValue ?? "")|\(archiveScope)|\(sessions.map { "\($0.id):\($0.isFavorite):\($0.isArchived)" }.joined(separator: ","))|\(query)\u{1f}\(project ?? "")\u{1f}\(favoritesOnly)\u{1f}\(history.snapshot.refreshedAt?.timeIntervalSince1970 ?? 0)\u{1f}\(sessions.filter(\.isFavorite).count)"
     }
@@ -221,15 +250,7 @@ struct HistoryWorkbenchView: View {
             sessionList
             readingPane
         }
-        .task {
-            await history.refresh()
-            while !Task.isCancelled {
-                do { try await Task.sleep(for: .seconds(30)) } catch { return }
-                await history.refresh()
-            }
-        }
         .task(id: searchKey) { await history.search(query, project: project, favorites: favoritesOnly, agent: agent, archived: archived) }
-        .task(id: readKey) { await history.read(selected?.id) }
         .onChange(of: agent) { _, _ in clearSelection() }
         .onChange(of: archiveScope) { _, _ in clearSelection() }
         .onChange(of: project) { _, _ in clearSelection() }
@@ -237,10 +258,11 @@ struct HistoryWorkbenchView: View {
         .onChange(of: query) { _, _ in clearSelection() }
         .onChange(of: sessions.map(\.id)) { _, ids in
             if let selection, !ids.contains(selection) { clearSelection() }
+            // `VIBEBUDDY_DEMO_SELECT=<record id>` opens that record once the index
+            // lists it (screenshots and QA); a live id never matches a record id.
+            if selection == nil, let wanted = ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO_SELECT"],
+               ids.contains(wanted) { selection = wanted; targetMessage = nil }
         }
-        .alert("Could not export", isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
-            Button("OK") { exportError = nil }
-        } message: { Text(exportError ?? "") }
     }
 
     private var sessionList: some View {
@@ -352,45 +374,14 @@ struct HistoryWorkbenchView: View {
         .contentShape(Rectangle())
     }
 
+    /// The record with its live counterpart, when exactly one live session
+    /// carries the same native id in the same checkout (never by title).
     @ViewBuilder private var readingPane: some View {
         if let metadata = selected {
-            let session = readingSession(metadata)
-            VStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(session.title).font(MacTheme.font(17, .semibold)).textSelection(.enabled).lineLimit(3)
-                    Text("\(session.agent.displayName) · \(session.projectPath)").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2).textSelection(.enabled)
-                    HistorySessionActions(session: session, model: model, history: history) { export(session) }
-                    ForEach(session.warnings, id: \.self) { warning in
-                        Text(warning).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
-                    }
-                    if !session.isAvailable {
-                        Text("The source is unavailable. Showing the last indexed copy.").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
-                    }
-                }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
-                Divider()
-                if history.reading && history.transcript?.id != metadata.id {
-                    ProgressView("Reading conversation…").frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if let error = history.readingError {
-                    VStack(spacing: 12) {
-                        Text(error).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
-                        Button("Retry") { Task { await history.read(metadata.id) } }
-                            .buttonStyle(PillButtonStyle(kind: .ghost, size: .small))
-                    }.frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if !session.agent.supportsTranscript {
-                    QuietEmptyState(title: "Full transcript unavailable", message: "This source provides a session list and titles only.", systemName: "text.book.closed")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    VStack(spacing: 0) {
-                        if !history.isDemo {
-                            HistorySummaryView(history: history, session: session)
-                            Divider()
-                        }
-                        HistoryMessageReader(session: session, targetMessage: targetMessage)
-                    }
-                }
-            }
-            .frame(minWidth: 340, maxWidth: .infinity, maxHeight: .infinity)
-            .id(session.id)
+            SessionReaderPane(subject: ReaderSubject(origin: .history,
+                                                     live: HistorySessionSupport.liveSession(for: metadata, in: model.sessions),
+                                                     record: metadata),
+                              targetMessage: targetMessage, model: model, history: history, reader: reader)
         } else {
             QuietEmptyState(title: "Select a conversation", message: "Pick a conversation on the left to read it.",
                             systemName: "text.book.closed")
@@ -398,32 +389,5 @@ struct HistoryWorkbenchView: View {
         }
     }
 
-    private func readingSession(_ metadata: SessionHistorySession) -> SessionHistorySession {
-        var value = metadata
-        if let loaded = history.transcript, loaded.id == metadata.id, loaded.sourcePath == metadata.sourcePath {
-            value.messages = loaded.messages
-            value.isAvailable = metadata.isAvailable && loaded.isAvailable
-        }
-        return value
-    }
-
     private func clearSelection() { selection = nil; targetMessage = nil }
-
-    private func export(_ session: SessionHistorySession) {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [UTType(filenameExtension: "md") ?? .plainText]
-        panel.nameFieldStringValue = "\(session.agent.rawValue)-\(session.nativeSessionID).md"
-        panel.canCreateDirectories = true
-        if let root = E2ERunConfiguration.current?.root { panel.directoryURL = root }
-        let completion: (NSApplication.ModalResponse) -> Void = { response in
-            guard response == .OK, let url = panel.url else { return }
-            do { try SessionHistoryExport.markdown(session: session).write(to: url, atomically: true, encoding: .utf8) }
-            catch { exportError = error.localizedDescription }
-        }
-        if let window = NSApp.keyWindow {
-            panel.beginSheetModal(for: window, completionHandler: completion)
-        } else {
-            panel.begin(completionHandler: completion)
-        }
-    }
 }

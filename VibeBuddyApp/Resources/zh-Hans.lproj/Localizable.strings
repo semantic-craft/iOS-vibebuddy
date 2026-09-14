@@ -394,35 +394,43 @@
 
 /* MARK: Usage page (account quota and token spend) */
 "Usage" = "用量";
-"Pair with your Mac to see usage." = "与 Mac 配对后查看用量。";
 "Mac unreachable · saved readings only" = "连不上 Mac · 仅显示已保存读数";
-"Account quota is what each account has left. Token spend below is estimated from local Claude Code and Codex logs on the Mac — not an invoice." = "账号配额是每个账号剩余的额度。下方的 Token 花费根据 Mac 上的本地 Claude Code 与 Codex 日志估算——不是账单。";
-"%@ quota" = "%@ 配额";
 "Quota unavailable" = "配额不可用";
-"Updated: %@" = "更新于：%@";
 "Not provided by this Mac" = "此 Mac 未提供";
-"Token spend · %@" = "Token 花费 · %@";
 "No spend in this window" = "此窗口无花费";
-"Estimated cost" = "预估费用";
 "Tokens" = "Token 数";
-"Billed / cache" = "计费／缓存";
-"Sessions" = "会话数";
-"By agent" = "按 Agent";
-"By model" = "按模型";
-"By project" = "按项目";
-"Token spend updated %@" = "Token 花费更新于 %@";
-"Token consumption" = "Token 消耗";
-"Not provided by this Mac yet" = "此 Mac 尚未提供";
 "%lld%% left" = "剩余 %lld%%";
 "Remaining unknown" = "剩余未知";
 "Reset reached · awaiting update" = "已到重置时间 · 等待更新";
-"Reading unavailable" = "读数不可用";
-"Stale · cached reading" = "已过期 · 缓存读数";
 "Recent Mac reading" = "Mac 最近读数";
 "Cached · Mac unreachable" = "缓存 · 连不上 Mac";
 "Reset time unknown" = "重置时间未知";
-"Updated %@" = "更新于 %@";
-"Update time unknown" = "更新时间未知";
+/* Usage page (ios-usage-widgets) */
+"Pair with your Mac to see usage" = "与 Mac 配对后查看用量";
+"Account quota and token spend are read on the Mac and relayed here." = "账号配额和 Token 花费在 Mac 上读取，再转发到这里。";
+"Scan pairing code" = "扫描配对码";
+"Mac unreachable · saved readings from %@" = "连不上 Mac · 已保存读数来自%@";
+"%lld min ago" = "%lld 分钟前";
+"%lld h ago" = "%lld 小时前";
+"%@ · tightest: %@" = "%1$@ · 最紧：%2$@";
+"scoped · " = "细分 · ";
+"%lld-day window" = "%lld 天窗口";
+"%lld-hour window" = "%lld 小时窗口";
+"%lld-minute window" = "%lld 分钟窗口";
+"Window duration unknown" = "窗口时长未知";
+"%lld-day" = "%lld 天";
+"%lld-hour" = "%lld 小时";
+"%lld-minute" = "%lld 分钟";
+"Resets %@" = "%@重置";
+"on pace" = "节奏正常";
+"faster than pace" = "快于节奏";
+"slower than pace" = "慢于节奏";
+"Credits" = "点数";
+"Token spend · from local logs" = "Token 花费 · 来自本地日志";
+"Today" = "今天";
+"Last 7 days" = "最近 7 天";
+"%lld sessions" = "%lld 个会话";
+"%@ · list price, not an invoice." = "%@ · 按标价估算，不是账单。";
 
 /* MARK: Completion reads and jump results */
 "Couldn't save read status — reopen this result to retry" = "无法保存已读状态——重新打开此结果以重试";

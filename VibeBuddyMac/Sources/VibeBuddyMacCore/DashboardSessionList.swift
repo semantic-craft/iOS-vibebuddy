@@ -48,6 +48,10 @@ public struct DashboardSessionList: Sendable {
     }
 
     public let projects: [Project]
+    /// Agents present in the whole snapshot, in stable order, for the list
+    /// head's agent menu. Computed before any filter so a chosen agent whose
+    /// last session just left stays listed until the person changes it.
+    public let agents: [AgentKind]
     public let visible: [AgentSession]
     public let selected: AgentSession?
     public let total: Int
@@ -57,8 +61,11 @@ public struct DashboardSessionList: Sendable {
     public let olderCount: Int
 
     public init(_ sessions: [AgentSession], project: ProjectScope = .all,
-                status: StatusFilter? = nil, query: String = "", selection: String? = nil,
+                status: StatusFilter? = nil, agent: AgentKind? = nil, query: String = "", selection: String? = nil,
                 showOlder: Bool = false, recentDirectories: [String] = [], now: Date = Date()) {
+        var present = SessionFilter.presentAgents(sessions)
+        if let agent, !present.contains(agent) { present.append(agent) }
+        agents = present
         let current = SessionCurrency.current(sessions, now: now)
         summary = TaskPresentationSummary(sessions: current)
         total = current.count
@@ -95,7 +102,7 @@ public struct DashboardSessionList: Sendable {
             let matchesQuery = search.isEmpty || [session.displayTitle, session.project, session.checkoutPath ?? "", session.branch ?? "", session.summary ?? ""]
                 .contains { $0.localizedStandardContains(search) }
             return matchesQuery && (project == .all || ProjectScope.of(session) == project)
-                && (status?.matches(session) ?? true)
+                && (status?.matches(session) ?? true) && (agent == nil || session.agent == agent)
         }
         pending = PendingTasks.ordered(candidates)
         let pendingIDs = Set(pending.map(\.id))

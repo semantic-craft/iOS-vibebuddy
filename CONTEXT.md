@@ -456,9 +456,15 @@ code, and tests — don't drift to synonyms.
   session state. A **scoped window** (Claude model-week, Codex Spark) is a
   subdivision of the same allowance, not a pool of its own: it rides
   `scopedWindows`, shows only in the Mac Account usage list and the iPhone
-  Usage sheet, and is deliberately absent from `otherWindows` — the slot the
+  Usage page, and is deliberately absent from `otherWindows` — the slot the
   Watch strip and the widgets fall back to — and from threshold alerts, which
   stay on the weekly and short windows (one cue per event, ADR-0012).
+  The iPhone Usage page and its home- and lock-screen quota widgets consume the
+  same `ProviderQuota`: the page reads the live dashboard and keeps the Kit's
+  15-minute stale rule; the widgets read a `PhoneQuotaSnapshot` the app writes
+  to the App Group, print the reading's age, and fade only when the phone last
+  saw the Mac unreachable or the reading is over an hour old. A widget tap is
+  `vibebuddy://quota/<provider|all>`.
   Distinct from **Token consumption** (local spend ledger) and from billed invoices.
 - **Token consumption** — local, read-only aggregation of tokens spent in Claude
   Code transcripts and Codex CLI/Desktop rollouts (input, output, cache-read,
@@ -540,6 +546,19 @@ Notification suppression requires a positively identified task view (currently t
 - **History reference** — `vibebuddy://session/<key>#<seq>`, pointing to a one-based
   transcript record in the reported source revision. It is not a permanent
   reference across source changes; hidden Thinking records retain their sequence.
+- **Session reader** — the dashboard's right column (`SessionReaderPane`,
+  ADR-0024): a two-line head with the session's controls top-right, one row of
+  jumps, the conversation body (`SessionReaderView`, newest page first, tools
+  and thinking folded), and a dock for the pending decision or the composer.
+  One pane serves a live session and a history record; what differs is which
+  controls the subject supports. Reading confirms nothing: only the result card
+  at the end of the body (the daemon's `completionBody`) can mark a round read.
+- **Reader source** — where the reader's body comes from
+  (`SessionReaderSource`): the agent's own local transcript by exact key
+  (`<key name>:<native id>`, through `readTranscript(key:)`), else the daemon's
+  bounded *recent output* labelled as an excerpt. A record is never matched by
+  title. The open transcript's file is watched; live state comes only from the
+  snapshot and is shown as *No live status* when absent.
 - **Live status (tool)** — a read-only observation of current sessions grouped
   by checkout, excluding the caller's known identity. It is a collaboration hint,
   not a lock; an unreachable daemon means unknown, not idle.

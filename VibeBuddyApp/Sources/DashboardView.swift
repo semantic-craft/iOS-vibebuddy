@@ -18,6 +18,12 @@ struct DashboardView: View {
     @State private var showScanner = false
     @State private var showSettings = false
     @State private var showQuota = false
+    /// What the dashboard has already started, so a return from the pushed
+    /// Usage page does not reconnect or restart the demo.
+    @State private var startedPairing: PairingPayload?
+    @State private var launched = false
+    /// Where the Usage page should land: the provider a quota widget named.
+    @State private var usageFocus: UsageRequest?
     /// The New task sheet is presented by item, not by a flag: a sheet
     /// presented by `isPresented` keeps its content's `@State` across
     /// presentations, so a draft typed into the composer arrived at an
@@ -226,9 +232,12 @@ struct DashboardView: View {
                 .environmentObject(connection)
                 .environmentObject(dashboard)
         }
-        .sheet(isPresented: $showQuota) {
-            AccountQuotaView().environmentObject(dashboard).environmentObject(connection)
+        .navigationDestination(isPresented: $showQuota) {
+            UsagePageView(focus: usageFocus)
         }
+        .onChange(of: dashboard.usageRequest) { _, request in openUsage(request) }
+        // A widget tap on a cold launch lands before this view exists.
+        .onAppear { openUsage(dashboard.usageRequest) }
         .sheet(item: $newTaskRequest) { request in
             NewTaskSheet(dashboard: dashboard, macName: connection.pairing?.macName, initialPrompt: request.draft)
         }
@@ -285,12 +294,35 @@ struct DashboardView: View {
             }
         }
         .animation(.smooth, value: dashboard.toast)
+        // The Usage page is pushed onto this stack, so coming back re-runs
+        // these tasks and a push fires `onDisappear`. Neither is a new
+        // pairing or a teardown: the connection and the demo stay as they are.
         .task(id: connection.pairing) {
-            if let pairing = connection.pairing { dashboard.start(pairing) }
+            guard let pairing = connection.pairing, startedPairing != pairing else { return }
+            startedPairing = pairing
+            dashboard.start(pairing)
         }
-        .task { if connection.demo { dashboard.startDemo() } }
         .task {
-            // `VIBEBUDDY_DEMO_PAGE=customize|usage|newtask|task/<title>` opens
+            guard !launched else { return }
+            launched = true
+            if connection.demo { dashboard.startDemo() }
+            await openDemoPage()
+        }
+        .onDisappear { if !showQuota { dashboard.stop() } }
+        }
+    }
+
+    /// A quota link pushes the Usage page (or moves the open one) to the
+    /// provider it names; the request is spent once it is handled.
+    private func openUsage(_ request: UsageRequest?) {
+        guard let request else { return }
+        usageFocus = request
+        showQuota = true
+        dashboard.usageRequest = nil
+    }
+
+    private func openDemoPage() async {
+            // `VIBEBUDDY_DEMO_PAGE=customize|usage|newtask|link/<url>|task/<title>` opens
             // that sheet once the demo has seeded, for screenshots and QA —
             // the Mac (`dashboard/<library>`) and the Watch (`WATCH_PAGE`)
             // carry the same switch.
@@ -305,6 +337,13 @@ struct DashboardView: View {
             case "read": readPending()
             case "voice": readPending(); showVoicePage = true
             default:
+                // `link/vibebuddy://quota/claude`: the deep link a widget tap
+                // delivers, without the system's "Open in…" prompt `simctl
+                // openurl` raises.
+                if page.hasPrefix("link/"), let url = URL(string: String(page.dropFirst("link/".count))) {
+                    dashboard.open(url)
+                    return
+                }
                 if page.hasPrefix("bucket/"), let bucket = InboxBucket(rawValue: String(page.dropFirst("bucket/".count))) {
                     open(bucket: bucket)
                     return
@@ -319,9 +358,6 @@ struct DashboardView: View {
                     $0.id == needle || $0.displayTitle.localizedCaseInsensitiveContains(needle)
                 }?.id
             }
-        }
-        .onDisappear { dashboard.stop() }
-        }
     }
 
     /// Speak the pending queue of the page in view: the whole snapshot from
