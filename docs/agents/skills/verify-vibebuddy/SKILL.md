@@ -9,7 +9,7 @@ VibeBuddy is a personal-use **Mac, iPhone, and Apple Watch** companion for Claud
 
 This skill drives an **isolated** `vibebuddyd` (the repo's documented headless path) and, on a Mac with simulators, the iPhone Demo. It does **not** replace `/Applications`, bind **:9876**, or write the login `~/Library/Application Support/vibebuddy/` token.
 
-Read `features/README.md` before a run. Drive the mapped feature file, not a convenient substitute.
+`features/README.md` maps each feature to its recipe; drive the mapped feature file, not a convenient substitute.
 
 Helper (executable; invoke only via these paths):
 
