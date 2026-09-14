@@ -162,8 +162,15 @@ struct LocalNotifier: AttentionNotifier {
             content.targetContentIdentifier = sessionID
             content.userInfo = NotificationUserInfoKey.make(sessionId: sessionID, approvalId: approvalId)
         }
-        try await UNUserNotificationCenter.current()
-            .add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
+        let center = UNUserNotificationCenter.current()
+        // Simulator QA (`VIBEBUDDY_SKIP_NOTIFICATIONS=1`) must not raise the
+        // permission prompt, and on a fresh install adding a request raises it
+        // just as asking would. Once permission is settled, cues post as usual.
+        if ProcessInfo.processInfo.environment["VIBEBUDDY_SKIP_NOTIFICATIONS"] == "1",
+           await center.notificationSettings().authorizationStatus == .notDetermined {
+            throw CancellationError()
+        }
+        try await center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
     }
 
     /// Sound on by default. Mute = sound off.
