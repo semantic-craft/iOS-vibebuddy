@@ -17,8 +17,10 @@ struct MacRecapConfirmationTests {
         #expect(started)
         let attempt = try #require(state.attemptID)
         let request = try #require(state.batch?.completions.first)
-        state.receiveHorizon(.accepted, attemptID: attempt)
+        #expect(state.pendingHorizonRequest == nil)
         state.receiveCompletion(.unavailable, request: request, attemptID: attempt)
+        #expect(state.pendingHorizonRequest != nil)
+        state.receiveHorizon(.accepted, attemptID: attempt)
         state.finish(attemptID: attempt)
         #expect(state.isComplete)
         #expect(state.skippedCount == 1)
@@ -44,8 +46,8 @@ struct MacRecapConfirmationTests {
         #expect(batch.completions.map(\.completionID) == ["a"])
         let duplicateBegin = state.begin(recap: displayed, sourceID: "mac", available: true)
         #expect(!duplicateBegin)
-        state.receiveHorizon(.accepted, attemptID: attempt)
         state.receiveCompletion(.failed, request: batch.completions[0], attemptID: attempt)
+        #expect(state.pendingHorizonRequest == nil)
         state.finish(attemptID: attempt)
         let newer = Recap(entries: [entry("b", at: now.addingTimeInterval(2))])
         let expandedBegin = state.begin(recap: newer, sourceID: "mac", available: true)
@@ -65,7 +67,7 @@ struct MacRecapConfirmationTests {
         #expect(state.pendingCompletions == batch.completions)
     }
 
-    @Test("Horizon success with a durable read failure keeps the exact retry after the recap empties; a new round is untouched")
+    @Test("Another device's horizon update cannot discard a failed read; retry leaves the new round untouched")
     func partialFailureAndNewRound() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -84,8 +86,10 @@ struct MacRecapConfirmationTests {
         let attempt = try #require(state.attemptID)
         let batch = try #require(state.batch)
         let request = try #require(batch.completions.first)
+        // A different device confirms the shared horizon while our fixed
+        // batch is still running. It is not an acknowledgement of our reads.
         let horizonOutcome = await store.advanceRecapHorizon(RecapReadRequest(sourceID: batch.sourceID, horizon: batch.horizon))
-        state.receiveHorizon(horizonOutcome, attemptID: attempt)
+        #expect(horizonOutcome == .accepted)
         try FileManager.default.removeItem(at: journal)
         try FileManager.default.createDirectory(at: journal, withIntermediateDirectories: true)
         let readOutcome = await store.acknowledgeCompletion(request).outcome
@@ -108,6 +112,8 @@ struct MacRecapConfirmationTests {
         let stale = await store.acknowledgeCompletion(request).outcome
         #expect(stale == .staleCompletion)
         state.receiveCompletion(stale, request: request, attemptID: retry)
+        let retriedHorizon = try #require(state.pendingHorizonRequest)
+        state.receiveHorizon(await store.advanceRecapHorizon(retriedHorizon), attemptID: retry)
         state.finish(attemptID: retry)
         #expect(state.isComplete)
         #expect(state.skippedCount == 1)
@@ -119,6 +125,58 @@ struct MacRecapConfirmationTests {
         #expect(fresh.recap?.entries.first?.completionID != request.completionID)
     }
 
+    @Test("A failed read withholds the horizon; retry covers only its original remainder before moving the horizon")
+    func readFailureWithholdsHorizon() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let journal = root.appendingPathComponent("journal.json")
+        let now = Date()
+        let store = SessionStore(sourceID: "mac", journalURL: journal, now: now)
+        for (index, sessionID) in ["a", "b"].enumerated() {
+            await store.ingest(HookEvent(kind: .userPromptSubmit, sessionID: sessionID, timestamp: now))
+            await store.ingest(HookEvent(kind: .stop, sessionID: sessionID, timestamp: now.addingTimeInterval(Double(index + 1))))
+        }
+        let recap = try #require(await store.snapshot(now: now.addingTimeInterval(3)).recap)
+        var state = MacRecapConfirmation()
+        let started = state.begin(recap: recap, sourceID: "mac", available: true)
+        #expect(started)
+        let attempt = try #require(state.attemptID)
+        let batch = try #require(state.batch)
+        let read = batch.completions[0]
+        let failed = batch.completions[1]
+        state.receiveCompletion(await store.acknowledgeCompletion(read).outcome, request: read, attemptID: attempt)
+        try FileManager.default.removeItem(at: journal)
+        try FileManager.default.createDirectory(at: journal, withIntermediateDirectories: true)
+        state.receiveCompletion(await store.acknowledgeCompletion(failed).outcome, request: failed, attemptID: attempt)
+        #expect(state.outcomes[failed] == .failed)
+        #expect(state.pendingCompletions == [failed])
+        #expect(state.pendingHorizonRequest == nil)
+        let partial = await store.snapshot(now: now.addingTimeInterval(3))
+        #expect(partial.recap?.horizon == nil)
+        #expect(partial.recap?.entries.count == 2)
+        state.finish(attemptID: attempt)
+
+        try FileManager.default.removeItem(at: journal)
+        await store.ingest(HookEvent(kind: .userPromptSubmit, sessionID: failed.sessionID, timestamp: now.addingTimeInterval(4)))
+        await store.ingest(HookEvent(kind: .stop, sessionID: failed.sessionID, timestamp: now.addingTimeInterval(5)))
+        let retried = state.retry(sourceID: "mac", available: true)
+        #expect(retried)
+        #expect(state.pendingCompletions == [failed])
+        let retry = try #require(state.attemptID)
+        state.receiveCompletion(await store.acknowledgeCompletion(failed).outcome, request: failed, attemptID: retry)
+        #expect(state.outcomes[failed] == .staleCompletion)
+        let horizon = try #require(state.pendingHorizonRequest)
+        #expect(horizon.horizon == batch.horizon)
+        state.receiveHorizon(await store.advanceRecapHorizon(horizon), attemptID: retry)
+        state.finish(attemptID: retry)
+        #expect(state.isComplete)
+        let after = await store.snapshot(now: now.addingTimeInterval(6))
+        #expect(after.recap?.entries.count == 1)
+        #expect(after.recap?.entries.first?.sessionID == failed.sessionID)
+        #expect(after.recap?.entries.first?.completionID != failed.completionID)
+        #expect(after.sessions.first { $0.id == failed.sessionID }?.hasUnreadCompletion == true)
+    }
+
     @Test("Accepted reads do not conceal a failed horizon and are not repeated on retry")
     func independentEffects() throws {
         var state = MacRecapConfirmation()
@@ -127,8 +185,9 @@ struct MacRecapConfirmationTests {
         #expect(independentBegin)
         let attempt = try #require(state.attemptID)
         let request = try #require(state.pendingCompletions.first)
-        state.receiveHorizon(.failed, attemptID: attempt)
         state.receiveCompletion(.alreadyAcknowledged, request: request, attemptID: attempt)
+        #expect(state.pendingHorizonRequest != nil)
+        state.receiveHorizon(.failed, attemptID: attempt)
         state.finish(attemptID: attempt)
         #expect(state.canRetry)
         #expect(state.pendingCompletions.isEmpty)

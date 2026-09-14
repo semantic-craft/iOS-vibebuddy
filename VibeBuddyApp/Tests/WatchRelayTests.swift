@@ -300,7 +300,7 @@ final class WatchRelayTests: XCTestCase {
         return (store, request)
     }
 
-    func testMarkAllMovesTheHorizonThenReadsEachRoundOnce() async throws {
+    func testMarkAllReadsEachRoundOnceThenMovesTheHorizon() async throws {
         let transport = FakeWatchTransport()
         let mac = RecapMac()
         let (store, request) = try await recapStore(mac, transport: transport)
@@ -309,9 +309,11 @@ final class WatchRelayTests: XCTestCase {
         let result = await transport.markAll(request)
         XCTAssertEqual(result.attemptID, "mark-1")
         XCTAssertEqual(result.outcome, .accepted)
+        // Reads before the horizon: the horizon is what retires the Watch's
+        // queued request, so it must be the last thing that can still fail.
         let calls = await mac.calls
-        XCTAssertEqual(calls, ["recap-read@\(now.addingTimeInterval(-60).timeIntervalSince1970)",
-                               "acknowledge:a/ca", "acknowledge:b/cb"])
+        XCTAssertEqual(calls, ["acknowledge:a/ca", "acknowledge:b/cb",
+                               "recap-read@\(now.addingTimeInterval(-60).timeIntervalSince1970)"])
         await store.stop().value
     }
 
@@ -333,17 +335,19 @@ final class WatchRelayTests: XCTestCase {
         let first = await transport.markAll(request)
         XCTAssertEqual(first.outcome, .failed)
         let calls = await mac.calls
-        XCTAssertEqual(calls.count, 2)                       // horizon, then the first read failed: stop there
+        XCTAssertEqual(calls, ["acknowledge:a/ca"])          // the first read failed: stop there, horizon untouched
         await store.stop().value
 
-        // A horizon the Mac could not be reached for: failed, and no reads are attempted.
+        // A horizon the Mac could not be reached for: the reads landed, the
+        // request stays queued, and the retry repeats them harmlessly.
         let offline = RecapMac(horizon: .failed)
         let transport2 = FakeWatchTransport()
         let (store2, request2) = try await recapStore(offline, transport: transport2)
         let second = await transport2.markAll(request2)
         XCTAssertEqual(second.outcome, .failed)
         let offlineCalls = await offline.calls
-        XCTAssertEqual(offlineCalls.count, 1)
+        XCTAssertEqual(offlineCalls.count, 3)
+        XCTAssertTrue(offlineCalls.last?.hasPrefix("recap-read@") == true)
         await store2.stop().value
     }
 

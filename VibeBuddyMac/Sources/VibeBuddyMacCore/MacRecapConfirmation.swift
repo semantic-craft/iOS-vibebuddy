@@ -28,6 +28,14 @@ public struct MacRecapConfirmation: Sendable {
             }
         } ?? []
     }
+    /// The shared horizon retires the wrist's pending confirmation, so this
+    /// Mac must not advance it while any exact-round write still needs retry.
+    public var pendingHorizonRequest: RecapReadRequest? {
+        guard let batch, isRunning, !sourceChanged, !horizonAccepted,
+              pendingCompletions.isEmpty else { return nil }
+        return RecapReadRequest(sourceID: batch.sourceID, horizon: batch.horizon)
+    }
+
     public var isComplete: Bool { batch != nil && horizonAccepted && pendingCompletions.isEmpty && !sourceChanged }
     public var canRetry: Bool { batch != nil && !isRunning && !isComplete && !sourceChanged }
     public var skippedCount: Int { outcomes.values.filter { $0 == .staleCompletion || $0 == .unavailable }.count }

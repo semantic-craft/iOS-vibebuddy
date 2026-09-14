@@ -637,19 +637,21 @@ final class MenuBarModel: ObservableObject {
             }
             guard current() else { return }
             // Capture the retry remainder once; incoming recap entries never
-            // expand this intent, even if the horizon update empties the list.
+            // expand this intent, even if another device empties the recap.
             let pending = self.recapConfirmation.pendingCompletions
-            if !self.recapConfirmation.horizonAccepted {
-                let outcome = await self.store.advanceRecapHorizon(
-                    RecapReadRequest(sourceID: batch.sourceID, horizon: batch.horizon))
-                guard current() else { return }
-                self.recapConfirmation.receiveHorizon(outcome, attemptID: attemptID)
-            }
             for request in pending {
                 guard current() else { return }
                 let response = await self.store.acknowledgeCompletion(request)
                 guard current() else { return }
                 self.recapConfirmation.receiveCompletion(response.outcome, request: request, attemptID: attemptID)
+            }
+            guard current() else { return }
+            // Read first. A failed write keeps the horizon untouched and this
+            // exact batch retryable; missing/stale rounds are explicitly skipped.
+            if let request = self.recapConfirmation.pendingHorizonRequest {
+                let outcome = await self.store.advanceRecapHorizon(request)
+                guard current() else { return }
+                self.recapConfirmation.receiveHorizon(outcome, attemptID: attemptID)
             }
             // Receipts only describe the operation. The polling snapshot owns
             // the recap list, unread badges, and cross-device state.

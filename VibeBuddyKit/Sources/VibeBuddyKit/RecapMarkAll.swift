@@ -2,10 +2,11 @@ import Foundation
 
 // MARK: - Mark all: the recap's one action, from the wrist to the Mac
 
-/// What the Watch asks the iPhone to do when Mark all is tapped: move the
-/// Mac's recap horizon to the newest round the recap showed, then read each
-/// completed round it showed, one exact-round acknowledgement at a time. The
-/// wrist names the rounds; it never decides they are read.
+/// What the Watch asks the iPhone to do when Mark all is tapped: read each
+/// completed round the recap showed, one exact-round acknowledgement at a
+/// time, then move the Mac's recap horizon to the newest round it showed. The
+/// wrist names the rounds; it never decides they are read. A round the user
+/// put back to unread reads as unread here, so Mark all covers it again.
 public struct WatchRecapReadRequest: Codable, Equatable, Sendable {
     public static let messageKey = "vibebuddy.watch.recapRead"
     public let attemptID: String

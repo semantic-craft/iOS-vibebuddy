@@ -195,11 +195,14 @@ lands as an amendment rather than a new decision record.
   (ticket 05 of the effort). Viewing stays viewing (decision 4): opening,
   turning and leaving the recap send nothing.
 - **Mark all is explicit confirmation in bulk.** The end page's one action
-  moves the Mac's horizon to the newest round the recap showed (`POST
-  /recap-read`, forward only, idempotent) and reads each completed round it
-  showed through the existing exact-round `/acknowledge`, so the phone's and
+  reads each completed round the recap showed through the existing
+  exact-round `/acknowledge`, then moves the Mac's horizon to the newest round
+  it showed (`POST /recap-read`, forward only, idempotent), so the phone's and
   Mac's badges and the followed completion reminders (decision 5) stop
-  together. It is queued and persisted on the Watch (`WatchRecapQueue`, the
+  together. The reads go first because a snapshot whose horizon has moved is
+  what retires the queued request: a read that failed after the horizon would
+  never be retried. A round the user had put back to unread counts as unread
+  here. It is queued and persisted on the Watch (`WatchRecapQueue`, the
   same rules as the exact-round read: offline retry, a definitive receipt
   stops retries, only an authority snapshot whose horizon has reached the
   request changes what is shown), plays one local `.success` tap, and has no
@@ -232,17 +235,20 @@ capability, cached data and an empty authoritative recap have distinct copy.
 Opening, selecting and scrolling do not acknowledge or move the horizon.
 
 Confirm this recap is an explicit, source-bound operation over the displayed
-batch: its maximum endedAt advances the horizon, and its completed unread
-identities use exact-round acknowledgement. These are separate writes, never
+batch: its completed unread identities use exact-round acknowledgement first;
+once each is accepted or definitively skipped, its maximum endedAt advances
+the horizon. A failed read leaves the horizon untouched. These are separate writes, never
 review or acceptance. Failed rounds get no read write and remain Needs you.
 A new round cannot join an existing operation. Recoverable partial failures
 retain their original identities in the Mac model across navigation, even
-after the horizon empties the reader; retries do not expand the batch. The
+if another device's horizon update empties the reader; retries do not expand the batch. The
 same-process store's definitive stale/unavailable results are retained as skipped,
 never claimed read, while failed writes remain retryable. The Mac
 does not create a persistent offline queue or use the Watch pairing protocol.
 Only authoritative snapshots change counts. A configured ledger persistence
 failure must return failed without advancing the in-memory horizon.
 
-The existing isRead projection is not a permanent per-round reading archive;
-this amendment does not extend old-round storage semantics.
+Each entry retains the upstream ledger's last observed read mark after its
+round stops being current; Mark Unread on the current round restores its unread
+mark. This remains bounded recap storage, not a permanent reading archive or
+an API for independently changing an old round's read state.
