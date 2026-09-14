@@ -47,6 +47,23 @@ struct DashboardSessionListTests {
         #expect(DashboardSessionList(input, agent: .cursor).agents == [.claudeCode, .codex, .cursor])
     }
 
+    @Test func agentScopeKeepsGlobalCountsAndAnAlreadyOpenedResult() {
+        var claude = session("claude-result", "Alpha", .done)
+        claude.agent = .claudeCode
+        let codex = session("codex-result", "Alpha", .done)
+        let list = DashboardSessionList([claude, codex], status: .done, agent: .claudeCode,
+                                        selection: codex.id, now: Date(timeIntervalSince1970: 100))
+        #expect(list.pending.map(\.id) == [claude.id])
+        #expect(list.summary.completeUnread == 2)
+        #expect(list.globalPending.count == 2)
+        #expect(list.selected?.id == codex.id)
+        claude.hasUnreadCompletion = false
+        let read = DashboardSessionList([claude, codex], status: .done, agent: .claudeCode,
+                                        selection: claude.id, now: Date(timeIntervalSince1970: 100))
+        #expect(read.visible.isEmpty && read.pending.isEmpty)
+        #expect(read.selected?.hasUnreadCompletion == false)
+    }
+
     @Test func hiddenSelectionRetainsLiveDetailWithoutSelectingAnother() {
         let first = session("selected", "Alpha", .done)
         let other = session("other", "Beta", .needsResponse)

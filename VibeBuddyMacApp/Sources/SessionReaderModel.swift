@@ -87,7 +87,7 @@ final class SessionReaderModel: ObservableObject {
 
         if subject.origin == .history, let record = subject.record {
             await history.read(record.id)
-            guard generation == self.generation else { return }
+            guard generation == self.generation, !Task.isCancelled else { return }
             if let readingError = history.readingError { error = readingError; return }
             guard let loaded = history.transcript, loaded.id == record.id else { return }
             if !record.agent.supportsTranscript {
@@ -107,7 +107,7 @@ final class SessionReaderModel: ObservableObject {
         if let key = subject.transcriptKey, !history.isDemo {
             do {
                 let transcript = try await history.readTranscript(key: key)
-                guard generation == self.generation else { return }
+                guard generation == self.generation, !Task.isCancelled else { return }
                 let projected = await Self.project(transcript.session.messages, revealing: target)
                 guard generation == self.generation, !Task.isCancelled else { return }
                 rows = projected
@@ -116,7 +116,7 @@ final class SessionReaderModel: ObservableObject {
                 watch(path: transcript.session.sourcePath)
                 return
             } catch {
-                guard generation == self.generation else { return }
+                guard generation == self.generation, !Task.isCancelled else { return }
                 // No transcript for this id yet (or none readable): the excerpt below is the honest fallback.
             }
         }
@@ -126,7 +126,7 @@ final class SessionReaderModel: ObservableObject {
             return
         }
         let output = await model.recentOutput(for: live.id)
-        guard generation == self.generation else { return }
+        guard generation == self.generation, !Task.isCancelled else { return }
         rows = output.entries.enumerated().map { index, entry in
             HistoryMessageRow.standalone(id: "recent-\(index)", role: entry.role == "assistant" ? .assistant : .user, text: entry.text)
         }
@@ -136,7 +136,11 @@ final class SessionReaderModel: ObservableObject {
     /// Re-read the open subject in place (the file changed, or the person asked).
     func refresh() {
         guard let current else { return }
-        Task { await load(current, target: target) }
+        let generation = generation
+        Task {
+            guard generation == self.generation else { return }
+            await load(current, target: target)
+        }
     }
 
     private func watch(path: String) {
