@@ -86,6 +86,17 @@ final class ContinueWithTests: XCTestCase {
     }
 
     @MainActor
+    func testLongRunningStoreForgetsExpiredDirectoriesWithoutRestart() async {
+        let old = Date().addingTimeInterval(-8 * 86_400)
+        let store = SessionStore(now: old)
+        await store.ingest(HookEvent(kind: .sessionStart, sessionID: "expired", agent: .codex, cwd: "/expired", timestamp: old))
+        let snapshot = await store.snapshot(now: Date())
+        XCTAssertNil(snapshot.recentDirectories)
+        let known = await store.isKnownDirectory("/expired")
+        XCTAssertFalse(known)
+    }
+
+    @MainActor
     func testARestoredSessionWithoutAnObservedCheckoutStaysUnknown() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cont-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

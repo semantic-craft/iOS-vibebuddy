@@ -155,6 +155,9 @@ struct NewTaskSheet: View {
         .frame(width: 520)
         .background(MacTheme.bg)
         .onExitCommand { dismiss() }
+        .onChange(of: directory) { _, selected in
+            prompt = ContinueWith.promptForDispatch(prompt, handoffPath: prefill?.continuing?.handoffPath, checkout: selected)
+        }
         .onAppear {
             if let prefill {
                 agent = prefill.agent
@@ -212,7 +215,8 @@ struct NewTaskSheet: View {
     private func start() {
         busy = true
         let request = DispatchRequest(agent: agent, cwd: directory,
-                                      prompt: prompt.trimmingCharacters(in: .whitespacesAndNewlines),
+                                      prompt: ContinueWith.promptForDispatch(prompt.trimmingCharacters(in: .whitespacesAndNewlines),
+                                                                             handoffPath: prefill?.continuing?.handoffPath, checkout: directory),
                                       name: name.isEmpty ? nil : name,
                                       worktree: agent == .cursor && freshWorktree ? true : nil,
                                       continuation: prefill?.continuing.map { DispatchContinuation(sourceKey: $0.sourceKey, handoffPath: $0.handoffPath) })

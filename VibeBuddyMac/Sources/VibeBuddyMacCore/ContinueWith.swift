@@ -33,15 +33,21 @@ public enum ContinueWith {
     public static func prompt(sessionKey: String, handoffPath: String?, checkout: String? = nil) -> String {
         let reference = "vibebuddy://session/" + sessionKey
         if let handoffPath {
-            var text = "Read \(handoffPath), then continue.\nContinues: \(reference)"
-            // The fallback, not the fix (spec C): a sandbox may still refuse the
-            // handoff's directory; say what to do then instead of losing a turn.
-            if let checkout, let root = writableRoot(handoffPath: handoffPath, cwd: checkout) {
-                text += "\nThe handoff lives in \(root), outside this checkout; if your sandbox refuses to write there, report the text instead of writing."
-            }
-            return text
+            let text = "Read \(handoffPath), then continue.\nContinues: \(reference)"
+            return promptForDispatch(text, handoffPath: handoffPath, checkout: checkout)
         }
         return "Continues: \(reference)\nNo handoff document was written for it. Read it first: `vibebuddy-mcp facts '\(sessionKey)'` for what was recorded, `vibebuddy-mcp show '\(sessionKey)'` for the conversation."
+    }
+
+    /// Recompute only our generated fallback, preserving the person's prompt edits.
+    public static func promptForDispatch(_ text: String, handoffPath: String?, checkout: String?) -> String {
+        guard let handoffPath else { return text }
+        let root = URL(fileURLWithPath: handoffPath).resolvingSymlinksInPath().standardizedFileURL
+            .deletingLastPathComponent().deletingLastPathComponent().path
+        let fallback = "The handoff lives in \(root), outside this checkout; if your sandbox refuses to write there, report the text instead of writing."
+        let base = text.components(separatedBy: "\n").filter { $0 != fallback }.joined(separator: "\n")
+        guard let checkout, !checkout.isEmpty, writableRoot(handoffPath: handoffPath, cwd: checkout) != nil else { return base }
+        return base + "\n" + fallback
     }
 
     /// The effort directory a Codex receiver needs to write in: the handoff's

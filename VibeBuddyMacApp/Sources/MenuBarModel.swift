@@ -1208,6 +1208,11 @@ final class MenuBarModel: ObservableObject {
         } else if !(await store.isKnownDirectory(request.cwd)) {
             return .rejected("Pick a directory a session has already run in.")
         }
+        guard await store.acceptsContinuation(request.continuation) else {
+            return .rejected("That handoff is no longer a scanned document for the source session. Open Continue with… again.")
+        }
+        var request = request
+        request.prompt = ContinueWith.promptForDispatch(request.prompt, handoffPath: request.continuation?.handoffPath, checkout: request.cwd)
         switch request.agent {
         case .codex: return await codexAppServerMonitor.dispatch(request)
         case .claudeCode: return await claudeLauncher.dispatch(request)

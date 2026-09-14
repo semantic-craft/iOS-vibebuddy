@@ -1057,11 +1057,18 @@ public struct VibeBuddyServer: Sendable {
                 guard let sourceKey = c["sourceKey"] as? String, !sourceKey.isEmpty else {
                     return reply(.badRequest, ["error": "continuation needs a sourceKey"])
                 }
-                let handoffPath = (c["handoffPath"] as? String).flatMap { $0.hasPrefix("/") ? $0 : nil }
-                continuation = DispatchContinuation(sourceKey: sourceKey, handoffPath: handoffPath)
+                if let value = c["handoffPath"], !(value is NSNull),
+                   (value as? String)?.hasPrefix("/") != true {
+                    return reply(.badRequest, ["error": "handoffPath must be absolute"])
+                }
+                continuation = DispatchContinuation(sourceKey: sourceKey, handoffPath: c["handoffPath"] as? String)
+            }
+            guard await store.acceptsContinuation(continuation) else {
+                return reply(.badRequest, ["error": "handoff is not a current scanned document for this source session"])
             }
             // Cursor's `--model`, `--mode` and `-w`; other agents ignore them.
-            let req = DispatchRequest(agent: agent, cwd: cwd, prompt: text, name: optionalString("name"),
+            let req = DispatchRequest(agent: agent, cwd: cwd,
+                                      prompt: ContinueWith.promptForDispatch(text, handoffPath: continuation?.handoffPath, checkout: cwd), name: optionalString("name"),
                                       model: optionalString("model"), mode: optionalString("mode"),
                                       worktree: o["worktree"] as? Bool, continuation: continuation)
             let outcome: DispatchOutcome

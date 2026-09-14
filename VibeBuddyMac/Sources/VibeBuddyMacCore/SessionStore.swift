@@ -1182,7 +1182,7 @@ public actor SessionStore {
         snapshot.sourceID = sourceID
         snapshot.providerQuota = providerQuota.isEmpty ? nil : providerQuota
         snapshot.tokenConsumption = tokenConsumption
-        let directories = recentDirectories()
+        let directories = recentDirectories(now: now)
         snapshot.recentDirectories = directories.isEmpty ? nil : directories
         // Handoff documents under those checkouts (ADR-0023). The file is the
         // record; `takenBy` is what this process started from each one.
@@ -1245,9 +1245,22 @@ public actor SessionStore {
 
     /// Directories sessions have run in, newest first (bounded). A phone may
     /// only start a task in one of these.
-    public func recentDirectories() -> [String] { recentDirectoryLedger.recent }
+    public func recentDirectories(now: Date = Date()) -> [String] { recentDirectoryLedger.recent(now: now) }
 
-    public func isKnownDirectory(_ path: String) -> Bool { recentDirectoryLedger.isKnown(path) }
+    public func isKnownDirectory(_ path: String, now: Date = Date()) -> Bool { recentDirectoryLedger.isKnown(path, now: now) }
+
+    /// Only a current scanned document naming this source may accompany dispatch.
+    /// Both the HTTP and Mac entry points validate before any launcher starts.
+    public func acceptsContinuation(_ continuation: DispatchContinuation?, now: Date = Date()) -> Bool {
+        guard let continuation else { return true }
+        guard let source = try? HistorySessionReference(continuation.sourceKey), source.key == continuation.sourceKey else { return false }
+        guard let path = continuation.handoffPath else { return true }
+        guard path.hasPrefix("/") else { return false }
+        let canonical = URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
+        return handoffScanner.scan(directories: recentDirectories(now: now)).contains {
+            $0.sourceKey == source.key && URL(fileURLWithPath: $0.path).resolvingSymlinksInPath().standardizedFileURL.path == canonical
+        }
+    }
 
     private func rememberDirectory(_ cwd: String?, sessionID: String?, at date: Date) {
         recentDirectoryLedger.remember(cwd, sessionID: sessionID, at: date)

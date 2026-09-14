@@ -230,9 +230,14 @@ version got wrong; the decision changes accordingly.
   session whose checkout was never observed keeps none: a folder with the
   same name is not evidence. Continue with… therefore prefills the directory
   only from the session itself and otherwise leaves it empty for the person
-  to choose; the earlier fallback to the newest directory is removed.
+  to choose; the earlier fallback to the newest directory is removed. The
+  seven-day cutoff is also applied when paths are listed or authorized during
+  a long-running process, without requiring a restart.
 - **§4: Codex may write in the handoff's effort directory.** A
-  `DispatchRequest` may carry `continuation {sourceKey, handoffPath?}`. For a
+  `DispatchRequest` may carry `continuation {sourceKey, handoffPath?}`. Both
+  dispatch entry points require a supplied handoff path to canonically match
+  a currently scanned document naming that source session before invoking a
+  launcher; an arbitrary path with the right directory shape is insufficient. For a
   Codex dispatch whose handoff resolves (symlinks followed) to a
   `.scratch/<feature>/` outside the checkout — an agent worktree's `.scratch`
   is a link into the main checkout — the Mac takes the sandbox policy
@@ -244,7 +249,9 @@ version got wrong; the decision changes accordingly.
   contract a policy passed to `turn/start` becomes that thread's default for
   later turns, so the grant lasts for the whole continued task and no longer.
   The prompt's extra line ("if your sandbox refuses to write there, report
-  the text instead") remains a fallback, not the fix.
+  the text instead") remains a fallback, not the fix. It is recomputed from
+  the final selected checkout when the directory changes and at dispatch,
+  preserving the person's other prompt edits.
 - Consequences: `CONTEXT.md` gains **Continuation record**; Handoff record,
   Continue with… and Recent directories are updated. `vibebuddy-mcp` reads
   two more files and still writes none. Acceptance for this amendment runs

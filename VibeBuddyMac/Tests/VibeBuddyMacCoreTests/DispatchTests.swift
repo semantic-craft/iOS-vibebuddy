@@ -59,10 +59,10 @@ struct DispatchRouteTests {
             }
             // Continue with…: the continuation reaches the launcher and the lineage is recorded (ADR-0023 amendment).
             try await client.execute(uri: "/dispatch", method: .post, headers: [.authorization: "Bearer t0k"],
-                                     body: ByteBuffer(string: #"{"agent":"codex","cwd":"/x/one","prompt":"Read /m/.scratch/e/handoffs/h.md, then continue.","continuation":{"sourceKey":"claude-code:src","handoffPath":"/m/.scratch/e/handoffs/h.md"}}"#)) { res in
+                                     body: ByteBuffer(string: #"{"agent":"codex","cwd":"/x/one","prompt":"Continue from history.","continuation":{"sourceKey":"claude-code:src"}}"#)) { res in
                 #expect(res.status == .ok)
             }
-            #expect(box.requests.last?.continuation == DispatchContinuation(sourceKey: "claude-code:src", handoffPath: "/m/.scratch/e/handoffs/h.md"))
+            #expect(box.requests.last?.continuation == DispatchContinuation(sourceKey: "claude-code:src", handoffPath: nil))
             // Once the receiver reports, the snapshot says what it continues.
             await store.ingest(HookEvent(kind: .userPromptSubmit, sessionID: "thr-new", agent: .codex, cwd: "/x/one", timestamp: Date(), turnID: "t"))
             #expect(await store.snapshot(now: Date()).sessions.first { $0.id == "thr-new" }?.continuesSessionKey == "claude-code:src")
@@ -74,6 +74,37 @@ struct DispatchRouteTests {
         #expect(box.requests[2] == DispatchRequest(agent: .cursor, cwd: "/x/one", prompt: "fix it", worktree: false))
         // The snapshot tells the phone where it may start tasks.
         #expect(await store.snapshot(now: Date()).recentDirectories == ["/x/two", "/x/one"])
+    }
+
+    @Test("an unscanned handoff or mismatched source cannot reach a launcher")
+    func rejectsUnverifiedHandoff() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("dispatch-handoff-" + UUID().uuidString)
+        let directory = root.appendingPathComponent(".scratch/e/handoffs")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let path = directory.appendingPathComponent("h.md")
+        try "Source session: claude-code:source\n".write(to: path, atomically: true, encoding: .utf8)
+        let store = await store(with: [root.path])
+        final class Box: @unchecked Sendable { var requests: [DispatchRequest] = [] }
+        let box = Box()
+        let server = VibeBuddyServer(store: store, token: "t0k", port: 9876,
+                                    onDispatch: { req in box.requests.append(req); return .started(sessionID: "receiver") })
+        try await server.buildApplication().test(.router) { client in
+            for (handoff, source, accepted) in [
+                ("/unrelated/.scratch/e/handoffs/fake.md", "claude-code:source", false),
+                (path.path, "codex:wrong-source", false),
+                (path.path, "claude-code:source", true)
+            ] {
+                let body = try JSONSerialization.data(withJSONObject: ["agent": "codex", "cwd": root.path, "prompt": "Continue",
+                    "continuation": ["sourceKey": source, "handoffPath": handoff]])
+                try await client.execute(uri: "/dispatch", method: .post, headers: [.authorization: "Bearer t0k"],
+                                         body: ByteBuffer(bytes: body)) { response in
+                    #expect(response.status == (accepted ? .ok : .badRequest))
+                }
+            }
+        }
+        #expect(box.requests.count == 1)
+        #expect(box.requests.first?.continuation?.handoffPath == path.path)
     }
 
     @Test("an agent without a launcher is 501; a missing Claude CLI and a disconnected Codex daemon are 503")
@@ -311,5 +342,11 @@ struct CodexContinueDispatchTests {
         #expect(outside.contains("The handoff lives in \(h.root), outside this checkout; if your sandbox refuses to write there, report the text instead of writing."))
         let inside = ContinueWith.prompt(sessionKey: "claude-code:src", handoffPath: h.path, checkout: h.tree.path)
         #expect(!inside.contains("outside this checkout"))
+        let edited = inside + "\nPreserve this user instruction."
+        let moved = ContinueWith.promptForDispatch(edited, handoffPath: h.path, checkout: "/another/checkout")
+        #expect(moved.contains("outside this checkout"))
+        #expect(moved.contains("Preserve this user instruction."))
+        #expect(ContinueWith.promptForDispatch(moved, handoffPath: h.path, checkout: h.tree.path) == edited)
+        #expect(ContinueWith.promptForDispatch(moved, handoffPath: h.path, checkout: "/another/checkout") == moved)
     }
 }

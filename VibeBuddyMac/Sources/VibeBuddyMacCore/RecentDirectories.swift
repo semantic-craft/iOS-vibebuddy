@@ -44,13 +44,28 @@ struct RecentDirectories {
     }
 
     /// Newest first.
-    var recent: [String] { directories.sorted { $0.value > $1.value }.map(\.key) }
-    func isKnown(_ path: String) -> Bool { directories[path] != nil }
+    mutating func recent(now: Date) -> [String] {
+        prune(now: now)
+        return directories.sorted { $0.value > $1.value }.map(\.key)
+    }
+    mutating func isKnown(_ path: String, now: Date) -> Bool {
+        prune(now: now)
+        return directories[path] != nil
+    }
     func checkout(of sessionID: String) -> String? { sessions[sessionID]?.path }
+
+    private mutating func prune(now: Date) {
+        let cutoff = now.addingTimeInterval(-Self.retention)
+        let count = directories.count + sessions.count
+        directories = directories.filter { $0.value >= cutoff }
+        sessions = sessions.filter { $0.value.seenAt >= cutoff }
+        if directories.count + sessions.count != count { save(now: now) }
+    }
 
     /// One observation: a session ran in `cwd` at `date`.
     mutating func remember(_ cwd: String?, sessionID: String?, at date: Date) {
         guard let cwd, cwd.hasPrefix("/"), !cwd.isEmpty else { return }
+        prune(now: date)
         directories[cwd] = date
         while directories.count > Self.directoryLimit, let oldest = directories.min(by: { $0.value < $1.value }) {
             directories.removeValue(forKey: oldest.key)
