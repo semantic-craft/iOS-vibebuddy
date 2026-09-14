@@ -561,20 +561,38 @@ Mac presence suppresses ordinary cues only while the verdict is current; leaving
   recorded it, "Not recorded" is an answer (exit 0), not an error.
 - **Handoff record** (`HandoffRecord`) — a Handoff note the Mac found by scanning
   `.scratch/*/handoffs/*.md` under the snapshot's recent directories: its path,
-  the parsed header (source key nil for `unknown`), when it was written and which
-  sessions this Mac started from it (`takenBy`, this process only). Carried as
-  `snapshot.handoffs`; the file remains the only truth. A session row whose key a
-  record names shows **Handoff ready**.
+  the parsed header (source key nil for `unknown`), when it was written and the
+  Session keys of receivers the Mac started from it (`takenBy`, derived from the
+  Continuation records). Carried as `snapshot.handoffs`; the file remains the
+  only truth. A session row whose key a record names shows **Handoff ready**.
+- **Continuation record** — one line in the Mac's `continuations.json`
+  (owner-only, seven days from `recordedAt`): `receiverKey`, `sourceKey`,
+  `handoffPath?`, `recordedAt`, written by the dispatch layer (Mac app or
+  `POST /dispatch`) when a Continue with… task starts. A session's
+  `continuesSessionKey` and a Handoff record's `takenBy` derive from these
+  records; `facts` prints the receiver's `Continues:` line from them, before
+  the receiver's first hook. The lifecycle journal stores none of it.
+- **Recent directories** (`recentDirectories`) — the directories sessions ran
+  in, newest first; the only places a task may start. Kept in
+  `recent-directories.json` together with each session's observed checkout,
+  so both survive a restart; a journal-restored session gets its own checkout
+  back or none. A folder with the same last name is never used as a match.
 - **Continue with…** — a finished session's action on the Mac (row context menu,
   detail title bar) that prefills the New task sheet for one of `dispatchAgents`:
-  the session's checkout, `Continue: <title>`, and a first prompt of
-  `Read <handoff path>, then continue.` + `Continues: vibebuddy://session/<key>`
-  (or, with no record, the `Continues:` line and a pointer to `facts` / `show`).
-  The person reviews and presses Start; the writer's session is untouched. The
+  the session's observed checkout (empty when the Mac never observed one),
+  `Continue: <title>`, and a first prompt of `Read <handoff path>, then
+  continue.` + `Continues: vibebuddy://session/<key>` (or, with no record, the
+  `Continues:` line and a pointer to `facts` / `show`). When the handoff's
+  effort directory lies outside the checkout the prompt adds one fallback line
+  ("if your sandbox refuses to write there, report the text instead"). The
+  person reviews and presses Start; the writer's session is untouched. The
   sheet says when other sessions are working in that folder and offers another
-  folder (and Cursor's fresh worktree); it never switches on its own. The Mac
-  records the lineage at dispatch: the new session carries
-  `continuesSessionKey` and the record's `takenBy` grows, in memory only.
+  folder (and Cursor's fresh worktree); it never switches on its own. The
+  request carries a `continuation {sourceKey, handoffPath?}`; the dispatch
+  writes the Continuation record and, for a Codex thread whose own policy is
+  workspace-write, appends the handoff's `.scratch/<feature>/` to
+  `writableRoots` on `turn/start` — the thread's default for the rest of that
+  task, and nothing else widened.
 ## iPhone inbox (2026-09-13, ADR-0022)
 
 - **Inbox** — the iPhone home and Mac Dashboard default entry: the mood line, **First up**, four **buckets**,

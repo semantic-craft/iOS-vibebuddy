@@ -204,3 +204,56 @@ file list is reported to the user before work resumes. This is Matt's
   with the coverage line checked against a Cursor ACP session.
 - Out of scope: iPhone and Watch Continue, cross-machine handoffs, LLM
   summaries of facts, lineage that survives a restart, any write path.
+
+## Amended 2026-09-14: after the first acceptance
+
+Source: `.scratch/handoff-continue-hardening/spec.md` (owner decisions A, B
+and C on 2026-09-14). The first real Codex continuation
+(`.scratch/handoff-continue/acceptance/05/`) showed three things the first
+version got wrong; the decision changes accordingly.
+
+- **§5 is replaced: lineage survives a restart.** `continuations.json` beside
+  the other ledgers (owner-only, atomic, seven days from `recordedAt`) holds
+  one record per Continue with… the Mac dispatched: `receiverKey`,
+  `sourceKey`, `handoffPath?`, `recordedAt`. A session's
+  `continuesSessionKey` and a handoff record's `takenBy` (now Session keys)
+  are derived from it; `facts '<receiverKey>'` prints
+  `- Continues: <sourceKey> (started by the Mac from …)` as soon as the
+  record exists, before the receiver's first hook. Lineage is recorded where
+  the task was started, by the Mac app's dispatch and by the daemon's
+  `POST /dispatch` alike. The lifecycle journal's field policy is unchanged.
+- **§3 and §4: the checkout is remembered, never guessed.**
+  `recent-directories.json` (same protections) keeps the directories a task
+  may start in and, per session, the checkout it was observed in. After a
+  restart a journal-restored session gets its own checkout back;
+  `recentDirectories` and `snapshot.handoffs` are immediately populated. A
+  session whose checkout was never observed keeps none: a folder with the
+  same name is not evidence. Continue with… therefore prefills the directory
+  only from the session itself and otherwise leaves it empty for the person
+  to choose; the earlier fallback to the newest directory is removed. The
+  seven-day cutoff is also applied when paths are listed or authorized during
+  a long-running process, without requiring a restart.
+- **§4: Codex may write in the handoff's effort directory.** A
+  `DispatchRequest` may carry `continuation {sourceKey, handoffPath?}`. Both
+  dispatch entry points require a supplied handoff path to canonically match
+  a currently scanned document naming that source session before invoking a
+  launcher; an arbitrary path with the right directory shape is insufficient. For a
+  Codex dispatch whose handoff resolves (symlinks followed) to a
+  `.scratch/<feature>/` outside the checkout — an agent worktree's `.scratch`
+  is a link into the main checkout — the Mac takes the sandbox policy
+  `thread/start` reports for the new thread and, only when it is
+  `workspaceWrite`, appends that one directory to `writableRoots` on
+  `turn/start`. Network access, temp-directory rules, the existing roots and
+  the approval policy are the thread's own; `readOnly`, `dangerFullAccess`
+  and a daemon that reports no policy are left untouched. Per the app-server
+  contract a policy passed to `turn/start` becomes that thread's default for
+  later turns, so the grant lasts for the whole continued task and no longer.
+  The prompt's extra line ("if your sandbox refuses to write there, report
+  the text instead") remains a fallback, not the fix. It is recomputed from
+  the final selected checkout when the directory changes and at dispatch,
+  preserving the person's other prompt edits.
+- Consequences: `CONTEXT.md` gains **Continuation record**; Handoff record,
+  Continue with… and Recent directories are updated. `vibebuddy-mcp` reads
+  two more files and still writes none. Acceptance for this amendment runs
+  through the isolated daemon's `/dispatch` against a real Codex, with a
+  restart in the middle (`.scratch/handoff-continue-hardening/acceptance/`).

@@ -95,6 +95,7 @@ public enum HandoffFacts {
         let ledgerURL = directory.appendingPathComponent("tool-ledger.json")
         let journal = LifecycleJournal.readEntries(url: journalURL)
         let ledger = readLedger(url: ledgerURL)
+        let continuations = ContinuationLedger.read(url: directory.appendingPathComponent(ContinuationLedger.fileName), now: now).records
 
         // A bare native id (what a hook or status line shows) is accepted when
         // the journal knows exactly one agent for it; otherwise the candidates
@@ -127,8 +128,9 @@ public enum HandoffFacts {
         guard !entries.isEmpty || !records.isEmpty else {
             // Not an error: the key is well formed, the Mac just never saw it.
             var lines = ["Source session: \(reference.key)", "Ticket: unknown", "Branch: unknown", "Worktree: unknown", "",
-                         "## Facts (recorded by VibeBuddy, as of \(stampNow))",
-                         "- Not recorded: no observation of \(reference.key) in the lifecycle journal or tool ledger (both keep seven days). The session did not report to this Mac, or is older than the retention window."]
+                         "## Facts (recorded by VibeBuddy, as of \(stampNow))"]
+            if let lineage = continuesLine(reference.key, in: continuations) { lines.append(lineage) }
+            lines.append("- Not recorded: no observation of \(reference.key) in the lifecycle journal or tool ledger (both keep seven days). The session did not report to this Mac, or is older than the retention window.")
             if let omitted { lines.append(omitted) }
             if let otherAgent { lines.append("- Note: that native id was observed for \(otherAgent.displayName); check the key's agent prefix.") }
             lines.append("- Data: " + freshness(journalURL: journalURL, ledgerURL: ledgerURL, journalRead: journal.exists, ledgerRead: !ledger.isEmpty,
@@ -155,6 +157,7 @@ public enum HandoffFacts {
         out.append("Worktree: \(state?.root ?? checkout ?? "unknown")")
         out.append("")
         out.append("## Facts (recorded by VibeBuddy, as of \(stamp))")
+        if let lineage = continuesLine(reference.key, in: continuations) { out.append(lineage) }
         out.append(contentsOf: lifecycleLines(entries, agent: reference.agent, now: now))
         out.append("- Checkout: \(checkout.map(line) ?? "unknown") (\(checkoutOrigin))"
                    + (checkout == nil ? entries.last?.project.map { " · project label: " + line($0) } ?? "" : ""))
@@ -171,6 +174,13 @@ public enum HandoffFacts {
     }
 
     // MARK: sections
+
+    /// The Mac started this session to continue another (ContinuationLedger).
+    private static func continuesLine(_ key: String, in records: [ContinuationRecord]) -> String? {
+        guard let record = records.last(where: { $0.receiverKey == key }) else { return nil }
+        let from = record.handoffPath.map { "the handoff at " + line($0) } ?? "the history tools (no handoff document)"
+        return "- Continues: \(record.sourceKey) (started by the Mac from \(from), \(iso(record.recordedAt)))"
+    }
 
     private static func lifecycleLines(_ entries: [LifecycleJournalEntry], agent: SessionHistoryAgent, now: Date) -> [String] {
         guard let first = entries.first, let last = entries.last else {

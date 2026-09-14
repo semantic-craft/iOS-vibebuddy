@@ -863,6 +863,18 @@ public extension PendingApproval {
     }
 }
 
+/// Continue with… (ADR-0023): the session this task continues and the handoff
+/// document it starts from. The Mac records the lineage once the receiver
+/// exists and, for Codex, lets the receiver write in the handoff's effort
+/// directory. Optional on the wire; an older Mac reads the request as before.
+public struct DispatchContinuation: Codable, Sendable, Equatable {
+    public var sourceKey: String
+    public var handoffPath: String?
+    public init(sourceKey: String, handoffPath: String? = nil) {
+        self.sourceKey = sourceKey; self.handoffPath = handoffPath
+    }
+}
+
 /// A request to start a new agent task from the phone or the Mac, in a
 /// directory the Mac has already seen a session run in.
 public struct DispatchRequest: Codable, Sendable, Equatable {
@@ -882,9 +894,12 @@ public struct DispatchRequest: Codable, Sendable, Equatable {
     /// Nil and false mean the same thing; nil is omitted on the wire so an
     /// older Mac reads the request exactly as before.
     public var worktree: Bool?
+    /// Present when this task continues another session (Continue with…).
+    public var continuation: DispatchContinuation?
 
     public init(agent: AgentKind, cwd: String, prompt: String, name: String? = nil,
-                model: String? = nil, mode: String? = nil, worktree: Bool? = nil) {
+                model: String? = nil, mode: String? = nil, worktree: Bool? = nil,
+                continuation: DispatchContinuation? = nil) {
         self.agent = agent
         self.cwd = cwd
         self.prompt = prompt
@@ -892,6 +907,7 @@ public struct DispatchRequest: Codable, Sendable, Equatable {
         self.model = model
         self.mode = mode
         self.worktree = worktree
+        self.continuation = continuation
     }
 }
 

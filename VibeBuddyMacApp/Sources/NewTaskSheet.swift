@@ -155,6 +155,9 @@ struct NewTaskSheet: View {
         .frame(width: 520)
         .background(MacTheme.bg)
         .onExitCommand { dismiss() }
+        .onChange(of: directory) { _, selected in
+            prompt = ContinueWith.promptForDispatch(prompt, handoffPath: prefill?.continuing?.handoffPath, checkout: selected)
+        }
         .onAppear {
             if let prefill {
                 agent = prefill.agent
@@ -162,6 +165,8 @@ struct NewTaskSheet: View {
                 name = prefill.name
                 prompt = prefill.prompt
             }
+            // A plain New task starts in the newest directory; a Continue with…
+            // whose checkout the Mac never observed stays empty for the person to pick.
             if directory.isEmpty, prefill?.continuing == nil { directory = model.recentDirectories.first ?? "" }
             if !model.dispatchAgents.contains(agent), let first = model.dispatchAgents.first { agent = first }
         }
@@ -210,12 +215,13 @@ struct NewTaskSheet: View {
     private func start() {
         busy = true
         let request = DispatchRequest(agent: agent, cwd: directory,
-                                      prompt: prompt.trimmingCharacters(in: .whitespacesAndNewlines),
+                                      prompt: ContinueWith.promptForDispatch(prompt.trimmingCharacters(in: .whitespacesAndNewlines),
+                                                                             handoffPath: prefill?.continuing?.handoffPath, checkout: directory),
                                       name: name.isEmpty ? nil : name,
-                                      worktree: agent == .cursor && freshWorktree ? true : nil)
+                                      worktree: agent == .cursor && freshWorktree ? true : nil,
+                                      continuation: prefill?.continuing.map { DispatchContinuation(sourceKey: $0.sourceKey, handoffPath: $0.handoffPath) })
         Task {
-            let outcome = await model.dispatch(request, userChoseDirectory: chosenDirectories.contains(directory),
-                                               continuing: prefill?.continuing)
+            let outcome = await model.dispatch(request, userChoseDirectory: chosenDirectories.contains(directory))
             busy = false
             switch outcome {
             case .started: dismiss()

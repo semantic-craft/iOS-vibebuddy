@@ -14,7 +14,9 @@
 
 ## 范围与限制 / Scope and limits
 
-- Continue with… 只在 Mac；iPhone / Watch 的入口、跨机交接、事实的 LLM 摘要不在本版。血缘（谁接了谁）只保存在运行中的 App 内。Codex 在 agent worktree 里接续时，`.scratch`（指向主 checkout 的符号链接）可能在其沙箱可写范围之外，需要读方按提示处理。
+- Continue with… 只在 Mac；iPhone / Watch 的入口、跨机交接、事实的 LLM 摘要不在本版。
+- 重启后仍在：最近目录与每个会话观察到的 checkout（`recent-directories.json`）、谁接了谁（`continuations.json`），都是仅本人可读、七天保留的本地文件；`facts` 会打印接收方的 `Continues:` 行。目录不确定时表单留空让你选，不再猜。
+- Codex 从 agent worktree 接续时，Mac 只在该 thread 自己是 workspace-write 策略时，把交接文件所在的 `.scratch/<feature>/` 追加为可写目录（对该任务后续轮次持续有效），其余限制不变；其他策略不动。开场白里的提醒只是兜底。
 - `facts` 的命令与退出码来自 Claude 系 hook 与 Codex app-server；Cursor ACP 与 rollout 只能报告工具名，输出会明写。
 - Recap 的真机分页手感、`.success` 触感与 Double Tap 未在实体设备验收。
-- Continue with… is Mac-only in this release; lineage lives in the running app. `facts` carries command text and exit codes for Claude-shaped hooks and the Codex app-server only. Recap's on-device feel remains unverified.
+- Continue with… is Mac-only in this release. Recent directories, each session's observed checkout and continuation lineage now survive a restart (owner-only local files, seven days); a Codex receiver started from a worktree gets the handoff's `.scratch/<feature>/` as an extra writable root only when its own policy is workspace-write. `facts` carries command text and exit codes for Claude-shaped hooks and the Codex app-server only. Recap's on-device feel remains unverified.

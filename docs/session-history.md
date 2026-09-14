@@ -194,7 +194,10 @@ source what could be observed (hooks and the Codex app-server carry commands and
 exit codes; Cursor ACP and the rollout tailer carry tool names only), and ends
 with a data-freshness line. It never writes, never opens the daemon, and never
 chooses a session: a bare native id resolves only when one agent recorded it,
-and "Not recorded" is a normal exit-0 answer. See ADR-0023.
+and "Not recorded" is a normal exit-0 answer. A session the Mac started through
+Continue with… gets a `- Continues: <source key> (started by the Mac from …)`
+line from `continuations.json` as soon as the dispatch recorded it. See
+ADR-0023 and its 2026-09-14 amendment.
 
 Status reads the authenticated daemon snapshot, excludes a supplied real caller
 native ID (`status --exclude-session '<own-native-thread-id>'`), and groups by checkout directory.

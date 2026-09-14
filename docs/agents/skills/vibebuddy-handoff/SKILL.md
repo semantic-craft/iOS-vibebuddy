@@ -66,8 +66,12 @@ preserve limits such as user-owned merging or configuration changes.
 
 On the Mac, a session row whose key this note names shows **Handoff ready**, and
 **Continue with…** on that row prefills a New task for another agent with this
-note's path as its first prompt (the person reviews and presses Start). This
-skill still does not start anything itself.
+note's path as its first prompt (the person reviews and presses Start). A Codex
+receiver started that way may write in this note's `.scratch/<feature>/`
+directory even from an agent worktree whose `.scratch` links elsewhere; other
+receivers, or a receiver started by hand, may find that directory outside their
+sandbox and should report the text rather than force a write. This skill still
+does not start anything itself.
 
 The receiver first reads this note, then follows
 `docs/agents/skills/vibebuddy-history/SKILL.md`: read the source's saved summary,

@@ -1051,10 +1051,26 @@ public struct VibeBuddyServer: Sendable {
             func optionalString(_ key: String) -> String? {
                 (o[key] as? String).flatMap { $0.isEmpty ? nil : $0 }
             }
+            // Continue with… names the session this task continues (ADR-0023).
+            var continuation: DispatchContinuation?
+            if let c = o["continuation"] as? [String: Any] {
+                guard let sourceKey = c["sourceKey"] as? String, !sourceKey.isEmpty else {
+                    return reply(.badRequest, ["error": "continuation needs a sourceKey"])
+                }
+                if let value = c["handoffPath"], !(value is NSNull),
+                   (value as? String)?.hasPrefix("/") != true {
+                    return reply(.badRequest, ["error": "handoffPath must be absolute"])
+                }
+                continuation = DispatchContinuation(sourceKey: sourceKey, handoffPath: c["handoffPath"] as? String)
+            }
+            guard await store.acceptsContinuation(continuation) else {
+                return reply(.badRequest, ["error": "handoff is not a current scanned document for this source session"])
+            }
             // Cursor's `--model`, `--mode` and `-w`; other agents ignore them.
-            let req = DispatchRequest(agent: agent, cwd: cwd, prompt: text, name: optionalString("name"),
+            let req = DispatchRequest(agent: agent, cwd: cwd,
+                                      prompt: ContinueWith.promptForDispatch(text, handoffPath: continuation?.handoffPath, checkout: cwd), name: optionalString("name"),
                                       model: optionalString("model"), mode: optionalString("mode"),
-                                      worktree: o["worktree"] as? Bool)
+                                      worktree: o["worktree"] as? Bool, continuation: continuation)
             let outcome: DispatchOutcome
             if let dispatcher {
                 outcome = await dispatcher(req)
@@ -1072,6 +1088,11 @@ public struct VibeBuddyServer: Sendable {
                 }
             } else {
                 outcome = .unsupported("VibeBuddy cannot start \(agent.displayName) sessions yet")
+            }
+            if case .started(let id) = outcome, let continuation,
+               let receiverKey = ContinueWith.sessionKey(agent: agent, id: id) {
+                await store.recordContinuation(receiverKey: receiverKey, sourceKey: continuation.sourceKey,
+                                               handoffPath: continuation.handoffPath)
             }
             switch outcome {
             case .started(let id): return reply(.ok, ["sessionId": id])

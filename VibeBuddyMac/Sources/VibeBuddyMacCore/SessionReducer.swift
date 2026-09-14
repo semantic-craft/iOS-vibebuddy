@@ -34,6 +34,12 @@ public struct SessionReducer: Sendable {
         }
     }
 
+    /// The checkout a restored session was observed in (`RecentDirectories`).
+    mutating func restoreCheckout(sessionID: String, path: String) {
+        guard path.hasPrefix("/") else { return }
+        sessions[sessionID]?.checkoutPath = path
+    }
+
     public mutating func apply(
         _ event: HookEvent,
         observationSource: ObservationSource? = nil,

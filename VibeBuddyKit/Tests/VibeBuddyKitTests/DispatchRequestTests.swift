@@ -30,6 +30,24 @@ struct DispatchRequestTests {
         #expect(decoded.model == nil && decoded.mode == nil && decoded.worktree == nil)
     }
 
+    @Test("a Continue with… request carries its continuation; a plain one omits it and an older payload decodes without it")
+    func continuation() throws {
+        let continuing = DispatchRequest(agent: .codex, cwd: "/x/p", prompt: "Read /m/.scratch/e/handoffs/h.md, then continue.",
+                                         continuation: DispatchContinuation(sourceKey: "claude-code:src", handoffPath: "/m/.scratch/e/handoffs/h.md"))
+        let data = try JSONEncoder().encode(continuing)
+        #expect(try JSONDecoder().decode(DispatchRequest.self, from: data) == continuing)
+        let text = String(decoding: data, as: UTF8.self)
+        #expect(text.contains(#""sourceKey":"claude-code:src""#))
+        #expect(text.contains(#""handoffPath":""#))   // JSONEncoder escapes the slashes
+        let plain = String(decoding: try JSONEncoder().encode(DispatchRequest(agent: .codex, cwd: "/x/p", prompt: "p")), as: UTF8.self)
+        #expect(!plain.contains("continuation"))
+        let older = #"{"agent":"codex","cwd":"/x/p","prompt":"p"}"#
+        #expect(try JSONDecoder().decode(DispatchRequest.self, from: Data(older.utf8)).continuation == nil)
+        // The handoff path is optional: a continuation from the history tools alone.
+        let bare = DispatchContinuation(sourceKey: "claude-code:src")
+        #expect(try JSONDecoder().decode(DispatchContinuation.self, from: JSONEncoder().encode(bare)) == bare)
+    }
+
     @Test("the snapshot carries cursorModels only when the Mac has some")
     func snapshotModels() throws {
         let now = Date(timeIntervalSince1970: 1_780_000_000)

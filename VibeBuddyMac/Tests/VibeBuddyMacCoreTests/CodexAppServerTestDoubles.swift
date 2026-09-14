@@ -13,6 +13,8 @@ final class FakeConnection: CodexAppServerConnecting, @unchecked Sendable {
     private var replyGates: [String: CheckedContinuation<Void, Never>] = [:]
     private(set) var calls: [String] = []
     private var sent: [(method: String, params: [String: Any])] = []
+    /// The params of every request sent with this method, in order.
+    func params(of method: String) -> [[String: Any]] { lock.withLock { sent.filter { $0.method == method }.map(\.params) } }
     private(set) var responses: [(id: JSONRPCID, result: [String: Any])] = []
 
     init(results: [String: [String: Any]]) {
