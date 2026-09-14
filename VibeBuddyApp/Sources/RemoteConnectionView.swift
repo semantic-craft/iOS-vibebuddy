@@ -7,6 +7,7 @@ struct RemoteConnectionView: View {
     @EnvironmentObject private var dashboard: DashboardStore
     @State private var host = ""
     @State private var port = "9876"
+    @State private var initializedDraft = false
     @State private var message: String?
     @State private var attempt: Task<Void, Never>?
 
@@ -20,7 +21,7 @@ struct RemoteConnectionView: View {
                 if connection.pairing != nil {
                     LabeledContent("Address") {
                         TextField("100.x.x.x", text: $host)
-                            .keyboardType(.decimalPad)
+                            .keyboardType(.URL)
                             .multilineTextAlignment(.trailing)
                             .font(CompanionType.mono(14))
                             .accessibilityLabel("Mac private IP (100.x.x.x)")
@@ -74,6 +75,8 @@ struct RemoteConnectionView: View {
         .navigationTitle("Headscale & Surge")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
+            guard !initializedDraft else { return }
+            initializedDraft = true
             host = connection.pairing?.host ?? ""
             port = String(connection.pairing?.port ?? 9876)
         }
