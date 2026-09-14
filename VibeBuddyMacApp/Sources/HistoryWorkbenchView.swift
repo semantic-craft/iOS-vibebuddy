@@ -121,7 +121,19 @@ final class HistoryLibraryModel: ObservableObject {
         if transcript?.id != id { transcript = nil }
         reading = true
         do {
-            let result = try await repository.session(id: id)
+            let result: SessionHistorySession?
+            if let record = snapshot.sessions.first(where: { $0.id == id }), record.agent.supportsTranscript {
+                // The watcher must see source changes immediately, without
+                // waiting for the next index publication (Wake's reader rule).
+                var fresh = try await readTranscript(key: record.agent.keyName + ":" + record.nativeSessionID).session
+                fresh.isFavorite = record.isFavorite
+                fresh.isPinned = record.isPinned
+                fresh.archivedLocally = record.archivedLocally
+                fresh.sourceArchived = record.sourceArchived
+                result = fresh
+            } else {
+                result = try await repository.session(id: id)
+            }
             guard generation == readGeneration, !Task.isCancelled else { return }
             transcript = result
             do {

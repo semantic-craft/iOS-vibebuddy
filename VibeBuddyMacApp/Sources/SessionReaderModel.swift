@@ -98,7 +98,7 @@ final class SessionReaderModel: ObservableObject {
             let projected = await Self.project(loaded.messages, revealing: target)
             guard generation == self.generation, !Task.isCancelled else { return }
             rows = projected
-            body = .transcript(provenance: "cache", updatedAt: loaded.updatedAt, sourcePath: loaded.sourcePath,
+            body = .transcript(provenance: "source or revision-checked cache", updatedAt: loaded.updatedAt, sourcePath: loaded.sourcePath,
                                isAvailable: record.isAvailable && loaded.isAvailable)
             watch(path: loaded.sourcePath)
             return
