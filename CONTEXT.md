@@ -554,7 +554,9 @@ Mac presence suppresses ordinary cues only while the verdict is current; leaving
   exit codes, a coverage line naming what the session's observation path could
   report (hook and Codex app-server: commands and exit codes; Cursor ACP and the
   rollout tailer: tool names only), and a data-freshness line. Read from the
-  lifecycle journal and tool ledger without writing; git is probed read-only. The
+  lifecycle journal and tool ledger without writing; git is probed read-only. Tool
+  calls require recorded agent identity; unqualified older calls are omitted with
+  coverage stated. Only confirmed successful edits establish edited files. The
   caller supplies its own key; a bare native id resolves only when one agent
   recorded it, "Not recorded" is an answer (exit 0), not an error.
 - **Handoff record** (`HandoffRecord`) — a Handoff note the Mac found by scanning

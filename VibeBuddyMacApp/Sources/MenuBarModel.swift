@@ -1179,7 +1179,7 @@ final class MenuBarModel: ObservableObject {
         let handoff = ContinueWith.handoff(for: session, in: handoffs)
         continueRequest = NewTaskPrefill(
             agent: agent,
-            directory: session.checkoutPath ?? session.terminalRef?.cwd ?? recentDirectories.first ?? "",
+            directory: session.checkoutPath ?? session.terminalRef?.cwd ?? "",
             name: ContinueWith.taskName(for: session),
             prompt: ContinueWith.prompt(sessionKey: key, handoffPath: handoff?.path),
             continuing: NewTaskPrefill.Continuation(sessionID: session.id, sourceKey: key, handoffPath: handoff?.path))

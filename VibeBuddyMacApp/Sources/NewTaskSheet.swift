@@ -162,7 +162,7 @@ struct NewTaskSheet: View {
                 name = prefill.name
                 prompt = prefill.prompt
             }
-            if directory.isEmpty { directory = model.recentDirectories.first ?? "" }
+            if directory.isEmpty, prefill?.continuing == nil { directory = model.recentDirectories.first ?? "" }
             if !model.dispatchAgents.contains(agent), let first = model.dispatchAgents.first { agent = first }
         }
     }

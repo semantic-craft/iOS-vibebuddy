@@ -505,7 +505,7 @@ public actor SessionStore {
         case let .event(event):
             if !appServerOutranks(event, from: .hook), !acpOutranks(event, from: .hook),
                let record = ToolLedger.hook(data, event: event) {
-                toolLedger.observe(record, sessionID: event.sessionID, now: receivedAt)
+                toolLedger.observe(record, sessionID: event.sessionID, now: receivedAt, agent: event.agent)
             }
             ingest(event, observationSource: .hook, announcesWait: announcesWait)
             return true
@@ -664,7 +664,7 @@ public actor SessionStore {
             let record = event.toolCall ?? ToolCallRecord(id: UUID().uuidString, tool: event.toolName ?? "Tool",
                 observedAt: event.timestamp, source: observationSource.rawValue,
                 coverage: "Tool activity observed; call identity and result details unavailable")
-            toolLedger.observe(record, sessionID: event.sessionID, now: event.timestamp)
+            toolLedger.observe(record, sessionID: event.sessionID, now: event.timestamp, agent: event.agent)
         }
         let wasWaiting = reducer.sessions[event.sessionID]?.status == .needsResponse
         rememberDirectory(event.cwd, at: event.timestamp)

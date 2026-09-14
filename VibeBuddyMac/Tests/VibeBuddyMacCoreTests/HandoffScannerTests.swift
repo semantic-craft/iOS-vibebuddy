@@ -67,6 +67,24 @@ final class HandoffScannerTests: XCTestCase {
         XCTAssertEqual(scanner.scan(directories: [root.path]).count, 0)
     }
 
+    func testInPlaceEditRefreshesHeaderAndNewestHandoffWithoutDirectoryChange() throws {
+        let root = try checkout()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let handoffs = root.appendingPathComponent(".scratch/effort/handoffs")
+        let path = handoffs.appendingPathComponent("2026-09-13-unknown.md")
+        let directoryDate = try XCTUnwrap(FileManager.default.attributesOfItem(atPath: handoffs.path)[.modificationDate] as? Date)
+        var scanner = HandoffScanner()
+        XCTAssertEqual(scanner.scan(directories: [root.path]).count, 2)
+        let updated = Date().addingTimeInterval(60)
+        try "Source session: codex:updated\nTicket: changed\n".write(to: path, atomically: false, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: updated], ofItemAtPath: path.path)
+        try FileManager.default.setAttributes([.modificationDate: directoryDate], ofItemAtPath: handoffs.path)
+        let records = scanner.scan(directories: [root.path])
+        XCTAssertEqual(records.first?.sourceKey, "codex:updated")
+        XCTAssertEqual(records.first?.ticket, "changed")
+        XCTAssertEqual(records.first?.writtenAt, updated)
+    }
+
     func testSnapshotCarriesHandoffsAndOlderJSONStillDecodes() throws {
         let record = HandoffRecord(path: "/repo/.scratch/e/handoffs/a.md", sourceKey: "codex:1", writtenAt: Date(timeIntervalSince1970: 1_800_000_000), takenBy: ["s2"])
         let snapshot = Snapshot(sessions: [], serverTime: Date(timeIntervalSince1970: 1_800_000_000), handoffs: [record])

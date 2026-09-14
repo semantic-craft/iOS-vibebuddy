@@ -4,6 +4,8 @@ import Foundation
 public struct ToolCallRecord: Codable, Equatable, Sendable, Identifiable {
     public enum Result: String, Codable, Sendable { case unconfirmed, succeeded, failed }
     public var id: String
+    /// Observation provenance; absent in older records, never inferred from a requested key.
+    public var agent: AgentKind?
     public var tool: String
     public var command: String?
     public var files: [String]
@@ -17,7 +19,8 @@ public struct ToolCallRecord: Codable, Equatable, Sendable, Identifiable {
     public init(id: String, tool: String, command: String? = nil, files: [String] = [],
                 linesAdded: Int? = nil, linesRemoved: Int? = nil, result: Result = .unconfirmed,
                 exitCode: Int? = nil, observedAt: Date, source: String,
-                coverage: String = "Observed calls only; incomplete coverage") {
+                coverage: String = "Observed calls only; incomplete coverage", agent: AgentKind? = nil) {
+        self.agent = agent
         self.id = id; self.tool = String(tool.prefix(120)); self.command = command.map { String($0.prefix(2000)) }
         self.files = Array(Set(files.map { String($0.prefix(1000)) })).sorted().prefix(50).map { $0 }
         self.linesAdded = linesAdded; self.linesRemoved = linesRemoved

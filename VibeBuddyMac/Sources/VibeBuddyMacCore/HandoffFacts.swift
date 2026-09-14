@@ -118,7 +118,10 @@ public enum HandoffFacts {
         let agentKind = kind(of: reference.agent)
         let entries = journal.entries.filter { $0.sessionID == reference.nativeID && $0.agent == agentKind }
             .sorted { $0.timestamp < $1.timestamp }
-        let records = (ledger[reference.nativeID] ?? []).sorted { $0.observedAt < $1.observedAt }
+        let candidates = ledger[reference.nativeID] ?? []
+        let records = candidates.filter { $0.agent == agentKind }.sorted { $0.observedAt < $1.observedAt }
+        let unqualified = candidates.filter { $0.agent == nil }.count
+        let omitted = unqualified > 0 ? "- Tool ledger: \(unqualified) call(s) omitted because their agent was not recorded; the requested prefix cannot establish ownership." : nil
         let otherAgent = journal.entries.first { $0.sessionID == reference.nativeID && $0.agent != agentKind }?.agent
         let stampNow = iso(now)
         guard !entries.isEmpty || !records.isEmpty else {
@@ -126,6 +129,7 @@ public enum HandoffFacts {
             var lines = ["Source session: \(reference.key)", "Ticket: unknown", "Branch: unknown", "Worktree: unknown", "",
                          "## Facts (recorded by VibeBuddy, as of \(stampNow))",
                          "- Not recorded: no observation of \(reference.key) in the lifecycle journal or tool ledger (both keep seven days). The session did not report to this Mac, or is older than the retention window."]
+            if let omitted { lines.append(omitted) }
             if let otherAgent { lines.append("- Note: that native id was observed for \(otherAgent.displayName); check the key's agent prefix.") }
             lines.append("- Data: " + freshness(journalURL: journalURL, ledgerURL: ledgerURL, journalRead: journal.exists, ledgerRead: !ledger.isEmpty,
                                                 journalOldest: journal.entries.map(\.timestamp).min()))
@@ -159,6 +163,7 @@ public enum HandoffFacts {
         out.append("- Tickets touched: " + (tickets.isEmpty ? "none seen" : tickets.map(line).joined(separator: ", ")))
         out.append(contentsOf: editedLines(edited))
         out.append(contentsOf: commandLines(records, limit: limit))
+        if let omitted { out.append(omitted) }
         out.append("- Coverage: " + coverage(records, agent: reference.agent))
         out.append("- Data: " + freshness(journalURL: journalURL, ledgerURL: ledgerURL, journalRead: journal.exists, ledgerRead: !ledger.isEmpty,
                                           journalOldest: journal.entries.map(\.timestamp).min()))
@@ -262,7 +267,7 @@ public enum HandoffFacts {
     }
 
     static func editedFiles(_ records: [ToolCallRecord]) -> [String] {
-        let edits = records.filter { ToolActivity.phrase(for: $0.tool) == "Editing" || $0.tool.lowercased() == "patch" }
+        let edits = records.filter { $0.result == .succeeded && (ToolActivity.phrase(for: $0.tool) == "Editing" || $0.tool.lowercased() == "patch") }
         return Array(Set(edits.flatMap(\.files).filter { $0.hasPrefix("/") })).sorted()
     }
 
