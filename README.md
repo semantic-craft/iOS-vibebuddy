@@ -14,9 +14,9 @@ A native **Mac, iPhone & Apple Watch** companion for your AI workflow.<br>**Clau
 
 **Free & open source · No VibeBuddy account · No analytics · Bring your own AI key**
 
-<img src="docs/app-store-screenshots/1.3.14/macos/en-US/01-dashboard-approval.jpg" width="960" alt="Mac dashboard showing Claude Code and Codex tasks, a pending file edit, and Approve, Deny and Jump controls" />
+<img src="docs/app-store-screenshots/1.3.17/macos/en-US/01-inbox.png" width="960" alt="Mac Inbox with needs-you, unread-result and working-task counts and project navigation" />
 
-<sub>Real app, sample tasks: the 1.3.14 demo dashboard. Screenshots illustrate the interface, not live agent results.</sub>
+<sub>The actual Mac 1.3.19 interface in Demo mode. Tasks, projects and quota readings are sample data.</sub>
 
 </div>
 
@@ -26,42 +26,45 @@ Start a refactor in Claude Code, a test run in Codex and a build in Grok Build. 
 
 | See what matters | Keep work moving | Hear the outcome |
 | --- | --- | --- |
-| **One task view.** Needs response, Working and Done, with project, model, current activity and available usage data. | **Approve and reply.** Review a command or bounded diff preview, answer a question, or continue a supported Codex task. | **Voice and summaries.** Ask for current task status, read a concise completion summary, or enable read-aloud on Mac. |
+| **One task view.** Needs you, Unread results and Working, with project, model, current activity and available usage data. | **Approve and reply.** Review a command or bounded diff preview, answer a question, or continue a supported Codex task. | **Voice and summaries.** Ask for current task status, read a concise completion summary, or enable read-aloud on Mac. |
 
 ## Three screens. One companion.
 
 <table>
-<tr>
-<th>Review on iPhone</th>
-<th>Open the task details</th>
-<th>Glance at your wrist</th>
-</tr>
-<tr>
-<td align="center" valign="top"><img src="docs/app-store-screenshots/1.3.14/ios/en-US/01-dashboard.jpg" width="270" alt="iPhone demo dashboard with Claude edit approval and a question" /></td>
-<td align="center" valign="top"><img src="docs/app-store-screenshots/1.3.14/ios/en-US/02-codex-task.jpg" width="270" alt="iPhone demo Codex task detail with model, context usage, notification preferences and Reply" /></td>
-<td align="center" valign="top"><img src="docs/app-store-screenshots/1.3.14/watchos/en-US/02-quota.jpg" width="208" alt="Apple Watch demo showing Codex weekly and short-window remaining quota" /><br><br>Followed tasks<br>Quick answers<br>Completion summaries<br>Quota at a glance</td>
-</tr>
+<tr><th>iPhone Inbox</th><th>Task details</th><th>Watch results</th></tr>
+<tr><td align="center" valign="top"><img src="docs/app-store-screenshots/1.3.17/ios/en-US/01-inbox.jpg" width="270" alt="iPhone Inbox" /></td><td align="center" valign="top"><img src="docs/app-store-screenshots/1.3.17/ios/en-US/02-task.jpg" width="270" alt="Task details" /></td><td align="center" valign="top"><img src="docs/app-store-screenshots/1.3.17/watchos/en-US/02-result.jpg" width="208" alt="Watch results" /></td></tr>
 </table>
 
-<sub>Captured from the actual 1.3.14 apps in Demo mode. Watch image shows the in-app quota page. <a href="docs/app-store-screenshots/1.3.14/README.md">Screenshot provenance</a>.</sub>
+<sub>iPhone/Watch 1.3.17 (46), Mac 1.3.19 (31). Native Demo captures matching the submitted mobile store images and Mac release images; they do not represent live task results. <a href="docs/app-store-screenshots/1.3.17/README.md">Screenshot provenance</a>.</sub>
 
-- **On Mac:** a searchable menu-bar task list grouped by attention, full dashboard, notch Glance and jump back to the originating terminal or app.
-- **On iPhone:** task details, recent dialogue, supported approvals and replies, Live Activity and Dynamic Island counts.
-- **On Apple Watch:** followed tasks, quick answers, completion summaries, task and quota complications, and Smart Stack relevance. A paired iPhone is required; watchOS controls background refresh.
+<details>
+<summary>More screenshots: task list and usage across devices</summary>
 
-## New in the 1.3 series
+<img src="docs/app-store-screenshots/1.3.17/macos/en-US/02-usage.png" width="960" alt="Mac usage page" />
+
+<table>
+<tr><td align="center" valign="top"><img src="docs/app-store-screenshots/1.3.17/ios/en-US/03-usage.jpg" width="270" alt="iPhone usage" /></td><td align="center" valign="top"><img src="docs/app-store-screenshots/1.3.17/watchos/en-US/01-tasks.jpg" width="208" alt="Watch tasks" /></td><td align="center" valign="top"><img src="docs/app-store-screenshots/1.3.17/watchos/en-US/03-usage.jpg" width="208" alt="Watch usage" /></td></tr>
+</table>
+
+</details>
+
+- **On Mac:** use Inbox for requests and unread results, browse by project, search and read session history, check usage, or hand off with Continue with…. The menu bar and notch keep compact status visible.
+- **On iPhone:** Inbox, task details, recent dialogue and supported approvals and replies, plus Usage and home/lock-screen quota widgets. Pair from computer connection settings or the Home connection indicator.
+- **On Apple Watch:** browse working tasks and unread results, open the matching task from a completion notification, refresh its summary and explicitly mark it read. Usage and complications remain available. A paired iPhone is required; system settings govern notifications and background refresh.
+
+## Recent major updates
 
 | Feature | What changed |
 | --- | --- |
-| **Talk to your tasks** | [1.3.11](https://github.com/semantic-craft/iOS-vibebuddy/releases/tag/v1.3.11) adds GPT-Live 1 with a separately configurable task reasoning model. OpenAI, Gemini, Qwen and Doubao share task-status and supported action tools. |
-| **Get a useful completion update** | Optional AI summaries focus on results, blockers and next steps. Mac read-aloud has its own provider, model and voice, with voice previews. [Model settings](docs/release-notes-1.3.10.md). |
-| **Continue the conversation** | Reply to supported waits, steer a running Codex turn or continue an existing task. Recent dialogue and delivery receipts help you see what was sent. [Task interaction](docs/release-notes-1.3.6.md). |
-| **Keep the Mac close at hand** | Search and filter the menu feed, open task details, and use an explicitly opened QR pairing window. [Mac companion update](docs/release-notes-1.3.9.md). |
-| **Follow work on your wrist** | Watch quick answers, task controls and completion summaries keep followed tasks close at hand. [Watch update](docs/release-notes-1.3.8.md). |
-| **Follow Grok Build and Grok Bot** | Track Build CLI tasks, account usage and mode-dependent approval requests. Enable read-only Bot observation, summaries of verified ordinary completions and its separate account quota. [Grok Build setup](docs/getting-started.md#grok-build) · [Grok Bot update](docs/release-notes-1.3.7.md). |
-| **Keep Cursor usage in view** | Read allowance from an existing Cursor app or Cursor CLI login, with separate **Cursor Models** and **Other Models** pools. [Cursor CLI support](docs/release-notes-1.3.2.md). |
+| **Inbox and session reading** | Separate requests, unread results and working tasks. The Mac reader supports live updates, search navigation and export. Opening a detail does not mark it read. [1.3.17](docs/release-notes-1.3.17.md) |
+| **From wrist notification to task** | Open the matching detail and request its latest result while the iPhone is locked. Failed refreshes identify cached content and offer Retry. Watch Recap was removed; task lists and explicit read confirmation remain. [Watch update](docs/release-notes-1.3.17.md) |
+| **Notifications and Quiet preferences** | Fixed reminders being suppressed just because the source app was frontmost. Followed completions support audible reminders while respecting notification and Quiet settings. [Notification update](docs/release-notes-1.3.17.md) |
+| **Usage and quota widgets** | iPhone Usage and home/lock-screen widgets show each provider's reading, update age and unavailable state. Widget links open that provider. Widgets use the latest saved readings. [Usage update](docs/release-notes-1.3.17.md) |
+| **Continue with another agent** | On Mac, choose Claude Code, Codex or Cursor, review the directory and handoff prompt, then start. Observed session directories and continuation links survive restarts; unknown directories are left for you to choose. [Handoff details](docs/release-notes-1.3.16.md) |
+| **Menu bar and notch adaptation** | Recover off-screen menu bar placement. Compact status sits beside the camera at the current display's notch height, with content-sized sides and no model-specific configuration. [Menu bar](docs/release-notes-1.3.18.md) · [Notch](docs/release-notes-1.3.19.md) |
+| **Voice, summaries and read-aloud** | Configure optional voice conversation, completion summaries and Mac read-aloud separately, using supported providers including OpenAI, Gemini, Qwen and Doubao. [Voice settings](docs/release-notes-1.3.11.md) |
 
-Mac releases and iPhone/Watch App Store updates ship independently. Newer features need an updated client on the device using them. Check the [Mac releases](https://github.com/semantic-craft/iOS-vibebuddy/releases) and [App Store listing](https://apps.apple.com/us/app/vibebuddy-agent-monitor/id6777469338) for current versions and availability.
+This page presents Mac 1.3.19 and iPhone/Watch 1.3.17 features. Mobile 1.3.17 (46) was submitted to App Review on 2026-09-15; submission does not mean approval or public availability. Check [Mac Releases](https://github.com/semantic-craft/iOS-vibebuddy/releases) and the [App Store listing](https://apps.apple.com/us/app/vibebuddy-agent-monitor/id6777469338) for downloadable versions.
 
 ## Your tools, connected
 
@@ -82,7 +85,7 @@ See the [Codex integration contract](docs/codex-integration.md) and [agent hook 
 
 1. **Install the Mac companion.** [Download the latest DMG](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest), drag the app into Applications, and launch it. The distributed Mac app requires Apple Silicon and macOS 14+.
 2. **Connect your coding agent.** Open Setup in Mac settings and follow the agent-specific instructions. [Manual setup](docs/getting-started.md#connect-an-agent) is also available.
-3. **Add your iPhone.** Install [VibeBuddy: Agent Monitor](https://apps.apple.com/us/app/vibebuddy-agent-monitor/id6777469338), choose **Pair a phone** on Mac, then **Scan to pair** on iPhone. Start on the same trusted local network. iPhone requires iOS 17+; the current Watch companion requires watchOS 26.5+.
+3. **Add your iPhone.** Install [VibeBuddy: Agent Monitor](https://apps.apple.com/us/app/vibebuddy-agent-monitor/id6777469338), choose **Pair a phone** on Mac, then open computer connection settings → **Scan to pair** on iPhone, or tap its Home connection indicator. Start on the same trusted local network. iPhone requires iOS 17+; the current Watch companion requires watchOS 26.5+.
 4. **Try your workflow.** Run a short task in Claude Code, Codex or Grok Build and follow it until completion. You can also [enable Grok Bot observation](docs/getting-started.md#grok-bot) or [connect Cursor usage](docs/getting-started.md#cursor). Enable voice or summaries separately if you want them.
 
 **Just looking?** The iPhone connection screen includes **See the demo (no Mac needed)**. Mac works on its own, too. App Store availability varies by region; [build from source](docs/getting-started.md#build-from-source) if needed.
