@@ -23,7 +23,11 @@ final class DashboardStore: ObservableObject {
     /// Sessions the user has pointed the buddy at (in-memory, never persisted).
     /// Empty = the buddy sees all sessions; pruned to live IDs on every snapshot.
     @Published private(set) var buddySessionIDs: Set<String> = []
-    @Published private(set) var state: ConnectionState = .connecting
+    @Published private(set) var state: ConnectionState = .connecting {
+        // The quota widgets keep the last numbers but stop calling them live
+        // once this phone has seen the Mac drop (PLAN §2.3 of ios-usage-widgets).
+        didSet { if case .failed = state { WidgetQuotaStore.markRelayOffline() } }
+    }
     /// Set when a Live Activity / deep link asks to open a specific session; the
     /// dashboard scrolls to and highlights it, then clears it via `clearFocus()`.
     @Published var focusedSessionId: String?
@@ -404,6 +408,10 @@ final class DashboardStore: ObservableObject {
         // activity across process death, so the first snapshot must reclaim it.
         let changedSource = isDemo || (self.pairing != nil && self.pairing != pairing)
         runTask?.cancel()
+        // `start` also runs on every launch and reconnect; the widgets keep
+        // the same Mac's last numbers through those, and drop them only for
+        // another Mac or the sample data.
+        if changedSource || WidgetQuotaStore.load()?.isDemo == true { WidgetQuotaStore.clear() }
         isDemo = false
         lastProviderQuota = []
         lastTokenConsumption = nil
@@ -481,6 +489,7 @@ final class DashboardStore: ObservableObject {
         lastProviderQuota = []
         lastTokenConsumption = nil
         lastRecap = nil
+        WidgetQuotaStore.clear()
         relayToWatch([])
     }
 
@@ -517,6 +526,15 @@ final class DashboardStore: ObservableObject {
         if isDemo, ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO_LIVE_ACTIVITY"] == "1" {
             Task { await liveActivity.sync(sessions: sessions) }
         }
+    }
+
+    /// Mirror the allowance for the quota widgets. The store drops a write
+    /// whose reading did not change, so calling this on every snapshot costs
+    /// WidgetKit nothing.
+    private func publishQuotaToWidgets() {
+        WidgetQuotaStore.save(PhoneQuotaSnapshot(
+            quotas: lastProviderQuota, macName: pairing?.macName,
+            relayLive: state == .connected, savedAt: Date(), isDemo: isDemo))
     }
 
     /// Project the dashboard for the Watch. Demo Mode supplies sample allowance;
@@ -628,6 +646,7 @@ final class DashboardStore: ObservableObject {
         lastTokenConsumption = TokenConsumptionSnapshot.demo()
         pairing = nil
         state = .connected
+        publishQuotaToWidgets()
         let demo = Self.demoSessions()
         buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: demo)
         install(demo, serverTime: Date())
@@ -1053,6 +1072,7 @@ final class DashboardStore: ObservableObject {
         lastRecap = snapshot.recap
         buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: snapshot.sessions)
         state = .connected
+        publishQuotaToWidgets()
         confirmConnectedPairing()
         if sourceID != snapshot.sourceID { completionReads.pause() }
         if sourceID != snapshot.sourceID { recentOutputs = [:] }
