@@ -3,9 +3,8 @@ import VibeBuddyKit
 import VibeBuddyMacCore
 
 /// The glance, drawn with the Dynamic Island's grammar. On a notch Mac the
-/// housing itself is never drawn into: idle shows nothing, `compact` places a
-/// housing-width status strip below the camera, and `card` / `expanded` drop
-/// their content below it. Without a notch the same
+/// compact content sits beside the camera at its measured height; only
+/// `card` / `expanded` drop content below it. Without a notch the same
 /// content hangs under the menu bar as a capsule.
 struct GlanceView: View {
     @ObservedObject var model: MenuBarModel
@@ -55,16 +54,34 @@ struct GlanceView: View {
     private var topRadius: CGFloat { mode == .compact || mode == .idle ? 0 : 15 }
     private var bottomRadius: CGFloat { mode == .compact || mode == .idle ? 14 : 20 }
     private var cardWidth: CGFloat { 400 * s }
+    @State private var leadingWingWidth: CGFloat = 0
+    @State private var trailingWingWidth: CGFloat = 0
 
-    /// The compact strip stays within the housing's width. Reserve the camera's
-    /// full height, then put visible content below it; no lateral wings or flares.
+    /// Offset the unequal wings so the camera gap stays centered on the housing.
     private func island(notch: NotchGeometry) -> some View {
         VStack(spacing: 0) {
-            Color.clear.frame(width: notch.width, height: notch.height)
-            if mode == .compact {
-                compactStrip
-                    .frame(width: notch.width, height: 28)
-                    .clipped()
+            HStack(spacing: 0) {
+                if mode == .compact {
+                    compactLead
+                        .fixedSize(horizontal: true, vertical: false)
+                        .padding(.horizontal, 8)
+                        .frame(height: notch.height)
+                        .clipped()
+                        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) {
+                            leadingWingWidth = $0
+                        }
+                }
+                Color.clear.frame(width: notch.width, height: notch.height)
+                if mode == .compact {
+                    compactStatus
+                        .fixedSize(horizontal: true, vertical: false)
+                        .padding(.horizontal, 8)
+                        .frame(height: notch.height)
+                        .clipped()
+                        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) {
+                            trailingWingWidth = $0
+                        }
+                }
             }
             if mode == .card, let card = model.glanceCard {
                 GlanceEventCard(card: card, model: model, scale: s)
@@ -81,16 +98,13 @@ struct GlanceView: View {
         .background(NotchShape(topRadius: topRadius, bottomRadius: bottomRadius).fill(.black))
         .overlay(voiceRing(NotchShape(topRadius: topRadius, bottomRadius: bottomRadius)))
         .contentShape(NotchShape(topRadius: topRadius, bottomRadius: bottomRadius))
+        .offset(x: mode == .compact ? (trailingWingWidth - leadingWingWidth) / 2 : 0)
         .onHover(perform: hoverChanged)
         .onTapGesture { if mode == .compact || mode == .idle { model.setGlanceExpanded(true) } }
     }
 
-    private var compactStrip: some View {
-        HStack(spacing: 6) {
-            // Compact: the status dot where the cat sat (ADR-0017 §2); the cat
-            // comes back only as the avatar of a live conversation.
-            compactLead
-            Spacer(minLength: 0)
+    private var compactStatus: some View {
+        Group {
             if voice.isActive {
                 Image(systemName: voiceSymbol)
                     .foregroundStyle(voice.isSpeaking ? Color.green : Color.red)
@@ -99,7 +113,7 @@ struct GlanceView: View {
             } else {
                 let state = summary.primaryState
                 let count = summary.count(for: state)
-                HStack(spacing: 4) {
+                HStack(spacing: 3) {
                     Image(systemName: state.symbolName)
                         .foregroundStyle(MacTheme.status(state))
                     Text(count > 99 ? "99+" : "\(count)")
@@ -111,12 +125,8 @@ struct GlanceView: View {
                 .help("\(count) \(state.label)")
             }
         }
-        // Fixed size: the strip lives inside the notch housing, which
-        // cannot grow with Dynamic Type (ADR-0017 §8).
         .font(CompanionType.fixedFont(12, .semibold))
         .lineLimit(1)
-        .padding(.horizontal, 14)
-        .padding(.bottom, 4)
     }
 
     // MARK: notchless layout
@@ -177,15 +187,10 @@ struct GlanceView: View {
     /// Designed, not neon: a thin tinted border while the voice companion is
     /// live. The voiceBadge spells out Listening/Speaking, the ring only hints.
     @ViewBuilder private func voiceRing<S: Shape>(_ shape: S) -> some View {
-        if voice.isActive {
+        if voice.isActive && (layout.notch == nil || mode == .card || mode == .expanded) {
             let tint = voice.isSpeaking ? Color.green : Color.red
-            if layout.notch != nil && mode == .compact {
-                shape.stroke(tint.opacity(0.8), lineWidth: 1.5)
-                    .clipShape(shape)
-            } else {
-                shape.stroke(tint.opacity(0.8), lineWidth: 1.5)
-                    .shadow(color: tint.opacity(0.28), radius: 3)
-            }
+            shape.stroke(tint.opacity(0.8), lineWidth: 1.5)
+                .shadow(color: tint.opacity(0.28), radius: 3)
         }
     }
 

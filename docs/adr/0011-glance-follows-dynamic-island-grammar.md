@@ -97,3 +97,22 @@ does not replace the entire list. This is a new decision, not a description of
 what the original ADR already guaranteed. Event-card timing and geometry remain.
 The menu badge defaults on absent an explicit saved choice and counts Needs you
 plus unread Done; the original default-off decision above is superseded.
+
+## Amendment (2026-09-15): compact content beside the housing at its actual height
+
+After inspecting the physical display and mature implementations, the owner
+approved compact content beside the camera, with no added height below it.
+This supersedes September 9's width restriction and 28 pt strip.
+
+The screen-derived housing gap remains centered. Each wing uses its content
+width plus 8 pt padding on each side, measured with onGeometryChange. Half the
+trailing-minus-leading width offsets the island to keep the camera gap centered.
+Widths therefore follow the status/avatar and count/voice symbol, not the Mac
+model or a fixed slot size. Both wings are
+bounded by the actual housing height, independent of Dynamic Type and the card
+size preference. Idle remains housing-only. Collapsed voice does not paint an
+outline or shadow beyond that height. Cards, expansion and notchless pills keep
+their existing behavior.
+
+References inspected: [DynamicNotchKit compact layout](https://github.com/MrKai77/DynamicNotchKit/blob/cd0b3e52d537db115ad3a9d89601f20e0bee8d27/Sources/DynamicNotchKit/Views/NotchView.swift)
+and [Boring Notch screen sizing](https://github.com/TheBoredTeam/boring.notch/blob/85af174f3b3894996152c5402f6569a987d86694/boringNotch/sizing/matters.swift).
