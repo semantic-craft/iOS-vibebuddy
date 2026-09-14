@@ -63,6 +63,15 @@ struct VibeBuddyDaemon {
             missedURL: env["VIBEBUDDY_MISSED_PATH"].map { URL(fileURLWithPath: $0) }
                 ?? MissedLedgerLocation.defaultURL()
         )
+        if let path = env["VIBEBUDDY_PREFERENCES_PATH"] {
+            guard path.hasPrefix("/") else {
+                FileHandle.standardError.write(Data("VIBEBUDDY_PREFERENCES_PATH must be absolute.\n".utf8))
+                exit(EXIT_FAILURE)
+            }
+            let preferences = CompletionSummaryPreferences(fileURL: URL(fileURLWithPath: path))
+            await store.configureContentPresentation(service: ContentPresentationService(),
+                save: { preferences.saveContentStyle($0) }, configuration: { preferences.load() })
+        }
         // One follow-up queue for Cursor: the hooks' `stop` drains it for IDE
         // chats, the ACP host for the conversations it carries.
         let cursorFollowups = CursorFollowupQueue()

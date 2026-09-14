@@ -26,12 +26,12 @@ struct SettingsView: View {
                     Section {
                         row("Notifications & sounds", "bell.badge") { notificationSettings }
                         row("Voice conversation", "waveform") { voiceSettings }
+                        row("Summary & speech", "speaker.wave.2") { SummarySpeechSettingsView() }
                     } header: {
                         sectionTitle("This iPhone")
                     }
                     Section {
                         row("Connect your Mac", "desktopcomputer") { connectionDetails }
-                        row("Completion summaries", "text.alignleft") { completionSummaryInfo }
                     } header: {
                         sectionTitle("Connected Mac")
                     }
@@ -241,25 +241,6 @@ struct SettingsView: View {
         case .connected: return String(localized: "Online")
         case .failed: return String(localized: "Offline")
         }
-    }
-
-    private var completionSummaryInfo: some View {
-        Form {
-            Section {
-                Text("Completion summaries are configured and generated on your Mac. Choose the summary provider, model and credentials in the Mac app's Settings.")
-                Text("Your iPhone receives the Mac's completion notice. There is no separate summary model or remote configuration control on this iPhone.")
-            } header: {
-                Text("Managed on your Mac")
-            }
-            Section {
-                Text("Voice conversation on this iPhone has its own provider and credentials. Changing voice settings does not configure Mac completion summaries or Mac read aloud.")
-            } header: {
-                Text("Separate from iPhone voice")
-            }
-        }
-        .phoneList()
-        .navigationTitle("Completion summaries")
-        .navigationBarTitleDisplayMode(.inline)
     }
 
     private var hourTags: some View {

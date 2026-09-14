@@ -1,7 +1,8 @@
 import Foundation
 import VibeBuddyKit
 
-/// Memory-only evidence. Never serialize this into snapshots or the lifecycle journal.
+/// Extraction evidence stays out of snapshots and the lifecycle journal.
+/// The recap ledger retains a bounded copy of verified finalText by exact round.
 public struct FrozenCompletionResult: Sendable, Equatable {
     public let sourceID: String
     public let sessionID: String
@@ -36,6 +37,7 @@ struct CompletionResults {
         let transcriptPath: String?
         var expectedText: String?
         var outcome: CompletionResultAvailability?
+        var readingResult: FrozenCompletionResult?
     }
     var runs: [String: Run] = [:]
     var candidates: [String: Candidate] = [:]
@@ -72,13 +74,16 @@ struct CompletionResults {
         guard event.completionSucceeded == true
             || (event.agent == .codex && event.completionSucceeded == nil) else { return }
         if let candidate = candidates[id], candidate.completionID == completionID {
-            // A labelled duplicate may supply missing final evidence within the
-            // original deadline; it cannot replace a frozen result or ending.
-            if candidate.outcome == nil, [AgentKind.codex, .grokBot].contains(event.agent), event.completionSucceeded == true,
+            // A labelled duplicate may fill missing reading evidence, but never replace it.
+            // Notification capture keeps the original outcome and deadline.
+            if candidate.readingResult == nil, [AgentKind.codex, .grokBot].contains(event.agent), event.completionSucceeded == true,
                let turn = event.turnID, turn == candidate.turnID,
                let text = event.completionText, let sourceID {
-                candidates[id]?.outcome = Self.freeze(text, candidate: candidate,
-                    sourceID: sourceID, sessionID: id, now: now)
+                candidates[id]?.readingResult = Self.readingResult(text, candidate: candidate, sourceID: sourceID, sessionID: id, now: now)
+                if candidate.outcome == nil {
+                    candidates[id]?.outcome = Self.freeze(text, candidate: candidate,
+                        sourceID: sourceID, sessionID: id, now: now)
+                }
             }
             return
         }
@@ -93,9 +98,18 @@ struct CompletionResults {
         }
         if [AgentKind.codex, .grokBot].contains(event.agent), event.completionSucceeded == true, let turn = event.turnID, !turn.isEmpty,
            let text = event.completionText, let sourceID {
+            candidate.readingResult = Self.readingResult(text, candidate: candidate, sourceID: sourceID, sessionID: id, now: now)
             candidate.outcome = Self.freeze(text, candidate: candidate, sourceID: sourceID, sessionID: id, now: now)
         }
         candidates[id] = candidate
+    }
+
+    private static func readingResult(_ text: String, candidate: Candidate, sourceID: String,
+                                      sessionID: String, now: Date) -> FrozenCompletionResult? {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, text.count <= 12_000 else { return nil }
+        return FrozenCompletionResult(sourceID: sourceID, sessionID: sessionID, completionID: candidate.completionID,
+            turnID: candidate.turnID, title: candidate.title, finalText: text,
+            completedAt: candidate.completedAt, observedAt: now)
     }
 
     static func freeze(_ text: String, candidate: Candidate, sourceID: String,

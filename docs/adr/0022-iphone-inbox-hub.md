@@ -110,3 +110,14 @@ supplies it again. Inbox does not persist or reconstruct missing full paths.
 The detail Next footer retains its
 explicit scope and selection when a result becomes read.
 The menu and Glance navigate to this same workspace using Session identity.
+
+## Content presentation and phone reading (2026-09-15)
+
+Read pending now requests a complete, purpose-specific presentation from the
+paired Mac before synthesizing speech. The source Mac owns the global content
+style; the phone owns its voice, announcer style and optional system voice.
+Source, connection generation, exact round and effective content revision must
+still match when the response arrives and before playback. Replaying the latest
+announcement repeats its original text and is labelled as such. It does not
+silently regenerate under a new preference. No read-aloud action acknowledges a
+result or grants permission. Plain fallback remains available without a model.

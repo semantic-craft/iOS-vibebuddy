@@ -619,3 +619,52 @@
 "Check status away from home" = "检查外出连接";
 
 "Scan a Mac’s pairing code here to connect or replace your saved pairing. You do not need to disconnect first." = "在此扫描 Mac 的配对码，即可连接或替换已保存的配对，无需先断开连接。";
+
+"Summary & speech" = "摘要与播报";
+"Current content style" = "当前内容风格";
+"Offline · showing the last confirmed setting" = "离线，显示上次确认的设置";
+"Content style" = "内容风格";
+"Concise" = "简洁";
+"Decision briefing" = "决策汇报";
+"Custom prompt" = "自定义提示词";
+"Enter instructions before saving a custom style." = "请填写自定义提示词后再保存。";
+"Mac settings changed. Your draft is kept. Review the current setting before saving again." = "Mac 设置已改变，草稿已保留。请核对当前设置后再次保存。";
+"Keep draft and use current revision" = "保留草稿，基于当前设置保存";
+"Save to current Mac" = "保存到当前 Mac";
+"Saving…" = "正在保存…";
+"Connect to your Mac to load its content style." = "连接 Mac 后读取内容风格。";
+"Refresh from Mac" = "从 Mac 刷新";
+"Current Mac" = "当前 Mac";
+"Content style is saved on the connected Mac and applies to its summaries. Unsaved edits stay on this screen." = "内容风格保存在当前连接的 Mac，用于该 Mac 的摘要。未保存的编辑只保留在此页面。";
+"Speech service" = "播报服务";
+"System speech" = "系统朗读";
+"System speech uses the device voice. Presenter style is unavailable." = "系统朗读使用设备语音，不支持主播风格。";
+"Stop preview" = "停止试听";
+"Preview voice" = "试听";
+"Read aloud on this iPhone" = "本机播报";
+"Voice and presenter style apply to the next announcement on this iPhone. Voice conversation has its own service selection. Preview is available when reading and voice calls are idle." = "音色和主播风格从本机下一条播报生效。语音对话单独选择服务。朗读和通话空闲时可以试听。";
+"Presenter style" = "主播风格";
+"This speech service does not support presenter styles." = "当前播报服务不支持主播风格。";
+"Configure this provider’s API key or choose System speech." = "请配置此服务的 API 密钥，或选择系统朗读。";
+"Service settings" = "服务设置";
+"API key" = "API 密钥";
+"Speech model" = "播报模型";
+"Voice ID" = "音色 ID";
+"Workspace ID" = "工作空间 ID";
+"Credentials and region are shared with this provider’s voice conversation on this iPhone." = "此服务的凭据和地区与本机语音对话共用。";
+"Mac content settings unavailable. Reconnect or update the Mac app." = "无法读取 Mac 内容设置，请重新连接或更新 Mac 应用。";
+"Could not save to the Mac. Your draft is kept." = "未能保存到 Mac，草稿已保留。";
+"Previous announcement" = "此前播报";
+"Preparing summary…" = "正在准备摘要…";
+"Saved short content · styled summary unavailable" = "已保存的简短内容，未能生成风格摘要";
+"Skipped · task or content style changed" = "已跳过，任务或内容风格已改变";
+"Could not prepare this announcement" = "未能准备此条播报";
+"Mac content style unavailable" = "尚未读取 Mac 内容风格";
+"Regenerate with current style" = "按当前风格重新生成";
+"Girl next door" = "邻家小妹";
+"Fiery girl" = "火辣少女";
+"Standard" = "标准";
+
+"Preview finished" = "试听结束";
+
+"Voice tone" = "音色";

@@ -6,6 +6,8 @@ import VibeBuddyKit
 /// pause, the mic, skip. Closing it changes nothing: the call and the reading
 /// carry on, and the strips over the composer keep showing them.
 struct VoicePageView: View {
+    @EnvironmentObject private var dashboard: DashboardStore
+    @State private var showSpeechSettings = false
     @ObservedObject var voice: VoiceChat
     @ObservedObject var announcer: PhoneAnnouncer
     let scopeCount: Int
@@ -30,6 +32,18 @@ struct VoicePageView: View {
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
+                    Button { showSpeechSettings = true } label: {
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text("Summary & speech")
+                                Text(dashboard.contentStyleState.map { String(localized: String.LocalizationValue($0.configuration.style.title)) }
+                                     ?? String(localized: "Mac content style unavailable"))
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "slider.horizontal.3")
+                        }
+                    }
                     queue
                     conversation
                 }
@@ -40,6 +54,15 @@ struct VoicePageView: View {
         }
         .background(CompanionPalette.bg)
         .tint(CompanionPalette.accent)
+        .task { await dashboard.loadContentStyle() }
+        .sheet(isPresented: $showSpeechSettings) {
+            NavigationStack {
+                SummarySpeechSettingsView()
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showSpeechSettings = false } } }
+            }
+            .environmentObject(voice)
+            .environmentObject(announcer)
+        }
     }
 
     // MARK: Queue
@@ -56,13 +79,10 @@ struct VoicePageView: View {
                         .foregroundStyle(CompanionPalette.ink3)
                 }
                 Spacer(minLength: 0)
-                if let provider = voice.activeProvider ?? (VoiceSettings.provider.apiKey?.isEmpty == false ? VoiceSettings.provider : nil) {
-                    Text(provider.display)
-                        .font(CompanionType.font(10, .medium))
-                        .foregroundStyle(CompanionPalette.ink2)
-                        .padding(.horizontal, 7).padding(.vertical, 3)
-                        .background(CompanionPalette.bg2, in: Capsule())
-                }
+                Text(PhoneReadAloudSelection.load().title)
+                    .font(CompanionType.font(10, .medium))
+                    .foregroundStyle(CompanionPalette.ink2)
+
             }
             if announcer.items.isEmpty {
                 Text(announcer.status ?? String(localized: "Nothing queued. \"Read pending\" on the inbox reads what is waiting."))
@@ -199,6 +219,18 @@ struct VoicePageView: View {
                     Button("Replay last") { replay() }
                         .buttonStyle(PhoneButtonStyle(kind: .quiet, size: .small))
                 }
+            }
+            if let item = announcer.latestItem,
+               let session = AnnouncementPlan.stillCurrent(item, in: dashboard.allSessions) {
+                Button("Regenerate with current style") {
+                    announcer.announce([session], startPaused: voice.phase != .idle,
+                                       live: { dashboard.allSessions },
+                                       source: { dashboard.speechSourceIdentity },
+                           content: { try await dashboard.announcement(for: $0) },
+                                       validate: { dashboard.announcementIsCurrent($0) })
+                }
+                .disabled(dashboard.state != .connected || announcer.isBusy)
+                .font(.caption)
             }
             Text("Reading never marks a result read.")
                 .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)

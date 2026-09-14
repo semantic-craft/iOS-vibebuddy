@@ -33,7 +33,7 @@ public enum CursorCookieSourceSettings {
     ) -> CursorCookieSourceMode {
         guard let raw = defaults.string(forKey: modeKey),
               let mode = CursorCookieSourceMode(rawValue: raw) else {
-            return .manual
+            return .cursorApp
         }
         return mode
     }

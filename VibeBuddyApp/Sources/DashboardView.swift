@@ -186,6 +186,10 @@ struct DashboardView: View {
             VStack(spacing: 0) {
                 if announcer.isBusy || announcer.status != nil {
                     AnnouncerStrip(announcer: announcer, replay: { announcer.replayLatest(live: { dashboard.allSessions }) })
+                        .contentShape(Rectangle())
+                        .onTapGesture { showVoicePage = true }
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityHint("Open the voice page")
                 }
                 if voice.phase != .idle || voice.errorText != nil {
                     VoiceStrip(voice: voice)
@@ -245,6 +249,7 @@ struct DashboardView: View {
             // A sheet doesn't inherit the presenter's environment objects, so
             // re-inject `voice` — Settings restarts a live session on change.
             SettingsView(connectionTest: settingsConnectionTest)
+                .environmentObject(announcer)
                 .environmentObject(voice)
                 .environmentObject(dashboard)
         }
@@ -254,6 +259,7 @@ struct DashboardView: View {
                           scopeCount: dashboard.buddyContext.count, scopeTotal: dashboard.allSessions.count,
                           replay: { announcer.replayLatest(live: { dashboard.allSessions }) },
                           openScope: { showVoicePage = false; showFilters = true })
+                .environmentObject(connection)
                 .environmentObject(dashboard)
                 .presentationDetents([.large])
         }
@@ -275,6 +281,7 @@ struct DashboardView: View {
         }
         .onChange(of: filters) { _, _ in pendingNavigation = PendingTaskNavigation() }
         .onChange(of: page) { _, _ in pendingNavigation = PendingTaskNavigation() }
+        .onChange(of: dashboard.speechSourceIdentity) { _, _ in announcer.sourceChanged() }
         .onChange(of: voice.phase) { _, phase in if phase != .idle { announcer.voiceStarted() } }
         .onChange(of: dashboard.completionSourceID) { _, _ in pendingNavigation = PendingTaskNavigation() }
         .alert("This completion is no longer current", isPresented: $dashboard.completionLinkUnavailable) {
@@ -364,7 +371,10 @@ struct DashboardView: View {
     /// the hub, the scope from a list. Reading never marks anything read.
     private func readPending() {
         let pending = page == .inbox ? inbox.pending : pendingCandidates
-        announcer.announce(pending, startPaused: voice.phase != .idle, live: { dashboard.allSessions })
+        announcer.announce(pending, startPaused: voice.phase != .idle, live: { dashboard.allSessions },
+                           source: { dashboard.speechSourceIdentity },
+                           content: { try await dashboard.announcement(for: $0) },
+                           validate: { dashboard.announcementIsCurrent($0) })
     }
 
     /// The scope a tile or project set, then Customize's picks: what the
