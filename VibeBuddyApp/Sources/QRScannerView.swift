@@ -37,7 +37,8 @@ struct QRScannerView: UIViewControllerRepresentable {
                 return
             }
             scannerLog.info("scanned pairing code")
-            guard let payload = try? JSONDecoder().decode(PairingPayload.self, from: Data(string.utf8)) else {
+            guard let payload = try? JSONDecoder().decode(PairingPayload.self, from: Data(string.utf8)),
+                  payload.isValidConnection else {
                 scannerLog.error("decode to PairingPayload FAILED")
                 return
             }
@@ -118,6 +119,56 @@ final class ScannerViewController: UIViewController {
         super.viewWillDisappear(animated)
         sessionQueue.async { [session] in
             if session.isRunning { session.stopRunning() }
+        }
+    }
+}
+
+/// Shared by initial setup and re-pairing. Cancelling never removes the saved Mac.
+struct PairingScannerSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var connection: ConnectionStore
+    @EnvironmentObject private var dashboard: DashboardStore
+    var onManualEntry: (() -> Void)? = nil
+    @State private var showHelp = false
+
+    var body: some View {
+        NavigationStack {
+            QRScannerView { payload in
+                let unchanged = connection.pairing == payload
+                dashboard.confirmPairing()
+                connection.save(payload)
+                // A different payload restarts via DashboardView's task(id:).
+                // Scanning the same Mac must also retry a failed connection.
+                if unchanged { dashboard.start(payload) }
+                dismiss()
+            }
+            .ignoresSafeArea()
+            .safeAreaInset(edge: .bottom) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Open “Pair a phone” on your Mac, then scan its QR code. Cancelling keeps your current pairing.")
+                            .font(CompanionType.font(15))
+                        DisclosureGroup("Can't find the QR code?", isExpanded: $showHelp) {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Install the companion on your Mac, then open “Pair a phone” in its menu bar. Use the same local network or connect both devices to Tailscale.")
+                                MacCompanionDownloadActions()
+                            }.padding(.top, 12)
+                        }
+                        if let onManualEntry {
+                            Button("Enter address manually") { onManualEntry(); dismiss() }
+                        }
+                    }.padding()
+                }
+                .frame(maxHeight: showHelp ? 360 : 160)
+                .background(.regularMaterial)
+            }
+            .navigationTitle("Scan pairing QR")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
         }
     }
 }

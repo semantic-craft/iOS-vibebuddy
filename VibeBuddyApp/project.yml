@@ -53,7 +53,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.app
         MARKETING_VERSION: "1.3.16"
-        CURRENT_PROJECT_VERSION: "28"
+        CURRENT_PROJECT_VERSION: "39"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"
         DEVELOPMENT_TEAM: LQAVR62TK2
@@ -88,7 +88,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.app.widget
         MARKETING_VERSION: "1.3.16"
-        CURRENT_PROJECT_VERSION: "28"
+        CURRENT_PROJECT_VERSION: "39"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"
         DEVELOPMENT_TEAM: LQAVR62TK2
@@ -111,6 +111,9 @@ targets:
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         WKApplication: true
+        # Launch the Watch app from its mirrored iPhone Live Activity.
+        WKSupportsLiveActivityLaunchAttributeTypes:
+          - VibeBuddyActivityAttributes
         WKCompanionAppBundleIdentifier: com.vibebuddy.app
         WKRunsIndependentlyOfCompanionApp: false
         # iOS's Watch app only lists a third-party app in its complication
@@ -124,7 +127,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.app.watchkitapp
         CODE_SIGN_ENTITLEMENTS: Watch/VibeBuddyWatch.entitlements
         MARKETING_VERSION: "1.3.16"
-        CURRENT_PROJECT_VERSION: "28"
+        CURRENT_PROJECT_VERSION: "39"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "4"
         DEVELOPMENT_TEAM: LQAVR62TK2
@@ -152,7 +155,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vibebuddy.app.watchkitapp.widget
         MARKETING_VERSION: "1.3.16"
-        CURRENT_PROJECT_VERSION: "28"
+        CURRENT_PROJECT_VERSION: "39"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "4"
         DEVELOPMENT_TEAM: LQAVR62TK2

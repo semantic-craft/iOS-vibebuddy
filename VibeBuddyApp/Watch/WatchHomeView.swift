@@ -3,7 +3,7 @@ import VibeBuddyKit
 
 /// The home answers, in this order: how many things need you and which one
 /// is first (the headline and the card); what else is waiting (rows you can
-/// open); what ended since you last read (one row that opens the recap);
+/// open);
 /// and only then what is merely running, and the allowance. Counting tables,
 /// the pet and logs do not get a line of a 40mm screen (ADR-0021).
 struct WatchHomeView: View {
@@ -22,12 +22,11 @@ struct WatchHomeView: View {
                         // An open task or quota sheet covers this card, so it
                         // stops being the one a Double Tap should resolve.
                         WatchAlertCard(store: store, alert: alert, now: now, alsoWaiting: 0,
-                                       isFrontmost: store.taskLink == nil && store.quotaSelection == nil
-                                           && !store.isRecapOpen)
+                                       isFrontmost: store.taskLink == nil && store.quotaSelection == nil)
                     }
                     alsoWaiting
-                    recap
-                    followed
+                    unreadResults
+                    tasks
                     WatchQuotaStrips(state: state, now: now)
                     WatchFooter(state: state, connection: connection, now: now)
                 }
@@ -69,39 +68,32 @@ struct WatchHomeView: View {
         }
     }
 
-    /// What ended since you last read, as one row: the count, how many of
-    /// those failed, and how fresh the newest is. Tapping opens the recap; the
-    /// row itself claims nothing about reading. With nothing ended, no row —
-    /// the home does not spend a line saying so.
+    /// Individual current results remain accessible without the deleted Recap pager.
     @ViewBuilder
-    private var recap: some View {
-        if let recap = state.recap, !recap.entries.isEmpty {
-            WatchSection(title: Text("Recap"), count: recap.unreadCount) {
-                WatchSessionRow(state: recap.failedCount > 0 ? .error : .completeUnread,
-                                title: String(localized: "\(recap.entries.count) since you last read"),
-                                detail: WatchRecapCopy.rowDetail(recap, now: now),
-                                trailing: nil) {
-                    store.openRecap()
-                }
-                .accessibilityIdentifier("watch-recap-row")
-            }
-        }
+    private var unreadResults: some View {
+        taskRows(state.unreadResults, title: Text("Results"))
     }
 
-    /// Followed sessions not already listed above — in practice the ones
-    /// still running. Secondary by design: a running task asks nothing of you.
-    /// A followed session that is waiting sits under Needs you, one that ended
-    /// badly under Also waiting, and one whose round ended is in the recap.
+    /// A running count must have an openable task even at normal attention.
     @ViewBuilder
-    private var followed: some View {
+    private var tasks: some View {
         let listed = Set(state.alerts.map(\.sessionId))
-        let rest = state.followedTasks.filter {
+        let followedIDs = Set(state.followedTasks.map(\.sessionID))
+        let candidates = state.followedTasks + (state.workingTasks ?? []).filter {
+            !followedIDs.contains($0.sessionID)
+        }
+        let rest = candidates.filter {
             !listed.contains($0.sessionID) && $0.presentation != .completeUnread && $0.presentation != .error
         }
+        taskRows(rest, title: Text("Tasks"))
+    }
+
+    @ViewBuilder
+    private func taskRows(_ tasks: [WatchFollowedTask], title: Text) -> some View {
         if let source = state.sourceID, !source.isEmpty,
-           let epoch = state.pairingEpoch, !epoch.isEmpty, !rest.isEmpty {
-            WatchSection(title: Text("Followed"), count: rest.count) {
-                ForEach(rest) { task in
+           let epoch = state.pairingEpoch, !epoch.isEmpty, !tasks.isEmpty {
+            WatchSection(title: title, count: tasks.count) {
+                ForEach(tasks) { task in
                     WatchSessionRow(state: task.presentation,
                                     title: task.title.isEmpty ? String(localized: "Unnamed task") : task.title,
                                     detail: task.summary,
@@ -113,6 +105,7 @@ struct WatchHomeView: View {
             }
         }
     }
+
 }
 
 /// The first line of the home: how many things need you, in the colour of

@@ -29,6 +29,18 @@ struct PushFanoutTests {
         #expect(plan.skip == nil)
     }
 
+    @Test("a followed completion retains sound through phone fanout")
+    func followedCompletionSounds() {
+        var session = AgentSession(id: "followed", agent: .codex, project: "p", status: .done,
+            statusSince: Date(), updatedAt: Date())
+        session.attention = .followed
+        let cue = SoundAlert(session: session, sound: .agentDone,
+            delivery: DeliveryMatrix.level(for: .agentDone, attention: session.effectiveAttention))
+        let plan = PushFanout.plan(cue, devices: [device()], apnsConfigured: true)
+        #expect(plan.recipients.first?.level.makesSound == true)
+        #expect(PushFanout.plan(cue, devices: [device(quiet: true)], apnsConfigured: true).recipients.isEmpty)
+    }
+
     @Test("no APNs key: nothing is sent and the log says why")
     func noKey() {
         let plan = PushFanout.plan(alert(), devices: [device()], apnsConfigured: false)

@@ -45,7 +45,7 @@ struct SoundPolicyTests {
             (.needsApproval, .bannerSound, .bannerSound, .banner),
             (.needsAnswer,   .bannerSound, .bannerSound, .banner),
             (.agentStuck,    .bannerSound, .banner,      .list),
-            (.agentDone,     .banner,      .banner,      .drop),
+            (.agentDone,     .bannerSound, .banner,      .drop),
             (.longWaitNudge, .banner,      .list,        .drop),
         ]
         for (sound, followed, normal, muted) in rows {
@@ -164,7 +164,7 @@ struct SoundPolicyTests {
         #expect(alerts.isEmpty)
     }
 
-    @Test("a completion banners silently for normal and followed sessions, and is dropped for a muted one")
+    @Test("a completion sounds when followed, stays silent when normal, and is dropped when muted")
     func doneByAttention() {
         let p = SoundPolicy()
         _ = p.evaluate(input([session("a", .working, since: 0), session("b", .working, since: 0),
@@ -173,7 +173,7 @@ struct SoundPolicyTests {
                                        session("b", .done, since: 40, attention: .followed),
                                        session("c", .done, since: 40, attention: .muted)],
                                       now: 40, appActive: false))
-        #expect(alerts.map { "\($0.sessionID):\($0.delivery)" } == ["a:banner", "b:banner"])
+        #expect(alerts.map { "\($0.sessionID):\($0.delivery)" } == ["a:banner", "b:bannerSound"])
     }
 
     @Test("a session that keeps waiting does not re-ring")

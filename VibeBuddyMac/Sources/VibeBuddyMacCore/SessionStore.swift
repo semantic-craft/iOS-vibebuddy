@@ -6,6 +6,8 @@ import VibeBuddyKit
 /// an actor. WebSocket clients subscribe for a live snapshot stream.
 public actor SessionStore {
     private static let diagnosticStaleAfter: TimeInterval = 10 * 60
+    // Discovery/reachability is not proof that this connection carries progress.
+    private var appServerProgressAt: [String: Date] = [:]
     private var reducer = SessionReducer()
     private var toolLedger: ToolLedger
     private var workingDirectories: [String: String] = [:]
@@ -542,8 +544,9 @@ public actor SessionStore {
         ingest(event, observationSource: inferredSource, recordsEvidence: recordsEvidence)
     }
 
-    /// How recently the app-server daemon must have reported a Codex thread for
+    /// How recently the app-server daemon must have reported live progress for
     /// its evidence to outrank the rollout tailer and hooks on that thread.
+    /// Idle discovery alone does not establish progress authority.
     public static let appServerAuthorityWindow: TimeInterval = 5 * 60
 
     /// Claude's status line: fills the session's name, effort, cost, context,
@@ -626,7 +629,10 @@ public actor SessionStore {
               fresh.health.isHealthy,
               event.timestamp.timeIntervalSince(fresh.lastObservedAt) < Self.appServerAuthorityWindow
         else { return false }
-        return true
+        // An idle loaded thread still disproves an ownerless retirement probe.
+        if event.probeRetirement { return true }
+        guard let progressAt = appServerProgressAt[event.sessionID] else { return false }
+        return event.timestamp.timeIntervalSince(progressAt) < Self.appServerAuthorityWindow
     }
 
     private func ingest(
@@ -636,6 +642,17 @@ public actor SessionStore {
         announcesWait: Bool = true
     ) {
         if dropsCursorObserveOnly(event) { return }
+        if event.agent == .codex {
+            if event.kind == .sessionEnd { appServerProgressAt[event.sessionID] = nil }
+            else if observationSource == .appserver, recordsEvidence {
+                switch event.kind {
+                case .userPromptSubmit, .preToolUse, .postToolUse, .notification, .stop:
+                    appServerProgressAt[event.sessionID] = event.timestamp
+                case .sessionStart, .sessionMetadataChanged, .childLifecycle, .sessionEnd:
+                    break
+                }
+            }
+        }
         recordCursorHookLog(event, from: observationSource)
         // A corroborating source may supply the menu's read-only round evidence.
         if let path = event.transcriptPath { transcriptPaths[event.sessionID] = path }

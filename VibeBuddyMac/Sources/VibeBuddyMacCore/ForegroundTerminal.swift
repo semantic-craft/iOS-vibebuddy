@@ -1,16 +1,10 @@
 import Foundation
 import VibeBuddyKit
 
-/// Decides which sessions the user is *currently looking at* by matching the
-/// frontmost macOS app to each session's terminal. This is the precise signal
-/// behind `SoundPolicyInput.focusedSessionIDs`, replacing the coarse
-/// `NSApp.isActive` (which only knew whether VibeBuddy itself was frontmost).
-///
-/// App-level only: without the Accessibility permission we can't tell which
-/// tab/window *within* a terminal is frontmost, so every session sharing the
-/// frontmost terminal app counts as focused. That is intentionally conservative
-/// — it silences a finishing session's cue when its terminal is on screen, and
-/// at worst over-silences sibling tabs in the same app, never the reverse.
+/// Matches sessions to the frontmost terminal app for approval routing and
+/// optional source-app speech suppression. This is app-level presence only:
+/// it cannot identify the selected tab and must not be used as proof that a
+/// task is being viewed when deciding phone/watch notification delivery.
 public enum ForegroundTerminal {
     /// Grok Bot exposes app-level presence, not the selected bot. This is only
     /// a speech suppression signal: never treat all bots as viewed or read.
