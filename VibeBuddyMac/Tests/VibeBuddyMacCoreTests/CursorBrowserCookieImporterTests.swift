@@ -6,6 +6,22 @@ import Testing
 
 @Suite("Cursor browser cookie import")
 struct CursorBrowserCookieImporterTests {
+    @Test("login source defaults to the Cursor app and preserves an explicit choice")
+    func defaultLoginSource() throws {
+        let suite = "CursorCookieSourceTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        #expect(CursorCookieSourceSettings.mode(defaults: defaults) == .cursorApp)
+        defaults.set("unknown-source", forKey: CursorCookieSourceSettings.modeKey)
+        #expect(CursorCookieSourceSettings.mode(defaults: defaults) == .cursorApp)
+
+        for mode in CursorCookieSourceMode.allCases {
+            CursorCookieSourceSettings.setMode(mode, defaults: defaults)
+            #expect(CursorCookieSourceSettings.mode(defaults: defaults) == mode)
+        }
+    }
+
     @Test("resolver in manual mode requires a pasted cookie")
     func manualRequiresPaste() {
         #expect(throws: AccountUsageError.notLoggedIn) {

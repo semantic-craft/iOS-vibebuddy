@@ -88,6 +88,7 @@ struct CursorUsageProviderTests {
         }
         let provider = CursorUsageProvider(
             cookie: "WorkosCursorSessionToken=redacted",
+            cookieMode: { .manual },
             endpoint: endpoint,
             transport: transport
         )
@@ -108,6 +109,7 @@ struct CursorUsageProviderTests {
         }
         let snapshot = try await CursorUsageProvider(
             cookie: "WorkosCursorSessionToken=redacted",
+            cookieMode: { .manual },
             endpoint: endpoint,
             transport: transport
         ).fetch()

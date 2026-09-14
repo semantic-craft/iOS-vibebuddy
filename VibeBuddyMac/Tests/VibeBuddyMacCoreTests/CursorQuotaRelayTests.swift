@@ -105,12 +105,12 @@ struct CursorQuotaRelayTests {
         }
     }
 
-    // Opt-in local acceptance uses the configured CLI login through the production
+    // Opt-in local acceptance uses the configured local login through the production
     // adapter; only normalized quota is printed, never credentials or raw response.
     @Test(.enabled(if: ProcessInfo.processInfo.environment["VIBEBUDDY_CURSOR_RELAY_LIVE"] == "1"))
-    func configuredCLISource() async throws {
+    func configuredLocalSource() async throws {
         let mode = CursorCookieSourceSettings.mode(defaults: UserDefaults(suiteName: "com.vibebuddy.mac")!)
-        #expect(mode == .cursorCLI)
+        #expect(mode == .cursorApp || mode == .cursorCLI)
         let sample = try await CursorUsageProvider(cookieMode: { mode }).fetch()
         let quota = ProviderQuota(.available(sample, nextRefreshAt: nil), provider: .cursor)
         #expect(quota.otherWindows?.isEmpty == false)
