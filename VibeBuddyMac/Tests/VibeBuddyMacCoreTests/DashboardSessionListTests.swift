@@ -36,6 +36,17 @@ struct DashboardSessionListTests {
         #expect(input == before)
     }
 
+    @Test func agentFilterIntersectsAndKeepsTheChosenAgentListed() {
+        let claude = AgentSession(id: "c", agent: .claudeCode, project: "Alpha", status: .working,
+                                  statusSince: Date(timeIntervalSince1970: 10), updatedAt: Date(timeIntervalSince1970: 10))
+        let input = [session("x", "Alpha", .working), claude]
+        let list = DashboardSessionList(input, project: .project("Alpha"), agent: .claudeCode, now: Date(timeIntervalSince1970: 100))
+        #expect(list.visible.map(\.id) == ["c"])
+        #expect(list.agents == [.claudeCode, .codex])
+        #expect(DashboardSessionList(input, agent: .cursor).visible.isEmpty)
+        #expect(DashboardSessionList(input, agent: .cursor).agents == [.claudeCode, .codex, .cursor])
+    }
+
     @Test func hiddenSelectionRetainsLiveDetailWithoutSelectingAnother() {
         let first = session("selected", "Alpha", .done)
         let other = session("other", "Beta", .needsResponse)

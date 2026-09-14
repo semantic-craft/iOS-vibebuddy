@@ -104,9 +104,8 @@ final class NotificationRelayTests: XCTestCase {
     /// thing from scheduling one, and the Watch's long look has to do it: a
     /// `WKUserNotificationHostingController` is handed a `UNNotification` and
     /// that type lives in `UserNotifications`. So the ban is on the scheduler
-    /// itself — `UNUserNotificationCenter` and `UNNotificationRequest` — rather
-    /// than on the import. Nothing on the wrist may add, withdraw, or ask
-    /// permission for a notification.
+    /// operations rather than receiving delegate callbacks from the centre.
+    /// Nothing on the wrist may add, withdraw, or ask permission for a notification.
     func testTheWatchTargetSchedulesNoNotificationsOfItsOwn() throws {
         let watch = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()   // Tests
@@ -119,8 +118,11 @@ final class NotificationRelayTests: XCTestCase {
 
         for source in sources {
             let text = try String(contentsOf: source, encoding: .utf8)
-            XCTAssertFalse(text.contains("UNUserNotificationCenter"),
-                           "\(source.lastPathComponent) touches the notification centre")
+            for forbidden in ["requestAuthorization(", "removeDeliveredNotifications(",
+                              "removeAllDeliveredNotifications(", "removePendingNotificationRequests(",
+                              "removeAllPendingNotificationRequests("] {
+                XCTAssertFalse(text.contains(forbidden), "\(source.lastPathComponent) uses notification scheduling: \(forbidden)")
+            }
             XCTAssertFalse(text.contains("UNNotificationRequest"),
                            "\(source.lastPathComponent) schedules a notification")
         }
