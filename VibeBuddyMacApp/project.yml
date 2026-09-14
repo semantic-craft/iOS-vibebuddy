@@ -10,6 +10,9 @@ packages:
     path: ../VibeBuddyKit
   VibeBuddyMac:
     path: ../VibeBuddyMac
+  MenuBarExtraAccess:
+    url: https://github.com/orchetect/MenuBarExtraAccess
+    exactVersion: 1.3.1
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
     exactVersion: 2.9.6
@@ -31,6 +34,8 @@ targets:
         product: VibeBuddyMacCore
       - package: VibeBuddyKit
         product: VibeBuddyKit
+      - package: MenuBarExtraAccess
+        product: MenuBarExtraAccess
       - package: Sparkle
         product: Sparkle
     postCompileScripts:

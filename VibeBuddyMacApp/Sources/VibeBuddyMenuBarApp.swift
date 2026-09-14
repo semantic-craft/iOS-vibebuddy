@@ -1,4 +1,5 @@
 import SwiftUI
+import MenuBarExtraAccess
 import AppKit
 import os
 import VibeBuddyKit
@@ -8,6 +9,8 @@ import VibeBuddyMacCore
 struct VibeBuddyMenuBarApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var model: MenuBarModel
+    @State private var isMenuPresented = false
+    @StateObject private var placementRecovery: MenuBarPlacementRecovery
     private let role: AppRuntime.Role
     // Visibility affects only the icon; app-level commands stay available.
     @AppStorage("showMenuBarIcon") private var showMenuBarIcon = true
@@ -15,6 +18,7 @@ struct VibeBuddyMenuBarApp: App {
     init() {
         let role = AppRuntime.role
         self.role = role
+        _placementRecovery = StateObject(wrappedValue: MenuBarPlacementRecovery(enabled: role == .primary))
         // Read-aloud used to be Qwen-only; move its saved model and voice onto the
         // per-provider keys before any view reads them. Idempotent.
         VoiceSettings.migrateLegacyReadAloudKeys()
@@ -30,6 +34,9 @@ struct VibeBuddyMenuBarApp: App {
             MenuContent(model: model)
         } label: {
             MenuBarLabel(model: model)
+        }
+        .menuBarExtraAccess(isPresented: $isMenuPresented) { item in
+            placementRecovery.attach(item)
         }
         .menuBarExtraStyle(.window)
 
