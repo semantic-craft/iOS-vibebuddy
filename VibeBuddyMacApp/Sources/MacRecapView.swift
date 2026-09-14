@@ -70,7 +70,11 @@ struct MacRecapView: View {
                                     Text(entry.endedAt, format: .dateTime.year().month().day().hour().minute())
                                         .font(MacTheme.mono(11)).foregroundStyle(selected == entry.id && controlActiveState == .key ? Color.white.opacity(0.8) : MacTheme.ink3)
                                     if model.sessions.contains(where: { $0.id == entry.sessionID }) {
-                                        Button("Open current task") { DashboardRoute.openSession(id: entry.sessionID) }
+                                        Button { DashboardRoute.openSession(id: entry.sessionID) } label: {
+                                            Text("Open current task").underline()
+                                        }
+                                            .buttonStyle(.plain)
+                                            .foregroundStyle(controlActiveState == .key ? Color.white : MacTheme.accentText)
                                             .accessibilityIdentifier("mac-recap-open-current")
                                         Text("Opens the live task, which may have moved to a newer round.")
                                             .font(MacTheme.font(11)).foregroundStyle(selected == entry.id && controlActiveState == .key ? Color.white.opacity(0.8) : MacTheme.ink3)
