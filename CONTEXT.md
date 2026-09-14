@@ -543,7 +543,38 @@ Mac presence suppresses ordinary cues only while the verdict is current; leaving
   `.scratch/<feature>/handoffs/<yyyy-mm-dd>-<from-agent>-<to-agent>.md`.
   Its first line, `Source session: <key>`, names the writer's own verified Session
   key, or `unknown` when unavailable; the newest project session is not evidence
-  of authorship. Saved summaries cannot override a newer Handoff note.
+  of authorship. Saved summaries cannot override a newer Handoff note. Since
+  ADR-0023 the note opens with the **Handoff facts** block and its Verification
+  evidence has two parts: what the facts show ran, and what the writer concludes;
+  anything the facts do not support is `[unverified]`.
+- **Handoff facts** — `vibebuddy-mcp facts <key>` (`vibebuddy_handoff_facts`):
+  the Mac's recorded facts for one session, printed as the note's four header
+  lines plus a `## Facts (recorded by VibeBuddy, as of <time>)` section — rounds
+  ended, live git HEAD / branch / changed paths, files edited, commands run with
+  exit codes, a coverage line naming what the session's observation path could
+  report (hook and Codex app-server: commands and exit codes; Cursor ACP and the
+  rollout tailer: tool names only), and a data-freshness line. Read from the
+  lifecycle journal and tool ledger without writing; git is probed read-only. Tool
+  calls require recorded agent identity; unqualified older calls are omitted with
+  coverage stated. Only confirmed successful edits establish edited files. The
+  caller supplies its own key; a bare native id resolves only when one agent
+  recorded it, "Not recorded" is an answer (exit 0), not an error.
+- **Handoff record** (`HandoffRecord`) — a Handoff note the Mac found by scanning
+  `.scratch/*/handoffs/*.md` under the snapshot's recent directories: its path,
+  the parsed header (source key nil for `unknown`), when it was written and which
+  sessions this Mac started from it (`takenBy`, this process only). Carried as
+  `snapshot.handoffs`; the file remains the only truth. A session row whose key a
+  record names shows **Handoff ready**.
+- **Continue with…** — a finished session's action on the Mac (row context menu,
+  detail title bar) that prefills the New task sheet for one of `dispatchAgents`:
+  the session's checkout, `Continue: <title>`, and a first prompt of
+  `Read <handoff path>, then continue.` + `Continues: vibebuddy://session/<key>`
+  (or, with no record, the `Continues:` line and a pointer to `facts` / `show`).
+  The person reviews and presses Start; the writer's session is untouched. The
+  sheet says when other sessions are working in that folder and offers another
+  folder (and Cursor's fresh worktree); it never switches on its own. The Mac
+  records the lineage at dispatch: the new session carries
+  `continuesSessionKey` and the record's `takenBy` grows, in memory only.
 ## iPhone inbox (2026-09-13, ADR-0022)
 
 - **Inbox** — the iPhone home and Mac Dashboard default entry: the mood line, **First up**, four **buckets**,

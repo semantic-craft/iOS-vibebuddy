@@ -12,9 +12,11 @@ struct ToolLedger: Sendable {
            let stored = try? JSONDecoder().decode([String: [ToolCallRecord]].self, from: data) { sessions = stored }
         prune(now: now)
     }
-    mutating func observe(_ record: ToolCallRecord, sessionID: String, now: Date) {
+    mutating func observe(_ input: ToolCallRecord, sessionID: String, now: Date, agent: AgentKind? = nil) {
+        var record = input
+        record.agent = agent ?? input.agent
         var records = sessions[sessionID] ?? []
-        if let index = records.firstIndex(where: { $0.id == record.id && $0.source == record.source }) {
+        if let index = records.firstIndex(where: { $0.id == record.id && $0.source == record.source && $0.agent == record.agent }) {
             let old = records[index]
             // Replayed intent must not erase a confirmed result.
             if old.result != .unconfirmed && record.result == .unconfirmed { return }

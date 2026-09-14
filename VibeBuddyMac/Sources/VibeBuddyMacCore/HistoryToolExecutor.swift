@@ -22,6 +22,10 @@ public struct HistoryToolExecutor: Sendable {
             if name == "vibebuddy_live_status" {
                 return try await HistoryLiveStatus.call(arguments: arguments, environment: environment)
             }
+            // Handoff facts read the daemon's ledger files and probe git; no History metadata.
+            if name == HandoffFacts.toolName {
+                return try HandoffFacts.call(arguments: arguments, directory: HandoffFacts.directory(environment: environment))
+            }
             try await repository.reloadReadOnlyMetadata()
             if Self.requiresIndex(name), !(await repository.hasUsableIndex()) {
                 throw HistoryToolError.noIndex

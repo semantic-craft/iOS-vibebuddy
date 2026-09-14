@@ -193,5 +193,42 @@
       "idempotentHint": true,
       "openWorldHint": false
     }
+  },
+  {
+    "name": "vibebuddy_handoff_facts",
+    "title": "Handoff facts",
+    "description": "Read the recorded facts for one session before writing a handoff: rounds ended, the checkout's git HEAD and dirty files now, files edited, commands run with exit codes, and what the observation path could not see. Pass your own session key; the tool never picks a session for you and never generates text.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Session key <agent>:<native id> (claude-code, codex, cursor, grok-build) or a vibebuddy://session/ reference; your own session's id."
+        },
+        "commands": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "default": 20,
+          "description": "How many of the most recent commands to list (default 20, at most 50)."
+        },
+        "cwd": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absolute checkout path to probe with git; otherwise derived from the files the session edited."
+        }
+      },
+      "required": [
+        "key"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
   }
 ]

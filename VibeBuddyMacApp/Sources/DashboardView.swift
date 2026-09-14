@@ -46,6 +46,8 @@ struct DashboardView: View {
     @State private var projectScope: DashboardSessionList.ProjectScope = .all
     @State private var query: String = ""
     @State private var showNewTask = false
+    /// What Continue with… put into the New task sheet; nil for a plain ⌘N.
+    @State private var newTaskPrefill: NewTaskPrefill?
     @State private var showSpeechPanel = false
     @State private var libraryScope = "inbox"
     @State private var showOlder = false
@@ -160,7 +162,8 @@ struct DashboardView: View {
             // publisher is not re-entered from inside its own delivery.
             DispatchQueue.main.async { DashboardRoute.shared.requested = nil }
         }
-        .sheet(isPresented: $showNewTask) { NewTaskSheet(model: model) }
+        .sheet(isPresented: $showNewTask, onDismiss: { newTaskPrefill = nil }) { NewTaskSheet(model: model, prefill: newTaskPrefill) }
+        .onChange(of: model.continueRequest) { _, request in presentContinue(request) }
         .sheet(isPresented: $showSpeechPanel) { MacVoicePanel(model: model) }
         .onAppear {
             // `VIBEBUDDY_DEMO_PAGE=dashboard/<live|history|favorites|usage|newtask>`
@@ -170,6 +173,27 @@ struct DashboardView: View {
             let target = String(page.dropFirst("dashboard/".count))
             if target == "newtask" { showNewTask = true } else if let library = DashboardRoute.Library(rawValue: target) {
                 libraryScope = library.rawValue
+            } else if target.hasPrefix("continue:") {
+                // `dashboard/continue:<session id>:<agent raw value>` opens Continue
+                // with… for that session once it is listed — the isolated QA
+                // instance has no pointer and no launcher of its own.
+                let parts = target.dropFirst("continue:".count).split(separator: ":", maxSplits: 1).map(String.init)
+                guard let id = parts.first, let agent = parts.count > 1 ? AgentKind(rawValue: parts[1]) : .claudeCode else { return }
+                Task { @MainActor in
+                    // Wait for the row, then one more poll so the snapshot that
+                    // named its checkout (and scanned its handoffs) has landed.
+                    var ready: AgentSession?
+                    for _ in 0..<120 {
+                        if let session = model.sessions.first(where: { $0.id == id }), session.checkoutPath != nil {
+                            if ready != nil { break }
+                            ready = session
+                        }
+                        try? await Task.sleep(nanoseconds: 2_500_000_000)
+                    }
+                    guard let session = model.sessions.first(where: { $0.id == id }) ?? ready else { return }
+                    selection = id
+                    model.requestContinue(session, with: agent)
+                }
             }
         }
         .background {
@@ -338,6 +362,8 @@ struct DashboardView: View {
                         ForEach(filtered) { session in
                             SummaryRow(session: session, isSelected: selection == session.id,
                                        included: model.buddySessionIDs.contains(session.id), showInclude: companionEnabled,
+                                       handoffReady: ContinueWith.handoff(for: session, in: model.handoffs) != nil,
+                                       continues: continuesLabel(for: session),
                                        onSelect: { selectSession(session) },
                                        onToggleInclude: { model.toggleBuddy(session.id) })
                                 .contextMenu {
@@ -348,6 +374,7 @@ struct DashboardView: View {
                                             else { model.markUnread(session) }
                                         }
                                     }
+                                    ContinueWithMenu(session: session, model: model)
                                 }
                         }
                     }
@@ -356,6 +383,25 @@ struct DashboardView: View {
             }
         }
         .frame(minWidth: 240, idealWidth: 300, maxWidth: 380, maxHeight: .infinity)
+    }
+
+    /// Continue with… asked for the sheet: prefill it and consume the request.
+    private func presentContinue(_ request: NewTaskPrefill?) {
+        guard let request else { return }
+        newTaskPrefill = request
+        showNewTask = true
+        model.continueRequest = nil
+    }
+
+    /// "continues Codex · title" for a session the Mac started from another
+    /// one; the source's title when it is still listed, its key otherwise.
+    private func continuesLabel(for session: AgentSession) -> String? {
+        guard let key = session.continuesSessionKey else { return nil }
+        let nativeID = key.split(separator: ":", maxSplits: 1).last.map(String.init) ?? key
+        if let source = model.sessions.first(where: { $0.id == nativeID }) {
+            return String(localized: "continues \(source.agent.displayName) · \(source.displayTitle)")
+        }
+        return String(localized: "continues \(key)")
     }
 
     /// The chips use the menu panel's group words (Needs you / Working / Done),
@@ -424,6 +470,10 @@ private struct SummaryRow: View {
     var isSelected = false
     var included = false
     var showInclude = false
+    /// A handoff document names this session as its source (ADR-0023).
+    var handoffReady = false
+    /// Which session this one was started to continue, if any.
+    var continues: String?
     var onSelect: () -> Void
     var onToggleInclude: () -> Void
 
@@ -450,6 +500,11 @@ private struct SummaryRow: View {
                             Text(session.project).lineLimit(1).truncationMode(.middle)
                                 .help(session.agent.displayName + " · " + session.project)
                             Spacer(minLength: 0)
+                            if handoffReady {
+                                Text("Handoff ready").foregroundStyle(MacTheme.accent)
+                                    .help("A handoff document names this session. Continue with… starts another agent from it.")
+                                    .accessibilityIdentifier("handoff-ready")
+                            }
                             if presentation.unread { Text("Unread").foregroundStyle(MacTheme.status(.completeUnread)) }
                             if let glyph = session.effectiveAttention.rowGlyph {
                                 Image(systemName: glyph).help(session.effectiveAttention.title)
@@ -463,6 +518,7 @@ private struct SummaryRow: View {
                             Text("Last observed: \(seen.formatted())")
                         }
                     }
+                    if let continues { Text(continues).lineLimit(1).truncationMode(.middle).help(continues) }
                     if let stats = session.ledgerSummary { Text(stats).lineLimit(2) }
                     if let child = ToolActivity.childSummary(for: session) { Text(child) }
                     }
@@ -655,6 +711,30 @@ extension SessionAttention {
         case .followed: String(localized: "Everything about this session interrupts you.")
         case .normal: String(localized: "Only approvals and failures interrupt; the rest waits in Notification Center.")
         case .muted: String(localized: "Approvals show silently; nothing else interrupts.")
+        }
+    }
+}
+
+/// Continue with… (ADR-0023 §4): one item per agent the Mac can start now.
+/// Only a finished session with a history-side identity offers it; the sheet
+/// the item opens is where the person reviews and presses Start.
+struct ContinueWithMenu: View {
+    let session: AgentSession
+    @ObservedObject var model: MenuBarModel
+
+    private var available: Bool {
+        session.status == .done && session.historyOnly != true && ContinueWith.sessionKey(for: session) != nil
+            && !model.dispatchAgents.isEmpty
+    }
+
+    var body: some View {
+        if available {
+            Divider()
+            Menu("Continue with…") {
+                ForEach(model.dispatchAgents, id: \.self) { agent in
+                    Button(agent.displayName) { model.requestContinue(session, with: agent) }
+                }
+            }
         }
     }
 }

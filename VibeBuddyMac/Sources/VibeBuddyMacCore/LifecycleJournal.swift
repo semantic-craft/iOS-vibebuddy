@@ -129,6 +129,19 @@ struct LifecycleJournal {
         )
     }
 
+    /// Decode a journal file without pruning or persisting — for readers in
+    /// another process (`vibebuddy-mcp facts`). `exists` distinguishes an
+    /// absent file from an unreadable or empty one.
+    static func readEntries(url: URL) -> (entries: [LifecycleJournalEntry], exists: Bool) {
+        guard let data = try? Data(contentsOf: url) else { return ([], false) }
+        guard let envelope = try? JSONDecoder().decode(Envelope.self, from: data), envelope.schemaVersion == 1 else { return ([], true) }
+        var entries = envelope.entries
+        for (_, completion) in envelope.completions ?? [:] where !entries.contains(where: { $0.id == completion.id }) {
+            entries.append(completion)
+        }
+        return (entries, true)
+    }
+
     @discardableResult
     mutating func append(_ entry: LifecycleJournalEntry, now: Date) -> Bool {
         if entry.status == .done, entry.completionID != nil {

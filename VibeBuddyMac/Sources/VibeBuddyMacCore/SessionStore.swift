@@ -346,6 +346,22 @@ public actor SessionStore {
     private var missedLedger: MissedLedger
     /// Ended rounds and the recap horizon, beside the journal (`RecapLedger`).
     private var recapLedger: RecapLedger
+    private var handoffScanner: HandoffScanner
+    /// Session ids this process started from a handoff document, by path (ADR-0023 §5).
+    private var handoffTakenBy: [String: [String]] = [:]
+    /// The Session key each dispatched receiver continues, by the new session's id.
+    private var continuations: [String: String] = [:]
+
+    /// Continue with… started `sessionID` to carry on `sourceKey`, from the
+    /// handoff at `handoffPath` when there was one. In-memory lineage only;
+    /// the lifecycle journal's field policy is unchanged (ADR-0023 §5).
+    public func recordContinuation(sessionID: String, sourceKey: String, handoffPath: String?) {
+        continuations[sessionID] = sourceKey
+        if let handoffPath, !handoffTakenBy[handoffPath, default: []].contains(sessionID) {
+            handoffTakenBy[handoffPath, default: []].append(sessionID)
+        }
+        broadcast()
+    }
     /// The user's hand-set attention levels, layered onto every snapshot.
     private var attention: AttentionOverrides
     /// When the user last drove each session (prompt, jump, decision, answer);
@@ -368,6 +384,7 @@ public actor SessionStore {
         self.cursorStore = cursorDatabase.map { CursorComposerStore(database: $0) } ?? CursorComposerStore()
         self.toolLedger = ToolLedger(url: journalURL?.deletingLastPathComponent().appendingPathComponent("tool-ledger.json"), now: now)
         self.recapLedger = RecapLedger(url: journalURL?.deletingLastPathComponent().appendingPathComponent("recap-ledger.json"), now: now)
+        self.handoffScanner = HandoffScanner()
         self.sourceID = sourceID
         self.staleAfter = staleAfter
         self.diagnosticsHome = diagnosticsHome
@@ -488,7 +505,7 @@ public actor SessionStore {
         case let .event(event):
             if !appServerOutranks(event, from: .hook), !acpOutranks(event, from: .hook),
                let record = ToolLedger.hook(data, event: event) {
-                toolLedger.observe(record, sessionID: event.sessionID, now: receivedAt)
+                toolLedger.observe(record, sessionID: event.sessionID, now: receivedAt, agent: event.agent)
             }
             ingest(event, observationSource: .hook, announcesWait: announcesWait)
             return true
@@ -647,7 +664,7 @@ public actor SessionStore {
             let record = event.toolCall ?? ToolCallRecord(id: UUID().uuidString, tool: event.toolName ?? "Tool",
                 observedAt: event.timestamp, source: observationSource.rawValue,
                 coverage: "Tool activity observed; call identity and result details unavailable")
-            toolLedger.observe(record, sessionID: event.sessionID, now: event.timestamp)
+            toolLedger.observe(record, sessionID: event.sessionID, now: event.timestamp, agent: event.agent)
         }
         let wasWaiting = reducer.sessions[event.sessionID]?.status == .needsResponse
         rememberDirectory(event.cwd, at: event.timestamp)
@@ -1160,6 +1177,22 @@ public actor SessionStore {
         snapshot.tokenConsumption = tokenConsumption
         let directories = recentDirectories()
         snapshot.recentDirectories = directories.isEmpty ? nil : directories
+        // Handoff documents under those checkouts (ADR-0023). The file is the
+        // record; `takenBy` is what this process started from each one.
+        let handoffs = handoffScanner.scan(directories: directories).map { record in
+            var record = record
+            record.takenBy = handoffTakenBy[record.path] ?? []
+            return record
+        }
+        snapshot.handoffs = handoffs.isEmpty ? nil : handoffs
+        if !continuations.isEmpty {
+            snapshot.sessions = snapshot.sessions.map { session in
+                guard let key = continuations[session.id] else { return session }
+                var session = session
+                session.continuesSessionKey = key
+                return session
+            }
+        }
         snapshot.cursorModels = cursorModels.isEmpty ? nil : cursorModels
         snapshot.dispatchAgents = dispatchAgents.isEmpty ? nil : dispatchAgents
         snapshot.sessions = snapshot.sessions.map { session in

@@ -130,6 +130,7 @@ private struct SessionTitleBar: View {
                     Divider()
                 }
                 Menu("Notifications") { AttentionPicker(session: session, model: model, style: .menu) }
+                ContinueWithMenu(session: session, model: model)
             } label: {
                 Image(systemName: "ellipsis")
             }

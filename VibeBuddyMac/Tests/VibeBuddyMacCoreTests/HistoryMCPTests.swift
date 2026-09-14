@@ -59,13 +59,14 @@ final class HistoryMCPTests: XCTestCase {
             try Dictionary(uniqueKeysWithValues: FileManager.default.contentsOfDirectory(at: store, includingPropertiesForKeys: nil).map { ($0.lastPathComponent, try Data(contentsOf: $0)) })
         }
         let before = try bytes()
-        let executor = HistoryToolExecutor(repository: repository, environment: ["VIBEBUDDY_PORT": "0"])
+        let executor = HistoryToolExecutor(repository: repository, environment: ["VIBEBUDDY_PORT": "0", "VIBEBUDDY_FACTS_DIRECTORY": root.appendingPathComponent("facts").path])
         let server = HistoryMCPServer(executor: executor)
         _ = try await initialize(server)
         let requests: [(String, [String])] = [
             ("sessions", ["--limit", "5"]), ("projects", ["--limit", "5"]),
             ("show", ["codex:native"]), ("search", ["context"]),
-            ("summary", ["codex:native"]), ("status", [])
+            ("summary", ["codex:native"]), ("status", []),
+            ("facts", ["codex:native", "--commands", "3"])
         ]
         for (command, flags) in requests {
             let parsed = try HistoryCLI.parse([command] + flags)

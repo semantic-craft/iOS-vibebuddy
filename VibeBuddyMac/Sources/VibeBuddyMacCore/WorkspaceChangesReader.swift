@@ -58,8 +58,9 @@ public enum WorkspaceChangesReader {
         return result
     }
 
-    private struct Output { let code: Int32; let text: String; let truncated: Bool }
-    private static func run(_ cwd: String, _ arguments: [String], cap: Int) -> Output? {
+    struct Output { let code: Int32; let text: String; let truncated: Bool }
+    /// Shared with `HandoffFacts`: read-only git with locks disabled, bounded output, an 8 s cap.
+    static func run(_ cwd: String, _ arguments: [String], cap: Int) -> Output? {
         let process = Process(); process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         process.arguments = ["--literal-pathspecs", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "-C", cwd] + arguments
         var environment = ProcessInfo.processInfo.environment
