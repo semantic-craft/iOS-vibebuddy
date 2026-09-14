@@ -214,10 +214,10 @@ struct NewTaskSheet: View {
         let request = DispatchRequest(agent: agent, cwd: directory,
                                       prompt: prompt.trimmingCharacters(in: .whitespacesAndNewlines),
                                       name: name.isEmpty ? nil : name,
-                                      worktree: agent == .cursor && freshWorktree ? true : nil)
+                                      worktree: agent == .cursor && freshWorktree ? true : nil,
+                                      continuation: prefill?.continuing.map { DispatchContinuation(sourceKey: $0.sourceKey, handoffPath: $0.handoffPath) })
         Task {
-            let outcome = await model.dispatch(request, userChoseDirectory: chosenDirectories.contains(directory),
-                                               continuing: prefill?.continuing)
+            let outcome = await model.dispatch(request, userChoseDirectory: chosenDirectories.contains(directory))
             busy = false
             switch outcome {
             case .started: dismiss()

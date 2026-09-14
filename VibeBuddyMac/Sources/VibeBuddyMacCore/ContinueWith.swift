@@ -30,12 +30,34 @@ public enum ContinueWith {
         return records.filter { $0.sourceKey == key }.max { $0.writtenAt < $1.writtenAt }
     }
 
-    public static func prompt(sessionKey: String, handoffPath: String?) -> String {
+    public static func prompt(sessionKey: String, handoffPath: String?, checkout: String? = nil) -> String {
         let reference = "vibebuddy://session/" + sessionKey
         if let handoffPath {
-            return "Read \(handoffPath), then continue.\nContinues: \(reference)"
+            var text = "Read \(handoffPath), then continue.\nContinues: \(reference)"
+            // The fallback, not the fix (spec C): a sandbox may still refuse the
+            // handoff's directory; say what to do then instead of losing a turn.
+            if let checkout, let root = writableRoot(handoffPath: handoffPath, cwd: checkout) {
+                text += "\nThe handoff lives in \(root), outside this checkout; if your sandbox refuses to write there, report the text instead of writing."
+            }
+            return text
         }
         return "Continues: \(reference)\nNo handoff document was written for it. Read it first: `vibebuddy-mcp facts '\(sessionKey)'` for what was recorded, `vibebuddy-mcp show '\(sessionKey)'` for the conversation."
+    }
+
+    /// The effort directory a Codex receiver needs to write in: the handoff's
+    /// `.scratch/<feature>/` (parent of `handoffs/`), symlinks resolved. Nil
+    /// when that directory is inside the checkout already, so nothing needs
+    /// to be granted, or when the path is not a handoff path.
+    public static func writableRoot(handoffPath: String, cwd: String) -> String? {
+        let resolved = URL(fileURLWithPath: handoffPath).resolvingSymlinksInPath().standardizedFileURL
+        let handoffs = resolved.deletingLastPathComponent()
+        guard handoffs.lastPathComponent == "handoffs" else { return nil }
+        let effort = handoffs.deletingLastPathComponent()
+        guard effort.deletingLastPathComponent().lastPathComponent == ".scratch" else { return nil }
+        let checkout = URL(fileURLWithPath: cwd).resolvingSymlinksInPath().standardizedFileURL.path
+        let root = effort.path
+        if root == checkout || root.hasPrefix(checkout.hasSuffix("/") ? checkout : checkout + "/") { return nil }
+        return root
     }
 
     public static func taskName(for session: AgentSession) -> String {

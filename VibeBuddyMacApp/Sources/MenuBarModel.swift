@@ -1056,16 +1056,17 @@ final class MenuBarModel: ObservableObject {
             // Only what the Mac observed; unknown stays empty and the person picks.
             directory: session.checkoutPath ?? session.terminalRef?.cwd ?? "",
             name: ContinueWith.taskName(for: session),
-            prompt: ContinueWith.prompt(sessionKey: key, handoffPath: handoff?.path),
+            prompt: ContinueWith.prompt(sessionKey: key, handoffPath: handoff?.path,
+                                        checkout: session.checkoutPath ?? session.terminalRef?.cwd),
             continuing: NewTaskPrefill.Continuation(sessionID: session.id, sourceKey: key, handoffPath: handoff?.path))
     }
 
-    func dispatch(_ request: DispatchRequest, userChoseDirectory: Bool = false,
-                  continuing: NewTaskPrefill.Continuation? = nil) async -> DispatchOutcome {
+    func dispatch(_ request: DispatchRequest, userChoseDirectory: Bool = false) async -> DispatchOutcome {
         let outcome = await start(request, userChoseDirectory: userChoseDirectory)
-        if case .started(let id) = outcome, let continuing,
+        // Same as the daemon's /dispatch route: lineage is recorded where the task was started.
+        if case .started(let id) = outcome, let continuation = request.continuation,
            let receiverKey = ContinueWith.sessionKey(agent: request.agent, id: id) {
-            await store.recordContinuation(receiverKey: receiverKey, sourceKey: continuing.sourceKey, handoffPath: continuing.handoffPath)
+            await store.recordContinuation(receiverKey: receiverKey, sourceKey: continuation.sourceKey, handoffPath: continuation.handoffPath)
         }
         return outcome
     }

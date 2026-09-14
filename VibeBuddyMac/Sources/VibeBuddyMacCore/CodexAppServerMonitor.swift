@@ -745,10 +745,25 @@ public actor CodexAppServerMonitor {
                 // A name is a courtesy; a daemon without the method still runs the task.
                 _ = try? await client.request("thread/name/set", params: ["threadId": threadID, "name": name])
             }
-            _ = try await client.request("turn/start", params: [
+            var turn: [String: Any] = [
                 "threadId": threadID,
                 "input": [["type": "text", "text": request.prompt]],
-            ])
+            ]
+            // Continue with… (ADR-0023 amendment): the receiver may write in the
+            // handoff's effort directory. Only the thread's own workspace-write
+            // policy, as `thread/start` reported it, plus that one root; any
+            // other policy, or a daemon that reports none, is left untouched.
+            // Note: a policy given to `turn/start` becomes this thread's default
+            // for later turns, so the grant lasts as long as the task.
+            if let handoffPath = request.continuation?.handoffPath,
+               let root = ContinueWith.writableRoot(handoffPath: handoffPath, cwd: request.cwd),
+               var policy = started["sandbox"] as? [String: Any], policy["type"] as? String == "workspaceWrite" {
+                var roots = policy["writableRoots"] as? [String] ?? []
+                if !roots.contains(root) { roots.append(root) }
+                policy["writableRoots"] = roots
+                turn["sandboxPolicy"] = policy
+            }
+            _ = try await client.request("turn/start", params: turn)
             return .started(sessionID: threadID)
         } catch {
             state.lastError = "dispatch: \(error)"
