@@ -17,6 +17,8 @@ protocol WatchStateTransport: AnyObject {
     /// straight back to the wrist — the Watch never assumes a tap landed.
     var onSessionAction: ((WatchSessionActionRequest) async -> WatchSessionActionResult)? { get set }
     var onCompletionRequest: ((WatchCompletionRequest) async -> WatchCompletionResult)? { get set }
+    var onRefresh: ((WatchRefreshRequest) async -> WatchRefreshReply)? { get set }
+    var onActivityOpen: ((WatchActivityOpenRequest) async -> WatchActivityOpenReply)? { get set }
     var onWaitReadRequest: ((WatchWaitReadRequest) async -> Bool)? { get set }
     /// Mark all from the recap: move the Mac's horizon, then read each round
     /// it named. Answered only after the Mac has been asked.
@@ -48,6 +50,16 @@ final class WatchRelay {
     var onSessionAction: ((WatchSessionActionRequest) async -> WatchSessionActionResult)? {
         get { transport.onSessionAction }
         set { transport.onSessionAction = newValue }
+    }
+
+    var onRefresh: ((WatchRefreshRequest) async -> WatchRefreshReply)? {
+        get { transport.onRefresh }
+        set { transport.onRefresh = newValue }
+    }
+
+    var onActivityOpen: ((WatchActivityOpenRequest) async -> WatchActivityOpenReply)? {
+        get { transport.onActivityOpen }
+        set { transport.onActivityOpen = newValue }
     }
 
     var onCompletionRequest: ((WatchCompletionRequest) async -> WatchCompletionResult)? {
@@ -126,6 +138,8 @@ final class WatchConnectivityTransport: NSObject, WatchStateTransport {
     var onReady: (() -> Void)?
     var onSessionAction: ((WatchSessionActionRequest) async -> WatchSessionActionResult)?
     var onCompletionRequest: ((WatchCompletionRequest) async -> WatchCompletionResult)?
+    var onRefresh: ((WatchRefreshRequest) async -> WatchRefreshReply)?
+    var onActivityOpen: ((WatchActivityOpenRequest) async -> WatchActivityOpenReply)?
 
     var onWaitReadRequest: ((WatchWaitReadRequest) async -> Bool)?
     var onRecapReadRequest: ((WatchRecapReadRequest) async -> WatchRecapReadResult)?
@@ -251,6 +265,7 @@ extension WatchConnectivityTransport: WCSessionDelegate {
     nonisolated func session(_ session: WCSession,
                              activationDidCompleteWith activationState: WCSessionActivationState,
                              error: Error?) {
+        self.session(session, didReceiveApplicationContext: session.receivedApplicationContext)
         readyChanged()
     }
 
@@ -269,6 +284,18 @@ extension WatchConnectivityTransport: WCSessionDelegate {
         readyChanged()
     }
 
+    nonisolated func session(_ session: WCSession, didReceiveApplicationContext context: [String: Any]) {
+        guard let data = context["vibebuddy.watch.navigationDiagnostics"] as? Data,
+              data.count <= 32768,
+              (try? JSONSerialization.jsonObject(with: data)) != nil else { return }
+        // A bounded diagnostic snapshot only; it cannot modify task state.
+        let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try data.write(to: directory.appendingPathComponent("watch-navigation.json"), options: .atomic)
+        } catch { /* Diagnostics must never prevent normal relay operation. */ }
+    }
+
     nonisolated func session(_ session: WCSession,
                              didReceiveMessage message: [String: Any],
                              replyHandler: @escaping ([String: Any]) -> Void) {
@@ -277,6 +304,31 @@ extension WatchConnectivityTransport: WCSessionDelegate {
         let action = message[WatchSessionActionRequest.messageKey] as? Data
         let legacy = message[WatchApprovalRequest.messageKey] as? Data
         let reply = UncheckedSendable(replyHandler)
+        if let data = message[WatchRefreshRequest.messageKey] as? Data {
+            guard let request = try? JSONDecoder().decode(WatchRefreshRequest.self, from: data) else {
+                reply.value([:]); return
+            }
+            Task { @MainActor [weak self] in
+                let result = await self?.onRefresh?(request) ?? WatchRefreshReply(id: request.id, state: nil)
+                if let payload = try? JSONEncoder().encode(result) {
+                    reply.value([WatchRefreshReply.messageKey: payload])
+                } else { reply.value([:]) }
+            }
+            return
+        }
+        if let data = message[WatchActivityOpenRequest.messageKey] as? Data {
+            guard let request = try? JSONDecoder().decode(WatchActivityOpenRequest.self, from: data) else {
+                reply.value([:]); return
+            }
+            Task { @MainActor [weak self] in
+                let result = await self?.onActivityOpen?(request)
+                    ?? WatchActivityOpenReply(requestID: request.requestID, link: nil)
+                if let payload = try? JSONEncoder().encode(result) {
+                    reply.value([WatchActivityOpenReply.messageKey: payload])
+                } else { reply.value([:]) }
+            }
+            return
+        }
         if let wait = message[WatchWaitReadRequest.messageKey] as? Data {
             handle(waitRead: wait) { reply.value($0) }
         } else if let completion = message[WatchCompletionRequest.messageKey] as? Data {

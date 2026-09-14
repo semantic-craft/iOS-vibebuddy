@@ -121,6 +121,15 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     ) async {
         // A tapped push leaves Notification Center; remember it so the stream's
         // catch-up does not announce the same wait a second time (ADR-0012).
+        // Content-free evidence of which device receives the default tap.
+        if let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
+           let data = try? JSONSerialization.data(withJSONObject: [
+                "timestamp": Date().timeIntervalSince1970,
+                "defaultTap": response.actionIdentifier == UNNotificationDefaultActionIdentifier
+           ]) {
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try? data.write(to: directory.appendingPathComponent("phone-notification-tap.json"), options: .atomic)
+        }
         let request = response.notification.request
         if request.trigger is UNPushNotificationTrigger {
             await PushCoverage.shared.noteTapped(identifier: request.identifier,

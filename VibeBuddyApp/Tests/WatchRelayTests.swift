@@ -4,8 +4,10 @@ import VibeBuddyKit
 
 @MainActor
 private final class FakeWatchTransport: WatchStateTransport {
+    var onRefresh: ((WatchRefreshRequest) async -> WatchRefreshReply)?
     var onWaitReadRequest: ((WatchWaitReadRequest) async -> Bool)?
     var onCompletionRequest: ((WatchCompletionRequest) async -> WatchCompletionResult)?
+    var onActivityOpen: ((WatchActivityOpenRequest) async -> WatchActivityOpenReply)?
     var onRecapReadRequest: ((WatchRecapReadRequest) async -> WatchRecapReadResult)?
     var isAvailable = true
     var onReady: (() -> Void)?
@@ -735,6 +737,26 @@ final class WatchRelayTests: XCTestCase {
         let reply = try XCTUnwrap(choices.replies.first)
         var action = WatchSessionActionState()
         return try XCTUnwrap(action.begin(alert: alert, answer: reply.text, attemptId: attempt))
+    }
+
+    func testWatchRefreshFetchesNewAuthorityContentWithoutSendingAnAnswer() async throws {
+        let transport = FakeWatchTransport()
+        let client = AnsweringDecisionClient(answer: .received)
+        let old = askingCodex(at: now)
+        let store = try await answeringStore(transport, sessions: [old], client: client)
+        let initial = try XCTUnwrap(transport.states.last)
+        var fresh = old
+        fresh.summary = "Fresh authority content"
+        await client.replaceSnapshot(Snapshot(sessions: [fresh], serverTime: now.addingTimeInterval(20), sourceID: "fixture-mac"))
+        let request = WatchRefreshRequest(sourceID: "fixture-mac", pairingEpoch: try XCTUnwrap(initial.pairingEpoch))
+        let response = await transport.onRefresh?(request)
+        XCTAssertNotNil(response?.snapshot(for: request))
+        XCTAssertEqual(store.allSessions.first?.summary, "Fresh authority content")
+        let answers = await client.answers
+        XCTAssertTrue(answers.isEmpty)
+        let wrong = WatchRefreshRequest(sourceID: "other-mac", pairingEpoch: request.pairingEpoch)
+        let refused = await transport.onRefresh?(wrong)
+        XCTAssertNil(refused?.state)
     }
 
     func testAnAnswerIsForwardedOnceAsTheTextTheWristWasShown() async throws {

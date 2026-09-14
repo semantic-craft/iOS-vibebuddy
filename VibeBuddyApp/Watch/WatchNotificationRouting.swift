@@ -5,9 +5,9 @@ import WatchKit
 
 /// Where a tapped notification lands.
 ///
-/// Every notification the wrist shows is the iPhone's, mirrored. Its *buttons*
-/// are answered by the iPhone — Apple routes a forwarded notification's action
-/// back to the app that posted it — but its default tap opens this app, and
+/// Notifications are mirrored from the iPhone. Foreground actions run where
+/// selected; background actions belong to the notification's original target.
+/// The default tap is expected to open this app, and
 /// without a delegate it opens on whatever the home screen happens to lead
 /// with. That is fine with one thing waiting and wrong with three: the buzz was
 /// about a session, so the screen it opens should be that session's.
@@ -22,6 +22,7 @@ import WatchKit
 final class WatchAppDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCenterDelegate {
     func applicationDidFinishLaunching() {
         UNUserNotificationCenter.current().delegate = self
+        Task { @MainActor in WatchNavigationDiagnostics.shared.record("delegate.ready") }
     }
 
     /// The default tap on a mirrored notification. Only the session id is
@@ -30,12 +31,35 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate, UNUserNotificatio
     /// relayed state before it draws a single button.
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
-        didReceive response: UNNotificationResponse
-    ) async {
-        guard response.actionIdentifier == UNNotificationDefaultActionIdentifier else { return }
-        let userInfo = response.notification.request.content.userInfo
-        guard let sessionID = userInfo[NotificationUserInfoKey.sessionId] as? String else { return }
-        await MainActor.run { WatchNotificationRouter.shared.open(sessionID: sessionID) }
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping @Sendable () -> Void
+    ) {
+        // Complete the OS callback independently of main-window presentation.
+        // Extract Sendable values before crossing to the UI actor.
+        let isDefault = response.actionIdentifier == UNNotificationDefaultActionIdentifier
+        let sessionID = response.notification.request.content.userInfo[NotificationUserInfoKey.sessionId] as? String
+        Task { @MainActor in
+            // Save the target before releasing the OS background execution
+            // opportunity. This does not wait for a window or navigation.
+            defer { completionHandler() }
+            WatchNavigationDiagnostics.shared.record(isDefault ? "notification.default" : "notification.action")
+            guard isDefault else { return }
+            guard let sessionID, !sessionID.isEmpty else {
+                WatchNavigationDiagnostics.shared.record("notification.missing-target")
+                return
+            }
+            if let state = WatchComplicationStore.loadState()?.state,
+               let source = state.sourceID, let epoch = state.pairingEpoch {
+                let intent = WatchNotificationIntent(link: WatchTaskLink(sourceID: source,
+                    pairingEpoch: epoch, sessionID: sessionID, completionID: state.task(sessionID)?.completionID))
+                if let data = try? JSONEncoder().encode(intent) {
+                    UserDefaults.standard.set(data, forKey: "watch.pendingNotificationIntent")
+                    WatchNavigationDiagnostics.shared.record("notification.target-saved")
+                }
+            }
+            WatchNotificationRouter.shared.open(sessionID: sessionID)
+            WatchNavigationDiagnostics.shared.record("notification.target-enqueued")
+        }
     }
 
     /// A mirrored notification arriving while this app is on screen. The

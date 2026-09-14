@@ -24,6 +24,16 @@ final class WatchStateStore: NSObject, ObservableObject {
     @Published private(set) var completionQueue = WatchCompletionQueue()
     private var completionAttempt: WatchCompletionRequest?
     private var retryTask: Task<Void, Never>?
+    @Published private(set) var isRefreshingTask = false
+    @Published private(set) var taskRefreshFailed = false
+    private var refreshAttempt: WatchRefreshRequest?
+    private var refreshTimeout: Task<Void, Never>?
+    @Published private(set) var isOpeningActivity = false
+    @Published var activityOpenError: String?
+    private var diagnosticDelivery: Task<Void, Never>?
+    private var resolvedActivityLink: WatchTaskLink?
+    private var activityRequest: WatchActivityOpenRequest?
+    private var activityTimeout: Task<Void, Never>?
     private var actionReplyTimeout: Task<Void, Never>?
     private var retryAfter: [WatchTaskLink: Date] = [:]
     private var retryCount: [WatchTaskLink: Int] = [:]
@@ -114,6 +124,8 @@ final class WatchStateStore: NSObject, ObservableObject {
                 seedHaptics(saved.state)
                 completionQueue.reconcile(with: saved.state)
             }
+            WatchNavigationDiagnostics.shared.onChange = { [weak self] in self?.scheduleDiagnostics() }
+            WatchNavigationDiagnostics.shared.record("store.ready")
             activate()
             // A tapped notification names a session; open it here, or as soon
             // as a state that knows it arrives.
@@ -131,8 +143,11 @@ final class WatchStateStore: NSObject, ObservableObject {
     }
 
     deinit {
+        refreshTimeout?.cancel()
+        diagnosticDelivery?.cancel()
         retryTask?.cancel()
         actionReplyTimeout?.cancel()
+        activityTimeout?.cancel()
     }
 
     /// The launch input's answer, for the one card in front of the wearer.
@@ -148,7 +163,62 @@ final class WatchStateStore: NSObject, ObservableObject {
         return draft
     }
 
+    func refreshTask() {
+        guard !isDemo else { return }
+        refreshTimeout?.cancel()
+        refreshAttempt = nil
+        taskRefreshFailed = false
+        isRefreshingTask = false
+        guard let source = state?.sourceID, let epoch = state?.pairingEpoch,
+              let session, session.activationState == .activated else {
+            taskRefreshFailed = true; return
+        }
+        // sendMessage from the Watch can wake its companion; do not require
+        // the iPhone UI or stream to already be active.
+        let request = WatchRefreshRequest(sourceID: source, pairingEpoch: epoch)
+        guard let data = try? JSONEncoder().encode(request) else { taskRefreshFailed = true; return }
+        refreshAttempt = request
+        isRefreshingTask = true
+        WatchNavigationDiagnostics.shared.record("refresh.request")
+        refreshTimeout = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(12))
+            guard !Task.isCancelled else { return }
+            self?.finishRefresh(request, reply: nil)
+        }
+        session.sendMessage([WatchRefreshRequest.messageKey: data], replyHandler: { @Sendable [weak self] reply in
+            let result = (reply[WatchRefreshReply.messageKey] as? Data).flatMap {
+                try? JSONDecoder().decode(WatchRefreshReply.self, from: $0)
+            }
+            Task { @MainActor [weak self] in self?.finishRefresh(request, reply: result) }
+        }, errorHandler: { @Sendable [weak self] _ in
+            Task { @MainActor [weak self] in self?.finishRefresh(request, reply: nil) }
+        })
+    }
+
+    private func finishRefresh(_ request: WatchRefreshRequest, reply: WatchRefreshReply?) {
+        guard refreshAttempt?.id == request.id else { return }
+        refreshAttempt = nil
+        refreshTimeout?.cancel()
+        isRefreshingTask = false
+        guard let current = state, request.accepts(current), let fresh = reply?.snapshot(for: request) else {
+            taskRefreshFailed = true
+            WatchNavigationDiagnostics.shared.record("refresh.failed")
+            return
+        }
+        receive(WatchStateInbox.encode(fresh))
+        taskRefreshFailed = false
+        WatchNavigationDiagnostics.shared.record("refresh.received")
+    }
+
+    func cancelTaskRefresh() {
+        refreshTimeout?.cancel()
+        refreshAttempt = nil
+        isRefreshingTask = false
+        taskRefreshFailed = false
+    }
+
     func openTask(_ url: URL) {
+        WatchNavigationDiagnostics.shared.record("route.url")
         if let selection = WatchQuotaSelection(url: url) {
             taskLink = nil
             quotaSelection = selection
@@ -166,16 +236,19 @@ final class WatchStateStore: NSObject, ObservableObject {
     /// missing identity is held until the first relay arrives. With an identity,
     /// an unknown target opens an unavailable page instead of waiting forever.
     func openSession(_ sessionID: String) {
+        WatchNavigationDiagnostics.shared.record("route.session")
         guard let state, let source = state.sourceID, !source.isEmpty,
               let epoch = state.pairingEpoch, !epoch.isEmpty else {
             taskLink = nil
             quotaSelection = nil
+            WatchNavigationDiagnostics.shared.record("route.waiting-state")
             pendingSessionID = sessionID
             pendingPairingEpoch = self.state?.pairingEpoch
             return
         }
         pendingSessionID = nil
         quotaSelection = nil
+        WatchNavigationDiagnostics.shared.record("route.present-task")
         taskLink = WatchTaskLink(sourceID: source, pairingEpoch: epoch, sessionID: sessionID,
                                  completionID: state.task(sessionID)?.completionID)
     }
@@ -184,7 +257,72 @@ final class WatchStateStore: NSObject, ObservableObject {
     private var pendingSessionID: String?
     private var pendingPairingEpoch: String?
 
+    /// Live Activity continuation is a transient lookup, never a replayable action.
+    func openLiveActivity(_ activityID: String?) {
+        cancelPendingNavigation()
+        activityOpenError = nil
+        guard let activityID, !activityID.isEmpty else {
+            WatchNavigationDiagnostics.shared.record("activity.missing-id")
+            activityOpenError = "This activity no longer identifies a task. Open Tasks from Home."
+            return
+        }
+        guard let source = state?.sourceID, let epoch = state?.pairingEpoch,
+              let session, session.activationState == .activated, session.isReachable else {
+            WatchNavigationDiagnostics.shared.record("activity.phone-unavailable")
+            activityOpenError = "Open VibeBuddy on your iPhone, then try again."
+            return
+        }
+        let request = WatchActivityOpenRequest(activityID: activityID, sourceID: source, pairingEpoch: epoch)
+        guard let data = try? JSONEncoder().encode(request) else { return }
+        WatchNavigationDiagnostics.shared.record("activity.request")
+        activityRequest = request
+        isOpeningActivity = true
+        activityTimeout = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(10))
+            guard !Task.isCancelled else { return }
+            self?.finishActivity(request, reply: nil, error: "The iPhone did not respond. Try again.")
+        }
+        session.sendMessage([WatchActivityOpenRequest.messageKey: data], replyHandler: { @Sendable [weak self] reply in
+            let data = reply[WatchActivityOpenReply.messageKey] as? Data
+            let result = data.flatMap { try? JSONDecoder().decode(WatchActivityOpenReply.self, from: $0) }
+            Task { @MainActor [weak self] in
+                self?.finishActivity(request, reply: result, error: "This task is no longer available. Open Tasks from Home.")
+            }
+        }, errorHandler: { @Sendable [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.finishActivity(request, reply: nil, error: "Open VibeBuddy on your iPhone, then try again.")
+            }
+        })
+    }
+
+    private func finishActivity(_ request: WatchActivityOpenRequest, reply: WatchActivityOpenReply?, error: String) {
+        // A timeout, new tap, cancellation or source change consumes this attempt.
+        guard activityRequest?.requestID == request.requestID else {
+            WatchNavigationDiagnostics.shared.record("activity.late-result")
+            return
+        }
+        cancelPendingNavigation()
+        guard let link = reply?.validatedLink(for: request, state: state) else {
+            WatchNavigationDiagnostics.shared.record("activity.unresolved")
+            activityOpenError = error
+            return
+        }
+        WatchNavigationDiagnostics.shared.record("activity.resolved")
+        if isForeground { openTask(link.url) }
+        else { resolvedActivityLink = link }
+    }
+
+    private func cancelActivityOpen() {
+        resolvedActivityLink = nil
+        activityRequest = nil
+        activityTimeout?.cancel()
+        activityTimeout = nil
+        isOpeningActivity = false
+    }
+
     func cancelPendingNavigation() {
+        UserDefaults.standard.removeObject(forKey: "watch.pendingNotificationIntent")
+        cancelActivityOpen()
         pendingSessionID = nil
         pendingPairingEpoch = nil
     }
@@ -492,6 +630,8 @@ final class WatchStateStore: NSObject, ObservableObject {
         if state?.sourceID != next.sourceID || state?.pairingEpoch != next.pairingEpoch {
             // A different Mac or a different pairing: nothing in flight was
             // ever about this world. Clear it rather than let it describe one.
+            cancelActivityOpen()
+            cancelTaskRefresh()
             pendingAction = WatchSessionActionState()
         }
         state = next
@@ -553,6 +693,7 @@ final class WatchStateStore: NSObject, ObservableObject {
     }
 
     func becameActive() {
+        WatchNavigationDiagnostics.shared.record("window.active")
         guard !isDemo, let session else { isForeground = true; return }
         // Incorporate the actual latest context before sending persisted work.
         // This one is taken while still counted as background on purpose: what
@@ -561,10 +702,25 @@ final class WatchStateStore: NSObject, ObservableObject {
         // the app is up is news the wrist should tap out.
         receive(session.receivedApplicationContext[WatchStateInbox.contextKey] as? Data)
         isForeground = true
+        if let data = UserDefaults.standard.data(forKey: "watch.pendingNotificationIntent") {
+            UserDefaults.standard.removeObject(forKey: "watch.pendingNotificationIntent")
+            if let intent = try? JSONDecoder().decode(WatchNotificationIntent.self, from: data),
+               let link = intent.target(in: state) {
+                WatchNavigationDiagnostics.shared.record("notification.target-restored")
+                openTask(link.url)
+            }
+        }
+        if let link = resolvedActivityLink {
+            resolvedActivityLink = nil
+            if link.sourceID == state?.sourceID, link.pairingEpoch == state?.pairingEpoch {
+                openTask(link.url)
+            }
+        }
         linkChanged(reachable: session.isReachable)
     }
 
     func resignedActive() {
+        WatchNavigationDiagnostics.shared.record("window.inactive")
         isForeground = false
     }
 
@@ -576,7 +732,19 @@ final class WatchStateStore: NSObject, ObservableObject {
         session.activate()
     }
 
+    private func scheduleDiagnostics() {
+        diagnosticDelivery?.cancel()
+        diagnosticDelivery = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled, let self, !self.isDemo,
+                  let session = self.session, session.activationState == .activated,
+                  let data = WatchNavigationDiagnostics.shared.payload else { return }
+            try? session.updateApplicationContext(["vibebuddy.watch.navigationDiagnostics": data])
+        }
+    }
+
     fileprivate func linkChanged(reachable: Bool) {
+        scheduleDiagnostics()
         isPhoneReachable = reachable
         flushCompletions()
     }

@@ -198,3 +198,15 @@
 "%lld working" = "%lld 项运行中";
 
 "Tasks" = "任务";
+
+"Opening task…" = "正在打开任务…";
+"Unable to open task" = "无法打开任务";
+"This activity no longer identifies a task. Open Tasks from Home." = "此活动已无法定位任务，请从首页打开任务。";
+"Open VibeBuddy on your iPhone, then try again." = "请先在 iPhone 上打开 VibeBuddy，再试一次。";
+"The iPhone did not respond. Try again." = "iPhone 未响应，请重试。";
+"This task is no longer available. Open Tasks from Home." = "此任务已不可用，请从首页查看任务。";
+
+"Updating task…" = "正在更新任务…";
+"Could not update. Showing saved content." = "更新失败，当前显示缓存内容。";
+
+"Retry" = "重试";

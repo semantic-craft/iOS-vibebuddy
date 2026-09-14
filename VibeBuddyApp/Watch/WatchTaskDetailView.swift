@@ -23,6 +23,15 @@ struct WatchTaskDetailView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
+                if store.isRefreshingTask {
+                    ProgressView("Updating task…")
+                } else if store.taskRefreshFailed {
+                    VStack(spacing: 4) {
+                        Text("Could not update. Showing saved content.")
+                            .font(CompanionType.font(11)).foregroundStyle(.orange)
+                        Button("Retry") { store.refreshTask() }
+                    }
+                }
                 if let task = link.task(in: store.state) {
                     taskBody(task)
                 } else if let alert = link.alert(in: store.state) {
@@ -53,6 +62,9 @@ struct WatchTaskDetailView: View {
                     .padding(.top, 8)
             }
             .navigationTitle("Task")
+            .onAppear { WatchNavigationDiagnostics.shared.record("detail.appeared") }
+            .task(id: link) { store.refreshTask() }
+            .onDisappear { store.cancelTaskRefresh() }
         }
     }
 
