@@ -66,6 +66,51 @@ struct CompletionSpeechQueueTests {
         #expect(Array(played.dropFirst()) == (3..<12).map { "result-\($0)" })
     }
 
+    @Test("queue identity stays visible through pause, skip and explicit repeat")
+    func visibleQueueAndRepeat() async {
+        let queue = CompletionSpeechQueue()
+        let gate = SpeechGate()
+        var played = 0
+        queue.enqueue(id: "first") { await gate.wait() }
+        queue.enqueue(id: "second") { played += 1 }
+        await gate.waitUntilEntered()
+        #expect(queue.currentID == "first")
+        #expect(queue.pendingIDs == ["second"])
+        queue.enqueue(id: "first", allowRepeat: true) { Issue.record("Must not duplicate active speech") }
+        queue.enqueue(id: "second", allowRepeat: true) { Issue.record("Must not duplicate pending speech") }
+        #expect(queue.pendingIDs == ["second"])
+        queue.pause()
+        queue.skip()
+        gate.release()
+        #expect(queue.currentID == nil && queue.pendingIDs == ["second"])
+        #expect(queue.isPaused)
+        queue.resume()
+        await waitForIdle(queue)
+        #expect(played == 1 && queue.currentID == nil && queue.pendingIDs.isEmpty)
+        queue.enqueue(id: "second", allowRepeat: true) { played += 1 }
+        await waitForIdle(queue)
+        #expect(played == 2)
+    }
+
+    @Test("explicit pending order replaces queued automatic items without interrupting current speech")
+    func manualBatchOrder() async {
+        let queue = CompletionSpeechQueue()
+        let gate = SpeechGate()
+        var played: [String] = []
+        queue.enqueue(id: "current") { await gate.wait() }
+        queue.enqueue(id: "old-result") { played.append("old-result") }
+        queue.enqueue(id: "stale-result") { Issue.record("Excluded result must not play") }
+        queue.enqueue(id: "question") { played.append("question") }
+        await gate.waitUntilEntered()
+        queue.retainPending(ids: ["question", "old-result"])
+        queue.orderPending(ids: ["question", "old-result"])
+        #expect(queue.currentID == "current")
+        #expect(queue.pendingIDs == ["question", "old-result"])
+        gate.release()
+        await waitForIdle(queue)
+        #expect(played == ["question", "old-result"])
+    }
+
     private func waitForIdle(_ queue: CompletionSpeechQueue) async {
         // Install the observer before yielding, so even synchronous jobs signal it.
         await withCheckedContinuation { continuation in

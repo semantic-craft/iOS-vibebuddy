@@ -304,6 +304,15 @@ struct GlanceView: View {
                 if voice.isActive { voiceBadge } else { moodHead }
                 AnnouncementControls(reader: model.readAloud)
                 Spacer(minLength: 8 * s)
+                Button { DashboardRoute.open(.inbox) } label: {
+                    Image(systemName: "tray")
+                        .font(MacTheme.font(12 * s, .bold)).foregroundStyle(.white)
+                        .frame(width: 22 * s, height: 22 * s)
+                        .background(Color.white.opacity(0.18), in: Circle())
+                }
+                .buttonStyle(.plain).help("Open Inbox")
+                .accessibilityLabel("Open Inbox")
+                .accessibilityIdentifier("mac-glance-open-inbox")
                 Button {
                     model.setShowGlance(false)   // get out of the way; the shortcut or menu brings it back
                 } label: {
@@ -334,6 +343,8 @@ struct GlanceView: View {
                         GlanceSessionRow(session: sess, feedback: model.jumpFeedback[sess.id], scale: s) {
                             if sess.status == .needsResponse {
                                 expandedDecisionID = expandedDecisionID == sess.id ? nil : sess.id
+                            } else if sess.status == .done {
+                                DashboardRoute.openSession(id: sess.id)
                             } else { model.jump(sess) }
                         }
                         .onHover { hovering in
@@ -457,26 +468,35 @@ private struct GlanceEventCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10 * s) {
-            HStack(alignment: .top, spacing: 10 * s) {
-                StateGlyph(state: cardState, size: 24 * s, onDark: true)
-                VStack(alignment: .leading, spacing: 3 * s) {
-                    HStack(spacing: 6 * s) {
-                        // Fixed sizes throughout the card: it hangs off the
-                        // notch at the user's `glanceScale`, not the text ramp
-                        // (ADR-0017 §8).
-                        Text(title).font(CompanionType.fixedFont(13 * s, .black)).foregroundStyle(.white)
-                        AgentBadge(agent: session.agent, onDark: true)
+            Button {
+                DashboardRoute.openSession(id: session.id)
+                model.dismissGlanceCard()
+            } label: {
+                HStack(alignment: .top, spacing: 10 * s) {
+                    StateGlyph(state: cardState, size: 24 * s, onDark: true)
+                    VStack(alignment: .leading, spacing: 3 * s) {
+                        HStack(spacing: 6 * s) {
+                            // Fixed sizes throughout the card: it hangs off the
+                            // notch at the user's `glanceScale`, not the text ramp
+                            // (ADR-0017 §8).
+                            Text(title).font(CompanionType.fixedFont(13 * s, .black)).foregroundStyle(.white)
+                            AgentBadge(agent: session.agent, onDark: true)
+                        }
+                        if !detail.isEmpty {
+                            Text(detail)
+                                .font(card.alert.sound == .needsApproval ? CompanionType.fixedMono(11 * s) : CompanionType.fixedFont(11 * s))
+                                .foregroundStyle(.white.opacity(0.8))
+                                .lineLimit(2)
+                        }
                     }
-                    if !detail.isEmpty {
-                        Text(detail)
-                            .font(card.alert.sound == .needsApproval ? CompanionType.fixedMono(11 * s) : CompanionType.fixedFont(11 * s))
-                            .foregroundStyle(.white.opacity(0.8))
-                            .lineLimit(2)
-                    }
+                    .lineLimit(1)
+                    Spacer(minLength: 0)
                 }
-                .lineLimit(1)
-                Spacer(minLength: 0)
             }
+            .buttonStyle(.plain)
+            .disabled(card.alert.sound == .pairSuccess)
+            .help("Open task details")
+            .accessibilityIdentifier("mac-glance-card-open-task")
             if let approval = live.pendingApproval, !approval.canPersistDecision,
                card.alert.sound == .needsApproval {
                 ApprovalBody(approval: approval, onDark: true)
@@ -553,6 +573,7 @@ private struct GlanceSessionRow: View {
     /// `macwindow` = only the app around it, nothing = no target was ever
     /// recorded. Quiet on purpose — the status dot owns the row's colour.
     private var targetSymbol: String? {
+        if session.status == .done { return "sidebar.left" }
         guard let ref = session.terminalRef else {
             return session.desktopThreadID != nil ? "bubble.left" : nil
         }
@@ -565,6 +586,7 @@ private struct GlanceSessionRow: View {
     }
 
     private var helpText: String {
+        if session.status == .done { return String(localized: "Open task details") }
         switch targetSymbol {
         case "terminal": return "Jump to this session's terminal"
         case "bubble.left": return "Open this thread in ChatGPT"

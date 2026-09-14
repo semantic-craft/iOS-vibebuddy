@@ -122,7 +122,8 @@ public struct RecapReadRequest: Codable, Equatable, Sendable {
 
 /// What `POST /recap-read` said. `accepted` covers both "moved" and "already
 /// there": a retried Mark all is not an error. `sourceMismatch` is definitive
-/// (the request names another Mac); `failed` is the network, worth retrying.
+/// (the request names another Mac); `failed` covers delivery or durable-write
+/// failure and leaves the exact request available for retry.
 public enum RecapReadOutcome: String, Codable, Sendable {
     case accepted, sourceMismatch, failed
 }

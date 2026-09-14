@@ -223,3 +223,32 @@ lands as an amendment rather than a new decision record.
 What a simulator cannot prove stays listed in tickets 11–13 of the effort:
 detent feel and paging speed, the `.success` tap, Double Tap reaching Mark
 all, and the mirrored notifications' behaviour, all need a paired device.
+
+## Amendment: Mac recap reader and confirmation (2026-09-14)
+
+Inbox and the Mac sidebar open one global Recap reader, directly from
+`Snapshot.recap`. Each `RecapEntry.id` remains a separate round, including
+several rounds of one Session. Selection shows only that round's recorded
+points; Open current task explicitly navigates to live Session detail. Arrival
+does not change selection; a removed selection is explained. Unavailable
+capability, cached data and an empty authoritative recap have distinct copy.
+Opening, selecting and scrolling do not acknowledge or move the horizon.
+
+Confirm this recap is an explicit, source-bound operation over the displayed
+batch: its completed unread identities use exact-round acknowledgement first;
+once each is accepted or definitively skipped, its maximum endedAt advances
+the horizon. A failed read leaves the horizon untouched. These are separate writes, never
+review or acceptance. Failed rounds get no read write and remain Needs you.
+A new round cannot join an existing operation. Recoverable partial failures
+retain their original identities in the Mac model across navigation, even
+if another device's horizon update empties the reader; retries do not expand the batch. The
+same-process store's definitive stale/unavailable results are retained as skipped,
+never claimed read, while failed writes remain retryable. The Mac
+does not create a persistent offline queue or use the Watch pairing protocol.
+Only authoritative snapshots change counts. A configured ledger persistence
+failure must return failed without advancing the in-memory horizon.
+
+Each entry retains the upstream ledger's last observed read mark after its
+round stops being current; Mark Unread on the current round restores its unread
+mark. This remains bounded recap storage, not a permanent reading archive or
+an API for independently changing an old round's read state.

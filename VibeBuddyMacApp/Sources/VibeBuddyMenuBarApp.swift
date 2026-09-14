@@ -103,8 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func nextPending() {
-        windows?.showDashboard()
-        NotificationCenter.default.post(name: Notification.Name("vibebuddy.selectNextPending"), object: nil)
+        DashboardRoute.openNextPending()
     }
 
     @objc private func openSettings() {
@@ -479,11 +478,11 @@ struct MenuContent: View {
             VStack(spacing: 0) {
                 commandRow(feed)
                 MenuHairline()
-                // The summary steps aside for the result band while you type:
-                // one line at the top of the list, never two.
-                if feed.emptyState == nil {
-                    if feed.query.isEmpty { summaryRow(feed.summary) } else { resultBand(feed) }
-                }
+                // Summary and First up stay global even when search narrows
+                // the list. Search cannot imply that pending work disappeared.
+                summaryRow(feed.summary)
+                if !feed.query.isEmpty { resultBand(feed) }
+                quickEntryRow
             }
             .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: feed.query.isEmpty)
             sessionList(feed)
@@ -510,6 +509,39 @@ struct MenuContent: View {
         .onChange(of: query) { old, new in
             if old.isEmpty, !new.isEmpty { collapsed.removeAll() }
         }
+    }
+
+    /// This entry's queue is intentionally independent of the panel search
+    /// and of any project filter currently open in the dashboard.
+    private var quickEntryRow: some View {
+        let pending = PendingTasks.ordered(SessionCurrency.current(model.sessions, now: Date()))
+        return HStack(alignment: .center, spacing: 8) {
+            if let first = pending.first {
+                Button { DashboardRoute.openSession(id: first.id) } label: {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("First up").font(MacTheme.font(10, .semibold)).foregroundStyle(MacTheme.ink3)
+                        Text(first.displayTitle).font(MacTheme.font(12, .medium)).foregroundStyle(MacTheme.ink).lineLimit(1)
+                        Text(first.project).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2).lineLimit(1).truncationMode(.middle)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).accessibilityIdentifier("mac-menu-first-up")
+            } else {
+                Text("Nothing pending").font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
+                Spacer(minLength: 0)
+            }
+            Button { DashboardRoute.openNextPending() } label: {
+                VStack(alignment: .trailing, spacing: 3) {
+                    Label("Next pending", systemImage: "arrow.right")
+                    Text("All sessions").font(MacTheme.font(9)).foregroundStyle(MacTheme.ink3)
+                }
+                .font(MacTheme.font(10.5))
+            }
+            .buttonStyle(.borderless).disabled(pending.isEmpty)
+            .help("Next pending · All sessions")
+            .accessibilityIdentifier("mac-menu-next-pending")
+        }
+        .padding(.horizontal, MenuMetrics.gutter).padding(.vertical, 8)
     }
 
     private var phoneDetails: some View {
@@ -587,13 +619,22 @@ struct MenuContent: View {
     private func controlRowBody(showsLabels: Bool, showsShortcuts: Bool, showsPhoneName: Bool) -> some View {
         HStack(spacing: 2) {
             MenuFooterControl(
-                label: "Dashboard",
-                systemImage: "macwindow",
-                shortcut: model.openDashboardHotkey.displayString,
-                tooltip: "Open Dashboard · \(model.openDashboardHotkey.displayString)",
+                label: "Inbox",
+                systemImage: "tray",
+                shortcut: "",
+                tooltip: "Open Inbox",
                 showsLabel: showsLabels,
-                showsShortcut: showsShortcuts) {
-                    NotificationCenter.default.post(name: .openDashboard, object: nil)
+                showsShortcut: false) {
+                    DashboardRoute.open(.inbox)
+                }
+            MenuFooterControl(
+                label: "Recap",
+                systemImage: "clock.arrow.circlepath",
+                shortcut: "",
+                tooltip: "Open Recap",
+                showsLabel: showsLabels,
+                showsShortcut: false) {
+                    DashboardRoute.open(.recap)
                 }
             MenuFooterControl(
                 label: model.showGlance ? "Hide Glance" : "Glance",
@@ -753,7 +794,7 @@ struct MenuContent: View {
     /// narrows the list below. It sits above the scroller rather than inside
     /// it, so a long list scrolls under an answer that stays put.
     private func summaryRow(_ summary: TaskPresentationSummary) -> some View {
-        let rest = summary.thinking > 0 ? "\(summary.thinking) working" : ""
+        let rest = summary.thinking > 0 ? String(localized: "\(summary.thinking) working") : ""
         return HStack(spacing: 7) {
             statusDot(summary)
             HStack(alignment: .firstTextBaseline, spacing: 6) {

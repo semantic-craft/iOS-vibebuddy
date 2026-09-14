@@ -62,6 +62,22 @@ struct SessionReducerTests {
         #expect(r.sessions["s1"]?.presentationState == .completeUnread)
     }
 
+    @Test("An unlabelled repeated failure retains its reason; a new failed round cannot inherit it")
+    func duplicateFailureSummary() {
+        var r = SessionReducer()
+        r.apply(ev(.userPromptSubmit))
+        r.apply(HookEvent(kind: .stop, sessionID: "s1", message: "Provider disconnected",
+                          timestamp: t0.addingTimeInterval(1), completionSucceeded: false))
+        r.apply(HookEvent(kind: .stop, sessionID: "s1", timestamp: t0.addingTimeInterval(2), completionSucceeded: false))
+        #expect(r.sessions["s1"]?.summary == "Provider disconnected")
+        #expect(r.sessions["s1"]?.isStuck == true)
+        #expect(r.sessions["s1"]?.completionID == nil)
+        r.apply(ev(.userPromptSubmit, at: 3))
+        r.apply(HookEvent(kind: .stop, sessionID: "s1", timestamp: t0.addingTimeInterval(4), completionSucceeded: false))
+        #expect(r.sessions["s1"]?.summary == nil)
+        #expect(r.sessions["s1"]?.isStuck == true)
+    }
+
     @Test("a clean turn ends not-failed")
     func cleanTurnNotFailed() {
         var r = SessionReducer()

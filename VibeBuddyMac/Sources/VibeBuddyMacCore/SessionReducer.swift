@@ -108,9 +108,17 @@ public struct SessionReducer: Sendable {
             }
             let previousCompletion = sessions[event.sessionID]?.completionID
             let wasDone = sessions[event.sessionID]?.status == .done
+            let repeatsFailure = wasDone && sessions[event.sessionID]?.isStuck == true
+                && (event.completionSucceeded == false || event.toolError)
+                && !event.probeRetirement && !event.userStopped
             // Create-if-missing so a late-observed lifecycle still shows as done;
             // carry the agent's final summary when present.
             upsert(event, status: .done, waitKind: nil, summary: event.message)
+            // A new ending cannot inherit the preceding round's prose. An
+            // unlabelled duplicate may retain this ending's established summary.
+            if !wasDone || (previousCompletion == nil && !repeatsFailure) {
+                sessions[event.sessionID]?.summary = event.message
+            }
             sessions[event.sessionID]?.activeTool = nil
             // Probe retirement is done, not failed, and not a successful
             // completion — no unread-complete badge and no agentDone cue.

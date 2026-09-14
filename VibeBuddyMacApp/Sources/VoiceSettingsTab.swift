@@ -787,7 +787,7 @@ private struct ReadAloudFeatureRow: View {
                          : LocalizedStringKey(reader.status))
                         .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                     Spacer(minLength: 0)
-                    Button("Stop automatic reading") { reader.stopAutomaticReading() }
+                    Button("Stop reading") { reader.stopAutomaticReading() }
                         .disabled(!reader.automaticBusy)
                         .controlSize(.small)
                 }

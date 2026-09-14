@@ -27,6 +27,9 @@ struct PairedPhone: Codable, Equatable {
 @MainActor
 final class MenuBarModel: ObservableObject {
     @Published private(set) var sessions: [AgentSession] = []
+    @Published private(set) var recap: Recap?
+    @Published private(set) var recapUpdatedAt: Date?
+    @Published private(set) var recapConfirmation = MacRecapConfirmation()
     @Published private(set) var observationDiagnostics: [AgentObservationDiagnostic] = []
     /// Directories sessions have run in, newest first — where a new task may start.
     @Published private(set) var recentDirectories: [String] = []
@@ -157,38 +160,97 @@ final class MenuBarModel: ObservableObject {
 
     private func enqueueAnnouncement(_ alert: SoundAlert) {
         guard UserDefaults.standard.bool(forKey: ReadAloud.enabledKey), !alert.isReminder,
-              let text = AnnouncementCopy.text(for: alert.session, sound: alert.sound, language: VoiceSettings.conversationLanguage()) else { return }
-        let identity = alert.sound == .agentDone
-            ? (alert.session.completionNotice?.id ?? "completion/" + alert.sessionID + "/" + (alert.session.completionID ?? ""))
-            : alert.notificationID + "/" + String(alert.session.statusSince.timeIntervalSince1970)
-        readAloud.speak(text, id: identity, priority: alert.sound != .agentDone, prepareText: { [weak self] in
-            var session = alert.session
-            if alert.sound == .agentDone, session.completionSummary == nil, session.completionText == nil,
+              let sourceID = snapshotSourceID else { return }
+        enqueueSpeech(alert.session, sound: alert.sound, sourceID: sourceID, manual: false)
+    }
+
+    /// Explicit global pending read; independent from automatic announcement
+    /// preferences. This only queues speech and never acknowledges any result.
+    func readPending() {
+        Task { [weak self] in
+            guard let self else { return }
+            let snapshot = await self.store.snapshot(now: Date())
+            guard let sourceID = snapshot.sourceID else {
+                self.readAloud.report("Task state is unavailable. Try again when connected.")
+                return
+            }
+            let pending = PendingTasks.ordered(SessionCurrency.current(snapshot.sessions, now: Date()))
+            guard !pending.isEmpty else { self.readAloud.report("No current pending tasks to read"); return }
+            let batch: [(AgentSession, NotificationSound, String)] = pending.prefix(10).compactMap { session in
+                let sound: NotificationSound = session.status == .needsResponse
+                    ? (session.waitKind == .permission ? .needsApproval : .needsAnswer)
+                    : session.isStuck ? .agentStuck : .agentDone
+                guard let id = self.speechIdentity(session, sound: sound, sourceID: sourceID) else { return nil }
+                return (session, sound, id)
+            }
+            guard !batch.isEmpty else { self.readAloud.report("No current pending tasks to read"); return }
+            let ids = batch.map { $0.2 }
+            self.readAloud.beginReadPending(orderedIDs: ids)
+            if pending.count > 10 { self.readAloud.showOverflow() }
+            // Retain First up and the first ten in the shared order. Overflow
+            // remains available as text instead of evicting the first items.
+            for (session, sound, _) in batch {
+                self.enqueueSpeech(session, sound: sound, sourceID: sourceID, manual: true)
+            }
+            self.readAloud.finishReadPending(orderedIDs: ids)
+        }
+    }
+
+    private func speechIdentity(_ session: AgentSession, sound: NotificationSound, sourceID: String) -> String? {
+        let round: [String]
+        switch sound {
+        case .agentDone:
+            guard let completionID = session.completionID, !completionID.isEmpty else { return nil }
+            round = ["completion", completionID]
+        case .needsAnswer, .needsApproval:
+            let wait = WaitReadRequest(sourceID: sourceID, session: session)
+            round = ["wait", wait.waitKind.rawValue, wait.pendingID ?? "", String(wait.statusSince.timeIntervalSince1970)]
+        case .agentStuck:
+            round = ["failure", String(session.statusSince.timeIntervalSince1970)]
+        default: return nil
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: [sourceID, session.id] + round) else { return nil }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private func enqueueSpeech(_ original: AgentSession, sound: NotificationSound, sourceID: String, manual: Bool) {
+        guard let identity = speechIdentity(original, sound: sound, sourceID: sourceID),
+              let text = AnnouncementCopy.text(for: original, sound: sound, language: VoiceSettings.conversationLanguage()) else { return }
+        readAloud.speak(text, id: identity, title: original.displayTitle, manual: manual,
+            priority: !manual && sound != .agentDone, prepareText: { [weak self] in
+            var session = original
+            if sound == .agentDone, session.completionSummary == nil, session.completionText == nil,
                let body = await self?.completionBody(for: session),
-               body.sessionID == session.id, body.completionID == session.completionID {
-                // Resolve the existing exact-round result inside the queue, without acknowledging.
+               body.sourceID == sourceID, body.sessionID == session.id, body.completionID == session.completionID {
                 session.completionText = RowPresentation.firstSentence(body.text)
             }
-            return AnnouncementCopy.text(for: session, sound: alert.sound, language: VoiceSettings.conversationLanguage())
+            return AnnouncementCopy.text(for: session, sound: sound, language: VoiceSettings.conversationLanguage())
         }) { [weak self] in
-            guard let self, UserDefaults.standard.bool(forKey: ReadAloud.enabledKey),
-                  !Self.effectiveQuiet(), NotificationCategoryPrefs.loadMac().isEnabled(alert.sound) else { return false }
+            guard let self else { return false }
             let snapshot = await self.store.snapshot(now: Date())
-            guard let current = snapshot.sessions.first(where: { $0.id == alert.sessionID }),
-                  current.effectiveAttention != .muted else { return false }
-            if UserDefaults.standard.bool(forKey: ReadAloud.silenceViewedKey) {
-                let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-                let nativePresence = !Presence.screenIsLocked() && Presence.idleSeconds() < 120
-                    && (ForegroundTerminal.sourceAppSuppressesSpeech(for: current, frontmostBundleID: front)
-                        || ForegroundTerminal.focusedSessionIDs(among: [current], frontmostBundleID: front).contains(current.id))
-                if self.isViewing(current.id) || nativePresence { return false }
+            guard snapshot.sourceID == sourceID,
+                  let current = snapshot.sessions.first(where: { $0.id == original.id }),
+                  current.historyOnly != true,
+                  self.speechIdentity(current, sound: sound, sourceID: sourceID) == identity else { return false }
+            let isManual = self.readAloud.manuallyRequested(identity)
+            if !isManual {
+                guard UserDefaults.standard.bool(forKey: ReadAloud.enabledKey),
+                      !Self.effectiveQuiet(), NotificationCategoryPrefs.loadMac().isEnabled(sound),
+                      current.effectiveAttention != .muted else { return false }
+                if UserDefaults.standard.bool(forKey: ReadAloud.silenceViewedKey) {
+                    let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+                    let nativePresence = !Presence.screenIsLocked() && Presence.idleSeconds() < 120
+                        && (ForegroundTerminal.sourceAppSuppressesSpeech(for: current, frontmostBundleID: front)
+                            || ForegroundTerminal.focusedSessionIDs(among: [current], frontmostBundleID: front).contains(current.id))
+                    if self.isViewing(current.id) || nativePresence { return false }
+                }
             }
-            if alert.sound == .agentDone {
-                return current.status == .done && current.completionID == alert.session.completionID
-                    && current.completionID != nil && !current.isStuck
+            switch sound {
+            case .agentDone: return current.status == .done && current.hasUnreadCompletion && !current.isStuck
+            case .agentStuck: return current.status == .done && current.isStuck
+            case .needsApproval, .needsAnswer: return current.status == .needsResponse
+            default: return false
             }
-            return current.status == alert.session.status && current.statusSince == alert.session.statusSince
-                && (alert.sound != .agentStuck || current.failed == true)
         }
     }
 
@@ -224,14 +286,22 @@ final class MenuBarModel: ObservableObject {
     /// never enter SessionStore or the progress notification pipeline.
     private let usage: AccountUsageCoordinator
     private var usageObserver: AnyCancellable?
+    private var voiceActionContext = VoiceActionContext()
+    private let voiceActionRequests = ActionRequestLog()
+    private let voiceCursorCloud = CursorCloudAgentClient()
+
     /// The voice companion (tap the buddy to talk). Lazy so `self` is fully built.
     lazy var voiceChat = VoiceChat(
         contextProvider: { [weak self] in
             guard let self else { return [] }
-            return BuddyScope.included(from: self.sessions, selectedIDs: self.buddySessionIDs)
+            return self.voiceScope(self.sessions)
         },
+        statusContextProvider: { [weak self] in await self?.readVoiceStatus() ?? [] },
         actionHandler: { [weak self] action in await self?.performVoiceAction(action) ?? "" },
-        onStart: { [weak self] in self?.readAloud.voiceStarted() })
+        onStart: { [weak self] in
+            self?.voiceActionContext = VoiceActionContext()
+            self?.readAloud.voiceStarted()
+        })
     private var pollTask: Task<Void, Never>?
     private var tokenScanTask: Task<Void, Never>?
     private var glance: GlanceWindow?
@@ -535,6 +605,59 @@ final class MenuBarModel: ObservableObject {
         }
     }
 
+    /// Explicit recap actions require a recent authority snapshot. Browsing
+    /// cached entries remains available while this action is unavailable.
+    var recapAuthorityAvailable: Bool {
+        guard snapshotSourceID != nil, let updated = recapUpdatedAt else { return false }
+        return Date().timeIntervalSince(updated) <= 10
+    }
+
+    func confirmRecap(_ displayed: Recap, sourceID: String?) {
+        guard sourceID == snapshotSourceID,
+              recapConfirmation.begin(recap: displayed, sourceID: sourceID,
+                                      available: recapAuthorityAvailable) else { return }
+        driveRecapConfirmation()
+    }
+
+    func retryRecapConfirmation() {
+        guard recapConfirmation.retry(sourceID: snapshotSourceID, available: recapAuthorityAvailable) else { return }
+        driveRecapConfirmation()
+    }
+
+    private func driveRecapConfirmation() {
+        guard let batch = recapConfirmation.batch, let attemptID = recapConfirmation.attemptID else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.recapConfirmation.finish(attemptID: attemptID) }
+            @MainActor func current() -> Bool {
+                self.recapConfirmation.observeSource(self.snapshotSourceID)
+                return !Task.isCancelled && self.recapConfirmation.isRunning
+                    && self.recapConfirmation.attemptID == attemptID
+                    && self.snapshotSourceID == batch.sourceID
+            }
+            guard current() else { return }
+            // Capture the retry remainder once; incoming recap entries never
+            // expand this intent, even if another device empties the recap.
+            let pending = self.recapConfirmation.pendingCompletions
+            for request in pending {
+                guard current() else { return }
+                let response = await self.store.acknowledgeCompletion(request)
+                guard current() else { return }
+                self.recapConfirmation.receiveCompletion(response.outcome, request: request, attemptID: attemptID)
+            }
+            guard current() else { return }
+            // Read first. A failed write keeps the horizon untouched and this
+            // exact batch retryable; missing/stale rounds are explicitly skipped.
+            if let request = self.recapConfirmation.pendingHorizonRequest {
+                let outcome = await self.store.advanceRecapHorizon(request)
+                guard current() else { return }
+                self.recapConfirmation.receiveHorizon(outcome, attemptID: attemptID)
+            }
+            // Receipts only describe the operation. The polling snapshot owns
+            // the recap list, unread badges, and cross-device state.
+        }
+    }
+
     private func startPolling() {
         pollTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -549,6 +672,9 @@ final class MenuBarModel: ObservableObject {
                 let snapshot = await self.store.snapshot(now: Date())
                 self.snapshotSourceID = snapshot.sourceID
                 self.sessions = snapshot.sessions
+                self.recap = snapshot.recap
+                self.recapUpdatedAt = Date()
+                self.recapConfirmation.observeSource(snapshot.sourceID)
                 self.observationDiagnostics = snapshot.observationDiagnostics ?? []
                 self.recentDirectories = snapshot.recentDirectories ?? []
                 self.codexAppServerDiagnostics = await self.codexAppServerMonitor.diagnostics()
@@ -1119,7 +1245,7 @@ final class MenuBarModel: ObservableObject {
     }
 
     /// Include/exclude a session from the buddy's context (ephemeral). Takes effect
-    /// on the next call — a live call keeps the snapshot it started with.
+    /// on the next status read and at each action scope check.
     func toggleBuddy(_ id: String) {
         if buddySessionIDs.contains(id) { buddySessionIDs.remove(id) }
         else { buddySessionIDs.insert(id) }
@@ -1178,27 +1304,81 @@ final class MenuBarModel: ObservableObject {
             _ = await approvalContext.take(id: ap.id)
             await store.recordInteraction(sessionID: s.id)
             return "Decision submitted for \(s.project); command execution is not yet confirmed."
-        case .answer(let project, let text):
-            guard let s = match(project) else { return "No matching session." }
+        case .answer(let project, let text), .instruct(let project, let text):
+            let snapshot = await store.snapshot(now: Date())
+            guard !Task.isCancelled,
+                  let observed = voiceActionContext.target(project, sourceID: snapshot.sourceID,
+                      currentScope: voiceScope(snapshot.sessions)),
+                  let current = snapshot.sessions.first(where: { $0.id == observed.id }) else {
+                return "No unique task in the voice status you read. Ask for current status and specify the task in your voice scope; nothing was sent."
+            }
+            let support = SessionActionSupport.resolve(for: current)
+            guard support.isAvailable else { return support.unsupportedReason ?? "This task cannot take an instruction here." }
+            let answerOnly: Bool
+            if case .answer = action { answerOnly = true } else { answerOnly = false }
+            guard let request = voiceActionContext.instructionRequest(for: observed, current: current,
+                text: text, answerOnly: answerOnly) else {
+                return "The question, turn or control channel changed, or the request is unavailable. Ask for current status before making a new request; nothing was sent."
+            }
             let monitor = codexAppServerMonitor
+            let followups = cursorFollowups
+            let acp = cursorACP
+            let cloud = voiceCursorCloud
+            let store = store
             let dispatch = AnswerDispatch(store: store, questions: questionRegistry,
                 inject: { ref, text in TerminalInjector.inject(text, into: ref) },
                 steer: { id, text in await monitor.steer(threadID: id, text: text) },
-                startTurn: { id, text in await monitor.startTurn(threadID: id, text: text) })
-            let result = await dispatch.deliver(SessionActionRequest(sessionID: s.id,
-                intent: SessionActionSupport.resolve(for: s).intent,
-                questionID: s.pendingQuestion?.id, expectedStatusSince: s.statusSince.timeIntervalSince1970, text: text))
+                startTurn: { id, text in await monitor.startTurn(threadID: id, text: text) },
+                queueCursorFollowup: { id, text in
+                    await followups.queue(conversationID: id, text: text) != nil
+                },
+                resumeCursor: { session, text in
+                    if await acp.hosts(session.id) { return await acp.prompt(sessionID: session.id, text: text) }
+                    guard E2ERunConfiguration.current == nil else { return false }
+                    return await CursorCLI.resume(conversationID: session.id, text: text, cwd: session.project,
+                        preferring: await store.preferredTerminalProgram())
+                },
+                continueCursorCloud: { id, text in
+                    guard E2ERunConfiguration.current == nil else { return .refused("Cloud actions are disabled during isolated acceptance.") }
+                    return await cloud.continueAgent(id: id, text: text)
+                },
+                requests: voiceActionRequests)
+            guard !Task.isCancelled,
+                  snapshot.sourceID == snapshotSourceID,
+                  voiceScope(sessions).contains(where: { $0.id == observed.id }) else {
+                return "The source or voice scope changed, or the action was cancelled; nothing was sent."
+            }
+            let result = await dispatch.deliver(request)
             switch result {
             case .accepted:
-                await store.recordInteraction(sessionID: s.id)
-                return "Answer submitted for \(s.project); execution is not yet confirmed."
-            case .failed(let reason), .refused(let reason): return reason
-            default: return "Result unknown. Check the task before sending again."
+                await store.recordInteraction(sessionID: observed.id)
+                return "Request accepted for \(observed.project); agent execution is not yet confirmed. \(support.note ?? "")"
+            case .failed(let reason): return "Request failed: \(reason)"
+            case .refused(let reason): return "Request refused: \(reason)"
+            case .unknown: return "Result unknown. Check the task before sending again; this request will not be automatically resent."
             }
-        case .markRead, .instruct:
-            // Phone-only for now (`.scratch/iphone-board`, ticket 05): the Mac
-            // reads results and steers turns in its own dashboard.
-            return "That voice action is available on the phone; on the Mac, use the dashboard."
+        case .markRead(let project):
+            let snapshot = await store.snapshot(now: Date())
+            guard !Task.isCancelled,
+                  let observed = voiceActionContext.target(project, sourceID: snapshot.sourceID,
+                      currentScope: voiceScope(snapshot.sessions)),
+                  let current = snapshot.sessions.first(where: { $0.id == observed.id }),
+                  let request = voiceActionContext.completionRequest(for: observed, current: current) else {
+                return "The result is missing, unfinished, ambiguous or changed since the voice status you read. Ask for current status and identify the result; nothing was marked read."
+            }
+            guard !Task.isCancelled, snapshot.sourceID == snapshotSourceID,
+                  voiceScope(sessions).contains(where: { $0.id == observed.id }) else {
+                return "The source or voice scope changed, or the action was cancelled; nothing was marked read."
+            }
+            let result = await store.acknowledgeCompletion(request)
+            switch result.outcome {
+            case .accepted, .alreadyAcknowledged:
+                return "This exact result for \(observed.project) is marked read. It has not been reviewed or accepted."
+            case .staleCompletion: return "That result round changed; the newer result was not marked read."
+            case .sourceMismatch: return "The source changed; nothing was marked read."
+            case .unavailable: return "The result is no longer available; nothing was marked read."
+            case .failed: return "Could not save the reading state. Nothing was marked read."
+            }
         case .none: return ""
         }
     }
@@ -1206,7 +1386,21 @@ final class MenuBarModel: ObservableObject {
     private func match(_ project: String) -> AgentSession? {
         // Conservative resolution (exact-first, unique-substring, refuse ambiguous)
         // so a voice approve never lands on the wrong real command target.
-        VoiceSessionMatch.match(project, in: sessions)
+        VoiceSessionMatch.match(project, in: voiceScope(sessions))
+    }
+
+    private func readVoiceStatus() async -> [AgentSession] {
+        let snapshot = await store.snapshot(now: Date())
+        guard !Task.isCancelled else { return [] }
+        let scope = voiceScope(snapshot.sessions)
+        // VoicePrompt returns at most 40 individual rows. Counts do not expose
+        // omitted identities and cannot authorize those tasks.
+        voiceActionContext.observe(sourceID: snapshot.sourceID, sessions: Array(scope.prefix(40)))
+        return scope
+    }
+
+    private func voiceScope(_ sessions: [AgentSession]) -> [AgentSession] {
+        buddySessionIDs.isEmpty ? sessions : sessions.filter { buddySessionIDs.contains($0.id) }
     }
 
     static func defaultGlanceScale() -> CGFloat {

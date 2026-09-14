@@ -10,7 +10,14 @@ public struct DashboardSessionList: Sendable {
         case project(String)
 
         public static func of(_ session: AgentSession) -> Self {
-            session.project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            // `project` is display copy (often only a basename). The recorded
+            // checkout is the identity shared with recentDirectories; keep its
+            // exact spelling so distinct checkouts are never merged by name.
+            if let path = session.checkoutPath,
+               !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return .project(path)
+            }
+            return session.project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? .unknown : .project(session.project)
         }
     }
@@ -44,31 +51,57 @@ public struct DashboardSessionList: Sendable {
     public let visible: [AgentSession]
     public let selected: AgentSession?
     public let total: Int
+    public let summary: TaskPresentationSummary
+    public let globalPending: [AgentSession]
+    public let pending: [AgentSession]
+    public let olderCount: Int
 
     public init(_ sessions: [AgentSession], project: ProjectScope = .all,
-                status: StatusFilter? = nil, query: String = "", selection: String? = nil) {
-        total = sessions.count
-        let counts = Dictionary(grouping: sessions, by: ProjectScope.of).mapValues(\.count)
-        var scopes = counts.keys.sorted { lhs, rhs in
+                status: StatusFilter? = nil, query: String = "", selection: String? = nil,
+                showOlder: Bool = false, recentDirectories: [String] = [], now: Date = Date()) {
+        let current = SessionCurrency.current(sessions, now: now)
+        summary = TaskPresentationSummary(sessions: current)
+        total = current.count
+        olderCount = sessions.count - current.count
+        globalPending = PendingTasks.ordered(current)
+        let counts = Dictionary(grouping: globalPending, by: ProjectScope.of).mapValues(\.count)
+        let latest = Dictionary(grouping: sessions, by: ProjectScope.of)
+            .mapValues { $0.map(\.updatedAt).max() ?? .distantPast }
+        var ranks: [ProjectScope: Int] = [:]
+        for (index, session) in globalPending.enumerated() where ranks[ProjectScope.of(session)] == nil {
+            ranks[ProjectScope.of(session)] = index
+        }
+        var scopes = Set(sessions.map(ProjectScope.of))
+        for directory in recentDirectories where !directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            scopes.insert(.project(directory))
+        }
+        if project != .all { scopes.insert(project) }
+        let orderedScopes = scopes.sorted { lhs, rhs in
+            if let l = ranks[lhs], let r = ranks[rhs] { return l < r }
+            if ranks[lhs] != nil { return true }
+            if ranks[rhs] != nil { return false }
+            let l = latest[lhs] ?? .distantPast, r = latest[rhs] ?? .distantPast
+            if l != r { return l > r }
             switch (lhs, rhs) {
-            case (.project(let a), .project(let b)): a.localizedStandardCompare(b) == .orderedAscending
-            case (.project, _): true
-            default: false
+            case (.project(let a), .project(let b)): return a.localizedStandardCompare(b) == .orderedAscending
+            case (.project, _): return true
+            default: return false
             }
         }
-        // Keep a selected, now-empty project reachable until the user changes
-        // scope; a disappearing snapshot must not silently select All projects.
-        if project != .all && counts[project] == nil { scopes.append(project) }
-        projects = [.init(id: .all, count: total)] + scopes.map { .init(id: $0, count: counts[$0, default: 0]) }
-        let visible = SessionFilter.apply(sessions, status: nil, agent: nil, query: query)
-            .filter { (project == .all || ProjectScope.of($0) == project)
-                && (status?.matches($0) ?? true) }
-            .sorted {
-                $0.presentationState.attentionRank != $1.presentationState.attentionRank
-                    ? $0.presentationState.attentionRank < $1.presentationState.attentionRank
-                    : $0.updatedAt > $1.updatedAt
-            }
-        self.visible = visible
-        selected = selection.flatMap { id in visible.first { $0.id == id } }
+        projects = [.init(id: .all, count: globalPending.count)]
+            + orderedScopes.map { .init(id: $0, count: counts[$0, default: 0]) }
+        let search = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidates = (showOlder ? sessions : current).filter { session in
+            let matchesQuery = search.isEmpty || [session.displayTitle, session.project, session.checkoutPath ?? "", session.branch ?? "", session.summary ?? ""]
+                .contains { $0.localizedStandardContains(search) }
+            return matchesQuery && (project == .all || ProjectScope.of(session) == project)
+                && (status?.matches(session) ?? true)
+        }
+        pending = PendingTasks.ordered(candidates)
+        let pendingIDs = Set(pending.map(\.id))
+        visible = pending + candidates.filter { !pendingIDs.contains($0.id) }.sorted { $0.updatedAt > $1.updatedAt }
+        // Reading may remove a row from Unread; retain its live detail until
+        // explicit navigation. Never freeze stale permissions or substitute a task.
+        selected = selection.flatMap { id in sessions.first { $0.id == id } }
     }
 }
