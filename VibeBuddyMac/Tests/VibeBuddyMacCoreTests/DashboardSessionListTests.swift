@@ -48,8 +48,9 @@ struct DashboardSessionListTests {
     }
 
     @Test func agentScopeKeepsGlobalCountsAndAnAlreadyOpenedResult() {
-        var claude = session("claude-result", "Alpha", .done)
-        claude.agent = .claudeCode
+        var claude = AgentSession(id: "claude-result", agent: .claudeCode, project: "Alpha", status: .done,
+                                  hasUnreadCompletion: true,
+                                  statusSince: Date(timeIntervalSince1970: 10), updatedAt: Date(timeIntervalSince1970: 10))
         let codex = session("codex-result", "Alpha", .done)
         let list = DashboardSessionList([claude, codex], status: .done, agent: .claudeCode,
                                         selection: codex.id, now: Date(timeIntervalSince1970: 100))
