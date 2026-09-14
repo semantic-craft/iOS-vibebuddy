@@ -49,4 +49,37 @@ final class WidgetQuotaStoreTests: XCTestCase {
         XCTAssertEqual(stored?.quotas.first?.weeklyRemainingPercent, 41)
         XCTAssertEqual(reloads, 2)
     }
+
+    func testMixedProviderAgesKeepOnlyTheOldRowFaded() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        var reading = snapshot(savedAt: now)
+        reading.quotas = [
+            ProviderQuota(provider: .claude, weeklyRemainingPercent: 41,
+                          observedAt: now.addingTimeInterval(-60)),
+            ProviderQuota(provider: .codex, weeklyRemainingPercent: 63,
+                          observedAt: now.addingTimeInterval(-2 * 3600))
+        ]
+        XCTAssertEqual(QuotaFreshnessRule.fadedProviders(reading, now: now), [.codex])
+        XCTAssertEqual(QuotaFreshnessRule.anchor(reading, quotas: reading.quotas), now.addingTimeInterval(-7200))
+        XCTAssertNotNil(QuotaFreshnessRule.age(reading, quotas: reading.quotas, now: now))
+        XCTAssertNil(QuotaFreshnessRule.age(reading, quotas: [reading.quotas[0]], now: now))
+        reading.relayLive = false
+        XCTAssertEqual(QuotaFreshnessRule.fadedProviders(reading, now: now), [.claude, .codex])
+    }
+
+    func testEachProviderFadesAtItsOwnScheduledBoundary() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        var reading = snapshot(savedAt: now)
+        reading.quotas = [
+            ProviderQuota(provider: .claude, weeklyRemainingPercent: 41, observedAt: now),
+            ProviderQuota(provider: .codex, weeklyRemainingPercent: 63,
+                          observedAt: now.addingTimeInterval(-59 * 60))
+        ]
+        let firstFade = now.addingTimeInterval(60)
+        XCTAssertEqual(Set(QuotaFreshnessRule.fadeDates(reading)), [firstFade, now.addingTimeInterval(3600)])
+        XCTAssertTrue(QuotaFreshnessRule.fadedProviders(reading, now: firstFade.addingTimeInterval(-1)).isEmpty)
+        XCTAssertEqual(QuotaFreshnessRule.fadedProviders(reading, now: firstFade), [.codex])
+        XCTAssertEqual(QuotaFreshnessRule.fadedProviders(reading, now: now.addingTimeInterval(3600)), [.claude, .codex])
+    }
+
 }

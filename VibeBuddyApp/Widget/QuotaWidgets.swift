@@ -35,14 +35,13 @@ struct PhoneQuotaEntry: TimelineEntry {
 /// the age it prints keeps up. The timeline itself is asked for again every
 /// half hour — a coarser countdown than the Watch's, for a smaller budget.
 enum PhoneQuotaTimeline {
-    static let fadeAfter: TimeInterval = 60 * 60
     static let refreshAfter: TimeInterval = 30 * 60
 
     static func entryDates(snapshot: PhoneQuotaSnapshot?, windows: [QuotaWindow], now: Date) -> [Date] {
         guard let snapshot else { return [now] }
         let boundaries = windows.compactMap(\.resetsAt)
-            + [QuotaFreshnessRule.anchor(snapshot, quotas: snapshot.quotas).addingTimeInterval(fadeAfter),
-               now.addingTimeInterval(15 * 60)]
+            + QuotaFreshnessRule.fadeDates(snapshot)
+            + [now.addingTimeInterval(15 * 60)]
         return [now] + Set(boundaries.filter { $0 > now }).sorted()
     }
 
@@ -57,30 +56,6 @@ enum PhoneQuotaTimeline {
     static func sample(now: Date = Date()) -> PhoneQuotaSnapshot {
         PhoneQuotaSnapshot(quotas: WatchDemoScenario.normal.quotas(now: now), macName: nil,
                            relayLive: true, savedAt: now, isDemo: true)
-    }
-}
-
-/// PLAN §2.3: the widget only learns anything while the app is open, so the
-/// Kit's 15-minute stale rule would mark it stale most of the day. It prints
-/// the age as a fact and fades only when the phone saw the Mac drop or the
-/// reading is over an hour old.
-enum QuotaFreshnessRule {
-    static func anchor(_ snapshot: PhoneQuotaSnapshot, quotas: [ProviderQuota]) -> Date {
-        quotas.compactMap(\.observedAt).max() ?? snapshot.savedAt
-    }
-
-    static func faded(_ snapshot: PhoneQuotaSnapshot, quotas: [ProviderQuota], now: Date) -> Bool {
-        !snapshot.relayLive || now.timeIntervalSince(anchor(snapshot, quotas: quotas)) > PhoneQuotaTimeline.fadeAfter
-    }
-
-    /// `18m ago`, or nil while the reading is live and recent.
-    static func age(_ snapshot: PhoneQuotaSnapshot, quotas: [ProviderQuota], now: Date) -> String? {
-        let seconds = max(0, now.timeIntervalSince(anchor(snapshot, quotas: quotas)))
-        if snapshot.relayLive, seconds < ProviderQuota.staleAfter { return nil }
-        let minutes = Int(seconds / 60)
-        if minutes < 60 { return String(localized: "\(minutes)m ago") }
-        if minutes < 1440 { return String(localized: "\(minutes / 60)h ago") }
-        return String(localized: "\(minutes / 1440)d ago")
     }
 }
 
@@ -511,7 +486,7 @@ struct PhoneQuotaOverviewView: View {
     }
 
     private func content(_ snapshot: PhoneQuotaSnapshot) -> some View {
-        let faded = QuotaFreshnessRule.faded(snapshot, quotas: snapshot.quotas, now: now)
+        let fadedProviders = QuotaFreshnessRule.fadedProviders(snapshot, now: now)
         let mac = snapshot.macName ?? (snapshot.isDemo ? String(localized: "Demo") : "Mac")
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
@@ -524,7 +499,8 @@ struct PhoneQuotaOverviewView: View {
             Spacer(minLength: 6)
             VStack(spacing: 5) {
                 ForEach(AccountUsageProvider.allCases) { provider in
-                    row(provider, quota: snapshot.quotas.first { $0.provider == provider }, faded: faded)
+                    row(provider, quota: snapshot.quotas.first { $0.provider == provider },
+                        faded: fadedProviders.contains(provider))
                 }
             }
         }
