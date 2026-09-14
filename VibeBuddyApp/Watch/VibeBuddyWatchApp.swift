@@ -36,12 +36,24 @@ private struct WatchWindow: View {
 
     var body: some View {
         WatchRootView(store: store)
-            .onOpenURL { store.openTask($0) }
+            .onOpenURL { url in
+                if !WatchNotificationRouter.shared.openActivityURL(url) {
+                    store.openTask(url)
+                }
+            }
             // `initial: true` because a phase that is already `.active` when the
             // window appears never arrives as a change, and nothing else would
             // ever tell the store the wrist is looking.
             .onChange(of: scenePhase, initial: true) { _, phase in
-                if phase == .active { store.becameActive() } else { store.resignedActive() }
+                if phase == .active {
+                    store.becameActive()
+                    // Refresh the relay before resolving the tapped session,
+                    // and present only from the active main window.
+                    WatchNotificationRouter.shared.setWindowActive(true)
+                } else {
+                    WatchNotificationRouter.shared.setWindowActive(false)
+                    store.resignedActive()
+                }
             }
             .sheet(item: $store.quotaSelection) { selection in
                 TimelineView(.periodic(from: .now, by: 5)) { context in
@@ -56,9 +68,6 @@ private struct WatchWindow: View {
             }
             .sheet(item: $store.taskLink) { link in
                 WatchTaskDetailView(store: store, link: link)
-            }
-            .sheet(isPresented: $store.isRecapOpen) {
-                WatchRecapView(store: store)
             }
     }
 }

@@ -617,3 +617,5 @@
 
 "Set up Surge and your Mac" = "配置 Surge 与 Mac";
 "Check status away from home" = "检查外出连接";
+
+"Scan a Mac’s pairing code here to connect or replace your saved pairing. You do not need to disconnect first." = "在此扫描 Mac 的配对码，即可连接或替换已保存的配对，无需先断开连接。";

@@ -696,24 +696,22 @@ final class MenuBarModel: ObservableObject {
                 self.missedThisWeek = await self.store.missedCounts()
                 self.buddySessionIDs = BuddyScope.pruned(self.buddySessionIDs, toLive: snapshot.sessions)
                 self.tickGlanceCards()
-                // PresencePolicy, not just "terminal frontmost": idle, lock, or
-                // "always ask the phone" empty the set so a stale verdict cannot
-                // keep suppressing. The 2s poll re-evaluates without a new event.
-                let present = Set(snapshot.sessions.compactMap { session in
-                    PresencePolicy.decide(self.presenceInput(for: session.id)) == .present
-                        ? session.id : nil
-                })
+                // Only a positively identified task view can silence its cue.
+                // Source-app presence still routes approvals, but cannot tell
+                // which Codex/terminal tab the person is reading.
+                let viewed = Set(snapshot.sessions.filter { self.isViewing($0.id) }.map(\.id))
+                let focused: Set<String> = self.alwaysAskPhone ? [] : viewed
                 let alerts = await self.notificationCoordinator.observe(
                     snapshot.sessions,
                     appActive: NSApp.isActive,                 // user looking at VibeBuddy?
                     quietMode: Self.effectiveQuiet(),          // Focus mode (manual or nightly) → every session muted
-                    focusedSessionIDs: present,                // present sessions cap to the list
-                    viewedSessionIDs: Set(snapshot.sessions.filter { self.isViewing($0.id) }.map(\.id)),
+                    focusedSessionIDs: focused,                // exact task view, not app presence
+                    viewedSessionIDs: viewed,
                     categories: NotificationCategoryPrefs.loadMac()) // this Mac's own switches
                 await self.refreshNotificationDeliveryHealth()
                 // Off the loop: a push may hold for the phone's receipt, and the
                 // glance must not wait with it.
-                Task { await self.pushToPhones(alerts, focused: present) }
+                Task { await self.pushToPhones(alerts, focused: focused) }
                 await self.pushActivityUpdates(snapshot.sessions)
                 await self.checkBudget(snapshot.sessions)
                 try? await Task.sleep(for: .seconds(2))
@@ -728,8 +726,7 @@ final class MenuBarModel: ObservableObject {
               current.completionNotice?.id == notice.id, current.status == .done,
               current.hasUnreadCompletion, !current.isStuck, current.effectiveAttention == .followed,
               CompletionSummaryConfiguration.load().enabled, !Self.effectiveQuiet() else { return false }
-        let focused = ForegroundTerminal.focusedSessionIDs(among: [current],
-            frontmostBundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
+        let focused: Set<String> = !alwaysAskPhone && isViewing(current.id) ? [current.id] : []
         guard !focused.contains(current.id) else { return false }
         if let deviceToken {
             let devices = await deviceTokens.devices()
@@ -744,8 +741,7 @@ final class MenuBarModel: ObservableObject {
         let config = CompletionSummaryConfiguration.load()
         guard config.configurationFailure == nil, let completionID = session.completionID,
               !Self.effectiveQuiet() else { log.notice("Skipped: configuration or quiet mode"); return nil }
-        let focused = ForegroundTerminal.focusedSessionIDs(among: [session],
-            frontmostBundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
+        let focused: Set<String> = !alwaysAskPhone && isViewing(session.id) ? [session.id] : []
         guard !focused.contains(session.id) else { log.notice("Skipped: source is focused"); return nil }
         let alert = SoundAlert(session: session, sound: .agentDone,
                                delivery: DeliveryMatrix.level(for: .agentDone, attention: session.effectiveAttention))

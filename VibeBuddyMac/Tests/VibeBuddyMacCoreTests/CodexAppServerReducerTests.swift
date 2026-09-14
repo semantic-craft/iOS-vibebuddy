@@ -232,6 +232,28 @@ struct CodexAppServerAuthorityTests {
                   probeRetirement: probeRetirement)
     }
 
+    @Test("discovering an idle app-server thread cannot suppress a new rollout turn")
+    func idleDiscoveryIsNotLiveProgress() async {
+        let store = SessionStore()
+        await store.ingest(event(.sessionStart, source: .appserver, at: now))
+        await store.ingest(event(.userPromptSubmit, source: .rollout, at: now.addingTimeInterval(1)))
+        #expect(await store.snapshot(now: now.addingTimeInterval(2)).sessions.first { $0.id == "thr-1" }?.status == .working)
+        await store.ingest(event(.stop, source: .rollout, at: now.addingTimeInterval(60)))
+        #expect(await store.snapshot(now: now.addingTimeInterval(61)).sessions.first { $0.id == "thr-1" }?.status == .done)
+    }
+
+    @Test("idle metadata refresh does not renew app-server progress authority")
+    func idleRefreshDoesNotExtendAuthority() async {
+        let store = SessionStore()
+        await store.ingest(event(.userPromptSubmit, source: .appserver, at: now))
+        let later = now.addingTimeInterval(SessionStore.appServerAuthorityWindow + 1)
+        await store.ingest(event(.sessionStart, source: .appserver, at: later))
+        await store.ingest(event(.userPromptSubmit, source: .rollout, at: later.addingTimeInterval(1)))
+        #expect(await store.snapshot(now: later.addingTimeInterval(2)).sessions.first { $0.id == "thr-1" }?.status == .working)
+        await store.ingest(event(.stop, source: .rollout, at: later.addingTimeInterval(60)))
+        #expect(await store.snapshot(now: later.addingTimeInterval(61)).sessions.first { $0.id == "thr-1" }?.status == .done)
+    }
+
     @Test("a fresh app-server report outranks a rollout stop for the same thread")
     func rolloutCannotRetireDaemonThread() async {
         let store = SessionStore()

@@ -29,6 +29,10 @@ public struct HistoryMessageRow: Identifiable, Sendable {
     public var messageIDs: [String] = []
     var groupID: String?
     public func contains(_ messageID: String?) -> Bool { messageID.map { messageIDs.contains($0) } ?? false }
+    /// A text-only row built outside the projection (the reader's recent-output fallback).
+    public static func standalone(id: String, role: SessionHistoryRole, text: String) -> HistoryMessageRow {
+        HistoryMessageRow(id: id, role: role, kind: .text, text: text, messageIDs: [id])
+    }
 }
 
 /// A read-only presentation projection. Raw IDs remain addressable by search/export.

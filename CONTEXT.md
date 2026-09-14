@@ -343,10 +343,12 @@ code, and tests — don't drift to synonyms.
   `bannerSound` / `banner` / `list` / `drop`, shared by the Mac's local
   notification, its APNs push and the phone's own local notification so the
   three surfaces agree. Approvals and questions interrupt at every level (a
-  muted session shows them silently); a completion banners for followed and
-  normal, is dropped for muted; the nudge is list-only unless followed.
-  The app's Quiet mode / Quiet hours read every session as `muted`; a session whose own terminal is
-  frontmost is capped to `list`. `list` and `drop` never push.
+  muted session shows them silently); a followed completion uses banner and sound,
+  a normal completion uses a silent banner, and muted completions are dropped;
+  the nudge is list-only unless followed.
+  The app's Quiet mode / Quiet hours read every session as `muted`; only a positively
+  identified current task view can cap its cue to `list`. Source-app presence alone
+  cannot identify the viewed task. `list` and `drop` never push.
 - **Completion reminder** — `CompletionReminderSchedule` re-issues the
   `agentDone` cue for a `done`, unread session whose effective attention is
   `followed`, after 5, 10, 20 and then 40 minutes — at most 4 times per
@@ -358,11 +360,13 @@ code, and tests — don't drift to synonyms.
 - **Watch results** — the bounded current result payload on the wire
   (`WatchDashboardState.results`: failures and unread completions in
   **pending queue** order, ADR-0022, a subsequence of the phone's queue; at
-  most six). Since the recap (below) it is no longer rendered on the home — failures sit under *Also waiting* and ended rounds in the recap — but
-  it still lets a mirrored notification open its exact task. A completion
+  most six). Failures sit under *Also waiting*; unread results have their own
+  clickable rows on Watch home after Watch Recap was removed. Current working
+  sessions are also openable, whether followed or normal. A mirrored notification
+  can target the same exact task. A completion
   summary is not the full result: opening it leaves the round unread and its
-  reminder budget intact. **Mark as read** on a task, or **Mark all** on the
-  recap, explicitly confirms the displayed source/session/completion. Offline
+  reminder budget intact. **Mark as read** on a Watch task explicitly confirms the displayed
+  source/session/completion; Watch Recap and its Mark all action are deleted. Offline
   intent remains pending until the Mac confirms; opening a wait only marks
   that wait seen (ADR-0021 and its 2026-09-14 amendment).
 - **Recap entry** (`RecapEntry`) — a read-only record of one ended round of one
@@ -524,7 +528,7 @@ code, and tests — don't drift to synonyms.
   installed clients retain their ordinary completion copy and identity until
   they implement the pending/decision protocol.
 
-Mac presence suppresses ordinary cues only while the verdict is current; leaving restores one still-open wait reminder without making the card remotely answerable.
+Notification suppression requires a positively identified task view (currently the active VibeBuddy task view), not merely the source app being frontmost. Unknown Codex/terminal tab identity does not silence a followed task. Leaving the identified view restores one still-open wait reminder without making the card remotely answerable. App-level Presence remains an independent approval-routing signal.
 
 - **Copilot history** — Wake-compatible read-only conversations from
   `~/.copilot/session-store.db` (`sessions` + `turns`). The scanner checks the
@@ -542,6 +546,19 @@ Mac presence suppresses ordinary cues only while the verdict is current; leaving
 - **History reference** — `vibebuddy://session/<key>#<seq>`, pointing to a one-based
   transcript record in the reported source revision. It is not a permanent
   reference across source changes; hidden Thinking records retain their sequence.
+- **Session reader** — the dashboard's right column (`SessionReaderPane`,
+  ADR-0024): a two-line head with the session's controls top-right, one row of
+  jumps, the conversation body (`SessionReaderView`, newest page first, tools
+  and thinking folded), and a dock for the pending decision or the composer.
+  One pane serves a live session and a history record; what differs is which
+  controls the subject supports. Reading confirms nothing: only the result card
+  at the end of the body (the daemon's `completionBody`) can mark a round read.
+- **Reader source** — where the reader's body comes from
+  (`SessionReaderSource`): the agent's own local transcript by exact key
+  (`<key name>:<native id>`, through `readTranscript(key:)`), else the daemon's
+  bounded *recent output* labelled as an excerpt. A record is never matched by
+  title. The open transcript's file is watched; live state comes only from the
+  snapshot and is shown as *No live status* when absent.
 - **Live status (tool)** — a read-only observation of current sessions grouped
   by checkout, excluding the caller's known identity. It is a collaboration hint,
   not a lock; an unreachable daemon means unknown, not idle.

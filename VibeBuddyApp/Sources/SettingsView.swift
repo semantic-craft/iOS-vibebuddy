@@ -11,6 +11,7 @@ struct SettingsView: View {
     @AppStorage(SoundPrefs.playSoundKey) private var playSound = true
     @AppStorage(SoundPrefs.quietModeKey) private var quiet = false
     @ObservedObject var connectionTest: VoiceConnectionTest
+    @State private var showScanner = false
     @State private var quietHours = SoundPrefs.quietHours
     @State private var categories = SoundPrefs.categories
     @AppStorage(VoiceSettings.conversationLanguageKey) private var voiceLanguage = VoiceLanguage.english.rawValue
@@ -49,6 +50,11 @@ struct SettingsView: View {
         }
         .tint(CompanionPalette.accent)
         .onDisappear { connectionTest.invalidate() }
+        .sheet(isPresented: $showScanner) {
+            PairingScannerSheet()
+                .environmentObject(connection)
+                .environmentObject(dashboard)
+        }
     }
 
     /// One directory row: a quiet glyph, the destination, the chevron.
@@ -204,6 +210,7 @@ struct SettingsView: View {
                 }
             }
             Section {
+                scanButton
                 NavigationLink { RemoteConnectionView() } label: {
                     Label("Headscale & Surge", systemImage: "network")
                 }
@@ -211,12 +218,19 @@ struct SettingsView: View {
                     Label("Pairing and Mac setup", systemImage: "qrcode")
                 }
             } footer: {
-                Text("Pair by scanning the code from your Mac. Use the Mac menu at the top of the dashboard to reconnect or forget the current pairing.")
+                Text("Scan a Mac’s pairing code here to connect or replace your saved pairing. You do not need to disconnect first.")
             }
         }
         .phoneList()
         .navigationTitle("Connect your Mac")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var scanButton: some View {
+        Button { showScanner = true } label: {
+            Label("Scan to pair", systemImage: "qrcode.viewfinder")
+        }
+        .accessibilityIdentifier("settings-scan-to-pair")
     }
 
     private var connectionStatus: String {

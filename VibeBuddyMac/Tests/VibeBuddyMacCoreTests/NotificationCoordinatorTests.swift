@@ -89,6 +89,24 @@ struct NotificationCoordinatorTests {
         #expect(levels["question"] == .bannerSound)
     }
 
+    @Test("App-level presence cannot silence an unviewed followed Codex completion")
+    func appPresenceDoesNotSuppressSiblingPush() async {
+        let coordinator = NotificationCoordinator(notifier: SpyNotifier())
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        var viewed = session("viewed", .working, agent: .codex, since: now)
+        var other = session("other", .working, agent: .codex, since: now)
+        viewed.attention = .followed
+        other.attention = .followed
+        await coordinator.observe([viewed, other], now: now, appActive: true, quietMode: false)
+        viewed.status = .done
+        other.status = .done
+        let alerts = await coordinator.observe([viewed, other], now: now.addingTimeInterval(60),
+            appActive: true, quietMode: false,
+            focusedSessionIDs: ["viewed", "other"], viewedSessionIDs: ["viewed"])
+        #expect(alerts.first { $0.sessionID == "viewed" }?.delivery == .list)
+        #expect(alerts.first { $0.sessionID == "other" }?.delivery == .bannerSound)
+    }
+
     @Test("Claude and Codex transitions share the notification pipeline")
     func bothAgentsNotify() async {
         let spy = SpyNotifier()

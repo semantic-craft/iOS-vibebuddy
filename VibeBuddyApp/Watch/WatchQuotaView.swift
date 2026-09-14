@@ -45,6 +45,10 @@ struct WatchQuotaView: View {
                         WatchQuotaDetail(quota: quota, now: now)
                     }
                     WatchFooter(state: state, connection: connection, now: now)
+                    Text("VibeBuddy \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—") · \(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—")")
+                        .font(CompanionType.font(9))
+                        .foregroundStyle(CompanionPalette.ink3)
+                        .accessibilityIdentifier("watch-installed-version")
                 }
                 .padding(.top, 2)
                 .padding(.bottom, 14)

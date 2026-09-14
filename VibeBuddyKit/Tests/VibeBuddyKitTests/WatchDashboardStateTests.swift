@@ -34,6 +34,13 @@ struct WatchDashboardStateTests {
             quotas: quotas, relay: relay, now: now)
     }
 
+    @Test("normal working sessions have an openable Watch task, without being followed")
+    func normalWorkingTaskIsOpenable() {
+        let state = project([session(id: "normal-running", status: .working)])
+        #expect(state.followedTasks.isEmpty)
+        #expect(state.task("normal-running")?.presentation == .thinking)
+    }
+
     // MARK: counts + ordering
 
     @Test("Counts come from the same buckets as every other surface")

@@ -208,6 +208,8 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
     /// Persistent iPhone publication order; never derived from the Mac clock.
     public var relayRevision: UInt64
     public var followedTasks: [WatchFollowedTask]
+    /// Current running tasks, including normal attention. Optional for older relays.
+    public var workingTasks: [WatchFollowedTask]?
     /// What is worth a look without waiting on you: sessions that ended badly
     /// (`error`) first, then unread completions, newest first, at most
     /// `maxResults`. Every current session qualifies, followed or not — a
@@ -253,6 +255,7 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
         pairingEpoch: String? = nil,
         relayRevision: UInt64 = 0,
         followedTasks: [WatchFollowedTask] = [],
+        workingTasks: [WatchFollowedTask]? = nil,
         results: [WatchFollowedTask]? = nil,
         unfollowedUnreadCount: Int? = nil,
         counts: WatchSessionCounts = WatchSessionCounts(),
@@ -271,6 +274,7 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
         self.pairingEpoch = pairingEpoch
         self.relayRevision = relayRevision
         self.followedTasks = followedTasks
+        self.workingTasks = workingTasks
         self.results = results
         self.unfollowedUnreadCount = unfollowedUnreadCount
         self.counts = counts
@@ -314,6 +318,7 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
     /// two are built from the same session and say the same thing.
     public func task(_ sessionID: String) -> WatchFollowedTask? {
         followedTasks.first { $0.sessionID == sessionID }
+            ?? workingTasks?.first { $0.sessionID == sessionID }
             ?? results?.first { $0.sessionID == sessionID }
     }
 
@@ -373,15 +378,14 @@ public struct WatchDashboardState: Codable, Equatable, Sendable {
 
     /// Demo Stop mirrors the Mac's acknowledged user stop, without error or unread completion.
     public func resolvingStop(_ sessionID: String) -> WatchDashboardState {
-        guard let index = followedTasks.firstIndex(where: {
-            $0.sessionID == sessionID && $0.stop?.isOffered == true
-        }) else { return self }
+        guard task(sessionID)?.stop?.isOffered == true else { return self }
         var resolved = self
-        resolved.followedTasks[index].stop = nil
-        resolved.followedTasks[index].presentation = .idle
-        // The Mac's own wording for an interrupted turn, verbatim: a summary is
-        // data the Mac wrote, not copy this app translates.
-        resolved.followedTasks[index].summary = "Turn interrupted"
+        if let index = resolved.followedTasks.firstIndex(where: { $0.sessionID == sessionID }) {
+            resolved.followedTasks[index].stop = nil
+            resolved.followedTasks[index].presentation = .idle
+            resolved.followedTasks[index].summary = "Turn interrupted"
+        }
+        resolved.workingTasks?.removeAll { $0.sessionID == sessionID }
         resolved.counts.working = max(0, counts.working - 1)
         resolved.counts.done += 1
         resolved.presentation.thinking = max(0, presentation.thinking - 1)
@@ -462,6 +466,7 @@ public enum WatchDashboardProjection {
         return WatchDashboardState(
             sourceID: snapshot.sourceID,
             followedTasks: sessions.filter { $0.effectiveAttention == .followed }.map(WatchFollowedTask.init),
+            workingTasks: current.filter { $0.presentationState == .thinking }.map(WatchFollowedTask.init),
             results: results(in: pending),
             unfollowedUnreadCount: current.filter {
                 $0.presentationState == .completeUnread && $0.effectiveAttention != .followed

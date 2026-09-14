@@ -197,18 +197,4 @@
 "Done %lld · %lld unread" = "完成 %lld · %lld 未读";
 "%lld working" = "%lld 项运行中";
 
-/* MARK: Recap (ADR-0021 amendment): what ended since you last read */
-"Recap" = "回顾";
-"%lld since you last read" = "上次读过之后有 %lld 条";
-"%lld failed" = "%lld 条失败";
-"newest %@" = "最新 %@";
-"%@ ago" = "%@ 前";
-"Turn to read" = "转动表冠阅读";
-"%lld stopped on an error" = "%lld 条出错停止";
-"%lld of %lld" = "第 %lld 条 / 共 %lld 条";
-"That's everything since %@" = "%@ 之后就这些了";
-"That's everything from the last 24 hours" = "过去 24 小时就这些了";
-"now" = "现在";
-"Nothing new since you last read." = "上次读过之后没有新结束的轮次。";
-"Mark all" = "全部标为已读";
-"Couldn't send that. Will retry." = "没能发出去，稍后会重试。";
+"Tasks" = "任务";

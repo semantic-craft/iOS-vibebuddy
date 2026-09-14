@@ -14,30 +14,8 @@ import WatchKit
 ///
 /// The delegate is registered at launch, before any scene exists, and the
 /// store may not exist yet either (a cold launch from a notification). So the
-/// router holds the one session id until something can open it.
-@MainActor
-final class WatchNotificationRouter {
-    static let shared = WatchNotificationRouter()
-
-    private var handler: ((String) -> Void)?
-    private var pending: String?
-
-    /// Open this session, or remember to once a store is listening.
-    func open(sessionID: String) {
-        guard !sessionID.isEmpty else { return }
-        if let handler { handler(sessionID) } else { pending = sessionID }
-    }
-
-    /// The store is up. Anything that arrived first is delivered now.
-    func attach(_ handler: @escaping (String) -> Void) {
-        self.handler = handler
-        if let pending {
-            self.pending = nil
-            handler(pending)
-        }
-    }
-}
-
+/// router holds the session id until the main window is active. The window
+/// refreshes the relayed state before it lets the router present the target.
 /// The app delegate exists for one reason: to be the notification centre's
 /// delegate from the first moment of the process, which a SwiftUI scene cannot
 /// promise.

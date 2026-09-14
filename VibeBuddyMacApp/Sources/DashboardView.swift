@@ -54,7 +54,11 @@ struct DashboardView: View {
     /// History and Favorites filter by project path; the sidebar owns the
     /// choice so both libraries share one project list.
     @State private var historyProject: String?
-    @StateObject private var history = HistoryLibraryModel()
+    @State private var agentFilter: AgentKind?
+    @StateObject private var history: HistoryLibraryModel
+    /// One reader for both libraries, so the transcript file watcher and the
+    /// in-flight read follow the selection rather than the library tab.
+    @StateObject private var reader: SessionReaderModel
     // Demo instance pre-selects the approval session so the detail pane (diff +
     // Approve/Deny) is shown for screenshots; nil in normal use.
     // `VIBEBUDDY_DEMO_SELECT=<demo session id>` picks another row for
@@ -64,9 +68,6 @@ struct DashboardView: View {
             ? (ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO_SELECT"] ?? "demo-edit") : nil
     @FocusState private var searchFocused: Bool
     @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
-    /// The detail column's right slot — shelf, pane or rail, and which tool —
-    /// remembered across sessions and launches (ticket 11).
-    @AppStorage("dashboard.rightSlot") private var rightSlot = RightSlotState()
     /// Composer drafts by session id, for this window's lifetime: a draft
     /// survives opening, expanding or closing a tool and the narrow-window
     /// pane (which all rebuild the reading column), and a selection change
@@ -79,11 +80,23 @@ struct DashboardView: View {
                        set: { composerDrafts[key] = $0.isEmpty ? nil : $0 })
     }
 
+    init(model: MenuBarModel) {
+        self.model = model
+        let history = HistoryLibraryModel()
+        _history = StateObject(wrappedValue: history)
+        _reader = StateObject(wrappedValue: SessionReaderModel(history: history, model: model))
+    }
+
     private var projection: DashboardSessionList {
         DashboardSessionList(model.sessions, project: projectScope, status: statusFilter,
-                             query: query, selection: selection, showOlder: showOlder,
+                             agent: agentFilter, query: query, selection: selection, showOlder: showOlder,
                              recentDirectories: model.recentDirectories)
     }
+    private func subject(for session: AgentSession) -> ReaderSubject {
+        let record = SessionReaderSource.recordID(for: session).flatMap { id in history.snapshot.sessions.first { $0.id == id } }
+        return ReaderSubject(origin: .live, live: session, record: record)
+    }
+
     private var filtered: [AgentSession] { projection.visible }
     private var selectedSession: AgentSession? { projection.selected }
 
@@ -137,7 +150,7 @@ struct DashboardView: View {
                 } else if libraryScope == "usage" {
                     UsageWorkbenchView(model: model)
                 } else {
-                    HistoryWorkbenchView(history: history, model: model, query: $query,
+                    HistoryWorkbenchView(history: history, model: model, reader: reader, query: $query,
                                          favoritesOnly: libraryScope == "favorites",
                                          project: $historyProject, searchFocused: $searchFocused)
                 }
@@ -208,9 +221,6 @@ struct DashboardView: View {
                 Button("") { openBucket(nil) }.keyboardShortcut("0", modifiers: .command)
                 // ⌘F focuses the search field, leaving Usage first if needed.
                 Button("", action: focusSearch).keyboardShortcut("f", modifiers: .command)
-                // ⌥⌘B hides the right slot to its rail and brings it back, as
-                // Cursor's sidebar toggle does.
-                Button("") { rightSlot = rightSlot.reduced(.toggleRail) }.keyboardShortcut("b", modifiers: [.command, .option])
                 // ⏎ jumps to the selected session's terminal. Ignored while typing in
                 // search so it doesn't shadow the field's own Return.
                 Button("") {
@@ -227,7 +237,35 @@ struct DashboardView: View {
             openGlobalNext()
         }
         .onDisappear { model.dashboardViewedSessionID = nil }
-        .onChange(of: projectScope) { _, _ in resetTour() }
+        .task {
+            await history.refresh()
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(30)) } catch { return }
+                await history.refresh()
+            }
+        }
+        .onChange(of: projectScope) { _, scope in
+            resetTour()
+            switch scope {
+            case .all, .unknown: historyProject = nil
+            case .project(let path):
+                if historyProjects.contains(where: { $0.path == path }) { historyProject = path }
+                else if !path.hasPrefix("/") {
+                    let matches = historyProjects.map(\.path).filter { URL(fileURLWithPath: $0).lastPathComponent == path }
+                    historyProject = matches.count == 1 ? matches[0] : nil
+                } else { historyProject = nil }
+            }
+        }
+        .onChange(of: historyProject) { _, path in
+            guard libraryScope != "live" else { return }
+            projectScope = path.map { .project($0) } ?? .all
+        }
+        .onChange(of: agentFilter) { _, _ in resetTour() }
+        .onChange(of: filtered.map(\.id)) { _, ids in
+            if selection == nil, let wanted = ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO_SELECT"], ids.contains(wanted) {
+                selection = wanted
+            }
+        }
         .onChange(of: statusFilter) { _, _ in resetTour() }
         .onChange(of: query) { _, _ in resetTour() }
         .onChange(of: showOlder) { _, _ in resetTour() }
@@ -241,7 +279,7 @@ struct DashboardView: View {
             // The global hotkey declares a global route. The detail footer's
             // Next uses the selected scope and never posts this notification.
             let current = selectedSession
-            if projectScope != .all || statusFilter != nil || !query.isEmpty || showOlder { openBucket(nil) }
+            if projectScope != .all || statusFilter != nil || !query.isEmpty || showOlder || agentFilter != nil { openBucket(nil) }
             libraryScope = "live"
             if let next = pendingNavigation.next(in: projection.globalPending, after: current) { selection = next.id }
     }
@@ -255,6 +293,7 @@ struct DashboardView: View {
         libraryScope = "live"
         projectScope = .all
         statusFilter = filter
+        agentFilter = nil
         query = ""
         showOlder = false
         resetTour()
@@ -274,6 +313,7 @@ struct DashboardView: View {
     private var scopeTitle: String {
         var parts = [projectScope == .all ? String(localized: "All sessions") : projectTitle(projectScope)]
         if let statusFilter { parts.append(String(localized: String.LocalizationValue(Self.chipTitleKey(statusFilter)))) }
+        if let agentFilter { parts.append(agentFilter.displayName) }
         if !query.isEmpty { parts.append(String(localized: "Search: \(query)")) }
         if showOlder { parts.append(String(localized: "Including older")) }
         return parts.joined(separator: " · ")
@@ -332,14 +372,23 @@ struct DashboardView: View {
                 }
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
+                        MenuPill(title: agentFilter.map(\.displayName) ?? String(localized: "All agents"),
+                                 emphasized: agentFilter != nil) {
+                            Button("All agents") { agentFilter = nil }
+                            ForEach(projection.agents, id: \.self) { agent in
+                                Button(agent.displayName) { agentFilter = agent }
+                            }
+                        }
+                        .accessibilityLabel("Filter sessions by agent")
                         FilterChip(title: "All", selected: statusFilter == nil) { statusFilter = nil }
                         ForEach(DashboardSessionList.StatusFilter.allCases, id: \.self) { group in
                             FilterChip(title: Self.chipTitle(group), selected: statusFilter == group) { statusFilter = group }
                         }
-                        if projectScope != .all || !query.isEmpty {
+                        if projectScope != .all || !query.isEmpty || agentFilter != nil {
                             Button("Reset") {
                                 projectScope = .all
                                 statusFilter = nil
+                                agentFilter = nil
                                 query = ""
                             }
                             .buttonStyle(.plain).font(MacTheme.font(10.5)).foregroundStyle(MacTheme.ink3)
@@ -425,7 +474,7 @@ struct DashboardView: View {
     @ViewBuilder private var detailColumn: some View {
         if let s = selectedSession {
             VStack(spacing: 0) {
-                SessionDetailColumn(session: s, model: model, slot: $rightSlot, draft: draftBinding(for: s.id))
+                SessionReaderPane(subject: subject(for: s), targetMessage: nil, model: model, history: history, reader: reader, draft: draftBinding(for: s.id))
                 pendingFooter
             }
                 .frame(minWidth: 340, idealWidth: 520, maxWidth: .infinity)

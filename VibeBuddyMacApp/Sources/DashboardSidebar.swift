@@ -303,11 +303,15 @@ struct FilterChip: View {
 /// project pickers: outlined, quiet, a chevron at the end.
 struct MenuPill<Content: View>: View {
     let title: String
+    /// True while the pill carries a non-default choice (an agent filter),
+    /// so the chosen value reads at a glance without a second chip row.
+    var emphasized = false
     @ViewBuilder var content: () -> Content
     var body: some View {
         Menu(content: content) {
             HStack(spacing: 4) {
-                Text(title).font(MacTheme.font(10.5, .medium)).foregroundStyle(MacTheme.ink2).lineLimit(1)
+                Text(title).font(MacTheme.font(10.5, emphasized ? .semibold : .medium))
+                    .foregroundStyle(emphasized ? MacTheme.accentText : MacTheme.ink2).lineLimit(1)
                 Image(systemName: "chevron.down").font(.system(size: 7, weight: .bold)).foregroundStyle(MacTheme.ink3)
             }
             .padding(.horizontal, 9).padding(.vertical, 3)
