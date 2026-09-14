@@ -23,11 +23,13 @@
 4. 原滚动逻辑用两秒宽限区分布局增长与用户上翻，存在抢回滚动位置的窗口。AppKit 的 [didLiveScrollNotification](https://developer.apple.com/documentation/appkit/nsscrollview/didlivescrollnotification) 明确由用户事件触发，且支持没有 begin/end 成对事件的传统鼠标；本次以它控制跟随状态。Wake 的 GPUI 底部对齐不能直接当作 SwiftUI 行为已获验证。
 5. 整合保留当前收件箱计数、下一项导航、读取后详情不消失、按完整 checkout 路径区分项目和每任务输入草稿。手动已读开关与结果卡共享完成 ID 守卫。
 6. Headscale 帮助返回保留输入草稿；IP 输入使用可输入 ASCII 句点的 URL 键盘。旧额度弹窗的合并冲突保留 #195 的 Usage 导航和小组件入口。
-
 7. 实际历史阅读验证发现 watcher 已收到追加事件，但历史入口仍读取旧索引正文缓存。历史入口也改为按精确 key 读取源文件或版本核验过的缓存，同时保留收藏、置顶和库内归档元数据；不再等待下一轮索引发布。
+
+8. 实时入口的导出误依赖历史页的正文状态。现在导出使用 reader 已加载的完整正文，并核对会话 ID 与源路径；新启动的隔离 App 未进入历史页，也能保存真实对话的 Markdown。
+9. 搜索命中原来在每次追加正文后重复定位。现在每个选定命中只揭示一次，后续正文追加遵循用户当前的跟随状态。
 
 ## 验证与边界
 
-定向逻辑测试、iPhone/Watch 编译和 QA 通知中心回归已有通过记录；文件监听与最终 Mac 阅读器运行验证在整合分支继续执行，最终结果以 PR #197 的验证说明和 `.scratch/review-all/` 日志为准。
+Kit 定向测试 161 项、Mac 定向测试 45 项（去除重复 watcher 执行）、iPhone 定向测试 20 项通过；另一次 iPhone 实时连接测试通过真实 WebSocket 接收隔离 Mac 的当前 Codex 任务，且拒绝错误令牌。Mac、iPhone、小组件、Watch 编译通过。新模拟器的 QA 通知回归保持通知权限未请求。隔离 Mac 读取当前任务真实 Codex 转录的副本，验证底部跟随、手动上翻后保留位置并显示新消息入口，以及实时入口 Markdown 导出；没有把演示或伪造 hook 当作真实任务。证据在 `.scratch/review-all/`，最终提交的 CI 结果以 PR #197 为准。
 
 Open Island 的[默认通知点按处理](https://github.com/Octane0411/open-vibe-island/blob/334c58073ec0ea8a1b34da0c71f969b1affd0959/ios/OpenIslandMobile/Notifications/NotificationManager.swift#L237) 仍直接忽略默认点按，不能证明我们的 Watch 点击或 Live Activity 拉起已经正确。真机拉起、蜂窝 Headscale/Surge 连通、真实账户额度、终端原生跳转依旧各需自己的证据。以上仓库是经验来源，不替代本项目验收；本次不安装或发布应用。
