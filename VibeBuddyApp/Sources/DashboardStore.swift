@@ -2,6 +2,14 @@ import Foundation
 import UIKit
 import VibeBuddyKit
 
+/// A request to show the Usage page, at one provider's group or (nil) at its
+/// head. Each tap is a new id, so tapping the same widget twice still moves
+/// a page that is already open.
+struct UsageRequest: Equatable {
+    let id = UUID()
+    let provider: AccountUsageProvider?
+}
+
 /// Consumes the live snapshot stream and publishes grouped sessions, connection
 /// state, and notifications. Reconnects automatically when the socket drops.
 @MainActor
@@ -23,7 +31,11 @@ final class DashboardStore: ObservableObject {
     /// Sessions the user has pointed the buddy at (in-memory, never persisted).
     /// Empty = the buddy sees all sessions; pruned to live IDs on every snapshot.
     @Published private(set) var buddySessionIDs: Set<String> = []
-    @Published private(set) var state: ConnectionState = .connecting
+    @Published private(set) var state: ConnectionState = .connecting {
+        // The quota widgets keep the last numbers but stop calling them live
+        // once this phone has seen the Mac drop (PLAN §2.3 of ios-usage-widgets).
+        didSet { if case .failed = state { WidgetQuotaStore.markRelayOffline() } }
+    }
     /// Set when a Live Activity / deep link asks to open a specific session; the
     /// dashboard scrolls to and highlights it, then clears it via `clearFocus()`.
     @Published var focusedSessionId: String?
@@ -111,6 +123,14 @@ final class DashboardStore: ObservableObject {
     private var lastRecap: Recap?
     /// Local Claude Code / Codex token spend as the Mac last reported it.
     @Published private(set) var lastTokenConsumption: TokenConsumptionSnapshot?
+    /// QA switch for the Demo allowance, `VIBEBUDDY_DEMO_QUOTA`: `stale` plays
+    /// a Mac that dropped 18 minutes ago, `limit` the amber and red
+    /// thresholds, `unavailable` signed-out sources.
+    enum DemoQuotaState: String { case normal, stale, limit, unavailable }
+    private var demoQuotaState = DemoQuotaState.normal
+    /// Whether the allowance on screen is live: the Mac's link, or in Demo
+    /// the QA switch.
+    var quotaRelayLive: Bool { isDemo ? demoQuotaState != .stale : state == .connected }
     private var runTask: Task<Void, Never>?
     private var connectionGeneration = UUID()
     /// Decides which sound (if any) each snapshot earns. Reset per connection so
@@ -404,6 +424,10 @@ final class DashboardStore: ObservableObject {
         // activity across process death, so the first snapshot must reclaim it.
         let changedSource = isDemo || (self.pairing != nil && self.pairing != pairing)
         runTask?.cancel()
+        // `start` also runs on every launch and reconnect; the widgets keep
+        // the same Mac's last numbers through those, and drop them only for
+        // another Mac or the sample data.
+        if changedSource || WidgetQuotaStore.load()?.isDemo == true { WidgetQuotaStore.clear() }
         isDemo = false
         lastProviderQuota = []
         lastTokenConsumption = nil
@@ -481,6 +505,7 @@ final class DashboardStore: ObservableObject {
         lastProviderQuota = []
         lastTokenConsumption = nil
         lastRecap = nil
+        WidgetQuotaStore.clear()
         relayToWatch([])
     }
 
@@ -517,6 +542,15 @@ final class DashboardStore: ObservableObject {
         if isDemo, ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO_LIVE_ACTIVITY"] == "1" {
             Task { await liveActivity.sync(sessions: sessions) }
         }
+    }
+
+    /// Mirror the allowance for the quota widgets. The store drops a write
+    /// whose reading did not change, so calling this on every snapshot costs
+    /// WidgetKit nothing.
+    private func publishQuotaToWidgets() {
+        WidgetQuotaStore.save(PhoneQuotaSnapshot(
+            quotas: lastProviderQuota, macName: pairing?.macName,
+            relayLive: quotaRelayLive, savedAt: Date(), isDemo: isDemo))
     }
 
     /// Project the dashboard for the Watch. Demo Mode supplies sample allowance;
@@ -624,14 +658,49 @@ final class DashboardStore: ObservableObject {
         isDemo = true
         // The Usage sheet is part of the demo now, so seed the same sample
         // readings the Watch demo uses instead of leaving it empty.
-        lastProviderQuota = WatchDemoScenario.normal.quotas(now: Date())
-        lastTokenConsumption = TokenConsumptionSnapshot.demo()
+        demoQuotaState = DemoQuotaState(rawValue: ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO_QUOTA"] ?? "") ?? .normal
+        lastProviderQuota = Self.demoQuotas(demoQuotaState, now: Date())
+        lastTokenConsumption = TokenConsumptionSnapshot.demo(
+            now: demoQuotaState == .stale ? Date().addingTimeInterval(-18 * 60) : Date())
         pairing = nil
         state = .connected
+        publishQuotaToWidgets()
         let demo = Self.demoSessions()
         buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: demo)
         install(demo, serverTime: Date())
         Task { await postDemoBanners(demo) }
+    }
+
+    /// The Watch's sample allowance plus the detail only the phone's Usage
+    /// page draws: account labels and a Claude model-scoped week.
+    static func demoQuotas(_ demoState: DemoQuotaState = .normal, now: Date) -> [ProviderQuota] {
+        let scenario: WatchDemoScenario = demoState == .unavailable ? .unavailableQuota : .normal
+        let staleObservedAt = now.addingTimeInterval(-18 * 60)
+        return scenario.quotas(now: now).map { quota in
+            var quota = quota
+            switch quota.provider {
+            case .claude:
+                quota.accountLabel = "Max 20×"
+                quota.scopedWindows = [QuotaWindow(remainingPercent: 58, durationMinutes: 10080,
+                                                   resetsAt: quota.weeklyResetsAt, observedAt: quota.observedAt,
+                                                   label: "Opus only")]
+                if demoState == .limit { quota.weeklyRemainingPercent = 6 }
+            case .codex:
+                if demoState == .limit, quota.shortWindowRemainingPercent != nil { quota.shortWindowRemainingPercent = 18 }
+            case .grok:
+                if demoState == .limit, quota.weeklyRemainingPercent != nil { quota.weeklyRemainingPercent = 4 }
+            case .cursor:
+                quota.accountLabel = "Pro"
+            case .grokBot:
+                break
+            }
+            if demoState == .stale, quota.observedAt != nil {
+                quota.observedAt = staleObservedAt
+                quota.otherWindows = quota.otherWindows?.map { var window = $0; window.observedAt = staleObservedAt; return window }
+                quota.scopedWindows = quota.scopedWindows?.map { var window = $0; window.observedAt = staleObservedAt; return window }
+            }
+            return quota
+        }
     }
 
     /// Sample approval / question banners carry the same actions a live cue does.
@@ -1053,6 +1122,7 @@ final class DashboardStore: ObservableObject {
         lastRecap = snapshot.recap
         buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: snapshot.sessions)
         state = .connected
+        publishQuotaToWidgets()
         confirmConnectedPairing()
         if sourceID != snapshot.sourceID { completionReads.pause() }
         if sourceID != snapshot.sourceID { recentOutputs = [:] }
@@ -1065,8 +1135,17 @@ final class DashboardStore: ObservableObject {
         await liveActivity.sync(sessions: snapshot.sessions)
     }
 
-    /// Handle a `vibebuddy://session?id=…` deep link from the Live Activity.
+    /// Set by a quota widget's `vibebuddy://quota/<provider|all>`; the
+    /// dashboard pushes the Usage page and clears it.
+    @Published var usageRequest: UsageRequest?
+
+    /// Handle a `vibebuddy://quota/…` link from a quota widget, or a
+    /// `vibebuddy://session?id=…` deep link from the Live Activity.
     func open(_ url: URL) {
+        if let provider = VibeBuddyDeepLink.quotaProvider(from: url) {
+            usageRequest = UsageRequest(provider: provider)
+            return
+        }
         guard let id = VibeBuddyDeepLink.sessionId(from: url) else { return }
         focusedCompletionNotificationID = VibeBuddyDeepLink.completionNotificationID(from: url)
         focusedSessionId = id

@@ -452,9 +452,15 @@ code, and tests — don't drift to synonyms.
   session state. A **scoped window** (Claude model-week, Codex Spark) is a
   subdivision of the same allowance, not a pool of its own: it rides
   `scopedWindows`, shows only in the Mac Account usage list and the iPhone
-  Usage sheet, and is deliberately absent from `otherWindows` — the slot the
+  Usage page, and is deliberately absent from `otherWindows` — the slot the
   Watch strip and the widgets fall back to — and from threshold alerts, which
   stay on the weekly and short windows (one cue per event, ADR-0012).
+  The iPhone Usage page and its home- and lock-screen quota widgets consume the
+  same `ProviderQuota`: the page reads the live dashboard and keeps the Kit's
+  15-minute stale rule; the widgets read a `PhoneQuotaSnapshot` the app writes
+  to the App Group, print the reading's age, and fade only when the phone last
+  saw the Mac unreachable or the reading is over an hour old. A widget tap is
+  `vibebuddy://quota/<provider|all>`.
   Distinct from **Token consumption** (local spend ledger) and from billed invoices.
 - **Token consumption** — local, read-only aggregation of tokens spent in Claude
   Code transcripts and Codex CLI/Desktop rollouts (input, output, cache-read,

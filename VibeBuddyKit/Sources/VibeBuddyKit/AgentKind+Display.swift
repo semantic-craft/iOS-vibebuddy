@@ -1,5 +1,18 @@
 import Foundation
 
+public extension AccountUsageProvider {
+    /// The agent whose brand mark stands for this allowance on a quota row.
+    var agentKind: AgentKind {
+        switch self {
+        case .codex: return .codex
+        case .claude: return .claudeCode
+        case .cursor: return .cursor
+        case .grok: return .grok
+        case .grokBot: return .grokBot
+        }
+    }
+}
+
 public extension AgentKind {
     /// Map a hook `?agent=` source string (or alias) to a kind. Unknown sources
     /// fall back to Claude Code, the most common hook-compatible shape.

@@ -25,6 +25,26 @@ struct DeepLinkTests {
         #expect(VibeBuddyDeepLink.sessionId(from: url) == id)
     }
 
+    @Test("builds quota links for one provider or all of them")
+    func buildsQuotaURL() {
+        #expect(VibeBuddyDeepLink.quotaURL(.claude).absoluteString == "vibebuddy://quota/claude")
+        #expect(VibeBuddyDeepLink.quotaURL(nil).absoluteString == "vibebuddy://quota/all")
+        #expect(VibeBuddyDeepLink.quotaProvider(from: VibeBuddyDeepLink.quotaURL(.grokBot)) == .some(.grokBot))
+    }
+
+    @Test("all, the Watch's both, and unknown segments open the page head")
+    func quotaAllLandsOnTop() {
+        for raw in ["all", "both", "someday"] {
+            #expect(VibeBuddyDeepLink.quotaProvider(from: URL(string: "vibebuddy://quota/\(raw)")!) == .some(nil))
+        }
+    }
+
+    @Test("a session or foreign link is not a quota link")
+    func rejectsNonQuotaURLs() {
+        #expect(VibeBuddyDeepLink.quotaProvider(from: VibeBuddyDeepLink.sessionURL(id: "abc")) == nil)
+        #expect(VibeBuddyDeepLink.quotaProvider(from: URL(string: "https://example.com/quota/claude")!) == nil)
+    }
+
     @Test("rejects unrelated URLs")
     func rejectsForeignURLs() {
         #expect(VibeBuddyDeepLink.sessionId(from: URL(string: "https://example.com/session/x")!) == nil)
