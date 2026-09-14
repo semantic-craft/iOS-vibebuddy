@@ -6,17 +6,26 @@ struct MacSpeechPanel: View {
     @ObservedObject var model: MenuBarModel
     @ObservedObject private var reader: ReadAloud
     @ObservedObject private var voice: VoiceChat
+    @ObservedObject private var tests: SettingsTestCoordinator
+    @ObservedObject private var credentials: SettingsCredentials
     let openSettings: () -> Void
 
     init(model: MenuBarModel, openSettings: @escaping () -> Void) {
         self.model = model
         self.reader = model.readAloud
         self.voice = model.voiceChat
+        self.tests = model.settingsTests
+        self.credentials = model.settingsCredentials
         self.openSettings = openSettings
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            ContentStylePicker()
+            Text("Changes apply to all summary entries. Edit custom instructions in Settings.")
+                .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
+            ReadAloudPreferences(reader: reader, voiceChat: voice, tests: tests, credentials: credentials)
+            Divider()
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Read pending").font(CompanionType.font(14, .medium))
@@ -24,7 +33,7 @@ struct MacSpeechPanel: View {
                 }
                 Spacer()
                 Button("Read pending") { model.readPending() }
-                    .disabled(voice.isActive)
+                    .disabled(voice.isActive || tests.isBusy)
             }
             if let current = reader.currentItem {
                 Text("Current announcement").font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)

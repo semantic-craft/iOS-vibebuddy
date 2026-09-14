@@ -470,7 +470,7 @@
 
 "Preview the read-aloud voice" = "试听朗读音色";
 
-"Turn on AI completion summaries first — this only ever speaks that summary." = "请先开启 AI 完成摘要——朗读只会念这段摘要。";
+"Turn on AI completion summaries for automatic announcements. New readings use the current content style." = "开启 AI 完成摘要后可自动播报。新的朗读使用当前内容风格。";
 
 "Speaks through %@, whatever summaries use. Each reading is billed by the provider." = "固定使用 %@ 朗读，不受摘要服务商影响。每次朗读由服务商计费。";
 
@@ -1127,3 +1127,41 @@
 "%@ ⏎ — opens this thread." = "%@ ⏎——打开这条线程。";
 "%@ ⏎ — focuses the pane this session runs in." = "%@ ⏎——聚焦这个会话所在的终端分格。";
 "%@ ⏎ — brings the app forward; the exact window is not addressable." = "%@ ⏎——把应用调到前台，无法定位到具体窗口。";
+
+"Announcer style" = "主播风格";
+
+"Summary and reading defaults" = "摘要与播报偏好";
+
+"Models and services" = "模型与服务";
+
+"For manually generated conversation summaries in History. Automatic completion notices keep their short format." = "用于历史记录中手动生成的会话摘要。自动完成通知仍使用简短格式。";
+
+"Applies to the next generation. Saved summaries keep their original style." = "下次生成时生效，已有摘要保留原来的风格。";
+
+"Voice and style changes apply to the next reading. Current playback continues." = "音色和风格从下一条播报生效，当前播放不会中断。";
+
+"This provider uses Standard delivery. Choose another read-aloud provider to change the style." = "当前服务商使用标准风格，选择其他朗读服务商后可切换风格。";
+
+"Preview" = "试听";
+
+"Stop preview" = "停止试听";
+
+/* Global content style */
+"Content style" = "内容风格";
+"Concise" = "简洁";
+"Decision briefing" = "决策";
+"Custom prompt" = "自定义提示词";
+"The next action first, followed by the essential result and reason." = "先说下一步要做什么，再简短说明关键进展和原因。";
+"A CEO briefing on progress, benefits, important tradeoffs, and decisions." = "像向总裁汇报，讲清进展、实际好处、关键取舍和需要决定的方向。";
+"Use your own instructions to shape every summary." = "用自己的提示词调整所有摘要的内容和表达方式。";
+"Changes apply to all summary entries. Saved summaries keep their original style." = "修改会同步到所有摘要入口，已有摘要保留原来的风格。";
+"This summary uses a different content style. Regenerate to apply the current settings." = "这份摘要使用了不同的内容风格，重新生成后会采用当前设置。";
+"Changes apply to all summary entries. Edit custom instructions in Settings." = "修改会同步到所有摘要入口，自定义提示词请在设置中编辑。";
+"All summaries share these content rules. Length follows the purpose: notifications stay short, while complex decisions get more room." = "所有摘要共用这套内容规则，篇幅按用途调整：通知保持简短，复杂决策可以多讲一些。";
+"Custom instructions" = "自定义提示词";
+"Custom content instructions" = "自定义内容提示词";
+"Custom instruction character count" = "自定义提示词字数";
+"Describe what to emphasize and how to say it. Facts, unresolved issues and who needs to act are always preserved." = "描述想突出什么、怎样表达。事实、未解决的问题和行动归属始终保留。";
+"Enter custom instructions to enable this style." = "填写自定义提示词后，这种风格才会生效。";
+"Enter custom instructions in Settings before generating a summary." = "请先在设置中填写自定义提示词，再生成摘要。";
+"Changes are saved automatically and apply to the next summary. Current playback continues." = "修改自动保存，从下一份摘要生效，当前播放不会中断。";

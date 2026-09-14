@@ -21,7 +21,7 @@ struct MacVoicePanel: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     MacSpeechPanel(model: model, openSettings: {
-                        NotificationCenter.default.post(name: .openAppSettings, object: nil)
+                        NotificationCenter.default.post(name: .openAppSettings, object: SettingsPageID.voice)
                     })
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {

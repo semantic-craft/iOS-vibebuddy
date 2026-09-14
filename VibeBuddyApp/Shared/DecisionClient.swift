@@ -3,6 +3,9 @@ import VibeBuddyKit
 
 /// POSTs an approve/deny decision back to the Mac.
 protocol DecisionClient: Sendable {
+    func contentStyle(_ pairing: PairingPayload) async throws -> ContentStyleState
+    func updateContentStyle(_ pairing: PairingPayload, update: ContentStyleUpdate) async throws -> ContentStyleState
+    func presentation(_ pairing: PairingPayload, request: ContentPresentationRequest) async throws -> ContentPresentation
     func actionSnapshot(_ pairing: PairingPayload) async -> Snapshot?
     func phoneDecision(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> PhoneActionResult
     /// Answer the session's current question. `requestID` identifies the *tap*:
@@ -57,7 +60,12 @@ protocol DecisionClient: Sendable {
 /// So: after changing any signature in this protocol, grep for the method name
 /// across `VibeBuddyApp` and update every conformer by hand. The compiler will
 /// not do it for you.
+enum ContentRequestFailure: Error { case unavailable, conflict, invalid }
+
 extension DecisionClient {
+    func contentStyle(_ pairing: PairingPayload) async throws -> ContentStyleState { throw ContentRequestFailure.unavailable }
+    func updateContentStyle(_ pairing: PairingPayload, update: ContentStyleUpdate) async throws -> ContentStyleState { throw ContentRequestFailure.unavailable }
+    func presentation(_ pairing: PairingPayload, request: ContentPresentationRequest) async throws -> ContentPresentation { throw ContentRequestFailure.unavailable }
     func actionSnapshot(_ pairing: PairingPayload) async -> Snapshot? { nil }
     func phoneDecision(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> PhoneActionResult { .failed }
     func phoneAnswer(_ pairing: PairingPayload, session: AgentSession, text: String?,
@@ -85,6 +93,35 @@ extension DecisionClient {
 }
 
 struct HTTPDecisionClient: DecisionClient {
+    func contentStyle(_ pairing: PairingPayload) async throws -> ContentStyleState {
+        try await contentRequest(pairing, path: "content-style", method: "GET", body: nil)
+    }
+
+    func updateContentStyle(_ pairing: PairingPayload, update: ContentStyleUpdate) async throws -> ContentStyleState {
+        try await contentRequest(pairing, path: "content-style", method: "PUT", body: JSONEncoder().encode(update))
+    }
+
+    func presentation(_ pairing: PairingPayload, request: ContentPresentationRequest) async throws -> ContentPresentation {
+        try await contentRequest(pairing, path: "presentation", method: "POST", body: JSONEncoder().encode(request))
+    }
+
+    private func contentRequest<T: Decodable>(_ pairing: PairingPayload, path: String, method: String, body: Data?) async throws -> T {
+        guard let url = pairing.companionURL(path: path) else { throw ContentRequestFailure.unavailable }
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.httpBody = body
+        request.timeoutInterval = path == "presentation" ? 45 : 10
+        request.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        switch (response as? HTTPURLResponse)?.statusCode {
+        case 200: return try JSONDecoder().decode(T.self, from: data)
+        case 409: throw ContentRequestFailure.conflict
+        case 400: throw ContentRequestFailure.invalid
+        default: throw ContentRequestFailure.unavailable
+        }
+    }
+
     func actionSnapshot(_ pairing: PairingPayload) async -> Snapshot? {
         guard let url = pairing.companionURL(path: "snapshot") else { return nil }
         var request = URLRequest(url: url)

@@ -601,6 +601,36 @@ public struct VibeBuddyServer: Sendable {
             )
         }
 
+        authed.get("content-style") { _, _ -> Response in
+            guard let state = await store.contentStyleState() else { throw HTTPError(.serviceUnavailable) }
+            let data = try JSONEncoder().encode(state)
+            return Response(status: .ok, headers: [.contentType: "application/json"],
+                            body: .init(byteBuffer: ByteBuffer(bytes: data)))
+        }
+
+        authed.put("content-style") { request, _ -> Response in
+            let buffer = try await request.body.collect(upTo: 16_384)
+            guard let update = try? JSONDecoder().decode(ContentStyleUpdate.self, from: Data(buffer: buffer)),
+                  update.configuration.customPrompt.count <= ContentStyleConfiguration.maximumCustomPromptCharacters,
+                  update.configuration.style != .custom || !update.configuration.customPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else { throw HTTPError(.badRequest) }
+            guard let state = await store.updateContentStyle(update) else { throw HTTPError(.conflict) }
+            let data = try JSONEncoder().encode(state)
+            return Response(status: .ok, headers: [.contentType: "application/json"],
+                            body: .init(byteBuffer: ByteBuffer(bytes: data)))
+        }
+
+        authed.post("presentation") { request, _ -> Response in
+            let buffer = try await request.body.collect(upTo: 8192)
+            guard let query = try? JSONDecoder().decode(ContentPresentationRequest.self, from: Data(buffer: buffer)),
+                  !query.sourceID.isEmpty, query.purpose == .speech || query.purpose == .recap
+            else { throw HTTPError(.badRequest) }
+            guard let presentation = await store.presentation(query) else { throw HTTPError(.conflict) }
+            let data = try JSONEncoder().encode(presentation)
+            return Response(status: .ok, headers: [.contentType: "application/json"],
+                            body: .init(byteBuffer: ByteBuffer(bytes: data)))
+        }
+
         authed.delete("lifecycle") { _, _ -> HTTPResponse.Status in
             guard await store.clearLifecycleJournal() else {
                 throw HTTPError(.internalServerError)

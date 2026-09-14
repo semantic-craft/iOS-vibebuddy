@@ -28,6 +28,33 @@ struct CompletionResultTests {
         #expect(await store.completionResult(sessionID: "s", completionID: id) == .cancelled)
     }
 
+    @Test func delayedVerifiedResultRemainsReadableWithoutRevivingNotification() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = SessionStore(sourceID: "source", journalURL: directory.appendingPathComponent("lifecycle.json"))
+        let ended = Date().addingTimeInterval(-10)
+        await store.ingest(HookEvent(kind: .userPromptSubmit, sessionID: "late", agent: .codex,
+            timestamp: ended.addingTimeInterval(-10), turnID: "turn"))
+        await store.ingest(HookEvent(kind: .stop, sessionID: "late", agent: .codex, timestamp: ended))
+        let initial = await store.snapshot(now: Date())
+        let recapID = try #require(initial.recap?.entries.first?.id)
+        await store.ingest(HookEvent(kind: .stop, sessionID: "late", agent: .codex, timestamp: ended,
+            turnID: "turn", completionText: "Search is ready. Voice remains unverified.", completionSucceeded: true))
+        let id = try #require(await store.snapshot(now: Date()).sessions.first?.completionID)
+        #expect(await store.completionResult(sessionID: "late", completionID: id) == .expired)
+        let body = await store.completionBody(sessionID: "late", completionID: id)
+        #expect(body.text == "Search is ready. Voice remains unverified.")
+        #expect(await store.snapshot(now: Date()).sessions.first?.hasUnreadCompletion == true)
+        await store.ingest(HookEvent(kind: .stop, sessionID: "late", agent: .codex, timestamp: ended,
+            turnID: "turn", completionText: "A duplicate must not replace the result.", completionSucceeded: true))
+        #expect(await store.completionBody(sessionID: "late", completionID: id).text == body.text)
+        await store.ingest(HookEvent(kind: .userPromptSubmit, sessionID: "late", agent: .codex,
+            timestamp: Date(), turnID: "new-turn"))
+        #expect(await store.completionResult(sessionID: "late", completionID: id, forReading: true) == .cancelled)
+        _ = await store.snapshot(now: Date())
+        #expect(RecapLedger(url: directory.appendingPathComponent("recap-ledger.json")).entries[recapID]?.resultText == body.text)
+    }
+
     @Test func claudeTerminalProof() async throws {
         let start = Date().addingTimeInterval(-0.3)
         let ended = Date().addingTimeInterval(-0.1)

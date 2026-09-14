@@ -328,14 +328,19 @@ struct SessionReaderPane: View {
         } else if case .unsupported(let reason) = reader.body, reader.rows.isEmpty {
             QuietEmptyState(title: "Full transcript unavailable", message: LocalizedStringKey(reason), systemName: "text.book.closed")
         } else {
-            SessionReaderView(rows: reader.rows, targetMessage: targetMessage, note: bodyNote) {
+            VStack(spacing: 0) {
                 if subject.origin == .history, let record, record.agent.supportsTranscript, !history.isDemo {
                     HistorySummaryView(history: history, session: record)
                         .companionCard(MacTheme.bg3)
+                        .padding(12)
+                    Divider()
                 }
-            } tail: {
-                if let live, live.status == .done, live.completionID != nil {
-                    ReaderResultCard(session: live, model: model, acknowledgedBodyID: $acknowledgedBodyID)
+                SessionReaderView(rows: reader.rows, targetMessage: targetMessage, note: bodyNote) {
+                    EmptyView()
+                } tail: {
+                    if let live, live.status == .done, live.completionID != nil {
+                        ReaderResultCard(session: live, model: model, acknowledgedBodyID: $acknowledgedBodyID)
+                    }
                 }
             }
             .id(subject.id)

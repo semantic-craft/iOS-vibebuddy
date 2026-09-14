@@ -22,7 +22,7 @@ extension HistoryTools {
         let summary = result.summary
         var lines = ["stale: \(result.isStale); Coverage: \(summary.coverage)", "",
             "Key: \(reference.key)",
-            "Style: \(summary.style.rawValue) (\(summary.style.title))",
+            "Style: \(summary.contentStyle?.style.rawValue ?? summary.style.rawValue) (\(summary.contentStyle?.style.title ?? summary.style.title))",
             "Provider: \(summary.provider)", "Model: \(summary.model)",
             "Generated: \(ISO8601DateFormatter().string(from: summary.generatedAt))",
             "Summary source revision: \(summary.sourceRevision ?? "unknown")",

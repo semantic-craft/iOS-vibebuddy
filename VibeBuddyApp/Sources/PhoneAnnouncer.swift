@@ -58,11 +58,6 @@ extension AnnouncementPlan.Item {
     }
 }
 
-/// The phone's read-aloud (ticket 04, `.scratch/iphone-board`): the Kit's
-/// `CompletionSpeechQueue` and `AnnouncementCopy` hosted on the phone. Speech
-/// comes from the voice companion's provider when it has a key, otherwise
-/// from the system voice, so a phone with nothing configured still reads.
-/// Nothing here marks a result read; a live voice conversation pauses it.
 @MainActor
 final class PhoneAnnouncer: ObservableObject {
     @Published private(set) var isBusy = false
@@ -81,7 +76,13 @@ final class PhoneAnnouncer: ObservableObject {
     private var systemVoice: AVSpeechSynthesizer?
     private var generation = UUID()
     private var run = UUID()
-    private var latest: (text: String, item: AnnouncementPlan.Item)?
+    private var latest: (text: String, item: AnnouncementPlan.Item, source: UUID)?
+    private var sourceIdentity: (@MainActor () -> UUID)?
+    private var activeValidation: (@MainActor () -> Bool)?
+    @Published private(set) var isPreviewing = false
+    @Published private(set) var previewMessage: String?
+    private var previewTask: Task<Void, Never>?
+    var latestItem: AnnouncementPlan.Item? { latest?.item }
     /// Lives as long as the dashboard; the observer is never removed.
     private var observers: [NSObjectProtocol] = []
     private var runTotal = 0
@@ -102,13 +103,17 @@ final class PhoneAnnouncer: ObservableObject {
     /// Read the pending queue in order. `live` is asked again before each
     /// item so a round that moved on is skipped, not announced as news.
     func announce(_ pending: [AgentSession], startPaused: Bool = false,
-                  live: @escaping @MainActor () -> [AgentSession]) {
+                  live: @escaping @MainActor () -> [AgentSession],
+                  source: @escaping @MainActor () -> UUID,
+                  content: @escaping @MainActor (AnnouncementPlan.Item) async throws -> DashboardStore.Announcement,
+                  validate: @escaping @MainActor (DashboardStore.Announcement) -> Bool) {
         let plan = AnnouncementPlan(pending: pending)
         guard !plan.items.isEmpty else {
             status = String(localized: "Nothing pending to read")
             return
         }
         stop()
+        sourceIdentity = source
         run = UUID()
         runTotal = plan.items.count
         spokenCount = 0
@@ -120,7 +125,7 @@ final class PhoneAnnouncer: ObservableObject {
             let runID = run
             queue.enqueue(id: runID.uuidString + "/" + item.id) { [weak self] in
                 guard let self, self.run == runID else { return }
-                await self.speak(item, position: index + 1, live: live)
+                await self.speak(item, position: index + 1, live: live, content: content, validate: validate)
             }
         }
         // A live voice call owns the audio route: the run is queued but
@@ -146,6 +151,7 @@ final class PhoneAnnouncer: ObservableObject {
 
     func resume() {
         guard isPaused else { return }
+        if activeValidation?() == false { skip(); isPaused = false; queue.resume(); return }
         isPaused = false
         status = nil
         queue.resume()
@@ -163,19 +169,60 @@ final class PhoneAnnouncer: ObservableObject {
 
     func replayLatest(live: @escaping @MainActor () -> [AgentSession]) {
         guard let latest else { return }
-        let prefix = VoiceSettings.conversationLanguage() == .chinese ? "此前一条。" : "Previous item. "
+        guard sourceIdentity?() == latest.source else { sourceChanged(); return }
+        cancelPreview()
+        let prefix = VoiceSettings.conversationLanguage() == .chinese ? "此前播报。" : "Previous announcement. "
         let runID = run
         queue.enqueue(id: "replay/" + UUID().uuidString, priority: true) { [weak self] in
             guard let self, self.run == runID else { return }
-            await self.play(text: prefix + latest.text, item: latest.item, position: nil, remember: false)
+            await self.play(text: prefix + latest.text, item: latest.item, position: nil, remember: false, label: String(localized: "Previous announcement"), validate: { self.sourceIdentity?() == latest.source })
         }
     }
 
     /// A live voice conversation takes the audio route; reading pauses and
     /// does not resume on its own.
-    func voiceStarted() { pause() }
+    func voiceStarted() { cancelPreview(); pause() }
+
+    func sourceChanged() {
+        stop()
+        latest = nil
+        canReplay = false
+        items = []
+    }
+
+    func preview() {
+        guard !isBusy else { return }
+        isPreviewing = true
+        previewMessage = nil
+        status = nil
+        isBusy = true
+        let previewGeneration = generation
+        previewTask = Task { [weak self] in
+            guard let self, !Task.isCancelled, self.generation == previewGeneration else { return }
+            let text = VoiceSettings.conversationLanguage() == .chinese ? "这是本机播报试听。任务已经完成，下一步请查看结果。" : "This is a voice preview. The task is complete. Please review the result."
+            let item = AnnouncementPlan.Item(sessionID: "preview", title: "", sound: .agentDone, round: "preview")
+            await self.play(text: text, item: item, position: nil, remember: false, validate: { true })
+            guard self.generation == previewGeneration else { return }
+            self.previewMessage = self.status ?? String(localized: "Preview finished")
+            self.isPreviewing = false
+            self.isBusy = false
+            self.deactivateAudioSession()
+        }
+    }
+
+    func cancelPreview() {
+        previewMessage = nil
+        guard isPreviewing else { return }
+        previewTask?.cancel()
+        previewTask = nil
+        stop()
+    }
 
     func stop() {
+        previewTask?.cancel()
+        previewTask = nil
+        isPreviewing = false
+        run = UUID()
         generation = UUID()
         runTotal = 0
         spokenCount = 0
@@ -192,35 +239,59 @@ final class PhoneAnnouncer: ObservableObject {
     // MARK: - Speaking
 
     private func speak(_ item: AnnouncementPlan.Item, position: Int,
-                       live: @escaping @MainActor () -> [AgentSession]) async {
-        guard let session = AnnouncementPlan.stillCurrent(item, in: live()) else {
-            status = String(localized: "Skipped \(item.title) · no longer pending")
-            return
+                       live: @escaping @MainActor () -> [AgentSession],
+                       content: @escaping @MainActor (AnnouncementPlan.Item) async throws -> DashboardStore.Announcement,
+                       validate: @escaping @MainActor (DashboardStore.Announcement) -> Bool) async {
+        guard AnnouncementPlan.stillCurrent(item, in: live()) != nil else { return }
+        let currentGeneration = generation
+        status = String(localized: "Preparing summary…")
+        do {
+            let announcement = try await content(item)
+            let isCurrent: @MainActor () -> Bool = {
+                validate(announcement) && AnnouncementPlan.stillCurrent(item, in: live()) != nil
+            }
+            guard !Task.isCancelled, generation == currentGeneration, isCurrent() else { throw ContentRequestFailure.conflict }
+            await play(text: announcement.text, item: item, position: position, remember: true,
+                       label: announcement.savedFallback ? String(localized: "Saved short content · styled summary unavailable") : nil,
+                       validate: isCurrent)
+        } catch is CancellationError { }
+        catch ContentRequestFailure.conflict {
+            if generation == currentGeneration, !Task.isCancelled { status = String(localized: "Skipped · task or content style changed") }
         }
-        guard let text = AnnouncementCopy.text(for: session, sound: item.sound,
-                                                language: VoiceSettings.conversationLanguage()) else { return }
-        await play(text: text, item: item, position: position, remember: true)
+        catch {
+            if generation == currentGeneration, !Task.isCancelled { status = String(localized: "Could not prepare this announcement") }
+        }
     }
 
-    private func play(text: String, item: AnnouncementPlan.Item, position: Int?, remember: Bool) async {
+    private func play(text: String, item: AnnouncementPlan.Item, position: Int?, remember: Bool,
+                      label: String? = nil, validate: @escaping @MainActor () -> Bool) async {
         let current = generation
+        activeValidation = validate
+        defer { if generation == current { activeValidation = nil } }
         if let position { self.current = (item, position, runTotal) }
         do {
             try await waitWhilePaused()
-            guard !Task.isCancelled, generation == current else { return }
+            guard !Task.isCancelled, generation == current, validate() else { return }
             try activateAudioSession()
-            if let synthesizer = providerSynthesizer(), let key = VoiceSettings.provider.apiKey, !key.isEmpty {
+            if case .provider(let provider) = PhoneReadAloudSelection.load() {
+                guard let synthesizer = SpeechSynthesis.synthesizer(VoiceSettings.readAloudConfiguration(provider)),
+                      let key = provider.apiKey, !key.isEmpty else {
+                    status = String(localized: "Configure this provider’s API key or choose System speech.")
+                    return
+                }
                 status = String(localized: "Generating speech…")
                 let data = try await synthesizer.synthesize(text, apiKey: key)
-                guard !Task.isCancelled, generation == current else { return }
+                guard !Task.isCancelled, generation == current, validate() else { return }
                 try await waitWhilePaused()
+                guard !Task.isCancelled, generation == current, validate() else { return }
                 let player = try AVAudioPlayer(data: data)
                 self.player = player
                 guard player.play() else { status = String(localized: "Could not play the audio."); self.player = nil; return }
-                status = nil
-                if remember { latest = (text, item); canReplay = true }
+                status = label
+                if remember, let source = sourceIdentity?() { latest = (text, item, source); canReplay = true }
                 while (player.isPlaying || isPaused) && !Task.isCancelled && generation == current {
                     try await waitWhilePaused()
+                    guard validate() else { stopPlayback(); status = String(localized: "Skipped · task or content style changed"); return }
                     try await Task.sleep(for: .milliseconds(100))
                 }
                 if generation == current { self.player = nil }
@@ -229,21 +300,24 @@ final class PhoneAnnouncer: ObservableObject {
                 systemVoice = synthesizer
                 let utterance = AVSpeechUtterance(string: text)
                 utterance.voice = AVSpeechSynthesisVoice(language: VoiceSettings.conversationLanguage() == .chinese ? "zh-CN" : "en-US")
-                status = nil
-                if remember { latest = (text, item); canReplay = true }
+                status = label
+                if remember, let source = sourceIdentity?() { latest = (text, item, source); canReplay = true }
                 synthesizer.speak(utterance)
                 while (synthesizer.isSpeaking || isPaused) && !Task.isCancelled && generation == current {
                     try await waitWhilePaused()
+                    guard validate() else { stopPlayback(); status = String(localized: "Skipped · task or content style changed"); return }
                     try await Task.sleep(for: .milliseconds(100))
                 }
                 if generation == current { systemVoice = nil }
             }
             if generation == current { spokenCount += 1 }
         } catch let failure as SpeechSynthesisFailure {
+            guard generation == current, !Task.isCancelled else { return }
             status = failure.message
         } catch is CancellationError {
             // Skipped or stopped: the owner already said why.
         } catch {
+            guard generation == current, !Task.isCancelled else { return }
             status = String(localized: "Could not play the audio.")
         }
     }
@@ -270,14 +344,6 @@ final class PhoneAnnouncer: ObservableObject {
         }
         runTotal = 0
         deactivateAudioSession()
-    }
-
-    /// The voice companion's provider, when it can speak and has a key; the
-    /// read-aloud model, voice and style follow the shared keys.
-    private func providerSynthesizer() -> (any SpeechSynthesizer)? {
-        let provider = VoiceSettings.provider
-        guard provider.supportsVoice, provider.apiKey?.isEmpty == false else { return nil }
-        return SpeechSynthesis.synthesizer(VoiceSettings.readAloudConfiguration(provider))
     }
 
     private func activateAudioSession() throws {

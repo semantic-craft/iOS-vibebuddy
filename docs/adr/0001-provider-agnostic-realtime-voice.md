@@ -101,3 +101,20 @@ switch and workspace ID do not apply), the recommended model `deepseek-flash`
 defaults to thinking at high effort and a 180-character spoken notification has
 no use for a reasoning budget. No new consent default, credential path or server
 is implied: it is one more BYO key in the Keychain (ADR-0002).
+
+## Global content styles (2026-09-15)
+
+Content preferences are independent of voice/persona preferences and of the text
+provider. Notice, speech, history and recap share a prompt builder and provider
+transport, while notices retain their 12-second, 180-character delivery contract.
+Explicit speech and recap requests have a separate bounded generation cache and
+resolve original evidence by exact source and round. They do not mutate notice
+claims, consent defaults or reading markers. Paired phones use the source Mac's
+content preference and generation service; no new cloud or credential store is
+introduced. Custom instructions control expression within shared evidence rules.
+
+The two-second capture deadline remains a notification constraint. A successful,
+turn-identified terminal event may separately retain bounded text for manual
+reading, even when observed later. It is invalidated by a new turn, failure or
+retirement, and cannot replace an already retained result. This does not revive
+an expired notification. Recap copies use the same verified round evidence.

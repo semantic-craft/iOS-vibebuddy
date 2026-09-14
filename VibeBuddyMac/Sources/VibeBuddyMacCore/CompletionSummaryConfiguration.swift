@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import VibeBuddyKit
 
@@ -9,10 +10,12 @@ public struct CompletionSummaryConfiguration: Sendable, Equatable {
     public var language: VoiceLanguage
     public var qwenUseIntl: Bool
     public var qwenWorkspaceID: String?
+    public var contentStyle: ContentStyleConfiguration
 
     public init(enabled: Bool = false, provider: VoiceProvider? = nil, modelID: String = "",
                 language: VoiceLanguage = .english, qwenUseIntl: Bool = false,
-                qwenWorkspaceID: String? = nil) {
+                qwenWorkspaceID: String? = nil, contentStyle: ContentStyleConfiguration = .default) {
+        self.contentStyle = contentStyle
         self.enabled = enabled
         self.provider = provider
         self.modelID = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -44,11 +47,41 @@ public struct CompletionSummaryConfiguration: Sendable, Equatable {
                     modelID: model,
                     language: VoiceLanguage(rawValue: defaults.string(forKey: VoiceSettings.conversationLanguageKey) ?? "") ?? .english,
                     qwenUseIntl: defaults.bool(forKey: VoiceSettings.regionIntlKey),
-                    qwenWorkspaceID: defaults.string(forKey: VoiceSettings.qwenWorkspaceIDKey))
+                    qwenWorkspaceID: defaults.string(forKey: VoiceSettings.qwenWorkspaceIDKey),
+                    contentStyle: ContentStyleConfiguration.load(defaults: defaults))
+    }
+
+    public var presentationRevision: String {
+        let fields = [contentStyle.fingerprint, language.rawValue, provider?.rawValue ?? "", modelID,
+                      qwenUseIntl ? "intl" : "cn", qwenWorkspaceID ?? ""]
+        let data = Data(fields.map { "\($0.utf8.count):\($0)" }.joined().utf8)
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    public var contentStyleStorageRevision: String {
+        let fields = [presentationRevision, contentStyle.customPrompt]
+        let data = Data(fields.map { "\($0.utf8.count):\($0)" }.joined().utf8)
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    public static func apiKey(for provider: VoiceProvider) -> String? {
+        if E2ERunConfiguration.current != nil {
+            let name: String
+            switch provider {
+            case .qwen: name = "DASHSCOPE_API_KEY"
+            case .openai: name = "OPENAI_API_KEY"
+            case .gemini: name = "GEMINI_API_KEY"
+            case .deepseek: name = "DEEPSEEK_API_KEY"
+            case .doubao: return nil
+            }
+            return ProcessInfo.processInfo.environment[name]
+        }
+        return provider.apiKey
     }
 
     public var configurationFailure: CompletionSummaryFailure? {
         if !enabled { return .disabled }
+        if !contentStyle.isValid { return .invalidInput }
         guard let provider, provider.supportsCompletionSummaries else { return .missingProvider }
         if modelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return .missingModel }
         if provider == .openai, modelID.hasPrefix("gpt-live-") || modelID.hasPrefix("gpt-realtime") {

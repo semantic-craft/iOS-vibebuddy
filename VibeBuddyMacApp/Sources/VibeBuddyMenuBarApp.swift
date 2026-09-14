@@ -104,6 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var openRequestObserver: NSObjectProtocol?
     var model: MenuBarModel!
     private var windows: AppWindows?
+    private let settingsNavigation = SettingsNavigation()
 
     @objc private func openDashboard() {
         windows?.showDashboard()
@@ -113,7 +114,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DashboardRoute.openNextPending()
     }
 
-    @objc private func openSettings() {
+    @objc private func openSettings(_ notification: Notification) {
+        if let page = notification.object as? SettingsPageID { settingsNavigation.selection = page }
         windows?.showSettings()
     }
 
@@ -134,9 +136,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async { NSApp.terminate(nil) }
             return
         }
+        settingsNavigation.selection = Self.demoSettingsPage ?? .general
         windows = AppWindows(
             dashboard: AnyView(DashboardView(model: model)),
-            settings: AnyView(SettingsView(model: model, initialPage: Self.demoSettingsPage ?? .general)))
+            settings: AnyView(SettingsView(model: model, navigation: settingsNavigation)))
         NotificationCenter.default.addObserver(self, selector: #selector(openDashboard), name: .openDashboard, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(nextPending), name: .nextPending, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(openSettings), name: .openAppSettings, object: nil)
@@ -157,7 +160,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
         if !loginLaunch {
             if Self.demoSettingsPage != nil {
-                openSettings()
+                windows?.showSettings()
             } else {
                 openDashboard()
             }

@@ -152,12 +152,15 @@ final class HistoryLibraryModel: ObservableObject {
         guard !isDemo, !summarizing, let selected = transcript, selected.agent.supportsTranscript else { return }
         let generation = readGeneration
         let config = CompletionSummaryConfiguration.load()
-        let style = HistorySummaryStyle.load()
+        guard config.contentStyle.isValid else {
+            summaryError = "Enter custom instructions in Settings before generating a summary."
+            return
+        }
         summarizing = true; summaryError = nil
         summaryTask = Task {
             defer { if generation == readGeneration { summarizing = false } }
             do {
-                let result = try await summaryService.generate(selected, configuration: config, style: style)
+                let result = try await summaryService.generate(selected, configuration: config)
                 guard generation == readGeneration, !Task.isCancelled else { return }
                 try await repository.saveSummary(result)
                 guard generation == readGeneration, !Task.isCancelled else { return }

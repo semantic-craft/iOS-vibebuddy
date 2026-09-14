@@ -3,6 +3,11 @@ import AppKit
 import VibeBuddyKit
 import VibeBuddyMacCore
 
+@MainActor
+final class SettingsNavigation: ObservableObject {
+    @Published var selection: SettingsPageID = .general
+}
+
 /// Settings. Eleven pages under five sidebar groups, each page sized to be read
 /// without scrolling at the window's default size — the five broad categories
 /// this replaced had grown long enough (quota and token spend arrived in one
@@ -10,23 +15,25 @@ import VibeBuddyMacCore
 struct SettingsView: View {
     @ObservedObject var model: MenuBarModel
     @StateObject private var hookSetup = HookSetup()
-    @StateObject private var tests = SettingsTestCoordinator()
+    @ObservedObject private var tests: SettingsTestCoordinator
     /// Lifted out of the voice page so the feature rows and the key rows —
     /// now two separate pages — read the same saved credentials.
-    @StateObject private var credentials = SettingsCredentials()
-    @State private var selection: SettingsPageID
+    @ObservedObject private var credentials: SettingsCredentials
+    @ObservedObject var navigation: SettingsNavigation
     /// Which provider's key row is open on the Provider keys page. A feature
     /// row's "No API key yet" pill sets both this and `selection`.
     @State private var expandedAccount: VoiceProvider?
 
-    init(model: MenuBarModel, initialPage: SettingsPageID = .general) {
+    init(model: MenuBarModel, navigation: SettingsNavigation) {
         self.model = model
-        _selection = State(initialValue: initialPage)
+        self.tests = model.settingsTests
+        self.credentials = model.settingsCredentials
+        self.navigation = navigation
     }
 
     var body: some View {
         HStack(spacing: 0) {
-            SettingsSidebar(selection: $selection)
+            SettingsSidebar(selection: $navigation.selection)
             Rectangle().fill(MacTheme.line).frame(width: 1).accessibilityHidden(true)
             page
         }
@@ -38,7 +45,7 @@ struct SettingsView: View {
     }
 
     @ViewBuilder private var page: some View {
-        switch selection {
+        switch navigation.selection {
         case .general:
             GeneralPage(model: model, setup: hookSetup)
         case .notifications:
@@ -68,11 +75,11 @@ struct SettingsView: View {
     private func reveal(_ provider: VoiceProvider) {
         credentials[provider].load()
         expandedAccount = provider
-        selection = .providerKeys
+        navigation.selection = .providerKeys
     }
 
     /// The cross-link at the foot of General and Phone & remote.
-    private func showDiagnostics() { selection = .diagnostics }
+    private func showDiagnostics() { navigation.selection = .diagnostics }
 }
 
 // MARK: - Pages and navigation
