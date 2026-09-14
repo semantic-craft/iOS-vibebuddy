@@ -1,0 +1,130 @@
+[
+  {
+    "file": "ios/en-US/01-inbox.jpg",
+    "width": 1320,
+    "height": 2868,
+    "sha256": "0f7481245e407cc0eb4d386102ee567d4249effcab0bcc8932f4c34d3eac1dde",
+    "source": "isolated-demo",
+    "version": "1.3.17 (46)"
+  },
+  {
+    "file": "ios/en-US/02-task.jpg",
+    "width": 1320,
+    "height": 2868,
+    "sha256": "d5f7804a1d6856b169054b8519a9cc5240d4ff12ef1c2c22ecc5fd97f9e37216",
+    "source": "isolated-demo",
+    "version": "1.3.17 (46)"
+  },
+  {
+    "file": "ios/en-US/03-usage.jpg",
+    "width": 1320,
+    "height": 2868,
+    "sha256": "a661f02ae3a878c4d7527b7c076826733e14bccefaffb8e3cfdd5cfd834ef171",
+    "source": "isolated-demo",
+    "version": "1.3.17 (46)"
+  },
+  {
+    "file": "ios/zh-Hans/01-inbox.jpg",
+    "width": 1320,
+    "height": 2868,
+    "sha256": "2f7e5c883823a11e71a24ec9aa893f7ab361d865d89b3d333f4eefbd4f2f41fe",
+    "source": "isolated-demo",
+    "version": "1.3.17 (46)"
+  },
+  {
+    "file": "ios/zh-Hans/02-task.jpg",
+    "width": 1320,
+    "height": 2868,
+    "sha256": "cc79e1f3932dd93ef11acd15e940ff11ec0df4e63e2209d454054e8357f55eac",
+    "source": "isolated-demo",
+    "version": "1.3.17 (46)"
+  },
+  {
+    "file": "ios/zh-Hans/03-usage.jpg",
+    "width": 1320,
+    "height": 2868,
+    "sha256": "3608b1b1df62abe6c9be96e805d05abfeb42b949f4fa249e0f0cf1bd35ddfc7b",
+    "source": "isolated-demo",
+    "version": "1.3.17 (46)"
+  },
+  {
+    "file": "macos/en-US/01-inbox.png",
+    "width": 1145,
+    "height": 768,
+    "sha256": "939792c74cff11635105d0db1acfdd9299b266eeb2a84e2ec136413a17b12afc",
+    "source": "isolated-demo",
+    "version": "1.3.19 (31)"
+  },
+  {
+    "file": "macos/en-US/02-usage.png",
+    "width": 1145,
+    "height": 768,
+    "sha256": "10f5f38839342e04e274dd1bc130e5039669d640fb015ee864c0383bcd2ddfa0",
+    "source": "isolated-demo",
+    "version": "1.3.19 (31)"
+  },
+  {
+    "file": "macos/zh-Hans/01-inbox.png",
+    "width": 1145,
+    "height": 768,
+    "sha256": "d39fe4d5bfe870aedf7319bc562069be0188e3892bb6d88d2a129ae99f409efb",
+    "source": "isolated-demo",
+    "version": "1.3.19 (31)"
+  },
+  {
+    "file": "macos/zh-Hans/02-usage.png",
+    "width": 1145,
+    "height": 768,
+    "sha256": "57890f14dc1cc59dcb2909a8647b7e41cadf02bcf0f0d4c0f95e946add680958",
+    "source": "isolated-demo",
+    "version": "1.3.19 (31)"
+  },
+  {
+    "file": "watchos/en-US/01-tasks.jpg",
+    "width": 416,
+    "height": 496,
+    "sha256": "cd99bf4a9f80bd4969351c81b6ae78582a24c26c2d27c22f0ac60d20e27128fb",
+    "source": "isolated-demo",
+    "version": "1.3.17 (46)"
+  },
+  {
+    "file": "watchos/en-US/02-result.jpg",
+    "width": 416,
+    "height": 496,
+    "sha256": "67fa7cfe6f4720c8f4a94ac6ab199c47032a263e75548886fdfd14f1359aee8b",
+    "source": "isolated-demo",
+    "version": "1.3.17 (46)"
+  },
+  {
+    "file": "watchos/en-US/03-usage.jpg",
+    "width": 416,
+    "height": 496,
+    "sha256": "dee63d941905cae1ae8aede236f7fb0661cc181e3b7b04f80454b36d12426ac3",
+    "source": "isolated-demo",
+    "version": "1.3.17 (46)"
+  },
+  {
+    "file": "watchos/zh-Hans/01-tasks.jpg",
+    "width": 416,
+    "height": 496,
+    "sha256": "fb2cbb3ab2249715b7733b5dec3b137d9749f44b54ebc6d6bd80c779b7d45da1",
+    "source": "isolated-demo",
+    "version": "1.3.17 (46)"
+  },
+  {
+    "file": "watchos/zh-Hans/02-result.jpg",
+    "width": 416,
+    "height": 496,
+    "sha256": "2ed5ecb4dce8bba65060c23a82f50b8507e296bf77a3a520e5ec57398881ab40",
+    "source": "isolated-demo",
+    "version": "1.3.17 (46)"
+  },
+  {
+    "file": "watchos/zh-Hans/03-usage.jpg",
+    "width": 416,
+    "height": 496,
+    "sha256": "920145ff9fdaefd2ea7c3ad39543e5893e6a6cbe85c229dd508f3bf51015ea5d",
+    "source": "isolated-demo",
+    "version": "1.3.17 (46)"
+  }
+]

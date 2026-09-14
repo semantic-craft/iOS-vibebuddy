@@ -14,9 +14,9 @@
 
 **免费开源 · 无需 VibeBuddy 账号 · 无行为分析 · AI 功能使用自己的密钥**
 
-<img src="docs/app-store-screenshots/1.3.14/macos/zh-Hans/01-dashboard-approval.jpg" width="960" alt="Mac 任务看板：Claude Code、Codex 任务与文件编辑审批" />
+<img src="docs/app-store-screenshots/1.3.17/macos/zh-Hans/01-inbox.png" width="960" alt="Mac 收件箱：需要介入、未读结果、运行中任务与项目导航" />
 
-<sub>真实 App 的 1.3 演示界面，使用样例任务。截图展示界面，不代表真实 Agent 的运行结果。</sub>
+<sub>Mac 1.3.19 的真实演示界面。任务、项目和额度均为样例数据。</sub>
 
 </div>
 
@@ -26,42 +26,45 @@
 
 | 看清当前情况 | 接着推进任务 | 了解完成结果 |
 | --- | --- | --- |
-| **统一任务视图。** 需要回应、进行中、已完成；查看项目、模型、当前活动与可获取的用量信息。 | **审批与回复。** 查看命令或有限行数的差异预览，回答问题，继续支持远程控制的 Codex 任务。 | **语音与摘要。** 询问当前任务状态，阅读简明的完成摘要，也可在 Mac 上开启朗读。 |
+| **统一任务视图。** 需要介入、未读结果、运行中任务；查看项目、模型、当前活动与可获取的用量信息。 | **审批与回复。** 查看命令或有限行数的差异预览，回答问题，继续支持远程控制的 Codex 任务。 | **语音与摘要。** 询问当前任务状态，阅读简明的完成摘要，也可在 Mac 上开启朗读。 |
 
 ## 三块屏幕，同一个小伙伴。
 
 <table>
-<tr>
-<th>在 iPhone 上处理请求</th>
-<th>打开任务详情</th>
-<th>抬腕查看额度</th>
-</tr>
-<tr>
-<td align="center" valign="top"><img src="docs/app-store-screenshots/1.3.14/ios/zh-Hans/01-dashboard.jpg" width="270" alt="iPhone 演示看板中的 Claude 编辑审批与问题" /></td>
-<td align="center" valign="top"><img src="docs/app-store-screenshots/1.3.14/ios/zh-Hans/02-codex-task.jpg" width="270" alt="iPhone 演示中的 Codex 任务详情、上下文用量与回复入口" /></td>
-<td align="center" valign="top"><img src="docs/app-store-screenshots/1.3.14/watchos/zh-Hans/02-quota.jpg" width="208" alt="Apple Watch 演示中的 Codex 周额度与短窗口剩余额度" /><br><br>关注中的任务<br>快捷回答<br>完成摘要<br>剩余额度</td>
-</tr>
+<tr><th>iPhone 收件箱</th><th>任务详情</th><th>Watch 完成结果</th></tr>
+<tr><td align="center" valign="top"><img src="docs/app-store-screenshots/1.3.17/ios/zh-Hans/01-inbox.jpg" width="270" alt="iPhone 收件箱" /></td><td align="center" valign="top"><img src="docs/app-store-screenshots/1.3.17/ios/zh-Hans/02-task.jpg" width="270" alt="任务详情" /></td><td align="center" valign="top"><img src="docs/app-store-screenshots/1.3.17/watchos/zh-Hans/02-result.jpg" width="208" alt="Watch 完成结果" /></td></tr>
 </table>
 
-<sub>以上均来自实际运行的 1.3.14 App 演示模式。Watch 图片为 App 内额度页。<a href="docs/app-store-screenshots/1.3.14/README.md">截图来源说明</a>。</sub>
+<sub>iPhone／Watch 1.3.17（46），Mac 1.3.19（31）。全部来自原生 App 演示模式，与本次提交的商店截图及 Mac 发布截图一致；不代表真实任务运行结果。 <a href="docs/app-store-screenshots/1.3.17/README.md">截图来源</a>.</sub>
 
-- **Mac：** 可搜索的菜单栏活动列表、完整任务看板、刘海 Glance，以及返回原终端或应用的快捷入口。
-- **iPhone：** 任务详情、近期对话、支持的审批与回复、实时活动和灵动岛计数。
-- **Apple Watch：** 关注任务、快捷回答、完成摘要、任务与额度表盘组件，以及智能叠放相关性提示。需要配对的 iPhone，后台刷新由 watchOS 调度。
+<details>
+<summary>更多截图：任务列表与三端额度</summary>
 
-## 1.3 系列带来了什么
+<img src="docs/app-store-screenshots/1.3.17/macos/zh-Hans/02-usage.png" width="960" alt="Mac 额度页面" />
 
-| 新功能 | 具体变化 |
+<table>
+<tr><td align="center" valign="top"><img src="docs/app-store-screenshots/1.3.17/ios/zh-Hans/03-usage.jpg" width="270" alt="iPhone usage" /></td><td align="center" valign="top"><img src="docs/app-store-screenshots/1.3.17/watchos/zh-Hans/01-tasks.jpg" width="208" alt="Watch tasks" /></td><td align="center" valign="top"><img src="docs/app-store-screenshots/1.3.17/watchos/zh-Hans/03-usage.jpg" width="208" alt="Watch usage" /></td></tr>
+</table>
+
+</details>
+
+- **Mac：** 从收件箱查看需要介入和未读结果，按项目浏览会话，搜索、阅读历史、查看额度；可通过 Continue with… 交给另一个 Agent 接续。菜单栏与刘海提供紧凑状态。
+- **iPhone：** 收件箱、任务详情、近期对话、支持的审批与回复；独立用量页以及主屏幕、锁屏额度小组件。设置中的“电脑连接”和首页连接圆点均可进入扫码配对。
+- **Apple Watch：** 查看运行中任务与未读结果，点击完成通知进入对应任务，刷新最新摘要并明确标为已读。仍可查看额度和使用表盘组件；需要配对的 iPhone，通知与后台刷新受系统设置影响。
+
+## 最近的主要更新
+
+| 功能 | 具体变化 |
 | --- | --- |
-| **开口询问任务** | [1.3.11](https://github.com/semantic-craft/iOS-vibebuddy/releases/tag/v1.3.11) 接入 GPT-Live 1，可独立配置任务推理模型。OpenAI、Gemini、千问与豆包共用任务状态查询和受支持的操作工具。 |
-| **听懂完成结果** | 可选 AI 摘要聚焦结果、阻塞与下一步。Mac 朗读可分别选择服务商、模型和音色，并先试听。[模型设置更新](docs/release-notes-1.3.10.md)。 |
-| **继续已有对话** | 回答可处理的等待请求，为运行中的 Codex 任务补充指令，或继续已有任务；查看近期对话与发送回执。[任务交互更新](docs/release-notes-1.3.6.md)。 |
-| **随手找到 Mac 上的任务** | 搜索和筛选菜单栏活动，打开任务详情，通过主动开启的二维码配对窗口连接手机。[Mac 伴侣更新](docs/release-notes-1.3.9.md)。 |
-| **抬腕关注任务** | Watch 快捷回答、任务控制与完成摘要，方便随时查看关注中的任务。[Watch 更新](docs/release-notes-1.3.8.md)。 |
-| **关注 Grok Build 与 Grok Bot** | 追踪 Build CLI 任务、账户额度与依权限模式提供的审批请求；可开启 Bot 只读观测、可核实的普通对话完成摘要与独立账户额度。[Grok Build 配置](docs/getting-started.md#grok-build) · [Grok Bot 更新](docs/release-notes-1.3.7.md)。 |
-| **查看 Cursor 剩余额度** | 使用已有 Cursor App 或 Cursor CLI 登录，分别显示 **Cursor Models** 与 **Other Models** 两个额度池。[Cursor CLI 支持](docs/release-notes-1.3.2.md)。 |
+| **收件箱与会话阅读器** | 需要介入、未读结果和运行中任务分别展示；Mac 阅读器支持实时更新、搜索定位和导出。打开详情不等于标为已读。[1.3.17](docs/release-notes-1.3.17.md) |
+| **腕上通知直达任务** | 点击完成通知可打开对应详情，并在 iPhone 锁屏时请求最新结果；刷新失败会标示缓存并提供重试。移除了 Watch Recap，保留任务列表和明确的已读操作。[Watch 更新](docs/release-notes-1.3.17.md) |
+| **提醒与免打扰** | 修复仅因来源应用处于前台就抑制提醒的问题。关注任务完成时支持有声提醒，继续遵守通知偏好和免打扰设置。[通知更新](docs/release-notes-1.3.17.md) |
+| **额度页面与小组件** | iPhone 用量页、主屏幕和锁屏额度小组件展示各服务商读数、更新时间及不可用状态；点击可进入对应服务商。小组件使用最近保存的读数。[用量更新](docs/release-notes-1.3.17.md) |
+| **让另一个 Agent 接续** | Mac 的 Continue with… 可选择 Claude Code、Codex 或 Cursor，审阅目录和交接提示后再启动。已观测到的会话目录与交接关系在重启后保留；未知目录由你选择。[交接说明](docs/release-notes-1.3.16.md) |
+| **适配当前 Mac 的菜单栏与刘海** | 恢复越界的菜单栏图标位置；紧凑状态显示在摄像头左右，高度读取当前屏幕，宽度随内容调整，无需按机型配置。[菜单栏](docs/release-notes-1.3.18.md) · [刘海](docs/release-notes-1.3.19.md) |
+| **语音、摘要与朗读** | 可选语音对话、完成摘要和 Mac 朗读分别配置，支持 OpenAI、Gemini、千问和豆包等已接入服务商。[语音设置](docs/release-notes-1.3.11.md) |
 
-Mac 版本与 iPhone／Watch 的 App Store 更新分别发布，新功能需要相应设备安装更新后的客户端。当前版本和可用情况以 [Mac Releases](https://github.com/semantic-craft/iOS-vibebuddy/releases) 和 [App Store 页面](https://apps.apple.com/us/app/vibebuddy-agent-monitor/id6777469338)为准。
+这里展示 Mac 1.3.19 与 iPhone／Watch 1.3.17 的功能。移动端 1.3.17（46）已于 2026-09-15 提交 App Review；提交不代表已获批或已上架。实际可下载版本以 [Mac Releases](https://github.com/semantic-craft/iOS-vibebuddy/releases) 和 [App Store 页面](https://apps.apple.com/us/app/vibebuddy-agent-monitor/id6777469338)为准。
 
 ## 常用工具与支持能力
 
@@ -82,7 +85,7 @@ VibeBuddy 连接你已经在用的 Agent。能否操作，取决于当前连接�
 
 1. **安装 Mac 伴侣。** [下载最新 DMG](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest)，将 App 拖入“应用程序”并打开。发布的 Mac 版需要 Apple Silicon 与 macOS 14+。
 2. **接入编码 Agent。** 在 Mac 设置的 Setup 中按对应 Agent 的说明配置，也可查看[手动配置指南](docs/getting-started.md#connect-an-agent)。
-3. **连接 iPhone。** 安装 [VibeBuddy: Agent Monitor](https://apps.apple.com/us/app/vibebuddy-agent-monitor/id6777469338)，在 Mac 选择“配对手机”，在 iPhone 选择“扫码配对”。首次在同一可信局域网操作。iPhone 需要 iOS 17+，当前 Watch 伴侣需要 watchOS 26.5+。
+3. **连接 iPhone。** 安装 [VibeBuddy: Agent Monitor](https://apps.apple.com/us/app/vibebuddy-agent-monitor/id6777469338)，在 Mac 选择“配对手机”，在 iPhone 的设置 → 电脑连接中选择“扫码配对”，也可点击首页左上角连接圆点。首次在同一可信局域网操作。iPhone 需要 iOS 17+，当前 Watch 伴侣需要 watchOS 26.5+。
 4. **试试你的工作流。** 在 Claude Code、Codex 或 Grok Build 发起简短任务并关注至完成，也可[开启 Grok Bot 观测](docs/getting-started.md#grok-bot)或[接入 Cursor 额度](docs/getting-started.md#cursor)。语音和摘要可按需单独开启。
 
 **想先看看界面？** iPhone 连接页有“查看演示（无需 Mac）”，Mac 也可独立使用。上述 App Store 链接指向美国商店，是否可下载取决于账号地区；也可[自行编译](docs/getting-started.md#build-from-source)。
