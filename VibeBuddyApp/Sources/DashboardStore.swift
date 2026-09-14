@@ -123,6 +123,14 @@ final class DashboardStore: ObservableObject {
     private var lastRecap: Recap?
     /// Local Claude Code / Codex token spend as the Mac last reported it.
     @Published private(set) var lastTokenConsumption: TokenConsumptionSnapshot?
+    /// QA switch for the Demo allowance, `VIBEBUDDY_DEMO_QUOTA`: `stale` plays
+    /// a Mac that dropped 18 minutes ago, `limit` the amber and red
+    /// thresholds, `unavailable` signed-out sources.
+    enum DemoQuotaState: String { case normal, stale, limit, unavailable }
+    private var demoQuotaState = DemoQuotaState.normal
+    /// Whether the allowance on screen is live: the Mac's link, or in Demo
+    /// the QA switch.
+    var quotaRelayLive: Bool { isDemo ? demoQuotaState != .stale : state == .connected }
     private var runTask: Task<Void, Never>?
     private var connectionGeneration = UUID()
     /// Decides which sound (if any) each snapshot earns. Reset per connection so
@@ -542,7 +550,7 @@ final class DashboardStore: ObservableObject {
     private func publishQuotaToWidgets() {
         WidgetQuotaStore.save(PhoneQuotaSnapshot(
             quotas: lastProviderQuota, macName: pairing?.macName,
-            relayLive: state == .connected, savedAt: Date(), isDemo: isDemo))
+            relayLive: quotaRelayLive, savedAt: Date(), isDemo: isDemo))
     }
 
     /// Project the dashboard for the Watch. Demo Mode supplies sample allowance;
@@ -650,8 +658,10 @@ final class DashboardStore: ObservableObject {
         isDemo = true
         // The Usage sheet is part of the demo now, so seed the same sample
         // readings the Watch demo uses instead of leaving it empty.
-        lastProviderQuota = Self.demoQuotas(now: Date())
-        lastTokenConsumption = TokenConsumptionSnapshot.demo()
+        demoQuotaState = DemoQuotaState(rawValue: ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO_QUOTA"] ?? "") ?? .normal
+        lastProviderQuota = Self.demoQuotas(demoQuotaState, now: Date())
+        lastTokenConsumption = TokenConsumptionSnapshot.demo(
+            now: demoQuotaState == .stale ? Date().addingTimeInterval(-18 * 60) : Date())
         pairing = nil
         state = .connected
         publishQuotaToWidgets()
@@ -663,8 +673,10 @@ final class DashboardStore: ObservableObject {
 
     /// The Watch's sample allowance plus the detail only the phone's Usage
     /// page draws: account labels and a Claude model-scoped week.
-    static func demoQuotas(now: Date) -> [ProviderQuota] {
-        WatchDemoScenario.normal.quotas(now: now).map { quota in
+    static func demoQuotas(_ demoState: DemoQuotaState = .normal, now: Date) -> [ProviderQuota] {
+        let scenario: WatchDemoScenario = demoState == .unavailable ? .unavailableQuota : .normal
+        let staleObservedAt = now.addingTimeInterval(-18 * 60)
+        return scenario.quotas(now: now).map { quota in
             var quota = quota
             switch quota.provider {
             case .claude:
@@ -672,10 +684,20 @@ final class DashboardStore: ObservableObject {
                 quota.scopedWindows = [QuotaWindow(remainingPercent: 58, durationMinutes: 10080,
                                                    resetsAt: quota.weeklyResetsAt, observedAt: quota.observedAt,
                                                    label: "Opus only")]
+                if demoState == .limit { quota.weeklyRemainingPercent = 6 }
+            case .codex:
+                if demoState == .limit, quota.shortWindowRemainingPercent != nil { quota.shortWindowRemainingPercent = 18 }
+            case .grok:
+                if demoState == .limit, quota.weeklyRemainingPercent != nil { quota.weeklyRemainingPercent = 4 }
             case .cursor:
                 quota.accountLabel = "Pro"
-            case .codex, .grok, .grokBot:
+            case .grokBot:
                 break
+            }
+            if demoState == .stale, quota.observedAt != nil {
+                quota.observedAt = staleObservedAt
+                quota.otherWindows = quota.otherWindows?.map { var window = $0; window.observedAt = staleObservedAt; return window }
+                quota.scopedWindows = quota.scopedWindows?.map { var window = $0; window.observedAt = staleObservedAt; return window }
             }
             return quota
         }

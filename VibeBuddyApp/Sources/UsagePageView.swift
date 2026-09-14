@@ -111,7 +111,7 @@ struct UsagePageView: View {
     private static let topID = "usage-top"
 
     private var paired: Bool { connection.pairing != nil || connection.demo }
-    private var reachable: Bool { connection.demo || dashboard.state == .connected }
+    private var reachable: Bool { dashboard.quotaRelayLive }
     private var macTitle: String {
         let name = connection.pairing?.macName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !name.isEmpty { return name }
