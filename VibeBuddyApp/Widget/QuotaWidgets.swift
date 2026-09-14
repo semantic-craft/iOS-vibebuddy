@@ -332,7 +332,7 @@ struct PhoneQuotaProviderView: View {
             }
         }
         .quotaWidgetBackground(family)
-        .widgetURL(entry.snapshot?.quotas.isEmpty == false ? URL(string: "vibebuddy://quota/\(entry.provider.rawValue)") : nil)
+        .widgetURL(entry.snapshot?.quotas.isEmpty == false ? VibeBuddyDeepLink.quotaURL(entry.provider) : nil)
     }
 
     private func small(_ snapshot: PhoneQuotaSnapshot, quota: ProviderQuota?) -> some View {
@@ -507,7 +507,7 @@ struct PhoneQuotaOverviewView: View {
             }
         }
         .quotaWidgetBackground(.systemMedium)
-        .widgetURL(entry.snapshot?.quotas.isEmpty == false ? URL(string: "vibebuddy://quota/all") : nil)
+        .widgetURL(entry.snapshot?.quotas.isEmpty == false ? VibeBuddyDeepLink.quotaURL(nil) : nil)
     }
 
     private func content(_ snapshot: PhoneQuotaSnapshot) -> some View {

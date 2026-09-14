@@ -2,6 +2,14 @@ import Foundation
 import UIKit
 import VibeBuddyKit
 
+/// A request to show the Usage page, at one provider's group or (nil) at its
+/// head. Each tap is a new id, so tapping the same widget twice still moves
+/// a page that is already open.
+struct UsageRequest: Equatable {
+    let id = UUID()
+    let provider: AccountUsageProvider?
+}
+
 /// Consumes the live snapshot stream and publishes grouped sessions, connection
 /// state, and notifications. Reconnects automatically when the socket drops.
 @MainActor
@@ -1105,8 +1113,17 @@ final class DashboardStore: ObservableObject {
         await liveActivity.sync(sessions: snapshot.sessions)
     }
 
-    /// Handle a `vibebuddy://session?id=…` deep link from the Live Activity.
+    /// Set by a quota widget's `vibebuddy://quota/<provider|all>`; the
+    /// dashboard pushes the Usage page and clears it.
+    @Published var usageRequest: UsageRequest?
+
+    /// Handle a `vibebuddy://quota/…` link from a quota widget, or a
+    /// `vibebuddy://session?id=…` deep link from the Live Activity.
     func open(_ url: URL) {
+        if let provider = VibeBuddyDeepLink.quotaProvider(from: url) {
+            usageRequest = UsageRequest(provider: provider)
+            return
+        }
         guard let id = VibeBuddyDeepLink.sessionId(from: url) else { return }
         focusedCompletionNotificationID = VibeBuddyDeepLink.completionNotificationID(from: url)
         focusedSessionId = id

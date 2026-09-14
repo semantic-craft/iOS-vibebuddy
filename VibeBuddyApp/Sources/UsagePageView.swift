@@ -105,6 +105,10 @@ struct UsagePageView: View {
     @EnvironmentObject private var dashboard: DashboardStore
     @EnvironmentObject private var connection: ConnectionStore
     @Environment(\.dismiss) private var dismiss
+    /// The provider a quota widget asked for; `nil` provider means the head.
+    var focus: UsageRequest? = nil
+
+    private static let topID = "usage-top"
 
     private var paired: Bool { connection.pairing != nil || connection.demo }
     private var reachable: Bool { connection.demo || dashboard.state == .connected }
@@ -122,16 +126,31 @@ struct UsagePageView: View {
             VStack(spacing: 0) {
                 topBar(now: context.date)
                 if paired {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 0) {
-                            if !reachable {
-                                banner(now: context.date)
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 0) {
+                                Color.clear.frame(height: 0).id(Self.topID)
+                                if !reachable {
+                                    banner(now: context.date)
+                                }
+                                summary(now: context.date)
+                                ForEach(AccountUsageProvider.allCases) { provider in
+                                    group(provider, now: context.date)
+                                }
+                                spend(now: context.date)
                             }
-                            summary(now: context.date)
-                            ForEach(AccountUsageProvider.allCases) { provider in
-                                group(provider, now: context.date)
+                        }
+                        .task(id: focus?.id) {
+                            guard let focus else { return }
+                            // Let the push settle and the groups lay out first.
+                            try? await Task.sleep(for: .milliseconds(350))
+                            withAnimation(.smooth) {
+                                if let provider = focus.provider {
+                                    proxy.scrollTo(provider, anchor: .top)
+                                } else {
+                                    proxy.scrollTo(Self.topID, anchor: .top)
+                                }
                             }
-                            spend(now: context.date)
                         }
                     }
                 } else {

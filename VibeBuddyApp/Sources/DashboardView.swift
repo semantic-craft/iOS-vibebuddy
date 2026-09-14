@@ -21,6 +21,8 @@ struct DashboardView: View {
     /// Usage page does not reconnect or restart the demo.
     @State private var startedPairing: PairingPayload?
     @State private var launched = false
+    /// Where the Usage page should land: the provider a quota widget named.
+    @State private var usageFocus: UsageRequest?
     /// The New task sheet is presented by item, not by a flag: a sheet
     /// presented by `isPresented` keeps its content's `@State` across
     /// presentations, so a draft typed into the composer arrived at an
@@ -225,8 +227,11 @@ struct DashboardView: View {
             .presentationDetents([.large])
         }
         .navigationDestination(isPresented: $showQuota) {
-            UsagePageView()
+            UsagePageView(focus: usageFocus)
         }
+        .onChange(of: dashboard.usageRequest) { _, request in openUsage(request) }
+        // A widget tap on a cold launch lands before this view exists.
+        .onAppear { openUsage(dashboard.usageRequest) }
         .sheet(item: $newTaskRequest) { request in
             NewTaskSheet(dashboard: dashboard, macName: connection.pairing?.macName, initialPrompt: request.draft)
         }
@@ -301,8 +306,17 @@ struct DashboardView: View {
         }
     }
 
+    /// A quota link pushes the Usage page (or moves the open one) to the
+    /// provider it names; the request is spent once it is handled.
+    private func openUsage(_ request: UsageRequest?) {
+        guard let request else { return }
+        usageFocus = request
+        showQuota = true
+        dashboard.usageRequest = nil
+    }
+
     private func openDemoPage() async {
-            // `VIBEBUDDY_DEMO_PAGE=customize|usage|newtask|task/<title>` opens
+            // `VIBEBUDDY_DEMO_PAGE=customize|usage|newtask|link/<url>|task/<title>` opens
             // that sheet once the demo has seeded, for screenshots and QA —
             // the Mac (`dashboard/<library>`) and the Watch (`WATCH_PAGE`)
             // carry the same switch.
@@ -317,6 +331,13 @@ struct DashboardView: View {
             case "read": readPending()
             case "voice": readPending(); showVoicePage = true
             default:
+                // `link/vibebuddy://quota/claude`: the deep link a widget tap
+                // delivers, without the system's "Open in…" prompt `simctl
+                // openurl` raises.
+                if page.hasPrefix("link/"), let url = URL(string: String(page.dropFirst("link/".count))) {
+                    dashboard.open(url)
+                    return
+                }
                 if page.hasPrefix("bucket/"), let bucket = InboxBucket(rawValue: String(page.dropFirst("bucket/".count))) {
                     open(bucket: bucket)
                     return
