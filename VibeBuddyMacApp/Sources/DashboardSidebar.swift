@@ -18,6 +18,9 @@ struct DashboardSidebar: View {
     let historyProjects: [(path: String, count: Int)]
     var onNewTask: () -> Void
     var onSearch: () -> Void
+    var onOpenSpeech: () -> Void
+    var speechPanelPresented: Bool
+    var onOpenProject: (DashboardSessionList.ProjectScope) -> Void
     @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
     /// The one-line "where voice lives" note shows until the dashboard has been
     /// closed once with it on screen (ADR-0017 §3).
@@ -25,7 +28,7 @@ struct DashboardSidebar: View {
 
     static let width: CGFloat = 216
 
-    private var waiting: Int { model.sessions.filter { $0.status == .needsResponse }.count }
+    private var waiting: Int { TaskPresentationSummary(currentIn: model.sessions, now: Date()).pendingCount }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -35,18 +38,20 @@ struct DashboardSidebar: View {
                 SidebarRow(systemName: "plus.square", title: "New task", shortcut: "⌘N", action: onNewTask)
                 SidebarRow(systemName: "magnifyingglass", title: "Search", shortcut: "⌘F", action: onSearch)
                 voiceRow
+                SidebarRow(systemName: "text.bubble", title: "Voice and reading", action: onOpenSpeech)
 
                 SidebarHeading(title: "Library")
-                SidebarRow(systemName: "rectangle.stack", title: "Current tasks",
+                SidebarRow(systemName: "tray", title: "Inbox",
                            count: waiting, countTint: MacTheme.status(.requiresInput),
-                           selected: library == "live") { library = "live" }
+                           selected: library == "inbox") { library = "inbox" }
+                SidebarRow(systemName: "clock.arrow.circlepath", title: "Recap", selected: library == "recap") { library = "recap" }
                 SidebarRow(systemName: "clock", title: "History", selected: library == "history") { library = "history" }
                 SidebarRow(systemName: "star", title: "Favorites", selected: library == "favorites") { library = "favorites" }
                 SidebarRow(systemName: "chart.bar", title: "Usage", selected: library == "usage") { library = "usage" }
-                if library != "usage" { SidebarHeading(title: "Projects") }
+                if library != "usage" && library != "recap" { SidebarHeading(title: "Projects") }
             }
             .padding(.horizontal, 8).padding(.top, 10)
-            if library != "usage" {
+            if library != "usage" && library != "recap" {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 1) { projectRows }
                         .padding(.horizontal, 8).padding(.bottom, 8)
@@ -62,7 +67,7 @@ struct DashboardSidebar: View {
         }
         .frame(width: Self.width).frame(maxHeight: .infinity)
         .background(MacTheme.bg2)
-        .sheet(isPresented: $voice.showConsent) { VoiceConsentSheet(voice: voice) }
+        .sheet(isPresented: Binding(get: { voice.showConsent && !speechPanelPresented }, set: { voice.showConsent = $0 })) { VoiceConsentSheet(voice: voice) }
         .onDisappear { if !companionEnabled { voiceHintSeen = true } }
     }
 
@@ -131,14 +136,16 @@ struct DashboardSidebar: View {
     // MARK: Projects
 
     @ViewBuilder private var projectRows: some View {
-        if library == "live" {
+        if library == "live" || library == "inbox" {
             ForEach(liveProjects) { project in
                 // Live projects are named by their path; the row shows the
                 // folder, as Cursor does, and keeps the path in the tooltip.
                 let full = Self.title(project.id)
                 ProjectRow(title: full.hasPrefix("/") ? URL(fileURLWithPath: full).lastPathComponent : full,
                            count: project.count,
-                           selected: projectScope == project.id) { projectScope = project.id }
+                           selected: library == "live" && projectScope == project.id) {
+                               onOpenProject(project.id)
+                           }
                     .help(full)
             }
         } else {

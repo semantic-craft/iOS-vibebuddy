@@ -5,19 +5,21 @@ import VibeBuddyKit
 /// only `<dir>/.scratch/*/handoffs/*.md` (the `.scratch` entry itself may be
 /// a symlink to a main checkout, as agent worktrees link it), only the first
 /// lines of each file, and never a file that resolves outside that `.scratch`.
-/// Results are cached per handoffs directory by its modification time.
+/// Headers are cached by each eligible file's modification time and size.
 struct HandoffScanner {
     static let maxRecords = 200
     static let maxFileBytes = 64 * 1024
     static let headerLines = 8
 
-    private struct Cached { var directoryModified: Date; var records: [HandoffRecord] }
+    private struct Stamp: Equatable { var modified: Date; var size: Int }
+    private struct Cached { var files: [String: Stamp]; var records: [HandoffRecord] }
     private var cache: [String: Cached] = [:]
 
     mutating func scan(directories: [String]) -> [HandoffRecord] {
         let fm = FileManager.default
         var out: [HandoffRecord] = []
         var seenRoots = Set<String>()
+        var liveDirectories = Set<String>()
         for directory in directories where directory.hasPrefix("/") {
             let scratchLink = URL(fileURLWithPath: directory).appendingPathComponent(".scratch")
             let scratch = scratchLink.resolvingSymlinksInPath().standardizedFileURL
@@ -25,33 +27,43 @@ struct HandoffScanner {
                   let efforts = try? fm.contentsOfDirectory(at: scratch, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) else { continue }
             for effort in efforts {
                 let handoffs = effort.appendingPathComponent("handoffs")
-                guard let modified = try? fm.attributesOfItem(atPath: handoffs.path)[.modificationDate] as? Date else { continue }
-                if let cached = cache[handoffs.path], cached.directoryModified == modified {
+                let files = Self.files(in: handoffs, scratch: scratch)
+                liveDirectories.insert(handoffs.path)
+                if let cached = cache[handoffs.path], cached.files == files {
                     out += cached.records; continue
                 }
-                let records = Self.records(in: handoffs, scratch: scratch)
-                cache[handoffs.path] = Cached(directoryModified: modified, records: records)
+                let records = Self.records(files)
+                cache[handoffs.path] = Cached(files: files, records: records)
                 out += records
             }
         }
-        let live = Set(out.map(\.path))
-        cache = cache.filter { entry in entry.value.records.allSatisfy { live.contains($0.path) } || entry.value.records.isEmpty }
+        cache = cache.filter { liveDirectories.contains($0.key) }
         return Array(out.sorted { $0.writtenAt == $1.writtenAt ? $0.path < $1.path : $0.writtenAt > $1.writtenAt }.prefix(Self.maxRecords))
     }
 
-    private static func records(in handoffs: URL, scratch: URL) -> [HandoffRecord] {
+    private static func files(in handoffs: URL, scratch: URL) -> [String: Stamp] {
         let fm = FileManager.default
-        guard let files = try? fm.contentsOfDirectory(at: handoffs, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey], options: [.skipsHiddenFiles]) else { return [] }
-        return files.compactMap { url -> HandoffRecord? in
+        guard handoffs.resolvingSymlinksInPath().standardizedFileURL.path.hasPrefix(scratch.path + "/"),
+              let files = try? fm.contentsOfDirectory(at: handoffs, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey], options: [.skipsHiddenFiles]) else { return [:] }
+        var stamps: [String: Stamp] = [:]
+        for url in files {
             guard url.pathExtension == "md",
                   let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey]),
                   values.isRegularFile == true, values.isSymbolicLink != true,
                   let modified = values.contentModificationDate, (values.fileSize ?? 0) <= maxFileBytes,
-                  url.resolvingSymlinksInPath().standardizedFileURL.path.hasPrefix(scratch.path + "/") else { return nil }
+                  url.resolvingSymlinksInPath().standardizedFileURL.path.hasPrefix(scratch.path + "/") else { continue }
+            stamps[url.standardizedFileURL.path] = Stamp(modified: modified, size: values.fileSize ?? 0)
+        }
+        return stamps
+    }
+
+    private static func records(_ files: [String: Stamp]) -> [HandoffRecord] {
+        files.compactMap { path, stamp in
+            let url = URL(fileURLWithPath: path)
             guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
             defer { try? handle.close() }
             guard let data = try? handle.read(upToCount: 4096) else { return nil }
-            return parse(String(decoding: data, as: UTF8.self), path: url.standardizedFileURL.path, modified: modified)
+            return parse(String(decoding: data, as: UTF8.self), path: path, modified: stamp.modified)
         }
     }
 

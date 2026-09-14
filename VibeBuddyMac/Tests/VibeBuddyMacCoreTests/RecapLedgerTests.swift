@@ -119,6 +119,41 @@ struct RecapLedgerTests {
         #expect(recap.entries.map(\.endedAt) == [t0.addingTimeInterval(90), t0.addingTimeInterval(30)])
     }
 
+    @Test("Claude Stop summaries belong to their round even while the transcript still contains the previous result")
+    func claudeStopBeforeTranscriptFlush() async throws {
+        let dir = try tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let transcript = dir.appendingPathComponent("transcript.jsonl")
+        let oldRecord: [String: Any] = ["type": "assistant", "message": ["role": "assistant",
+            "content": [["type": "text", "text": "2 + 2 = 4."]]]]
+        var data = try JSONSerialization.data(withJSONObject: oldRecord)
+        data.append(10)
+        try data.write(to: transcript)
+        let store = SessionStore(sourceID: "mac")
+        for (index, text) in ["2 + 2 = 4.", "3 + 3 = 6."].enumerated() {
+            let offset = TimeInterval(index * 30)
+            let prompt = try JSONSerialization.data(withJSONObject: ["hook_event_name": "UserPromptSubmit",
+                "session_id": "s", "transcript_path": transcript.path, "prompt": "Next calculation"])
+            await store.ingest(prompt, receivedAt: t0.addingTimeInterval(offset))
+            let stop = try JSONSerialization.data(withJSONObject: ["hook_event_name": "Stop",
+                "session_id": "s", "transcript_path": transcript.path, "last_assistant_message": text])
+            await store.ingest(stop, receivedAt: t0.addingTimeInterval(offset + 10))
+        }
+        let snapshot = await store.snapshot(now: t0.addingTimeInterval(41))
+        #expect(snapshot.recap?.entries.map { $0.points.first } == ["3 + 3 = 6.", "2 + 2 = 4."])
+        #expect(snapshot.sessions.first?.summary == "3 + 3 = 6.")
+        #expect(snapshot.sessions.first?.hasUnreadCompletion == true)
+
+        // Without an exact Stop summary, do not invent one from the old tail.
+        await store.ingest(prompt("s", agent: .claudeCode, at: 60))
+        let silentStop = try JSONSerialization.data(withJSONObject: ["hook_event_name": "Stop",
+            "session_id": "s", "transcript_path": transcript.path])
+        await store.ingest(silentStop, receivedAt: t0.addingTimeInterval(70))
+        let after = await store.snapshot(now: t0.addingTimeInterval(71))
+        #expect(after.recap?.entries.first?.points.isEmpty == true)
+        #expect(after.sessions.first?.summary == nil)
+    }
+
     @Test("Mark Unread puts a read round back into Mark all's reach")
     func markUnreadIsUnreadAgain() async throws {
         let store = SessionStore(sourceID: "mac")
@@ -135,6 +170,10 @@ struct RecapLedgerTests {
         let after = try #require(await store.snapshot(now: t0.addingTimeInterval(51)).recap)
         #expect(after.entries.map(\.id) == [entry.id])
         #expect(after.entries.first?.isRead == false)
+        var mac = MacRecapConfirmation()
+        let started = mac.begin(recap: after, sourceID: "mac", available: true)
+        #expect(started)
+        #expect(mac.pendingCompletions == [read])
     }
 
     @Test("a round read before the next one stays read after the next one is read")
@@ -321,6 +360,32 @@ struct RecapLedgerTests {
             #expect(recap.entries.isEmpty)
             #expect(await store.snapshot(now: t0.addingTimeInterval(3600)).sessions.first?.hasUnreadCompletion == true)
         }
+    }
+
+    @Test("A failed horizon write preserves the visible recap and the same request can recover durably")
+    func horizonWriteFailureAndRetry() async throws {
+        let dir = try tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let journal = dir.appendingPathComponent("lifecycle-journal.json")
+        let ledger = dir.appendingPathComponent("recap-ledger.json")
+        let store = SessionStore(sourceID: "mac", journalURL: journal, now: t0)
+        await store.ingest(prompt("s", at: 0))
+        await store.ingest(stop("s", at: 30))
+        let before = try #require(await store.snapshot(now: t0.addingTimeInterval(31)).recap)
+        let horizon = try #require(before.entries.first?.endedAt)
+        let request = RecapReadRequest(sourceID: "mac", horizon: horizon)
+        try FileManager.default.removeItem(at: ledger)
+        try FileManager.default.createDirectory(at: ledger, withIntermediateDirectories: true)
+        #expect(await store.advanceRecapHorizon(request, now: t0.addingTimeInterval(32)) == .failed)
+        #expect(await store.snapshot(now: t0.addingTimeInterval(33)).recap == before)
+        try FileManager.default.removeItem(at: ledger)
+        #expect(await store.advanceRecapHorizon(request, now: t0.addingTimeInterval(34)) == .accepted)
+        #expect(await store.advanceRecapHorizon(request, now: t0.addingTimeInterval(35)) == .accepted)
+        let restored = SessionStore(sourceID: "mac", journalURL: journal, now: t0.addingTimeInterval(36))
+        let after = await restored.snapshot(now: t0.addingTimeInterval(37))
+        #expect(after.recap?.horizon == horizon)
+        #expect(after.recap?.entries.isEmpty == true)
+        #expect(after.sessions.first?.hasUnreadCompletion == true)
     }
 
     @Test("a snapshot without a source id records nothing")

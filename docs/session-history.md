@@ -208,3 +208,8 @@ or automatically change checkout; older daemons may lack checkout information.
 This feature does not install hooks, synchronize repositories or replace the
 running app. Cross-machine history mirroring and Mac App Store sandbox acceptance
 are outside this first version.
+
+Handoff facts use the agent identity captured with each tool call. Calls whose
+agent was not recorded are omitted with a coverage explanation; the requested
+session-key prefix never supplies missing provenance. Only confirmed successful
+edits contribute to Files edited, inferred checkout paths, and ticket candidates.

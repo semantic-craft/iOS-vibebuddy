@@ -17,6 +17,7 @@ final class VoiceChat: ObservableObject {
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var lastUserText = ""
     @Published private(set) var lastReply = ""
+    @Published private(set) var actionReceipt = ""
     @Published private(set) var activeProvider: VoiceProvider?
     @Published var errorText: String?
     /// Drives the inline consent sheet when a disabled buddy is tapped.
@@ -31,6 +32,7 @@ final class VoiceChat: ObservableObject {
     var isEnabled: Bool { VoiceSettings.companionEnabled }
 
     private let contextProvider: () -> [AgentSession]
+    private let statusContextProvider: @MainActor () async -> [AgentSession]
     private let actionHandler: (VoiceAction) async -> String
     private let onStart: () -> Void
     private var startID = UUID()
@@ -43,8 +45,10 @@ final class VoiceChat: ObservableObject {
     private var coordinator: VoiceCallCoordinator?
 
     init(contextProvider: @escaping () -> [AgentSession],
-         actionHandler: @escaping (VoiceAction) async -> String, onStart: @escaping () -> Void = {}) {
+         statusContextProvider: @escaping @MainActor () async -> [AgentSession],
+         actionHandler: @escaping (VoiceAction) async -> String, onStart: @escaping () -> Void) {
         self.contextProvider = contextProvider
+        self.statusContextProvider = statusContextProvider
         self.actionHandler = actionHandler
         self.onStart = onStart
     }
@@ -118,7 +122,13 @@ final class VoiceChat: ObservableObject {
         let coordinator = VoiceCallCoordinator(
             audio: io,
             actionHandler: actionHandler,
-            sendToolResult: { callID, name, result in
+            sendToolResult: { [weak self] callID, name, result in
+                // Includes coordinator refusals (ambiguous/out-of-scope), not
+                // just actions which reached the application handler. Status
+                // reads and provider captions never replace this receipt.
+                if VoiceTools.all.contains(where: { $0.name == name }) {
+                    self?.actionReceipt = result
+                }
                 Task { await session.sendToolResult(callID: callID, name: name, result: result) }
             },
             truncatePlayback: { checkpoints in
@@ -126,11 +136,12 @@ final class VoiceChat: ObservableObject {
             },
             closeSession: { [weak self] result in self?.closeRealtimeSession(completingTool: result) },
             continuousPlayback: usesLive,
-            contextProvider: contextProvider
+            contextProvider: contextProvider,
+            statusContextProvider: statusContextProvider
         )
         self.coordinator = coordinator
         activeProvider = provider
-        lastUserText = ""; lastReply = ""
+        lastUserText = ""; lastReply = ""; actionReceipt = ""
         coordinator.beginConnecting()
         syncFromCoordinator(coordinator)
 

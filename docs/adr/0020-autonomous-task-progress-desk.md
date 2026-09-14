@@ -87,7 +87,21 @@ deployment or cross-machine synchronization.
 The mobile/Watch implementation extends the original phase's Watch boundary as
 recorded in ADR-0021's amendment. The iPhone's **Next pending** follows the owner's
 chosen current list filters (including whether Older is shown), states that scope,
-and shares candidate ordering and tour progression with the Mac. Mac's existing
-navigation scope remains unchanged. Equal input timestamps preserve input order;
+and shares candidate ordering and tour progression with the Mac. The Mac's detail
+footer now also retains bucket, project, query and Older scope; the named global
+Next pending shortcut opens a global tour. Equal input timestamps preserve input order;
 reading a result removes it from pending without moving the page or restarting the
 tour at a skipped wait. Navigation is not a read or a control action.
+
+## Amendment: explicit Mac Read pending (2026-09-14)
+
+Inbox can read the global current pending queue with automatic Announcement
+turned off. It shares the existing bounded ten-item execution queue, deduped
+by source, Session and round or wait identity, with automatic cues. Each item
+is checked again before playback; stale results never become new-round speech.
+Voice and reading exposes current and queued tasks, pause, skip, explicit
+previous-result replay, stop and settings. None of these controls acknowledges
+a result. Closing the panel stops nothing. A live conversation pauses manual
+reading, which remains paused after the call until an explicit resume. Mac
+voice, summary and read-aloud provider choices stay independent as configured;
+there is no imported phone system-speech fallback.

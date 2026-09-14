@@ -135,11 +135,14 @@ struct RecapLedger {
 
     /// Move the horizon forward. Returns whether it moved; an older or equal
     /// horizon is a no-op, which is what makes a retried Mark all harmless.
+    /// A configured but unavailable durable store rejects explicit confirmation.
     @discardableResult
-    mutating func advanceHorizon(to date: Date, now: Date) -> Bool {
+    mutating func advanceHorizon(to date: Date, now: Date) throws -> Bool {
         if let horizon, horizon >= date { return false }
-        horizon = date
-        save(now: now)
+        var candidate = self
+        candidate.horizon = date
+        guard candidate.save(now: now) else { throw CocoaError(.fileWriteUnknown) }
+        self = candidate
         return true
     }
 
@@ -191,9 +194,11 @@ struct RecapLedger {
         return String(text.prefix(RecapEntry.pointLimit))
     }
 
-    private mutating func save(now: Date) {
+    @discardableResult
+    private mutating func save(now: Date) -> Bool {
         entries = entries.filter { $0.value.endedAt > now.addingTimeInterval(-Self.retention) }
-        guard let url, available else { return }
+        guard let url else { return true }
+        guard available else { return false }
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
                                                     attributes: [.posixPermissions: 0o700])
@@ -201,7 +206,8 @@ struct RecapLedger {
             try data.write(to: url, options: [.atomic, .completeFileProtection])
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         } catch {
-            // Memory keeps this process honest; the next launch starts from the last good file.
+            return false
         }
+        return true
     }
 }

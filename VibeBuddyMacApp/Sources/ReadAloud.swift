@@ -11,7 +11,31 @@ final class ReadAloud: ObservableObject {
     @Published private(set) var paused = false
     @Published private(set) var hasMoreResults = false
     @Published private(set) var canReplay = false
-    private var latest: (text: String, id: String)?
+    struct QueueItem: Identifiable { let id: String; let title: String }
+    @Published private(set) var currentItem: QueueItem?
+    @Published private(set) var pendingItems: [QueueItem] = []
+    private var itemTitles: [String: String] = [:]
+    private var manualIDs: Set<String> = []
+    var hasManualReading: Bool { !manualIDs.isEmpty }
+    func manuallyRequested(_ id: String) -> Bool { manualIDs.contains(id) }
+    func report(_ text: String) { status = text }
+    func showOverflow() { hasMoreResults = true }
+    func finishReadPending(orderedIDs: [String]) {
+        queue.orderPending(ids: orderedIDs)
+        if !paused { queue.resume() }
+    }
+
+    func beginReadPending(orderedIDs: [String]) {
+        hasMoreResults = false
+        queue.pause()
+        queue.retainPending(ids: Set(orderedIDs))
+        status = "Reading all current pending tasks"
+        // A deliberate new Read pending / Resume is required after voice.
+        // This action never opens a microphone or enables automatic reading.
+        if canSpeak() { paused = false }
+        else { paused = true; status = "Reading paused for voice; resume when ready" }
+    }
+    private var latest: (text: String, id: String, title: String)?
     @Published private(set) var busy = false
     @Published private(set) var status = ""
     @Published private(set) var previewStatus = ""
@@ -51,6 +75,14 @@ final class ReadAloud: ObservableObject {
             self.updateBusy()
         }
         queue.onOverflow = { [weak self] in self?.hasMoreResults = true }
+        queue.onEntriesChanged = { [weak self, weak queue] in
+            guard let self, let queue else { return }
+            self.currentItem = queue.currentID.map { QueueItem(id: $0, title: self.itemTitles[$0] ?? $0) }
+            self.pendingItems = queue.pendingIDs.map { QueueItem(id: $0, title: self.itemTitles[$0] ?? $0) }
+            let liveIDs = Set(queue.pendingIDs + [queue.currentID].compactMap { $0 })
+            self.manualIDs.formIntersection(liveIDs)
+            self.itemTitles = self.itemTitles.filter { liveIDs.contains($0.key) }
+        }
         return queue
     }()
     private var generation = UUID()
@@ -70,10 +102,19 @@ final class ReadAloud: ObservableObject {
 
     func replayLatest() {
         guard let latest else { return }
-        speak((VoiceSettings.conversationLanguage() == .chinese ? "此前结果。" : "Previous result. ") + latest.text, id: "replay/" + UUID().uuidString, remember: false)
+        speak((VoiceSettings.conversationLanguage() == .chinese ? "此前结果。" : "Previous result. ") + latest.text,
+            id: "replay/" + UUID().uuidString, title: latest.title, manual: true, remember: false)
     }
 
-    func voiceStarted() { cancelPreview(); player?.pause() }
+    func voiceStarted() {
+        cancelPreview()
+        player?.pause()
+        if hasManualReading {
+            paused = true
+            queue.pause()
+            status = "Reading paused for voice; resume when ready"
+        }
+    }
 
     private func waitUntilAllowed() async throws {
         while paused || !canSpeak() {
@@ -92,6 +133,8 @@ final class ReadAloud: ObservableObject {
         generation = UUID()
         queue.cancel()
         player?.stop(); player = nil
+        paused = false
+        queue.resume()
         status = "Read-aloud stopped"
     }
 
@@ -107,11 +150,27 @@ final class ReadAloud: ObservableObject {
         }
     }
 
-    func speak(_ fallbackText: String, id: String = UUID().uuidString, priority: Bool = false, remember: Bool = true,
+    func speak(_ fallbackText: String, id: String = UUID().uuidString, title: String? = nil,
+               manual: Bool = false, priority: Bool = false, remember: Bool = true,
                prepareText: (@MainActor () async -> String?)? = nil,
                validate: @escaping @MainActor () async -> Bool = { true }) {
-        guard E2ERunConfiguration.current?.audioEnabled ?? true else { return }
-        queue.enqueue(id: id, priority: priority) { [weak self] in
+        guard E2ERunConfiguration.current?.audioEnabled ?? true else {
+            status = "Audio is disabled in this isolated run"
+            return
+        }
+        // Initialize callbacks before registering the metadata for this entry.
+        let queue = self.queue
+        if manual, queue.currentID != id, !queue.pendingIDs.contains(id),
+           queue.pendingCount + (queue.currentID == nil ? 0 : 1) >= 10 {
+            hasMoreResults = true
+            return
+        }
+        itemTitles[id] = title ?? String(fallbackText.prefix(100))
+        if manual {
+            manualIDs.insert(id)
+            if !canSpeak() { paused = true; queue.pause(); status = "Reading paused for voice; resume when ready" }
+        }
+        queue.enqueue(id: id, priority: priority, allowRepeat: manual) { [weak self] in
             guard let self else { return }
             let current = self.generation
             // Preserve queued automatic speech, but never play over a Settings preview.
@@ -119,9 +178,15 @@ final class ReadAloud: ObservableObject {
             do {
                 try await self.waitUntilAllowed()
                 guard !Task.isCancelled, self.generation == current else { return }
-                guard await validate(), !Task.isCancelled, self.generation == current else { return }
+                guard await validate(), !Task.isCancelled, self.generation == current else {
+                    if !Task.isCancelled, self.generation == current { self.status = "Skipped; task or reading eligibility changed" }
+                    return
+                }
                 let text = await prepareText?() ?? fallbackText
-                guard await validate(), !Task.isCancelled, self.generation == current else { return }
+                guard await validate(), !Task.isCancelled, self.generation == current else {
+                    if !Task.isCancelled, self.generation == current { self.status = "Skipped; task or reading eligibility changed" }
+                    return
+                }
                 let readAloud = VoiceSettings.readAloudStatus()
                 guard case .ready(let provider) = readAloud else {
                     self.status = Self.unavailability(readAloud) ?? ""; return
@@ -135,7 +200,10 @@ final class ReadAloud: ObservableObject {
                 }
                 let data = try await synthesizer.synthesize(text, apiKey: key)
                 guard !Task.isCancelled, self.generation == current else { return }
-                guard await validate(), !Task.isCancelled, self.generation == current else { return }
+                guard await validate(), !Task.isCancelled, self.generation == current else {
+                    if !Task.isCancelled, self.generation == current { self.status = "Skipped; task or reading eligibility changed" }
+                    return
+                }
                 try await self.waitUntilAllowed()
                 guard await validate(), self.generation == current else { return }
                 let evidenceID = UUID().uuidString
@@ -147,7 +215,7 @@ final class ReadAloud: ObservableObject {
                 self.player = player
                 guard player.play() else { self.status = "Your Mac could not play the audio."; self.player = nil; return }
                 self.recordPlayback("started", id: evidenceID, text: text)
-                if remember { self.latest = (text, id); self.canReplay = true }
+                if remember { self.latest = (text, id, title ?? String(text.prefix(100))); self.canReplay = true }
                 self.status = "Playing speech"
                 while (player.isPlaying || self.paused || !self.canSpeak()) && !Task.isCancelled {
                     try await self.waitUntilAllowed()

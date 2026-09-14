@@ -28,16 +28,16 @@ final class HandoffFactsTests: XCTestCase {
                                              timestamp: now.addingTimeInterval(-80), status: .working, waitKind: nil, project: "solo"), now: now)
         var ledger = ToolLedger(url: dir.appendingPathComponent("tool-ledger.json"), now: now)
         ledger.observe(ToolCallRecord(id: "t1", tool: "Edit", files: ["/repo/Sources/A.swift"], linesAdded: 3, linesRemoved: 1,
-                                      result: .succeeded, observedAt: now.addingTimeInterval(-500), source: "hook"), sessionID: "abc", now: now)
+                                      result: .succeeded, observedAt: now.addingTimeInterval(-500), source: "hook"), sessionID: "abc", now: now, agent: .claudeCode)
         ledger.observe(ToolCallRecord(id: "t2", tool: "Write", files: ["/repo/.scratch/handoff-continue/issues/01-facts-tool.md"],
-                                      result: .succeeded, observedAt: now.addingTimeInterval(-450), source: "hook"), sessionID: "abc", now: now)
+                                      result: .succeeded, observedAt: now.addingTimeInterval(-450), source: "hook"), sessionID: "abc", now: now, agent: .claudeCode)
         for (i, command) in ["swift test --filter A", "xcodebuild -scheme X"].enumerated() {
             ledger.observe(ToolCallRecord(id: "b\(i)", tool: "Bash", command: command, result: i == 0 ? .succeeded : .failed,
-                                          exitCode: i == 0 ? 0 : 65, observedAt: now.addingTimeInterval(Double(-400 + i * 10)), source: "hook"), sessionID: "abc", now: now)
+                                          exitCode: i == 0 ? 0 : 65, observedAt: now.addingTimeInterval(Double(-400 + i * 10)), source: "hook"), sessionID: "abc", now: now, agent: .claudeCode)
         }
         ledger.observe(ToolCallRecord(id: "b9", tool: "Bash", command: "git status", result: .unconfirmed,
-                                      observedAt: now.addingTimeInterval(-350), source: "hook"), sessionID: "abc", now: now)
-        ledger.observe(ToolCallRecord(id: "acp1", tool: "shell", result: .succeeded, observedAt: now.addingTimeInterval(-50), source: "acp"), sessionID: "cur", now: now)
+                                      observedAt: now.addingTimeInterval(-350), source: "hook"), sessionID: "abc", now: now, agent: .claudeCode)
+        ledger.observe(ToolCallRecord(id: "acp1", tool: "shell", result: .succeeded, observedAt: now.addingTimeInterval(-50), source: "acp"), sessionID: "cur", now: now, agent: .cursor)
         return dir
     }
 
@@ -132,6 +132,35 @@ final class HandoffFactsTests: XCTestCase {
         ledger.record(receiverKey: "cursor:cur", sourceKey: "codex:solo", handoffPath: nil, now: now)
         let observed = try HandoffFacts.call(arguments: ["key": "cursor:cur"], directory: dir, git: fakeGit, now: now)
         XCTAssertTrue(observed.contains("- Continues: codex:solo (started by the Mac from the history tools (no handoff document), 2027-01-15T08:00:00Z)"), observed)
+    }
+
+    func testOtherAgentAndUnqualifiedToolsCannotBeAttributedByTheRequestedPrefix() throws {
+        let dir = try fixture()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var ledger = ToolLedger(url: dir.appendingPathComponent("tool-ledger.json"), now: now)
+        ledger.observe(ToolCallRecord(id: "legacy", tool: "Bash", command: "legacy-command", result: .succeeded,
+                                      observedAt: now, source: "hook"), sessionID: "abc", now: now)
+        ledger.observe(ToolCallRecord(id: "t1", tool: "Bash", command: "codex-check", result: .succeeded,
+                                      observedAt: now, source: "hook"), sessionID: "abc", now: now, agent: .codex)
+        let text = try HandoffFacts.call(arguments: ["key": "codex:abc"], directory: dir, git: fakeGit, now: now)
+        XCTAssertTrue(text.contains("codex-check"))
+        let claude = try HandoffFacts.call(arguments: ["key": "claude-code:abc"], directory: dir, git: fakeGit, now: now)
+        XCTAssertTrue(claude.contains("/repo/Sources/A.swift"), "same call id from another agent must not overwrite the original")
+        XCTAssertFalse(claude.contains("codex-check"))
+        XCTAssertFalse(text.contains("legacy-command"))
+        XCTAssertTrue(text.contains("agent was not recorded"))
+        XCTAssertFalse(text.contains("swift test --filter A"))
+        XCTAssertFalse(text.contains("/repo/Sources/A.swift"))
+        XCTAssertTrue(text.contains("- Files edited: none recorded"))
+    }
+
+    func testFailedAndUnconfirmedEditsDoNotEstablishFilesOrCheckout() {
+        let records = [
+            ToolCallRecord(id: "failed", tool: "Edit", files: ["/wrong/.scratch/e/f.md"], result: .failed, observedAt: now, source: "hook"),
+            ToolCallRecord(id: "intent", tool: "Write", files: ["/wrong/A.swift"], result: .unconfirmed, observedAt: now, source: "hook"),
+            ToolCallRecord(id: "ok", tool: "Edit", files: ["/repo/A.swift"], result: .succeeded, observedAt: now, source: "hook")
+        ]
+        XCTAssertEqual(HandoffFacts.editedFiles(records), ["/repo/A.swift"])
     }
 
     func testCLIShapeAndRegistry() throws {
