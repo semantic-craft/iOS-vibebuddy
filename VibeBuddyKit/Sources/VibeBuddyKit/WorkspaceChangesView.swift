@@ -3,6 +3,9 @@ import SwiftUI
 
 public struct WorkspaceChangesView: View {
     public let load: @MainActor (ChangesScope, String?, String?) async -> WorkspaceChanges?
+    /// Inside another pane (the Mac reader's Changes view) the host owns the
+    /// title and there is nothing to dismiss, so the head row is left out.
+    public let embedded: Bool
     @Environment(\.dismiss) private var dismiss
     @State private var scope: ChangesScope = .uncommitted
     @State private var baseline = ""
@@ -12,13 +15,18 @@ public struct WorkspaceChangesView: View {
     @State private var loading = false
     @State private var refresh = 0
     private var requestKey: String { scope.rawValue + "/" + appliedBaseline + "/" + (selectedFile ?? "") + "/\(refresh)" }
-    public init(load: @escaping @MainActor (ChangesScope, String?, String?) async -> WorkspaceChanges?) { self.load = load }
+    public init(embedded: Bool = false, load: @escaping @MainActor (ChangesScope, String?, String?) async -> WorkspaceChanges?) {
+        self.embedded = embedded
+        self.load = load
+    }
     public var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Workspace changes", bundle: .module).font(CompanionType.font(18, .semibold))
-                Spacer()
-                Button(String(localized: "Done", bundle: .module)) { dismiss() }
+            if !embedded {
+                HStack {
+                    Text("Workspace changes", bundle: .module).font(CompanionType.font(18, .semibold))
+                    Spacer()
+                    Button(String(localized: "Done", bundle: .module)) { dismiss() }
+                }
             }
             Picker(String(localized: "Comparison", bundle: .module), selection: $scope) {
                 ForEach(ChangesScope.allCases, id: \.self) { Text($0.title).tag($0) }
@@ -73,7 +81,7 @@ public struct WorkspaceChangesView: View {
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(20).background(CompanionPalette.bg).foregroundStyle(CompanionPalette.ink)
+        .padding(embedded ? 0 : 20).background(CompanionPalette.bg).foregroundStyle(CompanionPalette.ink)
         .tint(CompanionPalette.accent)
         .onChange(of: scope) { _ in selectedFile = nil }
         .task(id: requestKey) {

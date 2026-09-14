@@ -21,13 +21,21 @@ public struct DashboardSessionList: Sendable {
     }
 
     public let projects: [Project]
+    /// Agents present in the whole snapshot, in stable order, for the list
+    /// head's agent menu. Computed before any filter so a chosen agent whose
+    /// last session just left stays listed until the person changes it.
+    public let agents: [AgentKind]
     public let visible: [AgentSession]
     public let selected: AgentSession?
     public let total: Int
 
     public init(_ sessions: [AgentSession], project: ProjectScope = .all,
-                status: TaskPresentationState? = nil, query: String = "", selection: String? = nil) {
+                status: TaskPresentationState? = nil, agent: AgentKind? = nil,
+                query: String = "", selection: String? = nil) {
         total = sessions.count
+        var present = SessionFilter.presentAgents(sessions)
+        if let agent, !present.contains(agent) { present.append(agent) }
+        agents = present
         let counts = Dictionary(grouping: sessions, by: ProjectScope.of).mapValues(\.count)
         var scopes = counts.keys.sorted { lhs, rhs in
             switch (lhs, rhs) {
@@ -40,7 +48,7 @@ public struct DashboardSessionList: Sendable {
         // scope; a disappearing snapshot must not silently select All projects.
         if project != .all && counts[project] == nil { scopes.append(project) }
         projects = [.init(id: .all, count: total)] + scopes.map { .init(id: $0, count: counts[$0, default: 0]) }
-        let visible = SessionFilter.apply(sessions, status: nil, agent: nil, query: query)
+        let visible = SessionFilter.apply(sessions, status: nil, agent: agent, query: query)
             .filter { (project == .all || ProjectScope.of($0) == project)
                 && (status == nil || $0.presentationState == status) }
             .sorted {

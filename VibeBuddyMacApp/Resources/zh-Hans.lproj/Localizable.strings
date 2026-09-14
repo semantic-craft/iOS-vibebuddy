@@ -978,3 +978,49 @@
 "Workspace changes" = "工作区变化";
 
 "Mark current result read" = "将当前结果标为已读";
+
+/* MARK: Session reader (ADR-0024) */
+"Conversation" = "对话";
+"Activity" = "活动";
+"Changes" = "变更";
+"Reader view" = "阅读视图";
+"No live status" = "无实时状态";
+"Notifications for this session" = "此会话的通知策略";
+"More actions for this session" = "此会话的更多操作";
+"Regenerate summary" = "重新生成摘要";
+"Refresh transcript" = "刷新转录";
+"Result · this completion" = "结果 · 本次完成";
+"Replay this result" = "重播此结果";
+"Earlier messages · %lld more" = "更早的消息 · 还有 %lld 条";
+"Show earlier messages" = "显示更早的消息";
+"Start of the readable transcript" = "可读转录的开头";
+"1 new message" = "1 条新消息";
+"%lld new messages" = "%lld 条新消息";
+"Full transcript unavailable" = "完整转录不可用";
+"This source provides a session list and titles only." = "此来源只提供会话列表和标题。";
+"No live activity" = "无实时活动";
+"This record has no observed tool calls." = "此记录没有观测到的工具调用。";
+"No live activity for this record" = "此记录没有实时活动";
+"Project directory unavailable" = "项目目录不可用";
+"The project directory is unavailable" = "项目目录不可用";
+"Workspace changes read the project directory, which is not on this Mac." = "工作区变更按项目目录读取，而该目录不在这台 Mac 上。";
+"Transcript · updated " = "转录 · 更新于 ";
+"Recent output · %@ · limited excerpt" = "最近输出 · %@ · 有限片段";
+"A limited recent excerpt from %@; this source keeps no readable transcript." = "来自 %@ 的有限最近片段；此来源没有可读转录。";
+"The conversation as the agent's local transcript records it" = "按 agent 本地转录记录的对话";
+"Observed tool calls and evidence for this live session" = "此实时会话观测到的工具调用与证据";
+"Read-only Git differences in the project directory" = "项目目录中的只读 Git 差异";
+"Copies a terminal command. Copying does not start or continue a task." = "复制一条终端命令。复制不会启动或继续任务。";
+"Reveal the transcript file in Finder" = "在访达中显示转录文件";
+"Record notices" = "记录提示";
+"Filter sessions by agent" = "按 agent 筛选会话";
+"Install the Cursor CLI to copy a resume command for this local conversation." = "安装 Cursor CLI 后才能为这条本地对话复制恢复命令。";
+
+/* Session reader head: the jump glyph's tooltip, named per host (JumpDestination). */
+"Jump to %@" = "跳到 %@";
+"terminal" = "终端";
+"app" = "应用";
+"Open Grok Bot ⏎ — brings the app forward; it does not locate this conversation." = "打开 Grok Bot ⏎——把应用调到前台，不会定位到这条会话。";
+"%@ ⏎ — opens this thread." = "%@ ⏎——打开这条线程。";
+"%@ ⏎ — focuses the pane this session runs in." = "%@ ⏎——聚焦这个会话所在的终端分格。";
+"%@ ⏎ — brings the app forward; the exact window is not addressable." = "%@ ⏎——把应用调到前台，无法定位到具体窗口。";

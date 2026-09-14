@@ -500,6 +500,19 @@ Mac presence suppresses ordinary cues only while the verdict is current; leaving
 - **History reference** — `vibebuddy://session/<key>#<seq>`, pointing to a one-based
   transcript record in the reported source revision. It is not a permanent
   reference across source changes; hidden Thinking records retain their sequence.
+- **Session reader** — the dashboard's right column (`SessionReaderPane`,
+  ADR-0024): a two-line head with the session's controls top-right, one row of
+  jumps, the conversation body (`SessionReaderView`, newest page first, tools
+  and thinking folded), and a dock for the pending decision or the composer.
+  One pane serves a live session and a history record; what differs is which
+  controls the subject supports. Reading confirms nothing: only the result card
+  at the end of the body (the daemon's `completionBody`) can mark a round read.
+- **Reader source** — where the reader's body comes from
+  (`SessionReaderSource`): the agent's own local transcript by exact key
+  (`<key name>:<native id>`, through `readTranscript(key:)`), else the daemon's
+  bounded *recent output* labelled as an excerpt. A record is never matched by
+  title. The open transcript's file is watched; live state comes only from the
+  snapshot and is shown as *No live status* when absent.
 - **Live status (tool)** — a read-only observation of current sessions grouped
   by checkout, excluding the caller's known identity. It is a collaboration hint,
   not a lock; an unreachable daemon means unknown, not idle.
