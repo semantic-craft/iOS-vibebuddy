@@ -451,7 +451,8 @@ struct SessionReaderPane: View {
 
     private var canExport: Bool {
         guard let record, record.agent.supportsTranscript else { return false }
-        return !history.reading && history.transcript?.id == record.id && history.readingError == nil
+        return !reader.loading && reader.error == nil && reader.transcript?.id == record.id
+            && reader.transcript?.sourcePath == record.sourcePath
     }
 
     private func showSource(_ record: SessionHistorySession) {
@@ -465,10 +466,8 @@ struct SessionReaderPane: View {
     }
 
     private func export(_ record: SessionHistorySession) {
-        var session = record
-        if let loaded = history.transcript, loaded.id == record.id, loaded.sourcePath == record.sourcePath {
-            session.messages = loaded.messages
-        }
+        guard let session = reader.transcript, session.id == record.id,
+              session.sourcePath == record.sourcePath else { return }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [UTType(filenameExtension: "md") ?? .plainText]
         panel.nameFieldStringValue = "\(session.agent.rawValue)-\(session.nativeSessionID).md"

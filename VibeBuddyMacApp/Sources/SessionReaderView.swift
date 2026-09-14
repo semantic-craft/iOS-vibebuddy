@@ -20,6 +20,7 @@ struct SessionReaderView<Header: View, Tail: View>: View {
     @ViewBuilder let tail: () -> Tail
 
     @State private var window = ReaderWindow(start: 0, count: 0)
+    @State private var revealedTarget: String?
     @State private var shownIDs: [String] = []
     /// Only an actual user scroll opts out. Layout growth must not be
     /// mistaken for scrolling away from the latest message.
@@ -104,14 +105,19 @@ struct SessionReaderView<Header: View, Tail: View>: View {
             }
             .onAppear { place(rows.map(\.id), proxy: proxy, initial: true) }
             .onChange(of: rows.map(\.id)) { _, ids in place(ids, proxy: proxy, initial: false) }
-            .onChange(of: targetMessage) { _, _ in place(rows.map(\.id), proxy: proxy, initial: true) }
+            .onChange(of: targetMessage) { _, _ in
+                revealedTarget = nil
+                place(rows.map(\.id), proxy: proxy, initial: true)
+            }
         }
     }
 
     /// Decide what to show and where to rest after the rows changed.
     private func place(_ ids: [String], proxy: ScrollViewProxy, initial: Bool) {
         defer { shownIDs = ids }
-        if let targetMessage, let index = rows.firstIndex(where: { $0.contains(targetMessage) }) {
+        if let targetMessage, targetMessage != revealedTarget,
+           let index = rows.firstIndex(where: { $0.contains(targetMessage) }) {
+            revealedTarget = targetMessage
             following = false
             window = .revealing(index, of: ids.count)
             let id = rows[index].id

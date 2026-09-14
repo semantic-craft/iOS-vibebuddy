@@ -49,6 +49,7 @@ final class SessionReaderModel: ObservableObject {
 
     @Published private(set) var rows: [HistoryMessageRow] = []
     @Published private(set) var body: Body = .empty
+    @Published private(set) var transcript: SessionHistorySession?
     @Published private(set) var loading = false
     @Published private(set) var error: String?
     @Published private(set) var subjectID: String?
@@ -73,13 +74,13 @@ final class SessionReaderModel: ObservableObject {
         let generation = generation
         guard let subject else {
             current = nil; subjectID = nil; rows = []; body = .empty; error = nil; loading = false
-            watcher = nil
+            watcher = nil; transcript = nil
             return
         }
         let sameSubject = current?.id == subject.id
         current = subject
         self.target = target
-        if !sameSubject { rows = []; body = .empty; watcher = nil }
+        if !sameSubject { rows = []; body = .empty; watcher = nil; transcript = nil }
         subjectID = subject.id
         error = nil
         loading = rows.isEmpty
@@ -98,6 +99,7 @@ final class SessionReaderModel: ObservableObject {
             let projected = await Self.project(loaded.messages, revealing: target)
             guard generation == self.generation, !Task.isCancelled else { return }
             rows = projected
+            self.transcript = loaded
             body = .transcript(provenance: "source or revision-checked cache", updatedAt: loaded.updatedAt, sourcePath: loaded.sourcePath,
                                isAvailable: record.isAvailable && loaded.isAvailable)
             watch(path: loaded.sourcePath)
@@ -111,6 +113,7 @@ final class SessionReaderModel: ObservableObject {
                 let projected = await Self.project(transcript.session.messages, revealing: target)
                 guard generation == self.generation, !Task.isCancelled else { return }
                 rows = projected
+                self.transcript = transcript.session
                 body = .transcript(provenance: transcript.provenance, updatedAt: transcript.session.updatedAt,
                                    sourcePath: transcript.session.sourcePath, isAvailable: transcript.session.isAvailable)
                 watch(path: transcript.session.sourcePath)
@@ -120,6 +123,7 @@ final class SessionReaderModel: ObservableObject {
                 // No transcript for this id yet (or none readable): the excerpt below is the honest fallback.
             }
         }
+        transcript = nil
         guard let live = subject.live else {
             body = .unsupported(String(localized: "This source provides a session list and titles only."))
             rows = []
