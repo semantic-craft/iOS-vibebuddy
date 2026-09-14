@@ -41,4 +41,3 @@ enum QuotaFreshnessRule {
         return String(localized: "\(minutes / 1440)d ago")
     }
 }
-
