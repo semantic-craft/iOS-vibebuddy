@@ -21,22 +21,15 @@ struct SessionReaderView<Header: View, Tail: View>: View {
 
     @State private var window = ReaderWindow(start: 0, count: 0)
     @State private var shownIDs: [String] = []
-    /// Sticky: set when the sentinel is seen, cleared only by a scroll that
-    /// happens while the content is *not* growing. Content growth (new rows,
-    /// Markdown heights arriving) moves the sentinel too, and must not read as
-    /// the person scrolling away.
+    /// Only an actual user scroll opts out. Layout growth must not be
+    /// mistaken for scrolling away from the latest message.
     @State private var following = true
-    @State private var contentChangedAt = Date.distantPast
     @State private var unseen = 0
     @State private var toolsOpen = Set<String>()
     @State private var thinkingOpen = Set<String>()
     @State private var scrollHeight: CGFloat = 0
 
     private static var bottomID: String { "reader-bottom" }
-    /// How long after a row change a moving sentinel still counts as growth.
-    /// Markdown rows parse off the main actor, so their heights land late.
-    private static var growthGrace: TimeInterval { 2 }
-
     var body: some View {
         ScrollViewReader { proxy in
             ZStack(alignment: .bottom) {
@@ -74,6 +67,10 @@ struct SessionReaderView<Header: View, Tail: View>: View {
                     .frame(maxWidth: 760, alignment: .leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(16)
+                    .background(ReaderScrollObserver { atBottom in
+                        following = atBottom
+                        if atBottom { unseen = 0 }
+                    })
                 }
                 .coordinateSpace(name: "reader")
                 .background(GeometryReader { geometry in
@@ -86,16 +83,14 @@ struct SessionReaderView<Header: View, Tail: View>: View {
                     if bottom {
                         following = true
                         unseen = 0
-                    } else if Date().timeIntervalSince(contentChangedAt) < Self.growthGrace {
-                        // The content just grew under a follower: keep them at the end.
-                        if following { proxy.scrollTo(Self.bottomID, anchor: .bottom) }
-                    } else {
-                        following = false
+                    } else if following {
+                        proxy.scrollTo(Self.bottomID, anchor: .bottom)
                     }
                 }
                 if unseen > 0 && !following {
                     Button {
                         unseen = 0
+                        following = true
                         withAnimation(.smooth(duration: 0.2)) { proxy.scrollTo(Self.bottomID, anchor: .bottom) }
                     } label: {
                         Label(unseen == 1 ? String(localized: "1 new message") : String(localized: "\(unseen) new messages"),
@@ -116,8 +111,8 @@ struct SessionReaderView<Header: View, Tail: View>: View {
     /// Decide what to show and where to rest after the rows changed.
     private func place(_ ids: [String], proxy: ScrollViewProxy, initial: Bool) {
         defer { shownIDs = ids }
-        contentChangedAt = Date()
         if let targetMessage, let index = rows.firstIndex(where: { $0.contains(targetMessage) }) {
+            following = false
             window = .revealing(index, of: ids.count)
             let id = rows[index].id
             toolsOpen.insert(id); thinkingOpen.insert(id)
@@ -234,4 +229,43 @@ private struct BottomOffsetKey: PreferenceKey {
 private struct ScrollHeightKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+/// AppKit distinguishes user scrolls from programmatic scrolling and layout
+/// changes, including legacy wheels that have no begin/end gesture pair.
+/// Scoped to the enclosing conversation scroll view, never other app windows.
+private struct ReaderScrollObserver: NSViewRepresentable {
+    let changed: (Bool) -> Void
+    func makeNSView(context: Context) -> ObserverView { ObserverView(changed: changed) }
+    func updateNSView(_ view: ObserverView, context: Context) { view.changed = changed; view.observe() }
+    static func dismantleNSView(_ view: ObserverView, coordinator: ()) { view.detach() }
+
+    final class ObserverView: NSView {
+        var changed: (Bool) -> Void
+        private weak var observed: NSScrollView?
+        init(changed: @escaping (Bool) -> Void) { self.changed = changed; super.init(frame: .zero) }
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); observe() }
+        override func viewDidMoveToSuperview() { super.viewDidMoveToSuperview(); observe() }
+        func observe() {
+            guard let scroll = enclosingScrollView, observed !== scroll else { return }
+            detach()
+            observed = scroll
+            let center = NotificationCenter.default
+            center.addObserver(self, selector: #selector(started), name: NSScrollView.willStartLiveScrollNotification, object: scroll)
+            center.addObserver(self, selector: #selector(scrolled), name: NSScrollView.didLiveScrollNotification, object: scroll)
+            center.addObserver(self, selector: #selector(scrolled), name: NSScrollView.didEndLiveScrollNotification, object: scroll)
+        }
+        func detach() { NotificationCenter.default.removeObserver(self); observed = nil }
+        @objc private func started() { changed(false) }
+        @objc private func scrolled() {
+            guard let scroll = observed, let document = scroll.documentView else { return }
+            let visible = scroll.documentVisibleRect
+            let bottom = document.isFlipped
+                ? document.bounds.maxY - visible.maxY <= 24
+                : visible.minY - document.bounds.minY <= 24
+            changed(bottom)
+        }
+    }
 }
