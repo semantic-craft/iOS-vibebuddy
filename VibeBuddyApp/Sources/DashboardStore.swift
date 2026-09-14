@@ -156,6 +156,19 @@ final class DashboardStore: ObservableObject {
         // Report the Live Activity's push token to the Mac so it can update the
         // activity in the background (dynamic-island/02).
         liveActivity.onPushToken = { [weak self] hex in self?.uploadActivityToken(hex) }
+        watchRelay?.onRefresh = { [weak self] request in
+            guard let self else { return WatchRefreshReply(id: request.id, state: nil) }
+            return await self.refreshForWatch(request)
+        }
+        watchRelay?.onActivityOpen = { [weak self] request in
+            guard let self, request.sourceID == self.sourceID,
+                  request.pairingEpoch == self.pairingEpoch else {
+                return WatchActivityOpenReply(requestID: request.requestID, link: nil)
+            }
+            let sessionID = self.liveActivity.sessionID(forActivityID: request.activityID)
+            return request.resolve(matchedActivityID: sessionID == nil ? nil : request.activityID,
+                                   sessionID: sessionID, state: self.watchRelay?.lastDelivered)
+        }
         watchRelay?.onWaitReadRequest = { [weak self] request in
             guard let self else { return false }
             return await self.acknowledgeWaitFromWatch(request)
@@ -523,6 +536,25 @@ final class DashboardStore: ObservableObject {
     /// otherwise it is whatever the Mac last reported, and nothing at all when
     /// the Mac has reported nothing — an invented percentage would be a lie
     /// about someone's account.
+    private func refreshForWatch(_ request: WatchRefreshRequest) async -> WatchRefreshReply {
+        let unavailable = WatchRefreshReply(id: request.id, state: nil)
+        guard !isDemo, let pairing, request.pairingEpoch == pairingEpoch,
+              pairingEpoch == ConnectionStore.pairingEpoch,
+              sourceID == nil || sourceID == request.sourceID else { return unavailable }
+        let generation = connectionGeneration
+        guard let snapshot = await decisionClient.actionSnapshot(pairing),
+              generation == connectionGeneration, self.pairing == pairing,
+              request.pairingEpoch == pairingEpoch, pairingEpoch == ConnectionStore.pairingEpoch,
+              snapshot.sourceID == request.sourceID else { return unavailable }
+        // A stream update can overtake this HTTP response while it is in flight.
+        if sourceID != snapshot.sourceID || snapshot.serverTime >= lastServerTime {
+            await apply(snapshot, generation: generation)
+        }
+        guard generation == connectionGeneration, let latest = watchRelay?.lastDelivered,
+              request.accepts(latest) else { return unavailable }
+        return WatchRefreshReply(id: request.id, state: latest)
+    }
+
     private func relayToWatch(_ sessions: [AgentSession]) {
         guard let watchRelay else { return }
         let now = Date()
@@ -1040,7 +1072,10 @@ final class DashboardStore: ObservableObject {
         // and on the wrist is describing something nobody is blocked on.
         notifications.record(alerts)
         notifier.withdraw(notifications.withdrawals(for: snapshot.sessions))
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, generation == connectionGeneration else { return }
+        // Snapshot handling above suspends; a newer stream/refresh may have
+        // committed meanwhile. Do not replace it with this older reading.
+        guard sourceID != snapshot.sourceID || snapshot.serverTime >= lastServerTime else { return }
         observationDiagnostics = snapshot.observationDiagnostics ?? []
         recentDirectories = snapshot.recentDirectories ?? []
         dispatchAgents = snapshot.dispatchAgents ?? []

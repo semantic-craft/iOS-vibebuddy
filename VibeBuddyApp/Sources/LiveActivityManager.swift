@@ -17,6 +17,13 @@ final class LiveActivityManager {
     /// (dynamic-island/02). Local updates via `update(_:)` still happen regardless.
     var onPushToken: (@MainActor (String) -> Void)?
 
+    /// Resolve only the activity the system identified; never select another one.
+    func sessionID(forActivityID id: String) -> String? {
+        Activity<VibeBuddyActivityAttributes>.activities.first {
+            $0.id == id && ($0.activityState == .active || $0.activityState == .stale)
+        }?.content.state.topSessionId
+    }
+
     /// Reflect the latest counts. Starts the activity on first non-empty state,
     /// updates it thereafter, and ends it when everything is gone.
     func sync(sessions: [AgentSession], allowsActions: Bool = true) async {

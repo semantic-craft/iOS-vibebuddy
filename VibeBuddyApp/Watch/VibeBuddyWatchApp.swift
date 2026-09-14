@@ -1,5 +1,6 @@
 import SwiftUI
 import WatchKit
+import WidgetKit
 import VibeBuddyKit
 
 @main
@@ -37,9 +38,31 @@ private struct WatchWindow: View {
     var body: some View {
         WatchRootView(store: store)
             .onOpenURL { url in
+                WatchNavigationDiagnostics.shared.record("entry.url")
                 if !WatchNotificationRouter.shared.openActivityURL(url) {
                     store.openTask(url)
                 }
+            }
+            .onContinueUserActivity(NSUserActivityTypeLiveActivity) { activity in
+                WatchNavigationDiagnostics.shared.record("entry.live-activity")
+                store.openLiveActivity(activity.userInfo?[WidgetCenter.UserInfoKey.activityID] as? String)
+            }
+            .overlay {
+                if store.isOpeningActivity {
+                    VStack(spacing: 12) {
+                        ProgressView("Opening task…")
+                        Button("Cancel") { store.cancelPendingNavigation() }
+                    }
+                    .padding().background(.black, in: RoundedRectangle(cornerRadius: 16))
+                }
+            }
+            .alert("Unable to open task", isPresented: Binding(
+                get: { store.activityOpenError != nil },
+                set: { if !$0 { store.activityOpenError = nil } }
+            )) {
+                Button("OK", role: .cancel) { store.activityOpenError = nil }
+            } message: {
+                Text(LocalizedStringKey(store.activityOpenError ?? ""))
             }
             // `initial: true` because a phase that is already `.active` when the
             // window appears never arrives as a change, and nothing else would
