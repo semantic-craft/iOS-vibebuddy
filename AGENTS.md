@@ -1,99 +1,36 @@
 # AGENTS.md
 
-Agent-facing configuration for the iOS-vibebuddy repo.
+Agent-facing configuration for the iOS-vibebuddy repo. Global rules and `~/Projects/AGENTS.md` apply first; this file adds project facts.
 
-## Scope and delivery
+## Delivery boundaries
 
-Apply the active global and ancestor rules, then the rules for the affected path.
-Cross-machine work uses `~/Projects/AGENTS.md` when present; other clones have no
-fleet. Routine work does not trigger synchronization.
+Installing or replacing the running app, binding `:9876`, writing the login token under `~/Library/Application Support/vibebuddy/`, release, and cross-machine sync need authorization covering that action. Existing authorization stays valid within its scope. Configured credentials may be used for an authorized operation; reading secrets for context is not implied.
 
-Commit, push, cross-machine sync, installing or replacing the running app,
-deployment, and release need authorization covering that action. Existing
-authorization remains valid within its scope. Configured authentication may be
-used for an authorized operation; reading secrets for context is not implied.
+## Verification
 
-## Verification strategy
+Personal-use project. For app or daemon behavior changes, accept end to end: build and run the affected app or daemon, exercise the affected flow with real Claude Code or Codex data within the authorized scope, and check the snapshot, UI, notification, recovery, or installation behavior the change touches. Check only affected behaviors.
 
-This is a personal-use project. For changes to app or daemon behavior, default
-to real end-to-end acceptance: build and run the actual affected app/daemon,
-exercise the affected flow with real Claude Code or Codex Desktop/CLI data
-within the authorized scope, and verify the relevant snapshot, UI, notification,
-recovery, or installation behavior. Check only the behaviors affected by the
-change; installation acceptance is subject to the delivery boundaries above.
-Use an isolated build or instance when it can verify the behavior without
-replacing the running app. If real-device or installed-app acceptance requires
-an unavailable device or additional authorization, finish the implementation
-and available checks, then report that specific acceptance gap. Those checks
-do not prove the blocked acceptance.
+Run without asking: `swift build` / `swift test` in this checkout, XcodeGen and simulator builds, and an isolated `vibebuddyd` on a non-9876 port with a disposable HOME (`verify-vibebuddy` owns that recipe). Never launch a second production menu-bar instance.
 
-For documentation-only changes, inspect the diff, referenced paths, and rule
-consistency; no app build or launch is needed. For build, configuration, or
-tooling changes, run the affected command and check its result, adding runtime
-acceptance when runtime behavior is affected. After sufficient checks pass,
-expand validation only for new changes, failures, or unresolved risks.
+If real-device or installed-app acceptance needs an unavailable device or extra authorization, finish the implementation and the available checks, then report that specific gap; the other checks do not prove it.
 
-Keep only a small number of fast automated tests for critical pure logic or a
-previously reproduced regression. Test-first development, coverage targets, and
-one-test-per-edge-case matrices are not required. Preserve existing useful
-tests, but do not let low-value test expansion displace end-to-end validation.
+Keep a small number of fast tests for critical pure logic or a reproduced regression. No coverage targets, test-first mandates, or per-edge-case matrices; do not let test expansion displace end-to-end validation.
 
-## Agent skills
+## Skills
 
-Project `.agents/skills/` entries link to originals in `xw-skills`;
-`.claude/skills/` points to those local entries. Both are excluded from Git.
-Edit the original, preserve valid links, and follow global wiring rules only
-when links or names change.
+`.agents/skills/` links to originals in `xw-skills`; `.claude/skills/` points at those links. Both are untracked. Edit originals and keep valid links.
 
-Repository-owned skills under `docs/agents/skills/` are tracked here. They include
-`verify-vibebuddy` for isolated runtime acceptance and `vibebuddy-history` for
-prior-work context, plus `vibebuddy-handoff` for source-identified handoff notes.
-Edit these originals here, not in `xw-skills`. Link each
-needed skill into the machine-local face, for example:
+Repository-owned skills live in `docs/agents/skills/` and are tracked here: `verify-vibebuddy` (isolated runtime acceptance), `vibebuddy-history` (prior-work context), `vibebuddy-handoff` (source-identified handoff notes). Link them into the local face when needed:
 
     ln -s ../../docs/agents/skills/vibebuddy-history .agents/skills/vibebuddy-history
 
-These links are untracked like the rest of `.agents/`; the skills themselves are not.
+## Task references
 
-Use skills for their actual task triggers. Ordinary work does not require a PRD,
-ticket, multiple models, test-first development, or a full suite. Explicitly
-requested workflows and model choices remain binding within the user's scope.
-
-## Issue tracker
-
-Issues and PRDs live as **local markdown** under `.scratch/<feature>/` in this repo
-(not GitHub Issues). When creating, reading, or updating tickets or PRDs, follow
-`docs/agents/issue-tracker.md`. A skill's instruction to publish to the issue
-tracker means writing the local Markdown file, not publishing remotely.
-
-### Triage labels
-
-Five canonical triage roles use their **default strings** (`needs-triage`,
-`needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`), recorded as a
-`Status:` line in each issue file. When assigning or changing triage state, follow
-`docs/agents/triage-labels.md`.
-
-## Next-work discovery
-
-When planning the next development cycle or changing macOS distribution,
-sandboxing, or agent integration, read `docs/agents/mac-app-store.md` and its
-local checklist. The owner has designated the Mac App Store edition as an
-important next direction while retaining direct distribution. This pointer
-does not authorize starting that work or overriding the user's current task.
-
-## Domain docs
-
-**Single-context** layout — one `CONTEXT.md` + `docs/adr/` at the repo root.
-Before exploring or changing domain behavior, terminology, or architecture,
-follow `docs/agents/domain.md`, read `CONTEXT.md` and the relevant ADRs. Read
-unrelated ADRs only if the task reaches their subject. Flag conflicts with an
-existing ADR before implementing a conflicting decision. Documentation or
-mechanical edits that do not affect domain meaning need no domain exploration.
-
-## Resuming work
-
-Use `docs/agents/skills/vibebuddy-history/SKILL.md` for prior-work context; read the newest relevant handoff, then `facts` for its source key (drift check), then saved `summary` and necessary `show` records.
-Writing a handoff follows `docs/agents/skills/vibebuddy-handoff/SKILL.md`: `vibebuddy-mcp facts '<own key>'` first, its block at the top of the note.
-Check summary coverage and stale status; a summary must not override a newer handoff.
-Optional `status --exclude-session '<own-native-session-id>'` observes other sessions in the same checkout; report busy sessions and let the user decide how to proceed.
-History tools are read-only; unknown live status is not a lock or a reason to start a daemon.
+| Work | Reference |
+| --- | --- |
+| Creating, reading, or updating tickets and PRDs — local Markdown under `.scratch/<feature>/`, not GitHub Issues; a skill's "publish to the issue tracker" means writing that file | `docs/agents/issue-tracker.md` |
+| Assigning or changing triage state (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix` as a `Status:` line) | `docs/agents/triage-labels.md` |
+| Changing domain behavior, terminology, or architecture (single-context layout: `CONTEXT.md` + `docs/adr/`) | `docs/agents/domain.md`, `CONTEXT.md`, and the relevant ADRs; flag a conflict with an existing ADR before implementing against it |
+| Resuming earlier work ("上次", "昨天", "继续") | `docs/agents/skills/vibebuddy-history/SKILL.md`: newest handoff first, then source `facts` for drift, then the saved summary; a summary never overrides a newer handoff. Optional `status --exclude-session` reports other sessions in this checkout; report them and let the user decide. History tools are read-only |
+| Writing a source-identified handoff | `docs/agents/skills/vibebuddy-handoff/SKILL.md`: run `vibebuddy-mcp facts` for the writer's own session key first and place its block at the top |
+| Planning the next cycle or changing macOS distribution, sandboxing, or agent integration | `docs/agents/mac-app-store.md`: the owner's designated next direction, not authorization to start it |

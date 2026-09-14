@@ -703,7 +703,12 @@ public actor SessionStore {
                                           at: event.timestamp, health: transcriptHealth)
                 recordSignal(agent: event.agent, source: .transcript, at: event.timestamp,
                              health: transcriptHealth, coverage: .turn)
-                if let info = TranscriptReader.read(path: path) {
+                if var info = TranscriptReader.read(path: path) {
+                    // Stop can arrive before its assistant line reaches disk.
+                    // This unscoped metadata tail must not replace the ending's
+                    // own summary with an earlier round. Exact completion proof
+                    // may still enrich the recap later through completionText.
+                    if event.kind == .stop { info.summary = nil }
                     enrichSession(sessionID: event.sessionID, with: info)
                 }
             }
@@ -1079,10 +1084,12 @@ public actor SessionStore {
     /// lifecycle event — reading a round stays an exact-round `/acknowledge`.
     public func advanceRecapHorizon(_ request: RecapReadRequest, now: Date = Date()) -> RecapReadOutcome {
         guard let sourceID, !sourceID.isEmpty, request.sourceID == sourceID else { return .sourceMismatch }
-        if recapLedger.advanceHorizon(to: request.horizon, now: now) {
-            broadcast()
+        do {
+            if try recapLedger.advanceHorizon(to: request.horizon, now: now) { broadcast() }
+            return .accepted
+        } catch {
+            return .failed
         }
-        return .accepted
     }
 
     /// Record any wait that has sat in `needsResponse` for five minutes

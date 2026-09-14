@@ -6,6 +6,57 @@ import Testing
 @MainActor
 struct VoiceCallCoordinatorTests {
 
+    @Test("an action refused by current scope replaces the prior receipt; status does not")
+    func refusedActionReceiptAfterSuccess() async {
+        let session = AgentSession(id: "s", agent: .codex, project: "project", status: .done,
+            statusSince: Date(), updatedAt: Date())
+        var scope = [session]
+        var receipt = ""
+        var handled = 0
+        var delivered = 0
+        let coordinator = VoiceCallCoordinator(audio: FakeVoiceCallAudio(), actionHandler: { _ in
+            handled += 1
+            return "Request accepted"
+        }, sendToolResult: { _, name, result in
+            delivered += 1
+            if VoiceTools.all.contains(where: { $0.name == name }) { receipt = result }
+        }, continuousPlayback: true, contextProvider: { scope })
+        coordinator.handle(.toolCall(name: "mark_read_session", arguments: #"{"project":"project"}"#, callID: "first"))
+        for _ in 0..<100 where delivered < 1 { await Task.yield() }
+        #expect(receipt == "Request accepted")
+        scope = []
+        coordinator.handle(.toolCall(name: "mark_read_session", arguments: #"{"project":"project"}"#, callID: "refused"))
+        for _ in 0..<100 where delivered < 2 { await Task.yield() }
+        #expect(receipt.contains("No unique matching task"))
+        #expect(handled == 1)
+        let refused = receipt
+        coordinator.handle(.toolCall(name: "get_session_status", arguments: "{}", callID: "status"))
+        for _ in 0..<100 where delivered < 3 { await Task.yield() }
+        #expect(receipt == refused)
+        coordinator.stop()
+    }
+
+    @Test("action scope validation does not refresh the status read used to bind a round")
+    func statusReadIsSeparateFromScopeValidation() async {
+        let session = AgentSession(id: "s", agent: .codex, project: "project", status: .done,
+            statusSince: Date(), updatedAt: Date())
+        var statusReads = 0
+        var scopeReads = 0
+        var results: [String] = []
+        let coordinator = VoiceCallCoordinator(audio: FakeVoiceCallAudio(), actionHandler: { _ in "Read recorded" },
+            sendToolResult: { _, _, result in results.append(result) },
+            contextProvider: { scopeReads += 1; return [session] },
+            statusContextProvider: { statusReads += 1; return [session] })
+        coordinator.handle(.toolCall(name: "get_session_status", arguments: "{}", callID: "status"))
+        for _ in 0..<100 where results.isEmpty { await Task.yield() }
+        #expect(statusReads == 1 && scopeReads == 0)
+        coordinator.handle(.toolCall(name: "mark_read_session", arguments: #"{"project":"project"}"#, callID: "read"))
+        for _ in 0..<100 where results.count < 2 { await Task.yield() }
+        #expect(statusReads == 1 && scopeReads == 1)
+        #expect(results.last == "Read recorded")
+        coordinator.stop()
+    }
+
     @Test("Live phase follows audible buffers arriving after asynchronous enqueue")
     func asynchronousPlaybackState() {
         let audio = FakeVoiceCallAudio()

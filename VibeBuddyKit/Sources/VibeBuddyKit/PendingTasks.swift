@@ -33,6 +33,18 @@ public struct PendingTaskNavigation: Sendable {
     private var lastSelection: Identity?
     public init() {}
 
+    /// Capture an explicit selection while it still belongs to the queue.
+    /// Reading may remove it before the user presses Next for the first time.
+    public mutating func select(_ session: AgentSession, in ordered: [AgentSession]) {
+        let identity = Identity(session)
+        if let index = ordered.firstIndex(where: { Identity($0) == identity }) {
+            visited = Set(ordered.prefix(through: index).map(Identity.init))
+        } else {
+            visited = [identity]
+        }
+        lastSelection = identity
+    }
+
     public mutating func next(in ordered: [AgentSession], after current: AgentSession?) -> AgentSession? {
         let currentIdentity = current.map(Identity.init)
         // A manually selected task starts a tour from its position, rather than

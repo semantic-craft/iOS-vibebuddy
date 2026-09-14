@@ -45,6 +45,7 @@ public final class VoiceCallCoordinator {
     private let closeSession: (VoiceToolResult?) -> Void
     private let continuousPlayback: Bool
     private let contextProvider: (() -> [AgentSession])?
+    private let statusContextProvider: (@MainActor () async -> [AgentSession])?
     private var userFragments: [VoiceTranscriptFragment] = []
     private var assistantFragments: [VoiceTranscriptFragment] = []
     private var turnComplete = true
@@ -63,7 +64,8 @@ public final class VoiceCallCoordinator {
         truncatePlayback: @escaping ([VoicePlaybackCheckpoint]) -> Void = { _ in },
         closeSession: @escaping (VoiceToolResult?) -> Void = { _ in },
         continuousPlayback: Bool = false,
-        contextProvider: (() -> [AgentSession])? = nil
+        contextProvider: (() -> [AgentSession])? = nil,
+        statusContextProvider: (@MainActor () async -> [AgentSession])? = nil
     ) {
         self.audio = audio
         self.actionHandler = actionHandler
@@ -72,6 +74,7 @@ public final class VoiceCallCoordinator {
         self.truncatePlayback = truncatePlayback
         self.continuousPlayback = continuousPlayback
         self.contextProvider = contextProvider
+        self.statusContextProvider = statusContextProvider
     }
 
     public func beginConnecting() {
@@ -161,7 +164,8 @@ public final class VoiceCallCoordinator {
                     (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any]
                 }
                 if name == VoiceTools.status.name, object?.isEmpty == true {
-                    result = VoicePrompt.sessionContext(contextProvider?() ?? [])
+                    let sessions = await statusContextProvider?() ?? contextProvider?() ?? []
+                    result = VoicePrompt.sessionContext(sessions)
                 } else if name == VoiceTools.endCall.name, object?.isEmpty == true {
                     stop(completingTool: VoiceToolResult(callID: callID, name: name, result: "Voice call ending; coding tasks are unchanged."))
                     return
