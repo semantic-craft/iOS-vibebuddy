@@ -87,9 +87,26 @@ results, and "Next" follows the scope the reader entered from.
   outranks an approval on every surface.
 - `DashboardFilters` gained a bucket and a query; `InboxProjection`,
   `PhoneAnnouncer` and `VoicePageView` are new phone files; the Kit's
-  `VoiceAction` gained two cases, which the Mac answers with "available on
-  the phone" until it implements them.
+  `VoiceAction` gained two cases. The Mac now binds read and instruction actions
+  to the source, Session and round actually returned by status; dispatch uses
+  existing answer/steer/continue channels. A transport receipt is not completion,
+  and an unknown result is not automatically resent.
 - The Chinese tables carry every new string; screenshots and the Demo page
   hooks (`VIBEBUDDY_DEMO_PAGE=bucket/<id>|project/<name>|list|read|voice`)
   are the acceptance evidence, with real-device reading and a real daemon's
   three-surface comparison left to ticket 06.
+
+## Amendment: Mac Inbox (2026-09-14)
+
+The Mac Dashboard now opens on Inbox: First up, the four current-session
+buckets, the shared Recap overview and Projects with pending counts. All
+sessions opens the existing list/detail workspace. History and Favorites
+retain their library counts. New task remains available. Inbox global counts
+ignore residual list filters; projects preserve their original identity, including
+full paths or cloud repository identity when supplied by the live source.
+The lifecycle journal intentionally stores only project basenames; restored
+sessions without checkout metadata use that limited identity until a live source
+supplies it again. Inbox does not persist or reconstruct missing full paths.
+The detail Next footer retains its
+explicit scope and selection when a result becomes read.
+The menu and Glance navigate to this same workspace using Session identity.

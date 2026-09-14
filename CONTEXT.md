@@ -375,20 +375,24 @@ code, and tests — don't drift to synonyms.
   state): it is the fact that a round ended, kept long enough to be reviewed.
 - **Recap horizon** — the single moment the Mac keeps as "the user last read
   the recap": entries that ended before it are no longer in the recap. Moved
-  forward only, by Mark all (`POST /recap-read`), shared by every device. It
+  forward only, by Watch Mark all (`POST /recap-read`) or Mac explicit recap
+  confirmation through SessionStore, shared by every device. It
   changes no round's read/unread state and re-sends no cue.
 - **Recap** (`Recap`) — the ordered set of recap entries after the horizon and
   within the last 24 hours, newest first, at most twelve; read on the wrist by
   turning the Digital Crown through one page per round, with Mark all on the
-  last page. Its 24-hour window is the recap's own rule and only coincides in
+  last page, and on Mac through Inbox or the sidebar. Mac confirmation freezes
+  the displayed batch and retains partial-write retry state across navigation.
+  Reading the recap alone changes neither horizon nor completion reads. Its 24-hour window is the recap's own rule and only coincides in
   number with *Current session*'s 24 hours: the recap decides what a recap
   shows, `SessionCurrency` decides what a list shows and a count counts.
 - **Next pending** — an explicit navigation step through Needs you, then unread
   Done, using the same priority and stable newest-first order on Mac and iPhone.
-  The iPhone follows the scope it entered the detail from (ADR-0022): the
+  The iPhone and Mac detail footer follow the scope they entered from (ADR-0022): the
   whole snapshot from **First up**, the bucket or project from a list page,
-  plus any Customize picks and the Older choice; the footer names that scope
-  and the position (`All sessions · 2 / 5`). Grouping and collapse do not
+  plus query and Older; iPhone additionally retains Customize picks. The footer names that scope
+  and the current position (`All sessions · 2 / 5`), or explains that the selected
+  result is no longer pending. Grouping and collapse do not
   narrow the tour or change the global counts.
   Reading the current result never moves the page, and removing that result from
   unread does not restart the tour at an unresolved wait. Navigation itself
@@ -539,15 +543,16 @@ Mac presence suppresses ordinary cues only while the verdict is current; leaving
   of authorship. Saved summaries cannot override a newer Handoff note.
 ## iPhone inbox (2026-09-13, ADR-0022)
 
-- **Inbox** — the iPhone's home: the mood line, **First up**, four **buckets**,
-  the **Projects** list and the composer. Every number is the current-session
+- **Inbox** — the iPhone home and Mac Dashboard default entry: the mood line, **First up**, four **buckets**,
+  the **Projects** list and, on iPhone, the composer. Mac adds the shared Recap
+  overview and opens its existing task list/detail workspace. Every number is the current-session
   summary the Mac panel and the Watch also read. Read results have no bucket;
   they are reached through *All sessions*.
 - **Bucket** — one of the four tiles, a slice of the current sessions by
   presentation state: *All sessions*, *Unread results* (`completeUnread`),
   *Needs you* (`requiresInput` + `error`; worded **Stuck** while only
   confirmed failures are in it), *Working* (`thinking`). Tapping one opens the
-  **bucket page**: the scope's name as the title, a *Recents* group and then
+  **bucket page**. On iPhone this has the scope's name as the title, a *Recents* group and then
   the same rows under their projects, two lines per row, no inline keys.
   Search on that page matches title, project and branch.
 - **First up** — the head of the **pending queue** (`PendingTasks.ordered`
@@ -558,12 +563,16 @@ Mac presence suppresses ordinary cues only while the verdict is current; leaving
   newest first within each. First up, Next pending, Read pending and the
   Watch's alerts and results are all views of it; a project's number on the
   inbox is its share of it.
-- **Read pending** — the phone's read-aloud: the pending queue spoken in
+- **Read pending** — the phone's read-aloud and the Mac Inbox's explicit
+  read-aloud entry: the pending queue spoken in
   order (stuck and waiting first, then unread results), ten at most, each
   item bound to its round and re-checked before it is spoken; pause, skip,
   replay, stop. The voice companion's provider speaks when it has a key,
-  otherwise the system voice. Nothing it does marks a result read; a live
-  voice call pauses it. Background, automatic reading remains the Mac's
+  otherwise the system voice on iPhone. Mac uses its configured read-aloud
+  provider and shares its ten-item queue with automatic Announcement; the
+  Voice and reading panel exposes both. Nothing it does marks a result read; a live
+  voice call pauses it, and manual reading requires explicit resume afterward.
+  Background, automatic reading remains the Mac's
   **Announcement**.
 - **Voice page** — the sheet behind the mic: the read-aloud queue, the
   conversation, and pause / mic / skip. It says which side the microphone is

@@ -4,6 +4,9 @@ import Foundation
 @MainActor
 public final class CompletionSpeechQueue {
     public var onBusyChanged: @MainActor (Bool) -> Void = { _ in }
+    public var onEntriesChanged: @MainActor () -> Void = {}
+    public private(set) var currentID: String?
+    public var pendingIDs: [String] { pending.map(\.id) }
     public var onOverflow: @MainActor () -> Void = {}
     public private(set) var isPaused = false
     public var pendingCount: Int { pending.count }
@@ -20,9 +23,12 @@ public final class CompletionSpeechQueue {
 
     public init() {}
 
-    public func enqueue(id: String, priority: Bool = false,
+    public func enqueue(id: String, priority: Bool = false, allowRepeat: Bool = false,
                         operation: @escaping @MainActor () async -> Void) {
-        guard !recentIDs.contains(id) else { return }
+        defer { onEntriesChanged() }
+        guard currentID != id, !pending.contains(where: { $0.id == id }) else { return }
+        guard allowRepeat || !recentIDs.contains(id) else { return }
+        recentIDs.removeAll { $0 == id }
         recentIDs.append(id)
         if recentIDs.count > 128 { recentIDs.removeFirst(recentIDs.count - 128) }
         // Evict the oldest queued item before inserting the newest event.
@@ -36,6 +42,24 @@ public final class CompletionSpeechQueue {
         startNext()
     }
 
+    /// An explicit pending read replaces its not-yet-spoken batch with the
+    /// current ordered scope. The active operation is never interrupted.
+    public func retainPending(ids: Set<String>) {
+        pending.removeAll { !ids.contains($0.id) }
+        onEntriesChanged()
+        if task == nil { onBusyChanged(!pending.isEmpty) }
+    }
+
+    public func orderPending(ids: [String]) {
+        let rank = Dictionary(ids.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: min)
+        pending = pending.enumerated().sorted {
+            let left = rank[$0.element.id] ?? Int.max
+            let right = rank[$1.element.id] ?? Int.max
+            return left == right ? $0.offset < $1.offset : left < right
+        }.map(\.element)
+        onEntriesChanged()
+    }
+
     public func pause() { isPaused = true }
     public func resume() { isPaused = false; startNext() }
 
@@ -43,7 +67,9 @@ public final class CompletionSpeechQueue {
     public func skip() {
         generation = UUID()
         task?.cancel(); task = nil
+        currentID = nil
         startNext()
+        onEntriesChanged()
     }
 
     private func startNext() {
@@ -53,13 +79,17 @@ public final class CompletionSpeechQueue {
             return
         }
         let entry = pending.removeFirst()
+        currentID = entry.id
+        onEntriesChanged()
         let current = generation
         onBusyChanged(true)
         task = Task { [weak self] in
             await entry.operation()
             guard let self, self.generation == current else { return }
             self.task = nil
+            self.currentID = nil
             self.startNext()
+            self.onEntriesChanged()
         }
     }
 
@@ -67,6 +97,8 @@ public final class CompletionSpeechQueue {
         generation = UUID()
         pending.removeAll()
         task?.cancel(); task = nil
+        currentID = nil
         onBusyChanged(false)
+        onEntriesChanged()
     }
 }

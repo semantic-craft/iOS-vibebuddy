@@ -10,13 +10,29 @@ import VibeBuddyMacCore
 /// dashboard window has ever been built still reaches the view once it is.
 @MainActor
 final class DashboardRoute: ObservableObject {
-    enum Library: String { case live, history, favorites, usage }
+    enum Library: String { case inbox, recap, live, history, favorites, usage }
 
     static let shared = DashboardRoute()
-    @Published fileprivate var requested: Library?
+    enum Destination { case library(Library), session(String), firstPending, nextPending }
+    @Published fileprivate var requested: Destination?
 
     static func open(_ library: Library) {
-        shared.requested = library
+        shared.requested = .library(library)
+        NotificationCenter.default.post(name: .openDashboard, object: nil)
+    }
+
+    static func openSession(id: String) {
+        shared.requested = .session(id)
+        NotificationCenter.default.post(name: .openDashboard, object: nil)
+    }
+
+    static func openNextPending() {
+        shared.requested = .nextPending
+        NotificationCenter.default.post(name: .openDashboard, object: nil)
+    }
+
+    static func openFirstPending() {
+        shared.requested = .firstPending
         NotificationCenter.default.post(name: .openDashboard, object: nil)
     }
 }
@@ -30,7 +46,9 @@ struct DashboardView: View {
     @State private var projectScope: DashboardSessionList.ProjectScope = .all
     @State private var query: String = ""
     @State private var showNewTask = false
-    @State private var libraryScope = "live"
+    @State private var showSpeechPanel = false
+    @State private var libraryScope = "inbox"
+    @State private var showOlder = false
     /// History and Favorites filter by project path; the sidebar owns the
     /// choice so both libraries share one project list.
     @State private var historyProject: String?
@@ -54,13 +72,15 @@ struct DashboardView: View {
     @State private var composerDrafts: [String: String] = [:]
 
     private func draftBinding(for sessionID: String) -> Binding<String> {
-        Binding(get: { composerDrafts[sessionID] ?? "" },
-                set: { composerDrafts[sessionID] = $0.isEmpty ? nil : $0 })
+        let key = (model.completionSourceID ?? "unknown") + "/" + sessionID
+        return Binding(get: { composerDrafts[key] ?? "" },
+                       set: { composerDrafts[key] = $0.isEmpty ? nil : $0 })
     }
 
     private var projection: DashboardSessionList {
         DashboardSessionList(model.sessions, project: projectScope, status: statusFilter,
-                             query: query, selection: selection)
+                             query: query, selection: selection, showOlder: showOlder,
+                             recentDirectories: model.recentDirectories)
     }
     private var filtered: [AgentSession] { projection.visible }
     private var selectedSession: AgentSession? { projection.selected }
@@ -72,7 +92,7 @@ struct DashboardView: View {
     /// The search field lives in the live and history list heads; Usage has
     /// none, so searching from there lands on Current tasks.
     private func focusSearch() {
-        if libraryScope == "usage" { libraryScope = "live" }
+        if libraryScope == "usage" || libraryScope == "inbox" || libraryScope == "recap" { openBucket(nil) }
         searchFocused = true
     }
 
@@ -88,10 +108,26 @@ struct DashboardView: View {
                              projectScope: $projectScope, historyProject: $historyProject,
                              liveProjects: projection.projects, historyProjects: historyProjects,
                              onNewTask: { showNewTask = true },
-                             onSearch: focusSearch)
+                             onSearch: focusSearch,
+                             onOpenSpeech: { showSpeechPanel = true }, speechPanelPresented: showSpeechPanel,
+                             onOpenProject: { scope in
+                                 if libraryScope == "inbox" { openBucket(nil) }
+                                 projectScope = scope
+                                 libraryScope = "live"
+                             })
             Rectangle().fill(MacTheme.line).frame(width: CompanionType.hairline)
             Group {
-                if libraryScope == "live" {
+                if libraryScope == "inbox" {
+                    MacInboxHomeView(projection: projection, recap: model.recap,
+                                     openRecap: { libraryScope = "recap" },
+                                     readPending: { model.readPending(); showSpeechPanel = true },
+                                     openFirst: openFirstPending,
+                                     openBucket: openBucket,
+                                     openProject: { projectScope = $0; statusFilter = nil; query = ""; showOlder = false; libraryScope = "live" },
+                                     openOlder: { openBucket(nil); showOlder = true })
+                } else if libraryScope == "recap" {
+                    MacRecapView(model: model)
+                } else if libraryScope == "live" {
                     HSplitView {
                         sessionsColumn
                         detailColumn
@@ -109,14 +145,23 @@ struct DashboardView: View {
         .background(MacTheme.bg)
         // Same tint as Settings, so system controls here pick up the buddy's green.
         .tint(MacTheme.accent)
-        .onReceive(DashboardRoute.shared.$requested) { library in
-            guard let library else { return }
-            libraryScope = library.rawValue
+        .onReceive(DashboardRoute.shared.$requested) { destination in
+            guard let destination else { return }
+            switch destination {
+            case .library(let library): libraryScope = library.rawValue
+            case .session(let id):
+                openBucket(nil)
+                selection = id
+                if let session = model.sessions.first(where: { $0.id == id }) { selectSession(session) }
+            case .firstPending: openFirstPending()
+            case .nextPending: openGlobalNext()
+            }
             // Clear on the next turn so the request is consumed once and the
             // publisher is not re-entered from inside its own delivery.
             DispatchQueue.main.async { DashboardRoute.shared.requested = nil }
         }
         .sheet(isPresented: $showNewTask) { NewTaskSheet(model: model) }
+        .sheet(isPresented: $showSpeechPanel) { MacVoicePanel(model: model) }
         .onAppear {
             // `VIBEBUDDY_DEMO_PAGE=dashboard/<live|history|favorites|usage|newtask>`
             // lands on that library, or opens New task, for screenshots and QA.
@@ -132,11 +177,11 @@ struct DashboardView: View {
                 // ⌘N opens New task; the sheet itself explains when no agent
                 // can start yet, so the entry is never disabled.
                 Button("") { showNewTask = true }.keyboardShortcut("n", modifiers: .command)
-                Button("") { statusFilter = .needsYou }.keyboardShortcut("1", modifiers: .command)
-                Button("") { statusFilter = .working }.keyboardShortcut("2", modifiers: .command)
-                Button("") { statusFilter = .done }.keyboardShortcut("3", modifiers: .command)
-                Button("") { statusFilter = .idle }.keyboardShortcut("4", modifiers: .command)
-                Button("") { statusFilter = nil }.keyboardShortcut("0", modifiers: .command)
+                Button("") { openBucket(.needsYou) }.keyboardShortcut("1", modifiers: .command)
+                Button("") { openBucket(.working) }.keyboardShortcut("2", modifiers: .command)
+                Button("") { openBucket(.done) }.keyboardShortcut("3", modifiers: .command)
+                Button("") { openBucket(.idle) }.keyboardShortcut("4", modifiers: .command)
+                Button("") { openBucket(nil) }.keyboardShortcut("0", modifiers: .command)
                 // ⌘F focuses the search field, leaving Usage first if needed.
                 Button("", action: focusSearch).keyboardShortcut("f", modifiers: .command)
                 // ⌥⌘B hides the right slot to its rail and brings it back, as
@@ -155,19 +200,92 @@ struct DashboardView: View {
             .opacity(0)
         }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("vibebuddy.selectNextPending"))) { _ in
-            libraryScope = "live"
-            projectScope = .all
-            query = ""
-            statusFilter = nil
-            let current = model.sessions.first { $0.id == selection }
-            if let next = pendingNavigation.next(in: MenuFeed(model.sessions).pending, after: current) {
-                selection = next.id
-            }
+            openGlobalNext()
         }
         .onDisappear { model.dashboardViewedSessionID = nil }
-        .onChange(of: filtered.map(\.id)) { _, ids in
-            if let selection, !ids.contains(selection) { self.selection = nil }
+        .onChange(of: projectScope) { _, _ in resetTour() }
+        .onChange(of: statusFilter) { _, _ in resetTour() }
+        .onChange(of: query) { _, _ in resetTour() }
+        .onChange(of: showOlder) { _, _ in resetTour() }
+        .onChange(of: model.completionSourceID) { old, _ in
+            resetTour()
+            if old != nil { selection = nil }
         }
+    }
+
+    private func openGlobalNext() {
+            // The global hotkey declares a global route. The detail footer's
+            // Next uses the selected scope and never posts this notification.
+            let current = selectedSession
+            if projectScope != .all || statusFilter != nil || !query.isEmpty || showOlder { openBucket(nil) }
+            libraryScope = "live"
+            if let next = pendingNavigation.next(in: projection.globalPending, after: current) { selection = next.id }
+    }
+
+    private func resetTour() {
+        pendingNavigation = PendingTaskNavigation()
+        if let current = selectedSession { pendingNavigation.select(current, in: projection.pending) }
+    }
+
+    private func openBucket(_ filter: DashboardSessionList.StatusFilter?) {
+        libraryScope = "live"
+        projectScope = .all
+        statusFilter = filter
+        query = ""
+        showOlder = false
+        resetTour()
+    }
+
+    private func openFirstPending() {
+        openBucket(nil)
+        if let first = projection.globalPending.first { selectSession(first) }
+        else { selection = nil }
+    }
+
+    private func selectSession(_ session: AgentSession) {
+        pendingNavigation.select(session, in: projection.pending)
+        selection = session.id
+    }
+
+    private var scopeTitle: String {
+        var parts = [projectScope == .all ? String(localized: "All sessions") : projectTitle(projectScope)]
+        if let statusFilter { parts.append(String(localized: String.LocalizationValue(Self.chipTitleKey(statusFilter)))) }
+        if !query.isEmpty { parts.append(String(localized: "Search: \(query)")) }
+        if showOlder { parts.append(String(localized: "Including older")) }
+        return parts.joined(separator: " · ")
+    }
+
+    private var pendingFooter: some View {
+        let queue = projection.pending
+        let index = queue.firstIndex { $0.id == selection }
+        let hasNext = queue.contains { $0.id != selection }
+        return VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text(scopeTitle).lineLimit(2)
+                Spacer(minLength: 8)
+                Button("Next pending") {
+                    if let next = pendingNavigation.next(in: queue, after: selectedSession) { selection = next.id }
+                }
+                .buttonStyle(.borderless)
+                .disabled(!hasNext)
+                .accessibilityIdentifier("mac-dashboard-next-pending")
+            }
+            if let index {
+                Text("\(index + 1) / \(queue.count)")
+            } else if selection != nil, selectedSession == nil {
+                Text("Session unavailable")
+            } else if selectedSession?.presentationState == .idle {
+                Text("Current item handled · \(queue.count) remaining")
+            } else if selection != nil {
+                Text("Current item is outside pending · \(queue.count) remaining")
+            }
+            if !hasNext {
+                Text(statusFilter == .working ? "Working sessions have no pending results in this scope." : "No other pending tasks in this scope.")
+            }
+        }
+        .font(MacTheme.font(10.5)).foregroundStyle(MacTheme.ink2)
+        .padding(12)
+        .background(MacTheme.bg2)
     }
 
     /// The list column's head, as Cursor lays out a list page: the scope as
@@ -177,13 +295,17 @@ struct DashboardView: View {
         VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(projectTitle(projectScope)).font(MacTheme.font(13, .semibold)).foregroundStyle(MacTheme.ink)
+                    Text(scopeTitle).font(MacTheme.font(13, .semibold)).foregroundStyle(MacTheme.ink)
                         .lineLimit(1).truncationMode(.middle)
                     Spacer(minLength: 8)
                     Text(filtered.count == 1 ? String(localized: "1 session") : String(localized: "\(filtered.count) sessions"))
                         .font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink3)
                 }
                 SearchPill(query: $query, focused: $searchFocused)
+                if projection.olderCount > 0 || showOlder {
+                    Toggle(isOn: $showOlder) { Text("Show \(projection.olderCount) older") }
+                        .toggleStyle(.checkbox).font(MacTheme.font(10.5))
+                }
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
                         FilterChip(title: "All", selected: statusFilter == nil) { statusFilter = nil }
@@ -216,7 +338,7 @@ struct DashboardView: View {
                         ForEach(filtered) { session in
                             SummaryRow(session: session, isSelected: selection == session.id,
                                        included: model.buddySessionIDs.contains(session.id), showInclude: companionEnabled,
-                                       onSelect: { selection = session.id },
+                                       onSelect: { selectSession(session) },
                                        onToggleInclude: { model.toggleBuddy(session.id) })
                                 .contextMenu {
                                     AttentionPicker(session: session, model: model, style: .menu)
@@ -240,10 +362,14 @@ struct DashboardView: View {
     /// not the long state labels, so all five fit on one line. Errors are part
     /// of Needs you here as everywhere else.
     static func chipTitle(_ group: DashboardSessionList.StatusFilter) -> LocalizedStringKey {
+        LocalizedStringKey(chipTitleKey(group))
+    }
+
+    static func chipTitleKey(_ group: DashboardSessionList.StatusFilter) -> String {
         switch group {
         case .needsYou: "Needs you"
         case .working: "Working"
-        case .done: "Done"
+        case .done: "Unread results"
         case .idle: "Idle"
         }
     }
@@ -252,10 +378,17 @@ struct DashboardView: View {
     /// laid out by `RightSlotState` for the width the split gives it.
     @ViewBuilder private var detailColumn: some View {
         if let s = selectedSession {
-            SessionDetailColumn(session: s, model: model, slot: $rightSlot, draft: draftBinding(for: s.id))
+            VStack(spacing: 0) {
+                SessionDetailColumn(session: s, model: model, slot: $rightSlot, draft: draftBinding(for: s.id))
+                pendingFooter
+            }
                 .frame(minWidth: 340, idealWidth: 520, maxWidth: .infinity)
         } else {
-            QuietEmptyState(title: "Select a session", message: "Pick a task on the left to see its details.")
+            VStack(spacing: 0) {
+                QuietEmptyState(title: selection == nil ? "Select a session" : "Session unavailable",
+                                message: selection == nil ? "Pick a task on the left to see its details." : "This session is no longer available. Choose another task.")
+                pendingFooter
+            }
                 .frame(minWidth: 340, idealWidth: 380, maxWidth: .infinity, maxHeight: .infinity)
         }
     }
