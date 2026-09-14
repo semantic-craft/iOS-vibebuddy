@@ -642,7 +642,7 @@ final class DashboardStore: ObservableObject {
         isDemo = true
         // The Usage sheet is part of the demo now, so seed the same sample
         // readings the Watch demo uses instead of leaving it empty.
-        lastProviderQuota = WatchDemoScenario.normal.quotas(now: Date())
+        lastProviderQuota = Self.demoQuotas(now: Date())
         lastTokenConsumption = TokenConsumptionSnapshot.demo()
         pairing = nil
         state = .connected
@@ -651,6 +651,26 @@ final class DashboardStore: ObservableObject {
         buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: demo)
         install(demo, serverTime: Date())
         Task { await postDemoBanners(demo) }
+    }
+
+    /// The Watch's sample allowance plus the detail only the phone's Usage
+    /// page draws: account labels and a Claude model-scoped week.
+    static func demoQuotas(now: Date) -> [ProviderQuota] {
+        WatchDemoScenario.normal.quotas(now: now).map { quota in
+            var quota = quota
+            switch quota.provider {
+            case .claude:
+                quota.accountLabel = "Max 20×"
+                quota.scopedWindows = [QuotaWindow(remainingPercent: 58, durationMinutes: 10080,
+                                                   resetsAt: quota.weeklyResetsAt, observedAt: quota.observedAt,
+                                                   label: "Opus only")]
+            case .cursor:
+                quota.accountLabel = "Pro"
+            case .codex, .grok, .grokBot:
+                break
+            }
+            return quota
+        }
     }
 
     /// Sample approval / question banners carry the same actions a live cue does.
