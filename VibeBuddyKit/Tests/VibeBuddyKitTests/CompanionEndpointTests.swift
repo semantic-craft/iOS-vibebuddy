@@ -4,6 +4,21 @@ import Testing
 
 @Suite("Companion addresses")
 struct CompanionEndpointTests {
+    @Test func headscaleAddressRetainsPairing() throws {
+        let lan = PairingPayload(host: "192.168.1.20", port: 9876, token: "fixture", macName: "Home Mac")
+        let remote = try #require(lan.usingTailnetIPv4(" 100.64.0.8 ", port: 18765))
+        #expect(remote.host == "100.64.0.8")
+        #expect(remote.port == 18765)
+        #expect(remote.token == lan.token)
+        #expect(remote.macName == lan.macName)
+        #expect(remote.companionURL(path: "ws", webSocket: true)?.absoluteString == "ws://100.64.0.8:18765/ws")
+        for host in ["100.63.255.255", "100.128.0.1", "https://headscale.example.com", "mac.tail.example.com", "100.64.example.0.1", "192.168.1.20"] {
+            #expect(lan.usingTailnetIPv4(host, port: 9876) == nil)
+        }
+        #expect(lan.usingTailnetIPv4("100.127.255.254", port: 9876) != nil)
+        #expect(lan.usingTailnetIPv4("100.64.0.8", port: 0) == nil)
+    }
+
     @Test func privateAddressAndQueries() throws {
         let endpoint = try #require(CompanionEndpoint(host: " My-Mac.example.ts.net ", port: 9876))
         #expect(endpoint.isTailscale)

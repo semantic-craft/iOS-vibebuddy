@@ -61,8 +61,9 @@ struct ConnectView: View {
                     }
                     .font(CompanionType.font(13, .medium))
 
-                    Text("Away from home? Join the same Tailscale network on your Mac and iPhone, then use your Mac’s Tailscale address.")
+                    Text("Away from home? Use Tailscale or Headscale. If your iPhone uses Surge, route your Mac’s private IP through its Tailscale policy.")
                         .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink3)
+                    NavigationLink("Headscale & Surge") { RemoteConnectionView() }
                     if let connectionError {
                         Text(connectionError)
                             .font(CompanionType.font(13)).foregroundStyle(CompanionPalette.status(.error))

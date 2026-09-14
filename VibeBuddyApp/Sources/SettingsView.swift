@@ -29,7 +29,7 @@ struct SettingsView: View {
                         sectionTitle("This iPhone")
                     }
                     Section {
-                        row("Connection information", "desktopcomputer") { connectionDetails }
+                        row("Connect your Mac", "desktopcomputer") { connectionDetails }
                         row("Completion summaries", "text.alignleft") { completionSummaryInfo }
                     } header: {
                         sectionTitle("Connected Mac")
@@ -188,7 +188,7 @@ struct SettingsView: View {
 
     private var connectionDetails: some View {
         Form {
-            Section("Connection information") {
+            Section("Connect your Mac") {
                 LabeledContent("Status") { Text(connectionStatus) }
                 if let pairing = connection.pairing {
                     if let name = pairing.macName, !name.isEmpty {
@@ -204,6 +204,9 @@ struct SettingsView: View {
                 }
             }
             Section {
+                NavigationLink { RemoteConnectionView() } label: {
+                    Label("Headscale & Surge", systemImage: "network")
+                }
                 NavigationLink { MacCompanionSetupView() } label: {
                     Label("Pairing and Mac setup", systemImage: "qrcode")
                 }
@@ -212,7 +215,7 @@ struct SettingsView: View {
             }
         }
         .phoneList()
-        .navigationTitle("Connection information")
+        .navigationTitle("Connect your Mac")
         .navigationBarTitleDisplayMode(.inline)
     }
 
