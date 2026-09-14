@@ -10,11 +10,16 @@ public enum ContinueWith {
     /// The Session key of a live session as the history tools name it, or nil
     /// for agents the history side does not know (no handoff can name them).
     public static func sessionKey(for session: AgentSession) -> String? {
-        switch session.agent {
-        case .claudeCode: "claude-code:" + session.id
-        case .codex: "codex:" + session.id
-        case .cursor: "cursor:" + session.id
-        case .grok: "grok-build:" + session.id
+        sessionKey(agent: session.agent, id: session.id)
+    }
+
+    /// The same key for a session the Mac just started and has not yet observed.
+    public static func sessionKey(agent: AgentKind, id: String) -> String? {
+        switch agent {
+        case .claudeCode: "claude-code:" + id
+        case .codex: "codex:" + id
+        case .cursor: "cursor:" + id
+        case .grok: "grok-build:" + id
         default: nil
         }
     }

@@ -310,8 +310,6 @@ public actor SessionStore {
     private var subscribers: [UUID: AsyncStream<Snapshot>.Continuation] = [:]
     private var needsResponseHandler: (@Sendable (AgentSession) async -> Void)?
     private var staleAfter: TimeInterval
-    private var directorySeen: [String: Date] = [:]
-    private static let recentDirectoryLimit = 50
     /// Per-session transcript path, remembered so `sweep` can check whether a
     /// waiting session's transcript advanced (i.e. the prompt was answered).
     private var transcriptPaths: [String: String] = [:]
@@ -347,19 +345,18 @@ public actor SessionStore {
     /// Ended rounds and the recap horizon, beside the journal (`RecapLedger`).
     private var recapLedger: RecapLedger
     private var handoffScanner: HandoffScanner
-    /// Session ids this process started from a handoff document, by path (ADR-0023 §5).
-    private var handoffTakenBy: [String: [String]] = [:]
-    /// The Session key each dispatched receiver continues, by the new session's id.
-    private var continuations: [String: String] = [:]
+    /// Who continued whom, beside the journal (`ContinuationLedger`); a
+    /// session's `continuesSessionKey` and a handoff's `takenBy` derive from it.
+    private var continuationLedger: ContinuationLedger
+    /// Where sessions ran, beside the journal (`RecentDirectories`): the
+    /// directories a task may start in and each session's observed checkout.
+    private var recentDirectoryLedger: RecentDirectories
 
-    /// Continue with… started `sessionID` to carry on `sourceKey`, from the
-    /// handoff at `handoffPath` when there was one. In-memory lineage only;
-    /// the lifecycle journal's field policy is unchanged (ADR-0023 §5).
-    public func recordContinuation(sessionID: String, sourceKey: String, handoffPath: String?) {
-        continuations[sessionID] = sourceKey
-        if let handoffPath, !handoffTakenBy[handoffPath, default: []].contains(sessionID) {
-            handoffTakenBy[handoffPath, default: []].append(sessionID)
-        }
+    /// Continue with… started `receiverKey` to carry on `sourceKey`, from the
+    /// handoff at `handoffPath` when there was one. Written by the dispatch
+    /// layer once the receiver exists; survives a restart for seven days.
+    public func recordContinuation(receiverKey: String, sourceKey: String, handoffPath: String?, now: Date = Date()) {
+        continuationLedger.record(receiverKey: receiverKey, sourceKey: sourceKey, handoffPath: handoffPath, now: now)
         broadcast()
     }
     /// The user's hand-set attention levels, layered onto every snapshot.
@@ -385,6 +382,9 @@ public actor SessionStore {
         self.toolLedger = ToolLedger(url: journalURL?.deletingLastPathComponent().appendingPathComponent("tool-ledger.json"), now: now)
         self.recapLedger = RecapLedger(url: journalURL?.deletingLastPathComponent().appendingPathComponent("recap-ledger.json"), now: now)
         self.handoffScanner = HandoffScanner()
+        let ledgerDirectory = journalURL?.deletingLastPathComponent()
+        self.continuationLedger = ContinuationLedger(url: ledgerDirectory?.appendingPathComponent(ContinuationLedger.fileName), now: now)
+        self.recentDirectoryLedger = RecentDirectories(url: ledgerDirectory?.appendingPathComponent("recent-directories.json"), now: now)
         self.sourceID = sourceID
         self.staleAfter = staleAfter
         self.diagnosticsHome = diagnosticsHome
@@ -393,6 +393,13 @@ public actor SessionStore {
             let journal = LifecycleJournal(url: journalURL, now: now)
             self.lifecycleJournal = journal
             reducer.restore(journal.restorableSessions(now: now, meaningfulFor: staleAfter))
+            // A restored session gets the checkout it was actually observed in,
+            // or none; a folder with the same name is not evidence.
+            for id in reducer.sessions.keys {
+                guard let checkout = recentDirectoryLedger.checkout(of: id) else { continue }
+                reducer.restoreCheckout(sessionID: id, path: checkout)
+                workingDirectories[id] = checkout
+            }
         }
         var missed = MissedLedger(url: missedURL, now: now)
         missed.observe(Array(reducer.sessions.values), now: now)
@@ -545,7 +552,7 @@ public actor SessionStore {
     @discardableResult
     public func applyStatusLine(_ sample: StatusLineSample, at date: Date) -> Bool {
         let applied = reducer.applyStatusLine(sample)
-        rememberDirectory(sample.cwd, at: date)
+        rememberDirectory(sample.cwd, sessionID: sample.sessionID, at: date)
         if applied {
             if let path = sample.transcriptPath { transcriptPaths[sample.sessionID] = path }
             reducer.recordObservation(sessionID: sample.sessionID, source: .statusline,
@@ -667,7 +674,7 @@ public actor SessionStore {
             toolLedger.observe(record, sessionID: event.sessionID, now: event.timestamp)
         }
         let wasWaiting = reducer.sessions[event.sessionID]?.status == .needsResponse
-        rememberDirectory(event.cwd, at: event.timestamp)
+        rememberDirectory(event.cwd, sessionID: event.sessionID, at: event.timestamp)
         if let cwd = event.cwd, cwd.hasPrefix("/") { workingDirectories[event.sessionID] = cwd }
         reducer.apply(event, observationSource: observationSource, recordsEvidence: recordsEvidence)
         if let wait = explicitWaits[event.sessionID],
@@ -1174,15 +1181,16 @@ public actor SessionStore {
         // record; `takenBy` is what this process started from each one.
         let handoffs = handoffScanner.scan(directories: directories).map { record in
             var record = record
-            record.takenBy = handoffTakenBy[record.path] ?? []
+            record.takenBy = continuationLedger.takenBy(handoffPath: record.path)
             return record
         }
         snapshot.handoffs = handoffs.isEmpty ? nil : handoffs
-        if !continuations.isEmpty {
+        if !continuationLedger.records.isEmpty {
             snapshot.sessions = snapshot.sessions.map { session in
-                guard let key = continuations[session.id] else { return session }
+                guard let key = ContinueWith.sessionKey(for: session),
+                      let source = continuationLedger.sourceKey(forReceiver: key) else { return session }
                 var session = session
-                session.continuesSessionKey = key
+                session.continuesSessionKey = source
                 return session
             }
         }
@@ -1230,19 +1238,12 @@ public actor SessionStore {
 
     /// Directories sessions have run in, newest first (bounded). A phone may
     /// only start a task in one of these.
-    public func recentDirectories() -> [String] {
-        directorySeen.sorted { $0.value > $1.value }.map(\.key)
-    }
+    public func recentDirectories() -> [String] { recentDirectoryLedger.recent }
 
-    public func isKnownDirectory(_ path: String) -> Bool { directorySeen[path] != nil }
+    public func isKnownDirectory(_ path: String) -> Bool { recentDirectoryLedger.isKnown(path) }
 
-    private func rememberDirectory(_ cwd: String?, at date: Date) {
-        guard let cwd, cwd.hasPrefix("/"), !cwd.isEmpty else { return }
-        directorySeen[cwd] = date
-        if directorySeen.count > Self.recentDirectoryLimit,
-           let oldest = directorySeen.min(by: { $0.value < $1.value }) {
-            directorySeen.removeValue(forKey: oldest.key)
-        }
+    private func rememberDirectory(_ cwd: String?, sessionID: String?, at date: Date) {
+        recentDirectoryLedger.remember(cwd, sessionID: sessionID, at: date)
     }
 
     /// The terminal program the user's most recent terminal-backed session

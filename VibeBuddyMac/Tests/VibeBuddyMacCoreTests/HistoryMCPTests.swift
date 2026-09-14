@@ -55,11 +55,21 @@ final class HistoryMCPTests: XCTestCase {
         let (root, repository) = try await fixture()
         defer { try? FileManager.default.removeItem(at: root) }
         let store = root.appendingPathComponent("history")
+        // The daemon's ledgers, as `facts` reads them: every file must be byte-identical afterwards.
+        let facts = root.appendingPathComponent("facts")
+        try FileManager.default.createDirectory(at: facts, withIntermediateDirectories: true)
+        for (name, body) in ["lifecycle-journal.json": #"{"schemaVersion":1,"entries":[]}"#, "tool-ledger.json": "{}",
+                             "recent-directories.json": #"{"directories":{},"sessions":{}}"#, "continuations.json": "[]"] {
+            try Data(body.utf8).write(to: facts.appendingPathComponent(name))
+        }
         func bytes() throws -> [String: Data] {
-            try Dictionary(uniqueKeysWithValues: FileManager.default.contentsOfDirectory(at: store, includingPropertiesForKeys: nil).map { ($0.lastPathComponent, try Data(contentsOf: $0)) })
+            try Dictionary(uniqueKeysWithValues: ([store, facts].flatMap { dir in
+                try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil).map { (dir.lastPathComponent + "/" + $0.lastPathComponent, try Data(contentsOf: $0)) }
+            }))
         }
         let before = try bytes()
-        let executor = HistoryToolExecutor(repository: repository, environment: ["VIBEBUDDY_PORT": "0", "VIBEBUDDY_FACTS_DIRECTORY": root.appendingPathComponent("facts").path])
+        XCTAssertEqual(before.keys.filter { $0.hasPrefix("facts/") }.count, 4)
+        let executor = HistoryToolExecutor(repository: repository, environment: ["VIBEBUDDY_PORT": "0", "VIBEBUDDY_FACTS_DIRECTORY": facts.path])
         let server = HistoryMCPServer(executor: executor)
         _ = try await initialize(server)
         let requests: [(String, [String])] = [

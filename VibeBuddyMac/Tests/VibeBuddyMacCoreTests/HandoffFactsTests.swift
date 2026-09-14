@@ -119,6 +119,21 @@ final class HandoffFactsTests: XCTestCase {
         XCTAssertThrowsError(try HandoffFacts.call(arguments: ["key": "claude-code:abc", "cwd": "relative"], directory: dir, git: fakeGit, now: now))
     }
 
+    func testALineageRecordIsPrintedBeforeAnyObservation() throws {
+        let dir = try fixture()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var ledger = ContinuationLedger(url: dir.appendingPathComponent(ContinuationLedger.fileName), now: now)
+        ledger.record(receiverKey: "codex:brand-new", sourceKey: "claude-code:abc", handoffPath: "/repo/.scratch/e/handoffs/h.md", now: now.addingTimeInterval(-30))
+        let unobserved = try HandoffFacts.call(arguments: ["key": "codex:brand-new"], directory: dir, git: fakeGit, now: now)
+        XCTAssertTrue(unobserved.contains("- Continues: claude-code:abc (started by the Mac from the handoff at /repo/.scratch/e/handoffs/h.md, 2027-01-15T07:59:30Z)"), unobserved)
+        XCTAssertTrue(unobserved.contains("- Not recorded:"))
+        let source = try HandoffFacts.call(arguments: ["key": "claude-code:abc"], directory: dir, git: fakeGit, now: now)
+        XCTAssertFalse(source.contains("- Continues:"), "the source did not continue anything")
+        ledger.record(receiverKey: "cursor:cur", sourceKey: "codex:solo", handoffPath: nil, now: now)
+        let observed = try HandoffFacts.call(arguments: ["key": "cursor:cur"], directory: dir, git: fakeGit, now: now)
+        XCTAssertTrue(observed.contains("- Continues: codex:solo (started by the Mac from the history tools (no handoff document), 2027-01-15T08:00:00Z)"), observed)
+    }
+
     func testCLIShapeAndRegistry() throws {
         let parsed = try HistoryCLI.parse(["facts", "claude-code:abc", "--commands", "5", "--cwd", "/repo"])
         XCTAssertEqual(parsed.tool, HandoffFacts.toolName)

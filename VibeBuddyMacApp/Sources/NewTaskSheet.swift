@@ -162,7 +162,9 @@ struct NewTaskSheet: View {
                 name = prefill.name
                 prompt = prefill.prompt
             }
-            if directory.isEmpty { directory = model.recentDirectories.first ?? "" }
+            // A plain New task starts in the newest directory; a Continue with…
+            // whose checkout the Mac never observed stays empty for the person to pick.
+            if directory.isEmpty, prefill?.continuing == nil { directory = model.recentDirectories.first ?? "" }
             if !model.dispatchAgents.contains(agent), let first = model.dispatchAgents.first { agent = first }
         }
     }

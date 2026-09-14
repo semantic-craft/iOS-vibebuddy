@@ -15,7 +15,8 @@ public struct HandoffRecord: Codable, Equatable, Hashable, Sendable, Identifiabl
     public var worktree: String?
     /// The file's modification time.
     public var writtenAt: Date
-    /// Session ids the Mac started from this document, in this process's lifetime.
+    /// Session keys (`<agent>:<id>`) of receivers the Mac started from this
+    /// document, oldest first, from the Mac's continuation records (seven days).
     public var takenBy: [String]
     public var id: String { path }
     public init(path: String, sourceKey: String? = nil, ticket: String? = nil, branch: String? = nil,

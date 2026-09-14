@@ -1053,7 +1053,8 @@ final class MenuBarModel: ObservableObject {
         let handoff = ContinueWith.handoff(for: session, in: handoffs)
         continueRequest = NewTaskPrefill(
             agent: agent,
-            directory: session.checkoutPath ?? session.terminalRef?.cwd ?? recentDirectories.first ?? "",
+            // Only what the Mac observed; unknown stays empty and the person picks.
+            directory: session.checkoutPath ?? session.terminalRef?.cwd ?? "",
             name: ContinueWith.taskName(for: session),
             prompt: ContinueWith.prompt(sessionKey: key, handoffPath: handoff?.path),
             continuing: NewTaskPrefill.Continuation(sessionID: session.id, sourceKey: key, handoffPath: handoff?.path))
@@ -1062,8 +1063,9 @@ final class MenuBarModel: ObservableObject {
     func dispatch(_ request: DispatchRequest, userChoseDirectory: Bool = false,
                   continuing: NewTaskPrefill.Continuation? = nil) async -> DispatchOutcome {
         let outcome = await start(request, userChoseDirectory: userChoseDirectory)
-        if case .started(let id) = outcome, let continuing {
-            await store.recordContinuation(sessionID: id, sourceKey: continuing.sourceKey, handoffPath: continuing.handoffPath)
+        if case .started(let id) = outcome, let continuing,
+           let receiverKey = ContinueWith.sessionKey(agent: request.agent, id: id) {
+            await store.recordContinuation(receiverKey: receiverKey, sourceKey: continuing.sourceKey, handoffPath: continuing.handoffPath)
         }
         return outcome
     }
