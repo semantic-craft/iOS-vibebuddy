@@ -469,8 +469,6 @@ struct DashboardView: View {
         }
     }
 
-    /// Title bar, reading column and the right slot (shelf / pane / rail),
-    /// laid out by `RightSlotState` for the width the split gives it.
     @ViewBuilder private var detailColumn: some View {
         if let s = selectedSession {
             VStack(spacing: 0) {

@@ -216,7 +216,7 @@ of `.scratch/cursor-visual-language/` lands.)* The
 shared tokens, copy and controls live in `VibeBuddyKit/Sources/VibeBuddyKit/
 Companion.swift` and `CompanionViews.swift` (palette, type, `CompanionCopy`,
 `StateGroups`, `PillButtonStyle`, `StateGlyph`, `AgentAvatar`, `AgentBadge`,
-`BucketTitle`, `SpeechBubble`, `SplitApproveButton`, `ApprovalBody`); the Mac's
+`SplitApproveButton`, `ApprovalBody`); the Mac's
 `MacTheme` is a thin alias over them.
 
 - **iPhone dashboard**: superseded by rounds 6–8 below — the message stream

@@ -4,7 +4,7 @@ The skills speak in terms of five canonical triage roles. This file maps those r
 
 Because issues live as local markdown (see `issue-tracker.md`), the "label" is recorded as a `Status:` line near the top of the issue file, e.g. `Status: ready-for-agent`.
 
-| Label in mattpocock/skills | Label in our tracker | Meaning                                  |
+| Canonical triage role | Label in our tracker | Meaning                                  |
 | -------------------------- | -------------------- | ---------------------------------------- |
 | `needs-triage`             | `needs-triage`       | Maintainer needs to evaluate this issue  |
 | `needs-info`               | `needs-info`         | Waiting on reporter for more information |
