@@ -58,6 +58,51 @@ extension AnnouncementPlan.Item {
     }
 }
 
+/// AVFAudio's delegate is Sendable; the synthesizer and utterance are not.
+/// Compare identities inside callbacks and protect only the small lifecycle
+/// state, without moving either audio object across actors.
+private final class SystemSpeechLifecycle: NSObject, AVSpeechSynthesizerDelegate, @unchecked Sendable {
+    enum State { case queued, speaking, finished, cancelled }
+    enum Failure: Error { case cancelled, timedOut }
+    private let synthesizerID: ObjectIdentifier
+    private let utteranceID: ObjectIdentifier
+    private let lock = NSLock()
+    private var value = State.queued
+
+    init(synthesizer: AVSpeechSynthesizer, utterance: AVSpeechUtterance) {
+        synthesizerID = ObjectIdentifier(synthesizer)
+        utteranceID = ObjectIdentifier(utterance)
+        super.init()
+    }
+
+    var state: State {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+
+    private func update(_ next: State, synthesizer: AVSpeechSynthesizer, utterance: AVSpeechUtterance) {
+        guard ObjectIdentifier(synthesizer) == synthesizerID,
+              ObjectIdentifier(utterance) == utteranceID else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        guard value != .finished, value != .cancelled else { return }
+        value = next
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
+        update(.speaking, synthesizer: synthesizer, utterance: utterance)
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        update(.finished, synthesizer: synthesizer, utterance: utterance)
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        update(.cancelled, synthesizer: synthesizer, utterance: utterance)
+    }
+}
+
 @MainActor
 final class PhoneAnnouncer: ObservableObject {
     @Published private(set) var isBusy = false
@@ -202,7 +247,7 @@ final class PhoneAnnouncer: ObservableObject {
             let text = VoiceSettings.conversationLanguage() == .chinese ? "这是本机播报试听。任务已经完成，下一步请查看结果。" : "This is a voice preview. The task is complete. Please review the result."
             let item = AnnouncementPlan.Item(sessionID: "preview", title: "", sound: .agentDone, round: "preview")
             await self.play(text: text, item: item, position: nil, remember: false, validate: { true })
-            guard self.generation == previewGeneration else { return }
+            guard !Task.isCancelled, self.generation == previewGeneration else { return }
             self.previewMessage = self.status ?? String(localized: "Preview finished")
             self.isPreviewing = false
             self.isBusy = false
@@ -300,17 +345,45 @@ final class PhoneAnnouncer: ObservableObject {
                 systemVoice = synthesizer
                 let utterance = AVSpeechUtterance(string: text)
                 utterance.voice = AVSpeechSynthesisVoice(language: VoiceSettings.conversationLanguage() == .chinese ? "zh-CN" : "en-US")
+                // delegate is weak: keep this exact utterance's lifecycle alive
+                // until a terminal callback, cancellation, or timeout.
+                let lifecycle = SystemSpeechLifecycle(synthesizer: synthesizer, utterance: utterance)
+                synthesizer.delegate = lifecycle
+                defer {
+                    synthesizer.delegate = nil
+                    synthesizer.stopSpeaking(at: .immediate)
+                    if generation == current { systemVoice = nil }
+                }
                 status = label
                 if remember, let source = sourceIdentity?() { latest = (text, item, source); canReplay = true }
                 synthesizer.speak(utterance)
-                while (synthesizer.isSpeaking || isPaused) && !Task.isCancelled && generation == current {
+                let clock = ContinuousClock()
+                let completionLimit = max(60, Double(text.count))
+                var activeTime = Duration.zero
+                var started = false
+                speech: while true {
                     try await waitWhilePaused()
+                    try Task.checkCancellation()
+                    guard generation == current else { return }
                     guard validate() else { stopPlayback(); status = String(localized: "Skipped · task or content style changed"); return }
+                    switch lifecycle.state {
+                    case .finished: break speech
+                    case .cancelled: throw SystemSpeechLifecycle.Failure.cancelled
+                    case .speaking:
+                        if !started { started = true; activeTime = .zero }
+                    case .queued: break
+                    }
+                    // A stalled system service must fail, not hold the queue
+                    // forever. Paused time is excluded; long content receives
+                    // a generous completion budget of one second per character.
+                    let limit = started ? completionLimit : 15
+                    guard activeTime < .seconds(limit) else { throw SystemSpeechLifecycle.Failure.timedOut }
+                    let tick = clock.now
                     try await Task.sleep(for: .milliseconds(100))
+                    activeTime += tick.duration(to: clock.now)
                 }
-                if generation == current { systemVoice = nil }
             }
-            if generation == current { spokenCount += 1 }
+            if generation == current, !Task.isCancelled { spokenCount += 1 }
         } catch let failure as SpeechSynthesisFailure {
             guard generation == current, !Task.isCancelled else { return }
             status = failure.message
