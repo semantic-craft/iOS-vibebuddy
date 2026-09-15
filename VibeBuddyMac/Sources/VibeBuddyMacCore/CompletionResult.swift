@@ -60,7 +60,6 @@ struct CompletionResults {
         let turnID: String?
         let title: String
         let completedAt: Date
-        let startedAt: Date
         let transcriptPath: String?
         var expectedText: String?
         var outcome: CompletionResultAvailability?
@@ -94,6 +93,17 @@ struct CompletionResults {
     mutating func observe(_ event: HookEvent, session: AgentSession?, sourceID: String?, now: Date,
                           authoritative: Bool = true, createdCompletion: Bool = false) {
         let id = event.sessionID
+        let nativeResultEvidence = !(event.agent == .codex && event.observationSource == .hook)
+        if event.agent == .codex, let sourceID, let turn = event.turnID,
+           [.userPromptSubmit, .preToolUse, .postToolUse, .notification].contains(event.kind) {
+            for key in records.keys where records[key]?.sourceID == sourceID
+                && records[key]?.sessionID == id && records[key]?.agent == .codex
+                && records[key]?.turnID == turn && records[key]?.text == nil {
+                guard let record = records[key], event.timestamp > record.completedAt else { continue }
+                records[key]?.invalidated = true
+                if candidates[id]?.completionID == record.completionID { candidates[id] = nil }
+            }
+        }
         // Known older turns may enrich only their own existing record, even
         // after a new run replaced the current candidate.
         if event.kind == .stop, let sourceID {
@@ -111,16 +121,16 @@ struct CompletionResults {
                     if candidates[id]?.completionID == records[key]?.completionID { candidates[id] = nil }
                     if runs[id]?.turnID == records[key]?.turnID,
                        runs[id]?.startedAt == records[key]?.startedAt, runs[id]?.agent == records[key]?.agent { runs[id] = nil }
-                } else if event.completionSucceeded == true, let text = event.completionText {
+                } else if nativeResultEvidence, event.completionSucceeded == true, let text = event.completionText {
                     if records[key]?.transcriptPath == nil { records[key]?.transcriptPath = event.transcriptPath }
                     accept(text, id: key, now: now)
                 } else if records[key]?.transcriptPath == nil { records[key]?.transcriptPath = event.transcriptPath }
             }
-            if !matching.isEmpty { return }
+            if !matching.isEmpty && !createdCompletion { return }
         }
         // App-server can first discover an already-ended native turn. Its
-        // successful ending proves this mapping, but does not invent a prompt
-        // boundary or revive notification capture. A rollout may enrich it later.
+        // successful ending proves this mapping without inventing a prompt
+        // boundary. Only a fresh Hook can also start notification capture.
         if authoritative, createdCompletion, event.kind == .stop, event.agent == .codex,
            event.completionSucceeded == true, !event.userStopped, !event.probeRetirement,
            runs[id] == nil, let turn = event.turnID, !turn.isEmpty,
@@ -128,10 +138,14 @@ struct CompletionResults {
            let completionID = session.completionID {
             let key = RecapEntry.completedID(sourceID: sourceID, sessionID: id, completionID: completionID)
             if records[key] == nil {
+                if event.observationSource == .hook {
+                    candidates[id] = Candidate(completionID: completionID, turnID: turn,
+                        title: session.displayTitle, completedAt: event.timestamp, transcriptPath: event.transcriptPath)
+                }
                 records[key] = Record(sourceID: sourceID, sessionID: id, completionID: completionID,
                     agent: event.agent, turnID: turn, title: session.displayTitle,
                     startedAt: event.turnStartedAt, completedAt: event.timestamp, transcriptPath: event.transcriptPath)
-                if let text = event.completionText { accept(text, id: key, now: now) }
+                if nativeResultEvidence, let text = event.completionText { accept(text, id: key, now: now) }
             }
             return
         }
@@ -170,8 +184,10 @@ struct CompletionResults {
             return
         }
         guard event.kind == .stop, let run = runs[id], run.agent == event.agent, event.timestamp >= run.startedAt else { return }
-        let progressOnly = event.agent == .codex && event.completionSucceeded == nil
-            && (event.turnID == nil || event.turnID == run.turnID)
+        // A Codex Hook Stop reports success without a turn ID. It can end the
+        // observed run, but only native terminal evidence can supply its result.
+        let progressOnly = event.agent == .codex && event.completionSucceeded != false
+            && (event.turnID == nil || (event.completionSucceeded == nil && event.turnID == run.turnID))
         if let turn = run.turnID, event.turnID != turn, !progressOnly { return }
         if event.completionSucceeded == false || event.probeRetirement || event.userStopped {
             runs[id] = nil; candidates[id] = nil
@@ -190,11 +206,11 @@ struct CompletionResults {
         // An existing mapping cannot be reassigned by another ending.
         if let existing = records[key], existing.turnID != run.turnID { return }
         var candidate = candidates[id] ?? Candidate(completionID: completionID, turnID: run.turnID,
-            title: session.displayTitle, completedAt: event.timestamp, startedAt: run.startedAt,
+            title: session.displayTitle, completedAt: event.timestamp,
             transcriptPath: event.transcriptPath ?? run.transcriptPath)
         if candidate.completionID != completionID {
             candidate = Candidate(completionID: completionID, turnID: run.turnID, title: session.displayTitle,
-                completedAt: event.timestamp, startedAt: run.startedAt, transcriptPath: event.transcriptPath ?? run.transcriptPath)
+                completedAt: event.timestamp, transcriptPath: event.transcriptPath ?? run.transcriptPath)
         }
         candidates[id] = candidate
         if records[key] == nil {
@@ -202,7 +218,7 @@ struct CompletionResults {
                 agent: event.agent, turnID: run.turnID, title: candidate.title, startedAt: run.startedAt,
                 completedAt: candidate.completedAt, transcriptPath: candidate.transcriptPath)
         }
-        if event.completionSucceeded == true, let text = event.completionText {
+        if nativeResultEvidence, !progressOnly, event.completionSucceeded == true, let text = event.completionText {
             // Claude Stop.last_assistant_message is the successful final reply;
             // its transcript can lag. StopFailure never reaches this branch.
             accept(text, id: key, now: now)

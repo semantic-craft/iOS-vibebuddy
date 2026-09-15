@@ -810,7 +810,16 @@ public actor SessionStore {
         announcesWait: Bool = true
     ) {
         if dropsCursorObserveOnly(event) { return }
-        if event.agent == .codex {
+        // Corroborating progress can arrive after the exact native turn ended.
+        // Keep its observation, but never reopen that turn or clear its result.
+        let completedTurnProgress = event.agent == .codex && event.turnID != nil
+            && [.userPromptSubmit, .preToolUse, .postToolUse, .notification].contains(event.kind)
+            && completionResults.records.values.contains {
+                $0.sourceID == sourceID && $0.sessionID == event.sessionID
+                    && $0.agent == event.agent && $0.turnID == event.turnID
+                    && event.timestamp <= $0.completedAt
+            }
+        if event.agent == .codex, !completedTurnProgress {
             if event.kind == .sessionEnd { appServerProgressAt[event.sessionID] = nil }
             else if observationSource == .appserver, recordsEvidence {
                 switch event.kind {
@@ -824,12 +833,14 @@ public actor SessionStore {
         recordCursorHookLog(event, from: observationSource)
         // A corroborating source may supply the menu's read-only round evidence.
         if let path = event.transcriptPath { transcriptPaths[event.sessionID] = path }
-        if appServerOutranks(event, from: observationSource)
+        if completedTurnProgress || appServerOutranks(event, from: observationSource)
             || acpOutranks(event, from: observationSource)
             || cursorHooksOutrank(event, from: observationSource) {
-            completionResults.observe(event, session: reducer.sessions[event.sessionID],
-                sourceID: sourceID, now: Date(), authoritative: false)
-            persistCompletionResults()
+            if !completedTurnProgress {
+                completionResults.observe(event, session: reducer.sessions[event.sessionID],
+                    sourceID: sourceID, now: Date(), authoritative: false)
+                persistCompletionResults()
+            }
             if let enrichment = event.enrichment {
                 enrichSession(sessionID: event.sessionID, with: enrichment)
             }
