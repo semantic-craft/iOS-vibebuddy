@@ -106,33 +106,6 @@ public struct SessionActionSupport: Equatable, Sendable {
         }
     }
 
-    /// Cursor takes instructions, but never into the turn that is running.
-    ///
-    /// A supplement for a live turn is queued and handed to Cursor's own `stop`
-    /// hook, which submits it as the next message — Cursor's documented
-    /// auto-continuation, and the only remote write it offers. Continuing a
-    /// finished conversation goes the other way: `cursor-agent --resume` opens
-    /// the same chat in a terminal, so it needs the CLI to be installed and
-    /// signed in, which only the Mac can know. Both require vibebuddy's hooks,
-    /// so an unhooked Cursor session says so instead of promising delivery.
-    private static func cursorSupport(intent: SessionActionIntent,
-                                      session: AgentSession) -> SessionActionSupport {
-        guard session.observations?.contains(where: { $0.source == .hook }) == true else {
-            return SessionActionSupport(intent: intent,
-                unsupportedReason: String(localized: "Install VibeBuddy's Cursor hooks to send instructions from here.", bundle: .module))
-        }
-        switch intent {
-        case .steer:
-            return SessionActionSupport(intent: intent,
-                note: String(localized: "Cursor can't be interrupted mid-turn. This is queued and sent the moment the turn ends.", bundle: .module))
-        case .continue:
-            return SessionActionSupport(intent: intent,
-                note: String(localized: "Continues this chat in a terminal with the Cursor CLI.", bundle: .module))
-        default:
-            return SessionActionSupport(intent: intent)
-        }
-    }
-
     /// A Cursor chat reached through its hooks takes instructions, but never
     /// into the turn that is running.
     ///

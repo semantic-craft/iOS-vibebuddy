@@ -137,30 +137,6 @@ public struct AgentBadge: View {
     }
 }
 
-/// `<Title> <count>` — the head of a state bucket.
-public struct BucketTitle: View {
-    public let title: String
-    public let count: Int
-    public var onDark: Bool
-
-    public init(title: String, count: Int, onDark: Bool = false) {
-        self.title = title
-        self.count = count
-        self.onDark = onDark
-    }
-
-    public var body: some View {
-        HStack(spacing: 8) {
-            Text(title).font(CompanionType.font(14, .black))
-                .foregroundStyle(onDark ? .white : CompanionPalette.ink)
-            Text(verbatim: "\(count)").font(CompanionType.font(12, .heavy)).monospacedDigit()
-                .foregroundStyle(onDark ? .white.opacity(0.6) : CompanionPalette.ink2)
-            Spacer(minLength: 0)
-        }
-        .accessibilityElement(children: .combine)
-    }
-}
-
 #if os(iOS) || os(macOS)
 /// The "Uncommitted ⌄" kind of dropdown Cursor uses for scope and model
 /// pickers: an outlined, quiet capsule with the current value and a chevron.
@@ -345,33 +321,3 @@ public struct ApprovalBody: View {
     }
 }
 #endif
-
-// MARK: - Speech bubble
-
-/// A rounded card with a small tail pointing at the cat on its left.
-public struct SpeechBubble<Content: View>: View {
-    private let content: Content
-    public init(@ViewBuilder content: () -> Content) { self.content = content() }
-
-    public var body: some View {
-        content
-            .padding(.horizontal, 14).padding(.vertical, 9)
-            .companionCard()
-            .background(alignment: .leading) {
-                BubbleTail().fill(CompanionPalette.bg3)
-                    .frame(width: 8, height: 14)
-                    .offset(x: -7, y: 0)
-            }
-    }
-}
-
-private struct BubbleTail: Shape {
-    func path(in r: CGRect) -> Path {
-        var p = Path()
-        p.move(to: CGPoint(x: r.maxX, y: r.minY))
-        p.addLine(to: CGPoint(x: r.minX, y: r.midY))
-        p.addLine(to: CGPoint(x: r.maxX, y: r.maxY))
-        p.closeSubpath()
-        return p
-    }
-}

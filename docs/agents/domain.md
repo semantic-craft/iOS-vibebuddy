@@ -9,7 +9,7 @@ This repo is **single-context**: one `CONTEXT.md` and one `docs/adr/` at the roo
 - **`CONTEXT.md`** at the repo root — the project's domain language.
 - **`docs/adr/`** — read ADRs that touch the area you're about to work in.
 
-If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The producer skill (`/grill-with-docs`) creates them lazily when terms or decisions actually get resolved.
+If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. Create them only when domain terms or architectural decisions are resolved within the requested work.
 
 ## File structure
 
@@ -30,13 +30,11 @@ If any of these files don't exist, **proceed silently**. Don't flag their absenc
 └── (app sources)
 ```
 
-> Note: a vendored copy of these skills lives under `vendor/mattpocock-skills/` and has its own `docs/adr/`. Ignore it — the authoritative domain docs are the root `CONTEXT.md` and root `docs/adr/`.
-
 ## Use the glossary's vocabulary
 
 When your output names a domain concept (in an issue title, a refactor proposal, a hypothesis, a test name), use the term as defined in `CONTEXT.md`. Don't drift to synonyms the glossary explicitly avoids.
 
-If the concept you need isn't in the glossary yet, that's a signal — either you're inventing language the project doesn't use (reconsider) or there's a real gap (note it for `/grill-with-docs`).
+If the concept you need isn't in the glossary yet, that's a signal — either you're inventing language the project doesn't use (reconsider) or there's a real gap (note the unresolved term for the domain discussion).
 
 ## Flag ADR conflicts
 
