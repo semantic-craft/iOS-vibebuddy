@@ -129,28 +129,31 @@ struct PairingScannerSheet: View {
     @EnvironmentObject private var connection: ConnectionStore
     @EnvironmentObject private var dashboard: DashboardStore
     var onManualEntry: (() -> Void)? = nil
+    var onScan: ((PairingPayload) -> Void)? = nil
     @State private var showHelp = false
 
     var body: some View {
         NavigationStack {
             QRScannerView { payload in
-                let unchanged = connection.pairing == payload
-                dashboard.confirmPairing()
-                connection.save(payload)
-                // A different payload restarts via DashboardView's task(id:).
-                // Scanning the same Mac must also retry a failed connection.
-                if unchanged { dashboard.start(payload) }
+                if let onScan {
+                    onScan(payload)
+                } else {
+                    let unchanged = connection.pairing == payload
+                    dashboard.confirmPairing()
+                    connection.save(payload)
+                    if unchanged { dashboard.start(payload) }
+                }
                 dismiss()
             }
             .ignoresSafeArea()
             .safeAreaInset(edge: .bottom) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Open “Pair a phone” on your Mac, then scan its QR code. Cancelling keeps your current pairing.")
+                        Text("On your Mac, open Devices & connection and choose Show connection code. Scan the code here. Cancelling keeps your current pairing.")
                             .font(CompanionType.font(15))
                         DisclosureGroup("Can't find the QR code?", isExpanded: $showHelp) {
                             VStack(alignment: .leading, spacing: 12) {
-                                Text("Install the companion on your Mac, then open “Pair a phone” in its menu bar. Use the same local network or connect both devices to Tailscale.")
+                                Text("Install the companion on your Mac, open Devices & connection, then choose Show connection code. Use the same local network or connect both devices to Tailscale.")
                                 MacCompanionDownloadActions()
                             }.padding(.top, 12)
                         }

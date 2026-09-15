@@ -37,11 +37,6 @@ struct ConnectView: View {
                     Text("Your live tasks come from your own Mac. Install the free Mac companion and scan its code to unlock connected features.")
                         .font(CompanionType.font(14)).foregroundStyle(CompanionPalette.ink2)
                 }
-                MacCompanionSteps()
-                Text("For Apple Silicon Macs with macOS 14 or later. Install the companion on your Mac, not your iPhone.")
-                    .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink3)
-                MacCompanionDownloadActions()
-
                 VStack(spacing: 16) {
                     Button {
                         showScanner = true
@@ -50,9 +45,22 @@ struct ConnectView: View {
                     }
                     .buttonStyle(PhoneButtonStyle(kind: .primary(CompanionPalette.accent), size: .wide))
 
-                    Text("Open “Pair a phone” in the vibebuddy Mac menu bar and scan that QR code.")
+                    Text("On your Mac, open Devices & connection, choose Show connection code, then scan it.")
                         .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
                         .multilineTextAlignment(.center)
+
+                    NavigationLink { RemoteConnectionView() } label: {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Label("Connect away from home", systemImage: "network")
+                                .font(CompanionType.font(15, .medium))
+                            Text("Scan your Mac’s remote code, then check your connection. Works with Headscale, Tailscale or Surge.")
+                                .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(14)
+                        .companionCard()
+                    }
+                    .accessibilityIdentifier("initial-remote-connection")
 
                     Button(showManual ? LocalizedStringKey("Hide manual entry")
                                       : LocalizedStringKey("Enter address manually")) {
@@ -60,14 +68,23 @@ struct ConnectView: View {
                     }
                     .font(CompanionType.font(13, .medium))
 
-                    Text("Away from home? Use Tailscale or Headscale. If your iPhone uses Surge, route your Mac’s private IP through its Tailscale policy.")
-                        .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink3)
-                    NavigationLink("Headscale & Surge") { RemoteConnectionView() }
                     if let connectionError {
                         Text(connectionError)
                             .font(CompanionType.font(13)).foregroundStyle(CompanionPalette.status(.error))
                     }
                     if showManual { manualFields }
+
+                    DisclosureGroup("Need the Mac companion?") {
+                        VStack(alignment: .leading, spacing: 16) {
+                            MacCompanionSteps()
+                            Text("For Apple Silicon Macs with macOS 14 or later. Install the companion on your Mac, not your iPhone.")
+                                .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink3)
+                            MacCompanionDownloadActions()
+                        }
+                        .padding(.top, 12)
+                    }
+                    .font(CompanionType.font(14, .medium))
+                    .accessibilityIdentifier("initial-mac-setup")
 
                     Button("See the demo (no Mac needed)") { connection.enterDemo() }
                         .font(CompanionType.font(13))

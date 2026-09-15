@@ -67,3 +67,30 @@ hidden rows back ("Show N older") and Customize has the same switch.
   If the same staleness shows up on those surfaces it is a separate decision.
 - The phone shows fewer rows than the Mac's menu-bar panel by design. A person
   looking for older work reaches it through Customize, not by scrolling.
+
+## Amendment: visible device connection entry (2026-09-15)
+
+The owner selected prototype A for the iPhone connection flow. The inbox's
+connection control becomes a rounded rectangle with a Mac symbol, device name,
+and disclosure chevron. A readable connection status appears below it. This
+replaces the unlabeled state-dot menu. Other toolbar controls retain their
+existing shape, and ADR-0022's inbox structure stays in place.
+
+The control opens **Device & connection**, also available from Settings.
+**Connect away from home** leads with scanning the Mac's remote pairing code.
+Manual address entry is secondary, with the port under advanced settings.
+The remote flow keeps the scanned pairing as a candidate until it receives an
+authenticated live snapshot. Cancellation or failure preserves the saved pairing.
+Authentication refusal offers re-pairing. A connection timeout offers network
+checks and retry without claiming which network component failed.
+
+The coordinated Mac implementation in ADR-0025 adds address discovery and an
+explicit sync action for an already paired phone. The phone polls while active,
+checks the device-bound proposal against authenticated live Mac identity, and
+rechecks that the proposal is current before saving. Receipt delivery retries
+independently; the device page distinguishes local success from Mac confirmation.
+Failed checks preserve the old address and offer an explicit retry before expiry.
+
+Surge or Tailscale continues to own network enrollment and authorization. A
+successful remote-address check does not establish cellular reachability; the
+success page asks the user to check again with Wi-Fi off.
