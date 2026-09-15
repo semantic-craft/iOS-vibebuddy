@@ -253,9 +253,96 @@ final class DashboardStore: ObservableObject {
     /// untouched — normalization already happened where the provider's own
     /// convention was still known.
     @Published private(set) var lastProviderQuota: [ProviderQuota] = []
-    /// The Mac's recap as the last snapshot carried it, relayed to the Watch
-    /// as is. This phone renders none of it (the recap is a wrist surface).
-    private var lastRecap: Recap?
+    @Published private var lastRecap: Recap?
+    @Published private(set) var recapSourceID: String?
+
+    @Published private(set) var recapConfirmation = RecapConfirmation()
+    private var recapBatchEpoch: String?
+    private var recapTask: Task<Void, Never>?
+
+    var recap: Recap? { lastRecap }
+    var recapAvailable: Bool { state == .connected && sourceID != nil && sourceID == recapSourceID && lastRecap != nil }
+    var recapPairingEpoch: String { pairingEpoch }
+
+    func confirmRecap(_ displayed: Recap, source: String, epoch: String) {
+        guard source == sourceID, epoch == pairingEpoch, epoch == ConnectionStore.pairingEpoch,
+              recapConfirmation.begin(recap: displayed, sourceID: source, available: recapAvailable) else { return }
+        recapBatchEpoch = epoch
+        runRecapConfirmation()
+    }
+
+    func retryRecap() {
+        guard recapBatchEpoch == pairingEpoch, pairingEpoch == ConnectionStore.pairingEpoch,
+              recapConfirmation.retry(sourceID: sourceID, available: recapAvailable) else { return }
+        runRecapConfirmation()
+    }
+
+    private func observeRecapAuthority() {
+        recapConfirmation.observeSource(sourceID)
+        if let recapBatchEpoch, recapBatchEpoch != pairingEpoch {
+            recapConfirmation.invalidate()
+        }
+    }
+
+    private func runRecapConfirmation() {
+        guard let attempt = recapConfirmation.attemptID, let epoch = recapBatchEpoch else { return }
+        recapTask = Task { [weak self] in
+            guard let self else { return }
+            let requests = recapConfirmation.pendingCompletions
+            for request in requests {
+                guard recapConfirmation.isRunning, recapConfirmation.attemptID == attempt else { break }
+                let outcome = await readRecapCompletion(request, epoch: epoch)
+                recapConfirmation.receiveCompletion(outcome, request: request, attemptID: attempt)
+                if outcome == .sourceMismatch { break }
+            }
+            if recapConfirmation.attemptID == attempt, let horizon = recapConfirmation.pendingHorizonRequest {
+                let outcome = await advancePhoneRecap(horizon, epoch: epoch)
+                recapConfirmation.receiveHorizon(outcome, attemptID: attempt)
+            }
+            recapConfirmation.finish(attemptID: attempt)
+        }
+    }
+
+    @discardableResult
+    func readRecapCompletion(_ request: CompletionReadRequest, epoch: String) async -> CompletionReadOutcome {
+        guard epoch == ConnectionStore.pairingEpoch, epoch == pairingEpoch else { return .sourceMismatch }
+        guard !Task.isCancelled, state == .connected, let pairing, let sourceID else { return .failed }
+        guard sourceID == request.sourceID else { return .sourceMismatch }
+        let generation = connectionGeneration
+        let outcome = await decisionClient.acknowledge(pairing, request: request)
+        guard self.pairing == pairing, epoch == self.pairingEpoch,
+              epoch == ConnectionStore.pairingEpoch else { return .sourceMismatch }
+        if let currentSource = self.sourceID, currentSource != request.sourceID { return .sourceMismatch }
+        guard generation == connectionGeneration, self.sourceID == request.sourceID else { return .failed }
+        completionReads.received(outcome, request: request)
+        return outcome
+    }
+
+    private func advancePhoneRecap(_ request: RecapReadRequest, epoch: String) async -> RecapReadOutcome {
+        guard epoch == ConnectionStore.pairingEpoch, epoch == pairingEpoch else { return .sourceMismatch }
+        guard !Task.isCancelled, state == .connected, let pairing, let sourceID else { return .failed }
+        guard request.sourceID == sourceID else { return .sourceMismatch }
+        let generation = connectionGeneration
+        let outcome = await decisionClient.advanceRecapHorizon(pairing, request: request)
+        guard self.pairing == pairing, epoch == pairingEpoch,
+              epoch == ConnectionStore.pairingEpoch else { return .sourceMismatch }
+        if let currentSource = self.sourceID, currentSource != request.sourceID { return .sourceMismatch }
+        guard generation == connectionGeneration, self.sourceID == request.sourceID else { return .failed }
+        return outcome
+    }
+
+    func recapBody(_ request: CompletionReadRequest, epoch: String) async -> CompletionBody? {
+        guard epoch == pairingEpoch, epoch == ConnectionStore.pairingEpoch,
+              sourceID == request.sourceID, let pairing, state == .connected else { return nil }
+        let generation = connectionGeneration
+        let body = await decisionClient.completionBody(pairing, sessionId: request.sessionID, completionId: request.completionID)
+        guard !Task.isCancelled, generation == connectionGeneration, self.pairing == pairing,
+              epoch == self.pairingEpoch, epoch == ConnectionStore.pairingEpoch,
+              self.sourceID == request.sourceID, let body,
+              body.sourceID == request.sourceID, body.sessionID == request.sessionID,
+              body.completionID == request.completionID else { return nil }
+        return body
+    }
     /// Local Claude Code / Codex token spend as the Mac last reported it.
     @Published private(set) var lastTokenConsumption: TokenConsumptionSnapshot?
     /// QA switch for the Demo allowance, `VIBEBUDDY_DEMO_QUOTA`: `stale` plays
@@ -580,11 +667,12 @@ final class DashboardStore: ObservableObject {
         isDemo = false
         lastProviderQuota = []
         lastTokenConsumption = nil
-        lastRecap = nil
+        if self.pairing != pairing { lastRecap = nil; recapSourceID = nil }
         if self.pairing != pairing { phoneActions = [:]; phoneActionIdentity = [:] }
         self.pairing = pairing
         ConnectionStore.observePairing(pairing)
         pairingEpoch = ConnectionStore.pairingEpoch
+        observeRecapAuthority()
         completionReads.select(epoch: pairingEpoch)
         recentOutputs = [:]
         sourceID = nil
@@ -657,6 +745,9 @@ final class DashboardStore: ObservableObject {
         lastProviderQuota = []
         lastTokenConsumption = nil
         lastRecap = nil
+        recapSourceID = nil
+        recapConfirmation.invalidate()
+        recapTask?.cancel()
         WidgetQuotaStore.clear()
         relayToWatch([])
     }
@@ -1311,6 +1402,7 @@ final class DashboardStore: ObservableObject {
         lastProviderQuota = snapshot.providerQuota ?? []
         lastTokenConsumption = snapshot.tokenConsumption
         lastRecap = snapshot.recap
+        recapSourceID = snapshot.sourceID
         buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: snapshot.sessions)
         let wasDisconnected = state != .connected
         state = .connected
@@ -1323,6 +1415,7 @@ final class DashboardStore: ObservableObject {
         let refreshStyle = sourceID != snapshot.sourceID || contentPresentationRevision != snapshot.contentPresentationRevision
             || wasDisconnected
         sourceID = snapshot.sourceID
+        observeRecapAuthority()
         contentPresentationRevision = snapshot.contentPresentationRevision
         if refreshStyle { Task { await self.loadContentStyle() } }
         completionReads.reconcile(snapshot, epoch: pairingEpoch)

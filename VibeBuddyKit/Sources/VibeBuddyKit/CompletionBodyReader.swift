@@ -9,6 +9,15 @@ public struct CompletionBodyRefresh: Equatable, Sendable {
     public let attempt: Int
     public let isActive: Bool
 
+    public init(request: CompletionReadRequest?, context: String? = nil, attempt: Int = 0, isActive: Bool = true) {
+        identity = request
+        self.context = context
+        self.attempt = attempt
+        self.isActive = isActive
+        textHint = nil
+        notice = nil
+    }
+
     public init(sourceID: String?, session: AgentSession, context: String? = nil,
                 attempt: Int = 0, isActive: Bool = true) {
         if let sourceID, let completionID = session.completionID, session.status == .done {

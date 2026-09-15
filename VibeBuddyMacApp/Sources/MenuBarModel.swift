@@ -33,7 +33,7 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var recap: Recap?
     // The recap view owns a five-second TimelineView for freshness.
     private(set) var recapUpdatedAt: Date?
-    @Published private(set) var recapConfirmation = MacRecapConfirmation()
+    @Published private(set) var recapConfirmation = RecapConfirmation()
     @Published private(set) var observationDiagnostics: [AgentObservationDiagnostic] = []
     /// Directories sessions have run in, newest first — where a new task may start.
     @Published private(set) var recentDirectories: [String] = []

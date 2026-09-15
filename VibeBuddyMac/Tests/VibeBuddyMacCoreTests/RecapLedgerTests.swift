@@ -170,7 +170,7 @@ struct RecapLedgerTests {
         let after = try #require(await store.snapshot(now: t0.addingTimeInterval(51)).recap)
         #expect(after.entries.map(\.id) == [entry.id])
         #expect(after.entries.first?.isRead == false)
-        var mac = MacRecapConfirmation()
+        var mac = RecapConfirmation()
         let started = mac.begin(recap: after, sourceID: "mac", available: true)
         #expect(started)
         #expect(mac.pendingCompletions == [read])

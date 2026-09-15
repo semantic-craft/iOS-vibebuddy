@@ -18,6 +18,7 @@ struct DashboardView: View {
     @State private var showConnection = false
     @State private var showSettings = false
     @State private var showQuota = false
+    @State private var showRecap = false
     /// What the dashboard has already started, so a return from the pushed
     /// Usage page does not reconnect or restart the demo.
     @State private var startedPairing: PairingPayload?
@@ -116,7 +117,8 @@ struct DashboardView: View {
                               openBucket: { open(bucket: $0) },
                               openProject: { open(project: $0) },
                               showOlder: { filters.bucket = nil; filters.project = nil; filters.includeInactive = true; page = .list },
-                              readPending: { readPending() })
+                              readPending: { readPending() },
+                              openRecap: { showRecap = true })
                     .listRowInsets(.init(top: 2, leading: 0, bottom: 12, trailing: 0))
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
@@ -252,6 +254,14 @@ struct DashboardView: View {
         .navigationDestination(isPresented: $showQuota) {
             UsagePageView(focus: usageFocus)
         }
+        .navigationDestination(isPresented: $showRecap) {
+            PhoneRecapView(drafts: readerDrafts,
+                           isUnobscured: !showConnection && !showSettings && !showQuota && !showFilters
+                               && !showVoicePage && !voice.showConsent && newTaskRequest == nil
+                               && !dashboard.completionLinkUnavailable,
+                           newTask: { newTaskRequest = NewTaskRequest(draft: "") },
+                           openVoice: { showVoicePage = true })
+        }
         .onChange(of: dashboard.usageRequest) { _, request in openUsage(request) }
         // A widget tap on a cold launch lands before this view exists.
         .onAppear { openUsage(dashboard.usageRequest) }
@@ -282,7 +292,7 @@ struct DashboardView: View {
             Group {
                 if let session = detailSession {
                     PhoneSessionReader(session: session, completionNotificationID: detailCompletionNotificationID,
-                                       isUnobscured: readerSource == dashboard.completionSourceID && !showConnection && !showSettings && !showQuota && !showFilters
+                                       isUnobscured: readerSource == dashboard.completionSourceID && !showRecap && !showConnection && !showSettings && !showQuota && !showFilters
                                            && !showVoicePage && !voice.showConsent && newTaskRequest == nil
                                            && !dashboard.completionLinkUnavailable,
                                        drafts: readerDrafts,
@@ -365,6 +375,7 @@ struct DashboardView: View {
             switch page {
             case "customize": showFilters = true
             case "usage": showQuota = true
+            case "recap": showRecap = true
             case "newtask": newTaskRequest = NewTaskRequest(draft: "")
             case "list": open(bucket: .all)
             case "read": readPending()
@@ -527,6 +538,9 @@ struct DashboardView: View {
                     .accessibilityIdentifier("phone-list-back")
             }
             Spacer(minLength: 0)
+            PhoneCircleButton("clock.arrow.circlepath") { showRecap = true }
+                .accessibilityLabel("Recap")
+                .accessibilityIdentifier("phone-open-recap")
             if page == .inbox {
                 PhoneCircleButton("chart.bar") { showQuota = true }
                     .accessibilityLabel("Account quota")

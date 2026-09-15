@@ -382,14 +382,16 @@ code, and tests — don't drift to synonyms.
   the last mark recorded once a later round has replaced it.
 - **Recap horizon** — the single moment the Mac keeps as "the user last read
   the recap": entries that ended before it are no longer in the recap. Moved
-  forward only, by Watch Mark all (`POST /recap-read`) or Mac explicit recap
+  forward only, by explicit phone confirmation (`POST /recap-read`) or Mac
   confirmation through SessionStore, shared by every device. It
   changes no round's read/unread state and re-sends no cue.
 - **Recap** (`Recap`) — the ordered set of recap entries after the horizon and
-  within the last 24 hours, newest first, at most twelve; read on the wrist by
-  turning the Digital Crown through one page per round, with Mark all on the
-  last page, and on Mac through Inbox or the sidebar. Mac confirmation freezes
-  the displayed batch and retains partial-write retry state across navigation.
+  within the last 24 hours, newest first, at most twelve; read on phone and Mac
+  through Inbox or global navigation. Watch has no Recap surface. Both phone and
+  Mac confirmation freeze the displayed entry IDs, exact completion requests
+  and horizon, retaining partial-write retry state across navigation. Phone
+  also binds the batch to its pairing epoch. A selected phone round keeps its
+  original identity and never substitutes a newer live result.
   Reading the recap alone changes neither horizon nor completion reads. Its 24-hour window is the recap's own rule and only coincides in
   number with *Current session*'s 24 hours: the recap decides what a recap
   shows, `SessionCurrency` decides what a list shows and a count counts.

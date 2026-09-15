@@ -148,6 +148,7 @@ struct InboxHomeView: View {
     let showOlder: () -> Void
     /// "Read pending": the queue above, spoken in order (ticket 04).
     let readPending: () -> Void
+    var openRecap: () -> Void = {}
 
     @State private var selectedProjectPath: String?
 
@@ -191,6 +192,12 @@ struct InboxHomeView: View {
                 }
                 .padding(.horizontal, PhoneMetrics.gutter)
                 .padding(.top, 12)
+                Button(action: openRecap) {
+                    Label("Recap", systemImage: "clock.arrow.circlepath")
+                        .font(.headline).frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(PhoneButtonStyle(kind: .quiet))
+                .padding(.horizontal, PhoneMetrics.gutter).padding(.top, 14)
                 projectList
                     .padding(.top, 18)
             }
