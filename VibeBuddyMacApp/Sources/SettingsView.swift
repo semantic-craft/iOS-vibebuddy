@@ -125,7 +125,7 @@ enum SettingsPageID: String, CaseIterable, Identifiable {
         case .notifications: "Notifications"
         case .voice: "Voice"
         case .providerKeys: "Provider keys"
-        case .phone: "Phone & remote"
+        case .phone: "Devices & connection"
         case .agentCLIs: "Agent CLIs"
         case .connect: "Connect"
         case .quota: "Plan & quota"
@@ -141,7 +141,7 @@ enum SettingsPageID: String, CaseIterable, Identifiable {
         case .notifications: "What rings, and when it stays quiet"
         case .voice: "Conversation, summaries and reading aloud"
         case .providerKeys: "One key per provider, shared by every feature"
-        case .phone: "Pairing and remote access"
+        case .phone: "Connect at home or away"
         case .agentCLIs: "Hooks, daemons and who answers first"
         case .connect: "Read local history from your agents"
         case .quota: "When an allowance should warn you"
@@ -424,82 +424,13 @@ private struct PhonePage: View {
 
     var body: some View {
         SettingsPageScaffold(SettingsPageID.phone.title, subtitle: SettingsPageID.phone.subtitle) {
-            SettingsSection("Pairing") {
-                SettingsRow("Pair a phone", detail: "Scan the QR code in the VibeBuddy iOS app.") {
-                    Button(model.pairingInProgress ? "Cancel pairing" : "Pair a phone") {
-                        if model.pairingInProgress { model.endPairing() } else { model.beginPairing() }
-                    }
-                    .disabled(model.changingPairing || (!model.pairingInProgress && model.pairing == nil))
-                }
-                if model.pairingInProgress {
-                    SettingsBlockRow {
-                        if let qr = model.qrImage {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Image(nsImage: qr).interpolation(.none).resizable()
-                                    .frame(width: 176, height: 176).padding(12).background(.white)
-                                    .accessibilityLabel("Pairing QR code")
-                                Text("Scan this in the VibeBuddy iOS app within 2 minutes.")
-                                    .font(SettingsChrome.font(12.5)).foregroundStyle(MacTheme.ink2)
-                            }
-                        } else {
-                            Text("Pairing is not ready.")
-                                .font(SettingsChrome.font(12.5)).foregroundStyle(MacTheme.ink2)
-                        }
-                    }
-                }
-                if let phone = model.pairedPhone {
-                    SettingsRow(verbatim: phone.name,
-                                detail: phone.confirmed
-                                ? String(localized: "Saved pairing. Live connection status unavailable.")
-                                : String(localized: "Registered before pairing confirmation was recorded. Choose Pair a phone to confirm, or forget it.")) {
-                        HStack(spacing: 8) {
-                            SettingsPill(phone.pushRegistered ? "Push registered" : "Push pending",
-                                         tone: phone.pushRegistered ? .ok : .neutral)
-                            Button(role: .destructive) { model.forgetPairedPhone() } label: {
-                                Text("Forget")
-                            }
-                            .disabled(model.changingPairing)
-                            .help("Stops pushes and forgets all registered phones until you choose Pair a phone again.")
-                        }
-                    }
-                    if !phone.subtitle.isEmpty {
-                        SettingsRow("Device") { SettingsValue(verbatim: phone.subtitle) }
-                    }
-                    SettingsRow("Last seen") {
-                        SettingsValue(Text(phone.lastSeen, style: .relative))
-                    }
-                } else {
-                    SettingsRow("Paired phone") {
-                        SettingsValue("No phone paired")
-                    }
-                }
-            }
+            ConnectionCenterView(model: model)
 
-            SettingsSection("Connection",
-                            footnote: "Connect Mac and iPhone to the same tailnet. For Headscale, use this Mac’s 100.x.x.x address.") {
-                SettingsRow("Use Tailscale for remote access") {
-                    Toggle("", isOn: $model.useTailscale)
-                        .labelsHidden().toggleStyle(.switch)
-                        .disabled(model.pairingInProgress || model.changingPairing)
-                }
-                if model.useTailscale {
-                    SettingsRow("Tailscale address",
-                                detailText: model.pairing == nil
-                                ? String(localized: "Enter a valid Tailscale address.") : nil) {
-                        TextField("100.x.x.x or Mac name.ts.net", text: $model.tailscaleHost)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 176)
-                            .disabled(model.pairingInProgress || model.changingPairing)
-                            .accessibilityLabel("Tailscale address")
-                    }
-                }
-                SettingsRow("This Mac") { SettingsValue(verbatim: model.macDisplayName) }
-                SettingsRow("Pairing address") {
-                    SettingsValue(verbatim: model.pairingAddress, monospaced: true)
-                }
+            DisclosureGroup("Notifications & delivery") {
+                ConnectionAndDeliverySection(model: model, setup: setup, showDiagnostics: showDiagnostics)
             }
-
-            ConnectionAndDeliverySection(model: model, setup: setup, showDiagnostics: showDiagnostics)
+            .font(SettingsChrome.font(12.5))
+            .padding(.top, 20)
         }
     }
 }
@@ -832,24 +763,7 @@ private extension LifecycleJournalEntry {
 
 /// Both device settings surfaces edit the same saved companion endpoint. The
 /// menu-bar popover still shows it as a plain stack of controls.
-struct TailscalePairingSettings: View {
-    @ObservedObject var model: MenuBarModel
 
-    var body: some View {
-        Toggle("Use Tailscale for remote access", isOn: $model.useTailscale)
-            .disabled(model.pairingInProgress || model.changingPairing)
-        if model.useTailscale {
-            TextField("100.x.x.x or Mac name.ts.net", text: $model.tailscaleHost)
-                .textFieldStyle(.roundedBorder)
-                .disabled(model.pairingInProgress || model.changingPairing)
-            Text("Connect Mac and iPhone to the same tailnet. For Headscale, use this Mac’s 100.x.x.x address.")
-                .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
-            if model.pairing == nil {
-                Text("Enter a valid Tailscale address.").foregroundStyle(MacTheme.status(.requiresInput))
-            }
-        }
-    }
-}
 
 /// Records a global shortcut. While recording, a local event monitor swallows
 /// the next key combo (the Settings window has focus, so a local monitor is

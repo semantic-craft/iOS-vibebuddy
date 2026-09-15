@@ -18,6 +18,7 @@ public struct VibeBuddyServer: Sendable {
     /// pusher, which is what consults it.
     public let phoneReceipts: PhoneReceipts
     private let deliveryRecorder: (any NotificationDeliveryRecording)?
+    public let connectionSync: RemoteConnectionSyncStore
     public let deviceTokens: DeviceTokens
     /// Live Activity push tokens registered by phones (dynamic-island/02).
     public let activityTokens: ActivityTokens
@@ -108,6 +109,7 @@ public struct VibeBuddyServer: Sendable {
                 phoneReceipts: PhoneReceipts = PhoneReceipts(),
                 deliveryRecorder: (any NotificationDeliveryRecording)? = nil,
                 deviceTokens: DeviceTokens = DeviceTokens(),
+                connectionSync: RemoteConnectionSyncStore = RemoteConnectionSyncStore(),
                 activityTokens: ActivityTokens = ActivityTokens(),
                 codexRolloutMonitor: CodexRolloutMonitor? = nil,
                 codexAppServerMonitor: CodexAppServerMonitor? = nil,
@@ -150,6 +152,7 @@ public struct VibeBuddyServer: Sendable {
         self.phoneReceipts = phoneReceipts
         self.deliveryRecorder = deliveryRecorder
         self.deviceTokens = deviceTokens
+        self.connectionSync = connectionSync
         self.activityTokens = activityTokens
         self.codexRolloutMonitor = codexRolloutMonitor
         self.codexAppServerMonitor = codexAppServerMonitor
@@ -489,6 +492,27 @@ public struct VibeBuddyServer: Sendable {
             }
             guard await deviceTokens.registerFromPhone(payload) else { throw HTTPError(.forbidden) }
             if payload.hasVisibleDeviceInfo { onDevicePaired(payload) }
+            return .ok
+        }
+
+        let connectionSync = self.connectionSync
+        authed.get("connection-sync") { request, _ -> Response in
+            guard let deviceID = request.uri.queryParameters["deviceID"].map(String.init),
+                  await deviceTokens.isConfirmed(deviceID: deviceID) else { throw HTTPError(.forbidden) }
+            guard let proposal = await connectionSync.pending(for: deviceID) else {
+                return Response(status: .noContent)
+            }
+            let data = try JSONEncoder().encode(proposal)
+            return Response(status: .ok, headers: [.contentType: "application/json", .cacheControl: "no-store"],
+                            body: .init(byteBuffer: ByteBuffer(bytes: data)))
+        }
+        authed.post("connection-sync/receipt") { request, _ -> HTTPResponse.Status in
+            let buffer = try await request.body.collect(upTo: 4096)
+            guard let receipt = try? JSONDecoder().decode(RemoteConnectionReceipt.self, from: Data(buffer: buffer)) else {
+                throw HTTPError(.badRequest)
+            }
+            guard await deviceTokens.isConfirmed(deviceID: receipt.deviceID) else { throw HTTPError(.forbidden) }
+            guard await connectionSync.receive(receipt) else { throw HTTPError(.conflict) }
             return .ok
         }
 

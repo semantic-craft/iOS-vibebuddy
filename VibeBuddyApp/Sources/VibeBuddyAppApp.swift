@@ -5,6 +5,7 @@ import VibeBuddyKit
 struct VibeBuddyAppApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var connection = ConnectionStore()
+    @StateObject private var connectionSync = RemoteConnectionSyncController()
     @StateObject private var dashboard: DashboardStore
     @StateObject private var voice: VoiceChat
 
@@ -20,6 +21,7 @@ struct VibeBuddyAppApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(connection)
+                .environmentObject(connectionSync)
                 .environmentObject(dashboard)
                 .environmentObject(voice)
                 .onOpenURL { dashboard.open($0) }
@@ -28,7 +30,16 @@ struct VibeBuddyAppApp: App {
 }
 
 struct RootView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var connection: ConnectionStore
+    @EnvironmentObject private var dashboard: DashboardStore
+    @EnvironmentObject private var connectionSync: RemoteConnectionSyncController
+
+    private struct SyncActivity: Equatable {
+        let pairing: PairingPayload?
+        let active: Bool
+        let demo: Bool
+    }
 
     var body: some View {
         NavigationStack {
@@ -42,6 +53,19 @@ struct RootView: View {
             if !Self.skipNotifications {
                 PushRegistration.shared.registerForRemoteNotifications()
                 PushRegistration.shared.update(pairing: connection.pairing)
+            }
+        }
+        .task(id: SyncActivity(pairing: connection.pairing, active: scenePhase == .active, demo: connection.demo)) {
+            await connectionSync.run(connection: connection, enabled: scenePhase == .active && !connection.demo) {
+                guard let pairing = connection.pairing else { return nil }
+                return dashboard.connectionSourceID(for: pairing)
+            }
+        }
+        .onChange(of: connectionSync.state) { oldValue, newValue in
+            if case .connected = oldValue { return }
+            if case .connected = newValue, dashboard.state != .connected,
+               let pairing = connection.pairing {
+                dashboard.start(pairing)
             }
         }
         .onChange(of: connection.pairing) { _, newValue in

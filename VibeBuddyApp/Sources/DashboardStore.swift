@@ -245,6 +245,10 @@ final class DashboardStore: ObservableObject {
     /// the Mac saw the world rather than when this phone re-rendered it.
     private var lastServerTime = Date.distantPast
     private var sourceID: String?
+
+    func connectionSourceID(for pairing: PairingPayload) -> String? {
+        self.pairing == pairing ? sourceID : nil
+    }
     /// Account allowance as the Mac last reported it. The phone forwards it
     /// untouched — normalization already happened where the provider's own
     /// convention was still known.

@@ -13,6 +13,7 @@ struct PairedPhone: Codable, Equatable {
     var lastSeen: Date
     var pushRegistered: Bool
     var confirmed: Bool
+    var deviceID: String? = nil
 
     var subtitle: String {
         [model, systemVersion].compactMap { value in
@@ -106,6 +107,11 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var qrImage: NSImage?
     /// The most-recently paired phone's display metadata (persisted), shown in the UI.
     @Published private(set) var pairedPhone: PairedPhone?
+    @Published private(set) var detectedRemoteAddresses: [String] = []
+    @Published private(set) var remoteTransfer: RemoteConnectionSyncStore.Transfer?
+    @Published private(set) var synchronizingConnection = false
+    private let connectionSync = RemoteConnectionSyncStore()
+
     @Published var launchAtLogin = LaunchAtLogin.isEnabled
     @Published var glanceScale: CGFloat = 1.0
     @Published var showGlance: Bool = true
@@ -521,6 +527,7 @@ final class MenuBarModel: ObservableObject {
         let server = VibeBuddyServer(store: store, token: token, host: E2ERunConfiguration.current?.host ?? "0.0.0.0", port: port,
                                      pusher: nil, phoneReceipts: phoneReceipts,
                                      deviceTokens: deviceTokens,
+                                     connectionSync: connectionSync,
                                      activityTokens: activityTokens,
                                      codexRolloutMonitor: menuRolloutMonitor,
                                      codexAppServerMonitor: E2ERunConfiguration.current == nil || codexAppServerEnabled ? codexAppServerMonitor : nil,
@@ -1481,6 +1488,57 @@ final class MenuBarModel: ObservableObject {
         launchAtLogin = LaunchAtLogin.isEnabled
     }
 
+    var remoteAddressIsValid: Bool {
+        CompanionEndpoint(host: tailscaleHost, port: port)?.isTailnetIPv4 == true
+    }
+
+    var canSyncConnection: Bool {
+        useTailscale && remoteAddressIsValid && pairedPhone?.confirmed == true
+            && pairedPhone?.deviceID?.isEmpty == false && !synchronizingConnection && !changingPairing
+    }
+
+    func discoverRemoteAddress() {
+        detectedRemoteAddresses = LANAddress.tailnetIPv4Addresses()
+        if tailscaleHost.isEmpty, detectedRemoteAddresses.count == 1 {
+            let hasPreference = UserDefaults.standard.object(forKey: "pairing.useTailscale") != nil
+            tailscaleHost = detectedRemoteAddresses[0]
+            if !hasPreference { useTailscale = true }
+        }
+    }
+
+    func refreshConnectionCenter() async {
+        await refreshPairedPhone()
+        if let deviceID = pairedPhone?.deviceID {
+            remoteTransfer = await connectionSync.transfer(for: deviceID)
+        } else {
+            remoteTransfer = nil
+        }
+    }
+
+    func syncConnectionToPhone() {
+        guard canSyncConnection, let deviceID = pairedPhone?.deviceID else { return }
+        let host = tailscaleHost
+        synchronizingConnection = true
+        Task {
+            defer { synchronizingConnection = false }
+            guard await deviceTokens.isConfirmed(deviceID: deviceID), let sourceID = await store.sourceID else { return }
+            await connectionSync.propose(deviceID: deviceID, sourceID: sourceID, host: host, port: port)
+            await refreshConnectionCenter()
+        }
+    }
+
+    func cancelConnectionSync() {
+        guard let deviceID = remoteTransfer?.proposal.deviceID else { return }
+        Task {
+            await connectionSync.cancel(for: deviceID)
+            await refreshConnectionCenter()
+        }
+    }
+
+    func openConnectionSettings() {
+        NotificationCenter.default.post(name: .openAppSettings, object: SettingsPageID.phone)
+    }
+
     /// User action only. Preparing a QR at launch never authorizes registration.
     func beginPairing() {
         preparePairing()
@@ -1521,7 +1579,7 @@ final class MenuBarModel: ObservableObject {
             PairedPhone(name: Self.nonEmpty(entry.device.name) ?? "iPhone",
                         model: entry.device.model, systemVersion: entry.device.systemVersion,
                         lastSeen: entry.registeredAt, pushRegistered: entry.device.hasPushToken,
-                        confirmed: entry.pairedAt != nil)
+                        confirmed: entry.pairedAt != nil, deviceID: entry.device.deviceID)
         }
         let newlyConfirmed = pairedPhone?.confirmed != true && next?.confirmed == true
         pairedPhone = next
@@ -1536,6 +1594,8 @@ final class MenuBarModel: ObservableObject {
         pairingInProgress = false
         pairedPhone = nil
         Task {
+            await connectionSync.cancelAll()
+            remoteTransfer = nil
             await deviceTokens.forgetAll()
             deviceRegistry = await deviceTokens.summary()
             changingPairing = false

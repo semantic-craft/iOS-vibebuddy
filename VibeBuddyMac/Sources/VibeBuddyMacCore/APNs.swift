@@ -93,6 +93,13 @@ public actor DeviceTokens {
 
     public func pairedPhones() -> [DeviceRegistryEntry] { registry.entries }
 
+    public func isConfirmed(deviceID: String) -> Bool {
+        !deviceID.isEmpty && registry.entries.contains {
+            $0.device.deviceID == deviceID && $0.pairedAt != nil
+        }
+    }
+
+
     public func all() -> [String] { registry.entries.compactMap(\.device.token) }
     public func devices() -> [DeviceRegistrationPayload] { registry.devices }
     public func summary() -> DeviceRegistrySummary { registry.summary }

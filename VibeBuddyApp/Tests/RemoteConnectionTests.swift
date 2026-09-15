@@ -70,3 +70,85 @@ private struct RejectedStream: SnapshotStreaming {
         AsyncThrowingStream { $0.finish(throwing: CompanionConnectionFailure.authentication) }
     }
 }
+
+@MainActor
+final class RemoteConnectionAttemptTests: XCTestCase {
+    func testRejectedCandidateKeepsSavedPairing() async throws {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let connection = ConnectionStore(defaults: defaults)
+        let original = PairingPayload(host: "192.168.1.20", port: 9876, token: "old")
+        connection.save(original)
+        let check = RemoteConnectionAttempt()
+        check.start(PairingPayload(host: "100.64.0.8", port: 9876, token: "new"),
+                    connection: connection, streamer: RejectedStream())
+        try await waitUntil { !check.isChecking }
+        XCTAssertEqual(check.phase, .failure(.authentication))
+        XCTAssertEqual(connection.pairing, original)
+        XCTAssertEqual(try JSONDecoder().decode(PairingPayload.self, from: XCTUnwrap(defaults.data(forKey: "vibebuddy.pairing"))), original)
+    }
+
+    func testCancelledCheckCannotSaveOrClearReplacementCheck() async throws {
+        let connection = ConnectionStore(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        let original = PairingPayload(host: "192.168.1.20", port: 9876, token: "old")
+        connection.save(original)
+        let first = HeldRemoteStream()
+        let second = HeldRemoteStream()
+        let check = RemoteConnectionAttempt()
+        check.start(PairingPayload(host: "100.64.0.8", port: 9876, token: "first"), connection: connection, streamer: first)
+        try await waitUntil { first.started }
+        check.cancel()
+        XCTAssertEqual(connection.pairing, original)
+        let replacement = PairingPayload(host: "100.64.0.9", port: 9876, token: "replacement", macName: "Second Mac")
+        check.start(replacement, connection: connection, streamer: second)
+        try await waitUntil { second.started }
+        first.deliver()
+        await Task.yield()
+        XCTAssertTrue(check.isChecking)
+        XCTAssertEqual(connection.pairing, original)
+        second.deliver()
+        try await waitUntil { !check.isChecking }
+        XCTAssertEqual(check.phase, .success)
+        XCTAssertEqual(connection.pairing, replacement)
+    }
+
+    func testSavedPairingChangeDuringCheckIsNotOverwritten() async throws {
+        let connection = ConnectionStore(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        let stream = HeldRemoteStream()
+        let check = RemoteConnectionAttempt()
+        check.start(PairingPayload(host: "100.64.0.8", port: 9876, token: "candidate"), connection: connection, streamer: stream)
+        try await waitUntil { stream.started }
+        let other = PairingPayload(host: "192.168.1.21", port: 9876, token: "other")
+        connection.save(other)
+        stream.deliver()
+        try await waitUntil { !check.isChecking }
+        XCTAssertEqual(check.phase, .failure(.pairingChanged))
+        XCTAssertEqual(connection.pairing, other)
+    }
+
+    private func waitUntil(_ ready: () -> Bool) async throws {
+        for _ in 0..<100 {
+            if ready() { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTFail("Remote connection attempt did not finish")
+    }
+}
+
+private final class HeldRemoteStream: SnapshotStreaming, @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: AsyncThrowingStream<Snapshot, Error>.Continuation?
+    var started: Bool { lock.withLock { continuation != nil } }
+
+    func stream(_ pairing: PairingPayload) -> AsyncThrowingStream<Snapshot, Error> {
+        AsyncThrowingStream { continuation in
+            lock.withLock { self.continuation = continuation }
+        }
+    }
+
+    func deliver() {
+        lock.withLock {
+            continuation?.yield(Snapshot(sessions: [], serverTime: Date()))
+            continuation?.finish()
+        }
+    }
+}

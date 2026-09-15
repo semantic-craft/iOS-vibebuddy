@@ -51,6 +51,9 @@ struct VibeBuddyMenuBarApp: App {
                 Button("Open Dashboard") {
                     NotificationCenter.default.post(name: .openDashboard, object: nil)
                 }
+                Button("Open menu-bar panel") {
+                    isMenuPresented = true
+                }
             }
         }
     }
@@ -440,8 +443,8 @@ private struct MenuFooterControl: View {
                     }
                 }
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
             .contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
@@ -556,44 +559,26 @@ struct MenuContent: View {
 
     private var phoneDetails: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 16) {
                 HStack {
-                    Text("Phone details").font(MacTheme.font(13, .semibold))
+                    Text("Connect iPhone").font(MacTheme.font(15, .semibold))
                     Spacer()
                     Button("Done") { showsPhoneDetails = false }
-                        .keyboardShortcut(.cancelAction)
                 }
-                if let phone = model.pairedPhone {
-                    Text(phone.confirmed ? String(localized: "Paired: \(phone.name)") : String(localized: "Registered: \(phone.name)"))
-                    if !phone.subtitle.isEmpty { Text(phone.subtitle) }
-                    Text("Last seen \(phone.lastSeen.formatted(date: .abbreviated, time: .shortened))")
-                    Text(phone.pushRegistered ? "Push registered" as LocalizedStringKey : "Push not registered")
-                } else {
-                    Text("No phone paired")
+                ConnectionCenterView(model: model, compact: true)
+                Button {
+                    showsPhoneDetails = false
+                    model.openConnectionSettings()
+                } label: {
+                    Label("Open devices & connection", systemImage: "arrow.up.forward")
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                Text("Live connection status unavailable")
-                    .foregroundStyle(MacTheme.ink2)
-                Text("Push registration does not confirm notification delivery.")
-                    .foregroundStyle(MacTheme.ink2)
-                Divider()
-                TailscalePairingSettings(model: model)
-                Text(model.pairingAddress).font(MacTheme.mono(11)).textSelection(.enabled)
-                Button(model.pairingInProgress ? "Cancel pairing" : "Pair a phone") {
-                    if model.pairingInProgress { model.endPairing() } else { model.beginPairing() }
-                }
-                .disabled(model.changingPairing || (!model.pairingInProgress && model.pairing == nil))
-                if model.pairingInProgress, let qr = model.qrImage {
-                    Image(nsImage: qr).interpolation(.none).resizable()
-                        .scaledToFit().frame(width: 176, height: 176)
-                        .padding(12).background(.white)
-                        .accessibilityLabel("Pairing QR code")
-                    Text("Scan this in the VibeBuddy iOS app within 2 minutes.")
-                }
+                .buttonStyle(.plain)
+                .foregroundStyle(MacTheme.accent)
             }
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(12)
+            .padding(18)
         }
-        .frame(width: min(320, screenSize.width - 48), height: min(430, screenSize.height - 72))
+        .frame(width: min(380, screenSize.width - 48), height: min(620, screenSize.height - 100))
         .font(MacTheme.font(12))
         .foregroundStyle(MacTheme.ink)
         .background(MacTheme.bg)
@@ -679,11 +664,10 @@ struct MenuContent: View {
         let phone = model.pairedPhone
         return Button { showsPhoneDetails.toggle() } label: {
             HStack(spacing: 5) {
-                Circle()
-                    .fill(phone == nil ? MacTheme.ink3 : MacTheme.accent)
-                    .frame(width: 6, height: 6)
+                Image(systemName: "iphone.gen3")
+                    .foregroundStyle(MacTheme.accent)
                 if showsName {
-                    Text(phone?.name ?? String(localized: "No phone paired"))
+                    Text("Connect iPhone")
                         .lineLimit(1)
                         .fixedSize()
                 }
@@ -695,7 +679,8 @@ struct MenuContent: View {
         .buttonStyle(.borderless)
         .foregroundStyle(MacTheme.ink2)
         .help(Self.phoneTooltip(phone))
-        .accessibilityLabel("Phone details and pairing")
+        .accessibilityLabel("Connect iPhone")
+        .accessibilityIdentifier("mac-connect-iphone")
         .accessibilityValue(phone.map { $0.confirmed ? String(localized: "Paired: \($0.name)") : String(localized: "Registered: \($0.name)") }
                              ?? String(localized: "No phone paired"))
     }
