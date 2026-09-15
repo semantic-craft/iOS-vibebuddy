@@ -149,6 +149,8 @@ struct InboxHomeView: View {
     /// "Read pending": the queue above, spoken in order (ticket 04).
     let readPending: () -> Void
 
+    @State private var selectedProjectPath: String?
+
     private let tileColumns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
 
     var body: some View {
@@ -192,6 +194,15 @@ struct InboxHomeView: View {
                 projectList
                     .padding(.top, 18)
             }
+        }
+        .alert("Project", isPresented: Binding(
+            get: { selectedProjectPath != nil },
+            set: { if !$0 { selectedProjectPath = nil } }
+        ), presenting: selectedProjectPath) { path in
+            Button("Copy") { UIPasteboard.general.string = path }
+            Button("Cancel", role: .cancel) {}
+        } message: { path in
+            Text(verbatim: path)
         }
     }
 
@@ -331,10 +342,15 @@ struct InboxHomeView: View {
                 .accessibilityLabel(Text(verbatim: row.pendingCount > 0
                     ? "\(row.title), \(String(localized: "\(row.pendingCount) pending"))" : row.title))
                 .accessibilityValue(row.project)
-                .contextMenu {
-                    Text(row.project)
-                    Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = row.project }
-                }
+                .highPriorityGesture(
+                    LongPressGesture().exclusively(before: TapGesture()).onEnded { gesture in
+                        switch gesture {
+                        case .first: selectedProjectPath = row.project
+                        case .second: openProject(row.project)
+                        }
+                    }
+                )
+                .accessibilityAction(named: Text("Project")) { selectedProjectPath = row.project }
                 .accessibilityIdentifier("phone-inbox-project-\(row.project)")
                 if index < projection.projects.count - 1 {
                     PhoneDivider(leading: PhoneMetrics.gutter + 32)
