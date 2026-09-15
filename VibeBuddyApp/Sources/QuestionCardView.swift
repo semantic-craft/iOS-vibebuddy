@@ -7,11 +7,25 @@ import VibeBuddyKit
 struct QuestionCardView: View {
     let question: PendingQuestion
     let actionState: PhoneActionResult?
+    var savedDraft: Binding<PhoneQuestionDraft>? = nil
     let answer: (QuestionAnswers) async -> PhoneActionResult
     @State private var sending = false
 
-    @State private var picked: [String: Set<String>] = [:]
-    @State private var typed: [String: String] = [:]
+    @State private var localDraft = PhoneQuestionDraft()
+    private var picked: [String: Set<String>] {
+        get { savedDraft?.wrappedValue.picked ?? localDraft.picked }
+        nonmutating set {
+            if let savedDraft { savedDraft.wrappedValue.picked = newValue }
+            else { localDraft.picked = newValue }
+        }
+    }
+    private var typed: [String: String] {
+        get { savedDraft?.wrappedValue.typed ?? localDraft.typed }
+        nonmutating set {
+            if let savedDraft { savedDraft.wrappedValue.typed = newValue }
+            else { localDraft.typed = newValue }
+        }
+    }
 
     private var items: [QuestionItem] { question.items }
     private var sendsOnTap: Bool {
@@ -26,23 +40,23 @@ struct QuestionCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(items.count > 1 ? "\(items.count) questions" : "Question")
-                .font(CompanionType.font(11, .medium)).textCase(.uppercase).kerning(0.4)
+                .font(.caption.weight(.medium)).textCase(.uppercase).kerning(0.4)
                 .foregroundStyle(CompanionPalette.status(.requiresInput))
             if question.isBlocking == false, let expires = question.expiresAt {
                 Text("Codex moves on by itself in \(expires, style: .timer)")
-                    .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3).monospacedDigit()
+                    .font(.caption).foregroundStyle(CompanionPalette.ink3).monospacedDigit()
             }
             ForEach(items) { item in
                 VStack(alignment: .leading, spacing: 6) {
                     if let header = item.header, items.count > 1 {
-                        Text(header).font(CompanionType.font(11, .medium)).foregroundStyle(CompanionPalette.ink2)
+                        Text(header).font(.caption.weight(.medium)).foregroundStyle(CompanionPalette.ink2)
                     }
                     Text(item.text)
-                        .font(CompanionType.font(14, .medium))
+                        .font(.body.weight(.medium))
                         .foregroundStyle(CompanionPalette.ink)
                         .fixedSize(horizontal: false, vertical: true)
                     if item.multiSelect {
-                        Text("Choose any").font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
+                        Text("Choose any").font(.caption).foregroundStyle(CompanionPalette.ink3)
                     }
                     ForEach(item.options) { option in
                         Button { choose(option, in: item) } label: {
@@ -54,7 +68,7 @@ struct QuestionCardView: View {
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(option.label)
                                     if let description = option.description {
-                                        Text(description).font(CompanionType.font(11))
+                                        Text(description).font(.caption)
                                             .foregroundStyle(CompanionPalette.ink2).lineLimit(2)
                                     }
                                 }
@@ -70,7 +84,7 @@ struct QuestionCardView: View {
                     }
                     if item.allowsOther {
                         TextField(item.options.isEmpty ? "Answer" : "Other…", text: binding(for: item.id), axis: .vertical)
-                            .font(CompanionType.font(13))
+                            .font(.body)
                             .lineLimit(1...3)
                             .padding(.horizontal, 12).padding(.vertical, 8)
                             .companionCard()
@@ -79,7 +93,7 @@ struct QuestionCardView: View {
                 }
             }
             if let actionState {
-                Text(actionState.message).font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
+                Text(actionState.message).font(.caption).foregroundStyle(CompanionPalette.ink2)
             }
             if showsSendButton {
                 Button {
@@ -95,7 +109,9 @@ struct QuestionCardView: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .companionCard()
-        .onChange(of: question.id) { _, _ in picked = [:]; typed = [:] }
+        .onChange(of: question.id) { _, _ in
+            if savedDraft == nil { localDraft = PhoneQuestionDraft() }
+        }
     }
 
     private func isPicked(_ option: QuestionOption, in item: QuestionItem) -> Bool {
@@ -142,9 +158,13 @@ struct QuestionCardView: View {
         guard !sending else { return }
         sending = true
         let id = question.id
+        let sentPicked = picked
+        let sentTyped = typed
         Task {
             let result = await answer(answers)
-            if result == .received, question.id == id { picked = [:]; typed = [:] }
+            if result == .received, question.id == id, picked == sentPicked, typed == sentTyped {
+                picked = [:]; typed = [:]
+            }
             sending = false
         }
     }

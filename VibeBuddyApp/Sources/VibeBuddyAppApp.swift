@@ -49,6 +49,7 @@ struct RootView: View {
                 ConnectView()
             }
         }
+        .onDisappear { dashboard.stop() }
         .task {
             if !Self.skipNotifications {
                 PushRegistration.shared.registerForRemoteNotifications()
@@ -69,6 +70,7 @@ struct RootView: View {
             }
         }
         .onChange(of: connection.pairing) { _, newValue in
+            if newValue == nil { dashboard.stop() }
             if !Self.skipNotifications {
                 PushRegistration.shared.update(pairing: newValue)
             }

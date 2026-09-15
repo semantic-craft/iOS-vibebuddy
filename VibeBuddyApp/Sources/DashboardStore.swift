@@ -1160,6 +1160,11 @@ final class DashboardStore: ObservableObject {
         return await decisionClient.workspaceChanges(pairing, sessionId: session.id, scope: scope, baseline: baseline, file: file)
     }
 
+    func readerAuthorityIsCurrent(scope: String) -> Bool {
+        (isDemo || sourceID != nil) && pairingEpoch == ConnectionStore.pairingEpoch
+            && scope == (sourceID ?? "unknown") + "/" + pairingEpoch
+    }
+
     var completionSourceID: String? { sourceID }
     var completionConnectionID: String { connectionGeneration.uuidString }
 

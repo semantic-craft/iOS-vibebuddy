@@ -45,7 +45,7 @@ public struct PendingTaskNavigation: Sendable {
         lastSelection = identity
     }
 
-    public mutating func next(in ordered: [AgentSession], after current: AgentSession?) -> AgentSession? {
+    public mutating func next(in ordered: [AgentSession], after current: AgentSession?, wraps: Bool = true) -> AgentSession? {
         let currentIdentity = current.map(Identity.init)
         // A manually selected task starts a tour from its position, rather than
         // jumping back to the first item. A read marker does not change identity.
@@ -65,6 +65,7 @@ public struct PendingTaskNavigation: Sendable {
         } else {
             // Every remaining item was visited, but unresolved waits remain
             // eligible for another explicit tour. Never return the current row.
+            guard wraps else { return nil }
             visited = Set(currentIdentity.map { [$0] } ?? [])
             next = others[0]
         }
