@@ -789,7 +789,7 @@ final class MenuBarModel: ObservableObject {
         return summary.text
     }
 
-    private func refreshNotificationDeliveryHealth() async {
+    func refreshNotificationDeliveryHealth() async {
         let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
         let authorization: NotificationAuthorization
         switch status {

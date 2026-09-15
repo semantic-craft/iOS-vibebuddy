@@ -114,7 +114,7 @@ private struct ReadAloudPreferenceControls: View {
                 .labelsHidden().fixedSize()
                 .disabled(status.provider.map { !SpeechSynthesis.supportsStyle($0) } ?? true)
                 .accessibilityLabel("Announcer style").accessibilityIdentifier("readAloudStyle")
-                Button(isPreviewing ? "Stop preview" : "Preview", action: preview)
+                Button(isPreviewing ? "Stop preview" : "Preview voice", action: preview)
                     .disabled(isPreviewing ? false : previewFailure != nil || reader.busy || tests.isBusy)
                     .help(isPreviewing ? "Stop the preview." : "Play one sample line. This calls the provider and is billed.")
                     .accessibilityLabel("Preview the read-aloud voice").accessibilityIdentifier("readAloudPreview")
@@ -132,6 +132,7 @@ private struct ReadAloudPreferenceControls: View {
             if status.provider != nil, let previewFailure {
                 Text(previewFailure).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
             }
+            SettingsOperationAvailability(tests: tests, purpose: .readAloud, reading: reader.busy)
             SettingsTestFeedback(tests: tests, purpose: .readAloud)
         }
         .font(MacTheme.font(12)).controlSize(.small)

@@ -96,6 +96,47 @@ public enum VoiceProvider: String, CaseIterable, Sendable {
         }
     }
 
+    public enum ModelPurpose: Sendable {
+        case conversation
+        case text
+        case speechSynthesis
+    }
+
+    public func modelDocumentationURL(for purpose: ModelPurpose, model: String? = nil) -> URL? {
+        let address: String
+        switch (self, purpose) {
+        case (.qwen, .conversation):
+            address = "https://help.aliyun.com/zh/model-studio/qwen-audio-realtime-user-guides"
+        case (.qwen, .text):
+            address = "https://help.aliyun.com/zh/model-studio/text-generation"
+        case (.qwen, .speechSynthesis):
+            address = "https://help.aliyun.com/zh/model-studio/non-realtime-tts-user-guide"
+        case (.openai, .conversation):
+            address = OpenAIVoiceSession.usesLive(model ?? defaultModel)
+                ? "https://developers.openai.com/api/docs/guides/live-conversations"
+                : "https://developers.openai.com/api/docs/guides/realtime"
+        case (.openai, .text):
+            address = "https://developers.openai.com/api/docs/models"
+        case (.openai, .speechSynthesis):
+            address = "https://developers.openai.com/api/docs/guides/text-to-speech"
+        case (.gemini, .conversation):
+            address = "https://ai.google.dev/gemini-api/docs/live-api"
+        case (.gemini, .text):
+            address = "https://ai.google.dev/gemini-api/docs/models"
+        case (.gemini, .speechSynthesis):
+            address = "https://ai.google.dev/gemini-api/docs/speech-generation"
+        case (.doubao, .conversation):
+            address = "https://www.volcengine.com/docs/6561/2549778?lang=zh"
+        case (.doubao, .speechSynthesis):
+            address = "https://www.volcengine.com/docs/6561/1598757?lang=zh"
+        case (.deepseek, .text):
+            address = "https://api-docs.deepseek.com/quick_start/pricing/"
+        case (.doubao, .text), (.deepseek, .conversation), (.deepseek, .speechSynthesis):
+            return nil
+        }
+        return URL(string: address)
+    }
+
     /// Where to browse this provider's available voice IDs.
     public var voicesURL: URL {
         switch self {
