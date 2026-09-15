@@ -129,7 +129,7 @@ enum SettingsPageID: String, CaseIterable, Identifiable {
         case .agentCLIs: "Agent CLIs"
         case .connect: "Connect"
         case .quota: "Plan & quota"
-        case .tokenSpend: "Token spend"
+        case .tokenSpend: "Estimated token cost"
         case .usageSources: "Usage sources"
         case .diagnostics: "Diagnostics"
         }
@@ -145,7 +145,7 @@ enum SettingsPageID: String, CaseIterable, Identifiable {
         case .agentCLIs: "Hooks, daemons and who answers first"
         case .connect: "Read local history from your agents"
         case .quota: "When an allowance should warn you"
-        case .tokenSpend: "What this Mac has spent locally"
+        case .tokenSpend: "Local token usage at list prices, not your actual bill"
         case .usageSources: "Where the numbers are read from"
         case .diagnostics: "Health, delivery and recent transitions"
         }
@@ -346,6 +346,7 @@ private struct NotificationsPage: View {
     @AppStorage("quietMode") private var quiet = false
     @State private var quietHours = NotificationsPage.loadQuietHours()
     @State private var categories = NotificationCategoryPrefs.loadMac()
+    @State private var notificationSettingsOpenFailed = false
 
     var body: some View {
         SettingsPageScaffold(SettingsPageID.notifications.title,
@@ -355,13 +356,30 @@ private struct NotificationsPage: View {
                 SettingsRow("Show notifications") {
                     Toggle("", isOn: $notify).labelsHidden().toggleStyle(.switch)
                 }
+                SettingsRow("macOS notification permission",
+                            detail: model.notificationDeliveryHealth.authorization.settingsExplanation) {
+                    SettingsValue(model.notificationDeliveryHealth.authorization.settingsTitle)
+                }
+                SettingsRow("System notification settings",
+                            detail: "Open System Settings > Notifications > VibeBuddy. This controls notifications on this Mac; iPhone push delivery has separate settings.") {
+                    Button("Open notification settings") {
+                        guard let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") else { return }
+                        notificationSettingsOpenFailed = !NSWorkspace.shared.open(url)
+                    }
+                    .accessibilityIdentifier("open-system-notification-settings")
+                }
+                if notificationSettingsOpenFailed {
+                    SettingsRow("Could not open System Settings. Open it manually, then choose Notifications > VibeBuddy.") {
+                        EmptyView()
+                    }
+                }
                 SettingsRow("Play sound") {
                     Toggle("", isOn: $sound).labelsHidden().toggleStyle(.switch).disabled(!notify)
                 }
             }
 
             SettingsSection("Notify me about",
-                            footnote: "Disabled categories never notify. Quiet mode and Quiet hours silence session alerts except silent approvals and questions. Enabled quota alerts are unaffected.") {
+                            footnote: "Disabled categories never notify. Quiet mode and Quiet hours silence session alerts except silent approvals and questions. Enabled quota alerts ignore Quiet mode and Quiet hours. Their sound follows each device's Sound setting.") {
                 SettingsGrid(items: NotificationCategoryPrefs.displayOrder.map { category in
                     SettingsGrid.Item(id: category.rawValue, text: Text(category.categoryTitle)) {
                         Toggle("", isOn: Binding(
@@ -374,7 +392,7 @@ private struct NotificationsPage: View {
             }
 
             SettingsSection("Quiet",
-                            footnote: "Quiet mode keeps questions, plan decisions and approvals visible but silent. Failures stay in the list; completions are quiet. Enabled quota alerts still follow the Sound setting.") {
+                            footnote: "Quiet mode keeps questions, plan decisions and approvals visible but silent. Failures stay in the list; completions are quiet. Enabled quota alerts ignore Quiet mode and Quiet hours. Their sound follows each device's Sound setting.") {
                 SettingsRow("Quiet mode",
                             detail: "Approvals and questions stay silent; other session alerts are suppressed.") {
                     Toggle("", isOn: $quiet).labelsHidden().toggleStyle(.switch).disabled(!notify)
@@ -395,6 +413,10 @@ private struct NotificationsPage: View {
                     }
                 }
             }
+        }
+        .task { await model.refreshNotificationDeliveryHealth() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await model.refreshNotificationDeliveryHealth() }
         }
         .onChange(of: quietHours) { _, q in NotificationsPage.saveQuietHours(q) }
         .onChange(of: categories) { _, c in c.save() }
@@ -846,6 +868,15 @@ struct HotkeyRecorderView: View {
 /// Product words for the delivery enums Diagnostics shows; the raw cases
 /// (`notDetermined`, `attempted`) are wire values, not copy.
 extension NotificationAuthorization {
+    var settingsExplanation: LocalizedStringKey {
+        switch self {
+        case .authorized: "macOS allows local notifications. App preferences and system presentation settings still apply."
+        case .denied: "macOS is blocking notifications on this Mac, even when Show notifications is on. Enable them in System Settings."
+        case .notDetermined: "macOS notification permission has not been requested yet. Local notifications are not authorized."
+        case .unknown: "The macOS notification permission could not be determined. Check System Settings."
+        }
+    }
+
     var settingsTitle: LocalizedStringKey {
         switch self {
         case .authorized: "Allowed"

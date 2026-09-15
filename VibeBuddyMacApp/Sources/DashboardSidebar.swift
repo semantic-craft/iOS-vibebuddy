@@ -137,11 +137,11 @@ struct DashboardSidebar: View {
 
     @ViewBuilder private var projectRows: some View {
         if library == "live" || library == "inbox" {
+            let labels = DashboardProjectLabel.labels(for: liveProjects.map { Self.title($0.id) })
             ForEach(liveProjects) { project in
-                // Live projects are named by their path; the row shows the
-                // folder, as Cursor does, and keeps the path in the tooltip.
                 let full = Self.title(project.id)
-                ProjectRow(title: full.hasPrefix("/") ? URL(fileURLWithPath: full).lastPathComponent : full,
+                let label = labels[full]!
+                ProjectRow(title: label.title, subtitle: label.parentPath,
                            count: project.count,
                            selected: library == "live" && projectScope == project.id) {
                                onOpenProject(project.id)
@@ -149,12 +149,14 @@ struct DashboardSidebar: View {
                     .help(full)
             }
         } else {
+            let labels = DashboardProjectLabel.labels(for: historyProjects.map(\.path))
             ProjectRow(title: String(localized: "All projects"),
                        count: historyProjects.reduce(0) { $0 + $1.count },
                        selected: historyProject == nil) { historyProject = nil }
             ForEach(historyProjects, id: \.path) { project in
-                ProjectRow(title: project.path.isEmpty ? String(localized: "Unknown project")
-                                                       : URL(fileURLWithPath: project.path).lastPathComponent,
+                let label = labels[project.path]!
+                ProjectRow(title: project.path.isEmpty ? String(localized: "Unknown project") : label.title,
+                           subtitle: label.parentPath,
                            count: project.count, selected: historyProject == project.path) { historyProject = project.path }
                     .help(project.path)
             }
@@ -207,6 +209,7 @@ struct SidebarRow: View {
 
 struct ProjectRow: View {
     let title: String
+    var subtitle: String? = nil
     let count: Int
     let selected: Bool
     let action: () -> Void
@@ -214,8 +217,14 @@ struct ProjectRow: View {
     var body: some View {
         Button(action: action) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(title).font(MacTheme.font(12)).foregroundStyle(selected ? MacTheme.accentText : MacTheme.ink2)
-                    .lineLimit(1).truncationMode(.middle)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(MacTheme.font(12)).foregroundStyle(selected ? MacTheme.accentText : MacTheme.ink2)
+                        .lineLimit(1).truncationMode(.middle)
+                    if let subtitle {
+                        Text(subtitle).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink3)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
                 Spacer(minLength: 4)
                 Text("\(count)").font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink3)
             }

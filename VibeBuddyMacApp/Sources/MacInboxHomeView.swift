@@ -103,12 +103,20 @@ struct MacInboxHomeView: View {
                         Spacer()
                         Text("Pending tasks").font(MacTheme.font(11)).foregroundStyle(MacTheme.ink3)
                     }
+                    let labels = DashboardProjectLabel.labels(for: projection.projects.map { DashboardSidebar.title($0.id) })
                     ForEach(projection.projects.filter { $0.id != .all }) { project in
                         let title = DashboardSidebar.title(project.id)
+                        let label = labels[title]!
                         Button { openProject(project.id) } label: {
                             HStack(spacing: 10) {
                                 Image(systemName: "folder").foregroundStyle(MacTheme.ink3)
-                                Text(title).lineLimit(1).truncationMode(.middle).foregroundStyle(MacTheme.ink2)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(label.title).lineLimit(1).truncationMode(.middle).foregroundStyle(MacTheme.ink2)
+                                    if let parentPath = label.parentPath {
+                                        Text(parentPath).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink3)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                }
                                 Spacer(minLength: 8)
                                 Text("\(project.count)").font(MacTheme.mono(12)).foregroundStyle(MacTheme.ink3)
                                 Image(systemName: "chevron.right").font(.system(size: 10)).foregroundStyle(MacTheme.ink3)
