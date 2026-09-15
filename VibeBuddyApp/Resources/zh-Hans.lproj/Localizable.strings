@@ -738,3 +738,52 @@
 
 "The remote address is saved, but your Mac did not confirm the update. Send a new update from your Mac if needed." = "已保存远程地址，但 Mac 未确认此更新。如需同步，请在 Mac 上重新发送。";
 "On your Mac, open Devices & connection and choose Show connection code. Scan the code here. Cancelling keeps your current pairing." = "在 Mac 打开「设备与连接」，点「显示连接二维码」，然后在这里扫码。取消时保留当前配对。";
+
+"Retry" = "重试";
+"Couldn’t load this result. Try again." = "未能加载本轮结果，请重试。";
+
+"Authorization" = "系统授权";
+
+"Alerts" = "提醒";
+
+"Sounds" = "声音";
+
+"Badges" = "角标";
+
+"Allow notifications" = "允许通知";
+
+"Waiting for permission…" = "等待授权…";
+
+"Reading system notification settings…" = "正在读取系统通知设置…";
+
+"Open iOS notification settings" = "打开 iOS 通知设置";
+
+"Could not complete the request. Try again or open Settings on your iPhone." = "未能完成请求。请重试，或在 iPhone 上打开“设置”。";
+
+"iOS notification permission" = "iOS 通知权限";
+
+"System permission is separate from the preferences below. Permission does not confirm push delivery or visible alerts; Focus and other iOS settings can silence notifications." = "系统权限与下方的应用内偏好分别生效。获得权限不代表推送已送达或提醒已显示；专注模式和其他 iOS 设置可能让通知静音。";
+
+"Not requested" = "尚未申请";
+
+"Denied by iOS" = "iOS 已拒绝";
+
+"Allowed by iOS" = "iOS 已允许";
+
+"Provisional (quiet delivery)" = "临时授权（安静送达）";
+
+"Temporary permission" = "限时授权";
+
+"Unknown permission status" = "未知授权状态";
+
+"Enabled" = "已开启";
+
+"Disabled" = "已关闭";
+
+"Not supported" = "不支持";
+
+"End the voice conversation before previewing." = "请结束语音通话后再试听。";
+
+"Wait for the current reading to finish or stop it before previewing." = "请等待当前朗读结束，或停止朗读后再试听。";
+
+"Speech synthesis model help" = "语音合成模型帮助";

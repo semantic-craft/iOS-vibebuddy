@@ -1161,11 +1161,20 @@ final class DashboardStore: ObservableObject {
     }
 
     var completionSourceID: String? { sourceID }
+    var completionConnectionID: String { connectionGeneration.uuidString }
 
     func completionBody(for session: AgentSession) async -> CompletionBody? {
-        guard let pairing, let completionID = session.completionID else { return nil }
+        guard !Task.isCancelled, let pairing, let source = sourceID,
+              let completionID = session.completionID,
+              pairingEpoch == ConnectionStore.pairingEpoch else { return nil }
+        let epoch = pairingEpoch
+        let generation = connectionGeneration
         let body = await decisionClient.completionBody(pairing, sessionId: session.id, completionId: completionID)
-        guard body?.sourceID == sourceID else { return nil }
+        guard !Task.isCancelled, self.pairing == pairing,
+              epoch == pairingEpoch, epoch == ConnectionStore.pairingEpoch,
+              generation == connectionGeneration, source == sourceID,
+              let body, body.sourceID == source,
+              body.sessionID == session.id, body.completionID == completionID else { return nil }
         return body
     }
 

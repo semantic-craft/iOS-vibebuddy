@@ -1,10 +1,16 @@
 import SwiftUI
+import UserNotifications
 import VibeBuddyKit
 
 /// Native directory separating phone preferences, Mac information, and help.
 /// Preference state remains owned by the sheet across navigation destinations.
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
+    @State private var systemNotifications: UNNotificationSettings?
+    @State private var requestingNotifications = false
+    @State private var notificationActionFailed = false
     @EnvironmentObject private var voice: VoiceChat
     @EnvironmentObject private var dashboard: DashboardStore
     @EnvironmentObject private var connection: ConnectionStore
@@ -75,6 +81,39 @@ struct SettingsView: View {
     private var notificationSettings: some View {
         Form {
             Section {
+                if let settings = systemNotifications {
+                    LabeledContent("Authorization", value: notificationAuthorizationLabel(settings.authorizationStatus))
+                        .accessibilityIdentifier("notificationAuthorizationStatus")
+                    LabeledContent("Alerts", value: notificationCapabilityLabel(settings.alertSetting))
+                    LabeledContent("Sounds", value: notificationCapabilityLabel(settings.soundSetting))
+                    LabeledContent("Badges", value: notificationCapabilityLabel(settings.badgeSetting))
+                    if settings.authorizationStatus == .notDetermined {
+                        Button("Allow notifications") {
+                            Task { await requestNotifications() }
+                        }
+                        .disabled(requestingNotifications)
+                        .accessibilityIdentifier("requestNotificationPermission")
+                        if requestingNotifications { ProgressView("Waiting for permission…") }
+                    }
+                } else {
+                    ProgressView("Reading system notification settings…")
+                }
+                Button("Open iOS notification settings") {
+                    guard let url = URL(string: UIApplication.openNotificationSettingsURLString) else { return }
+                    openURL(url) { accepted in notificationActionFailed = !accepted }
+                }
+                .accessibilityIdentifier("openSystemNotificationSettings")
+                if notificationActionFailed {
+                    Text("Could not complete the request. Try again or open Settings on your iPhone.")
+                        .foregroundStyle(.orange)
+                }
+            } header: {
+                Text("iOS notification permission")
+            } footer: {
+                Text("System permission is separate from the preferences below. Permission does not confirm push delivery or visible alerts; Focus and other iOS settings can silence notifications.")
+            }
+
+            Section {
                 ForEach(NotificationCategoryPrefs.displayOrder, id: \.rawValue) { category in
                     Toggle(category.categoryTitle, isOn: Binding(
                         get: { categories.isEnabled(category) },
@@ -108,12 +147,53 @@ struct SettingsView: View {
             }
         }
         .phoneList()
+        .task(id: scenePhase) {
+            if scenePhase == .active {
+                let settings = await UNUserNotificationCenter.current().notificationSettings()
+                guard !Task.isCancelled else { return }
+                systemNotifications = settings
+            }
+        }
         .navigationTitle("Notifications & sounds")
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: playSound) { _, _ in reportPrefs() }
         .onChange(of: quiet) { _, _ in reportPrefs() }
         .onChange(of: quietHours) { _, q in SoundPrefs.setQuietHours(q); reportPrefs() }
         .onChange(of: categories) { _, c in SoundPrefs.categories = c; reportPrefs() }
+    }
+
+    private func notificationAuthorizationLabel(_ status: UNAuthorizationStatus) -> String {
+        switch status {
+        case .notDetermined: String(localized: "Not requested")
+        case .denied: String(localized: "Denied by iOS")
+        case .authorized: String(localized: "Allowed by iOS")
+        case .provisional: String(localized: "Provisional (quiet delivery)")
+        case .ephemeral: String(localized: "Temporary permission")
+        @unknown default: String(localized: "Unknown permission status")
+        }
+    }
+
+    private func notificationCapabilityLabel(_ setting: UNNotificationSetting) -> String {
+        switch setting {
+        case .enabled: String(localized: "Enabled")
+        case .disabled: String(localized: "Disabled")
+        case .notSupported: String(localized: "Not supported")
+        @unknown default: String(localized: "Unknown")
+        }
+    }
+
+    @MainActor private func requestNotifications() async {
+        guard !requestingNotifications else { return }
+        requestingNotifications = true
+        notificationActionFailed = false
+        defer { requestingNotifications = false }
+        LocalNotifier.registerCategories()
+        do {
+            _ = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+        } catch {
+            notificationActionFailed = true
+        }
+        systemNotifications = await UNUserNotificationCenter.current().notificationSettings()
     }
 
     private var voiceSettings: some View {
@@ -350,12 +430,14 @@ private struct ProviderSection: View {
     }
 
     @ViewBuilder private var customFields: some View {
-            field(caption: "Model ID — editable, type any model",
-                  link: "Browse available models", icon: "arrow.up.right.square", url: provider.modelsURL, pasteInto: $model, id: "voiceModelID") {
-                TextField(provider.defaultModel, text: $model)
-                    .font(CompanionType.mono(17))
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
+            if let modelURL = provider.modelDocumentationURL(for: .conversation, model: effectiveModel) {
+                field(caption: "Model ID — editable, type any model",
+                      link: "Browse available models", icon: "arrow.up.right.square", url: modelURL, pasteInto: $model, id: "voiceModelID") {
+                    TextField(provider.defaultModel, text: $model)
+                        .font(CompanionType.mono(17))
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                }
             }
             field(caption: "Voice ID — editable (blank = auto by language)",
                   link: "Browse available voices", icon: "arrow.up.right.square", url: provider.voicesURL, pasteInto: $voice, id: "voiceID") {

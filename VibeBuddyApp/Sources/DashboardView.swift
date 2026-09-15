@@ -67,6 +67,7 @@ struct DashboardView: View {
     }
 
     var body: some View {
+        let projectLabels = DashboardProjectLabel.labels(for: filters.projects(from: dashboard.allSessions))
         ScrollViewReader { proxy in
         List {
             if page == .list {
@@ -133,6 +134,7 @@ struct DashboardView: View {
                     if isExpanded(section.id) {
                         ForEach(Array(section.sessions.enumerated()), id: \.element.id) { index, session in
                             TaskRow(session: session,
+                                    projectLabel: DashboardFilters.projectTitle(session.dashboardProjectIdentity, labels: projectLabels),
                                     now: now,
                                     isSelected: highlightId == session.id || replyTo == session.id,
                                     showsDivider: index < section.sessions.count - 1,
@@ -387,7 +389,7 @@ struct DashboardView: View {
     /// The scope a tile or project set, then Customize's picks: what the
     /// detail's "Next" walks through.
     private var scopeSummary: String {
-        [filters.bucket != nil || filters.project != nil ? filters.scopeTitle(summary: inbox.summary) : nil,
+        [filters.bucket != nil || filters.project != nil ? filters.scopeTitle(summary: inbox.summary, projects: filters.projects(from: dashboard.allSessions)) : nil,
          filters.hasCustomizePicks ? filters.summary : nil].compactMap { $0 }.joined(separator: " · ")
     }
 
@@ -569,7 +571,7 @@ struct DashboardView: View {
     /// or a project — over the same one line about the whole snapshot.
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(filters.scopeTitle(summary: inbox.summary))
+            Text(filters.scopeTitle(summary: inbox.summary, projects: filters.projects(from: dashboard.allSessions)))
                 .font(CompanionType.font(30, .semibold))
                 .tracking(CompanionType.tracking(30))
                 .foregroundStyle(CompanionPalette.ink)
@@ -839,6 +841,7 @@ enum ReplyMeaning: Equatable {
 /// the swipe follows or mutes.
 private struct TaskRow: View {
     let session: AgentSession
+    let projectLabel: String
     let now: Date
     let isSelected: Bool
     let showsDivider: Bool
@@ -854,8 +857,7 @@ private struct TaskRow: View {
         return activity.isEmpty || activity == stateWord ? nil : activity
     }
     private var projectTitle: String? {
-        let title = DashboardFilters.projectTitle(session.project)
-        return title == session.displayTitle ? nil : title
+        return projectLabel == session.displayTitle ? nil : projectLabel
     }
 
     var body: some View {
@@ -916,7 +918,7 @@ private struct TaskRow: View {
     }
 
     private var accessibilityLabel: String {
-        [session.displayTitle, stateWord, detail ?? "", projectTitle ?? "",
+        [session.displayTitle, stateWord, detail ?? "", session.dashboardProjectIdentity,
          session.effectiveAttention == .normal ? "" : session.effectiveAttention.stateTitle,
          presentation.unread ? String(localized: "Unread") : "",
          PhoneRelativeTime.spoken(session.updatedAt, now: now)]
@@ -1114,15 +1116,17 @@ private struct SessionDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @State private var showChanges = false
-    @State private var completionBody: CompletionBody?
+    @StateObject private var resultReader = CompletionBodyReader()
+    @State private var resultAttempt = 0
     @State private var resultIsVisible = false
     @State private var acknowledgedBodyID: String?
     private var resultKey: String { (dashboard.completionSourceID ?? "unknown") + "/" + session.id + "/" + (session.completionID ?? "working") }
-    private var currentBody: CompletionBody? {
-        guard let completionBody, completionBody.sourceID == dashboard.completionSourceID, completionBody.sessionID == session.id,
-              completionBody.completionID == session.completionID else { return nil }
-        return completionBody
+    private var resultRefresh: CompletionBodyRefresh {
+        CompletionBodyRefresh(sourceID: dashboard.completionSourceID, session: session,
+                              context: dashboard.completionConnectionID, attempt: resultAttempt,
+                              isActive: scenePhase == .active)
     }
+    private var currentBody: CompletionBody? { resultReader.body(for: resultRefresh) }
     @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
 
     private var state: TaskPresentationState { session.presentationState }
@@ -1149,9 +1153,14 @@ private struct SessionDetailSheet: View {
                                     .foregroundStyle(CompanionPalette.status(state))
                                 Text("·")
                                 Text(session.agent.shortName)
-                                if DashboardFilters.projectTitle(session.project) != session.displayTitle {
+                                if DashboardFilters.projectTitle(session.dashboardProjectIdentity, among: dashboard.allSessions.map(\.dashboardProjectIdentity)) != session.displayTitle {
                                     Text("·")
-                                    Text(DashboardFilters.projectTitle(session.project))
+                                    Text(DashboardFilters.projectTitle(session.dashboardProjectIdentity, among: dashboard.allSessions.map(\.dashboardProjectIdentity)))
+                                        .accessibilityLabel(session.dashboardProjectIdentity)
+                                        .contextMenu {
+                                            Text(session.dashboardProjectIdentity)
+                                            Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = session.dashboardProjectIdentity }
+                                        }
                                 }
                                 if let branch = session.branch {
                                     Text("·")
@@ -1195,7 +1204,14 @@ private struct SessionDetailSheet: View {
                             } else if let reason = body.unavailableReason {
                                 Text(LocalizedStringKey(reason)).font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
                             }
+                        } else if resultReader.state(for: resultRefresh) == .failed {
+                            Text("Couldn’t load this result. Try again.").font(CompanionType.font(11))
                         } else { Text("Loading this completion…").font(CompanionType.font(11)) }
+                        if currentBody?.text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false,
+                           resultReader.state(for: resultRefresh) != .loading {
+                            Button("Retry") { resultAttempt += 1 }
+                                .buttonStyle(PhoneButtonStyle(kind: .quiet, size: .small))
+                        }
                         Button(session.hasUnreadCompletion ? "Mark as read" : "Mark as unread") {
                             acknowledgedBodyID = resultKey
                             if session.hasUnreadCompletion {
@@ -1266,13 +1282,9 @@ private struct SessionDetailSheet: View {
             }
         }
         .task { await dashboard.loadRecentOutput(session.id) }
-        .task(id: resultKey) {
-            completionBody = nil
-            resultIsVisible = false
-            let key = resultKey
-            let loaded = await dashboard.completionBody(for: session)
-            guard !Task.isCancelled, key == resultKey else { return }
-            completionBody = loaded
+        .task(id: resultRefresh) {
+            if currentBody?.text?.isEmpty != false { resultIsVisible = false }
+            await resultReader.load(resultRefresh) { await dashboard.completionBody(for: session) }
         }
         .onChange(of: currentBody) { _, _ in acknowledgeVisibleBody() }
         .onChange(of: scenePhase) { _, _ in acknowledgeVisibleBody() }

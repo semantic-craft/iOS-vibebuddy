@@ -83,4 +83,52 @@ final class DashboardFiltersTests: XCTestCase {
         filters.query = "  "
         XCTAssertEqual(filters.sessions(from: [a, b], now: now).count, 2)
     }
+    func testSameNamedProjectsKeepTheirIdentityCountsAndPathSearch() {
+        var a = session("a", .needsResponse, hoursAgo: 1)
+        a.project = "repo"
+        a.checkoutPath = "/work/one/shared/repo"
+        var b = session("b", .needsResponse, hoursAgo: 2)
+        b.project = "repo"
+        b.checkoutPath = "/work/two/shared/repo"
+        let firstPath = a.checkoutPath!
+        let secondPath = b.checkoutPath!
+        let input = [a, b]
+        var filters = DashboardFilters()
+        filters.grouping = .project
+        let sections = filters.sections(from: input, now: now)
+        XCTAssertEqual(sections.map(\.id), [firstPath, secondPath])
+        XCTAssertEqual(sections.map(\.title), ["repo · one/shared", "repo · two/shared"])
+        XCTAssertEqual(sections.map { $0.sessions.map(\.id) }, [["a"], ["b"]])
+        let inbox = InboxProjection(sessions: input, now: now)
+        XCTAssertEqual(inbox.projects.map(\.id), [firstPath, secondPath])
+        XCTAssertEqual(inbox.projects.map(\.pendingCount), [1, 1])
+        XCTAssertEqual(inbox.projects.map { $0.label.parentPath }, ["one/shared", "two/shared"])
+        for row in inbox.projects {
+            filters.project = row.project
+            XCTAssertEqual(filters.sessions(from: input, now: now).map(\.dashboardProjectIdentity), [row.project])
+        }
+        filters.project = nil
+        filters.query = "/work/two"
+        XCTAssertEqual(filters.sessions(from: input, now: now).map(\.id), ["b"])
+        XCTAssertEqual(filters.sections(from: input, now: now).first?.title, "repo · two/shared")
+        filters.query = ""
+        filters.grouping = .recent
+        XCTAssertEqual(filters.sections(from: input, now: now).map(\.id), ["recent", firstPath, secondPath])
+    }
+
+    func testLiteralAndEmptyProjectsDoNotBecomeGroupingKeys() {
+        var empty = session("empty", .working, hoursAgo: 1)
+        empty.project = ""
+        var literal = session("literal", .working, hoursAgo: 2)
+        literal.project = String(localized: "No project")
+        literal.checkoutPath = "  "
+        var filters = DashboardFilters()
+        filters.grouping = .project
+        let sections = filters.sections(from: [empty, literal], now: now)
+        XCTAssertEqual(sections.count, 2)
+        XCTAssertEqual(Set(sections.map(\.id)), ["", literal.project])
+        XCTAssertEqual(DashboardFilters.projectTitle("repo"), "repo")
+        XCTAssertEqual(DashboardFilters.projectTitle("  "), String(localized: "No project"))
+    }
+
 }
