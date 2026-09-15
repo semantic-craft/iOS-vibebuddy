@@ -5,7 +5,7 @@ import VibeBuddyKit
 /// `AgentKind` at the route) selects which decoder turns the raw hook payload
 /// into a normalized `HookEvent`.
 ///
-/// Claude-shape lifecycle hooks (Claude Code, Codex, qwen, kimi, …) are the
+/// Claude-shape lifecycle hooks (Claude Code, Codex, …) are the
 /// default/passthrough and need no translation. CLIs with a different wire shape
 /// get their own pure decoder dispatched here.
 public enum HookDecoder {
@@ -30,6 +30,7 @@ public enum HookDecoder {
         agent: AgentKind,
         receivedAt: Date
     ) -> Result {
+        guard agent.supportsCLIIntegration else { return .ignored }
         switch agent {
         case .grokBot: return .undecodable
         case .codex:

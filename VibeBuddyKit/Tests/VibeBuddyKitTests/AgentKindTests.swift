@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import VibeBuddyKit
 
@@ -33,6 +34,13 @@ struct AgentKindTests {
             #expect(!kind.shortName.isEmpty)
             #expect(!kind.symbolName.isEmpty)
         }
+    }
+
+    @Test("retired CLI identities remain readable without active integration", arguments: ["qwen", "kimi"])
+    func retiredCLIHistory(rawValue: String) throws {
+        let agent = try JSONDecoder().decode(AgentKind.self, from: JSONEncoder().encode(rawValue))
+        #expect(agent.rawValue == rawValue)
+        #expect(!agent.supportsCLIIntegration)
     }
 
     @Test("legacy wire raw values stay stable")

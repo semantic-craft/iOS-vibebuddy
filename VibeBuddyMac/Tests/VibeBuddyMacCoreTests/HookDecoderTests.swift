@@ -21,13 +21,12 @@ struct HookDecoderTests {
         #expect(e?.agent == .claudeCode)
     }
 
-    @Test("a claude-shape fork (qwen) decodes via the default passthrough, tagged qwen")
-    func defaultPassthroughTag() {
-        let e = HookDecoder.decode(
+    @Test("retired CLI hooks are ignored", arguments: [AgentKind.qwen, .kimi])
+    func retiredSources(agent: AgentKind) {
+        let result = HookDecoder.decode(
             Data(#"{"hook_event_name":"Stop","session_id":"s"}"#.utf8),
-            agent: .qwen, receivedAt: now).event
-        #expect(e?.kind == .stop)
-        #expect(e?.agent == .qwen)
+            agent: agent, receivedAt: now)
+        #expect(result == .ignored)
     }
 
     @Test("codex source decodes first-class lifecycle hooks, tagged codex")

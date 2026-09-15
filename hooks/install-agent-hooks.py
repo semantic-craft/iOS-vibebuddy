@@ -27,10 +27,8 @@ HOOKS_DIR = os.path.dirname(os.path.abspath(__file__))
 CLIS = [
     ("claude",      "~/.claude/settings.json",   "install-claude-hooks.py"),
     ("codex",       "~/.codex/config.toml",      "install-codex-hooks.py"),
-    ("qwen",        "~/.qwen/settings.json",     "install-qwen-hooks.py"),
     ("grok",        "~/.grok",                   "install-grok-hooks.py"),
     ("antigravity", "~/.gemini/antigravity-cli", "install-antigravity-hooks.py"),
-    ("kimi",        "~/.kimi-code/config.toml",  "install-kimi-hooks.py"),
     ("opencode",    "~/.config/opencode",        "install-opencode-hooks.py"),
     ("cursor",      "~/.cursor",                 "install-cursor-hooks.py"),
 ]

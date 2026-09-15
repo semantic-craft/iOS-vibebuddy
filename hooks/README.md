@@ -13,8 +13,8 @@ python3 hooks/install-agent-hooks.py --uninstall  # revert every detected CLI
 ```
 
 Detects which CLIs are configured (by their config dir/file — no PATH scanning)
-and delegates to the per-CLI installer for each: **Claude, Codex, Qwen, Grok,
-Antigravity, Kimi, OpenCode**. Idempotent (re-run = no-op), reversible (removes
+and delegates to the per-CLI installer for each: **Claude, Codex, Grok,
+Antigravity, OpenCode, Cursor**. Idempotent (re-run = no-op), reversible (removes
 exactly what it added; pre-existing user hooks untouched), each per-CLI installer
 backs up before writing. Codex uses its first-class lifecycle hooks in
 `~/.codex/hooks.json`; the separate `notify` command is never changed, so Codex
@@ -24,7 +24,7 @@ remain available if you want to wire one CLI at a time.
 `--approval` installs the blocking phone-approval gate for the CLIs that have one
 (Claude, the Codex CLI, and Grok); every other detected CLI gets a plain `--install`.
 
-Claude-shape CLIs (Claude, Qwen, Kimi) need no daemon decoder; Codex / Grok /
+Claude hooks use the default decoder; Codex / Grok /
 Antigravity are decoded per-source inside the daemon. (Note: Antigravity `agy`
 1.0.5 *loads* its hooks but does not yet *execute* them — an agy-side bug; the
 wiring is ready for when an agy update fixes it.)

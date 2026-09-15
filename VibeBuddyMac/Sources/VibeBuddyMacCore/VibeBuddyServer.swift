@@ -543,7 +543,7 @@ public struct VibeBuddyServer: Sendable {
         // sends it). The listener is LAN-bound for the phone, so an open /hook let
         // any local process — or a browser hitting the port via DNS rebinding —
         // spoof sessions; the token closes that (daemon-security/01, ADR-0009).
-        // `?agent=<source>` tags which CLI it came from (claude/codex/qwen/kimi/
+        // `?agent=<source>` tags which CLI it came from (claude/codex/
         // antigravity/grok/opencode/copilot); Claude Code is the default.
         hookAuthed.post("hook") { request, _ -> HTTPResponse.Status in
             let agent = AgentKind.fromSource(request.uri.queryParameters["agent"].map(String.init))
@@ -731,6 +731,7 @@ public struct VibeBuddyServer: Sendable {
         let makeID = self.approvalID
         hookAuthed.post("approval") { request, _ -> Response in
             let agent = AgentKind.fromSource(request.uri.queryParameters["agent"].map(String.init))
+            guard agent.supportsCLIIntegration else { return Response(status: .ok) }
             let buffer = try await request.body.collect(upTo: 1 << 20)
             let data = Data(buffer: buffer)
             let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]

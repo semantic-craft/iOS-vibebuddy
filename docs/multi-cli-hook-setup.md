@@ -5,9 +5,13 @@ lifecycle events can feed the Mac. The Mac tags each event with its source via
 the `?agent=` query parameter (`AgentKind.fromSource`), so sessions render with
 the right name/glyph. Adding a CLI never touches the wire model.
 
-Supported sources (`AgentKind`): `claude`, `codex`, `qwen`, `kimi`,
-`antigravity` (Gemini), `grok`, `opencode`, `copilot`. Unknown sources fall
+Supported sources (`AgentKind`): `claude`, `codex`,
+`antigravity` (Gemini), `grok`, `opencode`, `copilot`, `cursor`. Unknown sources fall
 back to Claude Code (the most common hook-compatible shape).
+
+Qwen Code and Kimi integration has been removed. Their saved session identities
+remain readable, but new hooks are ignored. Install and repair leave their CLI
+configurations untouched. Qwen voice and model providers remain available.
 
 ## The universal hook command
 
@@ -32,8 +36,6 @@ The CLI pipes its event JSON on stdin. VibeBuddy reads `hook_event_name`,
 | Claude Code | `claude` | `~/.claude/settings.json` | JSON `hooks` array; `--approval` gates `PermissionRequest` | ✅ tested |
 | Codex CLI | `codex` | `~/.codex/hooks.json` (`notify` untouched) | JSON `hooks` array; `--approval` gates `PermissionRequest` | ✅ tested |
 | OpenCode | `opencode` | `~/.config/opencode/` plugin | Claude-compatible hooks | ⚠️ template |
-| Qwen Code | `qwen` | `~/.qwen/` | Claude-compatible hooks | ⚠️ template |
-| Kimi | `kimi` | `~/.kimi/config.toml` | TOML hooks | ⚠️ template |
 | Antigravity (Gemini) | `antigravity` | `~/.gemini/antigravity-cli/hooks.json` | JSON `command` hooks | blocked: `agy` 1.0.5 loads but skips execution |
 | Grok Build | `grok` | `~/.grok/hooks/vibebuddy.json` | JSON `command` hooks (camelCase envelope) | ✅ tested (1.0.13) |
 | Cursor | `cursor` | `~/.cursor/hooks.json` (merged, user level) | JSON `command` hooks (camelCase event names); `--approval` gates `preToolUse` | ✅ wired (3.20; IDE acceptance pending) |
@@ -62,8 +64,8 @@ workspace.
 }
 ```
 
-Other hook-compatible CLIs (OpenCode, Qwen) follow the same shape with
-`agent=<their source>`. Kimi uses its TOML hook table; Antigravity uses
+OpenCode follows the same shape with
+`agent=<their source>`. Antigravity uses
 a Gemini plugin that shells out to the same curl. Copilot CLI is integrated
 through its local history database, following [Wake's adapter](https://github.com/iAmCorey/Wake/blob/main/crates/wake-core/src/adapters/copilot.rs).
 The Mac reads sessions with turns, their project/branch/title, and the latest

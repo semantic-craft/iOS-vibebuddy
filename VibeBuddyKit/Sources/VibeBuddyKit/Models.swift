@@ -6,6 +6,7 @@ import Foundation
 public enum AgentKind: String, Codable, Sendable, CaseIterable {
     case claudeCode
     case codex
+    // Retained to decode existing session history. New integration is disabled.
     case qwen
     case kimi
     case antigravity
@@ -14,6 +15,10 @@ public enum AgentKind: String, Codable, Sendable, CaseIterable {
     case opencode
     case copilot
     case cursor
+
+    public var supportsCLIIntegration: Bool {
+        self != .qwen && self != .kimi
+    }
 }
 
 /// The three buckets the dashboard cares about.

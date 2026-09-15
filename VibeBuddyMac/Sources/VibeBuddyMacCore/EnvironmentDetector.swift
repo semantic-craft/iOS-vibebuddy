@@ -48,11 +48,12 @@ public enum EnvironmentDetector {
             CLISpec(name: "claude",      configPath: "\(home)/.claude/settings.json"),
             CLISpec(name: "codex",       configPath: "\(home)/.codex/config.toml",
                     hookPath: "\(home)/.codex/hooks.json"),
-            CLISpec(name: "qwen",        configPath: "\(home)/.qwen/settings.json"),
-            CLISpec(name: "grok",        configPath: "\(home)/.grok"),
-            CLISpec(name: "antigravity", configPath: "\(home)/.gemini/antigravity-cli"),
-            CLISpec(name: "kimi",        configPath: "\(home)/.kimi-code/config.toml"),
-            CLISpec(name: "opencode",    configPath: "\(home)/.config/opencode"),
+            CLISpec(name: "grok",        configPath: "\(home)/.grok",
+                    hookPath: "\(home)/.grok/hooks/vibebuddy.json"),
+            CLISpec(name: "antigravity", configPath: "\(home)/.gemini/antigravity-cli",
+                    hookPath: "\(home)/.gemini/antigravity-cli/hooks.json"),
+            CLISpec(name: "opencode",    configPath: "\(home)/.config/opencode",
+                    hookPath: "\(home)/.config/opencode/plugins/vibebuddy.js"),
             // Cursor is configured by the presence of its own home directory —
             // the IDE and the `cursor-agent` CLI share it — and its lifecycle
             // hooks live in one user-level file beside it.
@@ -70,18 +71,10 @@ public enum EnvironmentDetector {
         }
     }
 
-    /// True when any vibebuddy marker appears in the config — a file, or any file
-    /// inside a config dir (plugin layouts). Best-effort: unreadable files are skipped.
     static func markerPresent(at path: String, fileManager fm: FileManager) -> Bool {
         var isDir: ObjCBool = false
-        guard fm.fileExists(atPath: path, isDirectory: &isDir) else { return false }
-        let files: [String] = isDir.boolValue
-            ? (fm.subpaths(atPath: path) ?? []).map { "\(path)/\($0)" }
-            : [path]
-        for f in files {
-            guard let content = try? String(contentsOfFile: f, encoding: .utf8) else { continue }
-            if hookMarkers.contains(where: content.contains) { return true }
-        }
-        return false
+        guard fm.fileExists(atPath: path, isDirectory: &isDir), !isDir.boolValue,
+              let content = try? String(contentsOfFile: path, encoding: .utf8) else { return false }
+        return hookMarkers.contains(where: content.contains)
     }
 }

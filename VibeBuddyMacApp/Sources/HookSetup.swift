@@ -14,9 +14,28 @@ final class HookSetup: ObservableObject {
     @Published private(set) var lastOutput: String = ""
     @Published private(set) var running = false
 
+    private var refreshTask: Task<Void, Never>?
+
+    private var refreshPending = false
+    private var refreshGeneration = 0
+
     func refresh() {
+        guard !running else { return }
+        refreshGeneration += 1
+        refreshPending = true
+        guard refreshTask == nil else { return }
         let home = E2ERunConfiguration.current?.file("agents").path ?? NSHomeDirectory()
-        statuses = EnvironmentDetector.detect(EnvironmentDetector.defaultCLIs(home: home))
+        refreshTask = Task { [weak self] in
+            while self?.refreshPending == true {
+                self?.refreshPending = false
+                guard let generation = self?.refreshGeneration else { return }
+                let statuses = await Task.detached(priority: .userInitiated) {
+                    EnvironmentDetector.detect(EnvironmentDetector.defaultCLIs(home: home))
+                }.value
+                if let self, !self.running && generation == self.refreshGeneration { self.statuses = statuses }
+            }
+            self?.refreshTask = nil
+        }
     }
 
     /// True when at least one CLI is configured but missing the vibebuddy hook.
@@ -56,6 +75,8 @@ final class HookSetup: ObservableObject {
             lastOutput = "Installer not found in the app bundle."
             return
         }
+        refreshGeneration += 1
+        refreshPending = false
         running = true
         Task.detached(priority: .userInitiated) {
             let output = Self.shell(script: script.path, mode: mode)

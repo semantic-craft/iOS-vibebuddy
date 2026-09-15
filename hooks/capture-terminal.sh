@@ -131,7 +131,7 @@ json_str() {  # json_str <key>  — first string value of "key" in $INPUT
     | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -1
 }
 
-# Claude/Codex/Qwen/Kimi/OpenCode send `session_id`; the Grok CLI sends `sessionId`.
+# Claude/Codex/OpenCode send `session_id`; the Grok CLI sends `sessionId`.
 # Cursor sends both `conversation_id` and `session_id` and the daemon keys Cursor
 # sessions on the conversation (the composer id its transcript and its database
 # row are named after), so `capture-terminal.sh cursor` must prefer that one — a
