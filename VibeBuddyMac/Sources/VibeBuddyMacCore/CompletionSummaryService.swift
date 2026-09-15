@@ -27,7 +27,7 @@ public actor CompletionSummaryService {
     private var idleWaiters: [CheckedContinuation<Void, Never>] = []
 
     public init(session: URLSession? = nil,
-                key: @escaping @Sendable (VoiceProvider) -> String? = { $0.apiKey }) {
+                key: @escaping @Sendable (VoiceProvider) -> String? = { CompletionSummaryConfiguration.apiKey(for: $0) }) {
         self.http = .init(session: session ?? CompletionSummaryHTTP.session())
         self.key = key
     }

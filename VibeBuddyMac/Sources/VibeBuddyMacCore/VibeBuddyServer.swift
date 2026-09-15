@@ -18,6 +18,7 @@ public struct VibeBuddyServer: Sendable {
     /// pusher, which is what consults it.
     public let phoneReceipts: PhoneReceipts
     private let deliveryRecorder: (any NotificationDeliveryRecording)?
+    public let connectionSync: RemoteConnectionSyncStore
     public let deviceTokens: DeviceTokens
     /// Live Activity push tokens registered by phones (dynamic-island/02).
     public let activityTokens: ActivityTokens
@@ -108,6 +109,7 @@ public struct VibeBuddyServer: Sendable {
                 phoneReceipts: PhoneReceipts = PhoneReceipts(),
                 deliveryRecorder: (any NotificationDeliveryRecording)? = nil,
                 deviceTokens: DeviceTokens = DeviceTokens(),
+                connectionSync: RemoteConnectionSyncStore = RemoteConnectionSyncStore(),
                 activityTokens: ActivityTokens = ActivityTokens(),
                 codexRolloutMonitor: CodexRolloutMonitor? = nil,
                 codexAppServerMonitor: CodexAppServerMonitor? = nil,
@@ -150,6 +152,7 @@ public struct VibeBuddyServer: Sendable {
         self.phoneReceipts = phoneReceipts
         self.deliveryRecorder = deliveryRecorder
         self.deviceTokens = deviceTokens
+        self.connectionSync = connectionSync
         self.activityTokens = activityTokens
         self.codexRolloutMonitor = codexRolloutMonitor
         self.codexAppServerMonitor = codexAppServerMonitor
@@ -492,6 +495,27 @@ public struct VibeBuddyServer: Sendable {
             return .ok
         }
 
+        let connectionSync = self.connectionSync
+        authed.get("connection-sync") { request, _ -> Response in
+            guard let deviceID = request.uri.queryParameters["deviceID"].map(String.init),
+                  await deviceTokens.isConfirmed(deviceID: deviceID) else { throw HTTPError(.forbidden) }
+            guard let proposal = await connectionSync.pending(for: deviceID) else {
+                return Response(status: .noContent)
+            }
+            let data = try JSONEncoder().encode(proposal)
+            return Response(status: .ok, headers: [.contentType: "application/json", .cacheControl: "no-store"],
+                            body: .init(byteBuffer: ByteBuffer(bytes: data)))
+        }
+        authed.post("connection-sync/receipt") { request, _ -> HTTPResponse.Status in
+            let buffer = try await request.body.collect(upTo: 4096)
+            guard let receipt = try? JSONDecoder().decode(RemoteConnectionReceipt.self, from: Data(buffer: buffer)) else {
+                throw HTTPError(.badRequest)
+            }
+            guard await deviceTokens.isConfirmed(deviceID: receipt.deviceID) else { throw HTTPError(.forbidden) }
+            guard await connectionSync.receive(receipt) else { throw HTTPError(.conflict) }
+            return .ok
+        }
+
         // A phone says what it did about some cues itself: posted them, or left
         // them to a push that had already landed. Token-gated. The pusher
         // consults this before every push (ADR-0012).
@@ -599,6 +623,36 @@ public struct VibeBuddyServer: Sendable {
                 headers: [.contentType: "application/json"],
                 body: .init(byteBuffer: ByteBuffer(bytes: data))
             )
+        }
+
+        authed.get("content-style") { _, _ -> Response in
+            guard let state = await store.contentStyleState() else { throw HTTPError(.serviceUnavailable) }
+            let data = try JSONEncoder().encode(state)
+            return Response(status: .ok, headers: [.contentType: "application/json"],
+                            body: .init(byteBuffer: ByteBuffer(bytes: data)))
+        }
+
+        authed.put("content-style") { request, _ -> Response in
+            let buffer = try await request.body.collect(upTo: 16_384)
+            guard let update = try? JSONDecoder().decode(ContentStyleUpdate.self, from: Data(buffer: buffer)),
+                  update.configuration.customPrompt.count <= ContentStyleConfiguration.maximumCustomPromptCharacters,
+                  update.configuration.style != .custom || !update.configuration.customPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else { throw HTTPError(.badRequest) }
+            guard let state = await store.updateContentStyle(update) else { throw HTTPError(.conflict) }
+            let data = try JSONEncoder().encode(state)
+            return Response(status: .ok, headers: [.contentType: "application/json"],
+                            body: .init(byteBuffer: ByteBuffer(bytes: data)))
+        }
+
+        authed.post("presentation") { request, _ -> Response in
+            let buffer = try await request.body.collect(upTo: 8192)
+            guard let query = try? JSONDecoder().decode(ContentPresentationRequest.self, from: Data(buffer: buffer)),
+                  !query.sourceID.isEmpty, query.purpose == .speech || query.purpose == .recap
+            else { throw HTTPError(.badRequest) }
+            guard let presentation = await store.presentation(query) else { throw HTTPError(.conflict) }
+            let data = try JSONEncoder().encode(presentation)
+            return Response(status: .ok, headers: [.contentType: "application/json"],
+                            body: .init(byteBuffer: ByteBuffer(bytes: data)))
         }
 
         authed.delete("lifecycle") { _, _ -> HTTPResponse.Status in

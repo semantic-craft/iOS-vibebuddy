@@ -5,6 +5,142 @@ import VibeBuddyKit
 /// reads/subscriptions happen concurrently, so the mutable reducer lives behind
 /// an actor. WebSocket clients subscribe for a live snapshot stream.
 public actor SessionStore {
+    private var contentPresenter = ContentPresentationService()
+    private var presentationConfiguration: @Sendable () -> CompletionSummaryConfiguration = { .load() }
+    private var savePresentationStyle: @Sendable (ContentStyleConfiguration) -> Bool = { style in
+        UserDefaults.standard.set(style.customPrompt, forKey: ContentStyleConfiguration.customPromptKey)
+        UserDefaults.standard.set(style.style.rawValue, forKey: ContentStyleConfiguration.defaultsKey)
+        return true
+    }
+    private var recapPresentations: [String: ContentPresentation] = [:]
+    private var recapCaptureTasks: [String: Task<Void, Never>] = [:]
+    private var recapCaptureAttempts: Set<String> = []
+
+    public func configureContentPresentation(service: ContentPresentationService,
+        save: @escaping @Sendable (ContentStyleConfiguration) -> Bool = { _ in false },
+        configuration: @escaping @Sendable () -> CompletionSummaryConfiguration) {
+        contentPresenter = service
+        presentationConfiguration = configuration
+        savePresentationStyle = save
+    }
+
+    public func contentStyleState() -> ContentStyleState? {
+        guard let sourceID else { return nil }
+        let config = presentationConfiguration()
+        return .init(sourceID: sourceID, configuration: config.contentStyle, revision: config.contentStyleStorageRevision)
+    }
+
+    public func updateContentStyle(_ update: ContentStyleUpdate) -> ContentStyleState? {
+        guard update.sourceID == sourceID, update.expectedRevision == presentationConfiguration().contentStyleStorageRevision,
+              update.configuration.customPrompt.count <= ContentStyleConfiguration.maximumCustomPromptCharacters,
+              update.configuration.style != .custom || !update.configuration.customPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return nil }
+        guard savePresentationStyle(update.configuration) else { return nil }
+        recapPresentations.removeAll()
+        broadcast()
+        return contentStyleState()
+    }
+
+    public func presentation(_ request: ContentPresentationRequest) async -> ContentPresentation? {
+        guard request.sourceID == sourceID, presentationTargetIsCurrent(request) else { return nil }
+        let config = presentationConfiguration()
+        let input = await presentationInput(request)
+        let text: String?
+        if let input {
+            text = await contentPresenter.generate(input, purpose: request.purpose, configuration: config)
+        } else { text = nil }
+        guard !Task.isCancelled, presentationTargetIsCurrent(request),
+              config.presentationRevision == presentationConfiguration().presentationRevision else { return nil }
+        let result = ContentPresentation(request: request, revision: config.presentationRevision,
+            text: text ?? presentationFallback(request, language: config.language), generated: text != nil)
+        if case .recap(let id) = request.target, result.generated {
+            recapPresentations[id] = result
+            if recapPresentations.count > Recap.maxEntries * 2 {
+                let visible = Set(recapLedger.entries.keys)
+                recapPresentations = recapPresentations.filter { visible.contains($0.key) }
+                if recapPresentations.count > Recap.maxEntries * 2 { recapPresentations = [id: result] }
+            }
+            broadcast()
+        }
+        return result
+    }
+
+    private func presentationTargetIsCurrent(_ request: ContentPresentationRequest) -> Bool {
+        guard request.sourceID == sourceID else { return false }
+        switch request.target {
+        case .recap(let id):
+            return request.purpose == .recap && recapLedger.entries[id] != nil
+        case .completion(let id, _), .waiting(let id, _, _, _), .failure(let id, _):
+            guard request.purpose == .speech, let session = reducer.sessions[id], session.historyOnly != true else { return false }
+            return request.target.matches(session)
+        }
+    }
+
+    private func presentationInput(_ request: ContentPresentationRequest) async -> CompletionSummaryInput? {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let sessionID: String, identity: String, title: String, material: String
+        switch request.target {
+        case .recap(let id):
+            if let entry = recapLedger.entries[id], entry.resultText == nil, let completionID = entry.completionID {
+                await captureRecapResult(id: id, sessionID: entry.sessionID, completionID: completionID)
+            }
+            guard let entry = recapLedger.entries[id], let original = entry.resultText, !original.isEmpty else { return nil }
+            sessionID = entry.sessionID; identity = id
+            title = entry.project.isEmpty ? entry.title : entry.project
+            material = "Historical round ended at \(entry.endedAt). Outcome: \(entry.kind.rawValue). Current state has not been checked.\n" + original
+        case .completion(let id, let completionID):
+            guard let session = reducer.sessions[id] else { return nil }
+            let body = await completionBody(sessionID: id, completionID: completionID)
+            guard body.sourceID == request.sourceID, body.completionID == completionID, let original = body.text, !original.isEmpty else { return nil }
+            sessionID = id; identity = completionID
+            title = session.project.isEmpty ? session.displayTitle : session.project
+            material = "This round ended. The final answer reports the following; ending is not proof of project completion.\n" + original
+        case .waiting(let id, _, _, _), .failure(let id, _):
+            guard let session = reducer.sessions[id] else { return nil }
+            sessionID = id
+            identity = String(decoding: (try? encoder.encode(request.target)) ?? Data(), as: UTF8.self)
+            title = session.project.isEmpty ? session.displayTitle : session.project
+            if session.status == .needsResponse {
+                let question = session.pendingQuestion.flatMap { try? encoder.encode($0) }
+                let approval = session.pendingApproval.flatMap { try? encoder.encode($0) }
+                let evidence = question ?? approval
+                material = "Current status: waiting for user \(session.waitKind?.rawValue ?? "response"). Describe the requested choice, benefits and costs only when supported.\n"
+                    + (evidence.map { String(decoding: $0, as: UTF8.self) } ?? session.summary ?? "No request details available.")
+            } else {
+                material = "Current status: stopped with a confirmed failure. Do not invent a repair or request approval.\n" + (session.summary ?? "Failure details unavailable.")
+            }
+        }
+        let now = Date()
+        return CompletionSummaryInput(sourceID: request.sourceID, sessionID: sessionID,
+            completionID: identity, title: title, finalText: material, completedAt: now, observedAt: now)
+    }
+
+    private func presentationFallback(_ request: ContentPresentationRequest, language: VoiceLanguage) -> String {
+        let chinese = language == .chinese
+        switch request.target {
+        case .recap:
+            return chinese ? "这一轮暂时无法生成当前风格的摘要。请查看保存的原记录。" : "A summary in the current style is unavailable. Review the saved record."
+        case .completion(let id, _), .waiting(let id, _, _, _), .failure(let id, _):
+            guard let session = reducer.sessions[id] else { return "" }
+            let title = session.project.isEmpty ? session.displayTitle : session.project
+            if session.status == .needsResponse {
+                return chinese ? "\(title)，请打开任务查看待你决定的事项。当前无法生成详细摘要。" : "\(title). Open the task to review the pending decision. A detailed summary is unavailable."
+            }
+            if session.isStuck {
+                return chinese ? "\(title)，任务因问题停止。请打开任务查看原因。" : "\(title). The task stopped with an issue. Open it to review the cause."
+            }
+            return chinese ? "\(title)，这一轮已结束。摘要暂时不可用，请打开任务查看结果。" : "\(title). This round ended. A summary is unavailable; open the task to review the result."
+        }
+    }
+
+    private func captureRecapResult(id: String, sessionID: String, completionID: String) async {
+        let body = await completionBody(sessionID: sessionID, completionID: completionID)
+        guard body.sourceID == sourceID, body.sessionID == sessionID, body.completionID == completionID,
+              let text = body.text, !Task.isCancelled else { return }
+        recapLedger.retainResult(id: id, text: text, now: Date())
+    }
+
     private static let diagnosticStaleAfter: TimeInterval = 10 * 60
     // Discovery/reachability is not proof that this connection carries progress.
     private var appServerProgressAt: [String: Date] = [:]
@@ -264,7 +400,10 @@ public actor SessionStore {
         }
         guard eligible, [.claudeCode, .codex, .grokBot].contains(session.agent),
               now < session.statusSince.addingTimeInterval(12), let handler = noticeHandler else { return nil }
-        let notice = CompletionNotice(id: id, deadline: session.statusSince.addingTimeInterval(12))
+        var notice = CompletionNotice(id: id, deadline: session.statusSince.addingTimeInterval(12))
+        let contentConfig = presentationConfiguration()
+        notice.contentStyle = contentConfig.contentStyle.style
+        notice.presentationRevision = contentConfig.presentationRevision
         guard noticeLedger?.save(notice) == true else { return nil }
         noticeTasks[id] = Task {
             let text = await handler(session)
@@ -283,6 +422,7 @@ public actor SessionStore {
         let followed = (attention[sessionID] ?? AutoAttention.level(lastInteractionAt: lastInteractionAt[sessionID], now: Date())) == .followed
         let valid = session?.status == .done && session?.completionID == completionID
             && session?.hasUnreadCompletion == true && session?.isStuck == false && followed && noticeEnabled?() == true
+            && (notice.presentationRevision == nil || notice.presentationRevision == presentationConfiguration().presentationRevision)
         if !valid { notice.state = .cancelled }
         else if Date() < notice.deadline, let text, !text.isEmpty, text.count <= 180 {
             notice.state = .summary; notice.text = text
@@ -865,6 +1005,7 @@ public actor SessionStore {
             guard let sourceID, !sourceID.isEmpty,
                   let candidate = completionResults.candidates[sessionID],
                   candidate.completionID == completionID else { return .resultUnavailable }
+            if forReading, let retained = candidate.readingResult { return .ready(retained) }
             if let outcome = candidate.outcome { return outcome }
             let now = Date()
             guard now <= candidate.completedAt.addingTimeInterval(2) else { return waited ? .resultUnavailable : .expired }
@@ -1242,12 +1383,45 @@ public actor SessionStore {
         // evidence and attention are layered on — so every observation path
         // records the same facts, and the recap reads mute and acknowledgement
         // from the very list the other surfaces show.
-        recapLedger.observe(snapshot.sessions, sourceID: sourceID, now: now)
+        let recapResults: [String: String] = Dictionary(uniqueKeysWithValues: snapshot.sessions.compactMap { session in
+            guard let sourceID, let candidate = completionResults.candidates[session.id],
+                  candidate.completionID == session.completionID else { return nil }
+            let result: FrozenCompletionResult
+            if let retained = candidate.readingResult { result = retained }
+            else if case .ready(let captured) = candidate.outcome { result = captured }
+            else { return nil }
+            guard result.sourceID == sourceID else { return nil }
+            return (RecapEntry.completedID(sourceID: sourceID, sessionID: session.id,
+                                          completionID: result.completionID), result.finalText)
+        })
+        recapLedger.observe(snapshot.sessions, sourceID: sourceID, now: now, results: recapResults)
+        recapCaptureAttempts.formIntersection(recapLedger.entries.keys)
+        for entry in recapLedger.entries.values where entry.resultText == nil {
+            guard let completionID = entry.completionID,
+                  reducer.sessions[entry.sessionID]?.completionID == completionID,
+                  recapCaptureAttempts.insert(entry.id).inserted else { continue }
+            recapCaptureTasks[entry.id] = Task {
+                await self.captureRecapResult(id: entry.id, sessionID: entry.sessionID, completionID: completionID)
+                self.recapCaptureTasks.removeValue(forKey: entry.id)
+            }
+        }
         snapshot.recap = recapLedger.recap(now: now, sessions: snapshot.sessions) { [noticeLedger] id in
             guard let notice = noticeLedger?.notices[id], notice.state == .summary,
                   let text = notice.text?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !text.isEmpty, text.count <= 180 else { return nil }
             return text
+        }
+        let presentationRevision = presentationConfiguration().presentationRevision
+        snapshot.contentPresentationRevision = presentationRevision
+        if var recap = snapshot.recap {
+            recap.entries = recap.entries.map { entry in
+                var entry = entry
+                if let content = recapPresentations[entry.id], content.revision == presentationRevision {
+                    entry.contentPresentation = content
+                }
+                return entry
+            }
+            snapshot.recap = recap
         }
         let active = Set(snapshot.sessions.compactMap { $0.completionNotice?.id })
         for id in noticeTasks.keys where !active.contains(id) {

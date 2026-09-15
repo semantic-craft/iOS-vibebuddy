@@ -16,6 +16,7 @@ struct VoicePicker<Trailing: View>: View {
     let fallback: String
     @Binding var voiceID: String
     @ViewBuilder let trailing: Trailing
+    var showsDetails = true
 
     @State private var custom = false
     @State private var showingAll = false
@@ -79,19 +80,21 @@ struct VoicePicker<Trailing: View>: View {
                 // the menu no longer carries, then the catalog's size or the
                 // way to the full list. Nothing the old one-line label said is
                 // dropped; it is just not all in the control's own width.
-                HStack(spacing: 6) {
-                    if let voice = all.first(where: { $0.id == effectiveID }), voice.name != voice.id {
-                        Text(verbatim: voice.id).font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink3)
-                            .textSelection(.enabled)
-                        Text(verbatim: "·").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink3)
-                    }
-                    if VoiceCatalog.isTiered(purpose, provider) {
-                        Button("Show all \(all.count) voices…") { query = ""; showingAll = true }
-                            .buttonStyle(.link).font(MacTheme.font(10))
-                            .popover(isPresented: $showingAll, arrowEdge: .bottom) { fullList }
-                    } else {
-                        Text("\(shortlist.count) voices from \(provider.display)")
-                            .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
+                if showsDetails || VoiceCatalog.isTiered(purpose, provider) {
+                    HStack(spacing: 6) {
+                        if showsDetails, let voice = all.first(where: { $0.id == effectiveID }), voice.name != voice.id {
+                            Text(verbatim: voice.id).font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink3)
+                                .textSelection(.enabled)
+                            Text(verbatim: "·").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink3)
+                        }
+                        if VoiceCatalog.isTiered(purpose, provider) {
+                            Button("Show all \(all.count) voices…") { query = ""; showingAll = true }
+                                .buttonStyle(.link).font(MacTheme.font(10))
+                                .popover(isPresented: $showingAll, arrowEdge: .bottom) { fullList }
+                        } else if showsDetails {
+                            Text("\(shortlist.count) voices from \(provider.display)")
+                                .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
+                        }
                     }
                 }
             }

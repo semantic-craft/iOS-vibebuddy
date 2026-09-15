@@ -1,4 +1,5 @@
 import Foundation
+import VibeBuddyKit
 #if canImport(Darwin)
 import Darwin
 #endif
@@ -17,9 +18,19 @@ public enum LANAddress {
 
     /// Enumerate live IPv4 interfaces and pick the primary one.
     public static func primaryIPv4() -> String? {
+        pick(from: ipv4Interfaces())
+    }
+
+    public static func tailnetIPv4Addresses() -> [String] {
+        Array(Set(ipv4Interfaces().compactMap { candidate in
+            CompanionEndpoint(host: candidate.ip, port: 9876)?.isTailnetIPv4 == true ? candidate.ip : nil
+        })).sorted()
+    }
+
+    private static func ipv4Interfaces() -> [(name: String, ip: String)] {
         var candidates: [(name: String, ip: String)] = []
         var ifaddr: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&ifaddr) == 0 else { return nil }
+        guard getifaddrs(&ifaddr) == 0 else { return [] }
         defer { freeifaddrs(ifaddr) }
 
         var cursor = ifaddr
@@ -36,7 +47,7 @@ public enum LANAddress {
                 candidates.append((String(cString: ptr.pointee.ifa_name), Self.string(from: host)))
             }
         }
-        return pick(from: candidates)
+        return candidates
     }
 
     private static func string(from buffer: [CChar]) -> String {

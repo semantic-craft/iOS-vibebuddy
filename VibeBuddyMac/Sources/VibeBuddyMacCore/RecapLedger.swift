@@ -34,6 +34,7 @@ struct RecapLedger {
         /// is the only record that an earlier round was read (or put back to
         /// unread). Absent in files written before it existed.
         var isRead: Bool?
+        var resultText: String?
     }
 
     struct File: Codable, Equatable, Sendable {
@@ -74,7 +75,8 @@ struct RecapLedger {
     /// and no failure (working, waiting, user-stopped, probe-retired) leave no
     /// trace; a session that vanished leaves what it already had.
     @discardableResult
-    mutating func observe(_ sessions: [AgentSession], sourceID: String?, now: Date) -> Bool {
+    mutating func observe(_ sessions: [AgentSession], sourceID: String?, now: Date,
+                          results: [String: String] = [:]) -> Bool {
         guard let sourceID, !sourceID.isEmpty else { return false }
         var changed = false
         liveRounds.formIntersection(sessions.map(\.id))
@@ -95,11 +97,16 @@ struct RecapLedger {
                                          fallbackSummary: Self.sentence(session.summary),
                                          ledgerLine: RecapEntry.ledgerLine(for: session),
                                          endedAt: session.statusSince, recordedAt: now)
+                    entries[id]?.resultText = session.summary.map { String($0.prefix(12_000)) }
                     changed = true
                 }
             } else if session.status == .done, let completionID = session.completionID, !completionID.isEmpty {
                 let id = RecapEntry.completedID(sourceID: sourceID, sessionID: session.id, completionID: completionID)
                 if var existing = entries[id] {
+                    if let result = results[id], existing.resultText != result {
+                        existing.resultText = String(result.prefix(12_000))
+                        changed = true
+                    }
                     // The final text can arrive after the round ended (the
                     // Claude reader, a labelled Codex duplicate); fill the
                     // sentence in once, never replace one already kept.
@@ -124,6 +131,7 @@ struct RecapLedger {
                                         ledgerLine: RecapEntry.ledgerLine(for: session),
                                         endedAt: session.statusSince, recordedAt: now)
                     stored.isRead = Self.readState(of: stored, in: session)
+                    stored.resultText = results[id].map { String($0.prefix(12_000)) }
                     entries[id] = stored
                     changed = true
                 }
@@ -147,6 +155,14 @@ struct RecapLedger {
     }
 
     // MARK: reading
+
+    mutating func retainResult(id: String, text: String, now: Date) {
+        guard var entry = entries[id], entry.resultText == nil,
+              !text.isEmpty, text.count <= 12_000 else { return }
+        entry.resultText = text
+        entries[id] = entry
+        save(now: now)
+    }
 
     /// The recap for this moment. `sessions` is the snapshot's own list, so
     /// muting and acknowledgement are read from the same facts every other

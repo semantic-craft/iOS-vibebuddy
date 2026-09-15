@@ -13,6 +13,7 @@ struct PairedPhone: Codable, Equatable {
     var lastSeen: Date
     var pushRegistered: Bool
     var confirmed: Bool
+    var deviceID: String? = nil
 
     var subtitle: String {
         [model, systemVersion].compactMap { value in
@@ -26,6 +27,8 @@ struct PairedPhone: Codable, Equatable {
 /// prepares the pairing QR. UI-facing state is published on the main actor.
 @MainActor
 final class MenuBarModel: ObservableObject {
+    let settingsTests = SettingsTestCoordinator()
+    let settingsCredentials = SettingsCredentials()
     @Published private(set) var sessions: [AgentSession] = []
     @Published private(set) var recap: Recap?
     @Published private(set) var recapUpdatedAt: Date?
@@ -79,6 +82,7 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var lifecycleJournalClearFailed = false
     @Published private(set) var missedThisWeek = MissedCounts.empty
     @Published private(set) var notificationDeliveryHealth = NotificationDeliveryHealth()
+    @Published private(set) var contentPresentationRevision: String?
     @Published private(set) var recentNotificationDeliveries: [NotificationDeliveryRecord] = []
     /// How many phones the Mac can push to right now, and when the newest of
     /// them last registered. Zero with APNs configured means every push is
@@ -103,6 +107,11 @@ final class MenuBarModel: ObservableObject {
     @Published private(set) var qrImage: NSImage?
     /// The most-recently paired phone's display metadata (persisted), shown in the UI.
     @Published private(set) var pairedPhone: PairedPhone?
+    @Published private(set) var detectedRemoteAddresses: [String] = []
+    @Published private(set) var remoteTransfer: RemoteConnectionSyncStore.Transfer?
+    @Published private(set) var synchronizingConnection = false
+    private let connectionSync = RemoteConnectionSyncStore()
+
     @Published var launchAtLogin = LaunchAtLogin.isEnabled
     @Published var glanceScale: CGFloat = 1.0
     @Published var showGlance: Bool = true
@@ -220,15 +229,16 @@ final class MenuBarModel: ObservableObject {
     private func enqueueSpeech(_ original: AgentSession, sound: NotificationSound, sourceID: String, manual: Bool) {
         guard let identity = speechIdentity(original, sound: sound, sourceID: sourceID),
               let text = AnnouncementCopy.text(for: original, sound: sound, language: VoiceSettings.conversationLanguage()) else { return }
+        var preparedRevision: String?
         readAloud.speak(text, id: identity, title: original.displayTitle, manual: manual,
             priority: !manual && sound != .agentDone, prepareText: { [weak self] in
-            var session = original
-            if sound == .agentDone, session.completionSummary == nil, session.completionText == nil,
-               let body = await self?.completionBody(for: session),
-               body.sourceID == sourceID, body.sessionID == session.id, body.completionID == session.completionID {
-                session.completionText = RowPresentation.firstSentence(body.text)
-            }
-            return AnnouncementCopy.text(for: session, sound: sound, language: VoiceSettings.conversationLanguage())
+            guard let self, let target = ContentPresentationTarget(session: original) else { return nil }
+            let request = ContentPresentationRequest(sourceID: sourceID, target: target)
+            let result = await self.store.presentation(request)
+            preparedRevision = result?.revision
+            return result?.text
+        }, validatePreparedText: {
+            preparedRevision == CompletionSummaryConfiguration.load().presentationRevision
         }) { [weak self] in
             guard let self else { return false }
             let snapshot = await self.store.snapshot(now: Date())
@@ -259,14 +269,28 @@ final class MenuBarModel: ObservableObject {
     }
 
     func replayResult(_ original: AgentSession, body: CompletionBody? = nil) {
-        var session = original
-        if let body, body.sourceID == snapshotSourceID, body.sessionID == session.id,
-           body.completionID == session.completionID,
-           let result = RowPresentation.firstSentence(body.text) {
-            session.completionText = result
-        }
-        guard let text = AnnouncementCopy.text(for: session, sound: .agentDone, language: VoiceSettings.conversationLanguage()) else { return }
-        readAloud.speak((VoiceSettings.conversationLanguage() == .chinese ? "此前结果。" : "Previous result. ") + text, id: "replay/" + UUID().uuidString, remember: false)
+        guard let sourceID = snapshotSourceID, let target = ContentPresentationTarget(session: original) else { return }
+        let request = ContentPresentationRequest(sourceID: sourceID, target: target)
+        var preparedRevision: String?
+        readAloud.speak(original.displayTitle, id: "replay/" + UUID().uuidString, manual: true, remember: false,
+            prepareText: { [weak self] in
+                guard let self, let result = await self.store.presentation(request) else { return nil }
+                preparedRevision = result.revision
+                return (VoiceSettings.conversationLanguage() == .chinese ? "此前结果。" : "Previous result. ") + result.text
+            }, validatePreparedText: {
+                preparedRevision == CompletionSummaryConfiguration.load().presentationRevision
+            }, validate: { [weak self] in
+                guard let self else { return false }
+                let snapshot = await self.store.snapshot(now: Date())
+                return snapshot.sourceID == sourceID && snapshot.sessions.contains { target.matches($0) }
+            })
+    }
+
+    func recapPresentation(for entry: RecapEntry) async -> ContentPresentation? {
+        guard let sourceID = snapshotSourceID else { return nil }
+        let result = await store.presentation(.init(sourceID: sourceID, target: .recap(id: entry.id), purpose: .recap))
+        guard snapshotSourceID == sourceID, recap?.entries.contains(where: { $0.id == entry.id }) == true else { return nil }
+        return result
     }
 
     var dashboardViewedSessionID: String?
@@ -503,6 +527,7 @@ final class MenuBarModel: ObservableObject {
         let server = VibeBuddyServer(store: store, token: token, host: E2ERunConfiguration.current?.host ?? "0.0.0.0", port: port,
                                      pusher: nil, phoneReceipts: phoneReceipts,
                                      deviceTokens: deviceTokens,
+                                     connectionSync: connectionSync,
                                      activityTokens: activityTokens,
                                      codexRolloutMonitor: menuRolloutMonitor,
                                      codexAppServerMonitor: E2ERunConfiguration.current == nil || codexAppServerEnabled ? codexAppServerMonitor : nil,
@@ -692,6 +717,7 @@ final class MenuBarModel: ObservableObject {
                 if cursorReady { agents.append(.cursor) }
                 self.dispatchAgents = agents
                 self.tokenConsumption = snapshot.tokenConsumption
+                self.contentPresentationRevision = snapshot.contentPresentationRevision
                 self.lifecycleTimeline = await self.store.recentLifecycle()
                 self.missedThisWeek = await self.store.missedCounts()
                 self.buddySessionIDs = BuddyScope.pruned(self.buddySessionIDs, toLive: snapshot.sessions)
@@ -755,7 +781,7 @@ final class MenuBarModel: ObservableObject {
         guard local || fanout.recipients.contains(where: { $0.device.supportsCompletionNotices == true }) else { log.notice("Skipped: no eligible receiver"); return nil }
         guard case .ready(let result) = await store.completionResult(sessionID: session.id, completionID: completionID) else { log.notice("Skipped: final result unavailable"); return nil }
         let input = CompletionSummaryInput(sourceID: result.sourceID, sessionID: result.sessionID,
-            completionID: result.completionID, turnID: result.turnID, title: result.title,
+            completionID: result.completionID, turnID: result.turnID, title: session.project.isEmpty ? result.title : session.project,
             finalText: result.finalText, completedAt: result.completedAt, observedAt: result.observedAt)
         let summary = await completionSummaryService.generate(input, configuration: config)
         guard !Task.isCancelled, config == CompletionSummaryConfiguration.load(), !Self.effectiveQuiet() else { return nil }
@@ -1462,6 +1488,57 @@ final class MenuBarModel: ObservableObject {
         launchAtLogin = LaunchAtLogin.isEnabled
     }
 
+    var remoteAddressIsValid: Bool {
+        CompanionEndpoint(host: tailscaleHost, port: port)?.isTailnetIPv4 == true
+    }
+
+    var canSyncConnection: Bool {
+        useTailscale && remoteAddressIsValid && pairedPhone?.confirmed == true
+            && pairedPhone?.deviceID?.isEmpty == false && !synchronizingConnection && !changingPairing
+    }
+
+    func discoverRemoteAddress() {
+        detectedRemoteAddresses = LANAddress.tailnetIPv4Addresses()
+        if tailscaleHost.isEmpty, detectedRemoteAddresses.count == 1 {
+            let hasPreference = UserDefaults.standard.object(forKey: "pairing.useTailscale") != nil
+            tailscaleHost = detectedRemoteAddresses[0]
+            if !hasPreference { useTailscale = true }
+        }
+    }
+
+    func refreshConnectionCenter() async {
+        await refreshPairedPhone()
+        if let deviceID = pairedPhone?.deviceID {
+            remoteTransfer = await connectionSync.transfer(for: deviceID)
+        } else {
+            remoteTransfer = nil
+        }
+    }
+
+    func syncConnectionToPhone() {
+        guard canSyncConnection, let deviceID = pairedPhone?.deviceID else { return }
+        let host = tailscaleHost
+        synchronizingConnection = true
+        Task {
+            defer { synchronizingConnection = false }
+            guard await deviceTokens.isConfirmed(deviceID: deviceID), let sourceID = await store.sourceID else { return }
+            await connectionSync.propose(deviceID: deviceID, sourceID: sourceID, host: host, port: port)
+            await refreshConnectionCenter()
+        }
+    }
+
+    func cancelConnectionSync() {
+        guard let deviceID = remoteTransfer?.proposal.deviceID else { return }
+        Task {
+            await connectionSync.cancel(for: deviceID)
+            await refreshConnectionCenter()
+        }
+    }
+
+    func openConnectionSettings() {
+        NotificationCenter.default.post(name: .openAppSettings, object: SettingsPageID.phone)
+    }
+
     /// User action only. Preparing a QR at launch never authorizes registration.
     func beginPairing() {
         preparePairing()
@@ -1502,7 +1579,7 @@ final class MenuBarModel: ObservableObject {
             PairedPhone(name: Self.nonEmpty(entry.device.name) ?? "iPhone",
                         model: entry.device.model, systemVersion: entry.device.systemVersion,
                         lastSeen: entry.registeredAt, pushRegistered: entry.device.hasPushToken,
-                        confirmed: entry.pairedAt != nil)
+                        confirmed: entry.pairedAt != nil, deviceID: entry.device.deviceID)
         }
         let newlyConfirmed = pairedPhone?.confirmed != true && next?.confirmed == true
         pairedPhone = next
@@ -1517,6 +1594,8 @@ final class MenuBarModel: ObservableObject {
         pairingInProgress = false
         pairedPhone = nil
         Task {
+            await connectionSync.cancelAll()
+            remoteTransfer = nil
             await deviceTokens.forgetAll()
             deviceRegistry = await deviceTokens.summary()
             changingPairing = false

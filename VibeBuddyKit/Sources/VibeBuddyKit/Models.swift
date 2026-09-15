@@ -714,6 +714,7 @@ public struct Snapshot: Codable, Sendable, Equatable {
     /// (`Recap`). Optional so older phones ignore it. Composed outside the
     /// session reducer: it is a record of ended rounds, not session state.
     public var recap: Recap?
+    public var contentPresentationRevision: String?
     /// Handoff documents found under the recent directories' `.scratch`
     /// (`HandoffRecord`, ADR-0023). Optional so older clients ignore it.
     public var handoffs: [HandoffRecord]?
@@ -746,7 +747,7 @@ public struct Snapshot: Codable, Sendable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case sourceID, sessions, serverTime, observationDiagnostics
-        case providerQuota, recentDirectories, dispatchAgents, tokenConsumption, cursorModels, recap, handoffs
+        case providerQuota, recentDirectories, dispatchAgents, tokenConsumption, cursorModels, recap, handoffs, contentPresentationRevision
     }
 
     public init(from decoder: Decoder) throws {
@@ -768,6 +769,7 @@ public struct Snapshot: Codable, Sendable, Equatable {
         tokenConsumption = try c.decodeIfPresent(TokenConsumptionSnapshot.self, forKey: .tokenConsumption)
         cursorModels = try c.decodeIfPresent([String].self, forKey: .cursorModels)
         recap = try c.decodeIfPresent(Recap.self, forKey: .recap)
+        contentPresentationRevision = try c.decodeIfPresent(String.self, forKey: .contentPresentationRevision)
         handoffs = try c.decodeIfPresent([HandoffRecord].self, forKey: .handoffs)
     }
 
@@ -783,6 +785,7 @@ public struct Snapshot: Codable, Sendable, Equatable {
         try c.encodeIfPresent(tokenConsumption, forKey: .tokenConsumption)
         try c.encodeIfPresent(cursorModels, forKey: .cursorModels)
         try c.encodeIfPresent(recap, forKey: .recap)
+        try c.encodeIfPresent(contentPresentationRevision, forKey: .contentPresentationRevision)
         try c.encodeIfPresent(handoffs, forKey: .handoffs)
     }
 }

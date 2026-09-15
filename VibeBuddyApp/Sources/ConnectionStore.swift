@@ -11,10 +11,11 @@ final class ConnectionStore: ObservableObject {
     /// so the app is reviewable (and explorable) without a paired Mac.
     @Published private(set) var demo = false
 
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
     private let key = "vibebuddy.pairing"
 
-    init() {
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         if ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO"] == "1" {
             demo = true
         } else if let fromEnvironment = Self.environmentPairing() {

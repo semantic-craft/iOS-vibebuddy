@@ -6,6 +6,10 @@ import VibeBuddyKit
 struct MacRecapView: View {
     @ObservedObject var model: MenuBarModel
     @State private var selected: String?
+    @State private var presentation: ContentPresentation?
+    @State private var generating = false
+    @AppStorage(ContentStyleConfiguration.defaultsKey) private var contentStyle = ContentStyle.concise.rawValue
+    @AppStorage(ContentStyleConfiguration.customPromptKey) private var customPrompt = ""
     @Environment(\.controlActiveState) private var controlActiveState
 
     var body: some View {
@@ -60,12 +64,20 @@ struct MacRecapView: View {
                                 }
                                 .font(MacTheme.font(11)).foregroundStyle(selected == entry.id && controlActiveState == .key ? Color.white.opacity(0.9) : MacTheme.ink2)
                                 if selected == entry.id {
+                                    if generating {
+                                        ProgressView("Generating summary…").controlSize(.small)
+                                    }
+                                    if let presentation, presentation.request.target == .recap(id: entry.id) {
+                                        Text(presentation.text).font(MacTheme.font(13)).textSelection(.enabled)
+                                    }
+                                    if presentation?.generated != true {
                                     ForEach(Array(entry.points.enumerated()), id: \.offset) { _, point in
                                         Text(point).font(MacTheme.font(13)).textSelection(.enabled)
                                     }
                                     if entry.points.isEmpty {
                                         Text("No summary was recorded for this round.")
                                             .font(MacTheme.font(12)).foregroundStyle(selected == entry.id && controlActiveState == .key ? Color.white.opacity(0.8) : MacTheme.ink3)
+                                    }
                                     }
                                     Text(entry.endedAt, format: .dateTime.year().month().day().hour().minute())
                                         .font(MacTheme.mono(11)).foregroundStyle(selected == entry.id && controlActiveState == .key ? Color.white.opacity(0.8) : MacTheme.ink3)
@@ -91,6 +103,16 @@ struct MacRecapView: View {
                         }
                     }
                     .listStyle(.plain)
+                    .task(id: (selected ?? "") + contentStyle + customPrompt + (model.contentPresentationRevision ?? "")) {
+                        presentation = nil
+                        generating = false
+                        guard let entry = recap.entries.first(where: { $0.id == selected }) else { return }
+                        generating = true
+                        let result = await model.recapPresentation(for: entry)
+                        guard !Task.isCancelled else { return }
+                        presentation = result
+                        generating = false
+                    }
                 }
             } else {
                 QuietEmptyState(title: "Recap unavailable", message: "Waiting for an authoritative recap from this Mac.", systemName: "clock.badge.questionmark")

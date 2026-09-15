@@ -68,6 +68,8 @@ struct VoiceFeaturesPage: View {
     @AppStorage(VoiceSettings.summaryProviderKey) private var summaryChoice: String?
     @AppStorage(VoiceSettings.readAloudProviderKey) private var readAloudChoice = ""
     @AppStorage(VoiceSettings.conversationLanguageKey) private var language = VoiceLanguage.english.rawValue
+    @AppStorage(ContentStyleConfiguration.defaultsKey) private var contentStyleChoice = ContentStyleConfiguration.default.style.rawValue
+    @AppStorage(ContentStyleConfiguration.customPromptKey) private var customContentPrompt = ""
 
     private var conversationProvider: VoiceProvider? { VoiceProvider(rawValue: conversationChoice) }
     private var summaryProvider: VoiceProvider? {
@@ -82,7 +84,16 @@ struct VoiceFeaturesPage: View {
 
     var body: some View {
         SettingsPageScaffold(SettingsPageID.voice.title, subtitle: SettingsPageID.voice.subtitle) {
-            SettingsSection("Features") {
+            SettingsSection("Summary and reading defaults") {
+                SettingsBlockRow {
+                    ContentStylePreferences()
+                }
+                SettingsBlockRow {
+                    ReadAloudPreferences(reader: model.readAloud, voiceChat: model.voiceChat,
+                                         tests: tests, credentials: credentials)
+                }
+            }
+            SettingsSection("Models and services") {
                 SettingsBlockRow {
                     ConversationFeatureRow(provider: conversationProvider, menuModel: model, tests: tests,
                                            credentials: credentials, selection: conversationSelection,
@@ -99,7 +110,7 @@ struct VoiceFeaturesPage: View {
                 }
                 SettingsBlockRow {
                     ReadAloudFeatureRow(status: readAloud, summaryProvider: summaryProvider,
-                                        reader: model.readAloud, voiceChat: model.voiceChat,
+                                        reader: model.readAloud,
                                         tests: tests, credentials: credentials,
                                         selection: readAloudSelection, reveal: reveal)
                         .id("readAloud-\(readAloud.provider?.rawValue ?? "")")
@@ -131,6 +142,7 @@ struct VoiceFeaturesPage: View {
             if VoiceSettings.pinnedReadAloudProvider() == nil { model.readAloud.stop() }
         }
         .onChange(of: readAloudChoice) { _, _ in tests.invalidate(); model.readAloud.stop() }
+        .onChange(of: [contentStyleChoice, customContentPrompt]) { _, _ in tests.invalidate() }
         .onDisappear { tests.invalidate() }
     }
 
@@ -191,17 +203,6 @@ struct ProviderKeysPage: View {
     }
 }
 
-private extension SettingsTestCoordinator {
-    /// The account holds an item but it could not be decrypted — a failed or
-    /// cancelled Keychain authorization. Say so where this row's other results
-    /// appear, rather than calling the provider with an empty key.
-    func reportUnreadableKey(_ purpose: Purpose) {
-        start(purpose, timeout: .seconds(5), operation: {
-            .failure("Could not read the saved API key. Open this provider’s account below and paste the key again.")
-        })
-    }
-}
-
 // MARK: - Row chrome
 
 /// One feature row: switch, name with status, the controls that provider governs,
@@ -241,7 +242,9 @@ private struct FeatureRow<Controls: View>: View {
                         .font(MacTheme.font(10)).foregroundStyle(MacTheme.status(.requiresInput))
                 }
                 Text(hint ?? feature.hint).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
-                SettingsTestFeedback(tests: tests, purpose: feature.testPurpose)
+                if feature != .readAloud {
+                    SettingsTestFeedback(tests: tests, purpose: feature.testPurpose)
+                }
             }
         }
         .padding(.vertical, 4)
@@ -539,10 +542,14 @@ private struct SummaryFeatureRow: View {
         // An explicit sample test is independent of enabling automatic summaries.
         return .init(enabled: true, provider: provider, modelID: effectiveModel,
                      language: VoiceLanguage(rawValue: language) ?? .english,
-                     qwenUseIntl: intl, qwenWorkspaceID: workspace)
+                     qwenUseIntl: intl, qwenWorkspaceID: workspace,
+                     contentStyle: ContentStyleConfiguration.load())
     }
     private var detail: String? {
-        configuration?.configurationFailure.map(SettingsModelTestOperations.summaryFailureMessage)
+        if configuration?.contentStyle.isValid == false {
+            return "Enter custom instructions in Settings before generating a summary."
+        }
+        return configuration?.configurationFailure.map(SettingsModelTestOperations.summaryFailureMessage)
     }
     private var status: VoiceFeatureStatus {
         guard let provider else { return .unconfigured }
@@ -570,7 +577,7 @@ private struct SummaryFeatureRow: View {
     private var sampleButton: some View {
         Button("Sample", action: test)
             .disabled(tests.isBusy || provider == nil || configuration?.configurationFailure != nil
-                      || !credential.configured || reader.busy)
+                      || configuration?.contentStyle.isValid == false || !credential.configured || reader.busy)
             .accessibilityIdentifier("completionSummaryTest")
             .help("Generate one synthetic summary with this Mac’s saved key. Billed; no task history is sent.")
     }
@@ -588,6 +595,7 @@ private struct SummaryFeatureRow: View {
 
     private func test() {
         guard let configuration, credential.configured, configuration.configurationFailure == nil,
+              configuration.contentStyle.isValid,
               !tests.isBusy, !reader.busy else { return }
         credential.load()
         guard credential.configured else { return tests.reportUnreadableKey(.summary) }
@@ -605,28 +613,21 @@ private struct ReadAloudFeatureRow: View {
     /// What "Same as summaries" currently points at — named in the picker itself.
     let summaryProvider: VoiceProvider?
     @ObservedObject var reader: ReadAloud
-    @ObservedObject var voiceChat: VoiceChat
     @ObservedObject var tests: SettingsTestCoordinator
     @ObservedObject var credential: SettingsCredential
     @Binding var selection: String
     let reveal: (VoiceProvider) -> Void
     @AppStorage(ReadAloud.enabledKey) private var enabled = false
     @AppStorage(CompletionSummaryConfiguration.enabledKey) private var summariesEnabled = false
-    @AppStorage(VoiceSettings.conversationLanguageKey) private var language = VoiceLanguage.english.rawValue
-    @AppStorage(VoiceSettings.regionIntlKey) private var intl = false
-    @AppStorage(VoiceSettings.qwenWorkspaceIDKey) private var workspace = ""
     @AppStorage private var modelID: String
-    @AppStorage private var voiceID: String
-    @AppStorage private var styleID: String
 
     init(status: VoiceSettings.ReadAloudStatus, summaryProvider: VoiceProvider?,
-         reader: ReadAloud, voiceChat: VoiceChat,
+         reader: ReadAloud,
          tests: SettingsTestCoordinator, credentials: SettingsCredentials,
          selection: Binding<String>, reveal: @escaping (VoiceProvider) -> Void) {
         self.status = status
         self.summaryProvider = summaryProvider
         self.reader = reader
-        self.voiceChat = voiceChat
         self.tests = tests
         self.credential = credentials[status.provider ?? .qwen]
         _selection = selection
@@ -634,54 +635,8 @@ private struct ReadAloudFeatureRow: View {
         let keyed = status.provider ?? .qwen
         _modelID = AppStorage(wrappedValue: SpeechSynthesis.support(keyed)?.defaultModel ?? "",
                               VoiceSettings.readAloudModelKey(keyed))
-        // Deliberately empty: a stored voice wins, and everything else is
-        // decided by the language-aware fallback below.
-        _voiceID = AppStorage(wrappedValue: "", VoiceSettings.readAloudVoiceKey(keyed))
-        _styleID = AppStorage(wrappedValue: VoiceStyle.standard.rawValue,
-                              VoiceSettings.readAloudStyleKey(keyed))
     }
 
-    private var spokenLanguage: VoiceLanguage { VoiceLanguage(rawValue: language) ?? .english }
-    /// What will actually be spoken. A provider picked for the first time has
-    /// nothing stored yet, and the picker shows the language default without
-    /// writing it — so preview and the request must resolve it the same way
-    /// rather than treat "nothing stored" as "no voice".
-    private var effectiveVoice: String {
-        voiceID.isEmpty
-            ? VoiceSettings.readAloudVoice(status.provider ?? .qwen, language: spokenLanguage)
-            : voiceID
-    }
-    /// `.standard` for a vendor with no instruction channel, so a persona left
-    /// behind by an earlier provider cannot follow the user to one that would
-    /// silently drop it.
-    private var effectiveStyle: VoiceStyle {
-        guard SpeechSynthesis.supportsStyle(status.provider ?? .qwen) else { return .standard }
-        return VoiceStyle(stored: styleID)
-    }
-    private var configuration: SpeechSynthesisConfiguration {
-        let value = workspace.trimmingCharacters(in: .whitespacesAndNewlines)
-        return .init(provider: status.provider ?? .qwen,
-                     model: modelID.trimmingCharacters(in: .whitespacesAndNewlines), voice: effectiveVoice,
-                     qwenWorkspaceID: value.isEmpty ? nil : value, qwenUseIntl: intl,
-                     style: effectiveStyle, language: spokenLanguage)
-    }
-    /// Why preview cannot run — the same order the status pill reports.
-    private var previewFailure: String? {
-        if let unavailable = ReadAloud.unavailability(status) { return unavailable }
-        guard let provider = status.provider else { return nil }
-        if !credential.configured {
-            return String(format: NSLocalizedString("Save your %@ API key first.", comment: "Read-aloud needs a key"), provider.display)
-        }
-        if configuration.model.isEmpty { return NSLocalizedString("Enter a speech synthesis model before previewing.", comment: "Read-aloud model missing") }
-        if effectiveVoice.isEmpty { return NSLocalizedString("Enter a voice ID or use the language default.", comment: "Read-aloud voice missing") }
-        if provider == .qwen {
-            let config = CompletionSummaryConfiguration(enabled: true, provider: .qwen, modelID: configuration.model,
-                qwenUseIntl: intl, qwenWorkspaceID: workspace)
-            if config.configurationFailure != nil { return NSLocalizedString("Check the Qwen workspace ID in the account below.", comment: "Qwen workspace invalid") }
-        }
-        if voiceChat.isActive { return NSLocalizedString("Stop the current voice conversation or reading before previewing.", comment: "Read-aloud busy") }
-        return nil
-    }
     private var rowStatus: VoiceFeatureStatus {
         switch status {
         case .waitingForSummaryProvider: return .waitingForSummaries
@@ -708,7 +663,7 @@ private struct ReadAloudFeatureRow: View {
     /// One line under the row: what "Same as summaries" currently resolves to.
     private var hint: LocalizedStringKey {
         if !summariesEnabled {
-            return "Turn on AI completion summaries first — this only ever speaks that summary."
+            return "Turn on AI completion summaries for automatic announcements. New readings use the current content style."
         }
         guard let provider = status.provider else { return VoiceFeature.readAloud.hint }
         return selection == provider.rawValue
@@ -724,62 +679,18 @@ private struct ReadAloudFeatureRow: View {
                 get: { UserDefaults.standard.bool(forKey: ReadAloud.silenceViewedKey) },
                 set: { UserDefaults.standard.set($0, forKey: ReadAloud.silenceViewedKey) }))
                 .font(MacTheme.font(11))
-            ControlLine {
+            ControlLine.textOnly(provider: {
                 ProviderPicker(label: "Read-aloud provider", selection: $selection,
-                               options: VoiceProvider.voiceProviders,
-                               leading: ("", followTitle))
-            } model: {
+                               options: VoiceProvider.voiceProviders, leading: ("", followTitle))
+            }, model: {
                 if case .ready(let provider) = status {
                     IDField(label: "Speech synthesis model",
                             placeholder: SpeechSynthesis.support(provider)?.defaultModel ?? "",
                             text: $modelID, browse: provider.modelsURL,
                             browseHelp: "Browse available models", identifier: "readAloudModelID")
                 } else { Text(verbatim: "—").foregroundStyle(MacTheme.ink2) }
-            } voice: {
-                if case .ready(let provider) = status {
-                    VoicePicker(label: "Read-aloud voice", purpose: .readAloud, provider: provider,
-                                language: VoiceLanguage(rawValue: language) ?? .english,
-                                fallback: VoiceSettings.readAloudVoice(provider, language: spokenLanguage),
-                                voiceID: $voiceID) {
-                        Button(action: preview) {
-                            Image(systemName: isPreviewing ? "stop.fill" : "play.fill")
-                        }
-                        // While this row owns the test the button *is* Stop, so it
-                        // stays enabled — `reader.busy` is true for the whole preview.
-                        .disabled(isPreviewing ? false
-                                  : (previewFailure != nil || reader.busy || tests.isBusy))
-                        .help(isPreviewing ? "Stop the preview."
-                              : (previewFailure.map { LocalizedStringKey($0) }
-                                 ?? "Play one sample line. This calls the provider and is billed."))
-                        .accessibilityLabel("Preview the read-aloud voice")
-                        .accessibilityIdentifier("readAloudPreview")
-                    }
-                } else { Text(verbatim: "—").foregroundStyle(MacTheme.ink2) }
-            } trailing: {
-                // No trailing button: the ▶ beside the voice is this row's verification.
-                EmptyView()
-            }
-            // Its own line, not a fifth column: the persona applies to whatever
-            // voice is chosen above, and ControlLine's three cells are already
-            // at their minimum widths. Shown only where the vendor documents an
-            // instruction channel — see `SpeechSynthesis.supportsStyle`.
-            if case .ready(let provider) = status, SpeechSynthesis.supportsStyle(provider) {
-                HStack(spacing: 8) {
-                    Text("Voice style").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
-                    Picker("Voice style", selection: styleSelection) {
-                        ForEach(VoiceStyle.allCases, id: \.rawValue) { Text(verbatim: $0.display).tag($0.rawValue) }
-                    }
-                    .labelsHidden().fixedSize()
-                    .accessibilityLabel("Voice style")
-                    .accessibilityIdentifier("readAloudStyle")
-                    Text(effectiveStyle == .standard
-                         ? "Reads the summary with no extra direction."
-                         : "Sent to \(provider.display) as a delivery instruction alongside each reading.")
-                        .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
-                    Spacer(minLength: 0)
-                }
-            }
-            // A reading that started on its own is stoppable here; the ▶ owns previews only.
+            }, trailing: { EmptyView() })
+            // This stops announcements; preview controls live with the voice preferences.
             if reader.automaticBusy || !reader.status.isEmpty {
                 HStack(spacing: 8) {
                     Text(reader.automaticBusy && tests.purpose == .readAloud && tests.isBusy
@@ -795,40 +706,11 @@ private struct ReadAloudFeatureRow: View {
           }
         }
         .onAppear { credential.refresh() }
-        .onChange(of: [modelID, voiceID, styleID, workspace, String(intl), String(credential.revision),
-                       String(enabled)]) { _, _ in tests.invalidate() }
-        .onChange(of: enabled) { _, on in if !on { reader.stop() } }
-        .onChange(of: [modelID, voiceID, styleID]) { _, _ in reader.stop() }
-        .onChange(of: voiceChat.isActive) { _, active in
-            if active, tests.purpose == .readAloud { tests.cancel() }
+        .onChange(of: modelID) { _, _ in tests.invalidate(); reader.stop() }
+        .onChange(of: enabled) { _, on in
+            tests.invalidate()
+            if !on { reader.stop() }
         }
-    }
-
-    /// This row owns the running test, so its button reads and acts as Stop.
-    private var isPreviewing: Bool { tests.purpose == .readAloud && tests.isBusy }
-
-    /// Reads through the same normalisation the request uses, so a stored
-    /// persona this build cannot parse shows as Standard instead of leaving
-    /// the picker with no matching tag.
-    private var styleSelection: Binding<String> {
-        Binding(get: { effectiveStyle.rawValue }, set: { styleID = $0 })
-    }
-
-    private func preview() {
-        if isPreviewing { tests.cancel(); return }
-        guard previewFailure == nil, !tests.isBusy, !reader.busy else { return }
-        credential.load()
-        guard credential.configured else { return tests.reportUnreadableKey(.readAloud) }
-        let config = configuration, key = credential.value, reader = reader
-        let text = NSLocalizedString("Hello, I’m your work companion. The task is complete, and device verification is still pending.", comment: "Synthetic read-aloud preview")
-        tests.start(.readAloud, timeout: .seconds(35), operation: {
-            switch await reader.preview(text, apiKey: key, configuration: config) {
-            case .completed:
-                return .success(.init(message: "Read-aloud preview playback completed on this Mac. Confirm that you heard it through the intended output."))
-            case .cancelled: return .cancelled
-            case .failed(let message): return .failure(message)
-            }
-        }, cleanup: { await reader.cancelPreview() })
     }
 }
 

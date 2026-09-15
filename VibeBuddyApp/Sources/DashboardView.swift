@@ -15,7 +15,7 @@ struct DashboardView: View {
     @StateObject private var settingsConnectionTest = VoiceConnectionTest()
     /// Reads the pending queue aloud (ticket 04); paused by a live voice call.
     @StateObject private var announcer = PhoneAnnouncer()
-    @State private var showScanner = false
+    @State private var showConnection = false
     @State private var showSettings = false
     @State private var showQuota = false
     /// What the dashboard has already started, so a return from the pushed
@@ -186,6 +186,10 @@ struct DashboardView: View {
             VStack(spacing: 0) {
                 if announcer.isBusy || announcer.status != nil {
                     AnnouncerStrip(announcer: announcer, replay: { announcer.replayLatest(live: { dashboard.allSessions }) })
+                        .contentShape(Rectangle())
+                        .onTapGesture { showVoicePage = true }
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityHint("Open the voice page")
                 }
                 if voice.phase != .idle || voice.errorText != nil {
                     VoiceStrip(voice: voice)
@@ -227,10 +231,17 @@ struct DashboardView: View {
             }
             .presentationDetents([.large])
         }
-        .sheet(isPresented: $showScanner) {
-            PairingScannerSheet()
-                .environmentObject(connection)
-                .environmentObject(dashboard)
+        .sheet(isPresented: $showConnection) {
+            NavigationStack {
+                DeviceConnectionView()
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showConnection = false }
+                        }
+                    }
+            }
+            .environmentObject(connection)
+            .environmentObject(dashboard)
         }
         .navigationDestination(isPresented: $showQuota) {
             UsagePageView(focus: usageFocus)
@@ -245,6 +256,7 @@ struct DashboardView: View {
             // A sheet doesn't inherit the presenter's environment objects, so
             // re-inject `voice` — Settings restarts a live session on change.
             SettingsView(connectionTest: settingsConnectionTest)
+                .environmentObject(announcer)
                 .environmentObject(voice)
                 .environmentObject(dashboard)
         }
@@ -254,6 +266,7 @@ struct DashboardView: View {
                           scopeCount: dashboard.buddyContext.count, scopeTotal: dashboard.allSessions.count,
                           replay: { announcer.replayLatest(live: { dashboard.allSessions }) },
                           openScope: { showVoicePage = false; showFilters = true })
+                .environmentObject(connection)
                 .environmentObject(dashboard)
                 .presentationDetents([.large])
         }
@@ -275,6 +288,7 @@ struct DashboardView: View {
         }
         .onChange(of: filters) { _, _ in pendingNavigation = PendingTaskNavigation() }
         .onChange(of: page) { _, _ in pendingNavigation = PendingTaskNavigation() }
+        .onChange(of: dashboard.speechSourceIdentity) { _, _ in announcer.sourceChanged() }
         .onChange(of: voice.phase) { _, phase in if phase != .idle { announcer.voiceStarted() } }
         .onChange(of: dashboard.completionSourceID) { _, _ in pendingNavigation = PendingTaskNavigation() }
         .alert("This completion is no longer current", isPresented: $dashboard.completionLinkUnavailable) {
@@ -364,7 +378,10 @@ struct DashboardView: View {
     /// the hub, the scope from a list. Reading never marks anything read.
     private func readPending() {
         let pending = page == .inbox ? inbox.pending : pendingCandidates
-        announcer.announce(pending, startPaused: voice.phase != .idle, live: { dashboard.allSessions })
+        announcer.announce(pending, startPaused: voice.phase != .idle, live: { dashboard.allSessions },
+                           source: { dashboard.speechSourceIdentity },
+                           content: { try await dashboard.announcement(for: $0) },
+                           validate: { dashboard.announcementIsCurrent($0) })
     }
 
     /// The scope a tile or project set, then Customize's picks: what the
@@ -503,21 +520,34 @@ struct DashboardView: View {
         .background(CompanionPalette.bg)
     }
 
-    /// The paired Mac as a circle button: a dot for the link state, and inside
-    /// it the address, reconnect, copy and forget — the menu the page title
-    /// used to carry (ADR-0014).
     private var connectionButton: some View {
-        MacConnectionMenu(title: macTitle, pairing: connection.pairing, demo: connection.demo,
-                          state: dashboard.state,
-                          scan: { showScanner = true },
-                          reconnect: { if let p = connection.pairing { dashboard.start(p) } },
-                          copyAddress: {
-                              if let p = connection.pairing {
-                                  UIPasteboard.general.string = "\(p.host):\(String(p.port))"
-                                  dashboard.showToast(String(localized: "Address copied"))
-                              }
-                          },
-                          disconnect: { connection.clear(); dashboard.forgetPairing() })
+        VStack(alignment: .leading, spacing: 4) {
+            Button { showConnection = true } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "desktopcomputer")
+                    Text(macTitle).lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(CompanionPalette.ink3)
+                }
+                .font(CompanionType.font(14, .medium))
+                .foregroundStyle(CompanionPalette.ink)
+                .padding(.horizontal, 12)
+                .frame(minHeight: 44)
+                .background(CompanionPalette.bg3, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(CompanionPalette.line, lineWidth: CompanionType.hairline))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("Device & connection") + Text(", ") + Text(macTitle))
+            .accessibilityHint("Manage pairing and connect away from home")
+            .accessibilityIdentifier("phone-inbox-connection")
+            Text(DeviceConnectionView.status(pairing: connection.pairing, demo: connection.demo, state: dashboard.state))
+                .font(CompanionType.font(11))
+                .foregroundStyle(CompanionPalette.ink2)
+                .lineLimit(2)
+                .accessibilityIdentifier("phone-connection-status")
+        }
     }
 
     /// The hub's title over an empty snapshot, so the page is still the inbox
@@ -1427,61 +1457,6 @@ private struct ContextBar: View {
             : f > 0.7 ? CompanionPalette.status(.requiresInput) : CompanionPalette.accent
     }
     private func short(_ n: Int) -> String { n >= 1000 ? "\(n / 1000)k" : "\(n)" }
-}
-
-/// The connection as a menu behind a circle button: a dot for the link state,
-/// and inside it the Mac's name and address, reconnect, copy and forget.
-/// Tapping the circle is the one place to manage the connection.
-private struct MacConnectionMenu: View {
-    let title: String
-    let pairing: PairingPayload?
-    let demo: Bool
-    let state: DashboardStore.ConnectionState
-    let scan: () -> Void
-    let reconnect: () -> Void
-    let copyAddress: () -> Void
-    let disconnect: () -> Void
-
-    var body: some View {
-        Menu {
-            if let pairing {
-                Text(verbatim: "\(title) · \(statusText) · \(pairing.host):\(String(pairing.port))")   // no "9,877" grouping
-                Button(action: reconnect) { Label("Reconnect", systemImage: "arrow.clockwise") }
-                Button(action: copyAddress) { Label("Copy address", systemImage: "doc.on.doc") }
-            } else {
-                Text(verbatim: "\(title) · \(statusText)")
-            }
-            Button(action: scan) { Label("Scan to pair", systemImage: "qrcode.viewfinder") }
-            Button(role: .destructive, action: disconnect) {
-                Label(demo ? LocalizedStringKey("Exit demo") : LocalizedStringKey("Disconnect"), systemImage: "eject")
-            }
-        } label: {
-            Circle().fill(color).frame(width: 9, height: 9)
-                .frame(width: PhoneMetrics.control, height: PhoneMetrics.control)
-                .background(CompanionPalette.bg3, in: Circle())
-                .overlay(Circle().strokeBorder(CompanionPalette.line, lineWidth: CompanionType.hairline))
-                .frame(width: max(PhoneMetrics.control, 44), height: max(PhoneMetrics.control, 44))
-                .contentShape(Circle())
-        }
-        .padding(-max(0, (44 - PhoneMetrics.control) / 2))
-        .accessibilityLabel(Text(verbatim: "\(title), \(statusText)"))
-        .accessibilityIdentifier("phone-inbox-connection")
-    }
-
-    private var color: Color {
-        switch state {
-        case .connected: CompanionPalette.accent
-        case .connecting, .failed: CompanionPalette.status(.error)
-        }
-    }
-
-    private var statusText: String {
-        switch state {
-        case .connecting: String(localized: "Connecting")
-        case .connected: String(localized: "Connected")
-        case .failed: String(localized: "Reconnecting")
-        }
-    }
 }
 
 /// The page with nothing on it, in the phone's own type. `moon.zzz` is the

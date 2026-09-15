@@ -41,10 +41,10 @@ struct ReaderQA {
         }, cleanup: { await reader.cancelPreview() })
         await until { await gate.entered }
         var automaticValidated = false
-        reader.speak("Never sent", id: "automatic-fixture") {
+        reader.speak("Never sent", id: "automatic-fixture", validate: {
             automaticValidated = true
             return false // The actual automatic path cannot access Keychain or generate audio.
-        }
+        })
         tests.invalidate()
         check(reader.busy && tests.isBusy, "Preview cancellation retains reader and Settings occupancy until synthesis exits")
         check(reader.automaticBusy && !automaticValidated, "Automatic reading remains queued without overlapping preview")
@@ -59,7 +59,7 @@ struct ReaderQA {
         let preview = Task { await reader2.preview("Synthetic", apiKey: "synthetic-not-a-key", configuration: config) }
         await until { await gate2.entered }
         var oldAutomaticValidated = false
-        reader2.speak("Never sent", id: "old-auto") { oldAutomaticValidated = true; return false }
+        reader2.speak("Never sent", id: "old-auto", validate: { oldAutomaticValidated = true; return false })
         reader2.stop() // Existing Buddy onStart uses this same entry.
         check(reader2.busy && !reader2.automaticBusy, "Global stop cancels automatic queue but retains exiting preview occupancy")
         await gate2.release()
@@ -76,11 +76,11 @@ struct ReaderQA {
         var keyReads = 0
         let reader3 = ReadAloud(automaticKey: { _ in keyReads += 1; return nil })
         var validationReturned = false
-        reader3.speak("Never sent", id: "suspended-validation") {
+        reader3.speak("Never sent", id: "suspended-validation", validate: {
             _ = await validationGate.run()
             validationReturned = true
             return true
-        }
+        })
         await until { await validationGate.entered }
         reader3.stop()
         await validationGate.release()

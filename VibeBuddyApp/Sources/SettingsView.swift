@@ -11,7 +11,6 @@ struct SettingsView: View {
     @AppStorage(SoundPrefs.playSoundKey) private var playSound = true
     @AppStorage(SoundPrefs.quietModeKey) private var quiet = false
     @ObservedObject var connectionTest: VoiceConnectionTest
-    @State private var showScanner = false
     @State private var quietHours = SoundPrefs.quietHours
     @State private var categories = SoundPrefs.categories
     @AppStorage(VoiceSettings.conversationLanguageKey) private var voiceLanguage = VoiceLanguage.english.rawValue
@@ -26,12 +25,12 @@ struct SettingsView: View {
                     Section {
                         row("Notifications & sounds", "bell.badge") { notificationSettings }
                         row("Voice conversation", "waveform") { voiceSettings }
+                        row("Summary & speech", "speaker.wave.2") { SummarySpeechSettingsView() }
                     } header: {
                         sectionTitle("This iPhone")
                     }
                     Section {
-                        row("Connect your Mac", "desktopcomputer") { connectionDetails }
-                        row("Completion summaries", "text.alignleft") { completionSummaryInfo }
+                        row("Device & connection", "desktopcomputer") { DeviceConnectionView() }
                     } header: {
                         sectionTitle("Connected Mac")
                     }
@@ -50,11 +49,7 @@ struct SettingsView: View {
         }
         .tint(CompanionPalette.accent)
         .onDisappear { connectionTest.invalidate() }
-        .sheet(isPresented: $showScanner) {
-            PairingScannerSheet()
-                .environmentObject(connection)
-                .environmentObject(dashboard)
-        }
+
     }
 
     /// One directory row: a quiet glyph, the destination, the chevron.
@@ -189,76 +184,6 @@ struct SettingsView: View {
         }
         .phoneList()
         .navigationTitle("Observation health")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private var connectionDetails: some View {
-        Form {
-            Section("Connect your Mac") {
-                LabeledContent("Status") { Text(connectionStatus) }
-                if let pairing = connection.pairing {
-                    if let name = pairing.macName, !name.isEmpty {
-                        LabeledContent("Mac") { Text(name).textSelection(.enabled) }
-                    }
-                    LabeledContent("Address") {
-                        Text("\(pairing.host):\(pairing.port)")
-                            .textSelection(.enabled)
-                    }
-                }
-                if connection.pairing != nil, case .failed(let message) = dashboard.state {
-                    Text(message).font(CompanionType.font(13)).foregroundStyle(CompanionPalette.ink2)
-                }
-            }
-            Section {
-                scanButton
-                NavigationLink { RemoteConnectionView() } label: {
-                    Label("Headscale & Surge", systemImage: "network")
-                }
-                NavigationLink { MacCompanionSetupView() } label: {
-                    Label("Pairing and Mac setup", systemImage: "qrcode")
-                }
-            } footer: {
-                Text("Scan a Mac’s pairing code here to connect or replace your saved pairing. You do not need to disconnect first.")
-            }
-        }
-        .phoneList()
-        .navigationTitle("Connect your Mac")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private var scanButton: some View {
-        Button { showScanner = true } label: {
-            Label("Scan to pair", systemImage: "qrcode.viewfinder")
-        }
-        .accessibilityIdentifier("settings-scan-to-pair")
-    }
-
-    private var connectionStatus: String {
-        if connection.demo { return String(localized: "Demo — no Mac connected") }
-        guard connection.pairing != nil else { return String(localized: "Not paired") }
-        switch dashboard.state {
-        case .connecting: return String(localized: "Connecting")
-        case .connected: return String(localized: "Online")
-        case .failed: return String(localized: "Offline")
-        }
-    }
-
-    private var completionSummaryInfo: some View {
-        Form {
-            Section {
-                Text("Completion summaries are configured and generated on your Mac. Choose the summary provider, model and credentials in the Mac app's Settings.")
-                Text("Your iPhone receives the Mac's completion notice. There is no separate summary model or remote configuration control on this iPhone.")
-            } header: {
-                Text("Managed on your Mac")
-            }
-            Section {
-                Text("Voice conversation on this iPhone has its own provider and credentials. Changing voice settings does not configure Mac completion summaries or Mac read aloud.")
-            } header: {
-                Text("Separate from iPhone voice")
-            }
-        }
-        .phoneList()
-        .navigationTitle("Completion summaries")
         .navigationBarTitleDisplayMode(.inline)
     }
 

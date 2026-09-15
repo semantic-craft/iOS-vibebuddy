@@ -100,6 +100,45 @@ struct CompletionSummaryTests {
         return URLSession(configuration: config)
     }
 
+    @Test func presentationsCoalesceAndSeparatePurposeStyleAndEvidence() async throws {
+        let session = session(body: try json(qwen()), delay: 0.05)
+        defer { session.invalidateAndCancel() }
+        let service = ContentPresentationService(session: session, key: { _ in "synthetic" })
+        var config = configuration()
+        config.enabled = false
+        let material = input(age: 3600)
+        let initialConfig = config
+        async let first = service.generate(material, purpose: .speech, configuration: initialConfig)
+        async let second = service.generate(material, purpose: .speech, configuration: initialConfig)
+        let values = await [first, second]
+        #expect(values[0] != nil && values[0] == values[1])
+        #expect(SummaryStub.state.requestCount == 1)
+        #expect(await service.generate(material, purpose: .speech, configuration: config) == values[0])
+        #expect(SummaryStub.state.requestCount == 1)
+        #expect(await service.generate(material, purpose: .recap, configuration: config) != nil)
+        config.contentStyle = .init(style: .decision)
+        #expect(await service.generate(material, purpose: .speech, configuration: config) != nil)
+        #expect(await service.generate(input(text: "The original result was corrected."), purpose: .speech, configuration: config) != nil)
+        #expect(SummaryStub.state.requestCount == 4)
+        #expect(await service.generate(material, purpose: .notice, configuration: config) == nil)
+        #expect(SummaryStub.state.requestCount == 4)
+    }
+
+    @Test func failedPresentationDoesNotAutomaticallyRetryAndLongSpeechCannotBecomeNotice() async throws {
+        let session = session(body: Data(), status: 429)
+        defer { session.invalidateAndCancel() }
+        let service = ContentPresentationService(session: session, key: { _ in "synthetic" })
+        #expect(await service.generate(input(), purpose: .speech, configuration: configuration()) == nil)
+        #expect(await service.generate(input(), purpose: .speech, configuration: configuration()) == nil)
+        #expect(SummaryStub.state.requestCount == 1)
+        let spoken = String(repeating: "项目还有尚未验证的部分。", count: 25)
+        let response = try json(qwen(spoken))
+        #expect(CompletionSummaryHTTP.decode(response, provider: .qwen, purpose: .speech).text == spoken)
+        #expect(CompletionSummaryHTTP.decode(response, provider: .qwen, purpose: .notice).failure == .outputTooLong)
+        let tooLong = try json(qwen(String(repeating: "字", count: 901)))
+        #expect(CompletionSummaryHTTP.decode(tooLong, provider: .qwen, purpose: .speech).failure == .outputTooLong)
+    }
+
     @Test func officialRequestFormatsAndRegionIsolation() throws {
         for provider in VoiceProvider.summaryProviders {
             let request = try CompletionSummaryHTTP.request(input: input(), configuration: configuration(provider), key: "synthetic-key", timeout: 4)

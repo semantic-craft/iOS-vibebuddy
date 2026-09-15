@@ -103,6 +103,137 @@ final class DashboardStore: ObservableObject {
     /// it never acknowledges a completion.
     @Published private(set) var recentOutputs: [String: RecentOutput] = [:]
 
+    @Published private(set) var contentStyleState: ContentStyleState?
+    @Published private(set) var contentStyleMessage: String?
+    @Published private(set) var contentStyleLoading = false
+    @Published private(set) var contentStyleSaving = false
+    @Published private(set) var speechSourceIdentity = UUID()
+    private var speechAuthoritySourceID: String?
+    private var contentPresentationRevision: String?
+    private var contentStyleOperation = UUID()
+
+    struct SpeechContext: Equatable {
+        let source: String
+        let epoch: String
+        let generation: UUID
+        let revision: String?
+    }
+
+    struct Announcement {
+        let text: String
+        let context: SpeechContext
+        let target: ContentPresentationTarget
+        let savedFallback: Bool
+    }
+
+    private var speechContext: SpeechContext? {
+        sourceID.map { SpeechContext(source: $0, epoch: pairingEpoch,
+                                    generation: connectionGeneration, revision: contentPresentationRevision) }
+    }
+
+    private func sameConnection(_ context: SpeechContext) -> Bool {
+        context.source == sourceID && context.epoch == pairingEpoch
+            && context.epoch == ConnectionStore.pairingEpoch && context.generation == connectionGeneration
+    }
+
+    func announcementIsCurrent(_ announcement: Announcement) -> Bool {
+        sameConnection(announcement.context) && announcement.context.revision == contentPresentationRevision
+            && (announcement.savedFallback || state == .connected)
+            && allSessions.contains(where: announcement.target.matches)
+    }
+
+    func loadContentStyle() async {
+        guard state == .connected, let pairing, let context = speechContext, !contentStyleSaving else { return }
+        let operation = UUID()
+        contentStyleOperation = operation
+        contentStyleLoading = true
+        defer { if contentStyleOperation == operation { contentStyleLoading = false } }
+        do {
+            let value = try await decisionClient.contentStyle(pairing)
+            guard contentStyleOperation == operation, sameConnection(context), state == .connected,
+                  value.sourceID == context.source else { return }
+            guard context.revision == contentPresentationRevision else {
+                await loadContentStyle()
+                return
+            }
+            contentStyleState = value
+            contentStyleMessage = nil
+        } catch {
+            guard contentStyleOperation == operation, sameConnection(context) else { return }
+            contentStyleMessage = String(localized: "Mac content settings unavailable. Reconnect or update the Mac app.")
+        }
+    }
+
+    func saveContentStyle(_ configuration: ContentStyleConfiguration, expectedRevision: String) async -> Bool {
+        guard configuration.isValid, configuration.customPrompt.count <= 2000,
+              !contentStyleSaving, state == .connected, let pairing, let context = speechContext else { return false }
+        let operation = UUID()
+        contentStyleOperation = operation
+        contentStyleLoading = false
+        contentStyleSaving = true
+        defer { if contentStyleOperation == operation { contentStyleSaving = false } }
+        do {
+            let value = try await decisionClient.updateContentStyle(pairing, update: ContentStyleUpdate(
+                sourceID: context.source, configuration: configuration, expectedRevision: expectedRevision))
+            guard contentStyleOperation == operation, sameConnection(context), state == .connected,
+                  value.sourceID == context.source else { return false }
+            contentStyleState = value
+            contentStyleMessage = nil
+            contentStyleSaving = false
+            await loadContentStyle()
+            return sameConnection(context)
+        } catch {
+            guard contentStyleOperation == operation, sameConnection(context) else { return false }
+            contentStyleSaving = false
+            if case ContentRequestFailure.conflict = error {
+                await loadContentStyle()
+                guard sameConnection(context) else { return false }
+                contentStyleMessage = String(localized: "Mac settings changed. Your draft is kept. Review the current setting before saving again.")
+            } else {
+                contentStyleMessage = String(localized: "Could not save to the Mac. Your draft is kept.")
+            }
+            return false
+        }
+    }
+
+    func announcement(for item: AnnouncementPlan.Item) async throws -> Announcement {
+        guard let context = speechContext,
+              let session = AnnouncementPlan.stillCurrent(item, in: allSessions),
+              let target = ContentPresentationTarget(session: session) else { throw ContentRequestFailure.conflict }
+        if state == .connected, let pairing {
+            do {
+                let request = ContentPresentationRequest(sourceID: context.source, target: target)
+                let response = try await decisionClient.presentation(pairing, request: request)
+                guard sameConnection(context), speechContext == context, state == .connected,
+                      response.request == request, response.revision == context.revision,
+                      !response.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                      allSessions.contains(where: target.matches) else { throw ContentRequestFailure.conflict }
+                return Announcement(text: response.text, context: context, target: target, savedFallback: !response.generated)
+            } catch ContentRequestFailure.conflict { throw ContentRequestFailure.conflict }
+            catch is CancellationError { throw CancellationError() }
+            catch { }
+        }
+        try Task.checkCancellation()
+        guard sameConnection(context), speechContext == context, allSessions.contains(where: target.matches) else {
+            throw ContentRequestFailure.conflict
+        }
+        // Saved notices are bounded. Approval commands are never an offline speech script.
+        let brief = session.completionNotice?.text ?? session.summary ?? ""
+        guard !brief.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ContentRequestFailure.unavailable }
+        let prefix = VoiceSettings.conversationLanguage() == .chinese ? "已保存的简短内容。" : "Saved short content. "
+        return Announcement(text: prefix + String(brief.prefix(180)), context: context, target: target, savedFallback: true)
+    }
+
+    private func clearContentSource() {
+        contentStyleOperation = UUID()
+        contentStyleState = nil
+        contentStyleMessage = nil
+        contentStyleLoading = false
+        contentStyleSaving = false
+        contentPresentationRevision = nil
+        speechSourceIdentity = UUID()
+    }
+
     private let streamer: SnapshotStreaming
     private let notifier: AttentionNotifier
     private let decisionClient: DecisionClient
@@ -114,6 +245,10 @@ final class DashboardStore: ObservableObject {
     /// the Mac saw the world rather than when this phone re-rendered it.
     private var lastServerTime = Date.distantPast
     private var sourceID: String?
+
+    func connectionSourceID(for pairing: PairingPayload) -> String? {
+        self.pairing == pairing ? sourceID : nil
+    }
     /// Account allowance as the Mac last reported it. The phone forwards it
     /// untouched — normalization already happened where the provider's own
     /// convention was still known.
@@ -440,6 +575,7 @@ final class DashboardStore: ObservableObject {
         // `start` also runs on every launch and reconnect; the widgets keep
         // the same Mac's last numbers through those, and drop them only for
         // another Mac or the sample data.
+        if changedSource { clearContentSource() }
         if changedSource || WidgetQuotaStore.load()?.isDemo == true { WidgetQuotaStore.clear() }
         isDemo = false
         lastProviderQuota = []
@@ -510,6 +646,7 @@ final class DashboardStore: ObservableObject {
         pendingPairingConfirmation = false
         stop()
         completionReads.clear()
+        clearContentSource()
         pairing = nil
         recentOutputs = [:]
         sourceID = nil
@@ -690,6 +827,7 @@ final class DashboardStore: ObservableObject {
     func startDemo() {
         stop()
         isDemo = true
+        clearContentSource()
         // The Usage sheet is part of the demo now, so seed the same sample
         // readings the Watch demo uses instead of leaving it empty.
         demoQuotaState = DemoQuotaState(rawValue: ProcessInfo.processInfo.environment["VIBEBUDDY_DEMO_QUOTA"] ?? "") ?? .normal
@@ -1160,12 +1298,19 @@ final class DashboardStore: ObservableObject {
         lastTokenConsumption = snapshot.tokenConsumption
         lastRecap = snapshot.recap
         buddySessionIDs = BuddyScope.pruned(buddySessionIDs, toLive: snapshot.sessions)
+        let wasDisconnected = state != .connected
         state = .connected
         publishQuotaToWidgets()
         confirmConnectedPairing()
         if sourceID != snapshot.sourceID { completionReads.pause() }
         if sourceID != snapshot.sourceID { recentOutputs = [:] }
+        if let previousSource = speechAuthoritySourceID, previousSource != snapshot.sourceID { clearContentSource() }
+        speechAuthoritySourceID = snapshot.sourceID
+        let refreshStyle = sourceID != snapshot.sourceID || contentPresentationRevision != snapshot.contentPresentationRevision
+            || wasDisconnected
         sourceID = snapshot.sourceID
+        contentPresentationRevision = snapshot.contentPresentationRevision
+        if refreshStyle { Task { await self.loadContentStyle() } }
         completionReads.reconcile(snapshot, epoch: pairingEpoch)
         if let pairing, let sourceID {
             completionReads.resume(pairing: pairing, sourceID: sourceID, epoch: pairingEpoch, client: decisionClient)

@@ -499,18 +499,41 @@ code, and tests — don't drift to synonyms.
 - **Conversation summary** — a user-requested reading aid for one historical
   conversation, separate from a Completion notice. It summarizes bounded readable
   history through the configured BYO text provider, excludes injected Meta and
-  Thinking, and records coverage, source revision and the **summary style** that
+  Thinking, and records coverage, source revision and the **content style** that
   wrote it. A changed source marks the persisted result stale; a changed style
-  preference does not. Generating or reading it establishes no live completion
+  preference is flagged separately. Generating or reading it establishes no live completion
   identity, notification or task control capability.
-- **Summary style** — a per-Mac preference (`historySummaryStyle`) choosing the
-  conversation summary's system prompt: *action briefing* (default: next action
-  first, state tagged by stage, numbered next steps with reasons, the model's
-  read on the session), *session review* (verdict, what went well, problems and
-  risks, advice) or *archive record* (goal, decisions, results, open work). Every
-  style shares the same evidence rules: transcript is untrusted data, claims stay
-  graded, coverage is stated. Summaries saved before styles existed decode as
-  archive record. Completion notices do not use styles.
+- **Content style** — the source Mac's global content preference (`contentStyle`
+  and `contentStyleCustomPrompt`): *concise* leads with the next useful action or
+  essential result; *decision* gives a nontechnical CEO briefing on outcomes,
+  benefits and supported tradeoffs; *custom* applies up to 2000 characters of
+  expression instructions. All share evidence and authorization rules. Settings,
+  the history reader and the reading panel use this same choice. Paired phones
+  read and update it through authenticated `/content-style`; optimistic revision
+  checks prevent a stale phone edit overwriting a newer choice. Voice/persona
+  preferences remain independent and local to their provider.
+- **Content presentation** — derived wording generated directly from the original
+  evidence, through the summary provider. Notice, speech, history and recap share
+  content rules but have distinct length limits: 180, 900, 2000 and 360 characters.
+  Speech and recap use an independent bounded cache, keyed by source, exact round,
+  evidence, purpose and effective provider/language/style configuration. These
+  requests never claim or redeliver notifications, acknowledge results or act on
+  tasks. `/presentation` resolves evidence on the Mac and rejects stale source,
+  round or configuration after generation. Snapshot carries the effective revision
+  without broadcasting the custom prompt. Failed generation uses explicit limited
+  fallback wording. Automatic reading still requires its opt-in; manual reading
+  can request content even when automatic completion summaries are off.
+- **Saved summary style** — older history files retain action briefing, session
+  review or archive record as their original labels. Newly generated history
+  records store the full content preference. Source staleness and a changed
+  content preference are shown separately; switching preferences does not rewrite
+  an archive. The selection and Generate control stay above the transcript scroll.
+- **Recap presentation** — selected rounds can be summarized on demand from their
+  own retained, verified result text (at most 12,000 characters, same seven-day
+  ledger retention). A prior round never borrows a newer round's result. Legacy
+  entries without original text retain their recorded points and report that
+  regeneration is unavailable. Derived text is a separate snapshot field; it does
+  not replace the recorded points or change any reading marker.
 - **Completion notice** — the Mac's durable wording decision for one
   source/session/completion: pending, plain, summary, or cancelled. Only the
   final assistant result bound to that completion may be summarized. Pending
@@ -521,7 +544,11 @@ code, and tests — don't drift to synonyms.
   or confirmed blocker announcement through the `SpeechSynthesizer` protocol and plays it on the
   Mac's current output. Its provider follows the completion summary provider
   unless pinned; model and voice are stored per provider, prefilled, and have a
-  sample preview. It does not open a microphone, replay completion reminders, or
+  sample preview. Voice and announcer style are editable at the top of Voice
+  settings and in the Voice and reading panel, using the same per-provider
+  preferences. Changes apply to the next reading without stopping the current
+  announcement. Providers without style support show a disabled Standard choice
+  with an explanation. It does not open a microphone, replay completion reminders, or
   speak over a voice call. Generation/notification acceptance, player completion
   and human hearing are separate evidence. iPhone headphone announcements remain controlled by Siri.
 - Phones advertise `supportsCompletionNotices` when registering. Existing

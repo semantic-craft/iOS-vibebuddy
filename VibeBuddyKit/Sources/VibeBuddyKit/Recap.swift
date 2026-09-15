@@ -31,6 +31,7 @@ public struct RecapEntry: Codable, Equatable, Hashable, Sendable, Identifiable {
     /// Derived when the snapshot is assembled: a completed round the user has
     /// acknowledged. A failed round has no reading state and is never read.
     public var isRead: Bool
+    public var contentPresentation: ContentPresentation?
 
     public init(id: String, kind: RecapEntryKind, sessionID: String, completionID: String? = nil,
                 agent: AgentKind, project: String, title: String, points: [String],

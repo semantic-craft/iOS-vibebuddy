@@ -12,11 +12,12 @@ public struct SessionHistorySummary: Codable, Sendable, Equatable {
     public var coverage: String
     /// Summaries saved before styles existed were written by the record prompt.
     public var style: HistorySummaryStyle
+    public var contentStyle: ContentStyleConfiguration?
     public init(sessionID: String, sourcePath: String, sourceRevision: String?, text: String, provider: String,
-                model: String, generatedAt: Date, coverage: String, style: HistorySummaryStyle = .record) {
+                model: String, generatedAt: Date, coverage: String, style: HistorySummaryStyle = .record, contentStyle: ContentStyleConfiguration? = nil) {
         self.sessionID = sessionID; self.sourcePath = sourcePath; self.sourceRevision = sourceRevision
         self.text = text; self.provider = provider; self.model = model
-        self.generatedAt = generatedAt; self.coverage = coverage; self.style = style
+        self.generatedAt = generatedAt; self.coverage = coverage; self.style = style; self.contentStyle = contentStyle
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -28,6 +29,7 @@ public struct SessionHistorySummary: Codable, Sendable, Equatable {
         model = try c.decode(String.self, forKey: .model)
         generatedAt = try c.decode(Date.self, forKey: .generatedAt)
         coverage = try c.decode(String.self, forKey: .coverage)
+        contentStyle = try c.decodeIfPresent(ContentStyleConfiguration.self, forKey: .contentStyle)
         style = try c.decodeIfPresent(HistorySummaryStyle.self, forKey: .style) ?? .record
     }
     /// A changed source is stale; a different style preference is not, the label shows which style wrote it.
@@ -43,11 +45,10 @@ public struct HistorySummaryMaterial: Sendable {
 public actor SessionHistorySummaryService {
     private let http: CompletionSummaryHTTP
     private let key: @Sendable (VoiceProvider) -> String?
-    public init(session: URLSession? = nil, key: @escaping @Sendable (VoiceProvider) -> String? = { $0.apiKey }) {
+    public init(session: URLSession? = nil, key: @escaping @Sendable (VoiceProvider) -> String? = { CompletionSummaryConfiguration.apiKey(for: $0) }) {
         http = .init(session: session ?? CompletionSummaryHTTP.session(timeout: 60)); self.key = key
     }
-    public func generate(_ history: SessionHistorySession, configuration: CompletionSummaryConfiguration,
-                         style: HistorySummaryStyle = .default) async throws -> SessionHistorySummary {
+    public func generate(_ history: SessionHistorySession, configuration: CompletionSummaryConfiguration) async throws -> SessionHistorySummary {
         var config = configuration
         config.enabled = true // An explicit history request is independent of automatic notification opt-in.
         if let failure = config.configurationFailure { throw failure }
@@ -58,13 +59,14 @@ public actor SessionHistorySummaryService {
         let now = Date()
         // Only reuse the stateless HTTP transport. No completion service, lifecycle or notification claim.
         let input = CompletionSummaryInput(sourceID: "history", sessionID: history.id, completionID: UUID().uuidString,
-            title: history.title, finalText: material.text, completedAt: now, observedAt: now)
-        let result = await http.generate(input: input, configuration: config, key: secret, timeout: 60, conversation: true, style: style)
+            title: history.projectPath.isEmpty ? history.title : URL(fileURLWithPath: history.projectPath).lastPathComponent,
+            finalText: material.text, completedAt: now, observedAt: now)
+        let result = await http.generate(input: input, configuration: config, key: secret, timeout: 60, purpose: .history)
         try Task.checkCancellation()
         if let failure = result.failure { throw failure }
         guard let text = result.text else { throw CompletionSummaryFailure.emptyOutput }
         return SessionHistorySummary(sessionID: history.id, sourcePath: history.sourcePath, sourceRevision: history.sourceRevision,
-            text: text, provider: provider.rawValue, model: config.modelID, generatedAt: Date(), coverage: material.coverage, style: style)
+            text: text, provider: provider.rawValue, model: config.modelID, generatedAt: Date(), coverage: material.coverage, contentStyle: config.contentStyle)
     }
     public nonisolated static func material(_ history: SessionHistorySession) -> HistorySummaryMaterial {
         let eligible = history.messages.filter {
@@ -102,5 +104,4 @@ public actor SessionHistorySummaryService {
         }
         return .init(text: output, coverage: coverage)
     }
-    static func instructions(style: HistorySummaryStyle, language: VoiceLanguage) -> String { style.instructions(language: language) }
 }

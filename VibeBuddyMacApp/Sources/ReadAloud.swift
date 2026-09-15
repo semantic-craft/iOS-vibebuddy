@@ -102,7 +102,7 @@ final class ReadAloud: ObservableObject {
 
     func replayLatest() {
         guard let latest else { return }
-        speak((VoiceSettings.conversationLanguage() == .chinese ? "此前结果。" : "Previous result. ") + latest.text,
+        speak((VoiceSettings.conversationLanguage() == .chinese ? "重播原播报。" : "Replaying the original announcement. ") + latest.text,
             id: "replay/" + UUID().uuidString, title: latest.title, manual: true, remember: false)
     }
 
@@ -153,6 +153,7 @@ final class ReadAloud: ObservableObject {
     func speak(_ fallbackText: String, id: String = UUID().uuidString, title: String? = nil,
                manual: Bool = false, priority: Bool = false, remember: Bool = true,
                prepareText: (@MainActor () async -> String?)? = nil,
+               validatePreparedText: @escaping @MainActor () -> Bool = { true },
                validate: @escaping @MainActor () async -> Bool = { true }) {
         guard E2ERunConfiguration.current?.audioEnabled ?? true else {
             status = "Audio is disabled in this isolated run"
@@ -182,7 +183,11 @@ final class ReadAloud: ObservableObject {
                     if !Task.isCancelled, self.generation == current { self.status = "Skipped; task or reading eligibility changed" }
                     return
                 }
-                let text = await prepareText?() ?? fallbackText
+                let text: String
+                if let prepareText {
+                    guard let prepared = await prepareText() else { return }
+                    text = prepared
+                } else { text = fallbackText }
                 guard await validate(), !Task.isCancelled, self.generation == current else {
                     if !Task.isCancelled, self.generation == current { self.status = "Skipped; task or reading eligibility changed" }
                     return
@@ -205,7 +210,7 @@ final class ReadAloud: ObservableObject {
                     return
                 }
                 try await self.waitUntilAllowed()
-                guard await validate(), self.generation == current else { return }
+                guard await validate(), self.generation == current, validatePreparedText() else { return }
                 let evidenceID = UUID().uuidString
                 if let run = E2ERunConfiguration.current {
                     try? data.write(to: run.file("speech-" + evidenceID + ".audio"), options: .atomic)

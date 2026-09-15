@@ -95,3 +95,14 @@ final class SettingsTestCoordinator: ObservableObject {
         }
     }
 }
+
+extension SettingsTestCoordinator {
+    /// The account holds an item but it could not be decrypted — a failed or
+    /// cancelled Keychain authorization. Say so where this row's other results
+    /// appear, rather than calling the provider with an empty key.
+    func reportUnreadableKey(_ purpose: Purpose) {
+        start(purpose, timeout: .seconds(5), operation: {
+            .failure("Could not read the saved API key. Open this provider’s account below and paste the key again.")
+        })
+    }
+}

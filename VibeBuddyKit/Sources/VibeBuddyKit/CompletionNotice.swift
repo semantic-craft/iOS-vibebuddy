@@ -7,6 +7,8 @@ public struct CompletionNotice: Codable, Equatable, Sendable {
     public var deadline: Date
     public var state: State
     public var text: String?
+    public var contentStyle: ContentStyle?
+    public var presentationRevision: String?
     public init(id: String, deadline: Date, state: State = .pending, text: String? = nil) {
         self.id = id; self.deadline = deadline; self.state = state; self.text = text
     }
