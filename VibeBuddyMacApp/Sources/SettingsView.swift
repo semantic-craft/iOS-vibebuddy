@@ -872,7 +872,7 @@ extension NotificationAuthorization {
         switch self {
         case .authorized: "macOS allows local notifications. App preferences and system presentation settings still apply."
         case .denied: "macOS is blocking notifications on this Mac, even when Show notifications is on. Enable them in System Settings."
-        case .notDetermined: "macOS notification permission has not been requested yet. Local notifications are not authorized."
+        case .notDetermined: "macOS has not recorded a notification permission decision. Local notifications are not authorized. Respond to the system permission prompt if it is shown."
         case .unknown: "The macOS notification permission could not be determined. Check System Settings."
         }
     }
@@ -881,7 +881,7 @@ extension NotificationAuthorization {
         switch self {
         case .authorized: "Allowed"
         case .denied: "Denied"
-        case .notDetermined: "Not asked yet"
+        case .notDetermined: "Awaiting decision"
         case .unknown: "Unknown"
         }
     }
