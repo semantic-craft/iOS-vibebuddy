@@ -50,6 +50,7 @@ enum VoiceFeatureStatus: Equatable {
     /// Read-aloud only: configured, but summaries are off so there is nothing to speak.
     case nothingToRead
     case verified(String)
+    case noFeedback
     case unverified
 }
 
@@ -88,10 +89,6 @@ struct VoiceFeaturesPage: View {
                 SettingsBlockRow {
                     ContentStylePreferences()
                 }
-                SettingsBlockRow {
-                    ReadAloudPreferences(reader: model.readAloud, voiceChat: model.voiceChat,
-                                         tests: tests, credentials: credentials)
-                }
             }
             SettingsSection("Models and services") {
                 SettingsBlockRow {
@@ -114,18 +111,20 @@ struct VoiceFeaturesPage: View {
                                         tests: tests, credentials: credentials,
                                         selection: readAloudSelection, reveal: reveal)
                         .id("readAloud-\(readAloud.provider?.rawValue ?? "")")
+                    ReadAloudPreferences(reader: model.readAloud, voiceChat: model.voiceChat,
+                                         tests: tests, credentials: credentials)
                 }
             }
 
             SettingsSection("Shared",
                             footnote: "Shared by all three features, and it decides which voice each provider defaults to.") {
-                SettingsRow("Conversation language") {
+                SettingsRow("Voice and summary language") {
                     Picker("", selection: $language) {
                         Text("English").tag(VoiceLanguage.english.rawValue)
                         Text(verbatim: "中文").tag(VoiceLanguage.chinese.rawValue)
                     }
                     .labelsHidden().pickerStyle(.segmented).fixedSize()
-                    .accessibilityLabel("Conversation language")
+                    .accessibilityLabel("Voice and summary language")
                     .onChange(of: language) { _, _ in
                         tests.invalidate()
                         model.voiceChat.reloadProviderIfActive()
@@ -273,6 +272,8 @@ private struct StatusPill: View {
             SettingsPill("Nothing to read yet", tone: .warn)
         case .verified(let text):
             SettingsPill(LocalizedStringKey(text), tone: .ok)
+        case .noFeedback:
+            EmptyView()
         case .unverified:
             SettingsPill("Unverified")
         }
@@ -353,7 +354,7 @@ private struct IDField: View {
     let label: LocalizedStringKey
     let placeholder: String
     @Binding var text: String
-    let browse: URL
+    let browse: URL?
     let browseHelp: LocalizedStringKey
     var identifier: String?
 
@@ -364,11 +365,13 @@ private struct IDField: View {
                 .font(MacTheme.mono(10)).autocorrectionDisabled()
                 .accessibilityLabel(label)
                 .accessibilityIdentifier(identifier ?? "")
-            Link(destination: browse) {
-                Image(systemName: "arrow.up.right.square")
+            if let browse {
+                Link(destination: browse) {
+                    Image(systemName: "arrow.up.right.square")
+                }
+                .help(browseHelp)
+                .accessibilityLabel(browseHelp)
             }
-            .help(browseHelp)
-            .accessibilityLabel(browseHelp)
         }
     }
 }
@@ -455,7 +458,8 @@ private struct ConversationFeatureRow: View {
             } model: {
                 if let provider {
                     IDField(label: "Realtime model ID", placeholder: provider.defaultModel, text: $modelID,
-                            browse: provider.modelsURL, browseHelp: "Browse available models",
+                            browse: provider.modelDocumentationURL(for: .conversation, model: configuration?.model),
+                            browseHelp: "Browse voice conversation models",
                             identifier: "voiceModelID")
                 } else { Text(verbatim: "—").foregroundStyle(MacTheme.ink2) }
             } voice: {
@@ -467,17 +471,18 @@ private struct ConversationFeatureRow: View {
                                 voiceID: $voiceID)
                 } else { Text(verbatim: "—").foregroundStyle(MacTheme.ink2) }
             } trailing: {
-                Button("Test", action: test)
+                Button("Test connection", action: test)
                     .disabled(tests.isBusy || provider == nil || !credential.configured
                               || configuration?.failure != nil || reader.busy)
                     .help("Check the realtime connection. Billed by the provider; no microphone, task history or tools.")
             }
+            SettingsOperationAvailability(tests: tests, purpose: .voice, reading: reader.busy)
             if provider == .openai, OpenAIVoiceSession.usesLive(configuration?.model ?? "") {
                 HStack {
                     Text("Task reasoning model").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                     IDField(label: "Task reasoning model", placeholder: OpenAILiveSession.defaultBackendModel,
-                            text: $liveBackendModel, browse: VoiceProvider.openai.modelsURL,
-                            browseHelp: "Browse available models", identifier: "liveBackendModelID")
+                            text: $liveBackendModel, browse: VoiceProvider.openai.modelDocumentationURL(for: .text),
+                            browseHelp: "Browse text generation models", identifier: "liveBackendModelID")
                 }
                 Text("Live handles conversation; this model checks tasks and selects actions. Voice time and task reasoning are billed separately.")
                     .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
@@ -556,7 +561,7 @@ private struct SummaryFeatureRow: View {
         if !credential.configured { return .needsKey(provider) }
         if detail != nil { return .needsAttention }
         if tests.purpose == .summary, tests.phase == .succeeded { return .verified("Sample generated") }
-        return .unverified
+        return .noFeedback
     }
 
     private var providerPicker: some View {
@@ -569,13 +574,13 @@ private struct SummaryFeatureRow: View {
         if let provider {
             IDField(label: "Text model ID",
                     placeholder: CompletionSummaryConfiguration.recommendedModel(provider),
-                    text: $modelID, browse: provider.modelsURL,
-                    browseHelp: "Browse available models", identifier: "completionSummaryModelID")
+                    text: $modelID, browse: provider.modelDocumentationURL(for: .text),
+                    browseHelp: "Browse text generation models", identifier: "completionSummaryModelID")
         } else { Text(verbatim: "—").foregroundStyle(MacTheme.ink2) }
     }
 
     private var sampleButton: some View {
-        Button("Sample", action: test)
+        Button("Generate sample", action: test)
             .disabled(tests.isBusy || provider == nil || configuration?.configurationFailure != nil
                       || configuration?.contentStyle.isValid == false || !credential.configured || reader.busy)
             .accessibilityIdentifier("completionSummaryTest")
@@ -587,6 +592,7 @@ private struct SummaryFeatureRow: View {
                    detail: detail, tests: tests, reveal: reveal) {
             // Summaries are text: the two-tier line without a voice cell.
             ControlLine.textOnly(provider: { providerPicker }, model: { modelField }, trailing: { sampleButton })
+            SettingsOperationAvailability(tests: tests, purpose: .summary, reading: reader.busy)
         }
         .onAppear { credential.refresh() }
         .onChange(of: [modelID, language, workspace, String(intl),
@@ -645,7 +651,7 @@ private struct ReadAloudFeatureRow: View {
             if !credential.configured { return .needsKey(provider) }
             if !summariesEnabled { return .nothingToRead }
             if tests.purpose == .readAloud, tests.phase == .succeeded { return .verified("Preview played") }
-            return .unverified
+            return .noFeedback
         }
     }
     /// The follow option names its target, so the collapsed picker still says
@@ -686,8 +692,8 @@ private struct ReadAloudFeatureRow: View {
                 if case .ready(let provider) = status {
                     IDField(label: "Speech synthesis model",
                             placeholder: SpeechSynthesis.support(provider)?.defaultModel ?? "",
-                            text: $modelID, browse: provider.modelsURL,
-                            browseHelp: "Browse available models", identifier: "readAloudModelID")
+                            text: $modelID, browse: provider.modelDocumentationURL(for: .speechSynthesis),
+                            browseHelp: "Browse speech synthesis models", identifier: "readAloudModelID")
                 } else { Text(verbatim: "—").foregroundStyle(MacTheme.ink2) }
             }, trailing: { EmptyView() })
             // This stops announcements; preview controls live with the voice preferences.

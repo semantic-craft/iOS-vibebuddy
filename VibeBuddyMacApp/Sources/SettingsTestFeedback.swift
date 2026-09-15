@@ -12,14 +12,26 @@ struct SettingsTestFeedback: View {
             }
             if tests.purpose == purpose {
                 switch tests.phase {
-                case .unverified: Text("Not verified")
+                case .unverified: EmptyView()
                 case .running:
                     HStack {
                         ProgressView().controlSize(.small)
-                        Text("Testing…")
+                        switch purpose {
+                        case .voice: Text("Testing connection…")
+                        case .summary: Text("Generating sample…")
+                        case .readAloud: Text("Preparing or playing preview…")
+                        }
                         Button("Cancel") { tests.cancel() }
                     }
-                case .cancelled: Text("Test cancelled.").foregroundStyle(MacTheme.ink2)
+                case .cancelled:
+                    Group {
+                        switch purpose {
+                        case .voice: Text("Connection test cancelled.")
+                        case .summary: Text("Sample generation cancelled.")
+                        case .readAloud: Text("Preview stopped.")
+                        }
+                    }
+                    .foregroundStyle(MacTheme.ink2)
                 case .succeeded, .failed:
                     if let outcome = tests.outcome {
                         switch outcome {
@@ -46,5 +58,24 @@ struct SettingsTestFeedback: View {
                 }
             }
         }
+    }
+}
+
+struct SettingsOperationAvailability: View {
+    @ObservedObject var tests: SettingsTestCoordinator
+    let purpose: SettingsTestCoordinator.Purpose
+    let reading: Bool
+
+    var body: some View {
+        Group {
+            if tests.isBusy {
+                if tests.phase == .running, tests.purpose != purpose {
+                    Text("Another voice settings operation is running. Wait for it to finish or cancel it before trying this action.")
+                }
+            } else if reading {
+                Text("Reading is in progress. Wait for it to finish or stop reading before trying this action.")
+            }
+        }
+        .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
     }
 }

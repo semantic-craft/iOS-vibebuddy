@@ -191,7 +191,7 @@ struct PlanAndQuotaPage: View {
     var body: some View {
         SettingsPageScaffold(SettingsPageID.quota.title, subtitle: SettingsPageID.quota.subtitle) {
             SettingsSection("Alerts",
-                            footnote: "One threshold applies to every provider. Alerts identify the provider, respect Quiet mode and Quiet hours, and are not repeated after restart.") {
+                            footnote: "One threshold applies to every provider. Enabled quota alerts ignore Quiet mode and Quiet hours. Their sound follows each device's Sound setting. Alerts identify the provider and are not repeated after restart.") {
                 SettingsRow("Quota alert",
                             detail: "Warn me when any window crosses this much of its allowance.") {
                     Picker("", selection: $alertThreshold) {
@@ -245,7 +245,7 @@ struct TokenSpendPage: View {
                 }
             }
 
-            SettingsSection("Local spend", boxed: false) {
+            SettingsSection("Estimated local cost", boxed: false) {
                 VStack(alignment: .leading, spacing: 0) {
                     TokenConsumptionSummaryView(snapshot: model.tokenConsumption)
                 }
@@ -311,7 +311,7 @@ struct UsageSourcesPage: View {
             }
 
             SettingsSection("Cursor session",
-                            footnote: "Paste mode stores the Cookie in a Keychain slot separate from browser import. Browser import reads Safari/Chrome/Firefox cookies for cursor.com (may prompt for Keychain or Full Disk Access); refresh writes the imported slot only when the value changes and falls back to the manual Cookie.") {
+                            footnote: cursorModeFootnote) {
                 SettingsRow("Login source", detailText: cursorModeDetail) {
                     Picker("", selection: $cursorCookieMode) {
                         ForEach(CursorCookieSourceMode.allCases) { mode in
@@ -405,6 +405,17 @@ struct UsageSourcesPage: View {
             }
     }
 
+    private var cursorModeFootnote: LocalizedStringKey? {
+        switch cursorCookieMode {
+        case .cursorCLI, .cursorApp:
+            nil
+        case .manual:
+            "Paste mode stores the Cookie in a Keychain slot separate from browser import. Replace it here when the session expires."
+        case .browserAuto:
+            "Browser import may request Keychain or Full Disk Access. Refresh saves the imported Cookie only when it changes and uses the manual fallback if browser import is unavailable."
+        }
+    }
+
     private var cursorModeDetail: String {
         switch cursorCookieMode {
         case .cursorCLI:
@@ -413,7 +424,7 @@ struct UsageSourcesPage: View {
             String(localized: "Uses the account signed in to Cursor on this Mac. If the session expires, sign in again in Cursor and refresh.")
         case .manual:
             String(localized: "Stored in a Keychain slot separate from browser import.")
-        default:
+        case .browserAuto:
             String(localized: "Reads Safari/Chrome/Firefox cookies for cursor.com, with the manual Cookie as a fallback.")
         }
     }
@@ -426,6 +437,10 @@ struct TokenConsumptionSummaryView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: compact ? 10 : 14) {
             if let snapshot {
+                Text("Estimated cost at token list prices, not your actual bill or subscription charge.")
+                    .font(MacTheme.font(10))
+                    .foregroundStyle(MacTheme.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
                 ForEach(snapshot.windows) { window in
                     windowBlock(window)
                 }
@@ -452,18 +467,18 @@ struct TokenConsumptionSummaryView: View {
     private func windowBlock(_ window: TokenConsumptionWindow) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(window.kind.title).font(MacTheme.font(10, .semibold))
+                Text(LocalizedStringKey(window.kind.title)).font(MacTheme.font(10, .semibold))
                 Spacer(minLength: 4)
                 if window.counts.isEmpty {
-                    Text("No spend").foregroundStyle(MacTheme.ink2)
+                    Text("No local usage").foregroundStyle(MacTheme.ink2)
                 } else {
-                    Text("\(TokenConsumptionSnapshot.formatTokens(window.counts.totalTokens)) · \(TokenConsumptionSnapshot.formatUSD(window.counts.estimatedUSD))")
+                    Text("\(TokenConsumptionSnapshot.formatTokens(window.counts.totalTokens)) · est. \(TokenConsumptionSnapshot.formatUSD(window.counts.estimatedUSD))")
                         .monospacedDigit()
                 }
             }
             .font(MacTheme.font(10))
             if !window.counts.isEmpty {
-                Text("\(TokenConsumptionSnapshot.formatTokens(window.counts.billedTokens)) billed · \(TokenConsumptionSnapshot.formatTokens(window.counts.cachedInputTokens)) cache · \(window.counts.sessionCount) sessions")
+                Text("\(TokenConsumptionSnapshot.formatTokens(window.counts.billedTokens)) non-cached · \(TokenConsumptionSnapshot.formatTokens(window.counts.cachedInputTokens)) cache · \(window.counts.sessionCount) sessions")
                     .font(MacTheme.font(10))
                     .foregroundStyle(MacTheme.ink2)
                 rowList("By agent", window.byAgent)
@@ -477,13 +492,13 @@ struct TokenConsumptionSummaryView: View {
         if !rows.isEmpty {
             VStack(alignment: .leading, spacing: 3) {
                 if let title {
-                    Text(title).font(MacTheme.font(10, .semibold)).foregroundStyle(MacTheme.ink2)
+                    Text(LocalizedStringKey(title)).font(MacTheme.font(10, .semibold)).foregroundStyle(MacTheme.ink2)
                 }
                 ForEach(rows) { row in
                     HStack {
                         Text(row.label).lineLimit(1)
                         Spacer(minLength: 8)
-                        Text("\(TokenConsumptionSnapshot.formatTokens(row.counts.totalTokens)) · \(TokenConsumptionSnapshot.formatUSD(row.counts.estimatedUSD))")
+                        Text("\(TokenConsumptionSnapshot.formatTokens(row.counts.totalTokens)) · est. \(TokenConsumptionSnapshot.formatUSD(row.counts.estimatedUSD))")
                             .monospacedDigit()
                             .foregroundStyle(MacTheme.ink2)
                     }
