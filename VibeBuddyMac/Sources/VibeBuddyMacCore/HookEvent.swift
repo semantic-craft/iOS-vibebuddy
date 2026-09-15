@@ -65,6 +65,8 @@ public struct HookEvent: Sendable, Equatable {
     /// reducer drop a settle report that belongs to an already-superseded turn.
     /// Nil for CLIs that do not label turns — those settle unconditionally.
     public let turnID: String?
+    /// Verified start boundary of this exact native turn, including bootstrap.
+    public let turnStartedAt: Date?
     /// Model, token, and context facts a local source read alongside the event
     /// (the Codex rollout's `token_count`). Applied through the reducer's
     /// enrichment path, never as a progress transition.
@@ -122,6 +124,7 @@ public struct HookEvent: Sendable, Equatable {
         childType: String? = nil,
         childAction: ChildLifecycleAction? = nil,
         turnID: String? = nil,
+        turnStartedAt: Date? = nil,
         enrichment: TranscriptInfo? = nil,
         desktopThreadID: String? = nil,
         probeRetirement: Bool = false,
@@ -154,6 +157,7 @@ public struct HookEvent: Sendable, Equatable {
         self.childType = childType
         self.childAction = childAction
         self.turnID = turnID
+        self.turnStartedAt = turnStartedAt
         self.enrichment = enrichment
         self.desktopThreadID = desktopThreadID
         self.probeRetirement = probeRetirement
@@ -176,7 +180,7 @@ public struct HookEvent: Sendable, Equatable {
             transcriptPath: transcriptPath, model: model, observationSource: observationSource,
             toolError: toolError, timestamp: timestamp, childID: childID,
             childKind: childKind, childName: childName, childType: childType,
-            childAction: childAction, turnID: turnID, enrichment: enrichment,
+            childAction: childAction, turnID: turnID, turnStartedAt: turnStartedAt, enrichment: enrichment,
             desktopThreadID: desktopThreadID, probeRetirement: probeRetirement, userStopped: true,
             completionText: completionText, completionSucceeded: completionSucceeded,
             sourceCompletionID: sourceCompletionID, observeOnly: observeOnly, toolOutput: toolOutput, permissionModeRaw: permissionModeRaw,
@@ -192,7 +196,7 @@ public struct HookEvent: Sendable, Equatable {
             transcriptPath: path, model: model, observationSource: observationSource,
             toolError: toolError, timestamp: timestamp, childID: childID,
             childKind: childKind, childName: childName, childType: childType,
-            childAction: childAction, turnID: turnID, enrichment: enrichment,
+            childAction: childAction, turnID: turnID, turnStartedAt: turnStartedAt, enrichment: enrichment,
             desktopThreadID: desktopThreadID, probeRetirement: probeRetirement, userStopped: userStopped,
             completionText: completionText, completionSucceeded: completionSucceeded, sourceCompletionID: sourceCompletionID,
             observeOnly: observeOnly, toolOutput: toolOutput, permissionModeRaw: permissionModeRaw,

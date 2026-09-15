@@ -534,6 +534,24 @@ code, and tests — don't drift to synonyms.
   entries without original text retain their recorded points and report that
   regeneration is unavailable. Derived text is a separate snapshot field; it does
   not replace the recorded points or change any reading marker.
+- **Completion result evidence** — the exact source/session/completion UUID and
+  its native turn identity, or Claude's observed prompt boundary. A newly
+  observed authoritative Codex ending can establish its UUID-to-turn mapping
+  before the start boundary or text arrives; an existing legacy UUID cannot be
+  assigned from a later ending. The recap file keeps a separate result index
+  (seven days, at most 512 records and 8 MiB encoded result data, 12,000 characters
+  per body); it creates no recap entry merely to cache a result. Reads recheck
+  expiry. Codex recovery reads an explicitly named successful turn from a bounded
+  transcript scan; Claude's successful Stop text can be used before its transcript
+  flushes. Missing evidence remains unavailable, never the last assistant message
+  from another round. Differing text permanently marks the identity as conflicted:
+  the first body remains diagnostic evidence, while ordinary reading, generated
+  presentation and automatic reading refuse it. A repeated first body cannot
+  clear conflict. Recovery never restores notification capture, changes current
+  progress, or acknowledges a result. Clear timeline retains its diagnostic scope;
+  result retention follows the result index's own expiry and capacity policy.
+  Internal presentation diagnostics distinguish unavailable evidence, unreadable
+  sources and provider/output failures without recording bodies or credentials.
 - **Completion notice** — the Mac's durable wording decision for one
   source/session/completion: pending, plain, summary, or cancelled. Only the
   final assistant result bound to that completion may be summarized. Pending

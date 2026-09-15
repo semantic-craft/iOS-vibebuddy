@@ -24,9 +24,36 @@ public enum CompletionResultAvailability: Sendable, Equatable {
 
 /// Separate from progress: failure to prove a result never changes the three states.
 struct CompletionResults {
+    /// Persisted independently of recap entries. Native identity or an observed
+    /// Claude prompt boundary is required; the opaque completion UUID is never guessed.
+    struct Record: Codable, Equatable, Sendable {
+        let sourceID: String
+        let sessionID: String
+        let completionID: String
+        let agent: AgentKind
+        let turnID: String?
+        let title: String
+        var startedAt: Date?
+        let completedAt: Date
+        var transcriptPath: String?
+        var text: String?
+        var conflict = false
+        var invalidated = false
+        var id: String { RecapEntry.completedID(sourceID: sourceID, sessionID: sessionID, completionID: completionID) }
+        func readable(now: Date) -> Bool {
+            !conflict && !invalidated && completedAt > now.addingTimeInterval(-RecapLedger.retention)
+        }
+        func frozen(now: Date) -> FrozenCompletionResult? {
+            guard readable(now: now), let text, !text.isEmpty, text.count <= 12_000 else { return nil }
+            return .init(sourceID: sourceID, sessionID: sessionID, completionID: completionID,
+                turnID: turnID, title: title, finalText: text, completedAt: completedAt, observedAt: now)
+        }
+    }
     struct Run {
+        let agent: AgentKind
         let startedAt: Date
         let turnID: String?
+        var transcriptPath: String? = nil
     }
     struct Candidate: Sendable {
         let completionID: String
@@ -41,75 +68,145 @@ struct CompletionResults {
     }
     var runs: [String: Run] = [:]
     var candidates: [String: Candidate] = [:]
+    var records: [String: Record] = [:]
 
-    mutating func observe(_ event: HookEvent, session: AgentSession?, sourceID: String?, now: Date) {
+    mutating func accept(_ text: String, id: String, now: Date) {
+        guard var record = records[id], record.readable(now: now),
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        if let first = record.text, first != text { record.conflict = true }
+        else if text.count <= 12_000 { record.text = text }
+        records[id] = record
+        if var candidate = candidates[record.sessionID], candidate.completionID == record.completionID {
+            if record.conflict {
+                candidate.readingResult = nil
+                candidate.outcome = .resultUnavailable
+            } else {
+                candidate.readingResult = record.frozen(now: now)
+                if candidate.outcome == nil {
+                    candidate.outcome = Self.freeze(text, candidate: candidate, sourceID: record.sourceID,
+                        sessionID: record.sessionID, now: now)
+                }
+            }
+            candidates[record.sessionID] = candidate
+        }
+    }
+
+    mutating func observe(_ event: HookEvent, session: AgentSession?, sourceID: String?, now: Date,
+                          authoritative: Bool = true, createdCompletion: Bool = false) {
         let id = event.sessionID
-        if (event.kind == .stop && event.completionSucceeded == false)
-            || event.kind == .sessionEnd || event.probeRetirement
-            || (event.kind == .sessionStart && event.agent == .claudeCode) {
-            runs[id] = nil
-            candidates[id] = nil
+        // Known older turns may enrich only their own existing record, even
+        // after a new run replaced the current candidate.
+        if event.kind == .stop, let sourceID {
+            let matching = records.values.filter {
+                $0.sourceID == sourceID && $0.sessionID == id && $0.agent == event.agent
+                && ((event.turnID != nil && $0.turnID == event.turnID)
+                    || (event.agent == .claudeCode && $0.turnID == nil && $0.completedAt == event.timestamp))
+            }.map(\.id)
+            for key in matching {
+                if records[key]?.startedAt == nil, let boundary = event.turnStartedAt, boundary <= event.timestamp {
+                    records[key]?.startedAt = boundary
+                }
+                if event.completionSucceeded == false || event.userStopped || event.probeRetirement {
+                    records[key]?.invalidated = true
+                    if candidates[id]?.completionID == records[key]?.completionID { candidates[id] = nil }
+                    if runs[id]?.turnID == records[key]?.turnID,
+                       runs[id]?.startedAt == records[key]?.startedAt, runs[id]?.agent == records[key]?.agent { runs[id] = nil }
+                } else if event.completionSucceeded == true, let text = event.completionText {
+                    if records[key]?.transcriptPath == nil { records[key]?.transcriptPath = event.transcriptPath }
+                    accept(text, id: key, now: now)
+                } else if records[key]?.transcriptPath == nil { records[key]?.transcriptPath = event.transcriptPath }
+            }
+            if !matching.isEmpty { return }
+        }
+        // App-server can first discover an already-ended native turn. Its
+        // successful ending proves this mapping, but does not invent a prompt
+        // boundary or revive notification capture. A rollout may enrich it later.
+        if authoritative, createdCompletion, event.kind == .stop, event.agent == .codex,
+           event.completionSucceeded == true, !event.userStopped, !event.probeRetirement,
+           runs[id] == nil, let turn = event.turnID, !turn.isEmpty,
+           let sourceID, let session, session.status == .done, !session.isStuck,
+           let completionID = session.completionID {
+            let key = RecapEntry.completedID(sourceID: sourceID, sessionID: id, completionID: completionID)
+            if records[key] == nil {
+                records[key] = Record(sourceID: sourceID, sessionID: id, completionID: completionID,
+                    agent: event.agent, turnID: turn, title: session.displayTitle,
+                    startedAt: event.turnStartedAt, completedAt: event.timestamp, transcriptPath: event.transcriptPath)
+                if let text = event.completionText { accept(text, id: key, now: now) }
+            }
             return
         }
+        if let boundary = event.turnStartedAt, let turn = event.turnID {
+            if let old = runs[id], boundary < old.startedAt { return }
+            if runs[id]?.turnID != turn || runs[id] == nil {
+                runs[id] = Run(agent: event.agent, startedAt: boundary, turnID: turn, transcriptPath: event.transcriptPath)
+                candidates[id] = nil
+            } else if runs[id]?.transcriptPath == nil { runs[id]?.transcriptPath = event.transcriptPath }
+        }
         if event.kind == .userPromptSubmit {
-            // Repeated status corroboration without a turn ID does not replace
-            // a known run. A genuine labelled new turn always invalidates it.
+            if let old = runs[id], event.timestamp < old.startedAt { return }
+            if let turn = event.turnID, runs[id]?.turnID == turn {
+                if runs[id]?.transcriptPath == nil { runs[id]?.transcriptPath = event.transcriptPath }
+                return
+            }
             if event.agent == .claudeCode || runs[id] == nil || event.turnID != nil || candidates[id] != nil {
-                runs[id] = Run(startedAt: event.timestamp, turnID: event.turnID)
+                runs[id] = Run(agent: event.agent, startedAt: event.turnStartedAt ?? event.timestamp, turnID: event.turnID,
+                    transcriptPath: event.transcriptPath)
             }
             candidates[id] = nil
             return
         }
-        guard let session, session.status == .done, !session.isStuck,
-              session.probeRetired != true, let completionID = session.completionID else {
-            candidates[id] = nil
+        if event.kind == .sessionEnd || (event.kind == .sessionStart && event.agent == .claudeCode) {
+            runs[id] = nil; candidates[id] = nil
             return
         }
-        guard event.kind == .stop, let run = runs[id], event.timestamp >= run.startedAt else { return }
-        let progressOnly = event.agent == .codex && event.completionSucceeded == nil && event.turnID == nil
-        if let current = run.turnID, event.turnID != current, !progressOnly { return }
+        if authoritative, event.kind == .stop, event.turnID == nil,
+           let currentRun = runs[id], currentRun.agent == event.agent, event.timestamp >= currentRun.startedAt,
+           event.completionSucceeded == false || event.probeRetirement || event.userStopped {
+            if let sourceID, let candidate = candidates[id] {
+                let key = RecapEntry.completedID(sourceID: sourceID, sessionID: id, completionID: candidate.completionID)
+                records[key]?.invalidated = true
+            }
+            runs[id] = nil; candidates[id] = nil
+            return
+        }
+        guard event.kind == .stop, let run = runs[id], run.agent == event.agent, event.timestamp >= run.startedAt else { return }
+        let progressOnly = event.agent == .codex && event.completionSucceeded == nil
+            && (event.turnID == nil || event.turnID == run.turnID)
+        if let turn = run.turnID, event.turnID != turn, !progressOnly { return }
+        if event.completionSucceeded == false || event.probeRetirement || event.userStopped {
+            runs[id] = nil; candidates[id] = nil
+            return
+        }
+        guard authoritative, let sourceID, let session, session.status == .done,
+              !session.isStuck, session.probeRetired != true, let completionID = session.completionID else { return }
         if event.agent == .codex {
             guard let turn = run.turnID, !turn.isEmpty, event.turnID == turn || progressOnly else { return }
         }
-        guard event.completionSucceeded == true
-            || (event.agent == .codex && event.completionSucceeded == nil) else { return }
-        if let candidate = candidates[id], candidate.completionID == completionID {
-            // A labelled duplicate may fill missing reading evidence, but never replace it.
-            // Notification capture keeps the original outcome and deadline.
-            if candidate.readingResult == nil, [AgentKind.codex, .grokBot].contains(event.agent), event.completionSucceeded == true,
-               let turn = event.turnID, turn == candidate.turnID,
-               let text = event.completionText, let sourceID {
-                candidates[id]?.readingResult = Self.readingResult(text, candidate: candidate, sourceID: sourceID, sessionID: id, now: now)
-                if candidate.outcome == nil {
-                    candidates[id]?.outcome = Self.freeze(text, candidate: candidate,
-                        sourceID: sourceID, sessionID: id, now: now)
-                }
-            }
-            return
-        }
-        var candidate = Candidate(completionID: completionID, turnID: [AgentKind.codex, .grokBot].contains(event.agent) ? run.turnID : event.turnID,
-                                  title: session.displayTitle, completedAt: event.timestamp,
-                                  startedAt: run.startedAt,
-                                  transcriptPath: event.agent == .claudeCode ? event.transcriptPath : nil,
-                                  expectedText: event.agent == .claudeCode ? event.completionText : nil)
-        if event.agent == .claudeCode, let text = event.completionText, text.count > 12_000 {
-            candidate.outcome = .resultTooLong
-            candidate.expectedText = nil
-        }
-        if [AgentKind.codex, .grokBot].contains(event.agent), event.completionSucceeded == true, let turn = event.turnID, !turn.isEmpty,
-           let text = event.completionText, let sourceID {
-            candidate.readingResult = Self.readingResult(text, candidate: candidate, sourceID: sourceID, sessionID: id, now: now)
-            candidate.outcome = Self.freeze(text, candidate: candidate, sourceID: sourceID, sessionID: id, now: now)
+        guard event.completionSucceeded == true || progressOnly else { return }
+        let key = RecapEntry.completedID(sourceID: sourceID, sessionID: id, completionID: completionID)
+        // Only the reducer creating this opaque completion can introduce its mapping.
+        // A restored legacy UUID must remain unknown even if a later event has a boundary.
+        guard records[key] != nil || createdCompletion else { return }
+        // An existing mapping cannot be reassigned by another ending.
+        if let existing = records[key], existing.turnID != run.turnID { return }
+        var candidate = candidates[id] ?? Candidate(completionID: completionID, turnID: run.turnID,
+            title: session.displayTitle, completedAt: event.timestamp, startedAt: run.startedAt,
+            transcriptPath: event.transcriptPath ?? run.transcriptPath)
+        if candidate.completionID != completionID {
+            candidate = Candidate(completionID: completionID, turnID: run.turnID, title: session.displayTitle,
+                completedAt: event.timestamp, startedAt: run.startedAt, transcriptPath: event.transcriptPath ?? run.transcriptPath)
         }
         candidates[id] = candidate
-    }
-
-    private static func readingResult(_ text: String, candidate: Candidate, sourceID: String,
-                                      sessionID: String, now: Date) -> FrozenCompletionResult? {
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, text.count <= 12_000 else { return nil }
-        return FrozenCompletionResult(sourceID: sourceID, sessionID: sessionID, completionID: candidate.completionID,
-            turnID: candidate.turnID, title: candidate.title, finalText: text,
-            completedAt: candidate.completedAt, observedAt: now)
+        if records[key] == nil {
+            records[key] = Record(sourceID: sourceID, sessionID: id, completionID: completionID,
+                agent: event.agent, turnID: run.turnID, title: candidate.title, startedAt: run.startedAt,
+                completedAt: candidate.completedAt, transcriptPath: candidate.transcriptPath)
+        }
+        if event.completionSucceeded == true, let text = event.completionText {
+            // Claude Stop.last_assistant_message is the successful final reply;
+            // its transcript can lag. StopFailure never reaches this branch.
+            accept(text, id: key, now: now)
+        }
     }
 
     static func freeze(_ text: String, candidate: Candidate, sourceID: String,
@@ -125,8 +222,8 @@ struct CompletionResults {
 }
 
 /// Reads only a bounded tail; partial records and ambiguous/newer turns fail closed.
-/// The Stop text is cross-checked when present, never used as a substitute for
-/// a terminal assistant record. A missing observed prompt boundary is unavailable.
+/// Fallback only when a successful Stop omitted its final text. A missing
+/// observed prompt boundary is unavailable; later rounds are not borrowed.
 enum ClaudeCompletionReader {
     static func read(path: String, sessionID: String, startedAt: Date,
                      completedAt: Date, expectedText: String?) -> String? {
@@ -158,8 +255,9 @@ enum ClaudeCompletionReader {
                   let stamp = row["timestamp"] as? String,
                   let date = formatter.date(from: stamp) ?? plain.date(from: stamp) else { continue }
             guard date >= startedAt else { continue }
-            // A later message means this file is no longer a proof of this ending.
-            guard date <= completedAt else { return nil }
+            // This stored round owns only its observed interval. Later rounds
+            // cannot replace or invalidate its own terminal record.
+            guard date <= completedAt else { continue }
             final = nil
             guard type == "assistant", let message = row["message"] as? [String: Any],
                   message["stop_reason"] as? String == "end_turn",

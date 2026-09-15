@@ -32,12 +32,12 @@ struct CompletionResultReplayTests {
                 var results = CompletionResults()
                 let prompt = HookEvent(kind: .userPromptSubmit, sessionID: id, timestamp: started)
                 reducer.apply(prompt)
-                results.observe(prompt, session: reducer.sessions[id], sourceID: "replay", now: started)
+                results.observe(prompt, session: reducer.sessions[id], sourceID: "replay", now: started, createdCompletion: true)
                 // Stop delivery is reconstructed at the recorded final-message
                 // timestamp; no claim that a live Stop was captured.
                 let stop = HookEvent(kind: .stop, sessionID: id, timestamp: date, completionText: text, completionSucceeded: true)
                 reducer.apply(stop)
-                results.observe(stop, session: reducer.sessions[id], sourceID: "replay", now: date)
+                results.observe(stop, session: reducer.sessions[id], sourceID: "replay", now: date, createdCompletion: true)
                 guard let candidate = results.candidates[id] else { continue }
                 if case .ready(let frozen) = CompletionResults.freeze(text, candidate: candidate,
                     sourceID: "replay", sessionID: id, now: date) {
@@ -59,8 +59,10 @@ struct CompletionResultReplayTests {
             var results = CompletionResults()
             for line in data.split(separator: 10) {
                 for event in parser.parseEvents(Data(line), receivedAt: Date()) {
+                    let previous = reducer.sessions[event.sessionID]?.completionID
                     reducer.apply(event)
-                    results.observe(event, session: reducer.sessions[event.sessionID], sourceID: "replay", now: event.timestamp)
+                    results.observe(event, session: reducer.sessions[event.sessionID], sourceID: "replay", now: event.timestamp,
+                        createdCompletion: reducer.sessions[event.sessionID]?.completionID != previous)
                     if case .ready(let value) = results.candidates[event.sessionID]?.outcome {
                         let matches = value.turnID == event.turnID && value.finalText == event.completionText
                         #expect(matches)

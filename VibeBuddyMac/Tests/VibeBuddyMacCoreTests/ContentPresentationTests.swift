@@ -71,6 +71,36 @@ struct ContentPresentationTests {
         #expect(await store.snapshot(now: Date()).sessions.first?.status == .working)
     }
 
+    @Test("Conflict discovered during generation rejects the same completion and duplicate cannot unlock it")
+    func rejectsInFlightConflictingResult() async throws {
+        let store = SessionStore(sourceID: "mac")
+        let network = await configure(store, held: true)
+        defer { PresentationStub.state.release(); network.invalidateAndCancel() }
+        await round(store, turn: "first", text: "First verified result.")
+        let session = try #require(await store.snapshot(now: Date()).sessions.first)
+        let completion = try #require(session.completionID)
+        let request = ContentPresentationRequest(sourceID: "mac", target: .completion(sessionID: "s", completionID: completion))
+        let task = Task { await store.presentation(request) }
+        for _ in 0..<100 where PresentationStub.state.requestCount == 0 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(PresentationStub.state.requestCount == 1)
+        for text in ["Conflicting result.", "First verified result."] {
+            await store.ingest(.init(kind: .stop, sessionID: "s", agent: .codex, timestamp: Date(),
+                turnID: "first", completionText: text, completionSucceeded: true))
+        }
+        PresentationStub.state.release()
+        #expect(await task.value == nil)
+        #expect(await store.presentation(request) == nil)
+        let body = await store.completionBody(sessionID: "s", completionID: completion)
+        #expect(body.text == nil)
+        #expect(body.unavailableReason == "Conflicting final result evidence; ordinary reading is refused.")
+        let after = await store.snapshot(now: Date())
+        #expect(after.sessions.first?.completionID == completion)
+        #expect(after.sessions.first?.hasUnreadCompletion == true)
+        #expect(PresentationStub.state.requestCount == 1)
+    }
+
     @Test("old recap uses its own full result and presentation never acknowledges either round")
     func oldRecapKeepsItsMaterialAndReadState() async throws {
         let store = SessionStore(sourceID: "mac")

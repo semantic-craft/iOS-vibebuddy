@@ -18,6 +18,7 @@ public struct SessionReducer: Sendable {
     /// (`HookEvent.turnID`). Grok dispatches a cancelled turn's report off the
     /// command loop, so it can land after the next turn already started.
     private var currentTurnID: [String: String] = [:]
+    private var currentTurnStartedAt: [String: Date] = [:]
     private var awaitingOriginalPrompt: Set<String> = []
 
     public init() {}
@@ -45,6 +46,19 @@ public struct SessionReducer: Sendable {
         observationSource: ObservationSource? = nil,
         recordsEvidence: Bool = true
     ) {
+        // Bootstrap carries a verified active boundary on the existing tool
+        // or waiting observation, without replaying an old prompt event.
+        if event.agent == .codex, let start = event.turnStartedAt,
+           event.childID == nil,
+           [.preToolUse, .postToolUse, .notification].contains(event.kind),
+           let turnID = event.turnID {
+            if let current = currentTurnID[event.sessionID], current != turnID,
+               let knownStart = currentTurnStartedAt[event.sessionID], start <= knownStart {
+                return
+            }
+            currentTurnID[event.sessionID] = turnID
+            currentTurnStartedAt[event.sessionID] = start
+        }
         switch event.kind {
         case .sessionStart:
             if event.startsNewSession { awaitingOriginalPrompt.insert(event.sessionID) }
@@ -58,7 +72,10 @@ public struct SessionReducer: Sendable {
             sessions[event.sessionID]?.userStopped = nil
             sessions[event.sessionID]?.activeTool = nil
         case .userPromptSubmit:
-            if let turnID = event.turnID { currentTurnID[event.sessionID] = turnID }
+            if let turnID = event.turnID {
+                currentTurnID[event.sessionID] = turnID
+                currentTurnStartedAt[event.sessionID] = event.turnStartedAt ?? event.timestamp
+            }
             upsert(event, status: .working, waitKind: nil)
             if awaitingOriginalPrompt.remove(event.sessionID) != nil,
                sessions[event.sessionID]?.firstUserPrompt == nil,
@@ -171,6 +188,7 @@ public struct SessionReducer: Sendable {
             sessions.removeValue(forKey: event.sessionID)
             lastCountedTurn[event.sessionID] = nil
             currentTurnID[event.sessionID] = nil
+            currentTurnStartedAt[event.sessionID] = nil
         case .sessionMetadataChanged:
             // Model and cwd changes describe the same live session. They must
             // not clear its tool/wait state or manufacture a progress transition.
@@ -322,6 +340,7 @@ public struct SessionReducer: Sendable {
             // The per-session side tables outlive nothing: a session id that
             // comes back (grok resumes one) must start its accounting fresh.
             currentTurnID[id] = nil
+            currentTurnStartedAt[id] = nil
             awaitingOriginalPrompt.remove(id)
             lastCountedTurn[id] = nil
         }
