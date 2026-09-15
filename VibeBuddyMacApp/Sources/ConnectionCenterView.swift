@@ -169,10 +169,16 @@ struct ConnectionCenterView: View {
     }
 
     private func transferCard(_ transfer: RemoteConnectionSyncStore.Transfer) -> some View {
+        TimelineView(.periodic(from: .now, by: 2)) { context in
+            transferCard(transfer, now: context.date)
+        }
+    }
+
+    private func transferCard(_ transfer: RemoteConnectionSyncStore.Transfer, now: Date) -> some View {
         VStack(alignment: .leading, spacing: 9) {
-            Text(transferTitle(transfer)).font(MacTheme.font(13, .semibold))
+            Text(transferTitle(transfer, now: now)).font(MacTheme.font(13, .semibold))
             Text(transfer.proposal.host).font(MacTheme.mono(11))
-            Text(transferDetail(transfer)).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
+            Text(transferDetail(transfer, now: now)).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink2)
                 .fixedSize(horizontal: false, vertical: true)
             if transfer.outcome != .confirmed {
                 Button("Cancel sync") { model.cancelConnectionSync() }
@@ -184,8 +190,8 @@ struct ConnectionCenterView: View {
         .accessibilityIdentifier("mac-connection-sync-status")
     }
 
-    private func transferTitle(_ transfer: RemoteConnectionSyncStore.Transfer) -> LocalizedStringKey {
-        if transfer.isExpired(at: Date()) { return "Sync request expired" }
+    private func transferTitle(_ transfer: RemoteConnectionSyncStore.Transfer, now: Date) -> LocalizedStringKey {
+        if transfer.isExpired(at: now) { return "Sync request expired" }
         switch transfer.outcome {
         case nil: return "Waiting for iPhone to receive"
         case .received: return "iPhone received the address · checking"
@@ -196,8 +202,8 @@ struct ConnectionCenterView: View {
         }
     }
 
-    private func transferDetail(_ transfer: RemoteConnectionSyncStore.Transfer) -> LocalizedStringKey {
-        if transfer.isExpired(at: Date()) { return "This request lasted 5 minutes. Sync again when your iPhone is ready." }
+    private func transferDetail(_ transfer: RemoteConnectionSyncStore.Transfer, now: Date) -> LocalizedStringKey {
+        if transfer.isExpired(at: now) { return "This request lasted 5 minutes. Sync again when your iPhone is ready." }
         switch transfer.outcome {
         case nil: return "Open VibeBuddy on the paired iPhone. Its current address remains saved until the new connection passes its check."
         case .received: return "Waiting for iPhone to receive this Mac’s authenticated task status through the remote address."

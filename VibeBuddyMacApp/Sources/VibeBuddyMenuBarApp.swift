@@ -874,7 +874,6 @@ struct MenuContent: View {
     /// shortens.
     @ViewBuilder
     private func listContent(_ feed: MenuFeed) -> some View {
-        let now = Date()
         VStack(alignment: .leading, spacing: 0) {
             if let empty = feed.emptyState {
                 emptyState(empty)
@@ -885,7 +884,7 @@ struct MenuContent: View {
                             sectionHead(section)
                             if !isCollapsed(section.kind) {
                                 ForEach(Array(section.sessions.enumerated()), id: \.element.id) { index, session in
-                                    row(session, feed: feed, now: now,
+                                    row(session, feed: feed,
                                         showsHairline: index < section.sessions.count - 1)
                                 }
                             }
@@ -937,7 +936,7 @@ struct MenuContent: View {
     /// A flat row: a status dot, the session's title and how long ago it moved
     /// on the first line; what the agent is doing and its own sentence on the
     /// second. Hover fills the whole row — there is no card.
-    private func row(_ session: AgentSession, feed: MenuFeed, now: Date,
+    private func row(_ session: AgentSession, feed: MenuFeed,
                      showsHairline: Bool) -> some View {
         let presentation = RowPresentation(session: session)
         let isTarget = !feed.query.isEmpty && feed.topResult?.id == session.id
@@ -961,7 +960,9 @@ struct MenuContent: View {
                                     .foregroundStyle(MacTheme.status(.completeUnread))
                             }
                             if isTarget { jumpBadge }
-                            Text(verbatim: MenuFeed.age(of: session.updatedAt, now: now))
+                            TimelineView(.periodic(from: .now, by: 2)) { context in
+                                Text(verbatim: MenuFeed.age(of: session.updatedAt, now: context.date))
+                            }
                                 .font(MacTheme.mono(9.5))
                                 .monospacedDigit()
                                 .foregroundStyle(MacTheme.ink3)
@@ -1008,9 +1009,9 @@ struct MenuContent: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text(verbatim: [session.displayTitle, session.presentationState.label,
                                                 presentation.activityOrResult, presentation.progress ?? "",
-                                                presentation.unread ? String(localized: "Unread") : "",
-                                                MenuFeed.age(of: session.updatedAt, now: now)]
+                                                presentation.unread ? String(localized: "Unread") : ""]
                 .filter { !$0.isEmpty }.joined(separator: ", ")))
+            .accessibilityValue(Text(session.updatedAt, style: .relative))
             .accessibilityHint("Jump to this session")
             if showsHairline {
                 MenuHairline(leading: MenuMetrics.gutter + MenuMetrics.dotLane)

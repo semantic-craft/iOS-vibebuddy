@@ -19,7 +19,7 @@ struct SessionReaderView<Header: View, Tail: View>: View {
     @ViewBuilder let header: () -> Header
     @ViewBuilder let tail: () -> Tail
 
-    @State private var window = ReaderWindow(start: 0, count: 0)
+    @State private var window: ReaderWindow
     @State private var revealedTarget: String?
     @State private var shownIDs: [String] = []
     /// Only an actual user scroll opts out. Layout growth must not be
@@ -29,6 +29,22 @@ struct SessionReaderView<Header: View, Tail: View>: View {
     @State private var toolsOpen = Set<String>()
     @State private var thinkingOpen = Set<String>()
     @State private var scrollHeight: CGFloat = 0
+
+    init(rows: [HistoryMessageRow], targetMessage: String?, note: String?,
+         @ViewBuilder header: @escaping () -> Header, @ViewBuilder tail: @escaping () -> Tail) {
+        self.rows = rows
+        self.targetMessage = targetMessage
+        self.note = note
+        self.header = header
+        self.tail = tail
+        let initialWindow: ReaderWindow
+        if let targetMessage, let index = rows.firstIndex(where: { $0.contains(targetMessage) }) {
+            initialWindow = .revealing(index, of: rows.count)
+        } else {
+            initialWindow = .tail(of: rows.count)
+        }
+        _window = State(initialValue: initialWindow)
+    }
 
     private static var bottomID: String { "reader-bottom" }
     var body: some View {
