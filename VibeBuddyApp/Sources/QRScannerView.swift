@@ -131,24 +131,43 @@ struct PairingScannerSheet: View {
     var onManualEntry: (() -> Void)? = nil
     var onScan: ((PairingPayload) -> Void)? = nil
     @State private var showHelp = false
+    @State private var scannerID = UUID()
+    @StateObject private var check = RemoteConnectionAttempt()
 
     var body: some View {
         NavigationStack {
             QRScannerView { payload in
                 if let onScan {
                     onScan(payload)
+                    dismiss()
                 } else {
                     let unchanged = connection.pairing == payload
-                    dashboard.confirmPairing()
-                    connection.save(payload)
-                    if unchanged { dashboard.start(payload) }
+                    check.start(payload, connection: connection) {
+                        dashboard.confirmPairing()
+                        if unchanged { dashboard.start(payload) }
+                        dismiss()
+                    }
                 }
-                dismiss()
             }
+            .id(scannerID)
             .ignoresSafeArea()
             .safeAreaInset(edge: .bottom) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
+                        if check.isChecking {
+                            ProgressView("Checking connection…")
+                        }
+                        if case .failure(let failure) = check.phase {
+                            if failure == .unavailable {
+                                Text("Could not receive live Mac status. Check the network and wake your Mac. Your saved pairing has not changed.")
+                            } else {
+                                Text(failure.message)
+                            }
+                            Button("Scan again") {
+                                check.reset()
+                                scannerID = UUID()
+                            }
+                        }
                         Text("On your Mac, open Devices & connection and choose Show connection code. Scan the code here. Cancelling keeps your current pairing.")
                             .font(CompanionType.font(15))
                         DisclosureGroup("Can't find the QR code?", isExpanded: $showHelp) {
@@ -158,20 +177,21 @@ struct PairingScannerSheet: View {
                             }.padding(.top, 12)
                         }
                         if let onManualEntry {
-                            Button("Enter address manually") { onManualEntry(); dismiss() }
+                            Button("Enter address manually") { check.cancel(); onManualEntry(); dismiss() }
                         }
                     }.padding()
                 }
-                .frame(maxHeight: showHelp ? 360 : 160)
+                .frame(maxHeight: showHelp || check.phase != .idle ? 360 : 160)
                 .background(.regularMaterial)
             }
             .navigationTitle("Scan pairing QR")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { dismiss() }
+                    Button("Cancel") { check.cancel(); dismiss() }
                 }
             }
         }
+        .onDisappear { check.cancel() }
     }
 }
