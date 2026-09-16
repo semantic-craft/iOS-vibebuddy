@@ -38,9 +38,8 @@ struct CompletionResultReplayTests {
                 let stop = HookEvent(kind: .stop, sessionID: id, timestamp: date, completionText: text, completionSucceeded: true)
                 reducer.apply(stop)
                 results.observe(stop, session: reducer.sessions[id], sourceID: "replay", now: date, createdCompletion: true)
-                guard let candidate = results.candidates[id] else { continue }
-                if case .ready(let frozen) = CompletionResults.freeze(text, candidate: candidate,
-                    sourceID: "replay", sessionID: id, now: date) {
+                if case .finished(.ready(let frozen)) = results.notificationState(sessionID: id,
+                    completionID: reducer.sessions[id]?.completionID ?? "", sourceID: "replay", now: date) {
                     let matches = frozen.finalText == text
                     #expect(matches)
                     claudeVerified = true
@@ -63,7 +62,8 @@ struct CompletionResultReplayTests {
                     reducer.apply(event)
                     results.observe(event, session: reducer.sessions[event.sessionID], sourceID: "replay", now: event.timestamp,
                         createdCompletion: reducer.sessions[event.sessionID]?.completionID != previous)
-                    if case .ready(let value) = results.candidates[event.sessionID]?.outcome {
+                    if case .finished(.ready(let value)) = results.notificationState(sessionID: event.sessionID,
+                        completionID: reducer.sessions[event.sessionID]?.completionID ?? "", sourceID: "replay", now: event.timestamp) {
                         let matches = value.turnID == event.turnID && value.finalText == event.completionText
                         #expect(matches)
                         codexVerified = true
