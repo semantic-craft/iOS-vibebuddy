@@ -1256,6 +1256,19 @@ final class DashboardStore: ObservableObject {
             && scope == (sourceID ?? "unknown") + "/" + pairingEpoch
     }
 
+    func history(for session: AgentSession, scope: String, cursor: String?) async throws -> HistoryPage {
+        guard readerAuthorityIsCurrent(scope: scope), let sourceID, let pairing,
+              let key = HistoryIdentity.transcriptKey(for: session) else { throw HistoryFailure("source_changed") }
+        guard state == .connected else { throw HistoryFailure("source_unavailable") }
+        let generation = connectionGeneration
+        let page = try await decisionClient.history(pairing, sourceID: sourceID, key: key, cursor: cursor)
+        try Task.checkCancellation()
+        guard readerAuthorityIsCurrent(scope: scope), self.pairing == pairing else { throw HistoryFailure("source_changed") }
+        guard generation == connectionGeneration, state == .connected else { throw HistoryFailure("source_unavailable") }
+        guard page.sourceID == sourceID, page.key == key, page.projection == "raw-visible-v1" else { throw HistoryFailure("source_changed") }
+        return page
+    }
+
     var completionSourceID: String? { sourceID }
     var completionConnectionID: String { connectionGeneration.uuidString }
 

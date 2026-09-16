@@ -15,6 +15,7 @@ struct PhoneSessionReader: View {
     @FocusState private var replyFocused: Bool
     @EnvironmentObject private var dashboard: DashboardStore
     @Environment(\.scenePhase) private var scenePhase
+    @State private var showHistory = false
     @State private var showChanges = false
     @StateObject private var resultReader = CompletionBodyReader()
     @State private var resultAttempt = 0
@@ -72,6 +73,9 @@ struct PhoneSessionReader: View {
                             .lineLimit(1)
                         }
                     }
+                    Button("Conversation history") { showHistory = true }
+                        .disabled(!authorityIsCurrent)
+                        .accessibilityIdentifier("phone-open-history")
                     if session.completionNotice?.state == .pending {
                         Text("Preparing completion summary…")
                             .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
@@ -166,6 +170,9 @@ struct PhoneSessionReader: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { dock(maxHeight: geometry.size.height * 0.38) }
+        .navigationDestination(isPresented: $showHistory) {
+            PhoneHistoryView(session: session, scope: draftScope, newTask: newTask)
+        }
         .onAppear { isOnScreen = true; acknowledgeVisibleBody() }
         .onDisappear { isOnScreen = false }
         .onChange(of: completionNotificationID) { _, _ in choseCurrentTask = false }
@@ -189,7 +196,7 @@ struct PhoneSessionReader: View {
     }
 
     private func acknowledgeVisibleBody() {
-        guard authorityIsCurrent, scenePhase == .active, isOnScreen, isUnobscured, !showChanges, notificationIsCurrent, resultIsVisible, currentBody?.text?.isEmpty == false,
+        guard authorityIsCurrent, scenePhase == .active, isOnScreen, isUnobscured, !showChanges, !showHistory, notificationIsCurrent, resultIsVisible, currentBody?.text?.isEmpty == false,
               session.hasUnreadCompletion, acknowledgedBodyID != resultKey else { return }
         acknowledgedBodyID = resultKey
         dashboard.acknowledge(session.id, displayedCompletion: dashboard.completionRequest(for: session))
@@ -343,7 +350,7 @@ struct PhoneSessionReader: View {
 
 /// Expandable bounded recent dialogue. The expanded text is the same slice
 /// the collapsed preview came from — there is no fuller history behind it.
-private struct RecentOutputCard: View {
+struct RecentOutputCard: View {
     let output: RecentOutput?
     @State private var expanded = false
 

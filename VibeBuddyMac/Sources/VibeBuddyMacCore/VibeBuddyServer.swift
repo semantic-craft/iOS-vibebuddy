@@ -8,6 +8,7 @@ import VibeBuddyKit
 /// The Mac-side HTTP server: localhost hook intake + token-gated LAN snapshot.
 /// WebSocket push (`/ws`) is added later (needed by the iOS app in Phase D).
 public struct VibeBuddyServer: Sendable {
+    public let historyReader: HistoryHTTPReader
     public let store: SessionStore
     public let token: String
     public let host: String
@@ -106,6 +107,7 @@ public struct VibeBuddyServer: Sendable {
 
     public init(store: SessionStore, token: String, host: String = "0.0.0.0",
                 port: Int = 9876, pusher: APNsPusher? = nil,
+                historyReader: HistoryHTTPReader = HistoryHTTPReader(),
                 phoneReceipts: PhoneReceipts = PhoneReceipts(),
                 deliveryRecorder: (any NotificationDeliveryRecording)? = nil,
                 deviceTokens: DeviceTokens = DeviceTokens(),
@@ -144,6 +146,7 @@ public struct VibeBuddyServer: Sendable {
                 onCompletionReminder: (@Sendable (AgentSession) async -> Bool)? = nil,
                 actionRequests: ActionRequestLog = ActionRequestLog(),
                 cursorFollowups: CursorFollowupQueue = CursorFollowupQueue()) {
+        self.historyReader = historyReader
         self.store = store
         self.token = token
         self.host = host
@@ -550,6 +553,13 @@ public struct VibeBuddyServer: Sendable {
             let buffer = try await request.body.collect(upTo: 1 << 20) // 1 MB cap
             await store.ingest(Data(buffer: buffer), agent: agent, receivedAt: Date())
             return .ok
+        }
+
+        authed.get("history") { request, _ -> Response in
+            let result = await historyReader.read(uri: request.uri.string, sourceID: store.sourceID)
+            return Response(status: HTTPResponse.Status(code: result.status),
+                headers: [.contentType: "application/json"],
+                body: .init(byteBuffer: ByteBuffer(bytes: result.data)))
         }
 
         // Full snapshot — bearer-token gated.
