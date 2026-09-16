@@ -47,7 +47,7 @@ struct ContentPresentationTests {
         let current = try #require(await store.snapshot(now: date.addingTimeInterval(3)).sessions.first)
         let result = await store.presentation(.init(sourceID: "mac", target: try #require(ContentPresentationTarget(session: current))))
         #expect(result?.generated == true)
-        #expect(result?.text == "Choose the delivery date.")
+        #expect(result?.text == waiting.displayTitle + ". Choose the delivery date.")
     }
 
     @Test("a result arriving after the waiting task resumes is discarded")
@@ -121,6 +121,113 @@ struct ContentPresentationTests {
         #expect(presented.contentPresentation == result)
         #expect(presented.points == first.points)
         #expect(after.recap?.horizon == before.recap?.horizon)
+    }
+
+    @Test("hook-only completion has no spoken ending, verified completion names the conversation")
+    func verifiedNamedSpeech() async throws {
+        let store = SessionStore(sourceID: "mac")
+        let network = await configure(store)
+        defer { network.invalidateAndCancel() }
+        let hook = try JSONSerialization.data(withJSONObject: ["hook_event_name": "Stop", "session_id": "s",
+            "cwd": "/x/Agora", "turn_id": "child-turn"])
+        await store.ingest(hook, agent: .codex, receivedAt: Date())
+        let child = try #require(await store.snapshot(now: Date()).sessions.first)
+        let childRequest = ContentPresentationRequest(sourceID: "mac", target: try #require(ContentPresentationTarget(session: child)))
+        #expect(await store.presentation(childRequest) == nil)
+        #expect(PresentationStub.state.requestCount == 0)
+
+        await round(store, turn: "main-turn", text: "Verified result.")
+        await store.ingest(.init(kind: .sessionMetadataChanged, sessionID: "s", agent: .codex,
+            sessionName: "Draw a harbor", timestamp: Date()))
+        let main = try #require(await store.snapshot(now: Date()).sessions.first)
+        let request = ContentPresentationRequest(sourceID: "mac", target: try #require(ContentPresentationTarget(session: main)))
+        let result = await store.presentation(request)
+        #expect(result?.generated == true)
+        #expect(result?.text.hasPrefix("Draw a harbor. ") == true)
+        #expect(result?.text.hasPrefix("project") == false)
+    }
+
+    @Test("Claude and Cursor wait for settled native evidence and name the conversation", arguments: [AgentKind.claudeCode, .cursor])
+    func settledAgentSpeech(_ agent: AgentKind) async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("s.jsonl")
+        try Data().write(to: file)
+        let store = SessionStore(sourceID: "mac")
+        let network = await configure(store)
+        defer { network.invalidateAndCancel() }
+        let start = Date().addingTimeInterval(-1), end = Date()
+        let title = "Draw the evening harbor"
+        await store.ingest(.init(kind: .userPromptSubmit, sessionID: "s", agent: agent,
+            cwd: "/x/Agora", sessionName: title, transcriptPath: file.path,
+            observationSource: .hook, timestamp: start))
+        let child: [String: Any] = agent == .claudeCode
+            ? ["hook_event_name": "Stop", "session_id": "s", "agent_id": "child", "last_assistant_message": "Child finished"]
+            : ["hook_event_name": "subagentStop", "conversation_id": "s", "subagent_type": "Explore"]
+        await store.ingest(try JSONSerialization.data(withJSONObject: child), agent: agent, receivedAt: end)
+        #expect(await store.snapshot(now: end).sessions.first?.status == .working)
+        #expect(await store.snapshot(now: end).sessions.first?.completionID == nil)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        func append(_ row: [String: Any]) throws {
+            let handle = try FileHandle(forWritingTo: file)
+            defer { try? handle.close() }
+            try handle.seekToEnd()
+            try handle.write(contentsOf: JSONSerialization.data(withJSONObject: row) + Data([10]))
+        }
+        if agent == .claudeCode {
+            try append(["type": "assistant", "sessionId": "s", "timestamp": formatter.string(from: end),
+                "message": ["stop_reason": "end_turn", "content": [["type": "text", "text": "Verified harbor result."]]]])
+        } else {
+            try append(["role": "assistant", "message": ["content": [["type": "text", "text": "Verified harbor result."]]]])
+        }
+        await store.ingest(.init(kind: .stop, sessionID: "s", agent: agent, transcriptPath: file.path,
+            observationSource: .hook, timestamp: end,
+            completionText: agent == .claudeCode ? "Verified harbor result." : nil, completionSucceeded: true))
+        let session = try #require(await store.snapshot(now: end).sessions.first)
+        let request = ContentPresentationRequest(sourceID: "mac", target: try #require(ContentPresentationTarget(session: session)))
+        let pending = Task { await store.presentation(request) }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(PresentationStub.state.requestCount == 0)
+        if agent == .claudeCode {
+            try append(["type": "system", "subtype": "stop_hook_summary", "sessionId": "s",
+                "timestamp": formatter.string(from: end.addingTimeInterval(0.1)),
+                "preventedContinuation": false, "stopReason": "", "hookAdditionalContext": [], "hookErrors": []])
+        } else { try append(["type": "turn_ended", "status": "success"]) }
+        let result = await pending.value
+        #expect(result?.generated == true)
+        #expect(result?.text.hasPrefix(title + ". ") == true)
+        #expect(result?.text.contains("unavailable") == false)
+        if agent == .cursor {
+            await store.noteCursorFollowupHandoff(sessionID: "s", loopCount: 0, source: .hook, at: end.addingTimeInterval(0.1))
+            #expect(await store.presentation(request) == nil)
+        }
+        if agent == .claudeCode {
+            try append(["type": "system", "subtype": "stop_hook_summary", "sessionId": "s",
+                "timestamp": formatter.string(from: end.addingTimeInterval(0.2)),
+                "preventedContinuation": false, "stopReason": "", "hookAdditionalContext": ["Continue working"], "hookErrors": []])
+        } else {
+            try append(["role": "user", "message": ["content": [["type": "text", "text": "Continue working"]]]])
+        }
+        #expect(await store.presentation(request) == nil)
+        await store.ingest(.init(kind: .userPromptSubmit, sessionID: "s", agent: agent,
+            observationSource: .hook, timestamp: end.addingTimeInterval(1)))
+        #expect(await store.presentation(request) == nil)
+    }
+
+    @Test("verified completion reads a named result excerpt when the summary provider is unavailable")
+    func resultExcerptWithoutProvider() async throws {
+        let store = SessionStore(sourceID: "mac")
+        await round(store, turn: "first", text: "The requested drawing was saved.")
+        let session = try #require(await store.snapshot(now: Date()).sessions.first)
+        let completionID = try #require(session.completionID)
+        let result = try #require(await store.presentation(.init(sourceID: "mac",
+            target: .completion(sessionID: "s", completionID: completionID), purpose: .speech)))
+        #expect(result.generated == false)
+        #expect(result.text.contains(session.displayTitle))
+        #expect(result.text.contains("The requested drawing was saved."))
+        #expect(!result.text.contains("unavailable") && !result.text.contains("摘要暂时不可用"))
     }
 
     @Test("legacy recap without original material degrades without borrowing the newer result")

@@ -36,6 +36,7 @@ struct CompletionResults {
         var startedAt: Date?
         let completedAt: Date
         var transcriptPath: String?
+        var transcriptOffset: UInt64? = nil
         var text: String?
         var conflict = false
         var invalidated = false
@@ -54,6 +55,7 @@ struct CompletionResults {
         let startedAt: Date
         let turnID: String?
         var transcriptPath: String? = nil
+        var transcriptOffset: UInt64? = nil
     }
     struct Candidate: Sendable {
         let completionID: String
@@ -172,6 +174,10 @@ struct CompletionResults {
             if event.agent == .claudeCode || runs[id] == nil || event.turnID != nil || candidates[id] != nil {
                 runs[id] = Run(agent: event.agent, startedAt: event.turnStartedAt ?? event.timestamp, turnID: event.turnID,
                     transcriptPath: event.transcriptPath)
+                if event.agent == .cursor, event.observationSource != .transcript, event.observationSource != .acp,
+                   let path = event.transcriptPath {
+                    runs[id]?.transcriptOffset = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? NSNumber)?.uint64Value ?? 0
+                }
             }
             candidates[id] = nil
             return
@@ -224,6 +230,7 @@ struct CompletionResults {
             records[key] = Record(sourceID: sourceID, sessionID: id, completionID: completionID,
                 agent: event.agent, turnID: run.turnID, title: candidate.title, startedAt: run.startedAt,
                 completedAt: candidate.completedAt, transcriptPath: candidate.transcriptPath)
+            records[key]?.transcriptOffset = run.transcriptOffset
         }
         if nativeResultEvidence, !progressOnly, event.completionSucceeded == true, let text = event.completionText {
             // Claude Stop.last_assistant_message is the successful final reply;
@@ -293,5 +300,81 @@ enum ClaudeCompletionReader {
         guard let final else { return nil }
         if let expectedText, expectedText != final { return nil }
         return final
+    }
+}
+
+/// Cursor hook results are read only from bytes appended after this run began.
+/// An earlier turn, a subsequent prompt, or an unfinished response is not a result.
+enum CursorCompletionReader {
+    static func read(path: String, offset: UInt64) -> String? {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? handle.close() }
+        guard let size = try? handle.seekToEnd(), size >= offset, size - offset <= 2 * 1_024 * 1_024,
+              (try? handle.seek(toOffset: offset)) != nil,
+              let data = try? handle.readToEnd(), data.last == 10 else { return nil }
+        var text: String?
+        var ended = false
+        var sawPrompt = false
+        for raw in data.split(separator: 10) {
+            guard (try? JSONSerialization.jsonObject(with: Data(raw))) != nil else { return nil }
+            for line in CursorTranscripts.parse(line: String(decoding: raw, as: UTF8.self), fullContent: true) {
+                guard !ended else { return nil }
+                switch line {
+                case .prompt:
+                    guard !sawPrompt, text == nil else { return nil }
+                    sawPrompt = true
+                case .assistantText(let value): text = value
+                case .toolUse: text = nil
+                case .turnEnded(let status, _):
+                    guard status == "success" else { return nil }
+                    ended = true
+                }
+            }
+        }
+        guard ended, let text, !text.isEmpty, text.count <= 12_000 else { return nil }
+        return text
+    }
+}
+
+extension ClaudeCompletionReader {
+    static func hooksSettled(path: String, sessionID: String, completedAt: Date, expectedText: String) -> Bool {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return false }
+        defer { try? handle.close() }
+        guard let size = try? handle.seekToEnd() else { return false }
+        let offset = size > 1_048_576 ? size - 1_048_576 : 0
+        guard (try? handle.seek(toOffset: offset)) != nil,
+              let data = try? handle.readToEnd(), data.last == 10 else { return false }
+        var lines = data.split(separator: 10)
+        if offset > 0, !lines.isEmpty { lines.removeFirst() }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let seconds = ISO8601DateFormatter()
+        var matches = false
+        var settled = false
+        for line in lines {
+            guard let row = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any] else { return false }
+            guard (row["sessionId"] as? String ?? row["session_id"] as? String) == sessionID,
+                  row["isSidechain"] as? Bool != true else { continue }
+            if row["type"] as? String == "user" { matches = false; settled = false }
+            if row["type"] as? String == "assistant" {
+                settled = false
+                let message = row["message"] as? [String: Any]
+                let content = message?["content"] as? [[String: Any]] ?? []
+                let text = content.filter { $0["type"] as? String == "text" }
+                    .compactMap { $0["text"] as? String }.joined(separator: "\n")
+                matches = message?["stop_reason"] as? String == "end_turn" && text == expectedText
+                    && !content.contains { $0["type"] as? String == "tool_use" }
+            }
+            if row["type"] as? String == "system", row["subtype"] as? String == "stop_hook_summary" {
+                let stamp = row["timestamp"] as? String ?? ""
+                let date = formatter.date(from: stamp) ?? seconds.date(from: stamp)
+                settled = matches && (date.map { $0 >= completedAt.addingTimeInterval(-1) } ?? false)
+                    && row["preventedContinuation"] as? Bool == false
+                    && (row["stopReason"] as? String ?? "").isEmpty
+                    && (row["hookAdditionalContext"] as? [Any] ?? []).isEmpty
+                    && (row["hookErrors"] as? [Any] ?? []).isEmpty
+            }
+        }
+        return settled
     }
 }

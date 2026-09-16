@@ -91,7 +91,7 @@ public actor CursorTranscriptMonitor {
             cursor.offset += consumed
             for raw in String(decoding: data, as: UTF8.self)
                 .split(separator: "\n", omittingEmptySubsequences: true) {
-                for line in CursorTranscripts.parse(line: String(raw)) {
+                for line in CursorTranscripts.parse(line: String(raw), fullContent: true) {
                     if let event = Self.event(for: line, cursor: &cursor, at: now) {
                         events.append(event)
                     }

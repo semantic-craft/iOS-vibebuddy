@@ -51,11 +51,22 @@ public actor SessionStore {
             return nil
         }
         let config = presentationConfiguration()
-        let input = await presentationInput(request)
+        var input = await presentationInput(request)
+        if request.purpose == .speech, case .completion = request.target {
+            for _ in 0..<8 {
+                if input != nil, await speechEvidenceIsSettled(request) { break }
+                guard !Task.isCancelled, presentationTargetIsCurrent(request) else { return nil }
+                try? await Task.sleep(for: .milliseconds(250))
+                input = await presentationInput(request)
+            }
+            guard input != nil, await speechEvidenceIsSettled(request) else { return nil }
+        }
         let text: String?
         if let input {
             text = await contentPresenter.generate(input, purpose: request.purpose, configuration: config)
         } else { text = nil }
+        if request.purpose == .speech, case .completion = request.target,
+           !(await speechEvidenceIsSettled(request)) { return nil }
         guard !Task.isCancelled, presentationTargetIsCurrent(request) else {
             ContentPresentationService.diagnose(stage: "target", reason: "cancelledOrChangedDuringGeneration")
             return nil
@@ -64,8 +75,12 @@ public actor SessionStore {
             ContentPresentationService.diagnose(stage: "configuration", reason: "changedDuringGeneration")
             return nil
         }
+        var spokenText = text ?? presentationFallback(request, language: config.language)
+        if request.purpose == .speech, let title = input?.title, !spokenText.contains(title) {
+            spokenText = title + (config.language == .chinese ? "。" : ". ") + spokenText
+        }
         let result = ContentPresentation(request: request, revision: config.presentationRevision,
-            text: text ?? presentationFallback(request, language: config.language), generated: text != nil)
+            text: spokenText, generated: text != nil)
         if case .recap(let id) = request.target, result.generated {
             recapPresentations[id] = result
             if recapPresentations.count > Recap.maxEntries * 2 {
@@ -110,7 +125,7 @@ public actor SessionStore {
                 return nil
             }
             sessionID = entry.sessionID; identity = id
-            title = entry.project.isEmpty ? entry.title : entry.project
+            title = entry.title
             material = "Historical round ended at \(entry.endedAt). Outcome: \(entry.kind.rawValue). Current state has not been checked.\n" + original
         case .completion(let id, let completionID):
             guard let session = reducer.sessions[id] else { return nil }
@@ -120,13 +135,13 @@ public actor SessionStore {
                 return nil
             }
             sessionID = id; identity = completionID
-            title = session.project.isEmpty ? session.displayTitle : session.project
+            title = session.displayTitle
             material = "This round ended. The final answer reports the following; ending is not proof of project completion.\n" + original
         case .waiting(let id, _, _, _), .failure(let id, _):
             guard let session = reducer.sessions[id] else { return nil }
             sessionID = id
             identity = String(decoding: (try? encoder.encode(request.target)) ?? Data(), as: UTF8.self)
-            title = session.project.isEmpty ? session.displayTitle : session.project
+            title = session.displayTitle
             if session.status == .needsResponse {
                 let question = session.pendingQuestion.flatMap { try? encoder.encode($0) }
                 let approval = session.pendingApproval.flatMap { try? encoder.encode($0) }
@@ -149,15 +164,39 @@ public actor SessionStore {
             return chinese ? "这一轮暂时无法生成当前风格的摘要。请查看保存的原记录。" : "A summary in the current style is unavailable. Review the saved record."
         case .completion(let id, _), .waiting(let id, _, _, _), .failure(let id, _):
             guard let session = reducer.sessions[id] else { return "" }
-            let title = session.project.isEmpty ? session.displayTitle : session.project
+            let title = session.displayTitle
             if session.status == .needsResponse {
                 return chinese ? "\(title)，请打开任务查看待你决定的事项。当前无法生成详细摘要。" : "\(title). Open the task to review the pending decision. A detailed summary is unavailable."
             }
             if session.isStuck {
                 return chinese ? "\(title)，任务因问题停止。请打开任务查看原因。" : "\(title). The task stopped with an issue. Open it to review the cause."
             }
-            return chinese ? "\(title)，这一轮已结束。摘要暂时不可用，请打开任务查看结果。" : "\(title). This round ended. A summary is unavailable; open the task to review the result."
+            if case .completion(_, let completionID) = request.target,
+               let key = resultKey(sessionID: id, completionID: completionID),
+               let original = completionResults.records[key]?.text, !original.isEmpty {
+                let excerpt = String(original.prefix(240))
+                return chinese ? "\(title)，结果摘录：\(excerpt)" : "\(title). Result excerpt: \(excerpt)"
+            }
+            return ""
         }
+    }
+
+    private func speechEvidenceIsSettled(_ request: ContentPresentationRequest) async -> Bool {
+        guard case .completion(let sessionID, let completionID) = request.target,
+              let key = resultKey(sessionID: sessionID, completionID: completionID),
+              let record = completionResults.records[key] else { return false }
+        if record.agent == .cursor, let handedAt = cursorFollowupHandedAt[sessionID],
+           handedAt >= record.completedAt { return false }
+        if record.agent == .cursor, let offset = record.transcriptOffset {
+            guard let path = record.transcriptPath, let text = record.text else { return false }
+            return await Task.detached { CursorCompletionReader.read(path: path, offset: offset) == text }.value
+        }
+        guard record.agent == .claudeCode else { return true }
+        guard let path = record.transcriptPath, let text = record.text else { return false }
+        return await Task.detached {
+            ClaudeCompletionReader.hooksSettled(path: path, sessionID: sessionID,
+                completedAt: record.completedAt, expectedText: text)
+        }.value
     }
 
     private func captureRecapResult(id: String, sessionID: String, completionID: String) async {
@@ -169,6 +208,8 @@ public actor SessionStore {
     private static let diagnosticStaleAfter: TimeInterval = 10 * 60
     // Discovery/reachability is not proof that this connection carries progress.
     private var appServerProgressAt: [String: Date] = [:]
+    private var activeCodexRollouts: Set<String> = []
+    private var cursorFollowupHandedAt: [String: Date] = [:]
     private var reducer = SessionReducer()
     private var toolLedger: ToolLedger
     private var workingDirectories: [String: String] = [:]
@@ -228,6 +269,7 @@ public actor SessionStore {
     /// silent drop past a `loop_limit` can be seen in the journal) or as the
     /// ACP host's next prompt.
     public func noteCursorFollowupHandoff(sessionID: String, loopCount: Int?, source: ObservationSource, at date: Date) {
+        cursorFollowupHandedAt[sessionID] = date
         let event = loopCount.map { "cursorFollowupHandedOver(loop \($0))" } ?? "cursorFollowupHandedOver"
         _ = appendJournal(sessionID: sessionID, agent: .cursor, event: event, source: source, at: date)
     }
@@ -834,6 +876,16 @@ public actor SessionStore {
                     && event.timestamp <= $0.completedAt
             }
         if event.agent == .codex, !completedTurnProgress {
+            if observationSource == .rollout, recordsEvidence,
+               [.userPromptSubmit, .preToolUse, .postToolUse, .notification].contains(event.kind) {
+                activeCodexRollouts.insert(event.sessionID)
+            } else if observationSource != .hook, event.kind == .stop || event.kind == .sessionEnd {
+                activeCodexRollouts.remove(event.sessionID)
+            }
+        }
+        let prematureCodexStop = event.agent == .codex && observationSource == .hook
+            && event.kind == .stop && activeCodexRollouts.contains(event.sessionID)
+        if event.agent == .codex, !completedTurnProgress {
             if event.kind == .sessionEnd { appServerProgressAt[event.sessionID] = nil }
             else if observationSource == .appserver, recordsEvidence {
                 switch event.kind {
@@ -847,9 +899,14 @@ public actor SessionStore {
         recordCursorHookLog(event, from: observationSource)
         // A corroborating source may supply the menu's read-only round evidence.
         if let path = event.transcriptPath { transcriptPaths[event.sessionID] = path }
-        if completedTurnProgress || appServerOutranks(event, from: observationSource)
+        if completedTurnProgress || prematureCodexStop || appServerOutranks(event, from: observationSource)
             || acpOutranks(event, from: observationSource)
             || cursorHooksOutrank(event, from: observationSource) {
+            if reducer.sessions[event.sessionID] != nil, let name = event.sessionName {
+                reducer.apply(.init(kind: .sessionMetadataChanged, sessionID: event.sessionID,
+                    agent: event.agent, sessionName: name, timestamp: event.timestamp),
+                    observationSource: observationSource, recordsEvidence: false)
+            }
             if !completedTurnProgress {
                 completionResults.observe(event, session: reducer.sessions[event.sessionID],
                     sourceID: sourceID, now: Date(), authoritative: false)
@@ -896,6 +953,8 @@ public actor SessionStore {
                          health: .healthy, coverage: Self.coverage(for: event.kind))
         }
         if reducer.sessions[event.sessionID] == nil {
+            activeCodexRollouts.remove(event.sessionID)
+            cursorFollowupHandedAt[event.sessionID] = nil
             // Session was removed (e.g. SessionEnd) — forget its side data.
             transcriptPaths[event.sessionID] = nil
             cursorHookLog[event.sessionID] = nil
@@ -1078,6 +1137,9 @@ public actor SessionStore {
                     ContentPresentationService.diagnose(stage: "claudeEvidence", reason: "intervalUnverified")
                 }
                 return (text, false, false)
+            }
+            if record.agent == .cursor, let offset = record.transcriptOffset {
+                return (CursorCompletionReader.read(path: path, offset: offset), false, false)
             }
             ContentPresentationService.diagnose(stage: "evidence", reason: "unsupportedSourceOrMissingBoundary")
             return (nil, false, false)

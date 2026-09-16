@@ -189,9 +189,9 @@ public struct HookEvent: Sendable, Equatable {
 
     /// Stamp the rollout file this event was tailed from, so a later read-only
     /// recent-output fetch can find the same source without guessing.
-    public func withTranscriptPath(_ path: String) -> HookEvent {
+    public func withTranscriptPath(_ path: String, sessionName: String? = nil) -> HookEvent {
         HookEvent(
-            kind: kind, sessionID: sessionID, agent: agent, cwd: cwd, sessionName: sessionName,
+            kind: kind, sessionID: sessionID, agent: agent, cwd: cwd, sessionName: sessionName ?? self.sessionName,
             toolName: toolName, message: message, waitKind: waitKind,
             transcriptPath: path, model: model, observationSource: observationSource,
             toolError: toolError, timestamp: timestamp, childID: childID,

@@ -77,7 +77,7 @@ public enum HookParser {
             : nil
 
         var event = HookEvent(
-            kind: kind,
+            kind: agent == .claudeCode && kind == .stop && Self.nonEmpty(raw.agentId) != nil ? .childLifecycle : kind,
             sessionID: sessionID,
             agent: agent,
             cwd: raw.newCwd ?? raw.cwd,
@@ -190,6 +190,10 @@ public enum HookParser {
                 name: nonEmpty(raw.agentType),
                 type: nonEmpty(raw.agentType),
                 action: .started)
+        case "Stop", "StopFailure", "Interrupt":
+            guard let id = nonEmpty(raw.agentId) else { return ChildIdentity() }
+            return ChildIdentity(id: "subagent:" + id, kind: .subagent,
+                name: nonEmpty(raw.agentType), type: nonEmpty(raw.agentType), action: .stopped)
         case "SubagentStop":
             return ChildIdentity(
                 id: nonEmpty(raw.agentId).map { "subagent:\($0)" },

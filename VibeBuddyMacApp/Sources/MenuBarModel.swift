@@ -821,7 +821,7 @@ final class MenuBarModel: ObservableObject {
         guard local || fanout.recipients.contains(where: { $0.device.supportsCompletionNotices == true }) else { log.notice("Skipped: no eligible receiver"); return nil }
         guard case .ready(let result) = await store.completionResult(sessionID: session.id, completionID: completionID) else { log.notice("Skipped: final result unavailable"); return nil }
         let input = CompletionSummaryInput(sourceID: result.sourceID, sessionID: result.sessionID,
-            completionID: result.completionID, turnID: result.turnID, title: session.project.isEmpty ? result.title : session.project,
+            completionID: result.completionID, turnID: result.turnID, title: session.displayTitle,
             finalText: result.finalText, completedAt: result.completedAt, observedAt: result.observedAt)
         let summary = await completionSummaryService.generate(input, configuration: config)
         guard !Task.isCancelled, config == CompletionSummaryConfiguration.load(), !Self.effectiveQuiet() else { return nil }
