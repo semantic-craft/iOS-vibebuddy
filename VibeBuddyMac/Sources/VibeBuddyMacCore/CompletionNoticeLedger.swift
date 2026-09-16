@@ -12,7 +12,10 @@ struct CompletionNoticeLedger {
         do { notices = try JSONDecoder().decode([String: CompletionNotice].self, from: Data(contentsOf: url)) }
         catch let error as CocoaError where error.code == .fileReadNoSuchFile { }
         catch { available = false }
-        for key in notices.keys where notices[key]?.state == .pending { notices[key]?.state = .plain }
+        for key in notices.keys where notices[key]?.state == .pending {
+            notices[key]?.state = .cancelled
+            notices[key]?.text = nil
+        }
     }
     mutating func save(_ notice: CompletionNotice) -> Bool {
         guard available else { return false }

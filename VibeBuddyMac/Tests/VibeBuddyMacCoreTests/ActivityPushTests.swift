@@ -81,13 +81,14 @@ struct ActivityPushTests {
         var s = AgentSession(id: "s", agent: .claudeCode, project: "proj", status: .needsResponse,
                              statusSince: Date(timeIntervalSince1970: 0), updatedAt: Date(timeIntervalSince1970: 0))
         s.summary = "Which file?"
+        s.name = "Draw the garden"
         let ask = PushCopy.copy(for: .needsAnswer, session: s)
         #expect(ask == PushCopy(title: "proj needs you", body: "Which file?",
                                 titleKey: "%@ needs you", titleArgs: ["proj"], bodyKey: nil))
         s.summary = nil
         let done = PushCopy.copy(for: .agentDone, session: s)
-        #expect(done == PushCopy(title: "proj is done", body: "Task complete",
-                                 titleKey: "%@ is done", titleArgs: ["proj"], bodyKey: "Task complete"))
+        #expect(done == PushCopy(title: "Draw the garden is done", body: "Task complete",
+                                 titleKey: "%@ is done", titleArgs: ["Draw the garden"], bodyKey: "Task complete"))
     }
 
     @Test("optional strings are included and escaped when present")

@@ -3,6 +3,24 @@ import Testing
 @testable import VibeBuddyKit
 
 struct CompletionNoticeTests {
+    @Test func queuedNoticeMustStillHaveAConfirmedDecision() {
+        var queued = CompletionNotice(id: "source/session/round", deadline: Date(), state: .summary, text: "Finished drawing")
+        queued.presentationRevision = "one"
+        var current = queued
+        #expect(current.permitsDelivery(of: queued))
+        current.state = .cancelled
+        #expect(!current.permitsDelivery(of: queued))
+        current.state = .pending
+        #expect(!current.permitsDelivery(of: queued))
+        current.state = .plain
+        #expect(current.permitsDelivery(of: queued))
+        current.presentationRevision = "two"
+        #expect(!current.permitsDelivery(of: queued))
+        current = queued
+        current.id = "source/session/next-round"
+        #expect(!current.permitsDelivery(of: queued))
+    }
+
     private func input(_ session: AgentSession, _ now: Date) -> SoundPolicyInput {
         .init(sessions: [session], now: now, appActive: false, quietMode: false)
     }

@@ -787,15 +787,15 @@ final class MenuBarModel: ObservableObject {
 
     private func isCurrentCompletion(_ alert: SoundAlert, deviceToken: String? = nil) async -> Bool {
         guard !alert.isReminder, alert.sound == .agentDone, let notice = alert.session.completionNotice else { return true }
+        let devices = deviceToken == nil ? [] : await deviceTokens.devices()
         let snapshot = await store.snapshot(now: Date())
         guard let current = snapshot.sessions.first(where: { $0.id == alert.sessionID }),
-              current.completionNotice?.id == notice.id, current.status == .done,
+              current.completionNotice?.permitsDelivery(of: notice) == true, current.status == .done,
               current.hasUnreadCompletion, !current.isStuck, current.effectiveAttention == .followed,
               CompletionSummaryConfiguration.load().enabled, !Self.effectiveQuiet() else { return false }
         let focused: Set<String> = !alwaysAskPhone && isViewing(current.id) ? [current.id] : []
         guard !focused.contains(current.id) else { return false }
         if let deviceToken {
-            let devices = await deviceTokens.devices()
             return PushFanout.plan(alert, devices: devices, apnsConfigured: pusher != nil,
                 focusedSessionIDs: focused).recipients.contains { $0.device.token == deviceToken }
         }

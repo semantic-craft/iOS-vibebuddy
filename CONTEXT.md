@@ -579,6 +579,10 @@ code, and tests — don't drift to synonyms.
   does not change session state or delay permission/question cues. The Mac
   commits the decision by completion + 12 seconds; an updated phone waits for
   that decision rather than independently choosing competing wording.
+  Restored pending decisions are cancelled. Notification senders recheck the
+  current decision before delivery. Offline completion speech on iPhone uses
+  only a saved summary validated against the current source and completion,
+  with the conversation name; unresolved decisions do not fall back to progress text.
 - **Read aloud (Mac)** — a separate opt-in which synthesizes an attributed result
   or confirmed blocker announcement through the `SpeechSynthesizer` protocol and plays it on the
   Mac's current output. Its provider follows the completion summary provider

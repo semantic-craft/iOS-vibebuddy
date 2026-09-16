@@ -5,6 +5,17 @@ import VibeBuddyKit
 private actor ContentStyleClient: DecisionClient {
     var value = ContentStyleState(sourceID: "mac", configuration: .default, revision: "saved-1")
     var presentationConflict = false
+    var presentationGenerated = true
+    func useVerifiedExcerpt() { presentationGenerated = false }
+    var presentationUnavailable = false
+    var holdPresentation = false
+    var presentationContinuation: CheckedContinuation<ContentPresentation, any Error>?
+    func failPresentation(hold: Bool = false) { presentationUnavailable = true; holdPresentation = hold }
+    func isHoldingPresentation() -> Bool { presentationContinuation != nil }
+    func releasePresentationFailure() {
+        presentationContinuation?.resume(throwing: ContentRequestFailure.unavailable)
+        presentationContinuation = nil
+    }
     var holdSave = false
     var saveContinuation: CheckedContinuation<ContentStyleState, any Error>?
     func configure(conflict: Bool = false, hold: Bool = false) { presentationConflict = conflict; holdSave = hold }
@@ -18,8 +29,12 @@ private actor ContentStyleClient: DecisionClient {
         return value
     }
     func presentation(_ pairing: PairingPayload, request: ContentPresentationRequest) async throws -> ContentPresentation {
+        if holdPresentation {
+            return try await withCheckedThrowingContinuation { presentationContinuation = $0 }
+        }
         if presentationConflict { throw ContentRequestFailure.conflict }
-        return ContentPresentation(request: request, revision: "speech-1", text: "Current briefing", generated: true)
+        if presentationUnavailable { throw ContentRequestFailure.unavailable }
+        return ContentPresentation(request: request, revision: "speech-1", text: "Current briefing", generated: presentationGenerated)
     }
     func acknowledge(_ pairing: PairingPayload, request: CompletionReadRequest) async -> CompletionReadOutcome { .failed }
     func decide(_ pairing: PairingPayload, approvalId: String, decision: ApprovalDecision) async -> Bool { false }
@@ -64,12 +79,14 @@ final class ContentStylePhoneTests: XCTestCase {
         XCTAssertEqual(PhoneReadAloudSelection.load(defaults: defaults, hasKey: { _ in false }), .system)
     }
 
-    private func connected(_ client: ContentStyleClient) async throws -> (DashboardStore, AgentSession) {
+    private func connected(_ client: ContentStyleClient, notice: CompletionNotice? = nil) async throws -> (DashboardStore, AgentSession) {
         let now = Date()
         var session = AgentSession(id: "task", agent: .codex, project: "test", status: .done,
                                    summary: "Saved short result", hasUnreadCompletion: true,
                                    statusSince: now, updatedAt: now)
         session.completionID = "round"
+        session.name = "Paint the harbor"
+        session.completionNotice = notice
         var snapshot = Snapshot(sessions: [session], serverTime: now, sourceID: "mac")
         snapshot.contentPresentationRevision = "speech-1"
         let store = DashboardStore(streamer: ScriptedStreamer(snapshots: [snapshot]), notifier: SilentNotifier(), decisionClient: client, watchRelay: nil, reportDevice: { _ in })
@@ -77,6 +94,117 @@ final class ContentStylePhoneTests: XCTestCase {
         for _ in 0..<100 where store.contentStyleState == nil { try await Task.sleep(for: .milliseconds(10)) }
         XCTAssertEqual(store.contentStyleState?.revision, "saved-1")
         return (store, session)
+    }
+
+    func testCompletionFallbackRequiresCurrentVerifiedNoticeAndNamesTask() async throws {
+        let cases: [(String, CompletionNotice.State, Bool)] = [
+            ("mac/task/round", .pending, false), ("mac/task/round", .cancelled, false),
+            ("mac/task/old-round", .summary, false), ("other/task/round", .summary, false),
+            ("mac/task/round", .summary, true)
+        ]
+        for (id, state, allowed) in cases {
+            let client = ContentStyleClient()
+            await client.failPresentation()
+            let notice = CompletionNotice(id: id, deadline: Date().addingTimeInterval(30), state: state,
+                                          text: "Saved harbor result")
+            let (store, session) = try await connected(client, notice: notice)
+            do {
+                let announcement = try await store.announcement(for: XCTUnwrap(AnnouncementPlan.Item(session)))
+                XCTAssertTrue(allowed, "Unverified notice must not read old summary: \(id) / \(state)")
+                XCTAssertTrue(announcement.text.contains("Paint the harbor"))
+                XCTAssertTrue(announcement.text.contains("Saved harbor result"))
+                XCTAssertTrue(announcement.savedFallback)
+            } catch ContentRequestFailure.unavailable {
+                XCTAssertFalse(allowed)
+            }
+            await store.stop().value
+        }
+    }
+
+    func testPreparedOfflineCompletionStopsWhenSameNoticeIsCancelled() async throws {
+        let channel = AsyncThrowingStream<Snapshot, Error>.makeStream()
+        let client = ContentStyleClient()
+        await client.failPresentation()
+        let store = DashboardStore(streamer: ControlledContentStream(value: channel.stream), notifier: SilentNotifier(),
+                                   decisionClient: client, watchRelay: nil, reportDevice: { _ in })
+        let now = Date()
+        var session = AgentSession(id: "task", agent: .codex, project: "test", status: .done,
+                                   hasUnreadCompletion: true, statusSince: now, updatedAt: now)
+        session.completionID = "round"
+        session.completionNotice = CompletionNotice(id: "mac/task/round", deadline: now.addingTimeInterval(30),
+                                                    state: .summary, text: "Verified saved summary")
+        var snapshot = Snapshot(sessions: [session], serverTime: now, sourceID: "mac")
+        snapshot.contentPresentationRevision = "speech-1"
+        store.start(PairingPayload(host: "content-style-test", port: 9, token: "test"))
+        channel.continuation.yield(snapshot)
+        for _ in 0..<100 where store.allSessions.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+        let prepared = try await store.announcement(for: XCTUnwrap(AnnouncementPlan.Item(session)))
+        XCTAssertTrue(store.announcementIsCurrent(prepared))
+        XCTAssertNotNil(prepared.savedCompletionNotice)
+        session.completionNotice?.state = .cancelled
+        snapshot.sessions = [session]
+        snapshot.serverTime = now.addingTimeInterval(1)
+        channel.continuation.yield(snapshot)
+        for _ in 0..<100 where store.allSessions.first?.completionNotice?.state != .cancelled {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(store.allSessions.first?.completionNotice?.state, .cancelled)
+        XCTAssertFalse(store.announcementIsCurrent(prepared))
+        await store.stop().value
+        channel.continuation.finish()
+    }
+
+    func testVerifiedServerExcerptDoesNotRequireSavedNoticePermission() async throws {
+        let client = ContentStyleClient()
+        await client.useVerifiedExcerpt()
+        let notice = CompletionNotice(id: "mac/task/round", deadline: Date().addingTimeInterval(30), state: .cancelled)
+        let (store, session) = try await connected(client, notice: notice)
+        let prepared = try await store.announcement(for: XCTUnwrap(AnnouncementPlan.Item(session)))
+        XCTAssertTrue(prepared.savedFallback)
+        XCTAssertNil(prepared.savedCompletionNotice)
+        XCTAssertEqual(prepared.text, "Current briefing")
+        XCTAssertTrue(store.announcementIsCurrent(prepared))
+        await store.stop().value
+    }
+
+    func testCompletionFallbackRejectsNoticeCancelledDuringNetworkRequest() async throws {
+        let channel = AsyncThrowingStream<Snapshot, Error>.makeStream()
+        let client = ContentStyleClient()
+        await client.failPresentation(hold: true)
+        let store = DashboardStore(streamer: ControlledContentStream(value: channel.stream), notifier: SilentNotifier(),
+                                   decisionClient: client, watchRelay: nil, reportDevice: { _ in })
+        let now = Date()
+        var session = AgentSession(id: "task", agent: .codex, project: "test", status: .done,
+                                   summary: "Old summary", hasUnreadCompletion: true, statusSince: now, updatedAt: now)
+        session.completionID = "round"
+        session.completionNotice = CompletionNotice(id: "mac/task/round", deadline: now.addingTimeInterval(30),
+                                                    state: .summary, text: "Previously ready summary")
+        var snapshot = Snapshot(sessions: [session], serverTime: now, sourceID: "mac")
+        snapshot.contentPresentationRevision = "speech-1"
+        store.start(PairingPayload(host: "content-style-test", port: 9, token: "test"))
+        channel.continuation.yield(snapshot)
+        for _ in 0..<100 where store.allSessions.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+        let item = try XCTUnwrap(AnnouncementPlan.Item(session))
+        let pending = Task { try await store.announcement(for: item) }
+        for _ in 0..<100 {
+            if await client.isHoldingPresentation() { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let requestIsHeld = await client.isHoldingPresentation()
+        XCTAssertTrue(requestIsHeld)
+        session.completionNotice?.state = .cancelled
+        snapshot.sessions = [session]
+        snapshot.serverTime = now.addingTimeInterval(1)
+        channel.continuation.yield(snapshot)
+        for _ in 0..<100 where store.allSessions.first?.completionNotice?.state != .cancelled {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(store.allSessions.first?.completionNotice?.state, .cancelled)
+        await client.releasePresentationFailure()
+        do { _ = try await pending.value; XCTFail("Cancelled same-round notice cannot fall back to captured summary") }
+        catch ContentRequestFailure.unavailable { }
+        await store.stop().value
+        channel.continuation.finish()
     }
 
     func testCASConflictKeepsConfirmedValueAndReportsConflict() async throws {
