@@ -54,6 +54,18 @@ for the Cursor source home; it does not configure Cursor itself. Project groups 
 matching basenames and worktrees are not merged. Claude child/sidechain transcripts
 are excluded so their shared parent ID cannot replace the parent conversation.
 
+Codex forks own the identity, directory and source classification in their first
+`session_meta` envelope. Later inherited metadata is provenance, not a replacement
+identity; inherited dialogue remains readable and searchable in the fork.
+Index version 8 rechecks older Codex entries in the existing bounded refresh
+batches and republishes their transcript caches and path-keyed FTS rows. Until
+verified, these old entries are withheld from listings and search rather than
+exposed under a possibly wrong parent key. If the original is unavailable, its
+old cache is retained with a migration notice and can recover when the source
+returns. Exact source reads still validate the owning identity. Favorites, pins,
+archives and saved summaries stay under their existing keys; the migration
+cannot infer which fork a mark on a formerly conflated parent was intended for.
+
 Cursor discovery accepts `<id>/<id>.jsonl` and the older flat `<id>.jsonl` layout.
 It resolves the flattened project directory against existing directories, leaving an
 unknown project explicit. It never reads Cursor's `state.vscdb`. Parsed timestamp

@@ -62,7 +62,7 @@ public actor HistoryHTTPReader {
             let messages = try JSONDecoder().decode([HistoryMessage].self, from: encoder.encode(visible))
             struct Revision: Encodable {
                 let sourceID: String; let key: String; let projection = "raw-visible-v1"
-                let parserRevision = "history-parser-1"; let messages: [HistoryMessage]; let warnings: [String]
+                let parserRevision = "history-parser-2"; let messages: [HistoryMessage]; let warnings: [String]
             }
             let digest = try encoder.encode(Revision(sourceID: sourceID, key: key, messages: messages, warnings: session.warnings))
             let revision = SHA256.hash(data: digest).map { String(format: "%02x", $0) }.joined()

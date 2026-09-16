@@ -7,6 +7,7 @@ import VibeBuddyKit
 /// stream even though it does not execute the user's CLI hooks, making it the
 /// authoritative local fallback for desktop task progress.
 public struct CodexRolloutParser: Sendable {
+    private var sawSessionMetadata = false
     public private(set) var sessionID: String?
     public private(set) var cwd: String?
     public private(set) var isDesktopSession = false
@@ -49,6 +50,9 @@ public struct CodexRolloutParser: Sendable {
         let timestamp = Self.timestamp(root["timestamp"] as? String) ?? receivedAt
 
         if recordType == "session_meta" {
+            // A fork replays ancestor metadata after its owning envelope.
+            guard !sawSessionMetadata else { return [] }
+            sawSessionMetadata = true
             sessionID = payload["id"] as? String
             cwd = payload["cwd"] as? String
             let originator = (payload["originator"] as? String)?.lowercased()
