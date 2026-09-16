@@ -95,12 +95,12 @@ struct CompletionResultTests {
         }
         apply(HookEvent(kind: .userPromptSubmit, sessionID: "s", agent: .codex, timestamp: now, turnID: "t"))
         apply(HookEvent(kind: .stop, sessionID: "s", agent: .codex, timestamp: now, turnID: "t", completionText: String(repeating: "a", count: 12_001), completionSucceeded: true))
-        #expect(results.candidates["s"]?.outcome == .resultTooLong)
+        #expect(results.notificationState(sessionID: "s", completionID: reducer.sessions["s"]?.completionID ?? "", sourceID: "source") == .finished(.resultTooLong))
         apply(HookEvent(kind: .stop, sessionID: "s", agent: .codex, timestamp: now, turnID: "t", probeRetirement: true))
-        #expect(results.candidates["s"] == nil)
+        #expect(results.notificationState(sessionID: "s", completionID: reducer.sessions["s"]?.completionID ?? "", sourceID: "source") == .finished(.resultUnavailable))
         apply(HookEvent(kind: .userPromptSubmit, sessionID: "s", agent: .codex, timestamp: now, turnID: "new"))
         apply(HookEvent(kind: .stop, sessionID: "s", agent: .codex, message: "Turn interrupted", timestamp: now, turnID: "new", completionSucceeded: false))
-        #expect(results.candidates["s"] == nil)
+        #expect(results.notificationState(sessionID: "s", completionID: reducer.sessions["s"]?.completionID ?? "", sourceID: "source") == .finished(.resultUnavailable))
     }
     @Test func unknownRunAndOpaqueFailureFailClosed() throws {
         let now = Date()
@@ -118,12 +118,12 @@ struct CompletionResultTests {
         apply(stop)
         apply(HookEvent(kind: .userPromptSubmit, sessionID: "s", agent: .codex, timestamp: now))
         apply(stop)
-        #expect(results.candidates["s"] == nil)
+        #expect(results.notificationState(sessionID: "s", completionID: reducer.sessions["s"]?.completionID ?? "", sourceID: "source") == .finished(.resultUnavailable))
         apply(HookEvent(kind: .userPromptSubmit, sessionID: "s", timestamp: now))
         let failure = try #require(HookParser.parse(Data(#"{"hook_event_name":"StopFailure","session_id":"s","error":"rate_limit"}"#.utf8), receivedAt: now))
         #expect(failure.completionSucceeded == false)
         apply(failure)
-        #expect(results.candidates["s"] == nil)
+        #expect(results.notificationState(sessionID: "s", completionID: reducer.sessions["s"]?.completionID ?? "", sourceID: "source") == .finished(.resultUnavailable))
     }
 
     @Test func lateItemUsesOriginalDeadline() async throws {
@@ -146,7 +146,7 @@ struct CompletionResultTests {
         let event = try #require(events.first)
         reducer.apply(event)
         results.observe(event, session: reducer.sessions["s"], sourceID: "source", now: now.addingTimeInterval(2.01), createdCompletion: true)
-        #expect(results.candidates["s"]?.outcome == .expired)
+        #expect(results.notificationState(sessionID: "s", completionID: reducer.sessions["s"]?.completionID ?? "", sourceID: "source") == .finished(.expired))
     }
 
     @Test func failedEndingCannotReviveFromLateItem() {
@@ -169,8 +169,9 @@ struct CompletionResultTests {
             if withTurnID { params["turnId"] = "t" }
             ingest(["method": "error", "params": params])
             ingest(["method": "item/completed", "params": ["threadId": "s", "turnId": "t", "item": ["type": "agentMessage", "phase": "final_answer", "text": "Late final"]]])
-            #expect(results.candidates["s"] == nil)
-            #expect(results.runs["s"] == nil)
+            #expect(results.notificationState(sessionID: "s", completionID: reducer.sessions["s"]?.completionID ?? "", sourceID: "source") == .finished(.resultUnavailable))
+            ingest(["method": "turn/completed", "params": ["threadId": "s", "turn": ["id": "t", "status": "completed"]]])
+            #expect(results.notificationState(sessionID: "s", completionID: reducer.sessions["s"]?.completionID ?? "", sourceID: "source") == .finished(.resultUnavailable))
         }
     }
 

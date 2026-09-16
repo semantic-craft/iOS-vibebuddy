@@ -99,15 +99,15 @@ struct CompletionRecoveryTests {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
         let now = Date()
-        var results = CompletionResults()
         let record = CompletionResults.Record(sourceID: "source", sessionID: "s", completionID: "completion",
             agent: .codex, turnID: "turn", title: "Title", startedAt: now, completedAt: now)
-        results.records[record.id] = record
+        var ledger = RecapLedger(url: dir.appendingPathComponent("ledger.json"))
+        ledger.retainResults([record.id: record], now: now)
+        var results = CompletionResults(restoring: ledger)
         results.accept("First", id: record.id, now: now)
         results.accept("Other", id: record.id, now: now)
         results.accept("First", id: record.id, now: now)
-        var ledger = RecapLedger(url: dir.appendingPathComponent("ledger.json"))
-        ledger.retainResults(results.records, now: now)
+        _ = results.retain(in: &ledger, now: now)
         let restored = RecapLedger(url: ledger.url)
         #expect(restored.results[record.id]?.text == "First")
         #expect(restored.results[record.id]?.conflict == true)
@@ -115,6 +115,39 @@ struct CompletionRecoveryTests {
         #expect(RecapLedger(url: ledger.url, now: now.addingTimeInterval(RecapLedger.retention + 1)).results.isEmpty)
         #expect(ledger.entries.isEmpty)
     }
+    @Test func recoveredEvidenceRequiresItsOriginalSourceAndRecordBoundary() throws {
+        let now = Date()
+        func record(turn: String = "turn", start: Date? = nil, end: Date? = nil) -> CompletionResults.Record {
+            CompletionResults.Record(sourceID: "source", sessionID: "s", completionID: "completion",
+                agent: .codex, turnID: turn, title: "Title", startedAt: start ?? now,
+                completedAt: end ?? now, transcriptPath: "/unused/read-request.jsonl")
+        }
+        let original = record()
+        var ledger = RecapLedger(url: nil)
+        ledger.retainResults([original.id: original], now: now)
+        var results = CompletionResults(restoring: ledger)
+        guard case .read(let request) = results.readPlan(key: original.id, sourceID: "source", now: now) else {
+            Issue.record("Expected uncached source read"); return
+        }
+        let acceptedWrongSource = results.merge(.text("Wrong source"), for: request, sourceID: "other", now: now)
+        #expect(!acceptedWrongSource)
+        for replaced in [record(turn: "other"), record(start: now.addingTimeInterval(-1)), record(end: now.addingTimeInterval(1))] {
+            var changedLedger = RecapLedger(url: nil)
+            changedLedger.retainResults([replaced.id: replaced], now: now)
+            var changed = CompletionResults(restoring: changedLedger)
+            let acceptedStaleRead = changed.merge(.text("Stale read"), for: request, sourceID: "source", now: now)
+            #expect(!acceptedStaleRead)
+            _ = changed.retain(in: &changedLedger, now: now)
+            #expect(changedLedger.results[original.id]?.text == nil)
+        }
+        let accepted = results.merge(.text("Verified result"), for: request, sourceID: "source", now: now)
+        #expect(accepted)
+        _ = results.retain(in: &ledger, now: now)
+        #expect(ledger.results[original.id]?.text == "Verified result")
+        #expect(results.notificationState(sessionID: "s", completionID: "completion", sourceID: "source", now: now)
+            == .finished(.resultUnavailable))
+    }
+
     @Test func claudeHistoricalIntervalDoesNotBorrowNewRound() throws {
         let start = Date(timeIntervalSince1970: 1_800_000_000)
         let formatter = ISO8601DateFormatter()
@@ -150,7 +183,7 @@ struct CompletionRecoveryTests {
         apply(.init(kind: .userPromptSubmit, sessionID: "s", timestamp: now.addingTimeInterval(2)))
         apply(.init(kind: .stop, sessionID: "s", timestamp: now.addingTimeInterval(1), completionSucceeded: false), authority: false)
         apply(.init(kind: .stop, sessionID: "s", timestamp: now.addingTimeInterval(3), completionText: "B", completionSucceeded: true))
-        #expect(results.candidates["s"]?.readingResult?.finalText == "B")
+        #expect(results.recapResults(for: Array(reducer.sessions.values), sourceID: "source").values.contains("B"))
     }
 
     @Test func newerCorroboratingRunPreventsReadingOldAuthorityCompletion() async throws {
@@ -167,7 +200,7 @@ struct CompletionRecoveryTests {
         #expect(await store.completionBody(sessionID: "s", completionID: a).text == nil)
     }
 
-    @Test func anonymousFailureMustMatchAgentAndObservedTimeBoundary() {
+    @Test func anonymousFailureMustMatchAgentAndObservedTimeBoundary() throws {
         let now = Date()
         var results = CompletionResults()
         var reducer = SessionReducer()
@@ -176,11 +209,17 @@ struct CompletionRecoveryTests {
         results.observe(prompt, session: reducer.sessions["s"], sourceID: "source", now: now)
         results.observe(.init(kind: .stop, sessionID: "s", timestamp: now, completionSucceeded: false),
             session: reducer.sessions["s"], sourceID: "source", now: now)
-        #expect(results.runs["s"]?.turnID == "b")
         results.observe(.init(kind: .stop, sessionID: "s", agent: .codex,
             timestamp: now.addingTimeInterval(-1), completionSucceeded: false),
             session: reducer.sessions["s"], sourceID: "source", now: now)
-        #expect(results.runs["s"]?.turnID == "b")
+        let stop = HookEvent(kind: .stop, sessionID: "s", agent: .codex, timestamp: now,
+            turnID: "b", completionText: "Surviving run", completionSucceeded: true)
+        let previous = reducer.sessions["s"]?.completionID
+        reducer.apply(stop)
+        results.observe(stop, session: reducer.sessions["s"], sourceID: "source", now: now,
+            createdCompletion: reducer.sessions["s"]?.completionID != previous)
+        let session = try #require(reducer.sessions["s"])
+        #expect(results.snapshotText(for: session, sourceID: "source") == "Surviving run")
     }
 
     @Test func authoritativeEndingWithoutCandidateCanRecoverAfterRestart() async throws {
@@ -226,15 +265,25 @@ struct CompletionRecoveryTests {
     @Test func olderNativeEndingCannotRefineNewAnonymousRun() {
         let now = Date()
         var results = CompletionResults()
+        var session = AgentSession(id: "s", agent: .codex, project: "test", status: .done,
+            completionID: "completion", statusSince: now, updatedAt: now)
         results.observe(.init(kind: .userPromptSubmit, sessionID: "s", agent: .codex,
             observationSource: .appserver, timestamp: now), session: nil, sourceID: "source", now: now)
         results.observe(.init(kind: .stop, sessionID: "s", agent: .codex,
             observationSource: .rollout, timestamp: now.addingTimeInterval(-1), turnID: "older",
             turnStartedAt: now.addingTimeInterval(-10), completionText: "Old result", completionSucceeded: true),
-            session: nil, sourceID: "source", now: now, createdCompletion: true)
-        #expect(results.runs["s"]?.turnID == nil)
-        #expect(results.runs["s"]?.startedAt == now)
-        #expect(results.records.isEmpty)
+            session: session, sourceID: "source", now: now, createdCompletion: true)
+        var ledger = RecapLedger(url: nil)
+        _ = results.retain(in: &ledger, now: now)
+        #expect(ledger.results.isEmpty)
+        #expect(results.snapshotText(for: session, sourceID: "source") == nil)
+
+        session.completionID = "current-completion"
+        results.observe(.init(kind: .stop, sessionID: "s", agent: .codex,
+            observationSource: .rollout, timestamp: now.addingTimeInterval(1), turnID: "current",
+            turnStartedAt: now.addingTimeInterval(-2), completionText: "Current result", completionSucceeded: true),
+            session: session, sourceID: "source", now: now.addingTimeInterval(1), createdCompletion: true)
+        #expect(results.snapshotText(for: session, sourceID: "source") == "Current result")
     }
 
     @Test func nativeEndingRefinesAnonymousAppServerStart() async throws {

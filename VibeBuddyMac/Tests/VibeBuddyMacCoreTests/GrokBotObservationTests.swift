@@ -45,8 +45,10 @@ struct GrokBotObservationTests {
         var results = CompletionResults()
         func apply(_ events: [HookEvent]) {
             for event in events {
+                let previousCompletionID = reducer.sessions[event.sessionID]?.completionID
                 reducer.apply(event)
-                results.observe(event, session: reducer.sessions[event.sessionID], sourceID: "mac", now: now)
+                results.observe(event, session: reducer.sessions[event.sessionID], sourceID: "mac", now: now,
+                    createdCompletion: reducer.sessions[event.sessionID]?.completionID != previousCompletionID)
             }
         }
         apply(try baseline([agent("a"), agent("b")], observer: &observer))
@@ -61,7 +63,8 @@ struct GrokBotObservationTests {
         for (bot, text) in [("a", "Result A"), ("b", "Result B")] {
             let id = observer.sessionID(bot)
             #expect(reducer.sessions[id]?.hasUnreadCompletion == true)
-            guard case .ready(let frozen) = results.candidates[id]?.outcome else { Issue.record("No frozen result for \(bot)"); continue }
+            guard case .finished(.ready(let frozen)) = results.notificationState(sessionID: id,
+                completionID: reducer.sessions[id]?.completionID ?? "", sourceID: "mac", now: now) else { Issue.record("No frozen result for \(bot)"); continue }
             #expect(frozen.finalText == text)
             #expect(frozen.completionID == "grokBot:account:\(bot):turn-\(bot)")
         }
@@ -140,8 +143,10 @@ struct GrokBotObservationTests {
         var results = CompletionResults()
         func apply(_ events: [HookEvent], at observed: Date) {
             for event in events {
+                let previousCompletionID = reducer.sessions[event.sessionID]?.completionID
                 reducer.apply(event)
-                results.observe(event, session: reducer.sessions[event.sessionID], sourceID: "mac", now: observed)
+                results.observe(event, session: reducer.sessions[event.sessionID], sourceID: "mac", now: observed,
+                    createdCompletion: reducer.sessions[event.sessionID]?.completionID != previousCompletionID)
             }
         }
         apply(try baseline([agent("a")], observer: &observer), at: now)
@@ -154,7 +159,7 @@ struct GrokBotObservationTests {
         let id = observer.sessionID("a")
         #expect(reducer.sessions[id]?.status == .done)
         #expect(reducer.sessions[id]?.hasUnreadCompletion == true)
-        #expect(results.candidates[id]?.outcome == .expired)
+        #expect(results.notificationState(sessionID: id, completionID: reducer.sessions[id]?.completionID ?? "", sourceID: "mac", now: delayed) == .finished(.expired))
     }
 
     @Test func nativeWidgetOutranksSuccessfulSettlementAndAnswerCannotReuseIt() throws {

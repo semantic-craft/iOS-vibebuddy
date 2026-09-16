@@ -173,8 +173,7 @@ public actor SessionStore {
             }
             if case .completion(_, let completionID) = request.target,
                let key = resultKey(sessionID: id, completionID: completionID),
-               let original = completionResults.records[key]?.text, !original.isEmpty {
-                let excerpt = String(original.prefix(240))
+               let excerpt = completionResults.resultExcerpt(key: key) {
                 return chinese ? "\(title)，结果摘录：\(excerpt)" : "\(title). Result excerpt: \(excerpt)"
             }
             return ""
@@ -184,19 +183,9 @@ public actor SessionStore {
     private func speechEvidenceIsSettled(_ request: ContentPresentationRequest) async -> Bool {
         guard case .completion(let sessionID, let completionID) = request.target,
               let key = resultKey(sessionID: sessionID, completionID: completionID),
-              let record = completionResults.records[key] else { return false }
-        if record.agent == .cursor, let handedAt = cursorFollowupHandedAt[sessionID],
-           handedAt >= record.completedAt { return false }
-        if record.agent == .cursor, let offset = record.transcriptOffset {
-            guard let path = record.transcriptPath, let text = record.text else { return false }
-            return await Task.detached { CursorCompletionReader.read(path: path, offset: offset) == text }.value
-        }
-        guard record.agent == .claudeCode else { return true }
-        guard let path = record.transcriptPath, let text = record.text else { return false }
-        return await Task.detached {
-            ClaudeCompletionReader.hooksSettled(path: path, sessionID: sessionID,
-                completedAt: record.completedAt, expectedText: text)
-        }.value
+              let read = completionResults.speechRead(key: key,
+                  cursorFollowupHandedAt: cursorFollowupHandedAt[sessionID]) else { return false }
+        return await Task.detached { read.speechEvidenceIsSettled() }.value
     }
 
     private func captureRecapResult(id: String, sessionID: String, completionID: String) async {
@@ -607,7 +596,7 @@ public actor SessionStore {
         self.cursorStore = cursorDatabase.map { CursorComposerStore(database: $0) } ?? CursorComposerStore()
         self.toolLedger = ToolLedger(url: journalURL?.deletingLastPathComponent().appendingPathComponent("tool-ledger.json"), now: now)
         self.recapLedger = RecapLedger(url: journalURL?.deletingLastPathComponent().appendingPathComponent("recap-ledger.json"), now: now)
-        self.completionResults.records = self.recapLedger.results
+        self.completionResults = CompletionResults(restoring: self.recapLedger)
         self.handoffScanner = HandoffScanner()
         let ledgerDirectory = journalURL?.deletingLastPathComponent()
         self.continuationLedger = ContinuationLedger(url: ledgerDirectory?.appendingPathComponent(ContinuationLedger.fileName), now: now)
@@ -691,8 +680,7 @@ public actor SessionStore {
         let removed = Set(before.keys).subtracting(reducer.sessions.keys)
         for id in removed {
             explicitWaits[id] = nil
-            completionResults.runs[id] = nil
-            completionResults.candidates[id] = nil
+            completionResults.removeSession(id)
             transcriptPaths[id] = nil
             cursorHookLog[id] = nil
             grokDirectories[id] = nil
@@ -869,13 +857,7 @@ public actor SessionStore {
         if dropsCursorObserveOnly(event) { return }
         // Corroborating progress can arrive after the exact native turn ended.
         // Keep its observation, but never reopen that turn or clear its result.
-        let completedTurnProgress = event.agent == .codex && event.turnID != nil
-            && [.userPromptSubmit, .preToolUse, .postToolUse, .notification].contains(event.kind)
-            && completionResults.records.values.contains {
-                $0.sourceID == sourceID && $0.sessionID == event.sessionID
-                    && $0.agent == event.agent && $0.turnID == event.turnID
-                    && event.timestamp <= $0.completedAt
-            }
+        let completedTurnProgress = completionResults.isCompletedProgress(event, sourceID: sourceID)
         if event.agent == .codex, !completedTurnProgress {
             if observationSource == .rollout, recordsEvidence,
                [.userPromptSubmit, .preToolUse, .postToolUse, .notification].contains(event.kind) {
@@ -1081,9 +1063,7 @@ public actor SessionStore {
     }
 
     private func persistCompletionResults() {
-        recapLedger.retainResults(completionResults.records, now: Date())
-        completionResults.records = recapLedger.results
-        for (id, record) in completionResults.records where record.conflict || record.invalidated {
+        for id in completionResults.retain(in: &recapLedger, now: Date()) {
             recapPresentations[id] = nil
             if var notice = noticeLedger?.notices[id], notice.state == .pending || notice.state == .summary {
                 notice.state = .cancelled; notice.text = nil
@@ -1094,91 +1074,38 @@ public actor SessionStore {
     }
 
     private func resultRejected(sessionID: String, completionID: String) -> Bool {
-        guard let key = resultKey(sessionID: sessionID, completionID: completionID),
-              let record = completionResults.records[key] else { return false }
-        return !record.readable(now: Date())
+        completionResults.isRejected(sessionID: sessionID, completionID: completionID, sourceID: sourceID)
     }
 
     private func completionIsCurrent(sessionID: String, completionID: String) -> Bool {
-        guard let session = reducer.sessions[sessionID] else { return false }
-        if let key = resultKey(sessionID: sessionID, completionID: completionID),
-           let record = completionResults.records[key], let run = completionResults.runs[sessionID],
-           run.agent != record.agent || run.turnID != record.turnID || run.startedAt > record.completedAt { return false }
-        return session.status == .done && !session.isStuck && session.probeRetired != true
-            && session.completionID == completionID
+        completionResults.isCurrent(session: reducer.sessions[sessionID], completionID: completionID, sourceID: sourceID)
     }
 
     /// Exact historical reads enrich only this persisted key. They do not
     /// restore a notification candidate, emit progress, or acknowledge reading.
     private func readCompletionRecord(key: String) async -> FrozenCompletionResult? {
-        guard let record = completionResults.records[key], record.sourceID == sourceID,
-              record.readable(now: Date()) else { return nil }
-        if let frozen = record.frozen(now: Date()) { return frozen }
-        guard let path = record.transcriptPath else {
-            ContentPresentationService.diagnose(stage: "evidence", reason: "sourceLocatorUnavailable")
-            return nil
+        let request: CompletionResults.ReadRequest
+        switch completionResults.readPlan(key: key, sourceID: sourceID, now: Date()) {
+        case .ready(let result): return result
+        case .unavailable: return nil
+        case .read(let pending): request = pending
         }
-        let evidence: (String?, Bool, Bool) = await Task.detached {
-            if record.agent == .codex, let turn = record.turnID {
-                switch CodexCompletionReader.read(path: path, sessionID: record.sessionID, turnID: turn) {
-                case .success(let result): return (result.text, false, false)
-                case .failure(let failure):
-                    ContentPresentationService.diagnose(stage: "codexEvidence", reason: failure.rawValue)
-                    return (nil, failure == .conflict, failure == .aborted)
-                }
-            }
-            if record.agent == .claudeCode, let startedAt = record.startedAt {
-                guard FileManager.default.isReadableFile(atPath: path) else {
-                    ContentPresentationService.diagnose(stage: "claudeEvidence", reason: "sourceUnreadable")
-                    return (nil, false, false)
-                }
-                let text = ClaudeCompletionReader.read(path: path, sessionID: record.sessionID,
-                    startedAt: startedAt, completedAt: record.completedAt, expectedText: nil)
-                if text == nil {
-                    ContentPresentationService.diagnose(stage: "claudeEvidence", reason: "intervalUnverified")
-                }
-                return (text, false, false)
-            }
-            if record.agent == .cursor, let offset = record.transcriptOffset {
-                return (CursorCompletionReader.read(path: path, offset: offset), false, false)
-            }
-            ContentPresentationService.diagnose(stage: "evidence", reason: "unsupportedSourceOrMissingBoundary")
-            return (nil, false, false)
-        }.value
-        guard !Task.isCancelled, sourceID == record.sourceID,
-              let current = completionResults.records[key], current.turnID == record.turnID,
-              current.startedAt == record.startedAt, current.completedAt == record.completedAt,
-              current.readable(now: Date()) else { return nil }
-        if evidence.1 { completionResults.records[key]?.conflict = true }
-        if evidence.2 { completionResults.records[key]?.invalidated = true }
-        if let text = evidence.0 { completionResults.accept(text, id: key, now: Date()) }
+        let evidence = await Task.detached { request.readEvidence() }.value
+        guard !Task.isCancelled,
+              completionResults.merge(evidence, for: request, sourceID: sourceID, now: Date()) else { return nil }
         persistCompletionResults()
-        return completionResults.records[key]?.frozen(now: Date())
+        return completionResults.retainedResult(key: key, now: Date())
     }
 
     public func completionBody(sessionID: String, completionID: String) async -> CompletionBody {
-        guard completionIsCurrent(sessionID: sessionID, completionID: completionID) else {
-            return CompletionBody(sourceID: sourceID, sessionID: sessionID, completionID: completionID,
-                unavailableReason: "This completion is no longer current.")
+        switch completionResults.bodyRead(sessionID: sessionID, completionID: completionID,
+                                          session: reducer.sessions[sessionID], sourceID: sourceID) {
+        case .refused(let body): return body
+        case .read(let key):
+            let result = await readCompletionRecord(key: key)
+            return completionResults.body(sessionID: sessionID, completionID: completionID,
+                session: reducer.sessions[sessionID], sourceID: sourceID, result: result, now: Date())
         }
-        guard let key = resultKey(sessionID: sessionID, completionID: completionID), completionResults.records[key] != nil else {
-            return CompletionBody(sourceID: sourceID, sessionID: sessionID, completionID: completionID,
-                unavailableReason: "Legacy or unobserved completion: exact turn mapping is unknown.")
-        }
-        let result = await readCompletionRecord(key: key)
-        guard completionIsCurrent(sessionID: sessionID, completionID: completionID) else {
-            return CompletionBody(sourceID: sourceID, sessionID: sessionID, completionID: completionID,
-                unavailableReason: "This completion is no longer current.")
-        }
-        if let result {
-            return CompletionBody(sourceID: result.sourceID, sessionID: sessionID, completionID: completionID, text: result.finalText)
-        }
-        let record = completionResults.records[key]
-        let reason = record?.conflict == true ? "Conflicting final result evidence; ordinary reading is refused."
-            : record?.invalidated == true ? "This turn was aborted or invalidated."
-            : record?.readable(now: Date()) != true ? "The retained result has expired."
-            : "The final result could not be verified for this exact turn."
-        return CompletionBody(sourceID: sourceID, sessionID: sessionID, completionID: completionID, unavailableReason: reason)
     }
 
     public func completionResult(sessionID: String, completionID: String, forReading: Bool = false) async -> CompletionResultAvailability {
@@ -1193,12 +1120,15 @@ public actor SessionStore {
         while true {
             guard completionIsCurrent(sessionID: sessionID, completionID: completionID),
                   reducer.sessions[sessionID]?.hasUnreadCompletion == true, !Task.isCancelled else { return .cancelled }
-            guard !resultRejected(sessionID: sessionID, completionID: completionID),
-                  let candidate = completionResults.candidates[sessionID], candidate.completionID == completionID else { return .resultUnavailable }
-            if let outcome = candidate.outcome { return outcome }
-            let remaining = candidate.completedAt.addingTimeInterval(2).timeIntervalSinceNow
+            let deadline: Date
+            let needsRead: Bool
+            switch completionResults.notificationState(sessionID: sessionID, completionID: completionID, sourceID: sourceID) {
+            case .finished(let outcome): return outcome
+            case .waiting(let until, let pendingRead): deadline = until; needsRead = pendingRead
+            }
+            let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { return waited ? .resultUnavailable : .expired }
-            if candidate.transcriptPath != nil, completionReads.insert(completionID).inserted {
+            if needsRead, completionReads.insert(completionID).inserted {
                 Task {
                     _ = await self.readCompletionRecord(key: key)
                     self.completionReads.remove(completionID)
@@ -1552,16 +1482,7 @@ public actor SessionStore {
             session.attention = attention[session.id]
                 ?? AutoAttention.level(lastInteractionAt: lastInteractionAt[session.id], now: now)
             session.completionNotice = completionNotice(for: session, now: now)
-            if session.status == .done, !session.isStuck,
-               !resultRejected(sessionID: session.id, completionID: session.completionID ?? ""),
-               let candidate = completionResults.candidates[session.id],
-               candidate.completionID == session.completionID,
-               case .ready(let result) = candidate.outcome,
-               result.sourceID == sourceID {
-                session.completionText = RowPresentation.firstSentence(result.finalText)
-            } else {
-                session.completionText = nil
-            }
+            session.completionText = completionResults.snapshotText(for: session, sourceID: sourceID)
             session.controlChannel = controlChannel(for: session, now: now)
             if let recovery = acpRecoveryRows[session.id], !acpHosted.contains(session.id) {
                 session.historyOnly = true
@@ -1579,26 +1500,13 @@ public actor SessionStore {
         // evidence and attention are layered on — so every observation path
         // records the same facts, and the recap reads mute and acknowledgement
         // from the very list the other surfaces show.
-        let recapResults: [String: String] = Dictionary(uniqueKeysWithValues: snapshot.sessions.compactMap { session in
-            guard let sourceID, !resultRejected(sessionID: session.id, completionID: session.completionID ?? ""),
-                  let candidate = completionResults.candidates[session.id],
-                  candidate.completionID == session.completionID else { return nil }
-            let result: FrozenCompletionResult
-            if let retained = candidate.readingResult { result = retained }
-            else if case .ready(let captured) = candidate.outcome { result = captured }
-            else { return nil }
-            guard result.sourceID == sourceID else { return nil }
-            return (RecapEntry.completedID(sourceID: sourceID, sessionID: session.id,
-                                          completionID: result.completionID), result.finalText)
-        })
+        let recapResults = completionResults.recapResults(for: snapshot.sessions, sourceID: sourceID)
         recapLedger.observe(snapshot.sessions, sourceID: sourceID, now: now, results: recapResults)
         recapCaptureAttempts.formIntersection(recapLedger.entries.keys)
-        for entry in recapLedger.entries.values where entry.resultText == nil {
-            guard let completionID = entry.completionID,
-                  completionResults.records[entry.id]?.readable(now: now) == true,
-                  recapCaptureAttempts.insert(entry.id).inserted else { continue }
+        for entry in completionResults.recapRecovery(in: recapLedger, now: now) {
+            guard recapCaptureAttempts.insert(entry.id).inserted else { continue }
             recapCaptureTasks[entry.id] = Task {
-                await self.captureRecapResult(id: entry.id, sessionID: entry.sessionID, completionID: completionID)
+                await self.captureRecapResult(id: entry.id, sessionID: entry.sessionID, completionID: entry.completionID)
                 self.recapCaptureTasks.removeValue(forKey: entry.id)
             }
         }

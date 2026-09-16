@@ -1301,40 +1301,16 @@ final class MenuBarModel: ObservableObject {
     }
 
     func dispatch(_ request: DispatchRequest, userChoseDirectory: Bool = false) async -> DispatchOutcome {
-        let outcome = await start(request, userChoseDirectory: userChoseDirectory)
-        // Same as the daemon's /dispatch route: lineage is recorded where the task was started.
-        if case .started(let id) = outcome, let continuation = request.continuation,
-           let receiverKey = ContinueWith.sessionKey(agent: request.agent, id: id) {
-            await store.recordContinuation(receiverKey: receiverKey, sourceKey: continuation.sourceKey, handoffPath: continuation.handoffPath)
-        }
-        return outcome
-    }
-
-    private func start(_ request: DispatchRequest, userChoseDirectory: Bool) async -> DispatchOutcome {
-        if userChoseDirectory {
-            var isDirectory: ObjCBool = false
-            guard request.cwd.hasPrefix("/"),
-                  FileManager.default.fileExists(atPath: request.cwd, isDirectory: &isDirectory),
-                  isDirectory.boolValue else {
-                return .rejected("That folder is no longer available.")
-            }
-        } else if !(await store.isKnownDirectory(request.cwd)) {
-            return .rejected("Pick a directory a session has already run in.")
-        }
-        guard await store.acceptsContinuation(request.continuation) else {
+        let dispatcher = TaskDispatcher(store: store, codex: codexAppServerMonitor,
+                                        claude: claudeLauncher, cursor: cursorLauncher, cursorACP: cursorACP)
+        switch await dispatcher.dispatch(request, directory: userChoseDirectory ? .userSelected : .knownSession) {
+        case .success(let outcome): return outcome
+        case .failure(.directoryUnavailable): return .rejected("That folder is no longer available.")
+        case .failure(.unknownDirectory): return .rejected("Pick a directory a session has already run in.")
+        case .failure(.staleContinuation):
             return .rejected("That handoff is no longer a scanned document for the source session. Open Continue with… again.")
-        }
-        var request = request
-        request.prompt = ContinueWith.promptForDispatch(request.prompt, handoffPath: request.continuation?.handoffPath, checkout: request.cwd)
-        switch request.agent {
-        case .codex: return await codexAppServerMonitor.dispatch(request)
-        case .claudeCode: return await claudeLauncher.dispatch(request)
-        case .cursor:
-            // Hosted over ACP when the CLI is signed in, so the task can be
-            // stopped and answered from the phone; a terminal window otherwise.
-            if await cursorACP.isSupported() { return await cursorACP.dispatch(request) }
-            return await cursorLauncher.dispatch(request)
-        default: return .unsupported("VibeBuddy cannot start \(request.agent.displayName) sessions yet.")
+        case .failure(.unsupportedAgent(let agent)):
+            return .unsupported("VibeBuddy cannot start \(agent.displayName) sessions yet.")
         }
     }
 

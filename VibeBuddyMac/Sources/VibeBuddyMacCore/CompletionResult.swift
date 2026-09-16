@@ -50,14 +50,14 @@ struct CompletionResults {
                 turnID: turnID, title: title, finalText: text, completedAt: completedAt, observedAt: now)
         }
     }
-    struct Run {
+    private struct Run {
         let agent: AgentKind
         let startedAt: Date
         let turnID: String?
         var transcriptPath: String? = nil
         var transcriptOffset: UInt64? = nil
     }
-    struct Candidate: Sendable {
+    private struct Candidate: Sendable {
         let completionID: String
         let turnID: String?
         let title: String
@@ -67,9 +67,220 @@ struct CompletionResults {
         var outcome: CompletionResultAvailability?
         var readingResult: FrozenCompletionResult?
     }
-    var runs: [String: Run] = [:]
-    var candidates: [String: Candidate] = [:]
-    var records: [String: Record] = [:]
+    private var runs: [String: Run] = [:]
+    private var candidates: [String: Candidate] = [:]
+    private var records: [String: Record] = [:]
+
+    init(restoring ledger: RecapLedger? = nil) {
+        records = ledger?.results ?? [:]
+    }
+
+    mutating func removeSession(_ id: String) {
+        runs[id] = nil
+        candidates[id] = nil
+    }
+
+    mutating func retain(in ledger: inout RecapLedger, now: Date) -> [String] {
+        ledger.retainResults(records, now: now)
+        records = ledger.results
+        return records.compactMap { $0.value.conflict || $0.value.invalidated ? $0.key : nil }
+    }
+
+    func isCompletedProgress(_ event: HookEvent, sourceID: String?) -> Bool {
+        event.agent == .codex && event.turnID != nil
+            && [.userPromptSubmit, .preToolUse, .postToolUse, .notification].contains(event.kind)
+            && records.values.contains {
+                $0.sourceID == sourceID && $0.sessionID == event.sessionID
+                    && $0.agent == event.agent && $0.turnID == event.turnID
+                    && event.timestamp <= $0.completedAt
+            }
+    }
+
+    func isRejected(sessionID: String, completionID: String, sourceID: String?, now: Date = Date()) -> Bool {
+        guard let sourceID,
+              let record = records[RecapEntry.completedID(sourceID: sourceID, sessionID: sessionID, completionID: completionID)] else { return false }
+        return !record.readable(now: now)
+    }
+
+    func isCurrent(session: AgentSession?, completionID: String, sourceID: String?) -> Bool {
+        guard let session else { return false }
+        if let sourceID,
+           let record = records[RecapEntry.completedID(sourceID: sourceID, sessionID: session.id, completionID: completionID)],
+           let run = runs[session.id],
+           run.agent != record.agent || run.turnID != record.turnID || run.startedAt > record.completedAt { return false }
+        return session.status == .done && !session.isStuck && session.probeRetired != true
+            && session.completionID == completionID
+    }
+
+    enum ReadEvidence: Sendable {
+        case text(String), unavailable, conflict, invalidated
+    }
+
+    struct ReadRequest: Sendable {
+        fileprivate let record: Record
+
+        func speechEvidenceIsSettled() -> Bool {
+            if record.agent == .cursor, let offset = record.transcriptOffset {
+                guard let path = record.transcriptPath, let text = record.text else { return false }
+                return CursorCompletionReader.read(path: path, offset: offset) == text
+            }
+            guard record.agent == .claudeCode else { return true }
+            guard let path = record.transcriptPath, let text = record.text else { return false }
+            return ClaudeCompletionReader.hooksSettled(path: path, sessionID: record.sessionID,
+                completedAt: record.completedAt, expectedText: text)
+        }
+
+        func readEvidence() -> ReadEvidence {
+            guard let path = record.transcriptPath else { return .unavailable }
+            if record.agent == .codex, let turn = record.turnID {
+                switch CodexCompletionReader.read(path: path, sessionID: record.sessionID, turnID: turn) {
+                case .success(let result): return .text(result.text)
+                case .failure(let failure):
+                    ContentPresentationService.diagnose(stage: "codexEvidence", reason: failure.rawValue)
+                    if failure == .conflict { return .conflict }
+                    if failure == .aborted { return .invalidated }
+                    return .unavailable
+                }
+            }
+            if record.agent == .claudeCode, let startedAt = record.startedAt {
+                guard FileManager.default.isReadableFile(atPath: path) else {
+                    ContentPresentationService.diagnose(stage: "claudeEvidence", reason: "sourceUnreadable")
+                    return .unavailable
+                }
+                if let text = ClaudeCompletionReader.read(path: path, sessionID: record.sessionID,
+                    startedAt: startedAt, completedAt: record.completedAt, expectedText: nil) { return .text(text) }
+                ContentPresentationService.diagnose(stage: "claudeEvidence", reason: "intervalUnverified")
+                return .unavailable
+            }
+            if record.agent == .cursor, let offset = record.transcriptOffset {
+                return CursorCompletionReader.read(path: path, offset: offset).map(ReadEvidence.text) ?? .unavailable
+            }
+            ContentPresentationService.diagnose(stage: "evidence", reason: "unsupportedSourceOrMissingBoundary")
+            return .unavailable
+        }
+    }
+
+    func resultExcerpt(key: String) -> String? {
+        guard let text = records[key]?.text, !text.isEmpty else { return nil }
+        return String(text.prefix(240))
+    }
+
+    func speechRead(key: String, cursorFollowupHandedAt: Date?) -> ReadRequest? {
+        guard let record = records[key] else { return nil }
+        if record.agent == .cursor, let handedAt = cursorFollowupHandedAt,
+           handedAt >= record.completedAt { return nil }
+        return ReadRequest(record: record)
+    }
+
+    enum ReadPlan {
+        case ready(FrozenCompletionResult), read(ReadRequest), unavailable
+    }
+
+    func retainedResult(key: String, now: Date) -> FrozenCompletionResult? {
+        records[key]?.frozen(now: now)
+    }
+
+    func readPlan(key: String, sourceID: String?, now: Date) -> ReadPlan {
+        guard let record = records[key], record.sourceID == sourceID, record.readable(now: now) else { return .unavailable }
+        if let frozen = retainedResult(key: key, now: now) { return .ready(frozen) }
+        guard record.transcriptPath != nil else {
+            ContentPresentationService.diagnose(stage: "evidence", reason: "sourceLocatorUnavailable")
+            return .unavailable
+        }
+        return .read(ReadRequest(record: record))
+    }
+
+    mutating func merge(_ evidence: ReadEvidence, for request: ReadRequest, sourceID: String?, now: Date) -> Bool {
+        let record = request.record
+        guard sourceID == record.sourceID, let current = records[record.id],
+              current.turnID == record.turnID, current.startedAt == record.startedAt,
+              current.completedAt == record.completedAt, current.readable(now: now) else { return false }
+        switch evidence {
+        case .conflict: records[record.id]?.conflict = true
+        case .invalidated: records[record.id]?.invalidated = true
+        case .text(let text): accept(text, id: record.id, now: now)
+        case .unavailable: break
+        }
+        return true
+    }
+
+    enum BodyRead {
+        case refused(CompletionBody), read(key: String)
+    }
+
+    func bodyRead(sessionID: String, completionID: String, session: AgentSession?, sourceID: String?) -> BodyRead {
+        let reason: String
+        if !isCurrent(session: session, completionID: completionID, sourceID: sourceID) {
+            reason = "This completion is no longer current."
+        } else if let sourceID {
+            let key = RecapEntry.completedID(sourceID: sourceID, sessionID: sessionID, completionID: completionID)
+            if records[key] != nil { return .read(key: key) }
+            reason = "Legacy or unobserved completion: exact turn mapping is unknown."
+        } else {
+            reason = "Legacy or unobserved completion: exact turn mapping is unknown."
+        }
+        return .refused(CompletionBody(sourceID: sourceID, sessionID: sessionID, completionID: completionID, unavailableReason: reason))
+    }
+
+    func body(sessionID: String, completionID: String, session: AgentSession?, sourceID: String?,
+              result: FrozenCompletionResult?, now: Date) -> CompletionBody {
+        func unavailable(_ reason: String) -> CompletionBody {
+            CompletionBody(sourceID: sourceID, sessionID: sessionID, completionID: completionID, unavailableReason: reason)
+        }
+        guard isCurrent(session: session, completionID: completionID, sourceID: sourceID) else {
+            return unavailable("This completion is no longer current.")
+        }
+        if let result {
+            return CompletionBody(sourceID: result.sourceID, sessionID: sessionID, completionID: completionID, text: result.finalText)
+        }
+        let record = sourceID.flatMap { records[RecapEntry.completedID(sourceID: $0, sessionID: sessionID, completionID: completionID)] }
+        let reason = record?.conflict == true ? "Conflicting final result evidence; ordinary reading is refused."
+            : record?.invalidated == true ? "This turn was aborted or invalidated."
+            : record?.readable(now: now) != true ? "The retained result has expired."
+            : "The final result could not be verified for this exact turn."
+        return unavailable(reason)
+    }
+
+    enum NotificationState: Equatable {
+        case finished(CompletionResultAvailability)
+        case waiting(deadline: Date, needsRead: Bool)
+    }
+
+    func notificationState(sessionID: String, completionID: String, sourceID: String?, now: Date = Date()) -> NotificationState {
+        guard !isRejected(sessionID: sessionID, completionID: completionID, sourceID: sourceID, now: now),
+              let candidate = candidates[sessionID], candidate.completionID == completionID else { return .finished(.resultUnavailable) }
+        if let outcome = candidate.outcome { return .finished(outcome) }
+        return .waiting(deadline: candidate.completedAt.addingTimeInterval(2), needsRead: candidate.transcriptPath != nil)
+    }
+
+    func snapshotText(for session: AgentSession, sourceID: String?) -> String? {
+        guard session.status == .done, !session.isStuck,
+              !isRejected(sessionID: session.id, completionID: session.completionID ?? "", sourceID: sourceID),
+              let candidate = candidates[session.id], candidate.completionID == session.completionID,
+              case .ready(let result) = candidate.outcome, result.sourceID == sourceID else { return nil }
+        return RowPresentation.firstSentence(result.finalText)
+    }
+
+    func recapResults(for sessions: [AgentSession], sourceID: String?) -> [String: String] {
+        Dictionary(uniqueKeysWithValues: sessions.compactMap { session in
+            guard let sourceID, !isRejected(sessionID: session.id, completionID: session.completionID ?? "", sourceID: sourceID),
+                  let candidate = candidates[session.id], candidate.completionID == session.completionID else { return nil }
+            let result: FrozenCompletionResult
+            if let retained = candidate.readingResult { result = retained }
+            else if case .ready(let captured) = candidate.outcome { result = captured }
+            else { return nil }
+            guard result.sourceID == sourceID else { return nil }
+            return (RecapEntry.completedID(sourceID: sourceID, sessionID: session.id, completionID: result.completionID), result.finalText)
+        })
+    }
+
+    func recapRecovery(in ledger: RecapLedger, now: Date) -> [(id: String, sessionID: String, completionID: String)] {
+        ledger.entries.values.compactMap { entry in
+            guard entry.resultText == nil, let completionID = entry.completionID,
+                  records[entry.id]?.readable(now: now) == true else { return nil }
+            return (entry.id, entry.sessionID, completionID)
+        }
+    }
 
     mutating func accept(_ text: String, id: String, now: Date) {
         guard var record = records[id], record.readable(now: now),
@@ -239,7 +450,7 @@ struct CompletionResults {
         }
     }
 
-    static func freeze(_ text: String, candidate: Candidate, sourceID: String,
+    private static func freeze(_ text: String, candidate: Candidate, sourceID: String,
                        sessionID: String, now: Date) -> CompletionResultAvailability {
         guard now <= candidate.completedAt.addingTimeInterval(2) else { return .expired }
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .resultUnavailable }
