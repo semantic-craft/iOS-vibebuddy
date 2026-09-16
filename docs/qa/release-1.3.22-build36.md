@@ -22,4 +22,16 @@ Build 36 combines the completion recovery and settings work from build 35 with r
 
 The first integrated run passed 14 XCTest cases but failed one of 163 Swift Testing cases: `endingAndCancelCannotResurrectATurn`. An isolated replay and a full replay passed; these did not close the failure. Investigation identified a real actor-reentrancy race: wait cleanup could run after the stop event and reset a completed session to working. Two deterministic regression cases failed on the old implementation. Fix `a7498805` preserves the completed state while clearing stale wait metadata, retaining the existing exact-ID guards. The owner passed 122 focused tests and independent review; final integrated verification follows below.
 
-Pending final source integration, focused checks, Release build, Developer ID verification, app and DMG notarization, and signed Sparkle feed publication. This section is updated from actual results before publication.
+- Final integrated source: `90e1208f9eaa706e21e726e8ca23112da2697074`. All 945 tracked input hashes remained unchanged through the Release build. Subsequent changes to this report do not change executable inputs.
+- Final Mac checks: 14 XCTest cases and 164 Swift Testing cases in 23 suites passed. Shared Kit checks: 15 tests in two suites passed. Agent Hooks installer/retirement checks and four verification-helper tests passed. No timeout or concurrency assertion was relaxed.
+- Independent integration and late-cleanup reviews found no blocking issue.
+- Release 1.3.22 (36) built successfully. Every bundled Mach-O passed Developer ID, hardened runtime and secure timestamp checks; deep strict signature verification passed.
+- App notarization `c2498a27-efa8-4522-b671-ef9810df2856`: Accepted; app stapled.
+- DMG notarization `427330ce-4c96-456e-bc9a-ff3d6b028ff6`: Accepted; DMG stapled and validated. Gatekeeper accepted both app and DMG.
+- Release executable SHA-256: `f82ffb7d5169da8e5babb188280932f16ad79974534a91d2cdadbd6bce8ec62b`.
+- DMG SHA-256: `2d98a694c6088d9fe26be5aeffe7ada45b1592ad8489c5b3b5ff93a9f712f7f8`; 27,814,397 bytes. Sparkle's verifier independently accepted the generated EdDSA signature and enclosure size.
+
+- Final Release-code native smoke passed in an isolated, re-signed copy. All main-executable `__TEXT` section hashes matched the Developer ID original; its executable hash remained unchanged after the run. Real Cursor Read produced one succeeded entry with its original call ID and correct body. Native continuation retained the same session, displayed the full plan, and native Stop removed the plan and left two subsequent snapshots done/userStopped without resurrection. The first menu click did not settle; a refreshed native menu selection completed the action. No HTTP stop replaced the UI action.
+- All smoke-test processes and the isolated token/app were cleaned up. The known upstream error text remained visible and is not a clean-provider-run claim.
+
+The release candidate passed the checks above. Publication is a separate operation recorded by the GitHub Release and Sparkle feed. No production app replacement or cross-machine synchronization has been performed.
