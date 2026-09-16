@@ -18,8 +18,8 @@ public enum HookParser {
               let kind = mapKind(raw.hookEventName)
         else { return nil }
         // Claude's Notification hook names its own reason. Only some of those
-        // reasons are a wait: `auth_success` is a login confirmation, and turning
-        // it into a needsResponse session would ring for nothing.
+        // reasons are a wait: login confirmations and completed-turn idle
+        // reminders do not require an answer.
         if raw.hookEventName == "Notification",
            let type = raw.notificationType, !Self.isWait(notificationType: type) {
             return nil
@@ -129,7 +129,7 @@ public enum HookParser {
     }
 
     /// The CLI's own classification of a wait, when it gave one.
-    /// `permission_prompt` → permission; `idle_prompt` / `elicitation_dialog`
+    /// `permission_prompt` → permission; `elicitation_dialog`
     /// → question. A `PermissionRequest` hook is a permission by definition and
     /// an `Elicitation` hook a question. Anything else is left for the reducer's
     /// message heuristic.
@@ -140,7 +140,7 @@ public enum HookParser {
         case "Notification":
             switch raw.notificationType {
             case "permission_prompt": return .permission
-            case "idle_prompt", "elicitation_dialog": return .question
+            case "elicitation_dialog": return .question
             default: return nil
             }
         default: return nil
@@ -150,7 +150,7 @@ public enum HookParser {
     /// Whether a named Claude notification describes the agent waiting on you.
     /// Unknown types are treated as waits so a new CLI type is not silently lost.
     static func isWait(notificationType: String) -> Bool {
-        notificationType != "auth_success"
+        notificationType != "auth_success" && notificationType != "idle_prompt"
     }
 
     private static func mapKind(_ name: String) -> HookEvent.Kind? {

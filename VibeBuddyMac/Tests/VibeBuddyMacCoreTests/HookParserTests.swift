@@ -278,7 +278,7 @@ struct HookParserTests {
         #expect(permission?.kind == .notification)
         #expect(permission?.waitKind == .permission)
         let idle = parse(#"{"hook_event_name":"Notification","session_id":"s","notification_type":"idle_prompt","message":"needs your permission"}"#)
-        #expect(idle?.waitKind == .question)
+        #expect(idle == nil)
         let elicitation = parse(#"{"hook_event_name":"Notification","session_id":"s","notification_type":"elicitation_dialog"}"#)
         #expect(elicitation?.waitKind == .question)
         // No type: the reducer's message heuristic stays in charge.
@@ -287,6 +287,30 @@ struct HookParserTests {
         // A PermissionRequest hook is a permission by definition.
         let request = parse(#"{"hook_event_name":"PermissionRequest","session_id":"s","tool_name":"Bash"}"#)
         #expect(request?.waitKind == .permission)
+    }
+
+    @Test("idle reminder preserves the completed turn", arguments: [false, true])
+    func idleReminderPreservesCompletion(acknowledged: Bool) throws {
+        var reducer = SessionReducer()
+        let prompt = try #require(parse(#"{"hook_event_name":"UserPromptSubmit","session_id":"s"}"#))
+        let stop = try #require(parse(#"{"hook_event_name":"Stop","session_id":"s","last_assistant_message":"HERMES-1644 complete."}"#))
+        reducer.apply(prompt)
+        reducer.apply(stop)
+        let completionID = try #require(reducer.sessions["s"]?.completionID)
+        if acknowledged {
+            let changed = reducer.acknowledgeCompletion(sessionID: "s", completionID: completionID)
+            #expect(changed)
+        }
+        let idle = HookParser.parse(
+            Data(#"{"hook_event_name":"Notification","session_id":"s","notification_type":"idle_prompt","message":"Claude is waiting for your input"}"#.utf8),
+            receivedAt: now.addingTimeInterval(63))
+        if let idle { reducer.apply(idle) }
+        let session = try #require(reducer.sessions["s"])
+        #expect(session.status == .done)
+        #expect(session.completionID == completionID)
+        #expect(session.hasUnreadCompletion == !acknowledged)
+        #expect(session.summary == "HERMES-1644 complete.")
+        #expect(session.waitKind == nil)
     }
 
     @Test("auth_success is a login confirmation, not a wait, and is dropped")
@@ -299,8 +323,8 @@ struct HookParserTests {
         var r = SessionReducer()
         let events = [
             parse(#"{"hook_event_name":"SessionStart","session_id":"s","cwd":"/x/proj"}"#),
-            // The prose mentions permission, but Claude says it is only waiting for input.
-            parse(#"{"hook_event_name":"Notification","session_id":"s","notification_type":"idle_prompt","message":"Claude is waiting for your permission decision"}"#),
+            // The prose mentions permission, but the typed event is an elicitation.
+            parse(#"{"hook_event_name":"Notification","session_id":"s","notification_type":"elicitation_dialog","message":"Claude is waiting for your permission decision"}"#),
         ].compactMap { $0 }
         for e in events { r.apply(e) }
         #expect(r.sessions["s"]?.status == .needsResponse)
