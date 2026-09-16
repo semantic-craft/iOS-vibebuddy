@@ -429,6 +429,9 @@ public struct SessionReducer: Sendable {
     public mutating func clearPendingApproval(sessionID: String, at: Date) {
         guard var s = sessions[sessionID], s.pendingApproval != nil else { return }
         s.pendingApproval = nil
+        // Cancellation cleanup can arrive after the turn's stop event.
+        // Remove the old card without reopening or erasing that completion.
+        if s.status == .done { sessions[sessionID] = s; return }
         s.waitKind = nil
         s.status = .working
         s.hasUnreadCompletion = false
@@ -461,6 +464,8 @@ public struct SessionReducer: Sendable {
     public mutating func clearPendingQuestion(sessionID: String, at: Date) {
         guard var s = sessions[sessionID], s.pendingQuestion != nil else { return }
         s.pendingQuestion = nil
+        // The agent may have ended while cancellation was withdrawing this wait.
+        if s.status == .done { sessions[sessionID] = s; return }
         s.waitKind = nil
         s.status = .working
         s.hasUnreadCompletion = false

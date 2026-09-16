@@ -527,6 +527,71 @@ struct CursorACPTests {
         await rig.monitor.shutdown()
     }
 
+    @Test(arguments: [false, true])
+    func lateWaitCleanupPreservesCompletedTurn(approval: Bool) async throws {
+        let store = SessionStore()
+        let start = Date()
+        await store.ingest(HookEvent(kind: .userPromptSubmit, sessionID: "late-cleanup", agent: .cursor,
+                                    observationSource: .acp, timestamp: start))
+        if approval {
+            await store.beginApproval(sessionID: "late-cleanup",
+                PendingApproval(id: "wait", tool: "Read", commandPreview: "read marker"),
+                at: start.addingTimeInterval(1), source: .acp)
+        } else {
+            await store.beginQuestion(sessionID: "late-cleanup",
+                PendingQuestion(id: "wait", prompt: "Review plan"),
+                at: start.addingTimeInterval(1), source: .acp)
+        }
+        // cancel has captured its wait, but turnEnded reaches the store first.
+        await store.ingest(HookEvent(kind: .stop, sessionID: "late-cleanup", agent: .cursor,
+                                    observationSource: .acp, timestamp: start.addingTimeInterval(3),
+                                    completionText: "Finished result", completionSucceeded: true))
+        let ended = try #require(await store.snapshot(now: Date()).sessions.first)
+        #expect(ended.status == .done)
+        #expect(ended.completionID != nil)
+        if approval {
+            await store.endApproval(sessionID: "late-cleanup", approvalID: "wait",
+                                    at: start.addingTimeInterval(2), source: .acp)
+        } else {
+            await store.endQuestion(sessionID: "late-cleanup", questionID: "wait",
+                                    at: start.addingTimeInterval(2), source: .acp)
+        }
+        let cleared = try #require(await store.snapshot(now: Date()).sessions.first)
+        #expect(cleared.status == .done)
+        #expect(cleared.completionID == ended.completionID)
+        #expect(cleared.hasUnreadCompletion == ended.hasUnreadCompletion)
+        #expect(cleared.statusSince == ended.statusSince)
+        #expect(cleared.updatedAt == ended.updatedAt)
+        #expect(cleared.userStopped == ended.userStopped)
+        #expect(cleared.pendingQuestion == nil && cleared.pendingApproval == nil)
+        // A stale cleanup must also leave the next turn's different wait alone.
+        await store.ingest(HookEvent(kind: .userPromptSubmit, sessionID: "late-cleanup", agent: .cursor,
+                                    observationSource: .acp, timestamp: start.addingTimeInterval(4)))
+        if approval {
+            await store.beginApproval(sessionID: "late-cleanup",
+                PendingApproval(id: "next", tool: "Read", commandPreview: "next read"),
+                at: start.addingTimeInterval(5), source: .acp)
+            await store.endApproval(sessionID: "late-cleanup", approvalID: "wait", at: Date(), source: .acp)
+        } else {
+            await store.beginQuestion(sessionID: "late-cleanup", PendingQuestion(id: "next", prompt: "Next plan"),
+                                      at: start.addingTimeInterval(5), source: .acp)
+            await store.endQuestion(sessionID: "late-cleanup", questionID: "wait", at: Date(), source: .acp)
+        }
+        let next = try #require(await store.snapshot(now: Date()).sessions.first)
+        #expect(next.status == .needsResponse)
+        #expect((approval ? next.pendingApproval?.id : next.pendingQuestion?.id) == "next")
+        await store.ingest(HookEvent(kind: .stop, sessionID: "late-cleanup", agent: .cursor,
+                                    observationSource: .acp, timestamp: start.addingTimeInterval(7)).markingUserStop())
+        if approval {
+            await store.endApproval(sessionID: "late-cleanup", approvalID: "next", at: Date(), source: .acp)
+        } else {
+            await store.endQuestion(sessionID: "late-cleanup", questionID: "next", at: Date(), source: .acp)
+        }
+        let stopped = try #require(await store.snapshot(now: Date()).sessions.first)
+        #expect(stopped.status == .done && stopped.userStopped == true)
+        #expect(stopped.completionID == nil && !stopped.hasUnreadCompletion)
+    }
+
     @Test func endingAndCancelCannotResurrectATurn() async throws {
         let rig = Rig()
         _ = await rig.monitor.dispatch(request)
