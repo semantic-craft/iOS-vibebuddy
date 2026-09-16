@@ -25,9 +25,17 @@ or because the desktop app does not sync them at all, the conclusion is the same
 
 That matters because everything else about a cloud agent points the same way. It
 runs on Cursor's machines against a **GitHub repository**, not on this Mac
-against a folder. No hook fires for it. No transcript is written for it. It has
-no local branch checkout, no terminal and no window. All three of ADR-0016's
-layers are silent — not merely quiet, but structurally inapplicable.
+against a folder. This Mac's user hooks and local transcript watcher do not
+observe that remote execution. It has no local branch checkout, terminal or
+window for those observers to attach to.
+
+**2026-09-16 clarification:** [Cursor's cloud hook documentation](https://cursor.com/docs/hooks#cloud-agent-support)
+supports command hooks from repository `.cursor/hooks.json`, plus Enterprise
+team/managed hooks. Local `~/.cursor/hooks.json` is unavailable in hosted cloud
+VMs. Early read-only cloud turns do not run hooks until a writable environment
+exists. This corrects the former absolute statement that cloud agents have no
+hooks; VibeBuddy has no remote project-hook collection route, and this cycle
+does not add one.
 
 The API was re-read on 2026-09-12 against `cursor.com/docs/cloud-agent/api/*`,
 and two things in ADR-0016's own description of it are now out of date:
@@ -48,21 +56,22 @@ so the two views join on an identity vibebuddy keeps anyway.
 ## Decision
 
 **A cloud agent is not a local conversation with a remote status. It is a
-session with no local anchor, and the API is its only source — of its state and
-of its existence.** This is the shape the codebase already has a place for:
+session with no local anchor, and the API is VibeBuddy's configured source for
+its state and existence.** This is the shape the codebase already has a place for:
 ADR-0011's Codex Desktop threads, which run no hook, keep no terminal, and are
 addressed by a URL rather than a window.
 
 ADR-0016's layer order is unchanged and its rules still hold where they applied —
 it simply has nothing to say about a conversation that never touches this Mac:
 
-- **Hooks** remain the live, answerable source for conversations that run on
-  this Mac. They never fire for a cloud agent, so nothing competes.
+- **Local user hooks** remain the live, answerable source for conversations that
+  run on this Mac. Remote project hooks are a separate surface and are not
+  collected by this integration.
 - **The agent transcript** remains the fallback tail for local conversations.
-  None is written for a cloud agent.
+  This Mac's watcher does not read a cloud VM's transcript.
 - **The composer store** still never moves the three states, for either kind. It
   names the conversation, its project, its branch and its model, and it is what
-  decides a cloud agent exists at all.
+  does not reliably establish whether a cloud agent exists.
 - **The Cloud Agents API** supplies `bc-` rows outright and moves their three
   states. `ACTIVE` is `working`; `IDLE` is `done`; `ARCHIVED` ends the session.
 

@@ -3,6 +3,7 @@ import VibeBuddyKit
 
 /// POSTs an approve/deny decision back to the Mac.
 protocol DecisionClient: Sendable {
+    func history(_ pairing: PairingPayload, sourceID: String, key: String, cursor: String?) async throws -> HistoryPage
     func contentStyle(_ pairing: PairingPayload) async throws -> ContentStyleState
     func updateContentStyle(_ pairing: PairingPayload, update: ContentStyleUpdate) async throws -> ContentStyleState
     func presentation(_ pairing: PairingPayload, request: ContentPresentationRequest) async throws -> ContentPresentation
@@ -63,6 +64,7 @@ protocol DecisionClient: Sendable {
 enum ContentRequestFailure: Error { case unavailable, conflict, invalid }
 
 extension DecisionClient {
+    func history(_ pairing: PairingPayload, sourceID: String, key: String, cursor: String?) async throws -> HistoryPage { throw HistoryFailure("source_unavailable") }
     func contentStyle(_ pairing: PairingPayload) async throws -> ContentStyleState { throw ContentRequestFailure.unavailable }
     func updateContentStyle(_ pairing: PairingPayload, update: ContentStyleUpdate) async throws -> ContentStyleState { throw ContentRequestFailure.unavailable }
     func presentation(_ pairing: PairingPayload, request: ContentPresentationRequest) async throws -> ContentPresentation { throw ContentRequestFailure.unavailable }
@@ -93,6 +95,23 @@ extension DecisionClient {
 }
 
 struct HTTPDecisionClient: DecisionClient {
+    func history(_ pairing: PairingPayload, sourceID: String, key: String, cursor: String?) async throws -> HistoryPage {
+        guard let url = pairing.companionURL(path: "history"), var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { throw HistoryFailure("source_unavailable") }
+        parts.queryItems = [URLQueryItem(name: "sourceID", value: sourceID), URLQueryItem(name: "key", value: key), URLQueryItem(name: "limit", value: "30")]
+        if let cursor { parts.queryItems?.append(URLQueryItem(name: "cursor", value: cursor)) }
+        guard let endpoint = parts.url else { throw HistoryFailure("invalid_request") }
+        var request = URLRequest(url: endpoint, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
+        request.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw HistoryFailure("source_unavailable") }
+        guard http.statusCode == 200 else {
+            if http.statusCode == 401 { throw HistoryFailure("unauthorized") }
+            throw (try? JSONDecoder().decode(HistoryFailure.self, from: data)) ?? HistoryFailure("source_unavailable")
+        }
+        guard data.count <= 1_048_576 else { throw HistoryFailure("message_exceeds_budget") }
+        return try JSONDecoder().decode(HistoryPage.self, from: data)
+    }
+
     func contentStyle(_ pairing: PairingPayload) async throws -> ContentStyleState {
         try await contentRequest(pairing, path: "content-style", method: "GET", body: nil)
     }

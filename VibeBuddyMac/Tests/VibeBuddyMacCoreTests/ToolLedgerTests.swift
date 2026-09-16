@@ -3,6 +3,64 @@ import VibeBuddyKit
 @testable import VibeBuddyMacCore
 
 final class ToolLedgerTests: XCTestCase {
+    func testRepeatedObservationRetriesFailedPersistence() throws {
+        let parent = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: parent) }
+        try Data("directory blocked".utf8).write(to: parent)
+        let url = parent.appendingPathComponent("ledger.json")
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let record = ToolCallRecord(id: "t", tool: "Bash", result: .succeeded, observedAt: now, source: "hook")
+        var ledger = ToolLedger(url: url, now: now)
+        ledger.observe(record, sessionID: "s", now: now)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+        try FileManager.default.removeItem(at: parent)
+        ledger.observe(record, sessionID: "s", now: now)
+        XCTAssertEqual(ToolLedger(url: url, now: now).sessions, ledger.sessions)
+    }
+
+    func testDuplicateObservationDoesNotRewriteButStillPrunesExpiredRecords() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let current = ToolCallRecord(id: "current", tool: "Bash", command: "true", result: .succeeded,
+                                    observedAt: now, source: "hook")
+        var ledger = ToolLedger(url: url, now: now)
+        ledger.observe(current, sessionID: "s", now: now)
+        let marker = now.addingTimeInterval(-1000)
+        try FileManager.default.setAttributes([.modificationDate: marker], ofItemAtPath: url.path)
+        ledger.observe(current, sessionID: "s", now: now)
+        ledger.prune(now: now)
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        XCTAssertEqual(attributes[.modificationDate] as? Date, marker)
+        ledger.observe(current, sessionID: "s", now: now.addingTimeInterval(8 * 86400))
+        XCTAssertTrue(ledger.sessions.isEmpty)
+        XCTAssertTrue(ToolLedger(url: url, now: now.addingTimeInterval(8 * 86400)).sessions.isEmpty)
+    }
+
+    func testByteLimitEvictsOldestSessionAndRemainsImmediatelyReloadable() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let paths = (0..<50).map { String(repeating: "x", count: 990) + String($0) }
+        func record(_ index: Int, session: Int) -> ToolCallRecord {
+            ToolCallRecord(id: "\(index)", tool: "Bash", command: String(repeating: "x", count: 2000),
+                files: paths, result: .succeeded, observedAt: now.addingTimeInterval(Double(session)), source: "hook")
+        }
+        let fixture = Dictionary(uniqueKeysWithValues: (0..<4).map { session in
+            ("s\(session)", (0..<35).map { record($0, session: session) })
+        })
+        let initial = try JSONEncoder().encode(fixture)
+        XCTAssertLessThan(initial.count, 8_000_000)
+        try initial.write(to: url)
+        var ledger = ToolLedger(url: url, now: now)
+        for index in 35..<50 { ledger.observe(record(index, session: 3), sessionID: "s3", now: now) }
+        XCTAssertNil(ledger.sessions["s0"])
+        XCTAssertEqual(ledger.sessions["s3"]?.count, 50)
+        XCTAssertLessThanOrEqual(try Data(contentsOf: url).count, 8_000_000)
+        XCTAssertEqual(ToolLedger(url: url, now: now).sessions, ledger.sessions)
+        XCTAssertEqual((try FileManager.default.attributesOfItem(atPath: url.path))[.posixPermissions] as? Int, 0o600)
+    }
+
     func testIntentResultLinkAndRepeatedEditsUseRetainedScope() {
         let now = Date(timeIntervalSince1970: 1000)
         var ledger = ToolLedger(url: nil, now: now)

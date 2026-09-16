@@ -35,18 +35,25 @@ struct RecapLedger {
         /// unread). Absent in files written before it existed.
         var isRead: Bool?
         var resultText: String?
+        var resultConflict: Bool?
     }
 
     struct File: Codable, Equatable, Sendable {
         var horizon: Date?
         var entries: [String: Stored]
+        var results: [String: CompletionResults.Record]? = nil
     }
+
+    static let maximumResults = 512
+    static let maximumResultBytes = 8 * 1_024 * 1_024
+    static let maximumFileBytes = 32 * 1_024 * 1_024
 
     static let retention: TimeInterval = 7 * 86_400
 
     let url: URL?
     private(set) var horizon: Date?
     private(set) var entries: [String: Stored]
+    private(set) var results: [String: CompletionResults.Record] = [:]
     private var available = true
     /// Only rounds observed running/waiting in this process can add entries.
     /// Initial app-server status and journal recovery describe existing endings,
@@ -59,12 +66,18 @@ struct RecapLedger {
         entries = [:]
         guard let url else { return }
         do {
+            let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+            guard size <= Self.maximumFileBytes else { available = false; return }
             let file = try JSONDecoder().decode(File.self, from: Data(contentsOf: url))
+            results = Self.bounded(file.results ?? [:], now: now)
             horizon = file.horizon
             entries = file.entries.filter { $0.value.endedAt > now.addingTimeInterval(-Self.retention) }
-        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
         } catch {
-            available = false
+            let failure = error as NSError
+            // URL resource APIs can throw NSError without a CocoaError cast.
+            // A missing new ledger is writable; other load failures stay closed.
+            available = failure.domain == NSCocoaErrorDomain
+                && failure.code == CocoaError.fileReadNoSuchFile.rawValue
         }
     }
 
@@ -104,7 +117,8 @@ struct RecapLedger {
                 let id = RecapEntry.completedID(sourceID: sourceID, sessionID: session.id, completionID: completionID)
                 if var existing = entries[id] {
                     if let result = results[id], existing.resultText != result {
-                        existing.resultText = String(result.prefix(12_000))
+                        if existing.resultText == nil { existing.resultText = String(result.prefix(12_000)) }
+                        else { existing.resultConflict = true }
                         changed = true
                     }
                     // The final text can arrive after the round ended (the
@@ -156,12 +170,46 @@ struct RecapLedger {
 
     // MARK: reading
 
-    mutating func retainResult(id: String, text: String, now: Date) {
-        guard var entry = entries[id], entry.resultText == nil,
-              !text.isEmpty, text.count <= 12_000 else { return }
-        entry.resultText = text
-        entries[id] = entry
+    static func bounded(_ records: [String: CompletionResults.Record], now: Date) -> [String: CompletionResults.Record] {
+        var bytes = 0
+        var kept: [String: CompletionResults.Record] = [:]
+        for record in records.values.sorted(by: {
+            $0.completedAt == $1.completedAt ? $0.id < $1.id : $0.completedAt > $1.completedAt
+        }) where record.completedAt > now.addingTimeInterval(-retention) {
+            guard kept.count < maximumResults else { break }
+            guard records[record.id] == record, !record.sourceID.isEmpty, !record.sessionID.isEmpty,
+                  !record.completionID.isEmpty, record.completedAt >= (record.startedAt ?? .distantPast),
+                  record.agent != .codex || record.turnID?.isEmpty == false,
+                  record.text.map({ $0.count <= 12_000 }) ?? true,
+                  let data = try? JSONEncoder().encode(record), bytes + data.count <= maximumResultBytes else { continue }
+            bytes += data.count
+            kept[record.id] = record
+        }
+        return kept
+    }
+
+    mutating func retainResults(_ records: [String: CompletionResults.Record], now: Date) {
+        let next = Self.bounded(records, now: now)
+        guard next != results else { return }
+        results = next
+        for (id, record) in results where entries[id] != nil {
+            if record.conflict || record.invalidated { entries[id]?.resultConflict = true }
+            if let text = record.text { retainResultInMemory(id: id, text: text) }
+        }
         save(now: now)
+    }
+
+    mutating func retainResult(id: String, text: String, now: Date) {
+        guard entries[id]?.endedAt ?? .distantPast > now.addingTimeInterval(-Self.retention) else { return }
+        retainResultInMemory(id: id, text: text)
+        save(now: now)
+    }
+
+    private mutating func retainResultInMemory(id: String, text: String) {
+        guard var entry = entries[id], !text.isEmpty, text.count <= 12_000 else { return }
+        if let first = entry.resultText, first != text { entry.resultConflict = true }
+        else { entry.resultText = text }
+        entries[id] = entry
     }
 
     /// The recap for this moment. `sessions` is the snapshot's own list, so
@@ -173,7 +221,8 @@ struct RecapLedger {
             let session = byID[stored.sessionID]
             if session?.effectiveAttention == .muted { return nil }
             var points: [String] = []
-            if let line = (stored.kind == .completed ? summary(stored.id) : nil) ?? stored.fallbackSummary {
+            if stored.resultConflict != true,
+               let line = (stored.kind == .completed ? summary(stored.id) : nil) ?? stored.fallbackSummary {
                 points.append(line)
             }
             if let ledger = stored.ledgerLine { points.append(ledger) }
@@ -213,13 +262,16 @@ struct RecapLedger {
     @discardableResult
     private mutating func save(now: Date) -> Bool {
         entries = entries.filter { $0.value.endedAt > now.addingTimeInterval(-Self.retention) }
+        results = Self.bounded(results, now: now)
         guard let url else { return true }
         guard available else { return false }
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
                                                     attributes: [.posixPermissions: 0o700])
-            let data = try JSONEncoder().encode(File(horizon: horizon, entries: entries))
-            try data.write(to: url, options: [.atomic, .completeFileProtection])
+            let data = try JSONEncoder().encode(File(horizon: horizon, entries: entries, results: results))
+            // macOS supports owner-only files here; completeFileProtection can
+            // reject mktemp with EPERM. Keep atomic replacement inside the 0700 directory.
+            try data.write(to: url, options: [.atomic])
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         } catch {
             return false

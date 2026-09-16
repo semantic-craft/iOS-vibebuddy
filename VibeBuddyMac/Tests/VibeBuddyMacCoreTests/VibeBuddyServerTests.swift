@@ -140,6 +140,26 @@ struct VibeBuddyServerTests {
         }
     }
 
+    @Test("retired CLI hooks and approval gates create no sessions", arguments: ["qwen", "kimi"])
+    func retiredCLIIntake(source: String) async throws {
+        let payload = #"{"hook_event_name":"PermissionRequest","session_id":"retired","tool_name":"Bash","tool_input":{"command":"pwd"}}"#
+        try await server().buildApplication().test(.router) { client in
+            for route in ["hook", "approval"] {
+                try await client.execute(uri: "/\(route)?agent=\(source)", method: .post,
+                                         headers: [.authorization: "Bearer t0k"],
+                                         body: ByteBuffer(string: payload)) { response in
+                    #expect(response.status == .ok)
+                    #expect(response.body.readableBytes == 0)
+                }
+            }
+            try await client.execute(uri: "/snapshot", method: .get,
+                                     headers: [.authorization: "Bearer t0k"]) { response in
+                let snapshot = try JSONDecoder().decode(Snapshot.self, from: Data(buffer: response.body))
+                #expect(snapshot.sessions.isEmpty)
+            }
+        }
+    }
+
     @Test("/acknowledge is token-gated and clears a clean completion unread")
     func acknowledgeCompletion() async throws {
         let store = SessionStore()

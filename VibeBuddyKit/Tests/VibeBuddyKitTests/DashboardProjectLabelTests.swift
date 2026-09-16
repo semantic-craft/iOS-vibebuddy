@@ -1,5 +1,5 @@
 import Testing
-@testable import VibeBuddyMacCore
+@testable import VibeBuddyKit
 
 struct DashboardProjectLabelTests {
     @Test func sameNamedCheckoutsKeepDistinctParentLabels() {

@@ -56,22 +56,36 @@ struct EnvironmentDetectorTests {
         #expect(status.hookInjected)
     }
 
-    @Test("a plugin dir is scanned recursively for the marker")
-    func dirScan() throws {
+    @Test("directory-based CLIs inspect only their installed hook file",
+          arguments: ["grok", "antigravity", "opencode", "cursor"])
+    func explicitHookFile(name: String) throws {
         let dir = tempDir()
-        let plugin = dir.appendingPathComponent("opencode/plugin")
-        try FileManager.default.createDirectory(at: plugin, withIntermediateDirectories: true)
-        try "// uses capture-terminal.sh\n"
-            .write(to: plugin.appendingPathComponent("vibebuddy.js"), atomically: true, encoding: .utf8)
-        let status = EnvironmentDetector.detect([CLISpec(name: "opencode", configPath: dir.appendingPathComponent("opencode").path)]).first!
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let spec = try #require(EnvironmentDetector.defaultCLIs(home: dir.path).first { $0.name == name })
+        let config = URL(fileURLWithPath: spec.configPath)
+        let history = config.appendingPathComponent("history/session.json")
+        try FileManager.default.createDirectory(at: history.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "A session mentions /hook and capture-terminal.sh"
+            .write(to: history, atomically: true, encoding: .utf8)
+        var status = try #require(EnvironmentDetector.detect([spec]).first)
         #expect(status.configured)
+        #expect(!status.hookInjected)
+
+        let hooks = URL(fileURLWithPath: try #require(spec.hookPath))
+        try FileManager.default.createDirectory(at: hooks.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "vibebuddy-forward.sh".write(to: hooks, atomically: true, encoding: .utf8)
+        status = try #require(EnvironmentDetector.detect([spec]).first)
         #expect(status.hookInjected)
+
+        try FileManager.default.removeItem(at: hooks)
+        status = try #require(EnvironmentDetector.detect([spec]).first)
+        #expect(!status.hookInjected)
     }
 
     @Test("the default CLI list mirrors the universal installer's set")
     func defaults() {
         let names = Set(EnvironmentDetector.defaultCLIs(home: "/h").map(\.name))
-        #expect(names == ["claude", "codex", "qwen", "grok", "antigravity", "kimi", "opencode", "cursor"])
+        #expect(names == ["claude", "codex", "grok", "antigravity", "opencode", "cursor"])
     }
 
     /// Cursor keeps its lifecycle hooks in one user-level file beside its home

@@ -6,6 +6,16 @@ import VibeBuddyKit
 @Suite("HookParser — raw Claude Code JSON to HookEvent")
 struct HookParserTests {
 
+    @Test func nativeTurnIdentityIsCodexSpecific() throws {
+        let bytes = Data(#"{"hook_event_name":"Stop","session_id":"s","turn_id":"native","last_assistant_message":"Answer"}"#.utf8)
+        let codex = try #require(HookParser.parse(bytes, agent: .codex, receivedAt: Date()))
+        #expect(codex.turnID == "native")
+        #expect(codex.observationSource == .hook)
+        #expect(HookParser.parse(bytes, agent: .claudeCode, receivedAt: Date())?.turnID == nil)
+        let empty = Data(#"{"hook_event_name":"Stop","session_id":"s","turn_id":""}"#.utf8)
+        #expect(HookParser.parse(empty, agent: .codex, receivedAt: Date())?.turnID == nil)
+    }
+
     let now = Date(timeIntervalSince1970: 1_700_000_000)
 
     private func parse(_ json: String) -> HookEvent? {

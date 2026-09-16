@@ -18,6 +18,7 @@ struct DashboardView: View {
     @State private var showConnection = false
     @State private var showSettings = false
     @State private var showQuota = false
+    @State private var showRecap = false
     /// What the dashboard has already started, so a return from the pushed
     /// Usage page does not reconnect or restart the demo.
     @State private var startedPairing: PairingPayload?
@@ -33,6 +34,10 @@ struct DashboardView: View {
     @State private var highlightId: String?
     @State private var detailId: String?
     @State private var pendingNavigation = PendingTaskNavigation()
+    @State private var readerSource: String?
+    @State private var readerEpoch = ConnectionStore.pairingEpoch
+    @State private var readerPosition: String?
+    @StateObject private var readerDrafts = PhoneReaderDrafts()
     @State private var replyTo: String?
     @State private var filters = DashboardFilters()
     /// The inbox hub is the root (ticket 01, `.scratch/iphone-board`); the
@@ -67,6 +72,7 @@ struct DashboardView: View {
     }
 
     var body: some View {
+        let projectLabels = DashboardProjectLabel.labels(for: filters.projects(from: dashboard.allSessions))
         ScrollViewReader { proxy in
         List {
             if page == .list {
@@ -107,11 +113,12 @@ struct DashboardView: View {
             } else if page == .inbox {
                 InboxHomeView(projection: inbox, now: now, macName: macTitle, statusLine: statusLine,
                               hiddenCount: DashboardFilters().hiddenCount(from: dashboard.allSessions, now: now),
-                              openSession: { detailCompletionNotificationID = nil; detailId = $0.id },
+                              openSession: { openReader($0) },
                               openBucket: { open(bucket: $0) },
                               openProject: { open(project: $0) },
                               showOlder: { filters.bucket = nil; filters.project = nil; filters.includeInactive = true; page = .list },
-                              readPending: { readPending() })
+                              readPending: { readPending() },
+                              openRecap: { showRecap = true })
                     .listRowInsets(.init(top: 2, leading: 0, bottom: 12, trailing: 0))
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
@@ -133,10 +140,11 @@ struct DashboardView: View {
                     if isExpanded(section.id) {
                         ForEach(Array(section.sessions.enumerated()), id: \.element.id) { index, session in
                             TaskRow(session: session,
+                                    projectLabel: DashboardFilters.projectTitle(session.dashboardProjectIdentity, labels: projectLabels),
                                     now: now,
                                     isSelected: highlightId == session.id || replyTo == session.id,
                                     showsDivider: index < section.sessions.count - 1,
-                                    onOpen: { detailCompletionNotificationID = nil; detailId = session.id })
+                                    onOpen: { openReader(session) })
                                 .id(session.id)
                                 .swipeActions(edge: .leading, allowsFullSwipe: true) { attentionSwipeButtons(session) }
                                 .contextMenu { attentionMenu(session) }
@@ -246,6 +254,14 @@ struct DashboardView: View {
         .navigationDestination(isPresented: $showQuota) {
             UsagePageView(focus: usageFocus)
         }
+        .navigationDestination(isPresented: $showRecap) {
+            PhoneRecapView(drafts: readerDrafts,
+                           isUnobscured: !showConnection && !showSettings && !showQuota && !showFilters
+                               && !showVoicePage && !voice.showConsent && newTaskRequest == nil
+                               && !dashboard.completionLinkUnavailable,
+                           newTask: { newTaskRequest = NewTaskRequest(draft: "") },
+                           openVoice: { showVoicePage = true })
+        }
         .onChange(of: dashboard.usageRequest) { _, request in openUsage(request) }
         // A widget tap on a cold launch lands before this view exists.
         .onAppear { openUsage(dashboard.usageRequest) }
@@ -270,13 +286,19 @@ struct DashboardView: View {
                 .environmentObject(dashboard)
                 .presentationDetents([.large])
         }
-        .sheet(isPresented: Binding(get: { detailId != nil }, set: { presented in
+        .navigationDestination(isPresented: Binding(get: { detailId != nil }, set: { presented in
             if !presented { detailId = nil; pendingNavigation = PendingTaskNavigation() }
         })) {
             Group {
                 if let session = detailSession {
-                    SessionDetailSheet(session: session, completionNotificationID: detailCompletionNotificationID,
-                                       onReply: { replyTo = session.id; detailId = nil })
+                    PhoneSessionReader(session: session, completionNotificationID: detailCompletionNotificationID,
+                                       isUnobscured: readerSource == dashboard.completionSourceID && !showRecap && !showConnection && !showSettings && !showQuota && !showFilters
+                                           && !showVoicePage && !voice.showConsent && newTaskRequest == nil
+                                           && !dashboard.completionLinkUnavailable,
+                                       drafts: readerDrafts,
+                                       draftScope: (readerSource ?? "unknown") + "/" + readerEpoch,
+                                       newTask: { newTaskRequest = NewTaskRequest(draft: "") },
+                                       openVoice: { showVoicePage = true })
                         .id(session.id)
                         .environmentObject(dashboard)
                 } else {
@@ -284,13 +306,21 @@ struct DashboardView: View {
                         .font(CompanionType.font(14)).padding()
                 }
             }
+            .toolbar(.visible, for: .navigationBar)
             .safeAreaInset(edge: .bottom) { pendingFooter }
         }
         .onChange(of: filters) { _, _ in pendingNavigation = PendingTaskNavigation() }
         .onChange(of: page) { _, _ in pendingNavigation = PendingTaskNavigation() }
         .onChange(of: dashboard.speechSourceIdentity) { _, _ in announcer.sourceChanged() }
         .onChange(of: voice.phase) { _, phase in if phase != .idle { announcer.voiceStarted() } }
-        .onChange(of: dashboard.completionSourceID) { _, _ in pendingNavigation = PendingTaskNavigation() }
+        .onChange(of: dashboard.completionSourceID) { _, new in
+            if let new, let readerSource, new != readerSource {
+                detailId = nil; pendingNavigation = PendingTaskNavigation()
+            }
+        }
+        .onChange(of: connection.pairing) { old, new in
+            if old != new { detailId = nil; pendingNavigation = PendingTaskNavigation() }
+        }
         .alert("This completion is no longer current", isPresented: $dashboard.completionLinkUnavailable) {
             Button("OK", role: .cancel) { }
         } message: {
@@ -322,7 +352,6 @@ struct DashboardView: View {
             if connection.demo { dashboard.startDemo() }
             await openDemoPage()
         }
-        .onDisappear { if !showQuota { dashboard.stop() } }
         }
     }
 
@@ -346,6 +375,7 @@ struct DashboardView: View {
             switch page {
             case "customize": showFilters = true
             case "usage": showQuota = true
+            case "recap": showRecap = true
             case "newtask": newTaskRequest = NewTaskRequest(draft: "")
             case "list": open(bucket: .all)
             case "read": readPending()
@@ -368,9 +398,9 @@ struct DashboardView: View {
                 }
                 guard page.hasPrefix("task/") else { return }
                 let needle = String(page.dropFirst("task/".count))
-                detailId = dashboard.allSessions.first {
+                if let session = dashboard.allSessions.first(where: {
                     $0.id == needle || $0.displayTitle.localizedCaseInsensitiveContains(needle)
-                }?.id
+                }) { openReader(session) }
             }
     }
 
@@ -387,7 +417,7 @@ struct DashboardView: View {
     /// The scope a tile or project set, then Customize's picks: what the
     /// detail's "Next" walks through.
     private var scopeSummary: String {
-        [filters.bucket != nil || filters.project != nil ? filters.scopeTitle(summary: inbox.summary) : nil,
+        [filters.bucket != nil || filters.project != nil ? filters.scopeTitle(summary: inbox.summary, projects: filters.projects(from: dashboard.allSessions)) : nil,
          filters.hasCustomizePicks ? filters.summary : nil].compactMap { $0 }.joined(separator: " · ")
     }
 
@@ -398,13 +428,24 @@ struct DashboardView: View {
         page == .inbox ? inbox.pending : filters.pendingSessions(from: dashboard.allSessions, now: now)
     }
     /// `2 / 3` for the open detail, or nothing when it is not in the queue.
-    private var pendingPosition: String? {
-        guard let detailSession, let index = pendingCandidates.firstIndex(where: { $0.id == detailSession.id }) else { return nil }
-        return "\(index + 1) / \(pendingCandidates.count)"
+    private var pendingPosition: String? { readerPosition }
+
+    private func openReader(_ session: AgentSession) {
+        readerSource = dashboard.completionSourceID
+        readerEpoch = ConnectionStore.pairingEpoch
+        pendingNavigation.select(session, in: pendingCandidates)
+        capturePosition(session)
+        detailCompletionNotificationID = nil
+        detailId = session.id
+    }
+
+    private func capturePosition(_ session: AgentSession) {
+        readerPosition = pendingCandidates.firstIndex(where: { $0.id == session.id })
+            .map { "\($0 + 1) / \(pendingCandidates.count)" }
     }
     private var nextPending: AgentSession? {
         var preview = pendingNavigation
-        return preview.next(in: pendingCandidates, after: detailSession)
+        return preview.next(in: pendingCandidates, after: detailSession, wraps: false)
     }
     private var pendingFooter: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -426,10 +467,12 @@ struct DashboardView: View {
             .accessibilityIdentifier("phone-next-scope")
             if let next = nextPending {
                 Button {
+                    guard dashboard.readerAuthorityIsCurrent(scope: (readerSource ?? "unknown") + "/" + readerEpoch) else { return }
                     // Recompute at the tap. A deleted target cannot be opened
                     // from an earlier render, nor can this action mark it read.
-                    if let target = pendingNavigation.next(in: pendingCandidates, after: detailSession) {
+                    if let target = pendingNavigation.next(in: pendingCandidates, after: detailSession, wraps: false) {
                         detailCompletionNotificationID = nil
+                        capturePosition(target)
                         detailId = target.id
                     }
                 } label: {
@@ -495,6 +538,9 @@ struct DashboardView: View {
                     .accessibilityIdentifier("phone-list-back")
             }
             Spacer(minLength: 0)
+            PhoneCircleButton("clock.arrow.circlepath") { showRecap = true }
+                .accessibilityLabel("Recap")
+                .accessibilityIdentifier("phone-open-recap")
             if page == .inbox {
                 PhoneCircleButton("chart.bar") { showQuota = true }
                     .accessibilityLabel("Account quota")
@@ -569,7 +615,7 @@ struct DashboardView: View {
     /// or a project — over the same one line about the whole snapshot.
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(filters.scopeTitle(summary: inbox.summary))
+            Text(filters.scopeTitle(summary: inbox.summary, projects: filters.projects(from: dashboard.allSessions)))
                 .font(CompanionType.font(30, .semibold))
                 .tracking(CompanionType.tracking(30))
                 .foregroundStyle(CompanionPalette.ink)
@@ -684,14 +730,13 @@ struct DashboardView: View {
                 dashboard.completionLinkUnavailable = true
                 return
             }
+            if let session = dashboard.allSessions.first(where: { $0.id == id }) { openReader(session) }
             detailCompletionNotificationID = notificationID
-            detailId = id
             dashboard.clearFocus()
             return
         }
-        guard dashboard.allSessions.contains(where: { $0.id == id }) else { return }
-        detailCompletionNotificationID = nil
-        detailId = id
+        guard let session = dashboard.allSessions.first(where: { $0.id == id }) else { return }
+        openReader(session)
         dashboard.clearFocus()
         if page == .list, stream.contains(where: { $0.id == id }) {
             withAnimation(.smooth) { proxy.scrollTo(id, anchor: .center) }
@@ -839,6 +884,7 @@ enum ReplyMeaning: Equatable {
 /// the swipe follows or mutes.
 private struct TaskRow: View {
     let session: AgentSession
+    let projectLabel: String
     let now: Date
     let isSelected: Bool
     let showsDivider: Bool
@@ -854,8 +900,7 @@ private struct TaskRow: View {
         return activity.isEmpty || activity == stateWord ? nil : activity
     }
     private var projectTitle: String? {
-        let title = DashboardFilters.projectTitle(session.project)
-        return title == session.displayTitle ? nil : title
+        return projectLabel == session.displayTitle ? nil : projectLabel
     }
 
     var body: some View {
@@ -916,7 +961,7 @@ private struct TaskRow: View {
     }
 
     private var accessibilityLabel: String {
-        [session.displayTitle, stateWord, detail ?? "", projectTitle ?? "",
+        [session.displayTitle, stateWord, detail ?? "", session.dashboardProjectIdentity,
          session.effectiveAttention == .normal ? "" : session.effectiveAttention.stateTitle,
          presentation.unread ? String(localized: "Unread") : "",
          PhoneRelativeTime.spoken(session.updatedAt, now: now)]
@@ -1106,359 +1151,6 @@ private struct StreamComposer: View {
 
 /// Everything the row keeps behind it: the session's numbers, context, health,
 /// how much it may interrupt you, and the ways to reach it.
-private struct SessionDetailSheet: View {
-    let session: AgentSession
-    var completionNotificationID: String? = nil
-    let onReply: () -> Void
-    @EnvironmentObject private var dashboard: DashboardStore
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.scenePhase) private var scenePhase
-    @State private var showChanges = false
-    @State private var completionBody: CompletionBody?
-    @State private var resultIsVisible = false
-    @State private var acknowledgedBodyID: String?
-    private var resultKey: String { (dashboard.completionSourceID ?? "unknown") + "/" + session.id + "/" + (session.completionID ?? "working") }
-    private var currentBody: CompletionBody? {
-        guard let completionBody, completionBody.sourceID == dashboard.completionSourceID, completionBody.sessionID == session.id,
-              completionBody.completionID == session.completionID else { return nil }
-        return completionBody
-    }
-    @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
-
-    private var state: TaskPresentationState { session.presentationState }
-    private var included: Bool { dashboard.buddySessionIDs.contains(session.id) }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            PhoneSheetHeader(title: String(localized: "Task")) { dismiss() }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack(alignment: .top, spacing: 10) {
-                        AgentAvatar(agent: session.agent, size: 36)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(session.taskGoal).lineLimit(3)
-                                .font(CompanionType.font(22, .semibold))
-                                .tracking(CompanionType.tracking(22))
-                                .foregroundStyle(CompanionPalette.ink)
-                                .lineLimit(2)
-                            // The same line the row carries: the state word in
-                            // its colour, then agent, project and branch.
-                            HStack(spacing: 5) {
-                                StatusDot(state: state, size: PhoneRowMetrics.dot)
-                                Text(ToolActivity.label(for: session))
-                                    .foregroundStyle(CompanionPalette.status(state))
-                                Text("·")
-                                Text(session.agent.shortName)
-                                if DashboardFilters.projectTitle(session.project) != session.displayTitle {
-                                    Text("·")
-                                    Text(DashboardFilters.projectTitle(session.project))
-                                }
-                                if let branch = session.branch {
-                                    Text("·")
-                                    Text(branch).font(CompanionType.mono(10)).lineLimit(1).truncationMode(.middle)
-                                }
-                            }
-                            .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
-                            .lineLimit(1)
-                        }
-                    }
-                    if session.completionNotice?.state == .pending {
-                        Text("Preparing completion summary…")
-                            .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
-                    }
-                    if let id = completionNotificationID,
-                       !dashboard.matchesCompletionNotification(id, sessionID: session.id) {
-                        if session.isUnboundCompletionNotification(id) {
-                            Text("This notification does not identify a completion round. Review the current result before marking it read.")
-                                .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
-                            Button("Mark current result read") { dashboard.acknowledgeDisplayedCompletion(session) }
-                                .buttonStyle(PhoneButtonStyle(kind: .quiet, size: .small))
-                        } else {
-                            Text("This task has moved on. You are viewing its current state, not the result from that notification.")
-                                .font(CompanionType.font(12)).foregroundStyle(CompanionPalette.ink2)
-                        }
-                    }
-                    if let summary = session.detailProgress, !summary.isEmpty {
-                        Text(summary).font(CompanionType.font(14)).foregroundStyle(CompanionPalette.ink)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    if session.status == .done, session.completionID != nil {
-                        if let body = currentBody {
-                            if let text = body.text {
-                                Text(text).font(CompanionType.font(14)).foregroundStyle(CompanionPalette.ink)
-                                    .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
-                                .completionReadingVisibility { visible in
-                                    resultIsVisible = visible; acknowledgeVisibleBody()
-                                }
-                                Text("Agent final response · this completion · not independently verified")
-                                    .font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink3)
-                            } else if let reason = body.unavailableReason {
-                                Text(LocalizedStringKey(reason)).font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
-                            }
-                        } else { Text("Loading this completion…").font(CompanionType.font(11)) }
-                        Button(session.hasUnreadCompletion ? "Mark as read" : "Mark as unread") {
-                            acknowledgedBodyID = resultKey
-                            if session.hasUnreadCompletion {
-                                dashboard.acknowledge(session.id, displayedCompletion: dashboard.completionRequest(for: session))
-                            } else { dashboard.markUnread(session) }
-                        }.buttonStyle(PhoneButtonStyle(kind: .quiet, size: .small))
-                    }
-                    Text(ToolActivity.label(for: session)).font(CompanionType.font(12))
-                        .foregroundStyle(CompanionPalette.ink2)
-                    Text(session.detailProgressSource).font(CompanionType.font(10))
-                        .foregroundStyle(CompanionPalette.ink3)
-                    if session.status == .needsResponse {
-                        Text("Your decision").font(CompanionType.font(12, .semibold))
-                        decision
-                    }
-                    Text("Actions").font(CompanionType.font(12, .semibold))
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Notifications").font(CompanionType.font(11, .medium)).textCase(.uppercase).kerning(0.5)
-                            .foregroundStyle(CompanionPalette.ink3)
-                        HStack(spacing: 6) {
-                            PhoneChip(title: String(localized: "Auto"), selected: session.attentionOverride == nil) {
-                                dashboard.setAttention(session.id, nil)
-                            }
-                            ForEach(SessionAttention.allCases, id: \.self) { level in
-                                PhoneChip(title: level.stateTitle, selected: session.attentionOverride == level) {
-                                    dashboard.setAttention(session.id, level)
-                                }
-                            }
-                        }
-                        .accessibilityElement(children: .contain)
-                        .accessibilityLabel("Attention")
-                    }
-                    HStack(spacing: 8) {
-                        if session.canJump {
-                            Button(session.agent == .grokBot ? "Open Grok Bot" : session.jumpsToDesktopThread ? "Open thread in ChatGPT" : "Jump to terminal") {
-                                dashboard.jump(session.id)
-                            }
-                            .buttonStyle(PhoneButtonStyle(kind: .primary(CompanionPalette.accent)))
-                        }
-                        if SessionActionSupport.resolve(for: session).isAvailable {
-                            Button { onReply() } label: { Label("Reply", systemImage: "arrowshape.turn.up.left") }
-                                .buttonStyle(PhoneButtonStyle(kind: .quiet))
-                        }
-                        if companionEnabled {
-                            Button { dashboard.toggleBuddy(session.id) } label: {
-                                Label(included ? "In buddy's context" : "Add to buddy", systemImage: included ? "waveform.circle.fill" : "waveform.circle")
-                            }
-                            .buttonStyle(PhoneButtonStyle(kind: .quiet))
-                        }
-                    }
-                    DisclosureGroup("Activity and file changes") {
-                        Button("Changes") { showChanges = true }.buttonStyle(PhoneButtonStyle(kind: .quiet, size: .small))
-                        ToolLedgerView(session: session)
-                        RecentOutputCard(output: dashboard.recentOutputs[session.id])
-                        metaCard
-                    }
-                }
-                .padding(.horizontal, PhoneMetrics.gutter)
-                .padding(.bottom, 24)
-            }
-        }
-        .background(CompanionPalette.bg)
-        .presentationDetents([.medium, .large])
-        .tint(CompanionPalette.accent)
-        .sheet(isPresented: $showChanges) {
-            WorkspaceChangesView { scope, baseline, file in
-                await dashboard.workspaceChanges(for: session, scope: scope, baseline: baseline, file: file)
-            }
-        }
-        .task { await dashboard.loadRecentOutput(session.id) }
-        .task(id: resultKey) {
-            completionBody = nil
-            resultIsVisible = false
-            let key = resultKey
-            let loaded = await dashboard.completionBody(for: session)
-            guard !Task.isCancelled, key == resultKey else { return }
-            completionBody = loaded
-        }
-        .onChange(of: currentBody) { _, _ in acknowledgeVisibleBody() }
-        .onChange(of: scenePhase) { _, _ in acknowledgeVisibleBody() }
-        .onChange(of: showChanges) { _, _ in acknowledgeVisibleBody() }
-    }
-
-    private func acknowledgeVisibleBody() {
-        guard scenePhase == .active, !showChanges, resultIsVisible, currentBody?.text?.isEmpty == false,
-              session.hasUnreadCompletion, acknowledgedBodyID != resultKey else { return }
-        acknowledgedBodyID = resultKey
-        dashboard.acknowledge(session.id, displayedCompletion: dashboard.completionRequest(for: session))
-    }
-
-    @ViewBuilder private var decision: some View {
-        if let approval = session.pendingApproval {
-            ApprovalBody(approval: approval)
-            if ApprovalEligibility.approval(for: session) != nil {
-                HStack {
-                    Button("Approve") { dashboard.decide(approval.id, .allow) }
-                        .buttonStyle(PhoneButtonStyle(kind: .primary(CompanionPalette.accent)))
-                    Button("Deny") { dashboard.decide(approval.id, .deny) }
-                        .buttonStyle(PhoneButtonStyle(kind: .primary(CompanionPalette.status(.error))))
-                }.disabled(dashboard.phoneActionDisabled(for: session))
-            } else { Text(WaitHandling.resolve(for: session).message) }
-        } else if let question = session.pendingQuestion {
-            if WaitHandling.resolve(for: session) == .remoteAvailable {
-                QuestionCardView(question: question, actionState: dashboard.phoneActionState(for: session)) { answers in
-                    await dashboard.answer(session.id, answers: answers, expected: session)
-                }.disabled(dashboard.phoneActionDisabled(for: session))
-            } else {
-                Text(question.prompt)
-                Text(WaitHandling.resolve(for: session).message)
-            }
-        } else { Text(WaitHandling.resolve(for: session).message) }
-    }
-
-    private var metaCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let model = session.model { meta("Model", model) }
-            if let tokens = session.tokens { meta("Tokens", tokens.formatted()) }
-            if let cost = session.estimatedCostUSD {
-                meta("Cost", "\(session.costUSD == nil ? "≈ " : "")$" + String(format: "%.2f", cost))
-            }
-            if let effort = session.effort { meta("Effort", effort) }
-            if let pr = session.prNumber { meta("PR", "#\(pr)") }
-            if let worktree = session.worktree { meta("Worktree", worktree) }
-            if let used = session.contextTokens, let window = session.contextWindow, window > 0 {
-                ContextBar(used: used, window: window)
-            }
-            if let observation = session.observationDescription {
-                HStack(spacing: 5) {
-                    Label(observation, systemImage: "waveform.path.ecg")
-                    if let last = session.lastObservedAt { Text("· \(PhoneRelativeTime.short(last))") }
-                }
-                .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
-            }
-            if let child = ToolActivity.childSummary(for: session) {
-                Text(child).font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink2)
-            }
-            HStack(spacing: 4) {
-                Image(systemName: session.status == .needsResponse ? "hourglass" : "clock")
-                Text(session.statusSince, style: .timer).monospacedDigit()
-            }
-            .font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink3)
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .companionCard()
-    }
-
-    private func meta(_ label: LocalizedStringKey, _ value: String) -> some View {
-        HStack {
-            Text(label).font(CompanionType.font(11)).foregroundStyle(CompanionPalette.ink2)
-            Spacer()
-            Text(value).font(CompanionType.mono(11)).foregroundStyle(CompanionPalette.ink).lineLimit(1).truncationMode(.middle)
-        }
-    }
-}
-
-/// Expandable bounded recent dialogue. The expanded text is the same slice
-/// the collapsed preview came from — there is no fuller history behind it.
-private struct RecentOutputCard: View {
-    let output: RecentOutput?
-    @State private var expanded = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Button {
-                expanded.toggle()
-            } label: {
-                HStack {
-                    Text("Recent output").font(CompanionType.font(11, .medium)).textCase(.uppercase).kerning(0.5)
-                        .foregroundStyle(CompanionPalette.ink3)
-                    Spacer()
-                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(CompanionPalette.ink3)
-                }
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(expanded ? "Hide recent output" : "Show recent output")
-
-            if let output {
-                meta(output)
-                if expanded {
-                    entries(output)
-                } else if let last = output.entries.last {
-                    preview(last)
-                }
-                if !output.statusLine.isEmpty {
-                    Text(output.statusLine)
-                        .font(CompanionType.font(11))
-                        .foregroundStyle(CompanionPalette.ink2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            } else {
-                Text("Loading recent output…")
-                    .font(CompanionType.font(11))
-                    .foregroundStyle(CompanionPalette.ink3)
-            }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .companionCard()
-    }
-
-    private func meta(_ output: RecentOutput) -> some View {
-        HStack(spacing: 6) {
-            Text(output.sourceLabel)
-            if let updatedAt = output.updatedAt {
-                Text("·")
-                Text(PhoneRelativeTime.short(updatedAt)).monospacedDigit()
-            }
-        }
-        .font(CompanionType.font(11))
-        .foregroundStyle(CompanionPalette.ink3)
-    }
-
-    @ViewBuilder
-    private func entries(_ output: RecentOutput) -> some View {
-        ForEach(Array(output.entries.enumerated()), id: \.offset) { _, entry in
-            VStack(alignment: .leading, spacing: 2) {
-                Text(entry.role == "assistant" ? "Assistant" : "You")
-                    .font(CompanionType.font(10, .medium))
-                    .foregroundStyle(entry.role == "assistant" ? CompanionPalette.accent : CompanionPalette.ink3)
-                Text(entry.text)
-                    .font(CompanionType.font(13))
-                    .foregroundStyle(CompanionPalette.ink)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
-            }
-        }
-    }
-
-    private func preview(_ entry: RecentOutputEntry) -> some View {
-        Text(entry.text)
-            .font(CompanionType.font(13))
-            .foregroundStyle(CompanionPalette.ink)
-            .lineLimit(3)
-    }
-}
-
-
-private struct ContextBar: View {
-    let used: Int
-    let window: Int
-
-    var body: some View {
-        let frac = min(1.0, Double(used) / Double(max(window, 1)))
-        VStack(alignment: .leading, spacing: 2) {
-            ProgressView(value: frac).tint(color(frac))
-            Text("\(short(used)) / \(short(window)) context")
-                .font(CompanionType.font(10)).foregroundStyle(CompanionPalette.ink3).monospacedDigit()
-        }
-        .padding(.top, 2)
-    }
-
-    /// The quota bars' rule: the accent while there is room, the severity
-    /// tints past 70 % and 90 %.
-    private func color(_ f: Double) -> Color {
-        f > 0.9 ? CompanionPalette.status(.error)
-            : f > 0.7 ? CompanionPalette.status(.requiresInput) : CompanionPalette.accent
-    }
-    private func short(_ n: Int) -> String { n >= 1000 ? "\(n / 1000)k" : "\(n)" }
-}
-
 /// The page with nothing on it, in the phone's own type. `moon.zzz` is the
 /// empty glyph on every status surface (ADR-0017 §2).
 private struct EmptyStateView: View {

@@ -66,9 +66,11 @@ code, and tests — don't drift to synonyms.
 - **Cursor cloud agent** — a Cursor conversation that runs on Cursor's machines
   against a **GitHub repository**, not on this Mac against a folder. Cursor gives
   it a `bc-`-prefixed id and uses that same id as the agent id in its **Cloud
-  Agents API** (`api.cursor.com/v1`). No hook fires for it, no transcript is
-  written for it, and it does not appear in the composer store either, so that
-  API is its *only* source — of its state and of its existence. `ACTIVE` is
+  Agents API** (`api.cursor.com/v1`). This Mac's user hooks and local transcript
+  watcher do not observe its remote execution; the composer store is not reliable
+  for discovering it. The API is VibeBuddy's configured cloud source. Cursor also
+  supports repository command hooks in cloud environments, separately from local
+  user hooks; VibeBuddy does not collect those remotely (ADR-0018). `ACTIVE` is
   working, `IDLE` is done, `ARCHIVED` ends it; the repository stands in for the
   project, the agent's Cursor page is the jump, the runs list is the
   conversation (v1 has no `/conversation`), and a live run can be cancelled. It
@@ -90,7 +92,11 @@ code, and tests — don't drift to synonyms.
   Protocol). The live source for that conversation (`ObservationSource.acp`)
   and its write path: `session/prompt` continues, `session/cancel` stops,
   `session/request_permission` and `cursor/ask_question` / `cursor/create_plan`
-  become cards. Dies with the daemon. The IDE's hooks and transcript for the
+  become cards. Normal shutdown terminates the child process; after an abnormal
+  host exit, recovery requires confirmation that the old process has ended.
+  Minimal private metadata permits lazy `session/load` after restart. A recoverable row
+  is not a live ACP channel and offers only Continue until loading succeeds.
+  The IDE's hooks and transcript for the
   same id only corroborate while it runs (ADR-0016, amendment 1).
 - **Control channel** (`ControlChannel`) — the one write path the daemon would
   use for a session right now: `hook` (Cursor IDE, follow-ups only), `acp`
@@ -382,14 +388,16 @@ code, and tests — don't drift to synonyms.
   the last mark recorded once a later round has replaced it.
 - **Recap horizon** — the single moment the Mac keeps as "the user last read
   the recap": entries that ended before it are no longer in the recap. Moved
-  forward only, by Watch Mark all (`POST /recap-read`) or Mac explicit recap
+  forward only, by explicit phone confirmation (`POST /recap-read`) or Mac
   confirmation through SessionStore, shared by every device. It
   changes no round's read/unread state and re-sends no cue.
 - **Recap** (`Recap`) — the ordered set of recap entries after the horizon and
-  within the last 24 hours, newest first, at most twelve; read on the wrist by
-  turning the Digital Crown through one page per round, with Mark all on the
-  last page, and on Mac through Inbox or the sidebar. Mac confirmation freezes
-  the displayed batch and retains partial-write retry state across navigation.
+  within the last 24 hours, newest first, at most twelve; read on phone and Mac
+  through Inbox or global navigation. Watch has no Recap surface. Both phone and
+  Mac confirmation freeze the displayed entry IDs, exact completion requests
+  and horizon, retaining partial-write retry state across navigation. Phone
+  also binds the batch to its pairing epoch. A selected phone round keeps its
+  original identity and never substitutes a newer live result.
   Reading the recap alone changes neither horizon nor completion reads. Its 24-hour window is the recap's own rule and only coincides in
   number with *Current session*'s 24 hours: the recap decides what a recap
   shows, `SessionCurrency` decides what a list shows and a count counts.
@@ -534,6 +542,24 @@ code, and tests — don't drift to synonyms.
   entries without original text retain their recorded points and report that
   regeneration is unavailable. Derived text is a separate snapshot field; it does
   not replace the recorded points or change any reading marker.
+- **Completion result evidence** — the exact source/session/completion UUID and
+  its native turn identity, or Claude's observed prompt boundary. A newly
+  observed authoritative Codex ending can establish its UUID-to-turn mapping
+  before the start boundary or text arrives; an existing legacy UUID cannot be
+  assigned from a later ending. The recap file keeps a separate result index
+  (seven days, at most 512 records and 8 MiB encoded result data, 12,000 characters
+  per body); it creates no recap entry merely to cache a result. Reads recheck
+  expiry. Codex recovery reads an explicitly named successful turn from a bounded
+  transcript scan; Claude's successful Stop text can be used before its transcript
+  flushes. Missing evidence remains unavailable, never the last assistant message
+  from another round. Differing text permanently marks the identity as conflicted:
+  the first body remains diagnostic evidence, while ordinary reading, generated
+  presentation and automatic reading refuse it. A repeated first body cannot
+  clear conflict. Recovery never restores notification capture, changes current
+  progress, or acknowledges a result. Clear timeline retains its diagnostic scope;
+  result retention follows the result index's own expiry and capacity policy.
+  Internal presentation diagnostics distinguish unavailable evidence, unreadable
+  sources and provider/output failures without recording bodies or credentials.
 - **Completion notice** — the Mac's durable wording decision for one
   source/session/completion: pending, plain, summary, or cancelled. Only the
   final assistant result bound to that completion may be summarized. Pending

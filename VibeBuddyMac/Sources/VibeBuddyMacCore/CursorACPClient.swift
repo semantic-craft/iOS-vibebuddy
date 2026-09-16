@@ -33,11 +33,36 @@ public final class CursorACPClient: @unchecked Sendable {
     private var nextID = 1
     private var pending: [Int: CheckedContinuation<[String: Any], Error>] = [:]
     private var buffer = Data()
+    // One ingress chain preserves stdout order through the async actor hop.
+    // Responses and EOF follow all preceding notification handlers.
+    private var ingress: Task<Void, Never>?
+    private func enqueueLocked(_ operation: @escaping @Sendable () async -> Void) {
+        let previous = ingress
+        ingress = Task {
+            await previous?.value
+            await operation()
+        }
+    }
     private var closed = false
     private var started = false
+    private var processLease: CursorACPLease?
+    private var updatesEnabled = true
+    func suppressUpdates() { lock.lock(); updatesEnabled = false; lock.unlock() }
+    func enableUpdates() { lock.lock(); updatesEnabled = true; lock.unlock() }
+
+    func retainLease(_ lease: CursorACPLease) throws {
+        lock.lock(); defer { lock.unlock() }
+        processLease = lease
+        try lease.recordProcess(process)
+    }
+
+    private func processExited() {
+        close()
+        lock.lock(); processLease = nil; lock.unlock()
+    }
 
     /// A `session/update` or any other id-less message from the agent.
-    public var onNotification: (@Sendable (String, [String: Any]?) -> Void)?
+    public var onNotification: (@Sendable (String, [String: Any]?) async -> Void)?
     /// A request the agent expects an answer to (`session/request_permission`,
     /// `cursor/ask_question`, …). The handler must eventually call `respond`.
     public var onRequest: (@Sendable (JSONRPCID, String, [String: Any]?) -> Void)?
@@ -68,7 +93,10 @@ public final class CursorACPClient: @unchecked Sendable {
         process.standardError = FileHandle.nullDevice
         let client = CursorACPClient(reading: stdout.fileHandleForReading,
                                      writing: stdin.fileHandleForWriting, process: process)
-        process.terminationHandler = { [weak client] _ in client?.close() }
+        process.terminationHandler = { [client] process in
+            client.processExited()
+            process.terminationHandler = nil
+        }
         try process.run()
         return client
     }
@@ -143,12 +171,20 @@ public final class CursorACPClient: @unchecked Sendable {
         lock.lock()
         guard !closed else { lock.unlock(); return }
         closed = true
-        let waiters = pending
-        pending = [:]
+        enqueueLocked { [self] in finishClose() }
+        if process == nil { processLease = nil }
         lock.unlock()
         reader.readabilityHandler = nil
         try? writer.close()
         if let process, process.isRunning { process.terminate() }
+    }
+
+    private func finishClose() {
+        lock.lock()
+        let waiters = pending
+        pending = [:]
+        ingress = nil
+        lock.unlock()
         for waiter in waiters.values { waiter.resume(throwing: ClientError.closed) }
         onClose?()
     }
@@ -186,17 +222,21 @@ public final class CursorACPClient: @unchecked Sendable {
 
     private func consume(_ data: Data) {
         lock.lock()
+        guard !closed else { lock.unlock(); return }
         buffer.append(data)
         var lines: [Data] = []
         while let newline = buffer.firstIndex(of: 0x0A) {
             lines.append(buffer.subdata(in: buffer.startIndex..<newline))
             buffer.removeSubrange(buffer.startIndex...newline)
         }
+        let enabled = updatesEnabled
+        for line in lines where !line.isEmpty {
+            enqueueLocked { [self] in await dispatch(line, updatesEnabled: enabled) }
+        }
         lock.unlock()
-        for line in lines where !line.isEmpty { dispatch(line) }
     }
 
-    private func dispatch(_ line: Data) {
+    private func dispatch(_ line: Data, updatesEnabled: Bool) async {
         guard let message = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] else { return }
         let method = message["method"] as? String
         let id = JSONRPCID(message["id"])
@@ -204,7 +244,7 @@ public final class CursorACPClient: @unchecked Sendable {
             if let id {
                 onRequest?(id, method, message["params"] as? [String: Any])
             } else {
-                onNotification?(method, message["params"] as? [String: Any])
+                if updatesEnabled { await onNotification?(method, message["params"] as? [String: Any]) }
             }
             return
         }

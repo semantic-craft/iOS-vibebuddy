@@ -706,10 +706,17 @@ private struct DiagnosticsPage: View {
 
     @ViewBuilder
     private func observationRow(agent: AgentKind, source: ObservationSourceDiagnostic) -> some View {
+        TimelineView(.periodic(from: .now, by: 2)) { context in
+            observationRow(agent: agent, source: source, now: context.date)
+        }
+    }
+
+    @ViewBuilder
+    private func observationRow(agent: AgentKind, source: ObservationSourceDiagnostic, now: Date) -> some View {
         let issue = agent == .codex && source.source == .hook
             ? ObservationHealthDetector.codexHookConfigurationIssue(
                 home: E2ERunConfiguration.current?.file("agents") ?? FileManager.default.homeDirectoryForCurrentUser,
-                hook: source, now: Date(),
+                hook: source, now: now,
                 hookTrust: model.codexAppServerDiagnostics.hookTrust) : nil
         HStack(alignment: .top, spacing: 9) {
             Image(systemName: issue != nil ? "exclamationmark.triangle.fill" : source.diagnosticIcon)

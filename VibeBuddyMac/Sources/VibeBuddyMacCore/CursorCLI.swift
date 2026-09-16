@@ -20,7 +20,7 @@ import VibeBuddyKit
 /// argv: a token of letters, digits and `. - _ / :`, which every model id and
 /// mode uses, optionally followed by the bracket overrides `--help` documents
 /// for parameterized models (`claude-opus-4-8[context=1m,effort=high]`).
-public struct CursorLaunchOptions: Sendable, Equatable {
+public struct CursorLaunchOptions: Codable, Sendable, Equatable {
     public var model: String?
     /// `plan` or `ask`. Nil is agent mode.
     public var mode: String?

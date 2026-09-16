@@ -8,6 +8,7 @@ import VibeBuddyKit
 /// The Mac-side HTTP server: localhost hook intake + token-gated LAN snapshot.
 /// WebSocket push (`/ws`) is added later (needed by the iOS app in Phase D).
 public struct VibeBuddyServer: Sendable {
+    public let historyReader: HistoryHTTPReader
     public let store: SessionStore
     public let token: String
     public let host: String
@@ -106,6 +107,7 @@ public struct VibeBuddyServer: Sendable {
 
     public init(store: SessionStore, token: String, host: String = "0.0.0.0",
                 port: Int = 9876, pusher: APNsPusher? = nil,
+                historyReader: HistoryHTTPReader = HistoryHTTPReader(),
                 phoneReceipts: PhoneReceipts = PhoneReceipts(),
                 deliveryRecorder: (any NotificationDeliveryRecording)? = nil,
                 deviceTokens: DeviceTokens = DeviceTokens(),
@@ -144,6 +146,7 @@ public struct VibeBuddyServer: Sendable {
                 onCompletionReminder: (@Sendable (AgentSession) async -> Bool)? = nil,
                 actionRequests: ActionRequestLog = ActionRequestLog(),
                 cursorFollowups: CursorFollowupQueue = CursorFollowupQueue()) {
+        self.historyReader = historyReader
         self.store = store
         self.token = token
         self.host = host
@@ -193,6 +196,7 @@ public struct VibeBuddyServer: Sendable {
     /// Which agents `/dispatch` can start right now — what the "New task"
     /// entry offers, and hides itself behind when empty.
     public func dispatchAgents() async -> [AgentKind] {
+        await cursorACP?.registerRecoverableSessions()
         var agents: [AgentKind] = []
         if await claudeLauncher.isSupported() { agents.append(.claudeCode) }
         if let monitor = codexAppServerMonitor, await monitor.diagnostics().connected { agents.append(.codex) }
@@ -248,6 +252,7 @@ public struct VibeBuddyServer: Sendable {
         do {
             try await buildApplication().runService()
         } catch {
+            await cursorACP?.shutdown()
             grokTask?.cancel()
             await grokTask?.value
             monitorTask?.cancel()
@@ -256,6 +261,7 @@ public struct VibeBuddyServer: Sendable {
             await appServerTask?.value
             throw error
         }
+        await cursorACP?.shutdown()
         grokTask?.cancel()
         await grokTask?.value
         monitorTask?.cancel()
@@ -543,13 +549,20 @@ public struct VibeBuddyServer: Sendable {
         // sends it). The listener is LAN-bound for the phone, so an open /hook let
         // any local process — or a browser hitting the port via DNS rebinding —
         // spoof sessions; the token closes that (daemon-security/01, ADR-0009).
-        // `?agent=<source>` tags which CLI it came from (claude/codex/qwen/kimi/
+        // `?agent=<source>` tags which CLI it came from (claude/codex/
         // antigravity/grok/opencode/copilot); Claude Code is the default.
         hookAuthed.post("hook") { request, _ -> HTTPResponse.Status in
             let agent = AgentKind.fromSource(request.uri.queryParameters["agent"].map(String.init))
             let buffer = try await request.body.collect(upTo: 1 << 20) // 1 MB cap
             await store.ingest(Data(buffer: buffer), agent: agent, receivedAt: Date())
             return .ok
+        }
+
+        authed.get("history") { request, _ -> Response in
+            let result = await historyReader.read(uri: request.uri.string, sourceID: store.sourceID)
+            return Response(status: HTTPResponse.Status(code: result.status),
+                headers: [.contentType: "application/json"],
+                body: .init(byteBuffer: ByteBuffer(bytes: result.data)))
         }
 
         // Full snapshot — bearer-token gated.
@@ -731,6 +744,7 @@ public struct VibeBuddyServer: Sendable {
         let makeID = self.approvalID
         hookAuthed.post("approval") { request, _ -> Response in
             let agent = AgentKind.fromSource(request.uri.queryParameters["agent"].map(String.init))
+            guard agent.supportsCLIIntegration else { return Response(status: .ok) }
             let buffer = try await request.body.collect(upTo: 1 << 20)
             let data = Data(buffer: buffer)
             let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
@@ -1183,7 +1197,7 @@ public struct VibeBuddyServer: Sendable {
                                           await cursorFollowups.queue(conversationID: sessionID, text: text) != nil
                                       },
                                       resumeCursor: { session, text in
-                                          if let cursorACP, await cursorACP.hosts(session.id) {
+                                          if let cursorACP, await cursorACP.owns(session.id) {
                                               return await cursorACP.prompt(sessionID: session.id, text: text)
                                           }
                                           return await CursorCLI.resume(conversationID: session.id, text: text,

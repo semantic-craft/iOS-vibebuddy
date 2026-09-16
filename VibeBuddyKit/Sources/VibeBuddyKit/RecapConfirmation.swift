@@ -1,12 +1,12 @@
 import Foundation
-import VibeBuddyKit
 
-/// One explicit Mac confirmation, retained across view changes but never queued
+/// One explicit confirmation, retained across view changes but never queued
 /// on disk. Horizon and exact-round reads are independent effects: a snapshot
 /// that hides the recap cannot retire a failed completion write.
-public struct MacRecapConfirmation: Sendable {
+public struct RecapConfirmation: Sendable {
     public struct Batch: Equatable, Sendable {
         public let sourceID: String
+        public let entryIDs: [String]
         public let horizon: Date
         public let completions: [CompletionReadRequest]
     }
@@ -28,8 +28,8 @@ public struct MacRecapConfirmation: Sendable {
             }
         } ?? []
     }
-    /// The shared horizon retires the wrist's pending confirmation, so this
-    /// Mac must not advance it while any exact-round write still needs retry.
+    /// Advancing the shared horizon hides these entries on every Recap surface;
+    /// unresolved exact-round writes must finish first.
     public var pendingHorizonRequest: RecapReadRequest? {
         guard let batch, isRunning, !sourceChanged, !horizonAccepted,
               pendingCompletions.isEmpty else { return nil }
@@ -54,8 +54,8 @@ public struct MacRecapConfirmation: Sendable {
             let request = CompletionReadRequest(sourceID: sourceID, sessionID: entry.sessionID, completionID: completionID)
             return seen.insert(request).inserted ? request : nil
         }
-        let next = Batch(sourceID: sourceID, horizon: horizon, completions: requests)
-        guard next != batch else { return false }
+        let next = Batch(sourceID: sourceID, entryIDs: recap.entries.map(\.id), horizon: horizon, completions: requests)
+        guard sourceChanged || next != batch else { return false }
         self = Self()
         batch = next
         startAttempt()
@@ -79,6 +79,11 @@ public struct MacRecapConfirmation: Sendable {
     /// entire batch. Nothing here examines recap.horizon or visible entries.
     public mutating func observeSource(_ sourceID: String?) {
         guard let sourceID, let batch, sourceID != batch.sourceID else { return }
+        sourceChanged = true
+        isRunning = false
+    }
+
+    public mutating func invalidate() {
         sourceChanged = true
         isRunning = false
     }

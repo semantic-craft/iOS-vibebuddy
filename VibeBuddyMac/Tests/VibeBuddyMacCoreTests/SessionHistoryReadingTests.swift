@@ -85,8 +85,7 @@ import VibeBuddyKit
         let agent: SessionHistoryAgent = environment["VIBEBUDDY_HISTORY_SUMMARY_AGENT"] == "claude" ? .claude : .codex
         let style = ContentStyle(rawValue: environment["VIBEBUDDY_HISTORY_SUMMARY_STYLE"] ?? "") ?? .concise
         var history = try SessionHistoryParser.read(url: file, agent: agent, updatedAt: Date())
-        let attributes = try FileManager.default.attributesOfItem(atPath: source)
-        history.sourceRevision = "\((attributes[.modificationDate] as? Date ?? .distantPast).timeIntervalSince1970)|\((attributes[.size] as? Int) ?? 0)"
+        history.sourceRevision = try #require(SessionHistoryRepository.currentSourceRevision(file))
         let defaults = try #require(UserDefaults(suiteName: "com.vibebuddy.mac"))
         var config = CompletionSummaryConfiguration.load(defaults: defaults)
         config.contentStyle = .init(style: style)

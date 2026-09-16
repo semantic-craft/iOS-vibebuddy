@@ -170,7 +170,7 @@ struct RecapLedgerTests {
         let after = try #require(await store.snapshot(now: t0.addingTimeInterval(51)).recap)
         #expect(after.entries.map(\.id) == [entry.id])
         #expect(after.entries.first?.isRead == false)
-        var mac = MacRecapConfirmation()
+        var mac = RecapConfirmation()
         let started = mac.begin(recap: after, sourceID: "mac", available: true)
         #expect(started)
         #expect(mac.pendingCompletions == [read])
@@ -223,11 +223,11 @@ struct RecapLedgerTests {
         }
     }
 
-    @Test("a Claude round with no readable transcript records the round without a sentence")
+    @Test("a Claude round with neither Stop text nor readable transcript records no sentence")
     func claudeWithoutTranscript() async throws {
         let store = SessionStore(sourceID: "mac")
         await store.ingest(prompt("s", agent: .claudeCode, at: 0))
-        await store.ingest(stop("s", agent: .claudeCode, at: 30))
+        await store.ingest(stop("s", agent: .claudeCode, at: 30, text: nil))
         let entry = try #require(await store.snapshot(now: t0.addingTimeInterval(31)).recap?.entries.first)
         #expect(entry.kind == .completed)
         #expect(entry.points.isEmpty)

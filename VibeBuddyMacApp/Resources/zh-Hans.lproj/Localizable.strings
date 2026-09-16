@@ -1261,3 +1261,5 @@
 "From local Claude Code transcripts and Codex rollouts. Dollars are list price for the tokens read, not what a subscription charges. Distinct from account quota remaining." = "来自本地 Claude Code 记录与 Codex rollout。金额按所读取 Token 的标价估算，不是订阅实付费用，与账号剩余配额不同。";
 
 "Awaiting decision" = "等待权限选择";
+
+"Couldn’t load this result. Try again." = "未能加载本轮结果，请重试。";

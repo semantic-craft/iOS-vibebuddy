@@ -299,6 +299,7 @@ struct CursorHookAdapterTests {
             extra: #","tool_name":"Shell","tool_input":{},"tool_output":"{\"exit_code\":1,\"stdout\":\"\",\"stderr\":\"boom\"}","tool_use_id":"t2","cwd":"/x/p","duration":1"#),
             receivedAt: Date())
         #expect(withErr.event?.toolOutput == "exit 1\nboom")
+        #expect(withErr.event?.toolError == true)
 
         let plain = CursorParser.parse(cursorHook("postToolUse",
             extra: #","tool_name":"ReadFile","tool_input":{"path":"/a"},"tool_output":"line one","tool_use_id":"t3","cwd":"/x/p","duration":1"#),
@@ -327,6 +328,39 @@ struct CursorHookAdapterTests {
         #expect(output.source == .hook)
         #expect(output.entries.map(\.role) == ["user", "assistant", "assistant", "assistant"])
         #expect(output.entries.map(\.text) == ["run the tests", "⚙ Bash", "exit 0\nAll tests passed", "Green."])
+    }
+
+    @Test("structured and stringified tool exits agree with the snapshot ledger",
+          arguments: [false, true], ["exitCode", "exit_code"])
+    func toolExitFailureReachesLedger(stringified: Bool, codeKey: String) async throws {
+        let now = Date()
+        let store = SessionStore()
+        for code in [0, 1] {
+            let output: [String: Any] = [codeKey: code, "stdout": "fixture result"]
+            let wireOutput: Any = stringified
+                ? String(decoding: try JSONSerialization.data(withJSONObject: output), as: UTF8.self) : output
+            let data = try JSONSerialization.data(withJSONObject: [
+                "hook_event_name": "postToolUse", "conversation_id": "exit-test",
+                "tool_name": "Shell", "tool_use_id": "call-\(code)",
+                "tool_output": wireOutput,
+            ])
+            #expect(CursorParser.parse(data, receivedAt: now).event?.toolError == (code != 0))
+            await store.ingest(data, agent: .cursor, receivedAt: now)
+        }
+        let snapshot = await store.snapshot(now: now)
+        let records = snapshot.sessions.first { $0.id == "exit-test" }?.ledger
+        #expect(records?.first { $0.id == "call-0" }?.result == .succeeded)
+        #expect(records?.first { $0.id == "call-1" }?.result == .failed)
+    }
+
+    @Test("ReadFile JSON text is content, not a shell result envelope",
+          arguments: [#"{"success":false}"#, #"{"exit_code":1}"#, #"{"error":"example"}"#])
+    func readFileJSONDoesNotFail(_ content: String) throws {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "hook_event_name": "postToolUse", "conversation_id": "read-json",
+            "tool_name": "ReadFile", "tool_output": content,
+        ])
+        #expect(CursorParser.parse(data, receivedAt: Date()).event?.toolError == false)
     }
 
     @Test func shellOutputReachesRecentOutput() async {

@@ -7,6 +7,22 @@ import VibeBuddyKit
 struct CodexRolloutMonitorTests {
     let now = Date(timeIntervalSince1970: 1_788_314_400) // 2026-09-02 local day
 
+    @Test("fork metadata cannot replace owner or subagent classification")
+    func forkMetadataOwnership() {
+        for subagent in [false, true] {
+            var parser = CodexRolloutParser()
+            let own = subagent
+                ? #"{"type":"session_meta","payload":{"id":"child","cwd":"/owner","originator":"Codex Desktop","thread_source":"subagent"}}"#
+                : #"{"type":"session_meta","payload":{"id":"child","cwd":"/owner","originator":"Codex Desktop"}}"#
+            _ = parser.parseLine(Data(own.utf8), receivedAt: now)
+            _ = parser.parseLine(Data(#"{"type":"session_meta","payload":{"id":"parent","cwd":"/ancestor","originator":"Codex Desktop"}}"#.utf8), receivedAt: now)
+            #expect(parser.sessionID == "child" && parser.cwd == "/owner")
+            #expect(parser.isDesktopSession == !subagent)
+            let event = parser.parseLine(Data(#"{"type":"event_msg","payload":{"type":"task_started","turn_id":"own-turn"}}"#.utf8), receivedAt: now)
+            #expect(subagent ? event == nil : event?.sessionID == "child")
+        }
+    }
+
     @Test("parser maps desktop turn, tool, failure, and completion records")
     func parserLifecycle() {
         var parser = CodexRolloutParser()

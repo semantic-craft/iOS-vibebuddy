@@ -286,10 +286,20 @@ public enum CursorParser {
             return true
         }
         guard let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return false }
-        if let output = obj["tool_output"] as? [String: Any] {
+        let output: [String: Any]?
+        if let text = obj["tool_output"] as? String {
+            // Shell stringifies its result envelope. Other tools may return
+            // literal file contents such as {"success":false}; that is data.
+            output = toolName(for: event, raw: raw) == "Bash"
+                ? (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] : nil
+        } else {
+            output = obj["tool_output"] as? [String: Any]
+        }
+        if let output {
             if isTruthy(output["is_error"]) { return true }
             if isTruthy(output["error"]) { return true }
             if let success = output["success"] as? Bool, !success { return true }
+            if let code = (output["exitCode"] ?? output["exit_code"]).flatMap(exitCode), code != 0 { return true }
         }
         if let code = obj["exit_code"] as? NSNumber, code.intValue != 0 { return true }
         return false

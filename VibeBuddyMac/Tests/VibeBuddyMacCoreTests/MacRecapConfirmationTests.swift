@@ -3,7 +3,7 @@ import Testing
 import VibeBuddyKit
 @testable import VibeBuddyMacCore
 
-struct MacRecapConfirmationTests {
+struct RecapConfirmationTests {
     private func entry(_ id: String, at: Date, kind: RecapEntryKind = .completed, read: Bool = false) -> RecapEntry {
         RecapEntry(id: "mac/s/" + id, kind: kind, sessionID: "s", completionID: kind == .completed ? id : nil,
                    agent: .codex, project: "project", title: id, points: [], endedAt: at, isRead: read)
@@ -12,7 +12,7 @@ struct MacRecapConfirmationTests {
     @Test("An authoritative missing session is skipped without blocking later recap batches")
     func unavailableRoundDoesNotBlockNextBatch() throws {
         let now = Date()
-        var state = MacRecapConfirmation()
+        var state = RecapConfirmation()
         let started = state.begin(recap: Recap(entries: [entry("gone", at: now)]), sourceID: "mac", available: true)
         #expect(started)
         let attempt = try #require(state.attemptID)
@@ -35,7 +35,7 @@ struct MacRecapConfirmationTests {
         let now = Date()
         let displayed = Recap(entries: [entry("a", at: now), entry("failed", at: now.addingTimeInterval(1), kind: .failed),
                                        entry("read", at: now.addingTimeInterval(-1), read: true)])
-        var state = MacRecapConfirmation()
+        var state = RecapConfirmation()
         let unavailableBegin = state.begin(recap: displayed, sourceID: "mac", available: false)
         #expect(!unavailableBegin)
         let initialBegin = state.begin(recap: displayed, sourceID: "mac", available: true)
@@ -80,7 +80,7 @@ struct MacRecapConfirmationTests {
         await store.ingest(event(.userPromptSubmit, at: 0))
         await store.ingest(event(.stop, at: 1))
         let recap = try #require(await store.snapshot(now: now.addingTimeInterval(2)).recap)
-        var state = MacRecapConfirmation()
+        var state = RecapConfirmation()
         let partialBegin = state.begin(recap: recap, sourceID: "mac", available: true)
         #expect(partialBegin)
         let attempt = try #require(state.attemptID)
@@ -137,7 +137,7 @@ struct MacRecapConfirmationTests {
             await store.ingest(HookEvent(kind: .stop, sessionID: sessionID, timestamp: now.addingTimeInterval(Double(index + 1))))
         }
         let recap = try #require(await store.snapshot(now: now.addingTimeInterval(3)).recap)
-        var state = MacRecapConfirmation()
+        var state = RecapConfirmation()
         let started = state.begin(recap: recap, sourceID: "mac", available: true)
         #expect(started)
         let attempt = try #require(state.attemptID)
@@ -179,7 +179,7 @@ struct MacRecapConfirmationTests {
 
     @Test("Accepted reads do not conceal a failed horizon and are not repeated on retry")
     func independentEffects() throws {
-        var state = MacRecapConfirmation()
+        var state = RecapConfirmation()
         let recap = Recap(entries: [entry("a", at: Date())])
         let independentBegin = state.begin(recap: recap, sourceID: "mac", available: true)
         #expect(independentBegin)

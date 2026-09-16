@@ -10,6 +10,7 @@ public struct E2ERunConfiguration: Sendable {
     public let audioEnabled: Bool
     public let host: String
     public let codexThreadID: String?
+    public let cursorACPEnabled: Bool
     public var keychainService: String { "com.vibebuddy.e2e.\(id).secrets" }
 
     public enum ConfigurationError: Error { case invalidEnvironment }
@@ -36,7 +37,7 @@ public struct E2ERunConfiguration: Sendable {
         }
         let allowed: Set<String> = ["VIBEBUDDY_E2E_ROOT", "VIBEBUDDY_E2E_ID", "VIBEBUDDY_E2E_PORT",
                                     "VIBEBUDDY_E2E_NOTIFICATIONS", "VIBEBUDDY_E2E_AUDIO",
-                                    "VIBEBUDDY_E2E_HOST", "VIBEBUDDY_E2E_CODEX_THREAD"]
+                                    "VIBEBUDDY_E2E_HOST", "VIBEBUDDY_E2E_CODEX_THREAD", "VIBEBUDDY_E2E_CURSOR_ACP"]
         guard keys.isSubset(of: allowed),
               let path = environment["VIBEBUDDY_E2E_ROOT"], path.hasPrefix("/"), !path.contains("\0"),
               let id = environment["VIBEBUDDY_E2E_ID"], !id.isEmpty,
@@ -49,7 +50,7 @@ public struct E2ERunConfiguration: Sendable {
         }
         let root = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
         guard root.path != "/" else { throw ConfigurationError.invalidEnvironment }
-        for key in ["VIBEBUDDY_E2E_NOTIFICATIONS", "VIBEBUDDY_E2E_AUDIO"] {
+        for key in ["VIBEBUDDY_E2E_NOTIFICATIONS", "VIBEBUDDY_E2E_AUDIO", "VIBEBUDDY_E2E_CURSOR_ACP"] {
             if let value = environment[key], value != "1" { throw ConfigurationError.invalidEnvironment }
         }
         let host = environment["VIBEBUDDY_E2E_HOST"] ?? "127.0.0.1"
@@ -69,6 +70,7 @@ public struct E2ERunConfiguration: Sendable {
         }
         self.host = host
         self.codexThreadID = threadID
+        cursorACPEnabled = environment["VIBEBUDDY_E2E_CURSOR_ACP"] == "1"
         self.root = root
         self.id = id
         self.port = port

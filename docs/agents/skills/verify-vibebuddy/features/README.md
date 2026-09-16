@@ -40,3 +40,6 @@ Each feature file starts with an H1 and one paragraph. It then uses exactly thes
 - [Remote approval](./remote-approval.md) covers Approve / Deny on a held permission.
 - [Question reply](./question-reply.md) covers answering a waiting question.
 - [iPhone Demo](./iphone-demo.md) covers exploring the iPhone chrome without a Mac.
+
+- [Cursor managed ACP](./cursor-managed-acp.md) covers same-session recovery, full native plans, tool results and cancellation.
+- [Cursor hooks](./cursor-hooks.md) covers shell failure decoding, stop deadlines and follow-up response handling.

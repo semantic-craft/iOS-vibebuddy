@@ -30,6 +30,9 @@ Environment:
                           <repo>/.scratch/verify-vibebuddy/<VERIFY_RUN_ID>
   VIBEBUDDY_QA_PORT       Isolated listen port. Default 18765. Must not be 9876.
   VIBEBUDDY_QA_TOKEN      Isolated bearer token. Default: generated.
+  VERIFY_DOCTOR_SNAPSHOT_TIMEOUT
+                          Authenticated snapshot deadline, 1-120 seconds.
+                          Default 45: includes first-use CLI capability probes.
 USAGE
 }
 
@@ -269,6 +272,9 @@ require_instance() {
 }
 
 cmd_doctor() {
+  local snapshot_timeout="${VERIFY_DOCTOR_SNAPSHOT_TIMEOUT:-45}"
+  [[ "$snapshot_timeout" =~ ^[1-9][0-9]{0,2}$ ]] && (( snapshot_timeout <= 120 )) || \
+    die "VERIFY_DOCTOR_SNAPSHOT_TIMEOUT must be an integer from 1 to 120 seconds"
   local issues=0
   local report
   report="$(mktemp)"
@@ -366,11 +372,14 @@ cmd_doctor() {
     issues=1
   fi
 
-  local snap_code snap
+  local snap_code snap snap_exit=0
   snap="$(mktemp)"
-  snap_code="$(curl -sS -o "$snap" -w '%{http_code}' --max-time 4 \
-    "$(base_url)/snapshot" -H "$(auth_header)" || true)"
-  if [[ "$snap_code" == "200" ]] && python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$snap"; then
+  # The first authenticated snapshot probes CLI sign-in/models before replying.
+  # One bounded request, not retries: a stuck probe must still fail doctor.
+  echo "snapshot_deadline_seconds=$snapshot_timeout" >>"$report"
+  snap_code="$(curl -sS -o "$snap" -w '%{http_code}' --max-time "$snapshot_timeout" \
+    "$(base_url)/snapshot" -H "$(auth_header)")" || snap_exit=$?
+  if [[ "$snap_exit" == "0" && "$snap_code" == "200" ]] && python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$snap"; then
     echo "ok GET /snapshot with token => 200 JSON" >>"$report"
     python3 - "$snap" >>"$report" <<'PY'
 import json, sys
@@ -400,7 +409,7 @@ PY
       issues=1
     fi
   else
-    echo "FAIL GET /snapshot with token => $snap_code" >>"$report"
+    echo "FAIL GET /snapshot with token => $snap_code (curl_exit=$snap_exit deadline=${snapshot_timeout}s)" >>"$report"
     issues=1
   fi
   rm -f "$snap"

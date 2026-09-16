@@ -40,6 +40,11 @@ public struct SessionActionSupport: Equatable, Sendable {
             let intent: SessionActionIntent = session.status == .needsResponse ? .answer : session.status == .done ? .continue : .steer
             return SessionActionSupport(intent: intent, unsupportedReason: String(localized: "Respond in Grok Bot on your Mac. Remote instructions are unavailable.", bundle: .module))
         }
+        if session.agent == .cursor, session.cursorACPRecoverable == true, session.controlChannel != .acp {
+            return SessionActionSupport(intent: .continue, unsupportedReason: session.cursorACPRecoveryUnavailable,
+                note: session.cursorACPRecoveryFailure.map { $0 + " Send again to retry reconnecting." }
+                    ?? "Reconnects the managed Cursor CLI session before sending this message.")
+        }
         if session.status == .needsResponse {
             let handling = WaitHandling.resolve(for: session)
             let canAnswer = handling == .remoteAvailable && session.waitKind == .question
@@ -101,6 +106,7 @@ public struct SessionActionSupport: Equatable, Sendable {
             return SessionActionSupport(intent: .stop,
                                         unsupportedReason: String(localized: "This task has already finished.", bundle: .module))
         case .needsResponse:
+            if channel == .acp { return SessionActionSupport(intent: .stop) }
             return SessionActionSupport(intent: .stop,
                                         unsupportedReason: String(localized: "This task is waiting on you, not running.", bundle: .module))
         }

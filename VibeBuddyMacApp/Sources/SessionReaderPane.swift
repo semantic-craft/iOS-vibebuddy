@@ -197,6 +197,9 @@ struct SessionReaderPane: View {
 
     @ViewBuilder private var moreItems: some View {
         if let live {
+            if SessionActionSupport.resolveStop(for: live).isAvailable {
+                Button("Stop task") { model.stop(live) }
+            }
             if live.status == .done, live.completionID != nil {
                 Button(live.hasUnreadCompletion ? "Mark as read" : "Mark as unread") {
                     acknowledgedBodyID = (model.completionSourceID ?? "unknown") + "/" + live.id + "/" + (live.completionID ?? "working")
@@ -511,16 +514,17 @@ private struct HeaderIcon: View {
 struct ReaderResultCard: View {
     let session: AgentSession
     @ObservedObject var model: MenuBarModel
-    @State private var completionBody: CompletionBody?
+    @StateObject private var resultReader = CompletionBodyReader()
+    @State private var resultAttempt = 0
     @State private var resultIsVisible = false
     @Binding var acknowledgedBodyID: String?
 
     private var resultKey: String { (model.completionSourceID ?? "unknown") + "/" + session.id + "/" + (session.completionID ?? "working") }
-    private var currentBody: CompletionBody? {
-        guard let completionBody, completionBody.sourceID == model.completionSourceID, completionBody.sessionID == session.id,
-              completionBody.completionID == session.completionID else { return nil }
-        return completionBody
+    private var resultRefresh: CompletionBodyRefresh {
+        // Local result reads can finish while inactive; acknowledgement still requires foreground visibility.
+        CompletionBodyRefresh(sourceID: model.completionSourceID, session: session, attempt: resultAttempt)
     }
+    private var currentBody: CompletionBody? { resultReader.body(for: resultRefresh) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -543,8 +547,15 @@ struct ReaderResultCard: View {
                 } else if let reason = body.unavailableReason {
                     Text(LocalizedStringKey(reason)).font(MacTheme.font(11)).foregroundStyle(MacTheme.ink3)
                 }
+            } else if resultReader.state(for: resultRefresh) == .failed {
+                Text("Couldn’t load this result. Try again.").font(MacTheme.font(11)).foregroundStyle(MacTheme.ink3)
             } else {
                 Text("Loading this completion…").font(MacTheme.font(11)).foregroundStyle(MacTheme.ink3)
+            }
+            if currentBody?.text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false,
+               resultReader.state(for: resultRefresh) != .loading {
+                Button("Retry") { resultAttempt += 1 }
+                    .buttonStyle(PillButtonStyle(kind: .ghost, size: .small))
             }
             HStack(spacing: 6) {
                 Button(session.hasUnreadCompletion ? "Mark as read" : "Mark as unread") {
@@ -560,17 +571,19 @@ struct ReaderResultCard: View {
         .frame(maxWidth: 720, alignment: .leading)
         .background(MacTheme.bg3, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(MacTheme.line, lineWidth: CompanionType.hairline))
-        .task(id: resultKey) {
-            completionBody = nil
-            resultIsVisible = false
-            let key = resultKey
-            let loaded = await model.completionBody(for: session)
-            guard !Task.isCancelled, key == resultKey else { return }
-            completionBody = loaded
+        .task(id: resultRefresh) {
+            if currentBody?.text?.isEmpty != false { resultIsVisible = false }
+            await resultReader.load(resultRefresh) { await model.completionBody(for: session) }
         }
         .onChange(of: currentBody) { _, _ in acknowledgeVisibleBody() }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in acknowledgeVisibleBody() }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in acknowledgeVisibleBody() }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+            resultAttempt += 1
+            acknowledgeVisibleBody()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            resultAttempt += 1
+            acknowledgeVisibleBody()
+        }
     }
 
     private func acknowledgeVisibleBody() {

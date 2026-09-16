@@ -48,6 +48,7 @@ public struct CursorACPLaunch: Sendable, Equatable {
 }
 
 public actor CursorACPMonitor {
+    public static var defaultRecoveryDirectory: URL { CursorACPRecovery.directory }
 
     /// How long a card may wait before the agent is told the request was
     /// cancelled. ACP blocks the turn until it hears back, so this is the
@@ -58,12 +59,13 @@ public actor CursorACPMonitor {
         let client: CursorACPClient
         let cwd: String
         var running = false
+        var finishing = false
+        var turnID = UUID()
         var stopRequestedAt: Date?
         var text = ""
-        var tools: [String: String] = [:]
+        var tools: [String: ToolCallRecord] = [:]
         var openApprovals: [String: JSONRPCID] = [:]
         var openQuestions: [String: JSONRPCID] = [:]
-        var children: [String] = []
     }
 
     private let store: SessionStore
@@ -84,6 +86,67 @@ public actor CursorACPMonitor {
     /// runs once per verdict, not once per snapshot.
     private var models: [String]?
     private var hosted: [String: Hosted] = [:]
+    private let recoveryDirectory: URL?
+    private var recoveries: [String: CursorACPRecovery] = [:]
+    private var loading: Set<String> = []
+    private var preparing: [String: CursorACPClient] = [:]
+    private var stopping = false
+    private var recoveryRegistered = false
+
+    public func owns(_ sessionID: String) -> Bool { hosted[sessionID] != nil || recoveries[sessionID] != nil }
+
+    /// Register historical rows without launching processes or replaying events.
+    public func registerRecoverableSessions() async {
+        guard !recoveryRegistered, let recoveryDirectory else { return }
+        recoveryRegistered = true
+        for record in CursorACPRecovery.read(in: recoveryDirectory) {
+            recoveries[record.sessionID] = record
+            await store.registerACPRecovery(sessionID: record.sessionID, cwd: record.cwd,
+                model: record.options.model, unavailable: record.unavailable, updatedAt: record.updatedAt ?? record.createdAt)
+        }
+    }
+
+    private func restore(_ sessionID: String) async -> Bool {
+        guard !stopping else { return false }
+        if let entry = hosted[sessionID] { return !entry.client.isClosed }
+        guard !stopping, !loading.contains(sessionID), let record = recoveries[sessionID],
+              let recoveryDirectory else { return false }
+        guard record.unavailable == nil else { return false }
+        loading.insert(sessionID)
+        defer { loading.remove(sessionID); preparing[sessionID] = nil }
+        var client: CursorACPClient?
+        do {
+            let lease = try CursorACPLease(directory: recoveryDirectory, record: record)
+            var options = record.options
+            options.worktree = false
+            let connection = try spawn(CursorACPLaunch(cwd: record.cwd, options: options))
+            client = connection
+            preparing[sessionID] = connection
+            try connection.retainLease(lease)
+            wire(connection)
+            connection.suppressUpdates()
+            connection.start()
+            let hello = try await connection.request("initialize", params: [
+                "protocolVersion": 1, "clientCapabilities": ["fs": ["readTextFile": false, "writeTextFile": false], "terminal": false],
+                "clientInfo": ["name": "vibebuddy", "version": "1"]])
+            guard (hello["protocolVersion"] as? Int) == 1,
+                  (hello["agentCapabilities"] as? [String: Any])?["loadSession"] as? Bool == true else {
+                throw NSError(domain: "CursorACP", code: 2, userInfo: [NSLocalizedDescriptionKey: "Cursor CLI does not support ACP session loading"])
+            }
+            _ = try await connection.request("authenticate", params: ["methodId": "cursor_login"])
+            _ = try await connection.request("session/load", params: ["sessionId": sessionID, "cwd": record.cwd, "mcpServers": []])
+            guard !stopping, !connection.isClosed else { throw CursorACPClient.ClientError.closed }
+            hosted[sessionID] = Hosted(client: connection, cwd: record.cwd)
+            connection.enableUpdates()
+            await store.setACPHosted(sessionID: sessionID, true)
+            return true
+        } catch {
+            client?.close()
+            await store.registerACPRecovery(sessionID: sessionID, cwd: record.cwd, model: record.options.model,
+                unavailable: "Cursor session could not be restored: \(error.localizedDescription)", updatedAt: record.updatedAt ?? record.createdAt, retryable: true)
+            return false
+        }
+    }
 
     public init(store: SessionStore,
                 approvals: ApprovalRegistry,
@@ -97,7 +160,9 @@ public actor CursorACPMonitor {
                 executable: URL? = CursorCLI.resolveExecutable(),
                 signInProbe: (@Sendable () async -> Bool)? = nil,
                 modelsProbe: (@Sendable () async -> [String])? = nil,
-                spawn: (@Sendable (CursorACPLaunch) throws -> CursorACPClient)? = nil) {
+                spawn: (@Sendable (CursorACPLaunch) throws -> CursorACPClient)? = nil,
+                recoveryDirectory: URL? = nil) {
+        self.recoveryDirectory = recoveryDirectory
         self.store = store
         self.approvals = approvals
         self.approvalContext = approvalContext
@@ -160,6 +225,7 @@ public actor CursorACPMonitor {
     /// Start a conversation in `cwd` and give it its first prompt. Returns once
     /// the prompt has been accepted; the turn itself reports through the store.
     public func dispatch(_ request: DispatchRequest) async -> DispatchOutcome {
+        guard !stopping else { return .unavailable("The Cursor host is shutting down") }
         guard request.agent == .cursor else { return .unsupported("This host only starts Cursor sessions") }
         guard executable != nil else {
             return .unavailable("The Cursor CLI (cursor-agent) is not installed on this Mac")
@@ -176,6 +242,9 @@ public actor CursorACPMonitor {
         do { client = try spawn(CursorACPLaunch(cwd: request.cwd, options: options)) } catch {
             return .unavailable("Couldn't start cursor-agent: \(error)")
         }
+        let preparationID = UUID().uuidString
+        preparing[preparationID] = client
+        defer { preparing[preparationID] = nil }
         wire(client)
         client.start()
         do {
@@ -202,7 +271,20 @@ public actor CursorACPMonitor {
                 client.close()
                 return .unavailable("session/new returned no session id")
             }
+            guard !stopping else { client.close(); return .unavailable("The Cursor host is shutting down") }
+            if let recoveryDirectory {
+                let actualCwd = created["cwd"] as? String
+                let record = CursorACPRecovery(sessionID: sessionID, cwd: actualCwd ?? request.cwd,
+                    options: options, createdAt: Date(), origin: "vibebuddy-acp",
+                    unavailable: options.worktree && actualCwd == nil ? "Cursor did not report the created worktree path; recovery is unavailable." : nil)
+                let lease = try CursorACPLease(directory: recoveryDirectory, record: record)
+                try client.retainLease(lease)
+                try record.save(in: recoveryDirectory)
+                recoveries[sessionID] = record
+                await store.registerACPRecovery(sessionID: sessionID, cwd: record.cwd, model: options.model, unavailable: record.unavailable, updatedAt: record.createdAt)
+            }
             hosted[sessionID] = Hosted(client: client, cwd: request.cwd)
+            client.enableUpdates()
             await store.setACPHosted(sessionID: sessionID, true)
             let now = Date()
             // The chosen model names the row from the start; ACP's updates
@@ -225,7 +307,7 @@ public actor CursorACPMonitor {
     /// Continue a hosted conversation that is idle. False when it is running
     /// (a supplement belongs in the follow-up queue) or not hosted here.
     public func prompt(sessionID: String, text: String) async -> Bool {
-        guard let entry = hosted[sessionID], !entry.running, !entry.client.isClosed else { return false }
+        guard await restore(sessionID), let entry = hosted[sessionID], !entry.running, !entry.finishing, !entry.client.isClosed else { return false }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         startTurn(sessionID: sessionID, text: trimmed)
@@ -248,15 +330,22 @@ public actor CursorACPMonitor {
         entry.stopRequestedAt = Date()
         hosted[sessionID] = entry
         entry.client.notify("session/cancel", params: ["sessionId": sessionID])
+        await followups.cancel(conversationID: sessionID)
+        guard hosted[sessionID]?.client === entry.client, hosted[sessionID]?.turnID == entry.turnID else { return .sent }
         // The protocol requires every open permission request to be answered
         // `cancelled` once the turn is; the cards come down with them.
-        await withdrawOpenRequests(sessionID: sessionID)
+        await withdrawOpenRequests(sessionID: sessionID, expectedClient: entry.client, expectedTurnID: entry.turnID)
         return .sent
     }
 
     /// End every hosted process. Called when the daemon shuts down.
     public func shutdown() async {
+        stopping = true
+        for client in preparing.values { client.close() }
+        preparing = [:]
         for (sessionID, entry) in hosted {
+            await followups.cancel(conversationID: sessionID)
+            await withdrawOpenRequests(sessionID: sessionID, expectedClient: entry.client, expectedTurnID: entry.turnID)
             entry.client.close()
             await store.setACPHosted(sessionID: sessionID, false)
         }
@@ -268,7 +357,14 @@ public actor CursorACPMonitor {
     private func startTurn(sessionID: String, text: String) {
         guard var entry = hosted[sessionID] else { return }
         entry.running = true
+        entry.turnID = UUID()
+        if var record = recoveries[sessionID], let recoveryDirectory {
+            record.updatedAt = Date()
+            try? record.save(in: recoveryDirectory)
+            recoveries[sessionID] = record
+        }
         entry.text = ""
+        entry.tools = [:]
         entry.stopRequestedAt = nil
         hosted[sessionID] = entry
         let client = entry.client
@@ -291,13 +387,20 @@ public actor CursorACPMonitor {
             } catch {
                 failure = "the Cursor CLI exited before the turn ended"
             }
-            await self.turnEnded(sessionID: sessionID, stopReason: stopReason, failure: failure)
+            await self.turnEnded(sessionID: sessionID, client: client, stopReason: stopReason, failure: failure)
         }
     }
 
-    private func turnEnded(sessionID: String, stopReason: String, failure: String?) async {
-        guard var entry = hosted[sessionID] else { return }
+    private func turnEnded(sessionID: String, client: CursorACPClient, stopReason: String, failure: String?) async {
+        guard var entry = hosted[sessionID], entry.client === client else { return }
+        // The prompt reply fixes this turn's outcome before cleanup yields.
+        // No cancel or next prompt can change a turn that is already ending.
         entry.running = false
+        entry.finishing = true
+        hosted[sessionID] = entry
+        await withdrawOpenRequests(sessionID: sessionID, expectedClient: client, expectedTurnID: entry.turnID)
+        entry.openApprovals = [:]
+        entry.openQuestions = [:]
         let now = Date()
         let asked = entry.stopRequestedAt != nil
         let cancelled = stopReason == "cancelled" || asked
@@ -312,12 +415,8 @@ public actor CursorACPMonitor {
         case (nil, "max_turn_requests"): message = "Turn hit the request limit"
         default: message = "Turn ended: \(stopReason)"
         }
-        for child in entry.children {
-            await store.ingest(HookEvent(kind: .childLifecycle, sessionID: sessionID, agent: .cursor,
-                                         observationSource: .acp, timestamp: now, childID: child,
-                                         childKind: .subagent, childAction: .stopped))
-        }
-        entry.children = []
+        guard hosted[sessionID]?.client === client, hosted[sessionID]?.turnID == entry.turnID else { return }
+        entry.finishing = false
         hosted[sessionID] = entry
         // A failed ending carries `toolError` as well as its wording, so the
         // stuck cue does not hang on the failure heuristic recognising a phrase.
@@ -327,7 +426,10 @@ public actor CursorACPMonitor {
                                completionText: succeeded && !entry.text.isEmpty ? entry.text : nil,
                                completionSucceeded: cancelled ? false : succeeded)
         await store.ingest(cancelled ? ending.markingUserStop() : ending)
+        guard hosted[sessionID]?.client === client, hosted[sessionID]?.turnID == entry.turnID else { return }
+        if cancelled || entry.client.isClosed { await followups.cancel(conversationID: sessionID) }
         if entry.client.isClosed {
+            guard hosted[sessionID]?.client === client, hosted[sessionID]?.turnID == entry.turnID else { return }
             hosted[sessionID] = nil
             await store.setACPHosted(sessionID: sessionID, false)
             await store.recordSourceSignal(agent: .cursor, source: .acp, health: .temporarilySilent, at: now)
@@ -337,7 +439,9 @@ public actor CursorACPMonitor {
         // the next prompt — the same moment the hooks' `stop` would have
         // handed it to Cursor.
         if !cancelled, let next = await followups.take(conversationID: sessionID, now: now) {
+            guard hosted[sessionID]?.client === client, hosted[sessionID]?.turnID == entry.turnID else { return }
             await store.noteCursorFollowupHandoff(sessionID: sessionID, loopCount: nil, source: .acp, at: now)
+            guard hosted[sessionID]?.client === client, hosted[sessionID]?.turnID == entry.turnID else { return }
             startTurn(sessionID: sessionID, text: next)
         }
     }
@@ -350,34 +454,38 @@ public actor CursorACPMonitor {
     private struct Payload: @unchecked Sendable { let value: [String: Any]? }
 
     private func wire(_ client: CursorACPClient) {
-        client.onNotification = { [weak self] method, params in
-            guard let self else { return }
+        client.onNotification = { [weak self, weak client] method, params in
+            guard let self, let client else { return }
             let payload = Payload(value: params)
-            Task { await self.handleNotification(method: method, params: payload.value) }
+            await self.handleNotification(method: method, params: payload.value, client: client)
         }
-        client.onRequest = { [weak self] id, method, params in
-            guard let self else { return }
+        client.onRequest = { [weak self, weak client] id, method, params in
+            guard let self, let client else { return }
             let payload = Payload(value: params)
             Task { await self.handleRequest(id: id, method: method, params: payload.value, client: client) }
         }
-        client.onClose = { [weak self] in
-            guard let self else { return }
+        client.onClose = { [weak self, weak client] in
+            guard let self, let client else { return }
             Task { await self.clientClosed(client) }
         }
     }
 
     private func clientClosed(_ client: CursorACPClient) async {
         for (sessionID, entry) in hosted where entry.client === client {
-            if entry.running { continue }   // `turnEnded` will see `isClosed` and finish up.
+            await followups.cancel(conversationID: sessionID)
+            guard hosted[sessionID]?.client === entry.client else { continue }
+            await withdrawOpenRequests(sessionID: sessionID, expectedClient: entry.client, expectedTurnID: entry.turnID)
+            guard hosted[sessionID]?.client === client else { continue }
+            if hosted[sessionID]?.running == true || hosted[sessionID]?.finishing == true { continue } // `turnEnded` finishes the turn.
             hosted[sessionID] = nil
             await store.setACPHosted(sessionID: sessionID, false)
         }
     }
 
-    private func handleNotification(method: String, params: [String: Any]?) async {
+    private func handleNotification(method: String, params: [String: Any]?, client: CursorACPClient) async {
         guard method == "session/update",
               let sessionID = params?["sessionId"] as? String,
-              var entry = hosted[sessionID],
+              var entry = hosted[sessionID], entry.client === client,
               let update = params?["update"] as? [String: Any],
               let kind = update["sessionUpdate"] as? String else { return }
         let now = Date()
@@ -387,25 +495,37 @@ public actor CursorACPMonitor {
                 entry.text = String((entry.text + text).suffix(4000))
                 hosted[sessionID] = entry
             }
-        case "tool_call":
-            let callID = (update["toolCallId"] as? String) ?? UUID().uuidString
-            let name = Self.canonicalTool(kind: update["kind"] as? String, title: update["title"] as? String)
-            entry.tools[callID] = name
-            hosted[sessionID] = entry
-            await store.ingest(HookEvent(kind: .preToolUse, sessionID: sessionID, agent: .cursor,
-                                         cwd: entry.cwd, toolName: name,
-                                         message: update["title"] as? String,
-                                         observationSource: .acp, timestamp: now))
-        case "tool_call_update":
-            let callID = (update["toolCallId"] as? String) ?? ""
+        case "tool_call", "tool_call_update":
+            // Updates are partial; Cursor sends the path separately from the
+            // initial call and later sends only its terminal status. Preserve
+            // the provider ID verbatim (real IDs can contain a newline).
+            guard let callID = update["toolCallId"] as? String, !callID.isEmpty else { return }
+            let old = entry.tools[callID]
+            let name = update["kind"] != nil
+                ? Self.canonicalTool(kind: update["kind"] as? String, title: update["title"] as? String)
+                : old?.tool ?? Self.canonicalTool(kind: nil, title: update["title"] as? String)
+            let input = update["rawInput"] as? [String: Any] ?? [:]
+            let locations = (update["locations"] as? [[String: Any]] ?? []).compactMap { $0["path"] as? String }
+            let paths = locations + [input["path"] as? String, input["file_path"] as? String].compactMap { $0 }
             let status = update["status"] as? String
-            guard status == "completed" || status == "failed" else { return }
-            let name = entry.tools.removeValue(forKey: callID) ?? "tool"
+            let result: ToolCallRecord.Result = status == "completed" ? .succeeded
+                : status == "failed" ? .failed : old?.result ?? .unconfirmed
+            let record = ToolCallRecord(id: callID, tool: name,
+                command: input["command"] as? String ?? old?.command,
+                files: (old?.files ?? []) + paths, result: result, observedAt: now, source: "acp",
+                coverage: "ACP-reported tool status; output and edit volume not retained")
+            if old == nil, entry.tools.count >= 100,
+               let oldest = entry.tools.min(by: { $0.value.observedAt < $1.value.observedAt })?.key {
+                entry.tools[oldest] = nil
+            }
+            entry.tools[callID] = record
             hosted[sessionID] = entry
-            await store.ingest(HookEvent(kind: .postToolUse, sessionID: sessionID, agent: .cursor,
-                                         cwd: entry.cwd, toolName: name,
-                                         observationSource: .acp, toolError: status == "failed",
-                                         timestamp: now))
+            var event = HookEvent(kind: result == .unconfirmed ? .preToolUse : .postToolUse,
+                sessionID: sessionID, agent: .cursor, cwd: entry.cwd, toolName: name,
+                message: update["title"] as? String, observationSource: .acp,
+                toolError: result == .failed, timestamp: now)
+            event.toolCall = record
+            await store.ingest(event)
         case "usage_update":
             guard let used = (update["used"] as? NSNumber)?.intValue,
                   let size = (update["size"] as? NSNumber)?.intValue else { return }
@@ -422,8 +542,12 @@ public actor CursorACPMonitor {
     private func handleRequest(id: JSONRPCID, method: String, params: [String: Any]?, client: CursorACPClient) async {
         let sessionID = (params?["sessionId"] as? String)
             ?? hosted.first(where: { $0.value.client === client })?.key
-        guard let sessionID, hosted[sessionID] != nil else {
+        guard let sessionID, hosted[sessionID]?.client === client else {
             client.respondError(id: id, code: -32602, message: "unknown session")
+            return
+        }
+        guard let current = hosted[sessionID], current.running, !current.finishing, current.stopRequestedAt == nil else {
+            client.respond(id: id, result: ["outcome": ["outcome": "cancelled"]])
             return
         }
         switch method {
@@ -433,23 +557,12 @@ public actor CursorACPMonitor {
             await askQuestion(id: id, sessionID: sessionID, params: params ?? [:], client: client)
         case "cursor/create_plan":
             await createPlan(id: id, sessionID: sessionID, params: params ?? [:], client: client)
-        case "cursor/update_todos":
-            let todos = params?["todos"] ?? []
-            client.respond(id: id, result: ["outcome": ["outcome": "accepted", "todos": todos]])
-        case "cursor/task":
-            // The subagent runs on Cursor's side; vibebuddy only shows the row.
-            let callID = (params?["toolCallId"] as? String) ?? UUID().uuidString
-            let childID = "subagent:\(callID)"
-            if var entry = hosted[sessionID] { entry.children.append(childID); hosted[sessionID] = entry }
-            let type = Self.subagentType(params?["subagentType"])
-            await store.ingest(HookEvent(kind: .childLifecycle, sessionID: sessionID, agent: .cursor,
-                                         message: params?["description"] as? String,
-                                         observationSource: .acp, timestamp: Date(),
-                                         childID: childID, childKind: .subagent,
-                                         childName: type, childType: type, childAction: .started))
-            client.respond(id: id, result: ["outcome": ["outcome": "completed"]])
-        case "cursor/generate_image":
-            client.respond(id: id, result: ["outcome": ["outcome": "rejected", "reason": "vibebuddy does not generate images"]])
+        case "cursor/update_todos", "cursor/task", "cursor/generate_image":
+            // Cursor documents these as notifications, not client-executed
+            // requests. An unexpected request must not invent execution or
+            // image-generation outcomes. Notification handling remains unknown
+            // until captured evidence establishes the actual event shape.
+            client.respondError(id: id, code: -32601, message: "This Cursor extension is notification-only; no execution outcome is available")
         default:
             // `fs/*` and `terminal/*` were declared unsupported at initialize;
             // anything else is a method this client does not know.
@@ -464,7 +577,7 @@ public actor CursorACPMonitor {
         let toolCall = params["toolCall"] as? [String: Any] ?? [:]
         let callID = toolCall["toolCallId"] as? String ?? ""
         let title = toolCall["title"] as? String
-        let tool = entry.tools[callID]
+        let tool = entry.tools[callID]?.tool
             ?? Self.canonicalTool(kind: toolCall["kind"] as? String, title: title)
         var input = CursorToolVocabulary.canonicalInput(toolCall["rawInput"] as? [String: Any] ?? [:])
         if tool == "Bash", input["command"] == nil, let title { input["command"] = title }
@@ -532,10 +645,10 @@ public actor CursorACPMonitor {
 
     private func createPlan(id: JSONRPCID, sessionID: String, params: [String: Any], client: CursorACPClient) async {
         let name = (params["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let overview = (params["overview"] as? String) ?? (params["plan"] as? String) ?? ""
+        let body = Self.planText(params)
         let options = [QuestionOption(id: "accept", label: "Accept"), QuestionOption(id: "reject", label: "Reject")]
         let item = QuestionItem(id: "plan", header: name.flatMap { $0.isEmpty ? nil : $0 } ?? "Plan",
-                                text: overview.isEmpty ? "Approve this plan?" : String(overview.prefix(600)),
+                                text: body,
                                 options: options, multiSelect: false, allowsOther: false)
         let question = PendingQuestion(id: makeID(), prompt: item.text, options: options,
                                        questions: [item], isBlocking: true)
@@ -549,15 +662,37 @@ public actor CursorACPMonitor {
             client.respond(id: id, result: ["outcome": ["outcome": "cancelled"]])
             return
         }
-        let chosen = (answers["plan"] ?? answers.values.first ?? []).joined(separator: " ").lowercased()
-        let accepted = chosen.contains("accept")
+        let choices = answers["plan"] ?? answers.values.first ?? []
+        let chosen = choices.joined(separator: " ")
+        let accepted = choices.count == 1 && choices[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "accept"
         client.respond(id: id, result: ["outcome": accepted
             ? ["outcome": "accepted"]
             : ["outcome": "rejected", "reason": chosen.isEmpty ? "rejected from vibebuddy" : chosen]])
     }
 
-    private func withdrawOpenRequests(sessionID: String) async {
-        guard var entry = hosted[sessionID] else { return }
+    /// The plan capture contains an independent full markdown body and a
+    /// short overview. Keep the body byte-for-byte inside the existing question
+    /// text; single-question cards do not render the header, so include its name.
+    static func planText(_ params: [String: Any]) -> String {
+        func nonempty(_ value: Any?) -> String? {
+            guard let text = value as? String, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            return text
+        }
+        let body = nonempty(params["plan"]) ?? nonempty(params["overview"]) ?? "Approve this plan?"
+        var parts = [String]()
+        if let name = nonempty(params["name"]) { parts.append(name) }
+        parts.append(body)
+        let todos = (params["todos"] as? [[String: Any]] ?? []).compactMap { todo -> String? in
+            guard let content = nonempty(todo["content"]) else { return nil }
+            let status = nonempty(todo["status"]) ?? "unknown"
+            return "- [\(status)] \(content)"
+        }
+        if !todos.isEmpty { parts.append("Plan tasks (agent-reported)\n" + todos.joined(separator: "\n")) }
+        return parts.joined(separator: "\n\n")
+    }
+
+    private func withdrawOpenRequests(sessionID: String, expectedClient: CursorACPClient, expectedTurnID: UUID) async {
+        guard var entry = hosted[sessionID], entry.client === expectedClient, entry.turnID == expectedTurnID else { return }
         let approvalsOpen = entry.openApprovals
         let questionsOpen = entry.openQuestions
         entry.openApprovals = [:]
@@ -641,9 +776,4 @@ public actor CursorACPMonitor {
         return ["outcome": ["outcome": "answered", "answers": selected]]
     }
 
-    static func subagentType(_ raw: Any?) -> String? {
-        if let text = raw as? String { return text }
-        if let custom = (raw as? [String: Any])?["custom"] as? String { return custom }
-        return nil
-    }
 }

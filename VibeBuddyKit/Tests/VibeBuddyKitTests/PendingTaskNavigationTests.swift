@@ -41,4 +41,15 @@ struct PendingTaskNavigationTests {
         let d = task("d", .done)
         #expect(tour.next(in: [b, d], after: newA)?.id == "d")
     }
+    @Test("Phone stops at the end even after reads remove visited tasks")
+    func nonWrappingTour() {
+        let wait = task("wait", .needsResponse), first = task("first", .done), last = task("last", .done)
+        var tour = PendingTaskNavigation()
+        tour.select(first, in: [wait, first, last])
+        #expect(tour.next(in: [wait, last], after: first, wraps: false)?.id == last.id)
+        #expect(tour.next(in: [wait], after: last, wraps: false) == nil)
+        var newWait = wait; newWait.statusSince = now.addingTimeInterval(1)
+        #expect(tour.next(in: [newWait], after: last, wraps: false)?.id == wait.id)
+    }
+
 }

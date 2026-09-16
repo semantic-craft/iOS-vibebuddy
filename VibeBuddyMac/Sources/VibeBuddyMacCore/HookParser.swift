@@ -86,6 +86,7 @@ public enum HookParser {
             waitKind: waitKind(raw),
             transcriptPath: raw.transcriptPath,
             model: raw.toModel ?? raw.model,
+            observationSource: agent == .codex ? .hook : nil,
             toolError: kind == .postToolUse && (explicitToolFailure || detectToolError(data)),
             timestamp: receivedAt,
             childID: child.id ?? nestedChildID,
@@ -93,6 +94,7 @@ public enum HookParser {
             childName: child.name,
             childType: child.type,
             childAction: child.action,
+            turnID: agent == .codex ? Self.nonEmpty(raw.turnId) : nil,
             completionText: raw.hookEventName == "Stop" ? raw.lastAssistantMessage : nil,
             completionSucceeded: raw.hookEventName == "Stop",
             permissionModeRaw: raw.permissionMode
@@ -229,6 +231,7 @@ public enum HookParser {
         let hookEventName: String
         let source: String?
         let sessionId: String?
+        let turnId: String?
         let cwd: String?
         let toolName: String?
         let notificationType: String?

@@ -732,6 +732,7 @@ public enum ObservationHealthDetector {
             data = data.prefix(through: newline)
         }
         var version: String?
+        var sawSessionMetadata = false
         var hasProgress = false
         var invalid = false
         for line in data.split(separator: 0x0A) {
@@ -747,13 +748,14 @@ public enum ObservationHealthDetector {
                 continue
             }
             if type == "session_meta" {
+                guard !sawSessionMetadata else { continue }
+                sawSessionMetadata = true
                 guard let value = payload["cli_version"] as? String,
                       value.range(of: #"^\d+\.\d+\.\d+(?:-[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*)?(?:\+[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*)?$"#,
                                   options: .regularExpression) != nil else {
                     invalid = true
                     continue
                 }
-                if let version, version != value { invalid = true }
                 version = value
                 // Without identity the parser discards every lifecycle event.
                 if (payload["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {

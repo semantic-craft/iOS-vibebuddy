@@ -7,6 +7,7 @@ import VibeBuddyKit
 /// stream even though it does not execute the user's CLI hooks, making it the
 /// authoritative local fallback for desktop task progress.
 public struct CodexRolloutParser: Sendable {
+    private var sawSessionMetadata = false
     public private(set) var sessionID: String?
     public private(set) var cwd: String?
     public private(set) var isDesktopSession = false
@@ -23,6 +24,8 @@ public struct CodexRolloutParser: Sendable {
     private var contextTokens: Int?
     private var contextWindow: Int?
     private var activeTurnIDs: Set<String> = []
+    private var turnStarts: [String: Date] = [:]
+    private var pendingFinalBoundary: (id: String, startedAt: Date)?
     private var anonymousTurnCount = 0
     /// A tool record after probe retirement, with no new `task_started`.
     private var resumedActivity = false
@@ -47,6 +50,9 @@ public struct CodexRolloutParser: Sendable {
         let timestamp = Self.timestamp(root["timestamp"] as? String) ?? receivedAt
 
         if recordType == "session_meta" {
+            // A fork replays ancestor metadata after its owning envelope.
+            guard !sawSessionMetadata else { return [] }
+            sawSessionMetadata = true
             sessionID = payload["id"] as? String
             cwd = payload["cwd"] as? String
             let originator = (payload["originator"] as? String)?.lowercased()
@@ -78,21 +84,28 @@ public struct CodexRolloutParser: Sendable {
                 guard let info = payload["info"] as? [String: Any] else { return [] }
                 return usageEvents(info, sessionID: sessionID, timestamp: timestamp)
             case "task_started":
-                startTurn(payload["turn_id"] as? String)
+                startTurn(payload["turn_id"] as? String, timestamp: timestamp)
                 return [event(.userPromptSubmit, sessionID: sessionID, timestamp: timestamp,
                               turnID: payload["turn_id"] as? String)]
             case "task_complete":
+                let completedID = payload["turn_id"] as? String
+                let startedAt = completedID.flatMap { turnStarts[$0] }
+                    ?? (pendingFinalBoundary?.id == completedID ? pendingFinalBoundary?.startedAt : nil)
+                if pendingFinalBoundary?.id == completedID { pendingFinalBoundary = nil }
                 finishTurn(payload["turn_id"] as? String)
                 guard !turnActive else { return [] }
                 return [event(.stop, sessionID: sessionID,
                               message: payload["last_agent_message"] as? String,
-                              timestamp: timestamp, turnID: payload["turn_id"] as? String,
+                              timestamp: timestamp, turnID: payload["turn_id"] as? String, turnStartedAt: startedAt,
                               completionText: payload["last_agent_message"] as? String, completionSucceeded: true)]
             case "turn_aborted":
+                if payload["turn_id"] == nil || payload["turn_id"] as? String == pendingFinalBoundary?.id {
+                    pendingFinalBoundary = nil
+                }
                 finishTurn(payload["turn_id"] as? String)
                 guard !turnActive else { return [] }
                 return [event(.stop, sessionID: sessionID,
-                              message: "Turn aborted", timestamp: timestamp, completionSucceeded: false)]
+                              message: "Turn aborted", timestamp: timestamp, turnID: payload["turn_id"] as? String, completionSucceeded: false)]
             case "exec_approval_request":
                 return waiting(event(.notification, sessionID: sessionID, toolName: "Shell",
                                      message: "Permission required for Shell", timestamp: timestamp))
@@ -118,9 +131,16 @@ public struct CodexRolloutParser: Sendable {
                 return eventsForToolOutput(payload, sessionID: sessionID, timestamp: timestamp)
             }
             if itemType == "message", payload["phase"] as? String == "final_answer" {
-                finishUnknownTurn()
+                let metadata = payload["internal_chat_message_metadata_passthrough"] as? [String: Any]
+                let turnID = (metadata?["turn_id"] as? String)
+                    ?? (activeTurnIDs.count == 1 && anonymousTurnCount == 0 ? activeTurnIDs.first : nil)
+                let startedAt = turnID.flatMap { turnStarts[$0] }
+                if let turnID, let startedAt { pendingFinalBoundary = (turnID, startedAt) }
+                if let turnID { finishTurn(turnID) }
+                else { finishUnknownTurn() }
                 guard !turnActive else { return [] }
-                return [event(.stop, sessionID: sessionID, timestamp: timestamp)]
+                return [event(.stop, sessionID: sessionID, timestamp: timestamp,
+                              turnID: turnID, turnStartedAt: startedAt)]
             }
         }
 
@@ -228,18 +248,19 @@ public struct CodexRolloutParser: Sendable {
         childType: String? = nil,
         childAction: HookEvent.ChildLifecycleAction? = nil,
         enrichment: TranscriptInfo? = nil,
-        turnID: String? = nil, completionText: String? = nil, completionSucceeded: Bool? = nil
+        turnID: String? = nil, turnStartedAt: Date? = nil, completionText: String? = nil, completionSucceeded: Bool? = nil
     ) -> HookEvent {
         // Every event that reaches here comes from a rollout the parser has
         // already classified as Codex Desktop, so the session id is also the
         // thread id ChatGPT.app opens — the one jump target these sessions have.
-        HookEvent(kind: kind, sessionID: sessionID, agent: .codex,
+        let identifiedTurn = turnID ?? (activeTurnIDs.count == 1 && anonymousTurnCount == 0 ? activeTurnIDs.first : nil)
+        return HookEvent(kind: kind, sessionID: sessionID, agent: .codex,
                   cwd: cwd, toolName: toolName, message: message, model: model,
                   observationSource: .rollout,
                   toolError: toolError, timestamp: timestamp,
                   childID: childID, childKind: childKind, childName: childName,
                   childType: childType, childAction: childAction,
-                  turnID: turnID, enrichment: enrichment,
+                  turnID: identifiedTurn, turnStartedAt: turnStartedAt ?? identifiedTurn.flatMap { turnStarts[$0] }, enrichment: enrichment,
                   desktopThreadID: sessionID, completionText: completionText, completionSucceeded: completionSucceeded,
                   approvalPolicyRaw: approvalPolicyRaw, sandboxPolicyRaw: sandboxPolicyRaw)
     }
@@ -674,10 +695,13 @@ public struct CodexRolloutParser: Sendable {
         return [event]
     }
 
-    private mutating func startTurn(_ turnID: String?) {
+    private mutating func startTurn(_ turnID: String?, timestamp: Date) {
         awaitingUser = false
         resumedActivity = false
-        if let turnID, !turnID.isEmpty { activeTurnIDs.insert(turnID) }
+        if let turnID, !turnID.isEmpty {
+            activeTurnIDs.insert(turnID)
+            if turnStarts[turnID] == nil { turnStarts[turnID] = timestamp }
+        }
         else { anonymousTurnCount += 1 }
         refreshTurnState()
     }
@@ -686,6 +710,7 @@ public struct CodexRolloutParser: Sendable {
         resumedActivity = false
         if let turnID, !turnID.isEmpty {
             activeTurnIDs.remove(turnID)
+            turnStarts[turnID] = nil
         } else if anonymousTurnCount > 0 {
             anonymousTurnCount -= 1
         } else if activeTurnIDs.count == 1 {
@@ -702,6 +727,7 @@ public struct CodexRolloutParser: Sendable {
     }
 
     private mutating func refreshTurnState() {
+        turnStarts = turnStarts.filter { activeTurnIDs.contains($0.key) }
         turnActive = anonymousTurnCount > 0 || !activeTurnIDs.isEmpty || resumedActivity
     }
 

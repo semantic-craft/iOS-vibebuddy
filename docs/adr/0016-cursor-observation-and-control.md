@@ -159,3 +159,29 @@ protocol says; the card stays until answered or the turn is cancelled. Whether
 `session/load` can take over a conversation the IDE created is still an open
 probe (ticket cursor-integration/11); until it is answered, continuing a
 finished IDE chat keeps going through `cursor-agent --resume` in a terminal.
+
+
+## Amendment 2 (2026-09-16): managed ACP session recovery
+
+Cursor CLI `2026.09.02-c22c1a3` negotiated `loadSession: true`; an isolated
+CLI probe reloaded the identical managed session ID and recalled a unique
+previous-turn phrase. The CLI also emitted a `WritableIterable is closed`
+message, so that evidence proves continuity, not a clean turn outcome.
+
+Persist only session ID, origin, cwd, launch options and creation time, with
+atomic mode-0600 writes, a 100-record cap and 30-day expiry. Cursor keeps the
+conversation and authentication. Startup registers historical rows without
+replaying lifecycle events. Continue initializes, authenticates and loads the
+same session; load notifications are discarded before actor delivery. No
+failed load falls back to a terminal or a new conversation. A worktree whose
+actual path was not returned is explicitly unavailable for recovery; loading
+never passes `-w` again. IDE session loading is not promised by this amendment.
+
+`cursorACPRecoverable` is separate from `controlChannel`: it grants Continue,
+not a live Stop or a live-source claim. A restore failure supplies an explicit failure reason while retaining an explicit
+retry action. An unknown worktree path is permanently unavailable. One in-monitor loading operation and a cross-process lease
+protect each session. The lease is retained until the spawned process actually
+exits; a recorded PID and process start time block another host after an unclean daemon exit.
+A normally released lease clears its process identity. Cancelling or losing a process
+withdraws all open cards and queued follow-ups. Each handshake RPC is bounded
+by 60 seconds, with no automatic background retries.

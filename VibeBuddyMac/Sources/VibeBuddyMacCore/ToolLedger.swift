@@ -6,6 +6,7 @@ import VibeBuddyKit
 struct ToolLedger: Sendable {
     private(set) var sessions: [String: [ToolCallRecord]] = [:]
     private let url: URL?
+    private var persistencePending = false
     init(url: URL?, now: Date) {
         self.url = url
         if let url, let data = try? Data(contentsOf: url), data.count <= 8_000_000,
@@ -27,36 +28,52 @@ struct ToolLedger: Sendable {
             merged.linesRemoved = record.linesRemoved ?? old.linesRemoved
             records[index] = merged
         } else { records.append(record) }
-        sessions[sessionID] = Array(records.suffix(50))
-        prune(now: now)
+        let retained = Array(records.suffix(50))
+        guard retained != sessions[sessionID] else {
+            if pruneRetained(now: now) || persistencePending { persist() }
+            return
+        }
+        sessions[sessionID] = retained
+        _ = pruneRetained(now: now)
         persist()
     }
     mutating func prune(now: Date) {
+        if pruneRetained(now: now) { persist() }
+    }
+    private mutating func pruneRetained(now: Date) -> Bool {
         let previous = sessions
         let cutoff = now.addingTimeInterval(-7 * 86400)
         sessions = sessions.mapValues { Array($0.filter { $0.observedAt >= cutoff }.suffix(50)) }.filter { !$0.value.isEmpty }
         let retained = Set(sessions.sorted { ($0.value.last?.observedAt ?? .distantPast) > ($1.value.last?.observedAt ?? .distantPast) }.prefix(250).map(\.key))
         sessions = sessions.filter { retained.contains($0.key) }
-        if sessions != previous { persist() }
+        return sessions != previous
     }
     mutating func clear() -> Bool {
         if let url, FileManager.default.fileExists(atPath: url.path) {
             do { try FileManager.default.removeItem(at: url) } catch { return false }
         }
         sessions = [:]
+        persistencePending = false
         return true
     }
     private mutating func persist() {
+        persistencePending = url != nil
         // Bound the entire sidecar as well as each session. Drop oldest sessions
         // before serializing beyond the read cap; retained scope is shown in UI.
-        while sessions.count > 1, let data = try? JSONEncoder().encode(sessions), data.count > 8_000_000 {
+        guard var data = try? JSONEncoder().encode(sessions) else { return }
+        while sessions.count > 1, data.count > 8_000_000 {
             guard let oldest = sessions.min(by: { ($0.value.last?.observedAt ?? .distantPast) < ($1.value.last?.observedAt ?? .distantPast) })?.key else { break }
             sessions[oldest] = nil
+            guard let trimmed = try? JSONEncoder().encode(sessions) else { return }
+            data = trimmed
         }
-        guard let url, let data = try? JSONEncoder().encode(sessions) else { return }
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: url, options: [.atomic])
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        guard let url else { return }
+        do {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: url, options: [.atomic])
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            persistencePending = false
+        } catch {}
     }
     func applying(to input: AgentSession) -> AgentSession {
         var session = input

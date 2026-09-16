@@ -3,7 +3,7 @@
 
 Runs the real installers against a throwaway $HOME with minimal fake CLI configs
 (so nothing on the real machine is touched), seeding user-owned hooks in the
-merge-into-existing configs (claude, codex, kimi) to prove they survive uninstall.
+merge-into-existing configs (claude, codex) to prove they survive uninstall.
 
 Asserts:
   1. install is idempotent     — install twice → every managed file byte-identical
@@ -18,19 +18,75 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+import http.server
+import runpy
+import signal
+import threading
+import time
 
 HOOKS = os.path.dirname(os.path.abspath(__file__))
 UNIVERSAL = os.path.join(HOOKS, "install-agent-hooks.py")
+
+
+def check_cursor_stop_timeout(fails, partial=False):
+    """Real curl requests against a local server which accepts but never replies."""
+    release = threading.Event()
+    received = []
+
+    class HungHandler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *_args):
+            pass
+
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length", 0)))
+            received.append(self.path)
+            if partial and self.path == "/cursor-followup":
+                body = b'{"followup_message":"must-not-reach-cursor"}'
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body) + 100))
+                self.end_headers()
+                self.wfile.write(body)
+                self.wfile.flush()
+            release.wait(10)
+
+    installed = runpy.run_path(os.path.join(HOOKS, "install-cursor-hooks.py"))
+    deadline = installed["desired"]()["stop"][0]["timeout"]
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), HungHandler)
+    threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
+    env = {**os.environ, "VIBEBUDDY_PORT": str(server.server_port),
+           "VIBEBUDDY_TOKEN": "disposable-test-token", "VIBEBUDDY_TOKEN_FILE": "/dev/null"}
+    process = subprocess.Popen(["bash", os.path.join(HOOKS, "cursor-followup.sh")], env=env,
+                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               text=True, start_new_session=True)
+    started = time.monotonic()
+    try:
+        stdout, stderr = process.communicate('{"hook_event_name":"stop","conversation_id":"timeout-test"}',
+                                             timeout=deadline)
+        elapsed = time.monotonic() - started
+        if process.returncode != 0 or stdout or stderr:
+            fails.append("Cursor hung-daemon stop must fail open with empty stdout/stderr")
+        if not any(path.startswith("/hook?") for path in received) or "/cursor-followup" not in received:
+            fails.append("Cursor stop failed to attempt both report and follow-up collection")
+        print(f"Cursor stop partial={partial} elapsed={elapsed:.3f}s configured_timeout={deadline}s")
+    except subprocess.TimeoutExpired:
+        fails.append(f"Cursor stop exceeded its installed {deadline}s timeout against a hung daemon")
+    finally:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.communicate(timeout=3)
+        release.set()
+        server.shutdown()
+        server.server_close()
 
 # Files each detected CLI's installer writes (relative to $HOME).
 MANAGED = [
     ".claude/settings.json",
     ".codex/config.toml",
     ".codex/hooks.json",
-    ".qwen/settings.json",
     ".grok/hooks/vibebuddy.json",
     ".gemini/antigravity-cli/hooks.json",
-    ".kimi-code/config.toml",
     ".config/opencode/plugins/vibebuddy.js",
     ".cursor/hooks.json",
 ]
@@ -310,6 +366,8 @@ def main():
     fails = []
     with tempfile.TemporaryDirectory() as home:
         seed_home(home)
+        retired_paths = [".qwen/settings.json", ".kimi-code/config.toml"]
+        retired_before = {path: open(os.path.join(home, path), "rb").read() for path in retired_paths}
 
         r1 = run("--install", home)
         if r1.returncode != 0:
@@ -328,11 +386,14 @@ def main():
             elif snap1[rel] != snap2[rel]:
                 fails.append(f"not idempotent (changed on re-install): {rel}")
 
+        for path, original in retired_before.items():
+            if open(os.path.join(home, path), "rb").read() != original:
+                fails.append(f"install changed a retired CLI config: {path}")
+
         # 3a. user content present after install
         claude = open(os.path.join(home, ".claude/settings.json")).read()
         codex = tomllib.loads(open(os.path.join(home, ".codex/config.toml")).read())
         codex_hooks = json.loads(open(os.path.join(home, ".codex/hooks.json")).read())
-        kimi = open(os.path.join(home, ".kimi-code/config.toml")).read()
         if USER_CLAUDE_HOOK not in claude:
             fails.append("install dropped the user's claude hook")
         if "9876/hook" not in claude and "vibebuddy-forward.sh" not in claude:
@@ -398,8 +459,6 @@ def main():
                                   for hook in group.get("hooks", [])]
         if USER_CODEX_HOOK not in session_start_commands:
             fails.append("install dropped the user's codex lifecycle hook")
-        if USER_KIMI_HOOK not in kimi or "vibebuddy-forward.sh kimi" not in kimi:
-            fails.append("install broke kimi user hook or missed vibebuddy hook")
 
         # grok: the full 1.0.13 event set through the forwarder, plus terminal
         # capture on the two events the Claude installer uses.
@@ -601,10 +660,12 @@ def main():
         ru = run("--uninstall", home)
         if ru.returncode != 0:
             fails.append(f"--uninstall exited {ru.returncode}: {ru.stderr}")
+        for path, original in retired_before.items():
+            if open(os.path.join(home, path), "rb").read() != original:
+                fails.append(f"uninstall changed a retired CLI config: {path}")
         claude = open(os.path.join(home, ".claude/settings.json")).read()
         codex = tomllib.loads(open(os.path.join(home, ".codex/config.toml")).read())
         codex_hooks = json.loads(open(os.path.join(home, ".codex/hooks.json")).read())
-        kimi = open(os.path.join(home, ".kimi-code/config.toml")).read()
         if ("9876/hook" in claude or "vibebuddy-forward.sh" in claude
                 or "capture-terminal.sh" in claude):
             fails.append("uninstall left vibebuddy markers in claude config")
@@ -623,10 +684,6 @@ def main():
             fails.append("uninstall left the codex approval gate")
         if USER_CODEX_HOOK not in remaining_codex_commands:
             fails.append("uninstall removed the user's codex lifecycle hook")
-        if "vibebuddy-forward.sh" in kimi or "vibebuddy:" in kimi:
-            fails.append("uninstall left vibebuddy markers in kimi config")
-        if USER_KIMI_HOOK not in kimi or 'default_model = "x"' not in kimi:
-            fails.append("uninstall removed kimi user content")
         if os.path.exists(os.path.join(home, ".grok/hooks/vibebuddy.json")):
             fails.append("uninstall left grok vibebuddy.json")
         if os.path.exists(os.path.join(home, ".config/opencode/plugins/vibebuddy.js")):
@@ -649,6 +706,8 @@ def main():
     check_claude_old_cli_keeps_legacy_gate(fails)
     check_claude_statusline_wrapper(fails)
     check_statusline_only(fails)
+    check_cursor_stop_timeout(fails)
+    check_cursor_stop_timeout(fails, partial=True)
 
     if fails:
         print("FAIL:")
@@ -656,8 +715,15 @@ def main():
             print("  -", f)
         sys.exit(1)
     print("PASS: install idempotent, approval gates wired, uninstall clean, "
-          "user hooks preserved (8 CLIs)")
+          "user hooks preserved (6 CLIs; retired CLI configs unchanged)")
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--cursor-stop-timeout-only"]:
+        failures = []
+        check_cursor_stop_timeout(failures)
+        check_cursor_stop_timeout(failures, partial=True)
+        for failure in failures:
+            print("FAIL:", failure)
+        sys.exit(bool(failures))
     main()

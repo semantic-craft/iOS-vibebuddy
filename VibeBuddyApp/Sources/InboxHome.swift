@@ -71,8 +71,12 @@ struct InboxProjection: Equatable {
         /// `PendingTasks` order — the number beside the project's name.
         let pendingCount: Int
         let latest: Date
+        let label: DashboardProjectLabel
         var id: String { project }
-        var title: String { DashboardFilters.projectTitle(project) }
+        var title: String {
+            project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? String(localized: "No project") : label.title
+        }
     }
 
     let summary: TaskPresentationSummary
@@ -95,20 +99,26 @@ struct InboxProjection: Equatable {
         // pending item leads, then the project of the next new one, and so on;
         // projects with nothing pending follow by latest activity.
         var queueRank: [String: Int] = [:]
-        for (index, session) in pending.enumerated() where queueRank[session.project] == nil {
-            queueRank[session.project] = index
+        for (index, session) in pending.enumerated() {
+            let project = session.dashboardProjectIdentity
+            if queueRank[project] == nil { queueRank[project] = index }
         }
         let pendingIDs = Set(pending.map(\.id))
         var order: [String] = []
         var byProject: [String: (pending: Int, latest: Date)] = [:]
         for session in current {
-            if byProject[session.project] == nil { order.append(session.project) }
-            var entry = byProject[session.project] ?? (0, .distantPast)
+            let project = session.dashboardProjectIdentity
+            if byProject[project] == nil { order.append(project) }
+            var entry = byProject[project] ?? (0, .distantPast)
             if pendingIDs.contains(session.id) { entry.pending += 1 }
             entry.latest = max(entry.latest, session.updatedAt)
-            byProject[session.project] = entry
+            byProject[project] = entry
         }
-        projects = order.map { ProjectRow(project: $0, pendingCount: byProject[$0]!.pending, latest: byProject[$0]!.latest) }
+        let labels = DashboardProjectLabel.labels(for: sessions.map(\.dashboardProjectIdentity))
+        projects = order.map {
+            ProjectRow(project: $0, pendingCount: byProject[$0]!.pending,
+                       latest: byProject[$0]!.latest, label: labels[$0]!)
+        }
             .sorted { lhs, rhs in
                 switch (queueRank[lhs.project], queueRank[rhs.project]) {
                 case let (l?, r?): return l < r
@@ -116,7 +126,7 @@ struct InboxProjection: Equatable {
                 case (nil, .some): return false
                 case (nil, nil):
                     if lhs.latest != rhs.latest { return lhs.latest > rhs.latest }
-                    return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
+                    return lhs.project.localizedStandardCompare(rhs.project) == .orderedAscending
                 }
             }
     }
@@ -138,6 +148,9 @@ struct InboxHomeView: View {
     let showOlder: () -> Void
     /// "Read pending": the queue above, spoken in order (ticket 04).
     let readPending: () -> Void
+    var openRecap: () -> Void = {}
+
+    @State private var selectedProjectPath: String?
 
     private let tileColumns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
 
@@ -179,9 +192,24 @@ struct InboxHomeView: View {
                 }
                 .padding(.horizontal, PhoneMetrics.gutter)
                 .padding(.top, 12)
+                Button(action: openRecap) {
+                    Label("Recap", systemImage: "clock.arrow.circlepath")
+                        .font(.headline).frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(PhoneButtonStyle(kind: .quiet))
+                .padding(.horizontal, PhoneMetrics.gutter).padding(.top, 14)
                 projectList
                     .padding(.top, 18)
             }
+        }
+        .alert("Project", isPresented: Binding(
+            get: { selectedProjectPath != nil },
+            set: { if !$0 { selectedProjectPath = nil } }
+        ), presenting: selectedProjectPath) { path in
+            Button("Copy") { UIPasteboard.general.string = path }
+            Button("Cancel", role: .cancel) {}
+        } message: { path in
+            Text(verbatim: path)
         }
     }
 
@@ -289,10 +317,20 @@ struct InboxHomeView: View {
                             .font(.system(size: 17, weight: .regular))
                             .foregroundStyle(CompanionPalette.ink3)
                             .frame(width: 20)
-                        Text(row.title)
-                            .font(CompanionType.font(16))
-                            .foregroundStyle(CompanionPalette.ink)
-                            .lineLimit(1)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(row.title)
+                                .font(CompanionType.font(16))
+                                .foregroundStyle(CompanionPalette.ink)
+                                .lineLimit(2)
+                            if let parent = row.label.parentPath {
+                                Text(parent)
+                                    .font(CompanionType.font(12))
+                                    .foregroundStyle(CompanionPalette.ink3)
+                                    .lineLimit(2)
+                                    .truncationMode(.middle)
+                            }
+                        }
+                        .padding(.vertical, 6)
                         Spacer(minLength: 8)
                         if row.pendingCount > 0 {
                             Text(verbatim: "\(row.pendingCount)")
@@ -310,6 +348,16 @@ struct InboxHomeView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(Text(verbatim: row.pendingCount > 0
                     ? "\(row.title), \(String(localized: "\(row.pendingCount) pending"))" : row.title))
+                .accessibilityValue(row.project)
+                .highPriorityGesture(
+                    LongPressGesture().exclusively(before: TapGesture()).onEnded { gesture in
+                        switch gesture {
+                        case .first: selectedProjectPath = row.project
+                        case .second: openProject(row.project)
+                        }
+                    }
+                )
+                .accessibilityAction(named: Text("Project")) { selectedProjectPath = row.project }
                 .accessibilityIdentifier("phone-inbox-project-\(row.project)")
                 if index < projection.projects.count - 1 {
                     PhoneDivider(leading: PhoneMetrics.gutter + 32)

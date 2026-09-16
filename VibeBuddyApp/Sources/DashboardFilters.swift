@@ -26,6 +26,15 @@ struct DashboardSection: Identifiable, Equatable {
     let sessions: [AgentSession]
 }
 
+extension AgentSession {
+    var dashboardProjectIdentity: String {
+        if let path = checkoutPath, !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return path
+        }
+        return project
+    }
+}
+
 /// In-memory presentation selection. Never writes to the snapshot or action store.
 struct DashboardFilters: Equatable {
     /// The inbox tile the list was opened from (ticket 01). A bucket admits a
@@ -52,8 +61,8 @@ struct DashboardFilters: Equatable {
 
     /// The list page's title: the bucket or project it was opened from, else
     /// every session.
-    func scopeTitle(summary: TaskPresentationSummary) -> String {
-        if let project { return DashboardFilters.projectTitle(project) }
+    func scopeTitle(summary: TaskPresentationSummary, projects: [String] = []) -> String {
+        if let project { return DashboardFilters.projectTitle(project, among: projects) }
         if let bucket { return bucket.title(for: summary) }
         return String(localized: "All sessions")
     }
@@ -61,7 +70,7 @@ struct DashboardFilters: Equatable {
     func matches(_ session: AgentSession) -> Bool {
         matchesQuery(session)
             && (bucket?.admits(session) ?? true)
-            && (project == nil || project == session.project)
+            && (project == nil || project == session.dashboardProjectIdentity)
             && (status == nil || status == session.presentationState)
             && (agent == nil || agent == session.agent)
             && (attention == nil || attention == session.effectiveAttention)
@@ -70,7 +79,7 @@ struct DashboardFilters: Equatable {
     private func matchesQuery(_ session: AgentSession) -> Bool {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !needle.isEmpty else { return true }
-        return [session.displayTitle, session.project, session.branch ?? ""]
+        return [session.displayTitle, session.project, session.dashboardProjectIdentity, session.branch ?? ""]
             .contains { $0.localizedCaseInsensitiveContains(needle) }
     }
 
@@ -99,7 +108,7 @@ struct DashboardFilters: Equatable {
         case .recent:
             // From a project row there is one project: its group alone. From a
             // bucket, Recents leads and every project repeats its rows.
-            let byProject = keyed(visible) { Self.projectTitle($0.project) }
+            let byProject = projectSections(visible, projects: projects(from: sessions))
             if project != nil || visible.isEmpty { return byProject }
             return [DashboardSection(id: "recent", title: String(localized: "Recents"), sessions: visible)] + byProject
         case .none:
@@ -109,9 +118,16 @@ struct DashboardFilters: Equatable {
                 DashboardSection(id: $0.title, title: $0.title, sessions: $0.sessions)
             }
         case .project:
-            return keyed(visible) { Self.projectTitle($0.project) }
+            return projectSections(visible, projects: projects(from: sessions))
         case .agent:
             return keyed(visible) { $0.agent.displayName }
+        }
+    }
+
+    private func projectSections(_ sessions: [AgentSession], projects: [String]) -> [DashboardSection] {
+        let labels = DashboardProjectLabel.labels(for: projects)
+        return keyed(sessions) { $0.dashboardProjectIdentity }.map {
+            DashboardSection(id: $0.id, title: Self.projectTitle($0.id, labels: labels), sessions: $0.sessions)
         }
     }
 
@@ -131,7 +147,7 @@ struct DashboardFilters: Equatable {
 
     func projects(from sessions: [AgentSession]) -> [String] {
         // Keep an absent selection visible until the person clears or changes it.
-        var projects = Set(sessions.map(\.project))
+        var projects = Set(sessions.map(\.dashboardProjectIdentity))
         if let project { projects.insert(project) }
         return projects.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
@@ -143,9 +159,16 @@ struct DashboardFilters: Equatable {
          agent?.displayName, attention?.stateTitle].compactMap { $0 }.joined(separator: " · ")
     }
 
-    static func projectTitle(_ project: String) -> String {
-        project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? String(localized: "No project") : project
+    static func projectTitle(_ project: String, among projects: [String] = []) -> String {
+        projectTitle(project, labels: DashboardProjectLabel.labels(for: projects + [project]))
+    }
+
+    static func projectTitle(_ project: String, labels: [String: DashboardProjectLabel]) -> String {
+        guard !project.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return String(localized: "No project")
+        }
+        guard let label = labels[project] else { return project }
+        return [label.title, label.parentPath].compactMap { $0 }.joined(separator: " · ")
     }
 }
 
@@ -159,6 +182,8 @@ struct DashboardCustomizeSheet: View {
     private let statuses: [TaskPresentationState] = [.requiresInput, .error, .thinking, .completeUnread, .idle]
 
     var body: some View {
+        let projects = selection.projects(from: sessions)
+        let labels = DashboardProjectLabel.labels(for: projects)
         VStack(spacing: 0) {
             PhoneSheetHeader(title: String(localized: "Customize")) { dismiss() }
             List {
@@ -175,8 +200,10 @@ struct DashboardCustomizeSheet: View {
                 Section {
                     Picker("Project", selection: $selection.project) {
                         Text("All").tag(String?.none)
-                        ForEach(selection.projects(from: sessions), id: \.self) { project in
-                            Text(DashboardFilters.projectTitle(project)).tag(String?.some(project))
+                        ForEach(projects, id: \.self) { project in
+                            Text(DashboardFilters.projectTitle(project, labels: labels))
+                                .accessibilityLabel(project)
+                                .tag(String?.some(project))
                         }
                     }
                     Picker("Status", selection: $selection.status) {

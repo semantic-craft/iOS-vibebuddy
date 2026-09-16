@@ -29,9 +29,7 @@ public enum SessionReaderSource: Equatable, Sendable {
     /// The `readTranscript(key:)` key for a live session, or nil when no
     /// transcript reader covers the agent or the id is not a native session id.
     public static func transcriptKey(for session: AgentSession) -> String? {
-        guard let agent = historyAgent(for: session.agent), agent.supportsTranscript,
-              isNativeID(session.id) else { return nil }
-        return agent.keyName + ":" + session.id
+        HistoryIdentity.transcriptKey(for: session)
     }
 
     /// The history library's row id (`claude:<id>`) for the same session, the

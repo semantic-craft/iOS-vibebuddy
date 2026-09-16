@@ -47,7 +47,11 @@ struct CompletionResultTests {
         #expect(await store.snapshot(now: Date()).sessions.first?.hasUnreadCompletion == true)
         await store.ingest(HookEvent(kind: .stop, sessionID: "late", agent: .codex, timestamp: ended,
             turnID: "turn", completionText: "A duplicate must not replace the result.", completionSucceeded: true))
-        #expect(await store.completionBody(sessionID: "late", completionID: id).text == body.text)
+        #expect(await store.completionBody(sessionID: "late", completionID: id).text == nil)
+        #expect(await store.completionBody(sessionID: "late", completionID: id).unavailableReason?.contains("Conflicting") == true)
+        await store.ingest(HookEvent(kind: .stop, sessionID: "late", agent: .codex, timestamp: ended,
+            turnID: "turn", completionText: body.text, completionSucceeded: true))
+        #expect(await store.completionBody(sessionID: "late", completionID: id).text == nil)
         await store.ingest(HookEvent(kind: .userPromptSubmit, sessionID: "late", agent: .codex,
             timestamp: Date(), turnID: "new-turn"))
         #expect(await store.completionResult(sessionID: "late", completionID: id, forReading: true) == .cancelled)
@@ -84,8 +88,10 @@ struct CompletionResultTests {
         var reducer = SessionReducer()
         var results = CompletionResults()
         func apply(_ event: HookEvent) {
+            let previous = reducer.sessions["s"]?.completionID
             reducer.apply(event)
-            results.observe(event, session: reducer.sessions["s"], sourceID: "source", now: now)
+            results.observe(event, session: reducer.sessions["s"], sourceID: "source", now: now,
+                createdCompletion: reducer.sessions["s"]?.completionID != previous)
         }
         apply(HookEvent(kind: .userPromptSubmit, sessionID: "s", agent: .codex, timestamp: now, turnID: "t"))
         apply(HookEvent(kind: .stop, sessionID: "s", agent: .codex, timestamp: now, turnID: "t", completionText: String(repeating: "a", count: 12_001), completionSucceeded: true))
@@ -101,8 +107,10 @@ struct CompletionResultTests {
         var reducer = SessionReducer()
         var results = CompletionResults()
         func apply(_ event: HookEvent) {
+            let previous = reducer.sessions["s"]?.completionID
             reducer.apply(event)
-            results.observe(event, session: reducer.sessions["s"], sourceID: "source", now: now)
+            results.observe(event, session: reducer.sessions["s"], sourceID: "source", now: now,
+                createdCompletion: reducer.sessions["s"]?.completionID != previous)
         }
         apply(HookEvent(kind: .userPromptSubmit, sessionID: "s", agent: .codex, timestamp: now, turnID: "old"))
         let stop = HookEvent(kind: .stop, sessionID: "s", agent: .codex, timestamp: now,
@@ -134,10 +142,10 @@ struct CompletionResultTests {
         var results = CompletionResults()
         let prompt = HookEvent(kind: .userPromptSubmit, sessionID: "s", agent: .codex, timestamp: now, turnID: "t")
         reducer.apply(prompt)
-        results.observe(prompt, session: reducer.sessions["s"], sourceID: "source", now: now)
+        results.observe(prompt, session: reducer.sessions["s"], sourceID: "source", now: now, createdCompletion: true)
         let event = try #require(events.first)
         reducer.apply(event)
-        results.observe(event, session: reducer.sessions["s"], sourceID: "source", now: now.addingTimeInterval(2.01))
+        results.observe(event, session: reducer.sessions["s"], sourceID: "source", now: now.addingTimeInterval(2.01), createdCompletion: true)
         #expect(results.candidates["s"]?.outcome == .expired)
     }
 
@@ -149,8 +157,10 @@ struct CompletionResultTests {
             let now = Date()
             func ingest(_ message: [String: Any]) {
                 for event in parser.handle(message, receivedAt: now) {
+                    let previous = reducer.sessions["s"]?.completionID
                     reducer.apply(event)
-                    results.observe(event, session: reducer.sessions["s"], sourceID: "source", now: now)
+                    results.observe(event, session: reducer.sessions["s"], sourceID: "source", now: now,
+                        createdCompletion: reducer.sessions["s"]?.completionID != previous)
                 }
             }
             ingest(["method": "turn/started", "params": ["threadId": "s", "turn": ["id": "t"]]])

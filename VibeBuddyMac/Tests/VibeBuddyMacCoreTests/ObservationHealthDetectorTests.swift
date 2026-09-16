@@ -159,6 +159,18 @@ struct ObservationHealthDetectorTests {
         #expect(detect(home: home).health(agent: .codex, source: .hook) == .asyncIncompatible)
     }
 
+    @Test("fork inherits older metadata without changing owner version")
+    func forkMetadataVersion() throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let rollout = home.appendingPathComponent(".codex/sessions/rollout-fork.jsonl")
+        try write(
+            #"{"type":"session_meta","payload":{"id":"child","cli_version":"0.153.3"}}"# + "\n" +
+            #"{"type":"session_meta","payload":{"id":"parent","cli_version":"0.151.0-alpha.7.2"}}"# + "\n" +
+            #"{"type":"event_msg","payload":{"type":"task_started"}}"#, to: rollout)
+        #expect(detect(home: home).health(agent: .codex, source: .rollout) == .healthy)
+    }
+
     @Test("an unreadable rollout is not reported as normal")
     func unreadableRollout() throws {
         let home = try tempHome()

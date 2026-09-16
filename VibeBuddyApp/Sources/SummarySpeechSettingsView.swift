@@ -10,9 +10,21 @@ struct SummarySpeechSettingsView: View {
     @State private var baseline: ContentStyleState?
     @State private var hasUserEdits = false
     @AppStorage(PhoneReadAloudSelection.defaultsKey) private var selectionRaw = ""
+    @AppStorage(VoiceSettings.conversationLanguageKey) private var previewLanguage = VoiceLanguage.english.rawValue
+    @State private var providerWithKey: VoiceProvider?
 
     private var selection: PhoneReadAloudSelection { PhoneReadAloudSelection(rawValue: selectionRaw) }
     private var dirty: Bool { baseline.map { $0.configuration != draft } ?? false }
+
+    private var previewUnavailableReason: LocalizedStringKey? {
+        if announcer.isPreviewing { return nil }
+        if voice.phase != .idle { return "End the voice conversation before previewing." }
+        if announcer.isBusy { return "Wait for the current reading to finish or stop it before previewing." }
+        if case .provider(let provider) = selection, providerWithKey != provider {
+            return "Configure this provider’s API key or choose System speech."
+        }
+        return nil
+    }
 
     var body: some View {
         Form {
@@ -79,7 +91,7 @@ struct SummarySpeechSettingsView: View {
                 }
                 .accessibilityIdentifier("phone-speech-service")
                 if case .provider(let provider) = selection {
-                    PhoneProviderSpeechSettings(provider: provider).id(provider.rawValue)
+                    PhoneProviderSpeechSettings(provider: provider, providerWithKey: $providerWithKey).id(provider.rawValue)
                 } else {
                     Text("System speech uses the device voice. Presenter style is unavailable.").foregroundStyle(.secondary)
                 }
@@ -87,8 +99,12 @@ struct SummarySpeechSettingsView: View {
                     if announcer.isPreviewing { announcer.cancelPreview() }
                     else { announcer.preview() }
                 }
-                .disabled(voice.phase != .idle || (announcer.isBusy && !announcer.isPreviewing))
+                .disabled(previewUnavailableReason != nil)
                 .accessibilityIdentifier("phone-preview-voice")
+                if let reason = previewUnavailableReason {
+                    Text(reason).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("phone-preview-unavailable")
+                }
                 if let message = announcer.previewMessage { Text(message).foregroundStyle(.secondary) }
                 if announcer.isPreviewing, let status = announcer.status { Text(status).foregroundStyle(.secondary) }
             } header: {
@@ -114,6 +130,10 @@ struct SummarySpeechSettingsView: View {
             adoptConfirmedValue()
         }
         .onChange(of: selectionRaw) { _, _ in announcer.cancelPreview() }
+        .onChange(of: previewLanguage) { _, _ in announcer.cancelPreview() }
+        .onChange(of: voice.phase) { _, phase in
+            if phase != .idle { announcer.cancelPreview() }
+        }
         .onDisappear { announcer.cancelPreview() }
     }
 
@@ -128,6 +148,8 @@ struct SummarySpeechSettingsView: View {
 
 private struct PhoneProviderSpeechSettings: View {
     let provider: VoiceProvider
+    @EnvironmentObject private var announcer: PhoneAnnouncer
+    @Binding var providerWithKey: VoiceProvider?
     @State private var model = ""
     @State private var selectedVoice = ""
     @State private var style = VoiceStyle.standard
@@ -157,11 +179,17 @@ private struct PhoneProviderSpeechSettings: View {
             SecureField("API key", text: Binding(get: { key }, set: { value in
                 key = value
                 keySaveFailed = KeychainStore.set(value, for: provider.keychainAccount) != 0
+                providerWithKey = !keySaveFailed && provider.hasAPIKey ? provider : nil
+                announcer.cancelPreview()
             }))
             .textInputAutocapitalization(.never).autocorrectionDisabled()
             Link("Get an API key", destination: provider.apiKeyURL)
             if keySaveFailed { Text("API key could not be saved. Your edit is not stored; edit or paste it again to retry.").foregroundStyle(.orange) }
             TextField("Speech model", text: $model).textInputAutocapitalization(.never).autocorrectionDisabled()
+            if let modelURL = provider.modelDocumentationURL(for: .speechSynthesis, model: model) {
+                Link("Speech synthesis model help", destination: modelURL)
+                    .accessibilityIdentifier("phone-speech-model-help")
+            }
             TextField("Voice ID", text: $selectedVoice).textInputAutocapitalization(.never).autocorrectionDisabled()
             if provider == .qwen {
                 TextField("Workspace ID", text: $workspace).textInputAutocapitalization(.never).autocorrectionDisabled()
@@ -174,9 +202,21 @@ private struct PhoneProviderSpeechSettings: View {
             selectedVoice = configuration.voice
             style = configuration.style
             key = provider.apiKey ?? ""
+            providerWithKey = provider.hasAPIKey ? provider : nil
         }
-        .onChange(of: model) { _, value in UserDefaults.standard.set(value, forKey: VoiceSettings.readAloudModelKey(provider)) }
-        .onChange(of: selectedVoice) { _, value in UserDefaults.standard.set(value, forKey: VoiceSettings.readAloudVoiceKey(provider)) }
-        .onChange(of: style) { _, value in UserDefaults.standard.set(value.rawValue, forKey: VoiceSettings.readAloudStyleKey(provider)) }
+        .onChange(of: model) { _, value in
+            UserDefaults.standard.set(value, forKey: VoiceSettings.readAloudModelKey(provider))
+            announcer.cancelPreview()
+        }
+        .onChange(of: selectedVoice) { _, value in
+            UserDefaults.standard.set(value, forKey: VoiceSettings.readAloudVoiceKey(provider))
+            announcer.cancelPreview()
+        }
+        .onChange(of: style) { _, value in
+            UserDefaults.standard.set(value.rawValue, forKey: VoiceSettings.readAloudStyleKey(provider))
+            announcer.cancelPreview()
+        }
+        .onChange(of: intl) { _, _ in announcer.cancelPreview() }
+        .onChange(of: workspace) { _, _ in announcer.cancelPreview() }
     }
 }

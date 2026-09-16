@@ -34,6 +34,22 @@ private struct ControlledContentStream: SnapshotStreaming {
 
 @MainActor
 final class ContentStylePhoneTests: XCTestCase {
+    func testCancelledPreviewCannotBecomeBusyAgain() async {
+        let announcer = PhoneAnnouncer()
+        announcer.preview()
+        XCTAssertTrue(announcer.isPreviewing)
+        XCTAssertTrue(announcer.isBusy)
+
+        announcer.cancelPreview()
+        XCTAssertFalse(announcer.isPreviewing)
+        XCTAssertFalse(announcer.isBusy)
+        XCTAssertNil(announcer.previewMessage)
+        await Task.yield()
+        XCTAssertFalse(announcer.isPreviewing)
+        XCTAssertFalse(announcer.isBusy)
+        XCTAssertNil(announcer.previewMessage)
+    }
+
     func testMigrationPreservesConfiguredProviderAndThenSeparatesConversation() {
         let name = "phone-speech-test-" + UUID().uuidString
         let defaults = UserDefaults(suiteName: name)!

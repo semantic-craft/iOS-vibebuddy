@@ -31,8 +31,9 @@ final class MenuBarModel: ObservableObject {
     let settingsCredentials = SettingsCredentials()
     @Published private(set) var sessions: [AgentSession] = []
     @Published private(set) var recap: Recap?
-    @Published private(set) var recapUpdatedAt: Date?
-    @Published private(set) var recapConfirmation = MacRecapConfirmation()
+    // The recap view owns a five-second TimelineView for freshness.
+    private(set) var recapUpdatedAt: Date?
+    @Published private(set) var recapConfirmation = RecapConfirmation()
     @Published private(set) var observationDiagnostics: [AgentObservationDiagnostic] = []
     /// Directories sessions have run in, newest first — where a new task may start.
     @Published private(set) var recentDirectories: [String] = []
@@ -352,6 +353,8 @@ final class MenuBarModel: ObservableObject {
     }()
 
     private var snapshotSourceID: String?
+    private var publishedCurrentSessionIDs: [String] = []
+    private var publishedBuddyState: BuddyState = .sleeping
 
     init(runtimeEnabled: Bool = true) {
         port = E2ERunConfiguration.current?.port ?? ProcessInfo.processInfo.environment["VIBEBUDDY_PORT"].flatMap(Int.init) ?? 9876
@@ -405,11 +408,20 @@ final class MenuBarModel: ObservableObject {
         openDashboardHotkey = Hotkey.loadOpenDashboard()
         toggleGlanceHotkey = Hotkey.loadToggleGlance()
         usage = AccountUsageCoordinator(store: store, notifier: notifier, liveFeed: usageFeed)
+        let cursorExecutable: URL?
+        let cursorRecovery: URL?
+        if let run = E2ERunConfiguration.current {
+            cursorExecutable = run.cursorACPEnabled ? run.file("cursor-agent") : nil
+            cursorRecovery = run.cursorACPEnabled ? run.file("cursor-acp") : nil
+        } else {
+            cursorExecutable = CursorCLI.resolveExecutable()
+            cursorRecovery = CursorACPMonitor.defaultRecoveryDirectory
+        }
         cursorACP = CursorACPMonitor(
             store: store, approvals: approvalRegistry, approvalContext: approvalContext,
             questions: questionRegistry, allowStore: allowStore, sessionAllow: sessionAllow,
             followups: cursorFollowups,
-            executable: E2ERunConfiguration.current == nil ? CursorCLI.resolveExecutable() : nil)
+            executable: cursorExecutable, recoveryDirectory: cursorRecovery)
         let apnsConfig = APNsConfig.load()
         let deliveryURL = (E2ERunConfiguration.current == nil ? ProcessInfo.processInfo.environment["VIBEBUDDY_DELIVERY_LOG_PATH"] : nil).map {
             URL(fileURLWithPath: $0)
@@ -687,6 +699,38 @@ final class MenuBarModel: ObservableObject {
         }
     }
 
+    // Keep the authority clock current without invalidating every observing window.
+    // MacRecapView polls that clock; recovery and source changes publish immediately.
+    func applySnapshot(_ snapshot: Snapshot, observedAt: Date) {
+        let nextAuthorityAvailable = snapshot.sourceID != nil && Date().timeIntervalSince(observedAt) <= 10
+        let authorityChanged = snapshotSourceID != snapshot.sourceID || recapAuthorityAvailable != nextAuthorityAvailable
+        let currentSessionIDs = SessionCurrency.current(snapshot.sessions, now: observedAt).map(\.id)
+        let nextBuddyState = BuddyState.from(SessionGroups(snapshot.sessions), now: observedAt)
+        if authorityChanged || currentSessionIDs != publishedCurrentSessionIDs || nextBuddyState != publishedBuddyState {
+            objectWillChange.send()
+        }
+        publishedCurrentSessionIDs = currentSessionIDs
+        publishedBuddyState = nextBuddyState
+        snapshotSourceID = snapshot.sourceID
+        recapUpdatedAt = observedAt
+        if sessions != snapshot.sessions { sessions = snapshot.sessions }
+        if recap != snapshot.recap { recap = snapshot.recap }
+        if let sourceID = snapshot.sourceID, let batch = recapConfirmation.batch,
+           sourceID != batch.sourceID, !recapConfirmation.sourceChanged {
+            recapConfirmation.observeSource(sourceID)
+        }
+        let diagnostics = snapshot.observationDiagnostics ?? []
+        if observationDiagnostics != diagnostics { observationDiagnostics = diagnostics }
+        let directories = snapshot.recentDirectories ?? []
+        if recentDirectories != directories { recentDirectories = directories }
+        let nextHandoffs = snapshot.handoffs ?? []
+        if handoffs != nextHandoffs { handoffs = nextHandoffs }
+        if tokenConsumption != snapshot.tokenConsumption { tokenConsumption = snapshot.tokenConsumption }
+        if contentPresentationRevision != snapshot.contentPresentationRevision {
+            contentPresentationRevision = snapshot.contentPresentationRevision
+        }
+    }
+
     private func startPolling() {
         pollTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -696,18 +740,13 @@ final class MenuBarModel: ObservableObject {
                 generate: { [weak self] session in await self?.generateCompletionNotice(session) })
             while !Task.isCancelled {
                 if E2ERunConfiguration.current == nil {
-                    await self.store.applyBackgroundSessions(ClaudeBackgroundSessions.load())
+                    let background = await Task.detached(priority: .utility) { ClaudeBackgroundSessions.load() }.value
+                    await self.store.applyBackgroundSessions(background)
                 }
                 let snapshot = await self.store.snapshot(now: Date())
-                self.snapshotSourceID = snapshot.sourceID
-                self.sessions = snapshot.sessions
-                self.recap = snapshot.recap
-                self.recapUpdatedAt = Date()
-                self.recapConfirmation.observeSource(snapshot.sourceID)
-                self.observationDiagnostics = snapshot.observationDiagnostics ?? []
-                self.recentDirectories = snapshot.recentDirectories ?? []
-                self.handoffs = snapshot.handoffs ?? []
-                self.codexAppServerDiagnostics = await self.codexAppServerMonitor.diagnostics()
+                self.applySnapshot(snapshot, observedAt: Date())
+                let nextCodexAppServerDiagnostics = await self.codexAppServerMonitor.diagnostics()
+                if self.codexAppServerDiagnostics != nextCodexAppServerDiagnostics { self.codexAppServerDiagnostics = nextCodexAppServerDiagnostics }
                 var agents: [AgentKind] = []
                 if await self.claudeLauncher.isSupported() { agents.append(.claudeCode) }
                 if self.codexAppServerDiagnostics.connected { agents.append(.codex) }
@@ -715,12 +754,13 @@ final class MenuBarModel: ObservableObject {
                 await self.store.setCursorModels(cursorReady ? await self.cursorACP.models() : [])
                 if !cursorReady { cursorReady = await self.cursorLauncher.isSupported() }
                 if cursorReady { agents.append(.cursor) }
-                self.dispatchAgents = agents
-                self.tokenConsumption = snapshot.tokenConsumption
-                self.contentPresentationRevision = snapshot.contentPresentationRevision
-                self.lifecycleTimeline = await self.store.recentLifecycle()
-                self.missedThisWeek = await self.store.missedCounts()
-                self.buddySessionIDs = BuddyScope.pruned(self.buddySessionIDs, toLive: snapshot.sessions)
+                if self.dispatchAgents != agents { self.dispatchAgents = agents }
+                let nextLifecycleTimeline = await self.store.recentLifecycle()
+                if self.lifecycleTimeline != nextLifecycleTimeline { self.lifecycleTimeline = nextLifecycleTimeline }
+                let nextMissedThisWeek = await self.store.missedCounts()
+                if self.missedThisWeek != nextMissedThisWeek { self.missedThisWeek = nextMissedThisWeek }
+                let nextBuddySessionIDs = BuddyScope.pruned(self.buddySessionIDs, toLive: snapshot.sessions)
+                if self.buddySessionIDs != nextBuddySessionIDs { self.buddySessionIDs = nextBuddySessionIDs }
                 self.tickGlanceCards()
                 // Only a positively identified task view can silence its cue.
                 // Source-app presence still routes approvals, but cannot tell
@@ -800,9 +840,12 @@ final class MenuBarModel: ObservableObject {
         }
         await deliveryRecorder.updateAuthorization(authorization)
         await deliveryRecorder.updateAPNsConfigured(pusher != nil)
-        notificationDeliveryHealth = await deliveryRecorder.health()
-        recentNotificationDeliveries = await deliveryRecorder.recent(limit: 8)
-        deviceRegistry = await deviceTokens.summary()
+        let nextNotificationDeliveryHealth = await deliveryRecorder.health()
+        if notificationDeliveryHealth != nextNotificationDeliveryHealth { notificationDeliveryHealth = nextNotificationDeliveryHealth }
+        let nextRecentNotificationDeliveries = await deliveryRecorder.recent(limit: 8)
+        if recentNotificationDeliveries != nextRecentNotificationDeliveries { recentNotificationDeliveries = nextRecentNotificationDeliveries }
+        let nextDeviceRegistry = await deviceTokens.summary()
+        if deviceRegistry != nextDeviceRegistry { deviceRegistry = nextDeviceRegistry }
         await refreshPairedPhone()
     }
 
@@ -1111,13 +1154,25 @@ final class MenuBarModel: ObservableObject {
     /// are explicit and never rewrite each other.
     func answer(_ sessionID: String, answers: QuestionAnswers, text: String? = nil) {
         let monitor = codexAppServerMonitor
+        let acp = cursorACP
+        let followups = cursorFollowups
+        let store = store
         let session = sessions.first { $0.id == sessionID }
         let support = session.map(SessionActionSupport.resolve(for:))
         let dispatch = AnswerDispatch(
             store: store, questions: questionRegistry,
             inject: { ref, answer in TerminalInjector.inject(answer, into: ref) },
             steer: { id, text in await monitor.steer(threadID: id, text: text) },
-            startTurn: { id, text in await monitor.startTurn(threadID: id, text: text) })
+            startTurn: { id, text in await monitor.startTurn(threadID: id, text: text) },
+            queueCursorFollowup: { id, text in
+                await followups.queue(conversationID: id, text: text) != nil
+            },
+            resumeCursor: { session, text in
+                if await acp.owns(session.id) { return await acp.prompt(sessionID: session.id, text: text) }
+                guard E2ERunConfiguration.current == nil else { return false }
+                return await CursorCLI.resume(conversationID: session.id, text: text, cwd: session.project,
+                    preferring: await store.preferredTerminalProgram())
+            })
         Task { [weak self] in
             let result = await dispatch.deliver(SessionActionRequest(
                 sessionID: sessionID,
@@ -1134,6 +1189,42 @@ final class MenuBarModel: ObservableObject {
                 } else {
                     self?.answerFeedback[sessionID] = nil
                 }
+            }
+        }
+    }
+
+    /// Stop exactly the turn shown by the card; a changed status is refused
+    /// by the same dispatch guard used by the HTTP route.
+    func stop(_ session: AgentSession) {
+        let monitor = codexAppServerMonitor
+        let acp = cursorACP
+        let cloud = voiceCursorCloud
+        let store = store
+        let dispatch = AnswerDispatch(
+            store: store, questions: questionRegistry,
+            inject: { _, _ in },
+            interrupt: { id in
+                if await acp.hosts(id) { return await acp.cancel(sessionID: id) }
+                return await monitor.interrupt(threadID: id)
+            },
+            cancelCursorCloud: { id in
+                guard E2ERunConfiguration.current == nil else {
+                    return .notSent("Cloud actions are disabled during isolated acceptance.")
+                }
+                guard let run = await store.cursorCloudLatestRun(for: id) else {
+                    return .notSent("This run has already finished.")
+                }
+                return await cloud.cancel(agentID: id, runID: run)
+            })
+        Task { [weak self] in
+            let result = await dispatch.deliver(SessionActionRequest(
+                sessionID: session.id, intent: .stop,
+                expectedStatusSince: session.statusSince.timeIntervalSince1970))
+            if case .accepted = result { await store.recordInteraction(sessionID: session.id) }
+            switch result {
+            case .accepted: self?.answerFeedback[session.id] = nil
+            case .failed(let reason), .refused(let reason): self?.answerFeedback[session.id] = reason
+            case .unknown: self?.answerFeedback[session.id] = "Result unknown — check the task before sending again"
             }
         }
     }
@@ -1390,7 +1481,7 @@ final class MenuBarModel: ObservableObject {
                     await followups.queue(conversationID: id, text: text) != nil
                 },
                 resumeCursor: { session, text in
-                    if await acp.hosts(session.id) { return await acp.prompt(sessionID: session.id, text: text) }
+                    if await acp.owns(session.id) { return await acp.prompt(sessionID: session.id, text: text) }
                     guard E2ERunConfiguration.current == nil else { return false }
                     return await CursorCLI.resume(conversationID: session.id, text: text, cwd: session.project,
                         preferring: await store.preferredTerminalProgram())
@@ -1582,7 +1673,7 @@ final class MenuBarModel: ObservableObject {
                         confirmed: entry.pairedAt != nil, deviceID: entry.device.deviceID)
         }
         let newlyConfirmed = pairedPhone?.confirmed != true && next?.confirmed == true
-        pairedPhone = next
+        if pairedPhone != next { pairedPhone = next }
         if notify && pairingInProgress && newlyConfirmed, let next { notifier.confirmPairing(deviceName: next.name) }
     }
 
