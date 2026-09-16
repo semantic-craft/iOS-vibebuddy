@@ -877,9 +877,7 @@ public actor CodexRolloutMonitor {
         qos: .utility
     )
     private var cursors: [String: Cursor] = [:]
-    private var threadNames: [String: String] = [:]
-    private var nameIndexModifiedAt: Date?
-    private var nameIndexSize: UInt64?
+    private var threadNames = CodexThreadNames()
     private var watchers: [String: WatchRegistration] = [:]
     private var debounceTasks: [String: DebounceRegistration] = [:]
     private var recoveryTask: Task<Void, Never>?
@@ -1301,29 +1299,11 @@ public actor CodexRolloutMonitor {
         guard let path = event.transcriptPath ?? cursors.first(where: { $0.value.parser.sessionID == event.sessionID })?.key
         else { return event }
         refreshThreadNames()
-        return event.withTranscriptPath(path, sessionName: threadNames[event.sessionID])
+        return event.withTranscriptPath(path, sessionName: threadNames.values[event.sessionID])
     }
 
     private func refreshThreadNames() {
-        let index = root.deletingLastPathComponent().appendingPathComponent("session_index.jsonl")
-        guard let state = Self.fileState(index), let modified = Self.fileModifiedAt(index.path),
-              state.size <= 8 * 1_024 * 1_024 else { return }
-        guard modified != nameIndexModifiedAt || state.size != nameIndexSize else { return }
-        guard let handle = try? FileHandle(forReadingFrom: index) else { return }
-        defer { try? handle.close() }
-        guard let data = try? handle.read(upToCount: 8 * 1_024 * 1_024 + 1),
-              data.count <= 8 * 1_024 * 1_024 else { return }
-        var names: [String: String] = [:]
-        for line in data.split(separator: 10) {
-            guard let row = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
-                  let id = row["id"] as? String,
-                  let name = row["thread_name"] as? String,
-                  !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
-            names[id] = String(name.prefix(240))
-        }
-        threadNames = names
-        nameIndexModifiedAt = modified
-        nameIndexSize = state.size
+        threadNames.refresh(index: root.deletingLastPathComponent().appendingPathComponent("session_index.jsonl"))
     }
 
     private func enqueue(_ events: [HookEvent], recordsEvidence: Bool = true) {
@@ -1540,5 +1520,32 @@ enum CodexDesktopAppServer {
                 startUsec: info.pbi_start_tvusec))
         }
         return matches
+    }
+}
+
+/// A bounded title index shared by live events and restored, already-idle rows.
+struct CodexThreadNames {
+    private(set) var values: [String: String] = [:]
+    private var stamp: Date?
+    private var size: Int?
+    private var url: URL?
+
+    mutating func refresh(index: URL) {
+        guard let attrs = try? index.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
+              let modified = attrs.contentModificationDate, let count = attrs.fileSize,
+              count <= 8 * 1_024 * 1_024 else { return }
+        guard index != url || modified != stamp || count != size else { return }
+        guard let handle = try? FileHandle(forReadingFrom: index) else { return }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: 8 * 1_024 * 1_024 + 1),
+              data.count <= 8 * 1_024 * 1_024 else { return }
+        var names: [String: String] = [:]
+        for line in data.split(separator: 10) {
+            guard let row = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
+                  let id = row["id"] as? String, let name = row["thread_name"] as? String,
+                  !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+            names[id] = String(name.prefix(240))
+        }
+        values = names; stamp = modified; size = count; url = index
     }
 }

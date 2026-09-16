@@ -6,12 +6,12 @@
 - Claude Code speech waits for the matching final response and its settled Stop-hook summary. Nested-agent Stop events do not end the parent task.
 - Cursor hook completion uses transcript bytes appended after the prompt and requires a successful native ending. A later prompt or handed-over follow-up prevents that completion from being spoken.
 - Completion speech for every agent requires verified original result material. Missing evidence returns no completion presentation.
-- Announcements use the conversation title. Codex resolves title changes by exact thread ID in its session index. A corroborating native source can update the name while App Server retains authority over progress.
+- Announcements use the conversation title. Codex resolves title changes by exact thread ID in its session index. A corroborating native source can update the name while App Server retains authority over progress. Restored idle rows also read the cached title index, preserving their completion identity, unread flag and progress timestamps.
 - When summary generation fails after result verification, speech reads a labeled, bounded excerpt from the verified result. It no longer substitutes the “round ended, summary unavailable” message.
 
 ## Automated evidence
 
-124 focused Swift tests passed in nine suites. Coverage includes early Codex final-answer/Stop events, title lookup and renames, Claude nested Stop and hook continuation, Cursor native termination and follow-up handoff, stale or conflicting results, and summary-provider failure. Opt-in read-only replay exercised actual local Claude Code, Codex and Cursor records.
+125 focused Swift tests passed in nine suites. Coverage includes early Codex final-answer/Stop events, title lookup and renames, Claude nested Stop and hook continuation, Cursor native termination and follow-up handoff, stale or conflicting results, and summary-provider failure. Opt-in read-only replay exercised actual local Claude Code, Codex and Cursor records.
 
 An isolated daemon on port 18769 with a disposable HOME passed health, bearer-auth rejection, authenticated snapshot and source-isolation checks. Through the same `/presentation` HTTP route used by clients:
 

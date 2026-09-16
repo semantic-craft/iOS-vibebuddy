@@ -209,6 +209,7 @@ public actor SessionStore {
     // Discovery/reachability is not proof that this connection carries progress.
     private var appServerProgressAt: [String: Date] = [:]
     private var activeCodexRollouts: Set<String> = []
+    private var codexThreadNames = CodexThreadNames()
     private var cursorFollowupHandedAt: [String: Date] = [:]
     private var reducer = SessionReducer()
     private var toolLedger: ToolLedger
@@ -1489,7 +1490,18 @@ public actor SessionStore {
 
     /// The one place a runtime snapshot is assembled: sessions and diagnostics
     /// from the reducer, allowance from beside it.
+    func refreshCodexNames(index: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/session_index.jsonl")) {
+        codexThreadNames.refresh(index: index)
+        for session in reducer.sessions.values where session.agent == .codex {
+            guard let name = codexThreadNames.values[session.id], name != session.name else { continue }
+            reducer.apply(.init(kind: .sessionMetadataChanged, sessionID: session.id,
+                agent: .codex, sessionName: name, timestamp: session.updatedAt),
+                observationSource: .rollout, recordsEvidence: false)
+        }
+    }
+
     private func currentSnapshot(now: Date) -> Snapshot {
+        refreshCodexNames()
         var snapshot = reducer.snapshot(now: now, observationDiagnostics: diagnostics(now: now))
         snapshot.sessions += copilotHistory.values.map(\.session).sorted {
             $0.updatedAt == $1.updatedAt ? $0.id < $1.id : $0.updatedAt > $1.updatedAt
