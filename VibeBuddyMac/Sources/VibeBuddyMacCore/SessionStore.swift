@@ -51,14 +51,22 @@ public actor SessionStore {
             return nil
         }
         let config = presentationConfiguration()
-        let input = await presentationInput(request)
-        if request.purpose == .speech, case .completion = request.target, input == nil {
-            return nil
+        var input = await presentationInput(request)
+        if request.purpose == .speech, case .completion = request.target {
+            for _ in 0..<8 {
+                if input != nil, await speechEvidenceIsSettled(request) { break }
+                guard !Task.isCancelled, presentationTargetIsCurrent(request) else { return nil }
+                try? await Task.sleep(for: .milliseconds(250))
+                input = await presentationInput(request)
+            }
+            guard input != nil, await speechEvidenceIsSettled(request) else { return nil }
         }
         let text: String?
         if let input {
             text = await contentPresenter.generate(input, purpose: request.purpose, configuration: config)
         } else { text = nil }
+        if request.purpose == .speech, case .completion = request.target,
+           !(await speechEvidenceIsSettled(request)) { return nil }
         guard !Task.isCancelled, presentationTargetIsCurrent(request) else {
             ContentPresentationService.diagnose(stage: "target", reason: "cancelledOrChangedDuringGeneration")
             return nil
@@ -163,8 +171,32 @@ public actor SessionStore {
             if session.isStuck {
                 return chinese ? "\(title)，任务因问题停止。请打开任务查看原因。" : "\(title). The task stopped with an issue. Open it to review the cause."
             }
-            return chinese ? "\(title)，这一轮已结束。摘要暂时不可用，请打开任务查看结果。" : "\(title). This round ended. A summary is unavailable; open the task to review the result."
+            if case .completion(_, let completionID) = request.target,
+               let key = resultKey(sessionID: id, completionID: completionID),
+               let original = completionResults.records[key]?.text, !original.isEmpty {
+                let excerpt = String(original.prefix(240))
+                return chinese ? "\(title)，结果摘录：\(excerpt)" : "\(title). Result excerpt: \(excerpt)"
+            }
+            return ""
         }
+    }
+
+    private func speechEvidenceIsSettled(_ request: ContentPresentationRequest) async -> Bool {
+        guard case .completion(let sessionID, let completionID) = request.target,
+              let key = resultKey(sessionID: sessionID, completionID: completionID),
+              let record = completionResults.records[key] else { return false }
+        if record.agent == .cursor, let handedAt = cursorFollowupHandedAt[sessionID],
+           handedAt >= record.completedAt { return false }
+        if record.agent == .cursor, let offset = record.transcriptOffset {
+            guard let path = record.transcriptPath, let text = record.text else { return false }
+            return await Task.detached { CursorCompletionReader.read(path: path, offset: offset) == text }.value
+        }
+        guard record.agent == .claudeCode else { return true }
+        guard let path = record.transcriptPath, let text = record.text else { return false }
+        return await Task.detached {
+            ClaudeCompletionReader.hooksSettled(path: path, sessionID: sessionID,
+                completedAt: record.completedAt, expectedText: text)
+        }.value
     }
 
     private func captureRecapResult(id: String, sessionID: String, completionID: String) async {
@@ -177,6 +209,7 @@ public actor SessionStore {
     // Discovery/reachability is not proof that this connection carries progress.
     private var appServerProgressAt: [String: Date] = [:]
     private var activeCodexRollouts: Set<String> = []
+    private var cursorFollowupHandedAt: [String: Date] = [:]
     private var reducer = SessionReducer()
     private var toolLedger: ToolLedger
     private var workingDirectories: [String: String] = [:]
@@ -236,6 +269,7 @@ public actor SessionStore {
     /// silent drop past a `loop_limit` can be seen in the journal) or as the
     /// ACP host's next prompt.
     public func noteCursorFollowupHandoff(sessionID: String, loopCount: Int?, source: ObservationSource, at date: Date) {
+        cursorFollowupHandedAt[sessionID] = date
         let event = loopCount.map { "cursorFollowupHandedOver(loop \($0))" } ?? "cursorFollowupHandedOver"
         _ = appendJournal(sessionID: sessionID, agent: .cursor, event: event, source: source, at: date)
     }
@@ -915,6 +949,7 @@ public actor SessionStore {
         }
         if reducer.sessions[event.sessionID] == nil {
             activeCodexRollouts.remove(event.sessionID)
+            cursorFollowupHandedAt[event.sessionID] = nil
             // Session was removed (e.g. SessionEnd) — forget its side data.
             transcriptPaths[event.sessionID] = nil
             cursorHookLog[event.sessionID] = nil
@@ -1097,6 +1132,9 @@ public actor SessionStore {
                     ContentPresentationService.diagnose(stage: "claudeEvidence", reason: "intervalUnverified")
                 }
                 return (text, false, false)
+            }
+            if record.agent == .cursor, let offset = record.transcriptOffset {
+                return (CursorCompletionReader.read(path: path, offset: offset), false, false)
             }
             ContentPresentationService.diagnose(stage: "evidence", reason: "unsupportedSourceOrMissingBoundary")
             return (nil, false, false)

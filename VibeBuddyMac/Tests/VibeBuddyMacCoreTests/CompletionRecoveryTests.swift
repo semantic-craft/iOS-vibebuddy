@@ -224,7 +224,8 @@ struct CompletionRecoveryTests {
             "content": [["type": "output_text", "text": "First answer"]]], at: now.addingTimeInterval(-8)) {
             await store.ingest(event)
         }
-        let id = try #require(await store.snapshot(now: now).sessions.first?.completionID)
+        #expect(await store.snapshot(now: now).sessions.first?.status == .working)
+        #expect(await store.snapshot(now: now).sessions.first?.completionID == nil)
         // A phone follow-up may be consumed inside this same native turn.
         for event in try events("response_item", ["type": "message", "role": "user",
             "content": [["type": "input_text", "text": "Confirm phone receipt"]]], at: now.addingTimeInterval(-7)) {
@@ -237,7 +238,7 @@ struct CompletionRecoveryTests {
         }
         for event in try events("event_msg", ["type": "task_complete", "turn_id": "native-turn",
             "last_agent_message": "Phone reply received"], at: now) { await store.ingest(event) }
-        #expect(await store.snapshot(now: now).sessions.first?.completionID == id)
+        let id = try #require(await store.snapshot(now: now).sessions.first?.completionID)
         #expect(await store.completionBody(sessionID: "s", completionID: id).text == "Phone reply received")
     }
 
