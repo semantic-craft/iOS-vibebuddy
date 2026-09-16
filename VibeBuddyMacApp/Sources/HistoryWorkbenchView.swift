@@ -181,7 +181,8 @@ final class HistoryLibraryModel: ObservableObject {
         do { try await Task.sleep(for: .milliseconds(180)) } catch { return }
         guard !Task.isCancelled else { return }
         do {
-            let found = try await repository.search(query, projectPath: project, favoritesOnly: favorites, agent: agent, archived: archived, limit: 200)
+            try await readerRepository.reloadReadOnlyMetadata()
+            let found = try await readerRepository.search(query, projectPath: project, favoritesOnly: favorites, agent: agent, archived: archived, limit: 200)
             guard generation == searchGeneration, !Task.isCancelled else { return }
             results = found
         } catch {
