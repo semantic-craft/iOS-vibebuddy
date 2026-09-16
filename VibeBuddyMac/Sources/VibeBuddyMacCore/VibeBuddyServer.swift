@@ -1098,10 +1098,9 @@ public struct VibeBuddyServer: Sendable {
         // `recentDirectories`), so a phone can never point an agent at an
         // arbitrary path. 200 `{sessionId}`, 400 refused, 501 unsupported
         // agent, 503 launcher unavailable.
-        let dispatcher = self.onDispatch
-        let dispatchMonitor = self.codexAppServerMonitor
-        let claudeLauncher = self.claudeLauncher
-        let cursorACP = self.cursorACP
+        let dispatcher = TaskDispatcher(store: store, codex: codexAppServerMonitor,
+                                        claude: claudeLauncher, cursor: cursorLauncher, cursorACP: cursorACP,
+                                        launchOverride: onDispatch)
         authed.post("dispatch") { request, _ -> Response in
             let buffer = try await request.body.collect(upTo: 64 * 1024)
             guard let o = try? JSONSerialization.jsonObject(with: Data(buffer: buffer)) as? [String: Any],
@@ -1115,6 +1114,8 @@ public struct VibeBuddyServer: Sendable {
                                 body: .init(byteBuffer: ByteBuffer(bytes: data)))
             }
             guard !text.isEmpty else { return reply(.badRequest, ["error": "empty prompt"]) }
+            // Preserve the transport's error order: reject an unknown directory before
+            // decoding continuation fields. TaskDispatcher also validates before launch.
             guard await store.isKnownDirectory(cwd) else {
                 return reply(.badRequest, ["error": "not a directory a session has run in"])
             }
@@ -1133,36 +1134,20 @@ public struct VibeBuddyServer: Sendable {
                 }
                 continuation = DispatchContinuation(sourceKey: sourceKey, handoffPath: c["handoffPath"] as? String)
             }
-            guard await store.acceptsContinuation(continuation) else {
-                return reply(.badRequest, ["error": "handoff is not a current scanned document for this source session"])
-            }
             // Cursor's `--model`, `--mode` and `-w`; other agents ignore them.
             let req = DispatchRequest(agent: agent, cwd: cwd,
-                                      prompt: ContinueWith.promptForDispatch(text, handoffPath: continuation?.handoffPath, checkout: cwd), name: optionalString("name"),
+                                      prompt: text, name: optionalString("name"),
                                       model: optionalString("model"), mode: optionalString("mode"),
                                       worktree: o["worktree"] as? Bool, continuation: continuation)
             let outcome: DispatchOutcome
-            if let dispatcher {
-                outcome = await dispatcher(req)
-            } else if agent == .codex, let dispatchMonitor {
-                outcome = await dispatchMonitor.dispatch(req)
-            } else if agent == .claudeCode {
-                outcome = await claudeLauncher.dispatch(req)
-            } else if agent == .cursor {
-                // Hosted over ACP when the CLI is signed in — the phone can
-                // then stop, continue and answer it — else a terminal window.
-                if let cursorACP, await cursorACP.isSupported() {
-                    outcome = await cursorACP.dispatch(req)
-                } else {
-                    outcome = await cursorLauncher.dispatch(req)
-                }
-            } else {
+            switch await dispatcher.dispatch(req) {
+            case .success(let result): outcome = result
+            case .failure(.unknownDirectory), .failure(.directoryUnavailable):
+                return reply(.badRequest, ["error": "not a directory a session has run in"])
+            case .failure(.staleContinuation):
+                return reply(.badRequest, ["error": "handoff is not a current scanned document for this source session"])
+            case .failure(.unsupportedAgent(let agent)):
                 outcome = .unsupported("VibeBuddy cannot start \(agent.displayName) sessions yet")
-            }
-            if case .started(let id) = outcome, let continuation,
-               let receiverKey = ContinueWith.sessionKey(agent: agent, id: id) {
-                await store.recordContinuation(receiverKey: receiverKey, sourceKey: continuation.sourceKey,
-                                               handoffPath: continuation.handoffPath)
             }
             switch outcome {
             case .started(let id): return reply(.ok, ["sessionId": id])

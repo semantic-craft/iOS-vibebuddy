@@ -350,3 +350,84 @@ struct CodexContinueDispatchTests {
         #expect(ContinueWith.promptForDispatch(moved, handoffPath: h.path, checkout: "/another/checkout") == moved)
     }
 }
+
+
+@Suite("Task dispatch boundary")
+struct TaskDispatcherTests {
+    private actor Launches {
+        var requests: [DispatchRequest] = []
+        func launch(_ request: DispatchRequest) -> DispatchOutcome {
+            requests.append(request)
+            return .started(sessionID: "receiver")
+        }
+    }
+
+    @Test("explicit directory consent is distinct from a remembered directory, and the prompt is not trimmed")
+    func directoryConsent() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = SessionStore()
+        let launches = Launches()
+        let dispatcher = TaskDispatcher(store: store, launchOverride: { await launches.launch($0) })
+        let request = DispatchRequest(agent: .codex, cwd: directory.path, prompt: "  Keep whitespace.  ")
+        #expect(await dispatcher.dispatch(request) == .failure(.unknownDirectory))
+        #expect(await dispatcher.dispatch(request, directory: .userSelected) == .success(.started(sessionID: "receiver")))
+        #expect(await launches.requests == [request])
+        try FileManager.default.removeItem(at: directory)
+        #expect(await dispatcher.dispatch(request, directory: .userSelected) == .failure(.directoryUnavailable))
+        #expect(await launches.requests.count == 1)
+    }
+
+    @Test("invalid continuation never launches; only successful launch records lineage")
+    func continuationBoundary() async throws {
+        let store = SessionStore()
+        await store.ingest(HookEvent(kind: .sessionStart, sessionID: "source", agent: .codex,
+                                     cwd: "/x/one", timestamp: Date()))
+        let launches = Launches()
+        let dispatcher = TaskDispatcher(store: store, launchOverride: { await launches.launch($0) })
+        var request = DispatchRequest(agent: .codex, cwd: "/x/one", prompt: "Continue.",
+                                      continuation: DispatchContinuation(sourceKey: "codex:source", handoffPath: "/not-scanned/handoff.md"))
+        #expect(await dispatcher.dispatch(request) == .failure(.staleContinuation))
+        #expect(await launches.requests.isEmpty)
+        request.continuation?.handoffPath = nil
+        let refused = TaskDispatcher(store: store, launchOverride: { _ in .unavailable("offline") })
+        #expect(await refused.dispatch(request) == .success(.unavailable("offline")))
+        await store.ingest(HookEvent(kind: .sessionStart, sessionID: "receiver", agent: .codex,
+                                     cwd: "/x/one", timestamp: Date()))
+        #expect(await store.snapshot(now: Date()).sessions.first { $0.id == "receiver" }?.continuesSessionKey == nil)
+        #expect(await dispatcher.dispatch(request) == .success(.started(sessionID: "receiver")))
+        #expect(await launches.requests.count == 1)
+        #expect(await store.snapshot(now: Date()).sessions.first { $0.id == "receiver" }?.continuesSessionKey == "codex:source")
+    }
+
+    @Test("HTTP keeps authorization error precedence, trims prompts, and maps absent Codex to unsupported")
+    func httpBoundary() async throws {
+        let store = SessionStore()
+        await store.ingest(HookEvent(kind: .sessionStart, sessionID: "source", agent: .codex,
+                                     cwd: "/x/one", timestamp: Date()))
+        let launches = Launches()
+        let server = VibeBuddyServer(store: store, token: "test-token", onDispatch: { await launches.launch($0) })
+        try await server.buildApplication().test(.router) { client in
+            try await client.execute(uri: "/dispatch", method: .post, headers: [.authorization: "Bearer test-token"],
+                                     body: ByteBuffer(string: #"{"agent":"codex","cwd":"/unknown","prompt":"p","continuation":{}}"#)) { response in
+                #expect(response.status == .badRequest)
+                #expect(String(buffer: response.body) == #"{"error":"not a directory a session has run in"}"#)
+            }
+            try await client.execute(uri: "/dispatch", method: .post, headers: [.authorization: "Bearer test-token"],
+                                     body: ByteBuffer(string: #"{"agent":"codex","cwd":"/x/one","prompt":"  p  "}"#)) { response in
+                #expect(response.status == .ok)
+            }
+        }
+        #expect(await launches.requests.first?.prompt == "p")
+        let unavailable = VibeBuddyServer(store: store, token: "test-token")
+        try await unavailable.buildApplication().test(.router) { client in
+            try await client.execute(uri: "/dispatch", method: .post, headers: [.authorization: "Bearer test-token"],
+                                     body: ByteBuffer(string: #"{"agent":"codex","cwd":"/x/one","prompt":"p"}"#)) { response in
+                #expect(response.status == .notImplemented)
+                let body = try JSONDecoder().decode([String: String].self, from: Data(buffer: response.body))
+                #expect(body["error"] == "VibeBuddy cannot start \(AgentKind.codex.displayName) sessions yet")
+            }
+        }
+    }
+}
