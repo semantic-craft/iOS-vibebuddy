@@ -902,6 +902,11 @@ public actor SessionStore {
         if completedTurnProgress || prematureCodexStop || appServerOutranks(event, from: observationSource)
             || acpOutranks(event, from: observationSource)
             || cursorHooksOutrank(event, from: observationSource) {
+            if reducer.sessions[event.sessionID] != nil, let name = event.sessionName {
+                reducer.apply(.init(kind: .sessionMetadataChanged, sessionID: event.sessionID,
+                    agent: event.agent, sessionName: name, timestamp: event.timestamp),
+                    observationSource: observationSource, recordsEvidence: false)
+            }
             if !completedTurnProgress {
                 completionResults.observe(event, session: reducer.sessions[event.sessionID],
                     sourceID: sourceID, now: Date(), authoritative: false)

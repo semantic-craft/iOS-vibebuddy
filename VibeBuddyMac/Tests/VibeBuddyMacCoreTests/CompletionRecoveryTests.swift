@@ -5,6 +5,20 @@ import VibeBuddyKit
 
 @Suite("Completion recovery")
 struct CompletionRecoveryTests {
+    @Test("a corroborating native source can update the conversation name without ending app-server progress")
+    func corroboratingConversationName() async throws {
+        let store = SessionStore(sourceID: "source")
+        let now = Date()
+        await store.ingest(.init(kind: .userPromptSubmit, sessionID: "s", agent: .codex,
+            observationSource: .appserver, timestamp: now, turnID: "a"))
+        await store.ingest(.init(kind: .stop, sessionID: "s", agent: .codex,
+            sessionName: "Draw the evening harbor", observationSource: .rollout, timestamp: now, turnID: "a"))
+        let session = try #require(await store.snapshot(now: now).sessions.first)
+        #expect(session.name == "Draw the evening harbor")
+        #expect(session.status == .working)
+        #expect(session.completionID == nil)
+    }
+
     @Test func restartPreservesExactBodyAndUnreadWithoutNotificationCapture() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
