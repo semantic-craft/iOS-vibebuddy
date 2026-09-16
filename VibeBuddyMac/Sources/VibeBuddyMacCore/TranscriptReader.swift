@@ -226,7 +226,7 @@ public enum TranscriptReader {
 
     private static func pendingQuestion(fromInput input: [String: Any], fallbackID: String?) -> PendingQuestion? {
         if let structured = AskUserQuestionInput.pendingQuestion(from: input, id: fallbackID ?? "question") {
-            return structured
+            return structured.readOnly
         }
         let questionObject: [String: Any]
         if let questions = input["questions"] as? [[String: Any]], let first = questions.first {
@@ -238,7 +238,7 @@ public enum TranscriptReader {
         guard let prompt, !prompt.isEmpty else { return nil }
         let id = Self.firstString(questionObject, keys: ["id", "name"]) ?? fallbackID ?? "question"
         let options = Self.options(from: questionObject["options"])
-        return PendingQuestion(id: id, prompt: prompt, options: options)
+        return PendingQuestion(id: id, prompt: prompt, options: options, answerable: false)
     }
 
     private static func options(from raw: Any?) -> [QuestionOption] {

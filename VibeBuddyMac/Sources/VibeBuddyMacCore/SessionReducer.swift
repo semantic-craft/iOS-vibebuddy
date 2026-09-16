@@ -107,10 +107,14 @@ public struct SessionReducer: Sendable {
                 }
             }
         case .notification:
-            // The purpose-built "Claude wants your attention" signal.
+            // A generic attention signal cannot reclassify an answerable
+            // wait held by a hook or native control channel.
+            let pending = sessions[event.sessionID]
+            let heldKind: WaitKind? = pending?.pendingApproval?.isAnswerable == true ? .permission
+                : pending?.pendingQuestion?.isAnswerable == true ? .question : nil
             upsert(event, status: .needsResponse,
-                   waitKind: event.waitKind ?? Self.waitKind(from: event.message),
-                   summary: event.message)
+                   waitKind: heldKind ?? event.waitKind ?? Self.waitKind(from: event.message),
+                   summary: heldKind == nil ? event.message : pending?.summary)
             sessions[event.sessionID]?.failed = false       // waiting on you, not stuck
             sessions[event.sessionID]?.hasUnreadCompletion = false
             sessions[event.sessionID]?.completionID = nil
@@ -458,6 +462,13 @@ public struct SessionReducer: Sendable {
         s.activeTool = nil
         s.updatedAt = at
         sessions[sessionID] = s
+    }
+
+    /// The blocking hook returned without an answer. Keep the native prompt
+    /// visible, but do not offer a remote answer to a waiter that no longer exists.
+    public mutating func makeQuestionReadOnly(sessionID: String, questionID: String) {
+        guard let question = sessions[sessionID]?.pendingQuestion, question.id == questionID else { return }
+        sessions[sessionID]?.pendingQuestion = question.readOnly
     }
 
     /// Clear an answered question and return the session to working.

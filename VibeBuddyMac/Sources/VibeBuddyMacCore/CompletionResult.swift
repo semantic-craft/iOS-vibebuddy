@@ -150,7 +150,14 @@ struct CompletionResults {
             return
         }
         if let boundary = event.turnStartedAt, let turn = event.turnID {
-            if let old = runs[id], boundary < old.startedAt { return }
+            if let old = runs[id], boundary < old.startedAt {
+                // App-server discovery can start an anonymous run after the
+                // native turn actually began. A native event spanning that
+                // observation refines it; an older ending or identified turn
+                // cannot replace a newer run.
+                guard event.agent == .codex, old.agent == .codex, old.turnID == nil,
+                      nativeResultEvidence, event.timestamp >= old.startedAt else { return }
+            }
             if runs[id]?.turnID != turn || runs[id] == nil {
                 runs[id] = Run(agent: event.agent, startedAt: boundary, turnID: turn, transcriptPath: event.transcriptPath)
                 candidates[id] = nil
