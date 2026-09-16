@@ -190,6 +190,57 @@ struct CompletionRecoveryTests {
         #expect(body.unavailableReason?.contains("mapping is unknown") == true)
     }
 
+    @Test func olderNativeEndingCannotRefineNewAnonymousRun() {
+        let now = Date()
+        var results = CompletionResults()
+        results.observe(.init(kind: .userPromptSubmit, sessionID: "s", agent: .codex,
+            observationSource: .appserver, timestamp: now), session: nil, sourceID: "source", now: now)
+        results.observe(.init(kind: .stop, sessionID: "s", agent: .codex,
+            observationSource: .rollout, timestamp: now.addingTimeInterval(-1), turnID: "older",
+            turnStartedAt: now.addingTimeInterval(-10), completionText: "Old result", completionSucceeded: true),
+            session: nil, sourceID: "source", now: now, createdCompletion: true)
+        #expect(results.runs["s"]?.turnID == nil)
+        #expect(results.runs["s"]?.startedAt == now)
+        #expect(results.records.isEmpty)
+    }
+
+    @Test func nativeEndingRefinesAnonymousAppServerStart() async throws {
+        let store = SessionStore(sourceID: "source")
+        let now = Date()
+        var parser = CodexRolloutParser()
+        let formatter = ISO8601DateFormatter()
+        func events(_ type: String, _ payload: [String: Any], at: Date) throws -> [HookEvent] {
+            parser.parseEvents(try JSONSerialization.data(withJSONObject: ["type": type,
+                "timestamp": formatter.string(from: at), "payload": payload]), receivedAt: now)
+        }
+        _ = try events("session_meta", ["id": "s", "originator": "Codex Desktop"], at: now)
+        // Discovery time is later than the real turn's start, and has no turn identity.
+        await store.ingest(.init(kind: .userPromptSubmit, sessionID: "s", agent: .codex,
+            observationSource: .appserver, timestamp: now.addingTimeInterval(-900)))
+        for event in try events("event_msg", ["type": "task_started", "turn_id": "native-turn"],
+            at: now.addingTimeInterval(-901)) { await store.ingest(event) }
+        for event in try events("response_item", ["type": "message", "role": "assistant", "phase": "final_answer",
+            "internal_chat_message_metadata_passthrough": ["turn_id": "native-turn"],
+            "content": [["type": "output_text", "text": "First answer"]]], at: now.addingTimeInterval(-8)) {
+            await store.ingest(event)
+        }
+        let id = try #require(await store.snapshot(now: now).sessions.first?.completionID)
+        // A phone follow-up may be consumed inside this same native turn.
+        for event in try events("response_item", ["type": "message", "role": "user",
+            "content": [["type": "input_text", "text": "Confirm phone receipt"]]], at: now.addingTimeInterval(-7)) {
+            await store.ingest(event)
+        }
+        for event in try events("response_item", ["type": "message", "role": "assistant", "phase": "final_answer",
+            "internal_chat_message_metadata_passthrough": ["turn_id": "native-turn"],
+            "content": [["type": "output_text", "text": "Phone reply received"]]], at: now.addingTimeInterval(-1)) {
+            await store.ingest(event)
+        }
+        for event in try events("event_msg", ["type": "task_complete", "turn_id": "native-turn",
+            "last_agent_message": "Phone reply received"], at: now) { await store.ingest(event) }
+        #expect(await store.snapshot(now: now).sessions.first?.completionID == id)
+        #expect(await store.completionBody(sessionID: "s", completionID: id).text == "Phone reply received")
+    }
+
     @Test func codexFinalAnswerThenTaskCompleteRetainsTheSameMapping() async throws {
         let store = SessionStore(sourceID: "source")
         let now = Date()

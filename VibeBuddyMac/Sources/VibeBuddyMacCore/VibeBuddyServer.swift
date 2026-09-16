@@ -766,7 +766,7 @@ public struct VibeBuddyServer: Sendable {
             // hook while the phone answers, and reply with the answers in the
             // tool's own `updatedInput` contract. Silence (no answer in time)
             // prints nothing, so Claude shows its own question UI; the card
-            // stays, and a later answer types into the terminal instead.
+            // becomes read-only because the remote waiter has ended.
             if agent == .claudeCode, call.event == .preToolUse, tool == "AskUserQuestion" {
                 guard let question = AskUserQuestionInput.pendingQuestion(from: input, id: makeID()) else {
                     return Response(status: .ok)
@@ -779,6 +779,7 @@ public struct VibeBuddyServer: Sendable {
                 }
                 await store.beginQuestion(sessionID: sessionID, question, at: Date())
                 guard let answers = await questionRegistry.wait(sessionID: sessionID, questionID: question.id, timeout: timeout) else {
+                    await store.makeQuestionReadOnly(sessionID: sessionID, questionID: question.id)
                     return Response(status: .ok)
                 }
                 await store.endQuestion(sessionID: sessionID, questionID: question.id, at: Date())
@@ -808,6 +809,7 @@ public struct VibeBuddyServer: Sendable {
                 }
                 await store.beginQuestion(sessionID: sessionID, question, at: Date())
                 guard let answers = await questionRegistry.wait(sessionID: sessionID, questionID: question.id, timeout: timeout) else {
+                    await store.makeQuestionReadOnly(sessionID: sessionID, questionID: question.id)
                     return Response(status: .ok)
                 }
                 await store.endQuestion(sessionID: sessionID, questionID: question.id, at: Date())

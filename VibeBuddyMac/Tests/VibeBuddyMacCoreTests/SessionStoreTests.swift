@@ -91,6 +91,14 @@ struct SessionStoreTests {
         // A held, answerable card outlives a stray tool-progress notification.
         await store.ingest(HookEvent(kind: .postToolUse, sessionID: "s", timestamp: t0.addingTimeInterval(1.8)))
         await store.ingest(HookEvent(kind: .notification, sessionID: "s", message: "Waiting for your input", timestamp: t0.addingTimeInterval(1.9)))
+        if !approval {
+            // An old timeout cannot disable the replacement question.
+            await store.makeQuestionReadOnly(sessionID: "s", questionID: "old-q")
+            #expect(await store.snapshot(now: t0).sessions.first?.pendingQuestion?.isAnswerable == true)
+            // The current hook times out into the native UI, which is still unanswered.
+            await store.makeQuestionReadOnly(sessionID: "s", questionID: "q")
+            #expect(await store.snapshot(now: t0).sessions.first?.pendingQuestion?.isAnswerable == false)
+        }
         // App-server flushes the question itself after publishing the wait.
         try FileManager.default.setAttributes([.modificationDate: t0.addingTimeInterval(2)], ofItemAtPath: tmp)
         await store.sweep(now: t0.addingTimeInterval(10))

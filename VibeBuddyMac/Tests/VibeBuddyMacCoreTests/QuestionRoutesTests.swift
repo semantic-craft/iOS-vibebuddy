@@ -113,7 +113,18 @@ struct QuestionRoutesTests {
             let session = try #require(await store.snapshot(now: Date()).sessions.first { $0.id == "qs" })
             #expect(session.status == .needsResponse)
             #expect(session.waitKind == .question)
-            let question = try #require(session.pendingQuestion)
+            // A generic permission notification can arrive after the blocking question hook.
+            try await client.execute(uri: "/hook", method: .post,
+                headers: [.authorization: "Bearer t0k"],
+                body: ByteBuffer(string: #"{"hook_event_name":"Notification","session_id":"qs","notification_type":"permission_prompt","message":"Claude needs your permission"}"#)) { res in
+                #expect(res.status == .ok)
+            }
+            let afterNotification = try #require(await store.snapshot(now: Date()).sessions.first { $0.id == "qs" })
+            #expect(afterNotification.waitKind == .question)
+            #expect(afterNotification.summary == session.pendingQuestion?.prompt)
+            let question = try #require(afterNotification.pendingQuestion)
+            #expect(question.isAnswerable)
+
             #expect(question.items.count == 2)
             #expect(question.items[0].header == "Format")
             #expect(question.items[1].multiSelect)
@@ -169,7 +180,7 @@ struct QuestionRoutesTests {
                 #expect(res.status == .ok)
                 #expect(String(buffer: res.body).isEmpty)          // Claude shows its own UI
             }
-            #expect(await store.snapshot(now: Date()).sessions.first { $0.id == "qs" }?.pendingQuestion != nil)
+            #expect(await store.snapshot(now: Date()).sessions.first { $0.id == "qs" }?.pendingQuestion?.isAnswerable == false)
             await store.setTerminalRef(sessionID: "qs", TerminalRef(termProgram: "tmux", tty: "ttys001", tmux: "/tmp/sock,1,0", tmuxPane: "%1"))
             try await client.execute(uri: "/answer", method: .post,
                 headers: [.authorization: "Bearer t0k"],

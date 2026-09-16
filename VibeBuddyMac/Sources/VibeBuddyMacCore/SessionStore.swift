@@ -1265,6 +1265,13 @@ public actor SessionStore {
         return now.timeIntervalSince(evidence.lastObservedAt) < Self.appServerAuthorityWindow
     }
 
+    public func makeQuestionReadOnly(sessionID: String, questionID: String) {
+        // The native UI still owns an unanswered prompt. Keep explicitWaits:
+        // a buffered write of the question itself is not evidence of an answer.
+        reducer.makeQuestionReadOnly(sessionID: sessionID, questionID: questionID)
+        broadcast()
+    }
+
     public func endQuestion(sessionID: String, questionID: String, at: Date, source: ObservationSource = .hook) {
         guard reducer.sessions[sessionID]?.pendingQuestion?.id == questionID else { return }
         if case .question = explicitWaits[sessionID] { explicitWaits[sessionID] = nil }
