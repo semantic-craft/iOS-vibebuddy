@@ -4,8 +4,13 @@ import Darwin
 
 /// Local history is a read-only projection, independent of the live Session reducer.
 public actor SessionHistoryRepository {
-    private struct Entry: Codable { var modified: Date; var size: Int; var session: SessionHistorySession }
-    private struct Cache: Codable { var version: Int = 7; var entries: [String: Entry]; var pendingPaths: Set<String>? = nil }
+    private struct Entry: Codable {
+        var modified: Date; var size: Int; var session: SessionHistorySession
+        // Per-entry marker survives bounded migrations and unavailable originals.
+        var codexIdentityVersion: Int? = nil
+        var hasVerifiedIdentity: Bool { session.agent != .codex || codexIdentityVersion == 1 }
+    }
+    private struct Cache: Codable { var version: Int = 8; var entries: [String: Entry]; var pendingPaths: Set<String>? = nil }
     private let roots: [(URL, SessionHistoryAgent)]
     private let directory: URL
     private let grokHome: URL?
@@ -107,7 +112,7 @@ public actor SessionHistoryRepository {
         if let data = try? Data(contentsOf: directory.appendingPathComponent("archives.json")), let decoded = try? JSONDecoder().decode(Set<String>.self, from: data) { archives = decoded }
         if let data = try? Data(contentsOf: directory.appendingPathComponent("pins.json")), let decoded = try? JSONDecoder().decode(Set<String>.self, from: data) { pins = decoded }
         if let data = try? Data(contentsOf: directory.appendingPathComponent("favorites.json")), let decoded = try? JSONDecoder().decode(Set<String>.self, from: data) { favorites = decoded }
-        if let data = try? Data(contentsOf: directory.appendingPathComponent("index.json")), let cache = try? JSONDecoder().decode(Cache.self, from: data), [4, 5, 6, 7].contains(cache.version) {
+        if let data = try? Data(contentsOf: directory.appendingPathComponent("index.json")), let cache = try? JSONDecoder().decode(Cache.self, from: data), [4, 5, 6, 7, 8].contains(cache.version) {
             usableIndex = true
             // Never reuse another configured source home's cached content.
             // A removed leaf cannot resolve symlinks. Keep both spellings of
@@ -130,6 +135,9 @@ public actor SessionHistoryRepository {
             }
             pendingPaths = Set((cache.pendingPaths ?? []).filter(belongsToRoots))
             if cache.version < 7 { pendingPaths.formUnion(entries.filter { $0.value.session.agent.supportsTranscript }.keys) }
+            if cache.version < 8 {
+                pendingPaths.formUnion(entries.filter { !$0.value.hasVerifiedIdentity }.keys)
+            }
         }
     }
     /// Long-lived MCP readers see the next atomically published metadata files.
@@ -152,7 +160,7 @@ public actor SessionHistoryRepository {
     public func snapshot() -> SessionHistorySnapshot {
         ensureLoaded()
         var byID: [String: SessionHistorySession] = [:]
-        for entry in entries.values {
+        for entry in entries.values where entry.hasVerifiedIdentity {
             var session = entry.session; session.isFavorite = favorites.contains(session.id); session.isPinned = pins.contains(session.id); session.archivedLocally = archives.contains(session.id)
             if session.agent.supportsTranscript { session.sourceRevision = revision(of: entry) }
             if let existing = byID[session.id] {
@@ -163,7 +171,12 @@ public actor SessionHistoryRepository {
             }
             byID[session.id] = session
         }
-        return SessionHistorySnapshot(sessions: byID.values.sorted { if ($0.isPinned == true) != ($1.isPinned == true) { return $0.isPinned == true }; return $0.updatedAt == $1.updatedAt ? $0.id < $1.id : $0.updatedAt > $1.updatedAt }, issues: issues, refreshedAt: refreshedAt, pendingSourceCount: pendingPaths.count)
+        var snapshotIssues = issues
+        let unverified = entries.values.filter { !$0.hasVerifiedIdentity }.count
+        if unverified > 0 {
+            snapshotIssues.append("Codex identity migration: \(unverified) sources awaiting verification; original transcripts and user marks retained.")
+        }
+        return SessionHistorySnapshot(sessions: byID.values.sorted { if ($0.isPinned == true) != ($1.isPinned == true) { return $0.isPinned == true }; return $0.updatedAt == $1.updatedAt ? $0.id < $1.id : $0.updatedAt > $1.updatedAt }, issues: snapshotIssues, refreshedAt: refreshedAt, pendingSourceCount: pendingPaths.count)
     }
     public func refresh(rebuild: Bool = false, failIfBusy: Bool = false) throws -> SessionHistorySnapshot {
         guard !readOnly else { throw HistoryToolError.readOnly }
@@ -207,7 +220,7 @@ public actor SessionHistoryRepository {
         try save(session, name: contentFilename(file.path))
         try searchIndex.replace(session, stamp: "v7|" + revision)
         session.messages = []
-        entries[file.path] = Entry(modified: modified, size: size, session: session)
+        entries[file.path] = Entry(modified: modified, size: size, session: session, codexIdentityVersion: agent == .codex ? 1 : nil)
     }
 
     private func sourcePath(_ raw: String) -> (file: URL, agent: SessionHistoryAgent, archived: Bool)? {
@@ -375,7 +388,7 @@ public actor SessionHistoryRepository {
                     discovered.insert(file.path)
                     let size = values.fileSize ?? 0
                     let modified = values.contentModificationDate ?? .distantPast
-                    if !pendingPaths.contains(file.path), let cached = entries[file.path], cached.modified == modified, cached.size == size, cached.session.isAvailable,
+                    if !pendingPaths.contains(file.path), let cached = entries[file.path], cached.modified == modified, cached.size == size, cached.session.isAvailable, cached.hasVerifiedIdentity,
                        revision(of: cached) == Self.currentSourceRevision(file) { continue }
                     if !full && totalBytes > 0 && totalBytes + min(size, SessionHistoryParser.byteLimit) > refreshByteBudget {
                         pendingPaths.insert(file.path)
@@ -436,7 +449,7 @@ public actor SessionHistoryRepository {
         if let cacheFailure { throw cacheFailure }
         // Migrate old lazy indexes and repair missing FTS rows only while holding
         // the writer lock. No query ever decodes caches or writes SQLite rows.
-        for entry in entries.values where entry.session.agent.supportsTranscript {
+        for entry in entries.values where entry.hasVerifiedIdentity && entry.session.agent.supportsTranscript {
             let stamp = "v7|" + revision(of: entry)
             if try !searchIndex.isCurrent(path: entry.session.sourcePath, stamp: stamp) {
                 let session = try autoreleasepool { try load(entry.session) }
@@ -470,7 +483,7 @@ public actor SessionHistoryRepository {
     public func resolveIndexedSession(key: String) throws -> SessionHistorySession? {
         let reference = try HistorySessionReference(key)
         ensureLoaded()
-        let candidates = entries.values.filter { $0.session.agent == reference.agent && $0.session.nativeSessionID == reference.nativeID }
+        let candidates = entries.values.filter { $0.hasVerifiedIdentity && $0.session.agent == reference.agent && $0.session.nativeSessionID == reference.nativeID }
         let available = candidates.filter { $0.session.isAvailable }
         let matches = available.isEmpty ? candidates : available
         guard matches.count <= 1 else { throw HistoryToolError.executionFailed("Ambiguous session key: multiple source files.") }

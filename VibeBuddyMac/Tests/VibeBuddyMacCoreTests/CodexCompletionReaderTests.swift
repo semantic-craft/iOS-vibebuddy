@@ -27,6 +27,10 @@ struct CodexCompletionReaderTests {
         #expect(try read().get().text == "Exact A")
         #expect(throws: CodexCompletionReader.Failure.sessionMismatch) { try read("other").get() }
         #expect(throws: CodexCompletionReader.Failure.missingBoundary) { try read("session", "B").get() }
+        let inherited = try record(["id": "parent"], type: "session_meta")
+        try write([meta, inherited, start, complete])
+        #expect(try read().get().text == "Exact A")
+        #expect(throws: CodexCompletionReader.Failure.sessionMismatch) { try read("parent").get() }
         try write([meta, start, complete], newline: false)
         #expect(throws: CodexCompletionReader.Failure.notCompleted) { try read().get() }
         try write([meta, start, complete, complete])

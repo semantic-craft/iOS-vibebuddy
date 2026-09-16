@@ -28,6 +28,8 @@ enum SessionHistoryParser {
         let fractional = ISO8601DateFormatter(); fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         var nativeID = url.deletingPathExtension().lastPathComponent
         var cwd = ""
+        var sawCodexMetadata = false
+        var inheritedCodexIDs = Set<String>()
         var source: String?
         if agent == .cursor {
             var directory = url.deletingLastPathComponent()
@@ -124,7 +126,20 @@ enum SessionHistoryParser {
                 } else { append(role, textBlocks(body["content"]), "0", kind: compact ? .compactSummary : nil, groupID: groupID) }
             } else if let body = root["payload"] as? [String: Any] {
                 if type == "session_meta" {
-                    nativeID = body["id"] as? String ?? nativeID
+                    // Forks start with their own metadata, then replay ancestor
+                    // metadata. Only the first envelope owns this source file.
+                    if sawCodexMetadata {
+                        if let inherited = body["id"] as? String, inherited != nativeID,
+                           inheritedCodexIDs.count < 32, inheritedCodexIDs.insert(inherited).inserted {
+                            warnings.append("Inherited Codex session metadata: \(inherited).")
+                        }
+                        continue
+                    }
+                    sawCodexMetadata = true
+                    guard let owner = body["id"] as? String, !owner.isEmpty else {
+                        throw HistoryToolError.executionFailed("Codex source has no owning session identity.")
+                    }
+                    nativeID = owner
                     cwd = body["cwd"] as? String ?? cwd
                     let originator = (body["originator"] as? String)?.lowercased()
                     source = originator == "codex desktop" ? "desktop" : (body["source"] as? String)?.lowercased()

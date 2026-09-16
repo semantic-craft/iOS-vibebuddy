@@ -53,6 +53,8 @@ public enum CodexCompletionReader {
                         return .failure(.malformedRecord)
                     }
                     if type == "session_meta" {
+                        // Only the first metadata record identifies the file owner.
+                        if sawSession { continue }
                         guard payload["id"] as? String == sessionID else { return .failure(.sessionMismatch) }
                         sawSession = true
                         continue
