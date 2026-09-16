@@ -18,9 +18,67 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+import http.server
+import runpy
+import signal
+import threading
+import time
 
 HOOKS = os.path.dirname(os.path.abspath(__file__))
 UNIVERSAL = os.path.join(HOOKS, "install-agent-hooks.py")
+
+
+def check_cursor_stop_timeout(fails, partial=False):
+    """Real curl requests against a local server which accepts but never replies."""
+    release = threading.Event()
+    received = []
+
+    class HungHandler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *_args):
+            pass
+
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length", 0)))
+            received.append(self.path)
+            if partial and self.path == "/cursor-followup":
+                body = b'{"followup_message":"must-not-reach-cursor"}'
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body) + 100))
+                self.end_headers()
+                self.wfile.write(body)
+                self.wfile.flush()
+            release.wait(10)
+
+    installed = runpy.run_path(os.path.join(HOOKS, "install-cursor-hooks.py"))
+    deadline = installed["desired"]()["stop"][0]["timeout"]
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), HungHandler)
+    threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
+    env = {**os.environ, "VIBEBUDDY_PORT": str(server.server_port),
+           "VIBEBUDDY_TOKEN": "disposable-test-token", "VIBEBUDDY_TOKEN_FILE": "/dev/null"}
+    process = subprocess.Popen(["bash", os.path.join(HOOKS, "cursor-followup.sh")], env=env,
+                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               text=True, start_new_session=True)
+    started = time.monotonic()
+    try:
+        stdout, stderr = process.communicate('{"hook_event_name":"stop","conversation_id":"timeout-test"}',
+                                             timeout=deadline)
+        elapsed = time.monotonic() - started
+        if process.returncode != 0 or stdout or stderr:
+            fails.append("Cursor hung-daemon stop must fail open with empty stdout/stderr")
+        if not any(path.startswith("/hook?") for path in received) or "/cursor-followup" not in received:
+            fails.append("Cursor stop failed to attempt both report and follow-up collection")
+        print(f"Cursor stop partial={partial} elapsed={elapsed:.3f}s configured_timeout={deadline}s")
+    except subprocess.TimeoutExpired:
+        fails.append(f"Cursor stop exceeded its installed {deadline}s timeout against a hung daemon")
+    finally:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.communicate(timeout=3)
+        release.set()
+        server.shutdown()
+        server.server_close()
 
 # Files each detected CLI's installer writes (relative to $HOME).
 MANAGED = [
@@ -648,6 +706,8 @@ def main():
     check_claude_old_cli_keeps_legacy_gate(fails)
     check_claude_statusline_wrapper(fails)
     check_statusline_only(fails)
+    check_cursor_stop_timeout(fails)
+    check_cursor_stop_timeout(fails, partial=True)
 
     if fails:
         print("FAIL:")
@@ -659,4 +719,11 @@ def main():
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--cursor-stop-timeout-only"]:
+        failures = []
+        check_cursor_stop_timeout(failures)
+        check_cursor_stop_timeout(failures, partial=True)
+        for failure in failures:
+            print("FAIL:", failure)
+        sys.exit(bool(failures))
     main()

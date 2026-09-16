@@ -24,15 +24,17 @@ TOKEN_FILE="${VIBEBUDDY_TOKEN_FILE:-$HOME/Library/Application Support/vibebuddy/
 TOKEN="${VIBEBUDDY_TOKEN:-$(cat "$TOKEN_FILE" 2>/dev/null)}"
 AUTH=(); [ -n "$TOKEN" ] && AUTH=(-H "Authorization: Bearer $TOKEN")
 
-# 1. The ending itself — fire and forget, output discarded.
-printf '%s' "$INPUT" | curl -sS --connect-timeout 1 --max-time 3 -o /dev/null \
+# Both requests are sequential: keep their combined network budget at 3 s,
+# inside the installed 5 s stop deadline, with room for shell/JSON overhead.
+# 1. Report the ending before collecting; discard its response body.
+printf '%s' "$INPUT" | curl -sS --connect-timeout 0.5 --max-time 1 -o /dev/null \
   "${AUTH[@]}" -X POST --data-binary @- \
   "http://127.0.0.1:${PORT}/hook?agent=${SOURCE}" 2>/dev/null || true
 
 # 2. The queued follow-up, printed verbatim. An empty body prints nothing.
-RESP=$(printf '%s' "$INPUT" | curl -sS --connect-timeout 1 --max-time 5 \
+RESP=$(printf '%s' "$INPUT" | curl -fsS --connect-timeout 0.5 --max-time 2 \
   "${AUTH[@]}" -X POST --data-binary @- \
-  "http://127.0.0.1:${PORT}/cursor-followup" 2>/dev/null)
+  "http://127.0.0.1:${PORT}/cursor-followup" 2>/dev/null) || RESP=""
 case "$RESP" in
   *followup_message*) printf '%s' "$RESP" ;;
 esac

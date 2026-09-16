@@ -276,8 +276,13 @@ public struct AnswerDispatch: Sendable {
                 if SessionActionSupport.isCursorCloudAgent(session) {
                     return await continueCursorCloud(session.id, typed)
                 }
+                if session.cursorACPRecoverable == true, let reason = session.cursorACPRecoveryUnavailable {
+                    return .failed(reason)
+                }
                 guard await resumeCursor(session, typed) else {
-                    return .failed("This Mac can't resume Cursor chats — the Cursor CLI isn't available.")
+                    let current = await store.snapshot(now: Date()).sessions.first { $0.id == session.id }
+                    return .failed(current?.cursorACPRecoveryFailure ?? current?.cursorACPRecoveryUnavailable
+                        ?? "This Mac can't resume Cursor chats — the Cursor CLI isn't available.")
                 }
                 return .accepted
             }

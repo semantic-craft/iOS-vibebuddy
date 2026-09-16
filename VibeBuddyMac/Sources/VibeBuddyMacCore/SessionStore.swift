@@ -201,6 +201,19 @@ public actor SessionStore {
     /// the row is stamped `ControlChannel.acp`. Memory-only: the processes die
     /// with the daemon, so nothing here outlives it either.
     private var acpHosted: Set<String> = []
+    private var acpRecoveryRows: [String: AgentSession] = [:]
+
+    public func registerACPRecovery(sessionID: String, cwd: String, model: String?, unavailable: String?, updatedAt: Date, retryable: Bool = false) {
+        var row = AgentSession(id: sessionID, agent: .cursor, project: cwd, checkoutPath: cwd,
+                               model: model, status: .done, summary: "Managed Cursor session; reconnects on continue",
+                               statusSince: updatedAt, updatedAt: updatedAt)
+        row.historyOnly = true
+        row.cursorACPRecoverable = true
+        row.cursorACPRecoveryUnavailable = retryable ? nil : unavailable
+        row.cursorACPRecoveryFailure = retryable ? unavailable : nil
+        acpRecoveryRows[sessionID] = row
+        broadcast()
+    }
 
     /// The ACP host took over (or let go of) a conversation.
     public func setACPHosted(sessionID: String, _ hosted: Bool) {
@@ -236,6 +249,7 @@ public actor SessionStore {
             return fresh(.appserver, within: Self.appServerAuthorityWindow) ? .appserver : nil
         case .cursor:
             if acpHosted.contains(session.id) { return .acp }
+            if acpRecoveryRows[session.id] != nil { return ControlChannel.none }
             if session.observations?.contains(where: { $0.source == .cloud && $0.health.isHealthy }) == true { return .cloud }
             if fresh(.hook, within: Self.cursorHookAuthorityWindow) { return .hook }
             return ControlChannel.none
@@ -1447,6 +1461,8 @@ public actor SessionStore {
                 return session
             }
         }
+        let visibleIDs = Set(snapshot.sessions.map(\.id))
+        snapshot.sessions += acpRecoveryRows.values.filter { !visibleIDs.contains($0.id) }
         snapshot.cursorModels = cursorModels.isEmpty ? nil : cursorModels
         snapshot.dispatchAgents = dispatchAgents.isEmpty ? nil : dispatchAgents
         snapshot.sessions = snapshot.sessions.map { session in
@@ -1466,6 +1482,16 @@ public actor SessionStore {
                 session.completionText = nil
             }
             session.controlChannel = controlChannel(for: session, now: now)
+            if let recovery = acpRecoveryRows[session.id], !acpHosted.contains(session.id) {
+                session.historyOnly = true
+                session.cursorACPRecoverable = true
+                session.cursorACPRecoveryUnavailable = recovery.cursorACPRecoveryUnavailable
+                session.cursorACPRecoveryFailure = recovery.cursorACPRecoveryFailure
+                session.status = .done
+                session.pendingApproval = nil
+                session.pendingQuestion = nil
+                session.waitKind = nil
+            }
             return session
         }
         // Ended rounds are recorded from the assembled sessions — after tool

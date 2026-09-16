@@ -196,6 +196,7 @@ public struct VibeBuddyServer: Sendable {
     /// Which agents `/dispatch` can start right now — what the "New task"
     /// entry offers, and hides itself behind when empty.
     public func dispatchAgents() async -> [AgentKind] {
+        await cursorACP?.registerRecoverableSessions()
         var agents: [AgentKind] = []
         if await claudeLauncher.isSupported() { agents.append(.claudeCode) }
         if let monitor = codexAppServerMonitor, await monitor.diagnostics().connected { agents.append(.codex) }
@@ -251,6 +252,7 @@ public struct VibeBuddyServer: Sendable {
         do {
             try await buildApplication().runService()
         } catch {
+            await cursorACP?.shutdown()
             grokTask?.cancel()
             await grokTask?.value
             monitorTask?.cancel()
@@ -259,6 +261,7 @@ public struct VibeBuddyServer: Sendable {
             await appServerTask?.value
             throw error
         }
+        await cursorACP?.shutdown()
         grokTask?.cancel()
         await grokTask?.value
         monitorTask?.cancel()
@@ -1194,7 +1197,7 @@ public struct VibeBuddyServer: Sendable {
                                           await cursorFollowups.queue(conversationID: sessionID, text: text) != nil
                                       },
                                       resumeCursor: { session, text in
-                                          if let cursorACP, await cursorACP.hosts(session.id) {
+                                          if let cursorACP, await cursorACP.owns(session.id) {
                                               return await cursorACP.prompt(sessionID: session.id, text: text)
                                           }
                                           return await CursorCLI.resume(conversationID: session.id, text: text,

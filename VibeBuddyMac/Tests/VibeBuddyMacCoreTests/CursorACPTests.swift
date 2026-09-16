@@ -55,6 +55,10 @@ private final class FakeACPAgent: @unchecked Sendable {
                 case "initialize": respond(id, ["protocolVersion": protocolVersion, "agentCapabilities": ["loadSession": true]])
                 case "authenticate": respond(id, [:])
                 case "session/new": respond(id, ["sessionId": sessionID])
+                case "session/load":
+                    update(["sessionUpdate": "agent_message_chunk", "content": ["text": "OLD REPLAY"]])
+                    update(["sessionUpdate": "tool_call", "toolCallId": "replay-0", "kind": "read", "title": "old read"])
+                    respond(id, [:])
                 default: break
                 }
             } else if let id = (obj["id"] as? NSNumber)?.intValue {
@@ -73,14 +77,30 @@ private final class FakeACPAgent: @unchecked Sendable {
         write(["jsonrpc": "2.0", "id": id, "result": result])
     }
 
+    func burstAndEnd(_ chunks: [String]) {
+        guard let prompt = request(named: "session/prompt", after: promptsEnded) else { return }
+        promptsEnded += 1
+        var messages: [[String: Any]] = chunks.map { text in
+            ["jsonrpc": "2.0", "method": "session/update", "params": ["sessionId": sessionID,
+             "update": ["sessionUpdate": "agent_message_chunk", "content": ["text": text]]]]
+        }
+        messages.append(["jsonrpc": "2.0", "id": prompt.id, "result": ["stopReason": "end_turn"]])
+        var data = Data()
+        for message in messages {
+            data.append(try! JSONSerialization.data(withJSONObject: message))
+            data.append(0x0A)
+        }
+        try? toClient.fileHandleForWriting.write(contentsOf: data)
+    }
+
     func update(_ update: [String: Any]) {
         write(["jsonrpc": "2.0", "method": "session/update", "params": ["sessionId": sessionID, "update": update]])
     }
 
     /// A server-initiated request; returns its id so the test can await the answer.
     @discardableResult
-    func ask(_ method: String, _ params: [String: Any]) -> Int {
-        lock.lock(); let id = nextID; nextID += 1; lock.unlock()
+    func ask(_ method: String, _ params: [String: Any], id requestedID: Int? = nil) -> Int {
+        lock.lock(); let id = requestedID ?? nextID; nextID += 1; lock.unlock()
         var full = params
         full["sessionId"] = sessionID
         write(["jsonrpc": "2.0", "id": id, "method": method, "params": full])
@@ -151,7 +171,7 @@ struct CursorACPTests {
         let monitor: CursorACPMonitor
 
         init(agent: FakeACPAgent = FakeACPAgent(), signedIn: Bool = true, deny: [String] = [],
-             models: [String] = ["gpt-5", "sonnet-4.5"]) {
+             models: [String] = ["gpt-5", "sonnet-4.5"], recoveryDirectory: URL? = nil) {
             self.agent = agent
             let log = self.log
             allowStore = VibeBuddyAllowStore(url: FileManager.default.temporaryDirectory
@@ -164,7 +184,7 @@ struct CursorACPTests {
                                        executable: URL(fileURLWithPath: "/usr/bin/true"),
                                        signInProbe: { signedIn },
                                        modelsProbe: { log.recordListing(); return models },
-                                       spawn: { launch in log.record(launch); return agent.client() })
+                                       spawn: { launch in log.record(launch); return agent.client() }, recoveryDirectory: recoveryDirectory)
         }
 
         func session() async -> AgentSession? {
@@ -173,6 +193,73 @@ struct CursorACPTests {
     }
 
     private let request = DispatchRequest(agent: .cursor, cwd: "/x/p", prompt: "fix the tests", name: nil)
+
+    @Test func restartLoadsSameIdentityWithoutReplayingHistoryOrDoubleHosting() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let first = Rig(recoveryDirectory: directory)
+        #expect(await first.monitor.dispatch(request) == .started(sessionID: "acp-1"))
+        await eventually("first prompt") { first.agent.request(named: "session/prompt") != nil }
+        first.agent.endTurn("end_turn")
+        await eventually("idle") { await first.session()?.status == .done }
+        let other = Rig(recoveryDirectory: directory)
+        await other.monitor.registerRecoverableSessions()
+        #expect(await other.monitor.prompt(sessionID: "acp-1", text: "blocked") == false)
+        #expect(other.log.launches.isEmpty)
+        let failedRow = await other.session()
+        #expect(failedRow?.cursorACPRecoveryFailure != nil)
+        #expect(failedRow.map { SessionActionSupport.resolve(for: $0).isAvailable } == true)
+        await first.monitor.shutdown()
+        #expect(await other.monitor.prompt(sessionID: "acp-1", text: "explicit retry"))
+        await other.monitor.shutdown()
+        let second = Rig(recoveryDirectory: directory)
+        await second.monitor.registerRecoverableSessions()
+        let historical = await second.session()
+        #expect(historical?.cursorACPRecoverable == true)
+        #expect(historical?.historyOnly == true)
+        #expect(historical?.controlChannel == ControlChannel.none)
+        #expect(historical?.hasUnreadCompletion == false)
+        #expect(await second.monitor.prompt(sessionID: "acp-1", text: "continue"))
+        #expect(second.agent.request(named: "session/new") == nil)
+        #expect(second.agent.request(named: "session/load")?.params["sessionId"] as? String == "acp-1")
+        await eventually("second prompt") { second.agent.request(named: "session/prompt") != nil }
+        second.agent.update(["sessionUpdate": "agent_message_chunk", "content": ["text": "NEW ANSWER"]])
+        try? await Task.sleep(for: .milliseconds(20))
+        second.agent.endTurn("end_turn")
+        await eventually("second idle") { await second.session()?.status == .done }
+        #expect(await second.session()?.summary?.contains("OLD REPLAY") != true)
+        #expect(second.log.launches.first?.options.worktree == false)
+        await second.monitor.shutdown()
+    }
+
+    @Test func oldRecoveryKeepsItsHistoricalTimestamp() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let time = Date().addingTimeInterval(-7 * 86400)
+        let record = CursorACPRecovery(sessionID: "acp-1", cwd: "/tmp", options: .init(),
+            createdAt: time, origin: "vibebuddy-acp", unavailable: nil)
+        try record.save(in: directory)
+        let rig = Rig(recoveryDirectory: directory)
+        await rig.monitor.registerRecoverableSessions()
+        let row = await rig.session()
+        #expect(row?.updatedAt == time)
+        #expect(row?.historyOnly == true)
+        #expect(row?.hasUnreadCompletion == false)
+    }
+
+    @Test func recoveryMetadataIsPrivateAndBounded() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let old = CursorACPRecovery(sessionID: "old", cwd: "/tmp", options: .init(),
+            createdAt: Date().addingTimeInterval(-31 * 86400), origin: "vibebuddy-acp", unavailable: nil)
+        try old.save(in: directory)
+        let current = CursorACPRecovery(sessionID: "current", cwd: "/tmp", options: .init(),
+            createdAt: Date(), origin: "vibebuddy-acp", unavailable: nil)
+        try current.save(in: directory)
+        #expect(CursorACPRecovery.read(in: directory).map(\.sessionID) == ["current"])
+        let attrs = try FileManager.default.attributesOfItem(atPath: directory.appendingPathComponent(current.filename + ".json").path)
+        #expect((attrs[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+    }
 
     @Test func aDispatchBecomesAWorkingSessionOnTheACPChannel() async throws {
         let rig = Rig()
@@ -294,6 +381,69 @@ struct CursorACPTests {
         #expect(outcome?["outcome"] as? String == "accepted")
     }
 
+    @Test func fullPlanAndProviderTodosSurviveTheBlockingCardAndExactRejection() async throws {
+        let rig = Rig()
+        _ = await rig.monitor.dispatch(request)
+        await eventually("prompt") { rig.agent.request(named: "session/prompt") != nil }
+        let body = "# Full plan\n" + String(repeating: "Keep the complete implementation and verification section.\n", count: 80) + "PLAN_END_03\n"
+        let rpc = rig.agent.ask("cursor/create_plan", ["toolCallId": "native-call\nprovider-part", "name": "Offline Grocery List",
+            "overview": "Short overview must not replace the body", "plan": body,
+            "todos": [["id": "schema", "content": "Specify the local schema", "status": "pending"]]], id: 0)
+        await eventually("plan card") { await rig.session()?.pendingQuestion != nil }
+        let question = try #require(await rig.session()?.pendingQuestion)
+        #expect(question.prompt.hasPrefix("Offline Grocery List\n\n"))
+        #expect(question.prompt.contains(body))
+        #expect(question.items.first?.text == question.prompt)
+        #expect(question.prompt.contains("[pending] Specify the local schema"))
+        #expect(!question.prompt.contains("Short overview"))
+        let reason = "Do not accept: ACP_REJECT_03"
+        _ = await rig.questions.resolveExact(sessionID: "acp-1", questionID: question.id, answers: ["plan": [reason]])
+        await eventually("exact plan response") { rig.agent.response(to: rpc) != nil }
+        let response = try #require(rig.agent.response(to: 0))
+        let outcome = (response["result"] as? [String: Any])?["outcome"] as? [String: Any]
+        #expect(outcome?["outcome"] as? String == "rejected")
+        #expect(outcome?["reason"] as? String == reason)
+        await rig.monitor.shutdown()
+    }
+
+    @Test func partialReadUpdatesProduceOneIdentifiedSuccessfulLedgerRecord() async throws {
+        let rig = Rig()
+        _ = await rig.monitor.dispatch(request)
+        await eventually("prompt") { rig.agent.request(named: "session/prompt") != nil }
+        // Same shape/order as evidence/01/acp-transcript.jsonl; the newline is
+        // part of Cursor's real tool identity, not a transport delimiter.
+        let call = "call-18379383-22b2-4594-a59e-87c85aff89f8-0\nfc_46003852-a212-951c-afbc-2379bd1c30bc_0"
+        rig.agent.update(["sessionUpdate": "tool_call", "toolCallId": call, "title": "Read File", "kind": "read", "status": "pending", "rawInput": [:]])
+        await eventually("read intent") { await rig.session()?.ledger?.contains { $0.id == call } == true }
+        rig.agent.update(["sessionUpdate": "tool_call_update", "toolCallId": call, "title": "Read /tmp/sample.txt", "rawInput": ["path": "/tmp/sample.txt"], "locations": [["path": "/tmp/sample.txt"]]])
+        await eventually("path arrived") { await rig.session()?.ledger?.first(where: { $0.id == call })?.files == ["/tmp/sample.txt"] }
+        rig.agent.update(["sessionUpdate": "tool_call_update", "toolCallId": call, "status": "in_progress"])
+        rig.agent.update(["sessionUpdate": "tool_call_update", "toolCallId": call, "status": "completed", "rawOutput": ["content": "ACP_BASELINE_7319\n"]])
+        await eventually("read succeeded") { await rig.session()?.ledger?.first(where: { $0.id == call })?.result == .succeeded }
+        let records = await rig.session()?.ledger?.filter { $0.source == "acp" } ?? []
+        #expect(records.count == 1)
+        #expect(records.first?.id == call)
+        #expect(records.first?.tool == "Read")
+        #expect(records.first?.files == ["/tmp/sample.txt"])
+        #expect(records.first?.linesAdded == nil)
+        await rig.monitor.shutdown()
+    }
+
+    @Test func notificationOnlyMethodsDoNotFabricateExecutionOutcomes() async throws {
+        let rig = Rig()
+        _ = await rig.monitor.dispatch(request)
+        await eventually("prompt") { rig.agent.request(named: "session/prompt") != nil }
+        for method in ["cursor/update_todos", "cursor/task", "cursor/generate_image"] {
+            let rpc = rig.agent.ask(method, ["toolCallId": "unverified", "description": "unknown"])
+            await eventually("unsupported response") { rig.agent.response(to: rpc) != nil }
+            #expect((rig.agent.response(to: rpc)?["error"] as? [String: Any])?["code"] as? Int == -32601)
+            #expect(rig.agent.response(to: rpc)?["result"] == nil)
+        }
+        #expect(await rig.session()?.childAgents?.isEmpty != false)
+        #expect(await rig.session()?.failed != true)
+        await rig.monitor.shutdown()
+    }
+
     @Test func aStopCancelsTheTurnAndIsMarkedAsTheUsers() async throws {
         let rig = Rig()
         _ = await rig.monitor.dispatch(request)
@@ -304,8 +454,16 @@ struct CursorACPTests {
             "options": [["optionId": "allow-once", "kind": "allow_once"], ["optionId": "reject-once", "kind": "reject_once"]],
         ])
         await eventually("card") { await rig.session()?.pendingApproval != nil }
-        let outcome = await rig.monitor.cancel(sessionID: "acp-1")
-        #expect(outcome == .sent)
+        await rig.followups.queue(conversationID: "acp-1", text: "must not be sent after cancellation")
+        let waiting = try #require(await rig.session())
+        let dispatch = AnswerDispatch(store: rig.store, questions: rig.questions, inject: { _, _ in },
+            interrupt: { id in await rig.monitor.cancel(sessionID: id) })
+        let stale = await dispatch.deliver(SessionActionRequest(sessionID: "acp-1", intent: .stop,
+            expectedStatusSince: waiting.statusSince.timeIntervalSince1970 - 1))
+        #expect(stale != .accepted)
+        let outcome = await dispatch.deliver(SessionActionRequest(sessionID: "acp-1", intent: .stop,
+            expectedStatusSince: waiting.statusSince.timeIntervalSince1970))
+        #expect(outcome == .accepted)
         await eventually("cancel notified") { rig.agent.request(named: "session/cancel") != nil }
         await eventually("permission cancelled") {
             ((rig.agent.response(to: rpc)?["result"] as? [String: Any])?["outcome"] as? [String: Any])?["outcome"] as? String == "cancelled"
@@ -316,8 +474,73 @@ struct CursorACPTests {
         #expect(session?.userStopped == true)
         #expect(session?.failed != true)
         #expect(session?.pendingApproval == nil)
+        #expect(await rig.followups.peek(conversationID: "acp-1") == nil)
+        #expect(rig.agent.request(named: "session/prompt", after: 1) == nil)
         // Nothing left to stop.
         #expect(await rig.monitor.cancel(sessionID: "acp-1") != .sent)
+    }
+
+    private actor ChunkSink {
+        var text = ""
+        func append(_ chunk: String) { text += chunk }
+        func value() -> String { text }
+    }
+
+    @Test func pipeReplyAndEOFFollowSlowNotifications() async throws {
+        let agent = FakeACPAgent()
+        let client = agent.client()
+        let sink = ChunkSink()
+        client.onNotification = { _, params in
+            let update = params?["update"] as? [String: Any]
+            let chunk = (update?["content"] as? [String: Any])?["text"] as? String ?? ""
+            // A suspended notification must still precede the prompt reply
+            // and EOF that arrived in the same stdout burst.
+            try? await Task.sleep(for: .milliseconds(1))
+            await sink.append(chunk)
+        }
+        client.start()
+        let prompt = Task {
+            let reply = try await client.request("session/prompt", timeout: .seconds(3))
+            return reply["stopReason"] as? String
+        }
+        await eventually("direct prompt") { agent.request(named: "session/prompt") != nil }
+        let chunks = (0..<30).map { "\($0)," } + ["LAST_CHUNK"]
+        agent.burstAndEnd(chunks)
+        agent.close()
+        let reply = try await prompt.value
+        #expect(reply == "end_turn")
+        #expect(await sink.value() == chunks.joined())
+        await eventually("EOF") { client.isClosed }
+    }
+
+    @Test func pipeBurstPreservesChunkOrderBeforePromptCompletion() async throws {
+        let rig = Rig()
+        _ = await rig.monitor.dispatch(request)
+        await eventually("prompt") { rig.agent.request(named: "session/prompt") != nil }
+        let chunks = (0..<600).map { "\($0)," } + ["LAST_CHUNK"]
+        rig.agent.burstAndEnd(chunks)
+        await eventually("burst completion") { await rig.session()?.status == .done }
+        let session = try #require(await rig.session())
+        let completionID = try #require(session.completionID)
+        let body = await rig.store.completionBody(sessionID: session.id, completionID: completionID)
+        #expect(body.text == chunks.joined())
+        await rig.monitor.shutdown()
+    }
+
+    @Test func endingAndCancelCannotResurrectATurn() async throws {
+        let rig = Rig()
+        _ = await rig.monitor.dispatch(request)
+        await eventually("prompt") { rig.agent.request(named: "session/prompt") != nil }
+        _ = rig.agent.ask("cursor/create_plan", ["toolCallId": "plan", "plan": "Review this before continuing"])
+        await eventually("plan wait") { await rig.session()?.pendingQuestion != nil }
+        rig.agent.endTurn("end_turn")
+        _ = await rig.monitor.cancel(sessionID: "acp-1")
+        await eventually("ending settled") { await rig.session()?.status == .done }
+        #expect(await rig.monitor.isRunning("acp-1") == false)
+        #expect(await rig.monitor.prompt(sessionID: "acp-1", text: "next turn"))
+        await eventually("next prompt") { rig.agent.request(named: "session/prompt", after: 1) != nil }
+        #expect(await rig.monitor.isRunning("acp-1"))
+        await rig.monitor.shutdown()
     }
 
     @Test func aSupplementQueuedDuringATurnGoesOutAsTheNextPrompt() async throws {

@@ -533,6 +533,9 @@ public struct AgentSession: Codable, Identifiable, Sendable, Equatable {
     /// stopped. Only the Mac writes it. Optional so snapshots from an older Mac
     /// decode as "unknown", and `ControlChannel.infer(for:)` then falls back to
     /// the agent-based rules that predate it.
+    public var cursorACPRecoverable: Bool?
+    public var cursorACPRecoveryUnavailable: String?
+    public var cursorACPRecoveryFailure: String?
     public var controlChannel: ControlChannel?
     /// Live teammate/subagent/task rows for this parent. Optional so older
     /// snapshots decode as "no topology yet"; recovery leaves this empty.

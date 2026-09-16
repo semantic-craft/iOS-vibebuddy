@@ -408,11 +408,20 @@ final class MenuBarModel: ObservableObject {
         openDashboardHotkey = Hotkey.loadOpenDashboard()
         toggleGlanceHotkey = Hotkey.loadToggleGlance()
         usage = AccountUsageCoordinator(store: store, notifier: notifier, liveFeed: usageFeed)
+        let cursorExecutable: URL?
+        let cursorRecovery: URL?
+        if let run = E2ERunConfiguration.current {
+            cursorExecutable = run.cursorACPEnabled ? run.file("cursor-agent") : nil
+            cursorRecovery = run.cursorACPEnabled ? run.file("cursor-acp") : nil
+        } else {
+            cursorExecutable = CursorCLI.resolveExecutable()
+            cursorRecovery = CursorACPMonitor.defaultRecoveryDirectory
+        }
         cursorACP = CursorACPMonitor(
             store: store, approvals: approvalRegistry, approvalContext: approvalContext,
             questions: questionRegistry, allowStore: allowStore, sessionAllow: sessionAllow,
             followups: cursorFollowups,
-            executable: E2ERunConfiguration.current == nil ? CursorCLI.resolveExecutable() : nil)
+            executable: cursorExecutable, recoveryDirectory: cursorRecovery)
         let apnsConfig = APNsConfig.load()
         let deliveryURL = (E2ERunConfiguration.current == nil ? ProcessInfo.processInfo.environment["VIBEBUDDY_DELIVERY_LOG_PATH"] : nil).map {
             URL(fileURLWithPath: $0)
@@ -1145,13 +1154,25 @@ final class MenuBarModel: ObservableObject {
     /// are explicit and never rewrite each other.
     func answer(_ sessionID: String, answers: QuestionAnswers, text: String? = nil) {
         let monitor = codexAppServerMonitor
+        let acp = cursorACP
+        let followups = cursorFollowups
+        let store = store
         let session = sessions.first { $0.id == sessionID }
         let support = session.map(SessionActionSupport.resolve(for:))
         let dispatch = AnswerDispatch(
             store: store, questions: questionRegistry,
             inject: { ref, answer in TerminalInjector.inject(answer, into: ref) },
             steer: { id, text in await monitor.steer(threadID: id, text: text) },
-            startTurn: { id, text in await monitor.startTurn(threadID: id, text: text) })
+            startTurn: { id, text in await monitor.startTurn(threadID: id, text: text) },
+            queueCursorFollowup: { id, text in
+                await followups.queue(conversationID: id, text: text) != nil
+            },
+            resumeCursor: { session, text in
+                if await acp.owns(session.id) { return await acp.prompt(sessionID: session.id, text: text) }
+                guard E2ERunConfiguration.current == nil else { return false }
+                return await CursorCLI.resume(conversationID: session.id, text: text, cwd: session.project,
+                    preferring: await store.preferredTerminalProgram())
+            })
         Task { [weak self] in
             let result = await dispatch.deliver(SessionActionRequest(
                 sessionID: sessionID,
@@ -1168,6 +1189,42 @@ final class MenuBarModel: ObservableObject {
                 } else {
                     self?.answerFeedback[sessionID] = nil
                 }
+            }
+        }
+    }
+
+    /// Stop exactly the turn shown by the card; a changed status is refused
+    /// by the same dispatch guard used by the HTTP route.
+    func stop(_ session: AgentSession) {
+        let monitor = codexAppServerMonitor
+        let acp = cursorACP
+        let cloud = voiceCursorCloud
+        let store = store
+        let dispatch = AnswerDispatch(
+            store: store, questions: questionRegistry,
+            inject: { _, _ in },
+            interrupt: { id in
+                if await acp.hosts(id) { return await acp.cancel(sessionID: id) }
+                return await monitor.interrupt(threadID: id)
+            },
+            cancelCursorCloud: { id in
+                guard E2ERunConfiguration.current == nil else {
+                    return .notSent("Cloud actions are disabled during isolated acceptance.")
+                }
+                guard let run = await store.cursorCloudLatestRun(for: id) else {
+                    return .notSent("This run has already finished.")
+                }
+                return await cloud.cancel(agentID: id, runID: run)
+            })
+        Task { [weak self] in
+            let result = await dispatch.deliver(SessionActionRequest(
+                sessionID: session.id, intent: .stop,
+                expectedStatusSince: session.statusSince.timeIntervalSince1970))
+            if case .accepted = result { await store.recordInteraction(sessionID: session.id) }
+            switch result {
+            case .accepted: self?.answerFeedback[session.id] = nil
+            case .failed(let reason), .refused(let reason): self?.answerFeedback[session.id] = reason
+            case .unknown: self?.answerFeedback[session.id] = "Result unknown — check the task before sending again"
             }
         }
     }
@@ -1424,7 +1481,7 @@ final class MenuBarModel: ObservableObject {
                     await followups.queue(conversationID: id, text: text) != nil
                 },
                 resumeCursor: { session, text in
-                    if await acp.hosts(session.id) { return await acp.prompt(sessionID: session.id, text: text) }
+                    if await acp.owns(session.id) { return await acp.prompt(sessionID: session.id, text: text) }
                     guard E2ERunConfiguration.current == nil else { return false }
                     return await CursorCLI.resume(conversationID: session.id, text: text, cwd: session.project,
                         preferring: await store.preferredTerminalProgram())

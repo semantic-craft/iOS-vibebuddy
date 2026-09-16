@@ -66,9 +66,11 @@ code, and tests — don't drift to synonyms.
 - **Cursor cloud agent** — a Cursor conversation that runs on Cursor's machines
   against a **GitHub repository**, not on this Mac against a folder. Cursor gives
   it a `bc-`-prefixed id and uses that same id as the agent id in its **Cloud
-  Agents API** (`api.cursor.com/v1`). No hook fires for it, no transcript is
-  written for it, and it does not appear in the composer store either, so that
-  API is its *only* source — of its state and of its existence. `ACTIVE` is
+  Agents API** (`api.cursor.com/v1`). This Mac's user hooks and local transcript
+  watcher do not observe its remote execution; the composer store is not reliable
+  for discovering it. The API is VibeBuddy's configured cloud source. Cursor also
+  supports repository command hooks in cloud environments, separately from local
+  user hooks; VibeBuddy does not collect those remotely (ADR-0018). `ACTIVE` is
   working, `IDLE` is done, `ARCHIVED` ends it; the repository stands in for the
   project, the agent's Cursor page is the jump, the runs list is the
   conversation (v1 has no `/conversation`), and a live run can be cancelled. It
@@ -90,7 +92,11 @@ code, and tests — don't drift to synonyms.
   Protocol). The live source for that conversation (`ObservationSource.acp`)
   and its write path: `session/prompt` continues, `session/cancel` stops,
   `session/request_permission` and `cursor/ask_question` / `cursor/create_plan`
-  become cards. Dies with the daemon. The IDE's hooks and transcript for the
+  become cards. Normal shutdown terminates the child process; after an abnormal
+  host exit, recovery requires confirmation that the old process has ended.
+  Minimal private metadata permits lazy `session/load` after restart. A recoverable row
+  is not a live ACP channel and offers only Continue until loading succeeds.
+  The IDE's hooks and transcript for the
   same id only corroborate while it runs (ADR-0016, amendment 1).
 - **Control channel** (`ControlChannel`) — the one write path the daemon would
   use for a session right now: `hook` (Cursor IDE, follow-ups only), `acp`

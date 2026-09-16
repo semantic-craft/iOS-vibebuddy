@@ -78,7 +78,7 @@ struct VibeBuddyDaemon {
         let cursorACP = CursorACPMonitor(
             store: store, approvals: approvalRegistry, approvalContext: approvalContext,
             questions: questionRegistry, allowStore: allowStore, sessionAllow: sessionAllow,
-            followups: cursorFollowups)
+            followups: cursorFollowups, recoveryDirectory: CursorACPMonitor.defaultRecoveryDirectory)
         let server = VibeBuddyServer(
             store: store,
             token: token, port: port, pusher: pusher, phoneReceipts: phoneReceipts,

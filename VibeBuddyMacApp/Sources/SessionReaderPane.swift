@@ -197,6 +197,9 @@ struct SessionReaderPane: View {
 
     @ViewBuilder private var moreItems: some View {
         if let live {
+            if SessionActionSupport.resolveStop(for: live).isAvailable {
+                Button("Stop task") { model.stop(live) }
+            }
             if live.status == .done, live.completionID != nil {
                 Button(live.hasUnreadCompletion ? "Mark as read" : "Mark as unread") {
                     acknowledgedBodyID = (model.completionSourceID ?? "unknown") + "/" + live.id + "/" + (live.completionID ?? "working")
@@ -513,13 +516,13 @@ struct ReaderResultCard: View {
     @ObservedObject var model: MenuBarModel
     @StateObject private var resultReader = CompletionBodyReader()
     @State private var resultAttempt = 0
-    @State private var appIsActive = NSApp.isActive
     @State private var resultIsVisible = false
     @Binding var acknowledgedBodyID: String?
 
     private var resultKey: String { (model.completionSourceID ?? "unknown") + "/" + session.id + "/" + (session.completionID ?? "working") }
     private var resultRefresh: CompletionBodyRefresh {
-        CompletionBodyRefresh(sourceID: model.completionSourceID, session: session, attempt: resultAttempt, isActive: appIsActive)
+        // Local result reads can finish while inactive; acknowledgement still requires foreground visibility.
+        CompletionBodyRefresh(sourceID: model.completionSourceID, session: session, attempt: resultAttempt)
     }
     private var currentBody: CompletionBody? { resultReader.body(for: resultRefresh) }
 
@@ -578,12 +581,8 @@ struct ReaderResultCard: View {
             acknowledgeVisibleBody()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            appIsActive = true
             resultAttempt += 1
             acknowledgeVisibleBody()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
-            appIsActive = false
         }
     }
 

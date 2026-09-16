@@ -24,6 +24,19 @@ struct SessionActionTests {
             statusSince: now, updatedAt: now)
     }
 
+    @Test func recoverableCursorIsContinueWithoutALiveStop() throws {
+        var row = session(agent: .cursor, status: .done)
+        row.controlChannel = ControlChannel.none
+        row.cursorACPRecoverable = true
+        #expect(SessionActionSupport.resolve(for: row).intent == .continue)
+        #expect(SessionActionSupport.resolve(for: row).isAvailable)
+        #expect(!SessionActionSupport.resolveStop(for: row).isAvailable)
+        row.cursorACPRecoveryUnavailable = "Previous Cursor process is still running"
+        #expect(SessionActionSupport.resolve(for: row).unsupportedReason == row.cursorACPRecoveryUnavailable)
+        let decoded = try JSONDecoder().decode(AgentSession.self, from: JSONEncoder().encode(row))
+        #expect(decoded.cursorACPRecoverable == true)
+    }
+
     @Test("an answerable question is Answer, not an instruction")
     func questionIsAnswer() {
         let q = PendingQuestion(id: "q1", prompt: "Which one?")

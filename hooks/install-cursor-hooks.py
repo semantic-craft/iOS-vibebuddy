@@ -107,10 +107,10 @@ def desired(approval=False):
     # on its own. In status-only mode the same event is a plain progress report.
     hooks["preToolUse"] = [entry(APPROVAL_COMMAND, timeout=30)] if approval else [entry(COMMAND)]
     # The follow-up collector must finish inside Cursor's patience for a `stop`
-    # hook; it only reads a local queue, so 5 s is generous. `loop_limit: null`
+    # hook: report (1 s) + collect (2 s) leave overhead within 5 s. `loop_limit: null`
     # lifts Cursor's default cap of 5 automatic follow-ups per conversation, so
     # every message the phone queues is handed over, not just the first five.
-    hooks["stop"] = [entry(FOLLOWUP_COMMAND, loop_limit=None)]
+    hooks["stop"] = [entry(FOLLOWUP_COMMAND, timeout=5, loop_limit=None)]
     hooks["sessionStart"].append(entry(CAPTURE_COMMAND, timeout=10))
     return hooks
 
