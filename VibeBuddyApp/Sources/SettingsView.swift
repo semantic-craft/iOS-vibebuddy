@@ -103,6 +103,16 @@ struct SettingsView: View {
                     openURL(url) { accepted in notificationActionFailed = !accepted }
                 }
                 .accessibilityIdentifier("openSystemNotificationSettings")
+                Group {
+                    if #available(iOS 18.0, *) {
+                        Text("If the notification page doesn’t open, go to Settings → Apps → Vibebuddy → Notifications.")
+                    } else {
+                        Text("If the notification page doesn’t open, go to Settings → Notifications → Vibebuddy.")
+                    }
+                }
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("notificationSettingsNavigationHelp")
                 if notificationActionFailed {
                     Text("Could not complete the request. Try again or open Settings on your iPhone.")
                         .foregroundStyle(.orange)

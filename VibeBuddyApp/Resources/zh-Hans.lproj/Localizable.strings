@@ -757,6 +757,8 @@
 "Reading system notification settings…" = "正在读取系统通知设置…";
 
 "Open iOS notification settings" = "打开 iOS 通知设置";
+"If the notification page doesn’t open, go to Settings → Apps → Vibebuddy → Notifications." = "若未打开通知页面，请前往“设置”→“App”→“Vibebuddy”→“通知”。";
+"If the notification page doesn’t open, go to Settings → Notifications → Vibebuddy." = "若未打开通知页面，请前往“设置”→“通知”→“Vibebuddy”。";
 
 "Could not complete the request. Try again or open Settings on your iPhone." = "未能完成请求。请重试，或在 iPhone 上打开“设置”。";
 
