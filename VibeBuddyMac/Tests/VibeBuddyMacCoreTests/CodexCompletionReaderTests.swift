@@ -94,7 +94,9 @@ struct CodexCompletionReaderTests {
             // native successful task_complete has not reached disk yet.
             try (lines.dropLast().joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
             let gapMonitor = CodexRolloutMonitor(root: root)
-            #expect(await gapMonitor.poll(now: Date()).isEmpty)
+            let stillRunning = await gapMonitor.poll(now: Date())
+            #expect(stillRunning.contains { $0.kind == .preToolUse })
+            #expect(!stillRunning.contains { $0.kind == .stop })
             let gapHandle = try FileHandle(forWritingTo: file)
             try gapHandle.seekToEnd()
             try gapHandle.write(contentsOf: Data((try #require(lines.last) + "\n").utf8))

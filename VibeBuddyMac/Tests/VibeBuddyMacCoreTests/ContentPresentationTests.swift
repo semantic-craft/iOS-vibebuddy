@@ -47,7 +47,7 @@ struct ContentPresentationTests {
         let current = try #require(await store.snapshot(now: date.addingTimeInterval(3)).sessions.first)
         let result = await store.presentation(.init(sourceID: "mac", target: try #require(ContentPresentationTarget(session: current))))
         #expect(result?.generated == true)
-        #expect(result?.text == "Choose the delivery date.")
+        #expect(result?.text == waiting.displayTitle + ". Choose the delivery date.")
     }
 
     @Test("a result arriving after the waiting task resumes is discarded")
@@ -121,6 +121,30 @@ struct ContentPresentationTests {
         #expect(presented.contentPresentation == result)
         #expect(presented.points == first.points)
         #expect(after.recap?.horizon == before.recap?.horizon)
+    }
+
+    @Test("hook-only completion has no spoken ending, verified completion names the conversation")
+    func verifiedNamedSpeech() async throws {
+        let store = SessionStore(sourceID: "mac")
+        let network = await configure(store)
+        defer { network.invalidateAndCancel() }
+        let hook = try JSONSerialization.data(withJSONObject: ["hook_event_name": "Stop", "session_id": "s",
+            "cwd": "/x/Agora", "turn_id": "child-turn"])
+        await store.ingest(hook, agent: .codex, receivedAt: Date())
+        let child = try #require(await store.snapshot(now: Date()).sessions.first)
+        let childRequest = ContentPresentationRequest(sourceID: "mac", target: try #require(ContentPresentationTarget(session: child)))
+        #expect(await store.presentation(childRequest) == nil)
+        #expect(PresentationStub.state.requestCount == 0)
+
+        await round(store, turn: "main-turn", text: "Verified result.")
+        await store.ingest(.init(kind: .sessionMetadataChanged, sessionID: "s", agent: .codex,
+            sessionName: "Draw a harbor", timestamp: Date()))
+        let main = try #require(await store.snapshot(now: Date()).sessions.first)
+        let request = ContentPresentationRequest(sourceID: "mac", target: try #require(ContentPresentationTarget(session: main)))
+        let result = await store.presentation(request)
+        #expect(result?.generated == true)
+        #expect(result?.text.hasPrefix("Draw a harbor. ") == true)
+        #expect(result?.text.hasPrefix("project") == false)
     }
 
     @Test("legacy recap without original material degrades without borrowing the newer result")

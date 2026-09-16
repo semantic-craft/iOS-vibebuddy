@@ -254,11 +254,11 @@ struct CompletionRecoveryTests {
         for event in try events("event_msg", ["type": "task_started", "turn_id": "native-turn"]) { await store.ingest(event) }
         for event in try events("response_item", ["type": "message", "role": "assistant", "phase": "final_answer",
             "content": [["type": "output_text", "text": "Final answer from the recorded shape"]]]) { await store.ingest(event) }
-        let id = try #require(await store.snapshot(now: now).sessions.first?.completionID)
-        #expect(await store.completionBody(sessionID: "s", completionID: id).text == nil)
+        #expect(await store.snapshot(now: now).sessions.first?.status == .working)
+        #expect(await store.snapshot(now: now).sessions.first?.completionID == nil)
         for event in try events("event_msg", ["type": "task_complete", "turn_id": "native-turn",
             "last_agent_message": "Final answer from the recorded shape"]) { await store.ingest(event) }
-        #expect(await store.snapshot(now: now).sessions.first?.completionID == id)
+        let id = try #require(await store.snapshot(now: now).sessions.first?.completionID)
         #expect(await store.completionBody(sessionID: "s", completionID: id).text == "Final answer from the recorded shape")
     }
 
@@ -270,20 +270,12 @@ struct CompletionRecoveryTests {
         let hook = try JSONSerialization.data(withJSONObject: ["hook_event_name": "Stop", "session_id": "s",
             "last_assistant_message": "Hook text is not native turn proof"])
         await store.ingest(hook, agent: .codex, receivedAt: now)
-        let completion = try #require(await store.snapshot(now: now).sessions.first?.completionID)
-        #expect(await store.completionBody(sessionID: "s", completionID: completion).text == nil)
-        let pending = Task { await store.completionResult(sessionID: "s", completionID: completion) }
-        try await Task.sleep(for: .milliseconds(60))
+        #expect(await store.snapshot(now: now).sessions.first?.status == .working)
+        #expect(await store.snapshot(now: now).sessions.first?.completionID == nil)
         await store.ingest(.init(kind: .stop, sessionID: "s", agent: .codex, observationSource: .rollout,
-            timestamp: now.addingTimeInterval(-0.2), turnID: "native-turn", turnStartedAt: now.addingTimeInterval(-10),
+            timestamp: now.addingTimeInterval(0.2), turnID: "native-turn", turnStartedAt: now.addingTimeInterval(-10),
             completionText: "Verified native final answer", completionSucceeded: true))
-        guard case .ready(let result) = await pending.value else {
-            Issue.record("Notification result did not wait for the native ending")
-            return
-        }
-        #expect(result.turnID == "native-turn")
-        #expect(result.finalText == "Verified native final answer")
-        #expect(await store.snapshot(now: now).sessions.first?.completionID == completion)
+        let completion = try #require(await store.snapshot(now: now.addingTimeInterval(1)).sessions.first?.completionID)
         #expect(await store.completionBody(sessionID: "s", completionID: completion).text == "Verified native final answer")
     }
 
@@ -320,7 +312,7 @@ struct CompletionRecoveryTests {
         #expect(await store.completionResult(sessionID: "s", completionID: completion) == .cancelled)
     }
 
-    @Test func hookBlockedContinuationDoesNotAttachFinalResultToIntermediateCompletion() async throws {
+    @Test func hookBlockedContinuationNeverAnnouncesAnIntermediateCompletion() async throws {
         let store = SessionStore(sourceID: "source")
         let now = Date()
         await store.ingest(.init(kind: .userPromptSubmit, sessionID: "s", agent: .codex,
@@ -328,19 +320,18 @@ struct CompletionRecoveryTests {
         let hook = try JSONSerialization.data(withJSONObject: ["hook_event_name": "Stop", "session_id": "s",
             "turn_id": "same-turn", "last_assistant_message": "Intermediate answer before Stop hook blocks"])
         await store.ingest(hook, agent: .codex, receivedAt: now)
-        let intermediate = try #require(await store.snapshot(now: now).sessions.first?.completionID)
+        #expect(await store.snapshot(now: now).sessions.first?.completionID == nil)
         await store.ingest(hook, agent: .codex, receivedAt: now)
-        #expect(await store.completionBody(sessionID: "s", completionID: intermediate).text == nil)
+        #expect(await store.snapshot(now: now).sessions.first?.status == .working)
         await store.ingest(.init(kind: .preToolUse, sessionID: "s", agent: .codex, toolName: "Shell",
             observationSource: .rollout, timestamp: now.addingTimeInterval(0.1), turnID: "same-turn"))
         #expect(await store.snapshot(now: now).sessions.first?.status == .working)
         await store.ingest(hook, agent: .codex, receivedAt: now.addingTimeInterval(0.2))
-        let completed = try #require(await store.snapshot(now: now).sessions.first?.completionID)
-        #expect(completed != intermediate)
+        #expect(await store.snapshot(now: now).sessions.first?.completionID == nil)
         await store.ingest(.init(kind: .stop, sessionID: "s", agent: .codex, observationSource: .rollout,
             timestamp: now.addingTimeInterval(0.3), turnID: "same-turn", completionText: "Actual final answer",
             completionSucceeded: true))
-        #expect(await store.completionBody(sessionID: "s", completionID: intermediate).text == nil)
+        let completed = try #require(await store.snapshot(now: now.addingTimeInterval(1)).sessions.first?.completionID)
         #expect(await store.completionBody(sessionID: "s", completionID: completed).text == "Actual final answer")
         guard case .ready(let result) = await store.completionResult(sessionID: "s", completionID: completed) else {
             Issue.record("Final completion lost its native result after a Stop-hook continuation")

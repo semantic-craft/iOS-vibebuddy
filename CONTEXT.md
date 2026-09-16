@@ -529,7 +529,12 @@ code, and tests — don't drift to synonyms.
   tasks. `/presentation` resolves evidence on the Mac and rejects stale source,
   round or configuration after generation. Snapshot carries the effective revision
   without broadcasting the custom prompt. Failed generation uses explicit limited
-  fallback wording. Automatic reading still requires its opt-in; manual reading
+  fallback wording. Completion speech additionally requires verified result
+  evidence for that exact round; without it, there is no spoken ending. Speech
+  uses the conversation name when available. Codex final-answer text alone does not
+  end a turn: the native terminal event must arrive, and a hook Stop cannot
+  close a turn the rollout still reports as active.
+  Automatic reading still requires its opt-in; manual reading
   can request content even when automatic completion summaries are off.
 - **Saved summary style** — older history files retain action briefing, session
   review or archive record as their original labels. Newly generated history

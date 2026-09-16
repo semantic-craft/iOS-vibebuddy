@@ -121,14 +121,42 @@ struct CodexRolloutMonitorTests {
         #expect(!parser.turnActive)
     }
 
-    @Test("a final answer closes a turn when task_complete is missing")
-    func finalAnswerFallback() {
+    @Test("a final answer waits for task_complete before closing the turn")
+    func finalAnswerWaitsForNativeCompletion() {
         var parser = CodexRolloutParser()
         _ = parser.parseLine(Data(#"{"type":"session_meta","payload":{"id":"thread-1","cwd":"/x/project","originator":"Codex Desktop"}}"#.utf8), receivedAt: now)
         _ = parser.parseLine(Data(#"{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}"#.utf8), receivedAt: now)
         let event = parser.parseLine(Data(#"{"type":"response_item","payload":{"type":"message","role":"assistant","phase":"final_answer"}}"#.utf8), receivedAt: now)
-        #expect(event?.kind == .stop)
+        #expect(event == nil)
+        #expect(parser.turnActive)
+        let completed = parser.parseLine(Data(#"{"type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1","last_agent_message":"Finished"}}"#.utf8), receivedAt: now)
+        #expect(completed?.kind == .stop)
         #expect(!parser.turnActive)
+    }
+
+    @Test("native conversation names follow the exact thread and update before completion")
+    func conversationNames() async throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = home.appendingPathComponent("sessions")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let index = home.appendingPathComponent("session_index.jsonl")
+        try "{\"id\":\"thread-1\",\"thread_name\":\"Draw a harbor\"}\n".write(to: index, atomically: true, encoding: .utf8)
+        let file = root.appendingPathComponent("rollout-test.jsonl")
+        try (#"{"type":"session_meta","payload":{"id":"thread-1","cwd":"/x/Agora","originator":"Codex Desktop"}}"# + "\n" +
+             #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}"# + "\n")
+            .write(to: file, atomically: true, encoding: .utf8)
+        let monitor = CodexRolloutMonitor(root: root)
+        let started = await monitor.poll(now: Date())
+        #expect(started.first?.sessionName == "Draw a harbor")
+        try "{\"id\":\"thread-1\",\"thread_name\":\"Paint the evening harbor\"}\n{\"id\":\"other\",\"thread_name\":\"Another task\"}\n"
+            .write(to: index, atomically: true, encoding: .utf8)
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data((#"{"type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1","last_agent_message":"Finished"}}"# + "\n").utf8))
+        try handle.close()
+        let ended = await monitor.poll(now: Date())
+        #expect(ended.first(where: { $0.kind == .stop })?.sessionName == "Paint the evening harbor")
     }
 
     @Test("bootstrap restores only a currently active desktop turn, then tails completion")

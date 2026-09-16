@@ -25,7 +25,6 @@ public struct CodexRolloutParser: Sendable {
     private var contextWindow: Int?
     private var activeTurnIDs: Set<String> = []
     private var turnStarts: [String: Date] = [:]
-    private var pendingFinalBoundary: (id: String, startedAt: Date)?
     private var anonymousTurnCount = 0
     /// A tool record after probe retirement, with no new `task_started`.
     private var resumedActivity = false
@@ -90,8 +89,6 @@ public struct CodexRolloutParser: Sendable {
             case "task_complete":
                 let completedID = payload["turn_id"] as? String
                 let startedAt = completedID.flatMap { turnStarts[$0] }
-                    ?? (pendingFinalBoundary?.id == completedID ? pendingFinalBoundary?.startedAt : nil)
-                if pendingFinalBoundary?.id == completedID { pendingFinalBoundary = nil }
                 finishTurn(payload["turn_id"] as? String)
                 guard !turnActive else { return [] }
                 return [event(.stop, sessionID: sessionID,
@@ -99,9 +96,6 @@ public struct CodexRolloutParser: Sendable {
                               timestamp: timestamp, turnID: payload["turn_id"] as? String, turnStartedAt: startedAt,
                               completionText: payload["last_agent_message"] as? String, completionSucceeded: true)]
             case "turn_aborted":
-                if payload["turn_id"] == nil || payload["turn_id"] as? String == pendingFinalBoundary?.id {
-                    pendingFinalBoundary = nil
-                }
                 finishTurn(payload["turn_id"] as? String)
                 guard !turnActive else { return [] }
                 return [event(.stop, sessionID: sessionID,
@@ -130,18 +124,8 @@ public struct CodexRolloutParser: Sendable {
             if Self.toolOutputTypes.contains(itemType) {
                 return eventsForToolOutput(payload, sessionID: sessionID, timestamp: timestamp)
             }
-            if itemType == "message", payload["phase"] as? String == "final_answer" {
-                let metadata = payload["internal_chat_message_metadata_passthrough"] as? [String: Any]
-                let turnID = (metadata?["turn_id"] as? String)
-                    ?? (activeTurnIDs.count == 1 && anonymousTurnCount == 0 ? activeTurnIDs.first : nil)
-                let startedAt = turnID.flatMap { turnStarts[$0] }
-                if let turnID, let startedAt { pendingFinalBoundary = (turnID, startedAt) }
-                if let turnID { finishTurn(turnID) }
-                else { finishUnknownTurn() }
-                guard !turnActive else { return [] }
-                return [event(.stop, sessionID: sessionID, timestamp: timestamp,
-                              turnID: turnID, turnStartedAt: startedAt)]
-            }
+            // A final message can precede completion of the native turn.
+            // Only task_complete / turn_aborted closes the running indicator.
         }
 
         return []
@@ -658,7 +642,6 @@ public struct CodexRolloutParser: Sendable {
             #""type":"function_call_output""#,
             #""type":"custom_tool_call_output""#,
             #""type":"local_shell_call_output""#,
-            #""phase":"final_answer""#,
         ].map { Data($0.utf8) }
 
     private static func startedToolName(_ payload: [String: Any], itemType: String) -> String {
@@ -716,13 +699,6 @@ public struct CodexRolloutParser: Sendable {
         } else if activeTurnIDs.count == 1 {
             activeTurnIDs.removeAll()
         }
-        refreshTurnState()
-    }
-
-    private mutating func finishUnknownTurn() {
-        resumedActivity = false
-        if anonymousTurnCount > 0 { anonymousTurnCount -= 1 }
-        else if activeTurnIDs.count == 1 { activeTurnIDs.removeAll() }
         refreshTurnState()
     }
 
@@ -901,6 +877,9 @@ public actor CodexRolloutMonitor {
         qos: .utility
     )
     private var cursors: [String: Cursor] = [:]
+    private var threadNames: [String: String] = [:]
+    private var nameIndexModifiedAt: Date?
+    private var nameIndexSize: UInt64?
     private var watchers: [String: WatchRegistration] = [:]
     private var debounceTasks: [String: DebounceRegistration] = [:]
     private var recoveryTask: Task<Void, Never>?
@@ -1319,10 +1298,32 @@ public actor CodexRolloutMonitor {
     }
 
     private func stampPath(_ event: HookEvent) -> HookEvent {
-        if event.transcriptPath != nil { return event }
-        guard let path = cursors.first(where: { $0.value.parser.sessionID == event.sessionID })?.key
+        guard let path = event.transcriptPath ?? cursors.first(where: { $0.value.parser.sessionID == event.sessionID })?.key
         else { return event }
-        return event.withTranscriptPath(path)
+        refreshThreadNames()
+        return event.withTranscriptPath(path, sessionName: threadNames[event.sessionID])
+    }
+
+    private func refreshThreadNames() {
+        let index = root.deletingLastPathComponent().appendingPathComponent("session_index.jsonl")
+        guard let state = Self.fileState(index), let modified = Self.fileModifiedAt(index.path),
+              state.size <= 8 * 1_024 * 1_024 else { return }
+        guard modified != nameIndexModifiedAt || state.size != nameIndexSize else { return }
+        guard let handle = try? FileHandle(forReadingFrom: index) else { return }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: 8 * 1_024 * 1_024 + 1),
+              data.count <= 8 * 1_024 * 1_024 else { return }
+        var names: [String: String] = [:]
+        for line in data.split(separator: 10) {
+            guard let row = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
+                  let id = row["id"] as? String,
+                  let name = row["thread_name"] as? String,
+                  !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+            names[id] = String(name.prefix(240))
+        }
+        threadNames = names
+        nameIndexModifiedAt = modified
+        nameIndexSize = state.size
     }
 
     private func enqueue(_ events: [HookEvent], recordsEvidence: Bool = true) {
