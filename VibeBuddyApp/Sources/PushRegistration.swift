@@ -120,46 +120,59 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping @Sendable () -> Void
     ) {
+        let request = response.notification.request
+        let actionIdentifier = response.actionIdentifier
+        let identifier = request.identifier
+        let isRemote = request.trigger is UNPushNotificationTrigger
+        let deliveredAt = response.notification.date
+        let text = (response as? UNTextInputNotificationResponse)?.userText
+        // Only these string fields are consumed by notification routing/actions.
+        // Snapshot them before leaving the delegate's isolation context.
+        let userInfo = [
+            NotificationUserInfoKey.sessionId: request.content.userInfo[NotificationUserInfoKey.sessionId] as? String,
+            NotificationUserInfoKey.approvalId: request.content.userInfo[NotificationUserInfoKey.approvalId] as? String
+        ].compactMapValues { $0 }
         // The async delegate bridge can finish on a cooperative executor. UIKit's
         // notification-response completion restores scene state and requires main.
         Task {
-            await handleNotificationResponse(response)
+            await handleNotificationResponse(actionIdentifier: actionIdentifier, identifier: identifier,
+                isRemote: isRemote, deliveredAt: deliveredAt, userInfo: userInfo, text: text)
             await MainActor.run { completionHandler() }
         }
     }
 
-    nonisolated private func handleNotificationResponse(_ response: UNNotificationResponse) async {
+    nonisolated private func handleNotificationResponse(
+        actionIdentifier: String, identifier: String, isRemote: Bool, deliveredAt: Date,
+        userInfo: [String: String], text: String?
+    ) async {
         // A tapped push leaves Notification Center; remember it so the stream's
         // catch-up does not announce the same wait a second time (ADR-0012).
         // Content-free evidence of which device receives the default tap.
         if let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
            let data = try? JSONSerialization.data(withJSONObject: [
                 "timestamp": Date().timeIntervalSince1970,
-                "defaultTap": response.actionIdentifier == UNNotificationDefaultActionIdentifier
+                "defaultTap": actionIdentifier == UNNotificationDefaultActionIdentifier
            ]) {
             try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             try? data.write(to: directory.appendingPathComponent("phone-notification-tap.json"), options: .atomic)
         }
-        let request = response.notification.request
-        if request.trigger is UNPushNotificationTrigger {
-            await PushCoverage.shared.noteTapped(identifier: request.identifier,
-                                                 deliveredAt: response.notification.date)
+        if isRemote {
+            await PushCoverage.shared.noteTapped(identifier: identifier,
+                                                 deliveredAt: deliveredAt)
         }
-        let userInfo = response.notification.request.content.userInfo
-        if response.actionIdentifier == UNNotificationDefaultActionIdentifier {
-            guard let id = userInfo[NotificationUserInfoKey.sessionId] as? String, !id.isEmpty else { return }
-            let completionID = NotificationIdentity.sound(of: request.identifier) == .agentDone
-                ? request.identifier : nil
+        if actionIdentifier == UNNotificationDefaultActionIdentifier {
+            guard let id = userInfo[NotificationUserInfoKey.sessionId], !id.isEmpty else { return }
+            let completionID = NotificationIdentity.sound(of: identifier) == .agentDone
+                ? identifier : nil
             await MainActor.run {
                 _ = UIApplication.shared.open(VibeBuddyDeepLink.sessionURL(id: id,
                     completionNotificationID: completionID))
             }
             return
         }
-        let text = (response as? UNTextInputNotificationResponse)?.userText
         let pairing = await MainActor.run { PushRegistration.shared.pairingForBannerAction() }
         let outcome = await BannerActionRunner.perform(
-            actionIdentifier: response.actionIdentifier,
+            actionIdentifier: actionIdentifier,
             userInfo: userInfo,
             text: text,
             pairing: pairing,
