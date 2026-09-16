@@ -117,8 +117,18 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     /// acknowledgement is what stops a followed session's reminders.
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
-        didReceive response: UNNotificationResponse
-    ) async {
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping @Sendable () -> Void
+    ) {
+        // The async delegate bridge can finish on a cooperative executor. UIKit's
+        // notification-response completion restores scene state and requires main.
+        Task {
+            await handleNotificationResponse(response)
+            await MainActor.run { completionHandler() }
+        }
+    }
+
+    nonisolated private func handleNotificationResponse(_ response: UNNotificationResponse) async {
         // A tapped push leaves Notification Center; remember it so the stream's
         // catch-up does not announce the same wait a second time (ADR-0012).
         // Content-free evidence of which device receives the default tap.
