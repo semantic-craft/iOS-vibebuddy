@@ -463,14 +463,14 @@ public actor SessionStore {
             && !resultRejected(sessionID: session.id, completionID: completionID)
             && session.effectiveAttention == .followed && noticeEnabled?() == true
         if var existing = noticeLedger?.notices[id] {
-            if existing.state == .pending && (!eligible || now >= existing.deadline) {
-                existing.state = eligible ? .plain : .cancelled
+            if existing.state == .pending && !eligible {
+                existing.state = .cancelled
                 _ = noticeLedger?.save(existing)
                 noticeTasks.removeValue(forKey: id)?.cancel()
             }
             return existing
         }
-        guard eligible, [.claudeCode, .codex, .grokBot].contains(session.agent),
+        guard eligible, [.claudeCode, .codex, .cursor, .grokBot].contains(session.agent),
               now < session.statusSince.addingTimeInterval(12), let handler = noticeHandler else { return nil }
         var notice = CompletionNotice(id: id, deadline: session.statusSince.addingTimeInterval(12))
         let contentConfig = presentationConfiguration()
@@ -478,21 +478,39 @@ public actor SessionStore {
         notice.presentationRevision = contentConfig.presentationRevision
         guard noticeLedger?.save(notice) == true else { return nil }
         noticeTasks[id] = Task {
-            let text = await handler(session)
-            self.finishCompletionNotice(id: id, sessionID: session.id, completionID: completionID, text: text)
+            let request = ContentPresentationRequest(sourceID: sourceID,
+                target: .completion(sessionID: session.id, completionID: completionID), purpose: .speech)
+            while !Task.isCancelled, Date() < notice.deadline, self.presentationTargetIsCurrent(request) {
+                let body = await self.completionBody(sessionID: session.id, completionID: completionID)
+                if body.text != nil, await self.speechEvidenceIsSettled(request) {
+                    guard !Task.isCancelled, self.presentationTargetIsCurrent(request) else { return }
+                    let text = await handler(session)
+                    await self.finishCompletionNotice(id: id, sessionID: session.id, completionID: completionID, text: text)
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            await self.finishCompletionNotice(id: id, sessionID: session.id, completionID: completionID, text: nil)
         }
         Task {
             try? await Task.sleep(for: .seconds(max(0, notice.deadline.timeIntervalSinceNow)))
-            self.finishCompletionNotice(id: id, sessionID: session.id, completionID: completionID, text: nil)
+            await self.finishCompletionNotice(id: id, sessionID: session.id, completionID: completionID, text: nil)
         }
         return notice
     }
 
-    private func finishCompletionNotice(id: String, sessionID: String, completionID: String, text: String?) {
+    private func finishCompletionNotice(id: String, sessionID: String, completionID: String, text: String?) async {
+        guard let sourceID else { return }
+        let body = await completionBody(sessionID: sessionID, completionID: completionID)
+        let settled: Bool
+        if body.text != nil {
+            settled = await speechEvidenceIsSettled(.init(sourceID: sourceID,
+                target: .completion(sessionID: sessionID, completionID: completionID), purpose: .speech))
+        } else { settled = false }
         guard var notice = noticeLedger?.notices[id], notice.state == .pending else { return }
         let session = reducer.sessions[sessionID]
         let followed = (attention[sessionID] ?? AutoAttention.level(lastInteractionAt: lastInteractionAt[sessionID], now: Date())) == .followed
-        let valid = !resultRejected(sessionID: sessionID, completionID: completionID)
+        let valid = settled && !resultRejected(sessionID: sessionID, completionID: completionID)
             && session?.status == .done && session?.completionID == completionID
             && session?.hasUnreadCompletion == true && session?.isStuck == false && followed && noticeEnabled?() == true
             && (notice.presentationRevision == nil || notice.presentationRevision == presentationConfiguration().presentationRevision)

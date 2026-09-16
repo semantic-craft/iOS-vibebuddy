@@ -539,7 +539,9 @@ code, and tests — don't drift to synonyms.
   after the prompt, ending in success; a following prompt or handed-over follow-up
   invalidates that speech. If summary generation fails after verification, speech
   reads a named excerpt from the verified result instead of an unavailable-summary
-  completion message.
+  completion message. Notification summary generation waits for the same native
+  settlement evidence and rechecks it before publishing; unverified expiry is
+  silent. There is no additional completion-reminder throttle.
   Automatic reading still requires its opt-in; manual reading
   can request content even when automatic completion summaries are off.
 - **Saved summary style** — older history files retain action briefing, session
