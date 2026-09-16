@@ -224,7 +224,10 @@ struct PhoneSessionReader: View {
                 ScrollView { expiredDraft }.frame(maxHeight: maxHeight)
             } else if notificationIsCurrent {
                 if session.status == .needsResponse {
-                    ScrollView { decision }.frame(maxHeight: maxHeight)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 8) { decision }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }.frame(maxHeight: maxHeight)
                 } else if SessionActionSupport.resolve(for: session).isAvailable {
                     HStack(alignment: .bottom) {
                         TextField("Reply to this task", text: Binding(get: { draft.text }, set: { value in

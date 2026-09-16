@@ -87,6 +87,43 @@ final class RemoteConnectionAttemptTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(PairingPayload.self, from: XCTUnwrap(defaults.data(forKey: "vibebuddy.pairing"))), original)
     }
 
+    func testUnavailableScanKeepsSavedPairingAndDoesNotComplete() async throws {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let connection = ConnectionStore(defaults: defaults)
+        let original = PairingPayload(host: "192.168.1.20", port: 9876, token: "old")
+        connection.save(original)
+        let check = RemoteConnectionAttempt()
+        var completed = false
+        check.start(PairingPayload(host: "unreachable.invalid", port: 9876, token: "wrong"),
+                    connection: connection, streamer: EmptyStreamer()) { completed = true }
+        try await waitUntil { !check.isChecking }
+        XCTAssertEqual(check.phase, .failure(.unavailable))
+        XCTAssertFalse(completed)
+        XCTAssertEqual(connection.pairing, original)
+        XCTAssertEqual(try JSONDecoder().decode(PairingPayload.self, from: XCTUnwrap(defaults.data(forKey: "vibebuddy.pairing"))), original)
+    }
+
+    func testScanOnlyCommitsAndCompletesAfterLiveSnapshot() async throws {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let connection = ConnectionStore(defaults: defaults)
+        let original = PairingPayload(host: "192.168.1.20", port: 9876, token: "old")
+        let candidate = PairingPayload(host: "192.168.1.21", port: 9876, token: "new")
+        connection.save(original)
+        let stream = HeldRemoteStream()
+        let check = RemoteConnectionAttempt()
+        var completions = 0
+        check.start(candidate, connection: connection, streamer: stream) { completions += 1 }
+        try await waitUntil { stream.started }
+        XCTAssertEqual(connection.pairing, original)
+        XCTAssertEqual(completions, 0)
+        stream.deliver()
+        try await waitUntil { !check.isChecking }
+        XCTAssertEqual(check.phase, .success)
+        XCTAssertEqual(connection.pairing, candidate)
+        XCTAssertEqual(completions, 1)
+        XCTAssertEqual(try JSONDecoder().decode(PairingPayload.self, from: XCTUnwrap(defaults.data(forKey: "vibebuddy.pairing"))), candidate)
+    }
+
     func testCancelledCheckCannotSaveOrClearReplacementCheck() async throws {
         let connection = ConnectionStore(defaults: UserDefaults(suiteName: UUID().uuidString)!)
         let original = PairingPayload(host: "192.168.1.20", port: 9876, token: "old")

@@ -789,3 +789,5 @@
 "Wait for the current reading to finish or stop it before previewing." = "请等待当前朗读结束，或停止朗读后再试听。";
 
 "Speech synthesis model help" = "语音合成模型帮助";
+
+"Could not receive live Mac status. Check the network and wake your Mac. Your saved pairing has not changed." = "暂时未收到 Mac 实时状态。请检查网络并唤醒 Mac。已保存的配对未改变。";
