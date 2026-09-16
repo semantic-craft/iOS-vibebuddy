@@ -5,6 +5,25 @@ import VibeBuddyKit
 
 @Suite("Completion recovery")
 struct CompletionRecoveryTests {
+    @Test("idle restored conversations obtain their exact native title without changing completion")
+    func idleConversationTitle() async throws {
+        let index = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: index) }
+        try Data("{\"id\":\"title-recovery-test\",\"thread_name\":\"Evening harbor drawing\"}\n".utf8).write(to: index)
+        let store = SessionStore(sourceID: "source")
+        let date = Date()
+        await store.ingest(.init(kind: .userPromptSubmit, sessionID: "title-recovery-test", agent: .codex,
+            observationSource: .appserver, timestamp: date, turnID: "a"))
+        await store.ingest(.init(kind: .stop, sessionID: "title-recovery-test", agent: .codex,
+            observationSource: .appserver, timestamp: date, turnID: "a", completionText: "Saved.", completionSucceeded: true))
+        let before = try #require(await store.snapshot(now: date).sessions.first)
+        await store.refreshCodexNames(index: index)
+        let after = try #require(await store.snapshot(now: date).sessions.first)
+        #expect(after.name == "Evening harbor drawing")
+        #expect(after.status == before.status && after.completionID == before.completionID)
+        #expect(after.updatedAt == before.updatedAt && after.hasUnreadCompletion == before.hasUnreadCompletion)
+    }
+
     @Test("a corroborating native source can update the conversation name without ending app-server progress")
     func corroboratingConversationName() async throws {
         let store = SessionStore(sourceID: "source")
