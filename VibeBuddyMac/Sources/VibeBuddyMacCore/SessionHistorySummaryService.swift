@@ -34,7 +34,24 @@ public struct SessionHistorySummary: Codable, Sendable, Equatable {
     }
     /// A changed source is stale; a different style preference is not, the label shows which style wrote it.
     public func isCurrent(for session: SessionHistorySession) -> Bool {
-        session.id == sessionID && session.sourcePath == sourcePath && session.sourceRevision == sourceRevision
+        session.id == sessionID && session.sourcePath == sourcePath && matchesSourceRevision(session.sourceRevision)
+    }
+
+    func matchesSourceRevision(_ current: String?) -> Bool {
+        if current == sourceRevision { return true }
+        guard let saved = sourceRevision, !saved.hasPrefix("fs1|"), let current else { return false }
+        let fields = current.split(separator: "|", omittingEmptySubsequences: false)
+        guard fields.count == 6, fields[0] == "fs1" else { return false }
+        let modified = fields[4].split(separator: ":", omittingEmptySubsequences: false)
+        guard modified.count == 2, let seconds = Double(modified[0]), let nanoseconds = Double(modified[1]) else { return false }
+        let legacy = saved.split(separator: "|", omittingEmptySubsequences: false)
+        guard legacy.count == 2, let savedTime = Double(legacy[0]),
+              let savedSize = Int64(legacy[1]), let currentSize = Int64(fields[3]),
+              savedSize == currentSize else { return false }
+        let currentTime = seconds + nanoseconds / 1_000_000_000
+        guard savedTime.isFinite, currentTime.isFinite else { return false }
+        let rounding = 2 * max(savedTime.ulp, currentTime.ulp)
+        return abs(savedTime - currentTime) <= rounding
     }
 }
 public struct HistorySummaryMaterial: Sendable {

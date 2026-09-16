@@ -15,6 +15,12 @@ public actor SessionHistoryRepository {
     private var pins = Set<String>()
     private var archives = Set<String>()
     private var issues: [String] = []
+    private var reconciliationIssues: [String] = []
+
+    private func appendScopeIssue(_ issue: String) {
+        reconciliationIssues.append(issue)
+        issues.append(issue)
+    }
     private var refreshedAt: Date?
     private var pendingPaths = Set<String>()
     private var loaded = false
@@ -22,6 +28,64 @@ public actor SessionHistoryRepository {
     private let readOnly: Bool
     private var transcriptSlot: (path: String, revision: String, transcript: HistoryTranscript)?
     private var usableIndex = false
+    private struct IndexIdentity: Equatable {
+        var device: dev_t
+        var inode: ino_t
+        var size: off_t
+        var seconds: Int
+        var nanoseconds: Int
+    }
+    private var loadedIndexIdentity: IndexIdentity?
+    private var resolvedSourceParents: [String: URL] = [:]
+    private var resolvedSourceRoots: [(url: URL, agent: SessionHistoryAgent, physicalPath: String?)] = []
+
+    private func resetSourcePathCache() {
+        resolvedSourceParents.removeAll(keepingCapacity: true)
+        resolvedSourceRoots = roots.map { root, agent in
+            let physicalPath: String?
+            if let physical = realpath(root.path, nil) {
+                physicalPath = String(cString: physical)
+                free(physical)
+            } else { physicalPath = nil }
+            return (root.resolvingSymlinksInPath(), agent, physicalPath)
+        }
+    }
+
+    private func indexIdentity() -> IndexIdentity? {
+        var value = stat()
+        guard stat(directory.appendingPathComponent("index.json").path, &value) == 0 else { return nil }
+        return IndexIdentity(device: value.st_dev, inode: value.st_ino, size: value.st_size,
+                             seconds: value.st_mtimespec.tv_sec, nanoseconds: value.st_mtimespec.tv_nsec)
+    }
+
+    static func currentSourceRevision(_ file: URL) -> String? {
+        var value = stat()
+        guard lstat(file.path, &value) == 0, value.st_mode & S_IFMT == S_IFREG else { return nil }
+        return "fs1|\(value.st_dev)|\(value.st_ino)|\(value.st_size)|\(value.st_mtimespec.tv_sec):\(value.st_mtimespec.tv_nsec)|\(value.st_ctimespec.tv_sec):\(value.st_ctimespec.tv_nsec)"
+    }
+
+    private func sourceMatchesRevision(_ file: URL, revision: String?) -> Bool {
+        guard let revision else { return false }
+        if revision.hasPrefix("fs1|") { return Self.currentSourceRevision(file) == revision }
+        guard let values = try? file.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
+              let modified = values.contentModificationDate, let size = values.fileSize else { return false }
+        return revision == "\(modified.timeIntervalSince1970)|\(size)"
+    }
+
+    private func revision(of entry: Entry) -> String {
+        entry.session.sourceRevision ?? "\(entry.modified.timeIntervalSince1970)|\(entry.size)"
+    }
+
+    private func reloadAnnotations() {
+        func values(_ name: String) -> Set<String> {
+            guard let data = try? Data(contentsOf: directory.appendingPathComponent(name)),
+                  let result = try? JSONDecoder().decode(Set<String>.self, from: data) else { return [] }
+            return result
+        }
+        favorites = values("favorites.json")
+        pins = values("pins.json")
+        archives = values("archives.json")
+    }
     public init(claudeHome: URL? = nil, codexHome: URL? = nil, cursorHome: URL? = nil, grokHome: URL? = nil, cacheDirectory: URL? = nil, refreshByteBudget: Int = 256 * 1024 * 1024, readOnly: Bool = false) {
         self.readOnly = readOnly
         self.grokHome = grokHome?.resolvingSymlinksInPath()
@@ -39,6 +103,7 @@ public actor SessionHistoryRepository {
     private func ensureLoaded() {
         guard !loaded else { return }
         loaded = true
+        loadedIndexIdentity = indexIdentity()
         if let data = try? Data(contentsOf: directory.appendingPathComponent("archives.json")), let decoded = try? JSONDecoder().decode(Set<String>.self, from: data) { archives = decoded }
         if let data = try? Data(contentsOf: directory.appendingPathComponent("pins.json")), let decoded = try? JSONDecoder().decode(Set<String>.self, from: data) { pins = decoded }
         if let data = try? Data(contentsOf: directory.appendingPathComponent("favorites.json")), let decoded = try? JSONDecoder().decode(Set<String>.self, from: data) { favorites = decoded }
@@ -71,6 +136,7 @@ public actor SessionHistoryRepository {
     /// This deliberately leaves transcript caches alone and never invokes refresh.
     public func reloadReadOnlyMetadata() throws {
         guard readOnly else { throw HistoryToolError.executionFailed("Metadata reload requires a read-only repository.") }
+        transcriptSlot = nil
         loaded = false
         usableIndex = false
         entries.removeAll()
@@ -88,7 +154,7 @@ public actor SessionHistoryRepository {
         var byID: [String: SessionHistorySession] = [:]
         for entry in entries.values {
             var session = entry.session; session.isFavorite = favorites.contains(session.id); session.isPinned = pins.contains(session.id); session.archivedLocally = archives.contains(session.id)
-            if session.agent.supportsTranscript { session.sourceRevision = "\(entry.modified.timeIntervalSince1970)|\(entry.size)" }
+            if session.agent.supportsTranscript { session.sourceRevision = revision(of: entry) }
             if let existing = byID[session.id] {
                 if existing.isAvailable != session.isAvailable {
                     if existing.isAvailable { continue }
@@ -99,16 +165,146 @@ public actor SessionHistoryRepository {
         }
         return SessionHistorySnapshot(sessions: byID.values.sorted { if ($0.isPinned == true) != ($1.isPinned == true) { return $0.isPinned == true }; return $0.updatedAt == $1.updatedAt ? $0.id < $1.id : $0.updatedAt > $1.updatedAt }, issues: issues, refreshedAt: refreshedAt, pendingSourceCount: pendingPaths.count)
     }
-    public func refresh(rebuild: Bool = false) throws -> SessionHistorySnapshot {
+    public func refresh(rebuild: Bool = false, failIfBusy: Bool = false) throws -> SessionHistorySnapshot {
         guard !readOnly else { throw HistoryToolError.readOnly }
         let lock: HistoryRefreshLock
         do { lock = try HistoryRefreshLock(directory: directory) }
         catch HistoryToolError.refreshBusy {
+            if failIfBusy { throw HistoryToolError.refreshBusy }
             issues = ["another refresh is running; skipped this refresh."]
             return snapshot()
         }
         defer { withExtendedLifetime(lock) {} }
         return try refreshLocked(rebuild: rebuild)
+    }
+
+    public func observationRoots() -> [URL] { roots.map(\.0) }
+
+    private struct HistorySourceReadError: Error { let underlying: Error }
+
+    private func indexSource(_ file: URL, agent: SessionHistoryAgent, archived: Bool,
+                             modified: Date, size: Int, searchIndex: SessionHistorySearchIndex) throws {
+        var session: SessionHistorySession
+        guard let revision = Self.currentSourceRevision(file) else { throw HistorySourceReadError(underlying: CocoaError(.fileReadUnknown)) }
+        do {
+            var before = stat()
+            guard lstat(file.path, &before) == 0, before.st_mode & S_IFMT == S_IFREG else { throw CocoaError(.fileReadUnknown) }
+            session = try autoreleasepool { try SessionHistoryParser.read(url: file, agent: agent, updatedAt: modified) }
+            var after = stat()
+            let values = try file.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+            guard lstat(file.path, &after) == 0,
+                  before.st_dev == after.st_dev, before.st_ino == after.st_ino,
+                  before.st_size == after.st_size,
+                  before.st_mtimespec.tv_sec == after.st_mtimespec.tv_sec,
+                  before.st_mtimespec.tv_nsec == after.st_mtimespec.tv_nsec,
+                  Self.currentSourceRevision(file) == revision,
+                  values.fileSize == size, values.contentModificationDate == modified else {
+                throw HistoryToolError.executionFailed("Source changed while indexing; retry for a consistent revision.")
+            }
+        } catch { throw HistorySourceReadError(underlying: error) }
+        session.sourceArchived = archived
+        session.sourceRevision = revision
+        try save(session, name: contentFilename(file.path))
+        try searchIndex.replace(session, stamp: "v7|" + revision)
+        session.messages = []
+        entries[file.path] = Entry(modified: modified, size: size, session: session)
+    }
+
+    private func sourcePath(_ raw: String) -> (file: URL, agent: SessionHistoryAgent, archived: Bool)? {
+        let file = URL(fileURLWithPath: raw).standardizedFileURL
+        // Resolve the parent so deleted leaves have the same spelling as existing files.
+        let parent = file.deletingLastPathComponent()
+        let resolvedParent: URL
+        if let cached = resolvedSourceParents[parent.path] { resolvedParent = cached }
+        else {
+            resolvedParent = parent.resolvingSymlinksInPath()
+            resolvedSourceParents[parent.path] = resolvedParent
+        }
+        let normalized = resolvedParent.appendingPathComponent(file.lastPathComponent)
+        for (root, agent, physicalRoot) in resolvedSourceRoots {
+            guard normalized.path.hasPrefix(root.path + "/"), normalized.pathExtension == "jsonl" else { continue }
+            let relative = String(normalized.path.dropFirst(root.path.count + 1)).split(separator: "/").map(String.init)
+            guard !relative.contains(where: { $0.hasPrefix(".") }) else { return nil }
+            if agent == .claude, relative.contains("subagents") || normalized.lastPathComponent.hasPrefix("agent-") { return nil }
+            if agent == .cursor {
+                guard relative.count == 3 || relative.count == 4, relative[1] == "agent-transcripts" else { return nil }
+                let id = normalized.deletingPathExtension().lastPathComponent
+                guard !id.isEmpty, !id.hasPrefix("bc-"), relative.count == 3 || relative[2] == id else { return nil }
+            }
+            var indexedFile = normalized
+            if entries[normalized.path] == nil, let physicalRoot {
+                let physicalPath = physicalRoot + "/" + relative.joined(separator: "/")
+                if entries[physicalPath] != nil { indexedFile = URL(fileURLWithPath: physicalPath) }
+            }
+            return (indexedFile, agent, agent == .codex && root.lastPathComponent == "archived_sessions")
+        }
+        return nil
+    }
+
+    public func refresh(changedPaths: Set<String>) throws -> SessionHistorySnapshot {
+        guard !readOnly else { throw HistoryToolError.readOnly }
+        let lock = try HistoryRefreshLock(directory: directory)
+        defer { withExtendedLifetime(lock) {} }
+        resetSourcePathCache()
+        if !loaded || loadedIndexIdentity == nil || loadedIndexIdentity != indexIdentity() { reloadForRefresh() }
+        reloadAnnotations()
+        guard usableIndex else { return try refreshLocked(rebuild: false) }
+        let searchIndex = try SessionHistorySearchIndex(directory: directory)
+        issues = reconciliationIssues
+        let requested = Set(changedPaths.compactMap { sourcePath($0)?.file.path })
+        pendingPaths.formUnion(requested)
+        let batchPaths = pendingPaths
+        var bytes = 0
+        var failure: Error?
+        var changed = indexDirty || !requested.isEmpty
+        for path in pendingPaths.sorted() {
+            guard let source = sourcePath(path) else { pendingPaths.remove(path); changed = true; continue }
+            do {
+                let values: URLResourceValues
+                do {
+                    values = try source.file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey])
+                } catch {
+                    if entries[path]?.session.isAvailable == true { entries[path]?.session.isAvailable = false }
+                    pendingPaths.remove(path)
+                    changed = true
+                    issues.append("Unavailable history source: \(path)")
+                    continue
+                }
+                guard values.isRegularFile == true, values.isSymbolicLink != true else {
+                    if entries[path]?.session.isAvailable == true { entries[path]?.session.isAvailable = false }
+                    pendingPaths.remove(path); changed = true
+                    continue
+                }
+                let size = values.fileSize ?? 0
+                let cost = min(size, SessionHistoryParser.byteLimit)
+                if bytes > 0 && bytes + cost > refreshByteBudget { continue }
+                bytes += cost
+                try indexSource(source.file, agent: source.agent, archived: source.archived,
+                                modified: values.contentModificationDate ?? .distantPast, size: size, searchIndex: searchIndex)
+                pendingPaths.remove(path)
+                changed = true
+            } catch is HistorySourceReadError {
+                if entries[path]?.session.isAvailable == true { entries[path]?.session.isAvailable = false }
+                pendingPaths.remove(path)
+                changed = true
+                issues.append("Unreadable history source: \(path)")
+            } catch {
+                failure = error
+                changed = true
+                break
+            }
+        }
+        if !pendingPaths.isEmpty { issues.append("Indexing: \(pendingPaths.count) sources pending; refresh continues the next bounded batch.") }
+        if changed {
+            indexDirty = true
+            do { try save(Cache(entries: entries, pendingPaths: pendingPaths), name: "index.json") }
+            catch { pendingPaths.formUnion(batchPaths); throw error }
+            indexDirty = false
+            loadedIndexIdentity = indexIdentity()
+        }
+        if let failure { throw failure }
+        refreshedAt = Date()
+        return snapshot()
     }
 
     /// Explicit CLI maintenance, never exposed as an MCP tool. A nil result means
@@ -130,8 +326,15 @@ public actor SessionHistoryRepository {
     }
 
     private func refreshLocked(rebuild: Bool, full: Bool = false) throws -> SessionHistorySnapshot {
-        reloadForRefresh()
+        resetSourcePathCache()
+        var completed = false
+        defer { if !completed { loadedIndexIdentity = nil } }
+        if !loaded || indexDirty || loadedIndexIdentity == nil || loadedIndexIdentity != indexIdentity() {
+            reloadForRefresh()
+        }
+        reloadAnnotations()
         let fm = FileManager.default
+        reconciliationIssues = []
         issues = []
         var changed = rebuild || !usableIndex
         var cacheFailure: Error?
@@ -147,7 +350,7 @@ public actor SessionHistoryRepository {
         let searchIndex = try SessionHistorySearchIndex(directory: staging ?? directory)
         if rebuild { pendingPaths.formUnion(entries.filter { $0.value.session.agent.supportsTranscript }.keys) }
         for (root, agent) in roots {
-            guard fm.fileExists(atPath: root.path) else { issues.append("Source directory unavailable: \(root.path)"); continue }
+            guard fm.fileExists(atPath: root.path) else { appendScopeIssue("Source directory unavailable: \(root.path)"); continue }
             var enumerationErrors = 0
             var seenPaths = Set<String>()
             let files: AnySequence<URL>
@@ -157,13 +360,14 @@ public actor SessionHistoryRepository {
                 files = AnySequence(cursorSources(root: root).map(\.url))
             } else {
                 iterator = fm.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey], options: [.skipsHiddenFiles], errorHandler: { _, _ in enumerationErrors += 1; return true })
-                guard let iterator else { issues.append("Unable to enumerate source: \(root.path)"); continue }
+                guard let iterator else { appendScopeIssue("Unable to enumerate source: \(root.path)"); continue }
                 files = AnySequence { AnyIterator { iterator.nextObject() as? URL } }
             }
-            for file in files {
-                if agent == .claude, file.lastPathComponent == "subagents" { iterator?.skipDescendants(); excludedChildren += 1; continue }
-                guard file.pathExtension == "jsonl" else { continue }
-                if agent == .claude, file.lastPathComponent.hasPrefix("agent-") { excludedChildren += 1; continue }
+            for candidate in files {
+                if agent == .claude, candidate.lastPathComponent == "subagents" { iterator?.skipDescendants(); excludedChildren += 1; continue }
+                guard candidate.pathExtension == "jsonl" else { continue }
+                if agent == .claude, candidate.lastPathComponent.hasPrefix("agent-") { excludedChildren += 1; continue }
+                guard let file = sourcePath(candidate.path)?.file else { continue }
                 seenPaths.insert(file.path)
                 do {
                     let values = try file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey])
@@ -171,25 +375,21 @@ public actor SessionHistoryRepository {
                     discovered.insert(file.path)
                     let size = values.fileSize ?? 0
                     let modified = values.contentModificationDate ?? .distantPast
-                    if !pendingPaths.contains(file.path), let cached = entries[file.path], cached.modified == modified, cached.size == size, cached.session.isAvailable { continue }
+                    if !pendingPaths.contains(file.path), let cached = entries[file.path], cached.modified == modified, cached.size == size, cached.session.isAvailable,
+                       revision(of: cached) == Self.currentSourceRevision(file) { continue }
                     if !full && totalBytes > 0 && totalBytes + min(size, SessionHistoryParser.byteLimit) > refreshByteBudget {
                         pendingPaths.insert(file.path)
                         pendingCount += 1
                         continue
                     }
                     totalBytes += min(size, SessionHistoryParser.byteLimit)
-                    var session = try autoreleasepool {
-                        try SessionHistoryParser.read(url: file, agent: agent, updatedAt: modified)
-                    }
-                    session.sourceArchived = agent == .codex && root.lastPathComponent == "archived_sessions"
-                    let revision = "\(modified.timeIntervalSince1970)|\(size)"
-                    session.sourceRevision = revision
                     do {
-                        try save(session, name: contentFilename(file.path))
-                        try searchIndex.replace(session, stamp: "v7|" + revision)
-                    } catch { cacheFailure = error; throw error }
-                    session.messages = []
-                    entries[file.path] = Entry(modified: modified, size: size, session: session)
+                        try indexSource(file, agent: agent, archived: agent == .codex && root.lastPathComponent == "archived_sessions",
+                                        modified: modified, size: size, searchIndex: searchIndex)
+                    } catch {
+                        if !(error is HistorySourceReadError) { cacheFailure = error }
+                        throw error
+                    }
                     pendingPaths.remove(file.path)
                     changed = true
                 } catch {
@@ -197,7 +397,7 @@ public actor SessionHistoryRepository {
                     if var cached = entries[file.path], cached.session.isAvailable { cached.session.isAvailable = false; entries[file.path] = cached; changed = true }
                 }
             }
-            if enumerationErrors > 0 { issues.append("Partial coverage: \(enumerationErrors) inaccessible paths in \(root.path).") }
+            if enumerationErrors > 0 { appendScopeIssue("Partial coverage: \(enumerationErrors) inaccessible paths in \(root.path).") }
             else {
                 // A complete enumeration can retire deferred sources that disappeared.
                 // Unavailable/partial roots retain them so omissions stay visible.
@@ -216,8 +416,8 @@ public actor SessionHistoryRepository {
         }
         if let grokHome {
             let inventory = GrokHistorySource.scan(home: grokHome)
-            issues += inventory.issues
-            if !inventory.sessions.isEmpty { issues.append(GrokHistorySource.coverage) }
+            for issue in inventory.issues { appendScopeIssue(issue) }
+            if !inventory.sessions.isEmpty { appendScopeIssue(GrokHistorySource.coverage) }
             for session in inventory.sessions {
                 discovered.insert(session.sourcePath)
                 pendingPaths.remove(session.sourcePath)
@@ -231,16 +431,16 @@ public actor SessionHistoryRepository {
             // Retain a cached transcript for provenance/favorites, but never claim its source is available.
             if entries[path]?.session.isAvailable == true { entries[path]?.session.isAvailable = false; changed = true }
         }
-        if excludedChildren > 0 { issues.append("Scope: \(excludedChildren) Claude child-session directories/files excluded from parent history.") }
+        if excludedChildren > 0 { appendScopeIssue("Scope: \(excludedChildren) Claude child-session directories/files excluded from parent history.") }
         if pendingCount > 0 { issues.append("Indexing: \(pendingCount) sources pending; refresh continues the next bounded batch.") }
         if let cacheFailure { throw cacheFailure }
         // Migrate old lazy indexes and repair missing FTS rows only while holding
         // the writer lock. No query ever decodes caches or writes SQLite rows.
         for entry in entries.values where entry.session.agent.supportsTranscript {
-            let stamp = "v7|\(entry.modified.timeIntervalSince1970)|\(entry.size)"
+            let stamp = "v7|" + revision(of: entry)
             if try !searchIndex.isCurrent(path: entry.session.sourcePath, stamp: stamp) {
                 let session = try autoreleasepool { try load(entry.session) }
-                let revision = "\(entry.modified.timeIntervalSince1970)|\(entry.size)"
+                let revision = revision(of: entry)
                 if let cachedRevision = session.sourceRevision, cachedRevision != revision {
                     issues.append("Not indexed yet: cache revision differs from metadata for \(entry.session.sourcePath).")
                     continue
@@ -260,7 +460,9 @@ public actor SessionHistoryRepository {
             try save(Cache(entries: entries, pendingPaths: pendingPaths), name: "index.json")
             indexDirty = false
             usableIndex = true
+            loadedIndexIdentity = indexIdentity()
         }
+        completed = true
         return snapshot()
     }
     /// Prefer an available source over retained unavailable paths, as snapshot does.
@@ -274,7 +476,7 @@ public actor SessionHistoryRepository {
         guard matches.count <= 1 else { throw HistoryToolError.executionFailed("Ambiguous session key: multiple source files.") }
         guard let entry = matches.first else { return nil }
         var session = entry.session
-        if session.agent.supportsTranscript { session.sourceRevision = "\(entry.modified.timeIntervalSince1970)|\(entry.size)" }
+        if session.agent.supportsTranscript { session.sourceRevision = revision(of: entry) }
         session.isFavorite = favorites.contains(session.id)
         session.isPinned = pins.contains(session.id)
         session.archivedLocally = archives.contains(session.id)
@@ -327,8 +529,7 @@ public actor SessionHistoryRepository {
         let file = URL(fileURLWithPath: metadata.sourcePath)
         let values = try? file.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
         let modified = values?.contentModificationDate
-        let size = values?.fileSize
-        let current = modified.flatMap { date in size.map { "\(date.timeIntervalSince1970)|\($0)" } }
+        let current = Self.currentSourceRevision(file)
         if let current, let slot = transcriptSlot, slot.path == file.path, slot.revision == current { return slot.transcript }
         if var cached = verifiedCache(metadata, indexedRevision: indexed),
            current == nil || current == cached.sourceRevision {
@@ -339,8 +540,7 @@ public actor SessionHistoryRepository {
         }
         guard let modified, let current else { throw HistoryToolError.executionFailed("Source unavailable and no verifiable transcript cache.") }
         var session = try SessionHistoryParser.read(url: file, agent: reference.agent, updatedAt: modified)
-        let after = try file.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
-        guard after.contentModificationDate == modified, after.fileSize == size else { throw HistoryToolError.executionFailed("Source changed while reading; retry for a consistent revision.") }
+        guard Self.currentSourceRevision(file) == current else { throw HistoryToolError.executionFailed("Source changed while reading; retry for a consistent revision.") }
         guard session.nativeSessionID == reference.nativeID else { throw HistoryToolError.executionFailed("Source identity does not match the requested key.") }
         session.sourceRevision = current
         let result = HistoryTranscript(session: session, provenance: "source, index stale")
@@ -444,9 +644,8 @@ public actor SessionHistoryRepository {
         }
         var notIndexed: [SessionHistorySession] = []
         let current = sessions.filter { session in
-            let values = try? URL(fileURLWithPath: session.sourcePath).resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
-            if let modified = values?.contentModificationDate, let size = values?.fileSize,
-               session.sourceRevision != "\(modified.timeIntervalSince1970)|\(size)" {
+            let file = URL(fileURLWithPath: session.sourcePath)
+            if Self.currentSourceRevision(file) != nil, !sourceMatchesRevision(file, revision: session.sourceRevision) {
                 notIndexed.append(session)
                 return false
             }
@@ -490,13 +689,9 @@ public actor SessionHistoryRepository {
         let (metadata, _) = try locateSession(reference)
         guard let saved = try summary(sessionID: metadata.id) else { return nil }
         let file = URL(fileURLWithPath: metadata.sourcePath)
-        let values = try? file.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey])
-        let current: String?
-        if metadata.agent.supportsTranscript, values?.isRegularFile == true, let modified = values?.contentModificationDate, let size = values?.fileSize {
-            current = "\(modified.timeIntervalSince1970)|\(size)"
-        } else { current = nil }
+        let current = metadata.agent.supportsTranscript ? Self.currentSourceRevision(file) : nil
         return HistorySummaryRead(summary: saved, currentSourceRevision: current,
-            isStale: current == nil || saved.sourceRevision == nil || saved.sourceRevision != current || saved.sourcePath != file.path)
+            isStale: current == nil || !sourceMatchesRevision(file, revision: saved.sourceRevision) || saved.sourcePath != file.path)
     }
 
     public func summary(sessionID: String) throws -> SessionHistorySummary? {

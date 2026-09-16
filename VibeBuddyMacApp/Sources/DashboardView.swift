@@ -237,13 +237,7 @@ struct DashboardView: View {
             openGlobalNext()
         }
         .onDisappear { model.dashboardViewedSessionID = nil }
-        .task {
-            await history.refresh()
-            while !Task.isCancelled {
-                do { try await Task.sleep(for: .seconds(30)) } catch { return }
-                await history.refresh()
-            }
-        }
+        .task { await history.observeHistory() }
         .onChange(of: projectScope) { _, scope in
             resetTour()
             switch scope {

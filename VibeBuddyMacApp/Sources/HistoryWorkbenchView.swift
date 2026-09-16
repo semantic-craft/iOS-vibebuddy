@@ -29,6 +29,13 @@ final class HistoryLibraryModel: ObservableObject {
     private var readerMetadataStamp: Date?
     private var searchGeneration = 0
     let isDemo: Bool
+    private var observationGeneration = 0
+    private var directoryWatcher: HistoryDirectoryWatcher?
+    private var pendingHistoryPaths = Set<String>()
+    private var reconcileHistory = false
+    private var rebuildHistory = false
+    private var continueHistoryBatch = false
+    private var retryHistoryAfter = Date.distantPast
 
     init() {
         let environment = ProcessInfo.processInfo.environment
@@ -54,13 +61,98 @@ final class HistoryLibraryModel: ObservableObject {
 
     func refresh(rebuild: Bool = false) async {
         guard !isDemo else { return }
-        guard !loading else { return }
+        reconcileHistory = true
+        rebuildHistory = rebuildHistory || rebuild
+        retryHistoryAfter = .distantPast
+        await drainHistory(generation: observationGeneration)
+    }
+
+    func observeHistory() async {
+        guard !isDemo else { return }
+        directoryWatcher?.stop()
+        directoryWatcher = nil
+        observationGeneration += 1
+        let generation = observationGeneration
+        let roots = await repository.observationRoots()
+        guard !Task.isCancelled, generation == observationGeneration else { return }
+        let watcher = HistoryDirectoryWatcher(roots: roots) { [weak self] changes in
+            guard let self, self.observationGeneration == generation else { return }
+            self.pendingHistoryPaths.formUnion(changes.paths)
+            self.reconcileHistory = self.reconcileHistory || changes.requiresReconciliation || self.pendingHistoryPaths.count > 4096
+            if self.pendingHistoryPaths.count > 4096 {
+                self.pendingHistoryPaths = Set(self.pendingHistoryPaths.sorted().prefix(4096))
+            }
+        }
+        directoryWatcher = watcher
+        defer {
+            watcher.stop()
+            if generation == observationGeneration {
+                directoryWatcher = nil
+                observationGeneration += 1
+                pendingHistoryPaths.removeAll()
+                reconcileHistory = false
+                rebuildHistory = false
+                continueHistoryBatch = false
+            }
+        }
+        reconcileHistory = true
+        var nextReconciliation = Date().addingTimeInterval(30)
+        await withTaskCancellationHandler {
+            while !Task.isCancelled, generation == observationGeneration {
+                if Date() >= nextReconciliation {
+                    reconcileHistory = true
+                    nextReconciliation = Date().addingTimeInterval(30)
+                }
+                await drainHistory(generation: generation)
+                do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+            }
+        } onCancel: {
+            Task { @MainActor [weak watcher] in watcher?.stop() }
+        }
+    }
+
+    private func drainHistory(generation: Int) async {
+        guard !loading, Date() >= retryHistoryAfter,
+              reconcileHistory || !pendingHistoryPaths.isEmpty || continueHistoryBatch else { return }
+        let paths = pendingHistoryPaths
+        let reconcile = reconcileHistory
+        let rebuild = rebuildHistory
+        pendingHistoryPaths.removeAll()
+        reconcileHistory = false
+        rebuildHistory = false
+        continueHistoryBatch = false
         loading = true
         defer { loading = false }
         do {
-            snapshot = try await repository.refresh(rebuild: rebuild)
+            let updated: SessionHistorySnapshot
+            if reconcile {
+                updated = try await repository.refresh(rebuild: rebuild, failIfBusy: true)
+            } else {
+                updated = try await repository.refresh(changedPaths: paths)
+            }
+            guard generation == observationGeneration, !Task.isCancelled else { return }
+            snapshot = updated
+            if reconcile {
+                pendingHistoryPaths.formUnion(paths)
+                if pendingHistoryPaths.count > 4096 {
+                    reconcileHistory = true
+                    pendingHistoryPaths = Set(pendingHistoryPaths.sorted().prefix(4096))
+                }
+            }
+            continueHistoryBatch = updated.pendingSourceCount > 0
             error = nil
-        } catch { self.error = error.localizedDescription }
+        } catch {
+            guard generation == observationGeneration, !Task.isCancelled else { return }
+            pendingHistoryPaths.formUnion(paths)
+            reconcileHistory = reconcileHistory || reconcile || pendingHistoryPaths.count > 4096
+            if pendingHistoryPaths.count > 4096 {
+                pendingHistoryPaths = Set(pendingHistoryPaths.sorted().prefix(4096))
+            }
+            rebuildHistory = rebuildHistory || rebuild
+            continueHistoryBatch = true
+            retryHistoryAfter = Date().addingTimeInterval(2)
+            self.error = error.localizedDescription
+        }
     }
 
     func search(_ query: String, project: String?, favorites: Bool, agent: SessionHistoryAgent?, archived: Bool?) async {
