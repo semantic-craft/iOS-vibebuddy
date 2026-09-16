@@ -12,6 +12,12 @@ public struct CompletionNotice: Codable, Equatable, Sendable {
     public init(id: String, deadline: Date, state: State = .pending, text: String? = nil) {
         self.id = id; self.deadline = deadline; self.state = state; self.text = text
     }
+
+    public func permitsDelivery(of queued: CompletionNotice) -> Bool {
+        (state == .plain || state == .summary)
+            && (queued.state == .plain || queued.state == .summary)
+            && id == queued.id && presentationRevision == queued.presentationRevision
+    }
 }
 
 

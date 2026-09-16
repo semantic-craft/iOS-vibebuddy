@@ -190,7 +190,7 @@ struct LocalNotifier: AttentionNotifier {
             return (String(localized: "\(s.project) is still waiting"),
                     s.summary ?? String(localized: "Waiting for your input"))
         case .agentDone:
-            return (String(localized: "\(s.project) is done"),
+            return (String(localized: "\(s.displayTitle) is done"),
                     s.summary ?? String(localized: "Task complete"))
         case .agentStuck:
             return (String(localized: "\(s.project) stopped"),
@@ -209,7 +209,7 @@ enum CompletionNoticePhoneContext {
     static func valid(_ alert: SoundAlert) -> Bool {
         guard alert.sound == .agentDone, let notice = alert.session.completionNotice else { return true }
         guard let current = sessions.first(where: { $0.id == alert.sessionID }) else { return false }
-        return current.completionNotice?.id == notice.id && current.status == .done
+        return current.completionNotice?.permitsDelivery(of: notice) == true && current.status == .done
             && current.hasUnreadCompletion && !current.isStuck && current.effectiveAttention == .followed
             && !SoundPrefs.effectiveQuiet() && SoundPrefs.categories.isEnabled(NotificationSound.agentDone)
     }

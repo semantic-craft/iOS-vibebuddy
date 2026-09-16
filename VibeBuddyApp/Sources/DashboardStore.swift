@@ -124,6 +124,7 @@ final class DashboardStore: ObservableObject {
         let context: SpeechContext
         let target: ContentPresentationTarget
         let savedFallback: Bool
+        let savedCompletionNotice: CompletionNotice?
     }
 
     private var speechContext: SpeechContext? {
@@ -137,9 +138,12 @@ final class DashboardStore: ObservableObject {
     }
 
     func announcementIsCurrent(_ announcement: Announcement) -> Bool {
-        sameConnection(announcement.context) && announcement.context.revision == contentPresentationRevision
-            && (announcement.savedFallback || state == .connected)
-            && allSessions.contains(where: announcement.target.matches)
+        guard sameConnection(announcement.context), announcement.context.revision == contentPresentationRevision,
+              announcement.savedFallback || state == .connected,
+              let current = allSessions.first(where: announcement.target.matches) else { return false }
+        guard let savedNotice = announcement.savedCompletionNotice else { return true }
+        return current.validatingCompletionNotice(sourceID: announcement.context.source)
+            .completionNotice?.permitsDelivery(of: savedNotice) == true
     }
 
     func loadContentStyle() async {
@@ -208,20 +212,34 @@ final class DashboardStore: ObservableObject {
                       response.request == request, response.revision == context.revision,
                       !response.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                       allSessions.contains(where: target.matches) else { throw ContentRequestFailure.conflict }
-                return Announcement(text: response.text, context: context, target: target, savedFallback: !response.generated)
+                return Announcement(text: response.text, context: context, target: target, savedFallback: !response.generated, savedCompletionNotice: nil)
             } catch ContentRequestFailure.conflict { throw ContentRequestFailure.conflict }
             catch is CancellationError { throw CancellationError() }
             catch { }
         }
         try Task.checkCancellation()
-        guard sameConnection(context), speechContext == context, allSessions.contains(where: target.matches) else {
+        guard sameConnection(context), speechContext == context,
+              let current = AnnouncementPlan.stillCurrent(item, in: allSessions), target.matches(current) else {
             throw ContentRequestFailure.conflict
         }
-        // Saved notices are bounded. Approval commands are never an offline speech script.
-        let brief = session.completionNotice?.text ?? session.summary ?? ""
+        let chinese = VoiceSettings.conversationLanguage() == .chinese
+        let brief: String
+        let savedCompletionNotice: CompletionNotice?
+        if case .completion = target {
+            let validated = current.validatingCompletionNotice(sourceID: context.source)
+            guard let summary = validated.completionSummary else {
+                throw ContentRequestFailure.unavailable
+            }
+            savedCompletionNotice = validated.completionNotice
+            brief = current.displayTitle + (chinese ? "。" : ". ") + summary
+        } else {
+            savedCompletionNotice = nil
+            brief = String((current.completionNotice?.text ?? current.summary ?? "").prefix(180))
+        }
         guard !brief.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ContentRequestFailure.unavailable }
-        let prefix = VoiceSettings.conversationLanguage() == .chinese ? "已保存的简短内容。" : "Saved short content. "
-        return Announcement(text: prefix + String(brief.prefix(180)), context: context, target: target, savedFallback: true)
+        let prefix = chinese ? "已保存的简短内容。" : "Saved short content. "
+        return Announcement(text: prefix + brief, context: context, target: target, savedFallback: true,
+                            savedCompletionNotice: savedCompletionNotice)
     }
 
     private func clearContentSource() {

@@ -29,12 +29,13 @@ public struct PushCopy: Equatable, Sendable {
 
     /// The copy the phone would put on its own banner for this cue.
     public static func copy(for sound: NotificationSound, session s: AgentSession) -> PushCopy {
-        func make(_ titleKey: String, fixed: String, free: String?) -> PushCopy {
-            let title = titleKey.replacingOccurrences(of: "%@", with: s.project)
+        func make(_ titleKey: String, fixed: String, free: String?, name: String? = nil) -> PushCopy {
+            let name = name ?? s.project
+            let title = titleKey.replacingOccurrences(of: "%@", with: name)
             if let free {
-                return PushCopy(title: title, body: free, titleKey: titleKey, titleArgs: [s.project], bodyKey: nil)
+                return PushCopy(title: title, body: free, titleKey: titleKey, titleArgs: [name], bodyKey: nil)
             }
-            return PushCopy(title: title, body: fixed, titleKey: titleKey, titleArgs: [s.project], bodyKey: fixed)
+            return PushCopy(title: title, body: fixed, titleKey: titleKey, titleArgs: [name], bodyKey: fixed)
         }
         switch sound {
         case .needsApproval:
@@ -45,7 +46,7 @@ public struct PushCopy: Equatable, Sendable {
         case .longWaitNudge:
             return make("%@ is still waiting", fixed: "Waiting for your input", free: s.summary)
         case .agentDone:
-            return make("%@ is done", fixed: "Task complete", free: s.summary)
+            return make("%@ is done", fixed: "Task complete", free: s.summary, name: s.displayTitle)
         case .agentStuck:
             return make("%@ stopped", fixed: "Might need a look", free: s.summary)
         case .pairSuccess:

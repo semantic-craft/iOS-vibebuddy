@@ -93,6 +93,30 @@ struct CompletionNoticeIntegrationTests {
         #expect(await gate.calls == 0)
     }
 
+    @Test("persistence failure cannot release an unverified completion")
+    func unverifiedPersistenceFailureIsSilent() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("decisions.json")
+        let store = SessionStore(sourceID: "unverified-write-failure")
+        await store.configureCompletionNotices(url: file, enabled: { true }) { _ in
+            Issue.record("An unverified result must not reach generation")
+            return nil
+        }
+        let end = Date().addingTimeInterval(-11)
+        await store.ingest(.init(kind: .userPromptSubmit, sessionID: "s", agent: .codex,
+            observationSource: .hook, timestamp: end.addingTimeInterval(-1), turnID: "a"))
+        _ = await store.setAttention(sessionID: "s", .followed)
+        await store.ingest(.init(kind: .stop, sessionID: "s", agent: .codex,
+            observationSource: .hook, timestamp: end, turnID: "a"))
+        #expect(await store.snapshot(now: Date()).sessions.first?.completionNotice?.state == .pending)
+        // A directory at the ledger path makes atomic writes fail, including as root.
+        try FileManager.default.removeItem(at: file)
+        try FileManager.default.createDirectory(at: file, withIntermediateDirectories: false)
+        try await Task.sleep(for: .milliseconds(1200))
+        #expect(await store.snapshot(now: Date()).sessions.first?.completionNotice?.state == .cancelled)
+    }
+
     @Test func decisionSurvivesRestartAndCorruptionDoesNotOverwrite() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -102,7 +126,7 @@ struct CompletionNoticeIntegrationTests {
         let saved = ledger.save(notice)
         #expect(saved)
         let restored = CompletionNoticeLedger(url: file)
-        #expect(restored.notices[notice.id]?.state == .plain)
+        #expect(restored.notices[notice.id]?.state == .cancelled)
         let broken = Data("broken".utf8)
         try broken.write(to: file)
         var corrupt = CompletionNoticeLedger(url: file)

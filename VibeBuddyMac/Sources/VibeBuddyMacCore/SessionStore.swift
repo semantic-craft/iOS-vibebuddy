@@ -519,7 +519,7 @@ public actor SessionStore {
             notice.state = .summary; notice.text = text
         } else { notice.state = .plain }
         if noticeLedger?.save(notice) != true {
-            notice.state = .plain; notice.text = nil
+            notice.state = valid ? .plain : .cancelled; notice.text = nil
             noticeLedger?.notices[id] = notice
         }
         noticeTasks.removeValue(forKey: id)?.cancel()
