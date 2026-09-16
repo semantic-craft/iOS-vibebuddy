@@ -20,4 +20,6 @@ Build 36 combines the completion recovery and settings work from build 35 with r
 
 ## Final release checks
 
+The first integrated run passed 14 XCTest cases but failed one of 163 Swift Testing cases: `endingAndCancelCannotResurrectATurn`. An isolated replay and a full replay passed; these did not close the failure. Investigation identified a real actor-reentrancy race: wait cleanup could run after the stop event and reset a completed session to working. Two deterministic regression cases failed on the old implementation. Fix `a7498805` preserves the completed state while clearing stale wait metadata, retaining the existing exact-ID guards. The owner passed 122 focused tests and independent review; final integrated verification follows below.
+
 Pending final source integration, focused checks, Release build, Developer ID verification, app and DMG notarization, and signed Sparkle feed publication. This section is updated from actual results before publication.
