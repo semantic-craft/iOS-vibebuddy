@@ -28,6 +28,12 @@ Start a refactor in Claude Code, a test run in Codex and a build in Grok Build. 
 | --- | --- | --- |
 | **One task view.** Needs you, Unread results and Working, with project, model, current activity and available usage data. | **Approve and reply.** Review a command or bounded diff preview, answer a question, or continue a supported Codex task. | **Voice and summaries.** Ask for current task status, read a concise completion summary, or enable read-aloud on Mac. |
 
+## Use Codex across your Apple devices
+
+Follow Codex tasks and usage on Mac and iPhone, and check completion results on Apple Watch. A connected Codex app-server lets you create, continue, steer and stop the tasks it owns, and respond to supported approval requests and questions. Codex Desktop observation is also supported; its native approvals may still require the Mac.
+
+Optional OpenAI voice conversation and read-aloud use your own API key. The repository includes the Swift integration code, protocol checks and documented limits. See [Codex and OpenAI workflows](docs/codex-openai-workflows.md) for setup, source links and a workflow you can try.
+
 ## Three screens. One companion.
 
 <table>
