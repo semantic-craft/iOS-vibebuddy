@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Export docs/planning/roadmap-2026-09.json, claude-review.md and codex-handoff.md
+// Export docs/planning/roadmap-2026-09.json
 // from the roadmap HTML (the single source of truth for nodes, deps, status and prompts).
 // Usage: node tools/export-roadmap.js docs/planning/roadmap-2026-09.html docs/planning
 const fs = require("fs"), vm = require("vm");
@@ -11,7 +11,7 @@ const start = h.indexOf("const VISION = {"), end = h.indexOf("// ----- graph lay
 if (start < 0 || end < 0) { console.error("roadmap markers not found"); process.exit(1); }
 const src = h.slice(start, end);
 const ctx = {}; vm.createContext(ctx);
-vm.runInContext(src + ";this.T=T;this.LANES=LANES;this.VISION=VISION;this.SESSIONS=SESSIONS;this.REVIEW_PROMPT=REVIEW_PROMPT;this.COORD_PROMPT=COORD_PROMPT;this.CODEX_PROMPT=CODEX_PROMPT;this.promptFor=promptFor;", ctx);
+vm.runInContext(src + ";this.T=T;this.LANES=LANES;this.VISION=VISION;this.SESSIONS=SESSIONS;this.promptFor=promptFor;", ctx);
 const { T, LANES, VISION, SESSIONS } = ctx;
 const gen = h.match(/generatedAt:"([^"]+)", main:"([^"]+)"/);
 const done = new Set(T.filter(t => t.kind === "done").map(t => t.id));
@@ -32,7 +32,5 @@ const data = {
   })),
 };
 fs.writeFileSync(outDir + "/roadmap-2026-09.json", JSON.stringify(data, null, 1) + "\n");
-fs.writeFileSync(outDir + "/codex-handoff.md", "# Codex 接手提示词\n\n复制下面整段到一个 Codex 会话（仓库根目录）。它读仓库文件、合第一波 PR、验证 #62、按前沿派执行会话，并维护路线图正本 docs/planning/roadmap-2026-09.html。\n\n```\n" + ctx.CODEX_PROMPT() + "\n```\n");
-fs.writeFileSync(outDir + "/claude-review.md", "# 审查与协调提示词\n\n审查会话（复制到一个 Codex 会话，仓库根目录）：审执行会话的 PR、合并合格的、把不合格的写成回给执行会话的修改提示词，并维护路线图正本。\n\n```\n" + ctx.REVIEW_PROMPT() + "\n```\n\n协调会话（只派工、不写代码）的提示词：\n\n```\n" + ctx.COORD_PROMPT() + "\n```\n");
 const c = {}; for (const n of data.nodes) c[n.status] = (c[n.status] || 0) + 1;
 console.log("exported", data.generatedAt, data.main, data.nodes.length, "nodes", JSON.stringify(c));
