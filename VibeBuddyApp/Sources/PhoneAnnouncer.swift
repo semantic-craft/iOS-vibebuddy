@@ -117,7 +117,12 @@ final class PhoneAnnouncer: ObservableObject {
     @Published private(set) var spokenCount = 0
 
     private let queue = CompletionSpeechQueue()
-    private var player: AVAudioPlayer?
+    private let providerKey: @MainActor (VoiceProvider) -> String?
+    private let makeSynthesizer: @Sendable (SpeechSynthesisConfiguration) -> (any SpeechSynthesizer)?
+    private var player: AVAudioPlayer? {
+        didSet { playerNeedsResume = false }
+    }
+    private var playerNeedsResume = false
     private var systemVoice: AVSpeechSynthesizer?
     private var generation = UUID()
     private var run = UUID()
@@ -132,7 +137,10 @@ final class PhoneAnnouncer: ObservableObject {
     private var observers: [NSObjectProtocol] = []
     private var runTotal = 0
 
-    init() {
+    init(providerKey: @escaping @MainActor (VoiceProvider) -> String? = { $0.apiKey },
+         makeSynthesizer: @escaping @Sendable (SpeechSynthesisConfiguration) -> (any SpeechSynthesizer)? = SpeechSynthesis.synthesizer) {
+        self.providerKey = providerKey
+        self.makeSynthesizer = makeSynthesizer
         queue.onBusyChanged = { [weak self] busy in
             guard let self else { return }
             self.isBusy = busy || self.player?.isPlaying == true || self.systemVoice?.isSpeaking == true
@@ -141,7 +149,7 @@ final class PhoneAnnouncer: ObservableObject {
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
             guard (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt) == AVAudioSession.InterruptionType.began.rawValue else { return }
-            Task { @MainActor in self?.pause() }
+            Task { @MainActor in self?.pause(interrupted: true) }
         })
     }
 
@@ -185,11 +193,20 @@ final class PhoneAnnouncer: ObservableObject {
         if isPaused { resume() } else { pause() }
     }
 
-    func pause() {
+    func pause() { pause(interrupted: false) }
+
+    private func pause(interrupted: Bool) {
         guard isBusy, !isPaused else { return }
         isPaused = true
         queue.pause()
-        player?.pause()
+        if let player {
+            // An interruption can stop the player before its notification arrives.
+            let interruptedMidAudio = interrupted && player.currentTime > 0 && player.currentTime < player.duration
+            if player.isPlaying || interruptedMidAudio {
+                playerNeedsResume = true
+                player.pause()
+            }
+        }
         systemVoice?.pauseSpeaking(at: .word)
         status = String(localized: "Paused")
     }
@@ -200,7 +217,10 @@ final class PhoneAnnouncer: ObservableObject {
         isPaused = false
         status = nil
         queue.resume()
-        if let player, !player.isPlaying, player.currentTime < player.duration { player.play() }
+        if let player, playerNeedsResume {
+            playerNeedsResume = false
+            if !player.play() { status = String(localized: "Could not play the audio.") }
+        }
         systemVoice?.continueSpeaking()
     }
 
@@ -319,8 +339,8 @@ final class PhoneAnnouncer: ObservableObject {
             guard !Task.isCancelled, generation == current, validate() else { return }
             try activateAudioSession()
             if case .provider(let provider) = PhoneReadAloudSelection.load() {
-                guard let synthesizer = SpeechSynthesis.synthesizer(VoiceSettings.readAloudConfiguration(provider)),
-                      let key = provider.apiKey, !key.isEmpty else {
+                guard let synthesizer = makeSynthesizer(VoiceSettings.readAloudConfiguration(provider)),
+                      let key = providerKey(provider), !key.isEmpty else {
                     status = String(localized: "Configure this provider’s API key or choose System speech.")
                     return
                 }
