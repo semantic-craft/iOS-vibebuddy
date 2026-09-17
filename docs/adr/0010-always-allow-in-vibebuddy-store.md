@@ -7,7 +7,7 @@
 The approval card offers approve / deny. Issue 03 adds **"Always allow"** and
 **"Allow all for this session"**, so a persisted rule auto-resolves future matching
 approvals. The issue flagged a conflict on *where* the rule is written:
-roadmap-checklist-2026-06-05 §4 line 83 said the daemon's own `PermissionRules`;
+[The 2026-06-05 checklist, §4](https://github.com/semantic-craft/iOS-vibebuddy/blob/c49ea6eb8dfbcf0c94dfd3b925dea1c5fa931290/docs/roadmap-checklist-2026-06-05.md#L79-L84) said the daemon's own `PermissionRules`;
 a session handoff said `~/.claude/settings.json`.
 
 Two facts decide it:
