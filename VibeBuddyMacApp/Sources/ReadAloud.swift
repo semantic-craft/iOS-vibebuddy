@@ -66,7 +66,10 @@ final class ReadAloud: ObservableObject {
     }
 
     var canSpeak: @MainActor () -> Bool = { true }
-    private var player: AVAudioPlayer?
+    private var player: AVAudioPlayer? {
+        didSet { playerNeedsResume = false }
+    }
+    private var playerNeedsResume = false
     private lazy var queue: CompletionSpeechQueue = {
         let queue = CompletionSpeechQueue()
         queue.onBusyChanged = { [weak self] value in
@@ -89,7 +92,7 @@ final class ReadAloud: ObservableObject {
 
     func togglePause() {
         paused.toggle()
-        if paused { queue.pause(); player?.pause(); status = "Read-aloud paused" }
+        if paused { queue.pause(); pausePlayer(); status = "Read-aloud paused" }
         else { queue.resume() }
     }
 
@@ -108,7 +111,7 @@ final class ReadAloud: ObservableObject {
 
     func voiceStarted() {
         cancelPreview()
-        player?.pause()
+        pausePlayer()
         if hasManualReading {
             paused = true
             queue.pause()
@@ -116,9 +119,15 @@ final class ReadAloud: ObservableObject {
         }
     }
 
+    private func pausePlayer() {
+        guard let player, player.isPlaying else { return }
+        player.pause()
+        playerNeedsResume = true
+    }
+
     private func waitUntilAllowed() async throws {
         while paused || !canSpeak() {
-            player?.pause()
+            pausePlayer()
             try await Task.sleep(for: .milliseconds(100))
             try Task.checkCancellation()
         }
@@ -222,14 +231,18 @@ final class ReadAloud: ObservableObject {
                 self.recordPlayback("started", id: evidenceID, text: text)
                 if remember { self.latest = (text, id, title ?? String(text.prefix(100))); self.canReplay = true }
                 self.status = "Playing speech"
-                while (player.isPlaying || self.paused || !self.canSpeak()) && !Task.isCancelled {
+                while (player.isPlaying || self.playerNeedsResume || self.paused || !self.canSpeak()) && !Task.isCancelled {
                     try await self.waitUntilAllowed()
                     guard await validate(), !Task.isCancelled, self.generation == current else {
                         player.stop()
                         if self.generation == current { self.player = nil; self.status = "Read-aloud stopped" }
                         return
                     }
-                    if !player.isPlaying && player.currentTime < player.duration { player.play() }
+                    if self.paused || !self.canSpeak() { continue }
+                    if self.playerNeedsResume {
+                        self.playerNeedsResume = false
+                        guard player.play() else { self.status = "Your Mac could not play the audio."; self.player = nil; return }
+                    }
                     try await Task.sleep(for: .milliseconds(100))
                     guard await validate(), !Task.isCancelled, self.generation == current else {
                         player.stop()
