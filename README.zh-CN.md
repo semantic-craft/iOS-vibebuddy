@@ -8,7 +8,7 @@
 
 陪你使用 AI 工具的 **Mac、iPhone 与 Apple Watch** 原生伴侣。<br>**Claude Code · Codex · Grok Build · Grok Bot · Cursor**<br>关注任务进展，回应可处理的请求，随时查看账户额度。
 
-[**下载 Mac 版**](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest) · [**获取 iPhone 版**](https://apps.apple.com/us/app/vibebuddy-agent-monitor/id6777469338) · [开始使用](#开始使用) · [English](README.md)
+[**下载 Mac 版**](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest) · [**获取 iPhone 版**](https://apps.apple.com/us/app/vibebuddy-agent-monitor/id6777469338) · [开始使用](#开始使用) · [关注 X](https://x.com/mm87584) · [English](README.md)
 
 [![最新 Mac 版本](https://img.shields.io/github/v/release/semantic-craft/iOS-vibebuddy?label=Mac%20release&color=67a86b)](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest) [![MIT 许可](https://img.shields.io/badge/license-MIT-67a86b)](LICENSE) ![平台](https://img.shields.io/badge/platforms-macOS%20%C2%B7%20iOS%20%C2%B7%20watchOS-536584) ![Swift 6](https://img.shields.io/badge/Swift-6-F05138)
 
@@ -135,10 +135,14 @@ Mac App、iPhone App、Watch 伴侣、守护进程、共享 Swift 模型和 Agen
 
 **欢迎贡献。** 复现集成问题、改进翻译、记录设备使用流程，或提交范围明确的修复，都很有帮助。详见 [CONTRIBUTING.md](CONTRIBUTING.md)。如果 VibeBuddy 帮到了你，欢迎点 Star，或分享具体的使用方式，让更多人发现它。
 
+## 作者
+
+由 [Semantic_Craft（@mm87584）](https://x.com/mm87584) 开发。欢迎在 X 上关注我，获取 VibeBuddy 更新，交流 AI 工具的使用心得。
+
 ## 致谢
 
 [m5-paper-buddy](https://github.com/op7418/m5-paper-buddy) 启发了通过 hook 与对话记录观测任务状态的思路；[open-vibe-island](https://github.com/Octane0411/open-vibe-island) 为多 Agent 模型与 Mac Glance 提供了参考。VibeBuddy 的 Swift 实现为独立编写。App 图标借助 [ip-as-logo skill](https://github.com/s1dashu/ip-as-logo-skill)设计，App 内的小猫由共享 Swift 代码绘制。
 
-[MIT](LICENSE) © 2026 Xianwei Zhang。独立社区项目，与 Anthropic、OpenAI 或 Apple 无隶属或背书关系。
+[MIT](LICENSE)。独立社区项目，与 Anthropic、OpenAI 或 Apple 无隶属或背书关系。
 
 离开局域网时，可通过外置 Tailscale 连接：[远程连接设置](docs/getting-started.md#remote-access-with-tailscale)。

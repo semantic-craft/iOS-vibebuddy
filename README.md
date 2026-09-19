@@ -8,7 +8,7 @@
 
 A native **Mac, iPhone & Apple Watch** companion for your AI workflow.<br>**Claude Code · Codex · Grok Build · Grok Bot · Cursor**<br>Follow tasks, review supported requests, and keep account usage in view.
 
-[**Download for Mac**](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest) · [**Get the iPhone app**](https://apps.apple.com/us/app/vibebuddy-agent-monitor/id6777469338) · [Get started](#get-started) · [简体中文](README.zh-CN.md)
+[**Download for Mac**](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest) · [**Get the iPhone app**](https://apps.apple.com/us/app/vibebuddy-agent-monitor/id6777469338) · [Get started](#get-started) · [Follow on X](https://x.com/mm87584) · [简体中文](README.zh-CN.md)
 
 [![Latest Mac release](https://img.shields.io/github/v/release/semantic-craft/iOS-vibebuddy?label=Mac%20release&color=67a86b)](https://github.com/semantic-craft/iOS-vibebuddy/releases/latest) [![MIT license](https://img.shields.io/badge/license-MIT-67a86b)](LICENSE) ![Platforms](https://img.shields.io/badge/platforms-macOS%20%C2%B7%20iOS%20%C2%B7%20watchOS-536584) ![Swift 6](https://img.shields.io/badge/Swift-6-F05138)
 
@@ -135,10 +135,14 @@ The Mac app, iPhone app, Watch companion, daemon, shared Swift models and agent 
 
 **Contributions are welcome.** Reproduce an integration issue, improve a translation, document a device workflow or submit a focused fix. Start with [CONTRIBUTING.md](CONTRIBUTING.md). If VibeBuddy helps your workflow, a star or a concrete account of how you use it helps others discover the project.
 
+## Author
+
+Built by [Semantic_Craft (@mm87584)](https://x.com/mm87584). Follow on X for VibeBuddy updates and conversations about using AI tools.
+
 ## Acknowledgements
 
 [m5-paper-buddy](https://github.com/op7418/m5-paper-buddy) inspired the hook-and-transcript approach to agent status; [open-vibe-island](https://github.com/Octane0411/open-vibe-island) informed the multi-agent model and Mac Glance. VibeBuddy's Swift implementation was written independently. The app icon was developed with the [ip-as-logo skill](https://github.com/s1dashu/ip-as-logo-skill); the in-app cat is drawn in shared Swift code.
 
-[MIT](LICENSE) © 2026 Xianwei Zhang. An independent community project; not affiliated with or endorsed by Anthropic, OpenAI or Apple.
+[MIT](LICENSE). An independent community project; not affiliated with or endorsed by Anthropic, OpenAI or Apple.
 
 For access away from your LAN, see [Tailscale remote setup](docs/getting-started.md#remote-access-with-tailscale).
