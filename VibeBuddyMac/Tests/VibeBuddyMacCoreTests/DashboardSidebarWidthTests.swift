@@ -22,6 +22,9 @@ struct DashboardSidebarWidthTests {
         let free: CGFloat = standard + snap + 1
         #expect(DashboardSidebarWidth.settled(released: free) == free)
         #expect(DashboardSidebarWidth.settled(released: 900) == widest)
+        // A remembered width outside the range is healed on read.
+        #expect(DashboardSidebarWidth.clampedLabeled(0) == narrowest)
+        #expect(DashboardSidebarWidth.clampedLabeled(5000) == widest)
         // Mid-drag the pointer is followed inside hard bounds, never snapped.
         let nearStandard: CGFloat = standard - 3
         #expect(DashboardSidebarWidth.clampedDuringDrag(nearStandard) == nearStandard)

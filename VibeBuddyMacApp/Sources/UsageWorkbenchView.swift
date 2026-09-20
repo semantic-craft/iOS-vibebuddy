@@ -35,21 +35,19 @@ struct QuotaPlinth: View {
     /// opens the Usage page — the reading itself lives there (ADR-0017 §6).
     private func railPlinth(now: Date) -> some View {
         let tight = tightestOverall(now: now)
+        let reading = tight?.text ?? anomaly(now: now)
         return VStack(alignment: .leading, spacing: 0) {
             Divider()
             Button { DashboardRoute.open(.usage) } label: {
                 Image(systemName: "gauge.with.needle")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(tight?.tint ?? MacTheme.ink2).frame(width: 14)
-                    .frame(minHeight: 16)
-                    .padding(.horizontal, 8).padding(.vertical, 5)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .sidebarRowFrame()
             }
             .buttonStyle(SidebarRowStyle(selected: false))
-            .help(tight.map { Text("Account quota · \($0.text)") } ?? Text(anomaly(now: now) ?? String(localized: "Account quota")))
+            .help(reading.map { Text("Account quota · \($0)") } ?? Text("Account quota"))
             .accessibilityLabel("Account quota")
-            .accessibilityValue(tight?.text ?? anomaly(now: now) ?? "")
+            .accessibilityValue(reading ?? "")
             .padding(.horizontal, 8).padding(.top, 6)
         }
         .transition(.opacity)

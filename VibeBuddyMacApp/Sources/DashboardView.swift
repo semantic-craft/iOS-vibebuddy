@@ -84,7 +84,7 @@ struct DashboardView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var sidebarSettledWidth: CGFloat {
-        sidebarIconOnly ? DashboardSidebarWidth.iconOnly : CGFloat(sidebarLabeledWidth)
+        sidebarIconOnly ? DashboardSidebarWidth.iconOnly : DashboardSidebarWidth.clampedLabeled(CGFloat(sidebarLabeledWidth))
     }
     private var sidebarWidth: CGFloat { sidebarDragWidth ?? sidebarSettledWidth }
     /// Release and the double-click settle with a short snappy spring; with
@@ -117,6 +117,27 @@ struct DashboardView: View {
 
     private func sidebarToggleIconOnly() {
         withAnimation(sidebarSettle) { sidebarIconOnly.toggle() }
+    }
+
+    /// One accessibility increment or decrement: a step through the labeled
+    /// range, folding to the rail below the narrowest labeled width and
+    /// unfolding from it.
+    private func sidebarStep(_ direction: Int) {
+        withAnimation(sidebarSettle) {
+            if sidebarIconOnly {
+                if direction > 0 { sidebarIconOnly = false }  // back to the remembered labeled width
+                return
+            }
+            let current = DashboardSidebarWidth.clampedLabeled(CGFloat(sidebarLabeledWidth))
+            if direction < 0, current <= DashboardSidebarWidth.minLabeled { sidebarIconOnly = true; return }
+            let stepped = current + CGFloat(direction) * DashboardSidebarWidth.accessibilityStep
+            sidebarLabeledWidth = Double(DashboardSidebarWidth.clampedLabeled(stepped))
+        }
+    }
+
+    private var sidebarAccessibilityValue: String {
+        sidebarIconOnly ? String(localized: "Icons only")
+            : String(localized: "Labeled, \(Int(sidebarSettledWidth.rounded())) points")
     }
 
     private func draftBinding(for sessionID: String) -> Binding<String> {
@@ -180,11 +201,12 @@ struct DashboardView: View {
                 // The drag handle straddles the hairline; it draws above the
                 // content column so its pill and tip are never covered.
                 .overlay {
-                    SidebarResizeHandle(dragging: sidebarDragWidth != nil, iconOnly: sidebarIconOnly,
+                    SidebarResizeHandle(dragging: sidebarDragWidth != nil, accessibilityValue: sidebarAccessibilityValue,
                                         onDragBegan: sidebarDragBegan,
                                         onDragChanged: sidebarDragChanged,
                                         onDragEnded: sidebarDragEnded,
-                                        onDoubleClick: sidebarToggleIconOnly)
+                                        onDoubleClick: sidebarToggleIconOnly,
+                                        onStep: sidebarStep)
                 }
                 .zIndex(1)
             Group {

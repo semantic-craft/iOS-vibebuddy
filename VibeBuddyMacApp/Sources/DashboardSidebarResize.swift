@@ -38,12 +38,16 @@ struct SidebarResizeHandle: View {
     /// True while the pointer is down on the edge; keeps the pill up after
     /// the pointer has left the strip.
     let dragging: Bool
-    let iconOnly: Bool
+    /// What assistive tech reads as the splitter's value ("Icons only",
+    /// "Labeled, 216 points").
+    let accessibilityValue: String
     var onDragBegan: () -> Void
     /// Horizontal distance from where the drag began, in points.
     var onDragChanged: (CGFloat) -> Void
     var onDragEnded: () -> Void
     var onDoubleClick: () -> Void
+    /// Accessibility increment (+1) / decrement (-1) of the width.
+    var onStep: (Int) -> Void
 
     @State private var hovering = false
     @State private var tipShown = false
@@ -62,7 +66,8 @@ struct SidebarResizeHandle: View {
             dragChanged: onDragChanged,
             dragEnded: onDragEnded,
             doubleClick: { scheduleTip(false); onDoubleClick() },
-            accessibilityValue: iconOnly ? String(localized: "Icons only") : String(localized: "Labeled"))
+            step: onStep,
+            accessibilityValue: accessibilityValue)
         .frame(width: 10)
         .overlay {
             // The pill sits on the hairline, so it reads as part of the edge.
@@ -116,6 +121,7 @@ private struct SidebarEdgeTracker: NSViewRepresentable {
     var dragChanged: (CGFloat) -> Void
     var dragEnded: () -> Void
     var doubleClick: () -> Void
+    var step: (Int) -> Void
     var accessibilityValue: String
 
     func makeNSView(context: Context) -> EdgeView {
@@ -132,6 +138,7 @@ private struct SidebarEdgeTracker: NSViewRepresentable {
         view.dragChanged = dragChanged
         view.dragEnded = dragEnded
         view.doubleClick = doubleClick
+        view.step = step
         view.valueDescription = accessibilityValue
     }
 
@@ -141,6 +148,7 @@ private struct SidebarEdgeTracker: NSViewRepresentable {
         var dragChanged: (CGFloat) -> Void = { _ in }
         var dragEnded: () -> Void = {}
         var doubleClick: () -> Void = {}
+        var step: (Int) -> Void = { _ in }
         var valueDescription = ""
         private var tracking: NSTrackingArea?
         private var downX: CGFloat = 0
@@ -210,6 +218,14 @@ private struct SidebarEdgeTracker: NSViewRepresentable {
         override func accessibilityHelp() -> String? { String(localized: "Drag to resize; double-click to collapse or expand the sidebar") }
         override func accessibilityPerformPress() -> Bool {
             doubleClick()
+            return true
+        }
+        override func accessibilityPerformIncrement() -> Bool {
+            step(1)
+            return true
+        }
+        override func accessibilityPerformDecrement() -> Bool {
+            step(-1)
             return true
         }
     }

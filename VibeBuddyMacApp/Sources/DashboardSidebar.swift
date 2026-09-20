@@ -102,10 +102,7 @@ struct DashboardSidebar: View {
                         .transition(.opacity)
                     }
                 }
-                .frame(minHeight: 20)
-                .padding(.horizontal, 8).padding(.vertical, 5)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .sidebarRowFrame(minHeight: 20)
             }
             .buttonStyle(SidebarRowStyle(selected: voice.isActive))
             .help(voiceHelp)
@@ -238,16 +235,12 @@ struct SidebarRow: View {
                     .transition(.opacity)
                 }
             }
-            // One height in both shapes, so nothing shifts as the labels leave.
-            .frame(minHeight: 16)
-            .padding(.horizontal, 8).padding(.vertical, 5)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .sidebarRowFrame()
         }
         .buttonStyle(SidebarRowStyle(selected: selected))
         .help(labels.iconOnly ? railTip : Text(""))
         .accessibilityLabel(Text(title))
-        .accessibilityValue(count > 0 ? Text("\(count)") : Text(""))
+        .accessibilityCount(count)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
@@ -288,14 +281,11 @@ struct ProjectRow: View {
                 }
             }
             .opacity(labels.iconOnly ? 1 : labels.opacity)
-            .frame(minHeight: 16)
-            .padding(.horizontal, 8).padding(.vertical, 4)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .sidebarRowFrame(vertical: 4)
         }
         .buttonStyle(SidebarRowStyle(selected: selected))
         .accessibilityLabel(Text(title))
-        .accessibilityValue(Text("\(count)"))
+        .accessibilityCount(count)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
@@ -332,6 +322,24 @@ struct SidebarHeading: View {
             }
             .padding(.horizontal, 8).padding(.top, 14).padding(.bottom, 4)
             .accessibilityAddTraits(.isHeader)
+    }
+}
+
+extension View {
+    /// The sidebar row's frame: one minimum height in both shapes (so nothing
+    /// shifts as labels leave), 8 pt sides, the full column width, and the
+    /// rounded hit shape `SidebarRowStyle` paints. Every row — glyph rows,
+    /// project rows, the Voice row and the rail's quota gauge — takes it.
+    func sidebarRowFrame(minHeight: CGFloat = 16, vertical: CGFloat = 5) -> some View {
+        frame(minHeight: minHeight)
+            .padding(.horizontal, 8).padding(.vertical, vertical)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+    }
+
+    /// A row's count as its accessibility value, only when it has one.
+    @ViewBuilder func accessibilityCount(_ count: Int) -> some View {
+        if count > 0 { accessibilityValue(Text("\(count)")) } else { self }
     }
 }
 

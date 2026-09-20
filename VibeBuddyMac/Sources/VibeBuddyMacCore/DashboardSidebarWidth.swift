@@ -27,10 +27,20 @@ public enum DashboardSidebarWidth {
     /// crosses the collapse threshold, so nothing pops on either side of it.
     public static let labelFadeEnd: CGFloat = 160
 
+    /// How far one accessibility increment or decrement moves the labeled width.
+    public static let accessibilityStep: CGFloat = 16
+
     /// Where the pointer may take the width mid-drag: hard bounds, no
     /// rubber-banding, no snapping.
     public static func clampedDuringDrag(_ width: CGFloat) -> CGFloat {
         min(max(width, iconOnly), maxLabeled)
+    }
+
+    /// A labeled width inside its resting range; also what a remembered
+    /// width is passed through, so a stale or edited preference never lays
+    /// the labeled rows out narrower than the rail or wider than the cap.
+    public static func clampedLabeled(_ width: CGFloat) -> CGFloat {
+        min(max(width, minLabeled), maxLabeled)
     }
 
     /// Whether a width draws the rail (glyphs only, titles in tooltips).
@@ -51,7 +61,7 @@ public enum DashboardSidebarWidth {
     /// snapped to the default when within `snapWindow` of it.
     public static func settled(released width: CGFloat) -> CGFloat {
         if isIconOnly(at: width) { return iconOnly }
-        let labeled = min(max(width, minLabeled), maxLabeled)
+        let labeled = clampedLabeled(width)
         return abs(labeled - labeledDefault) <= snapWindow ? labeledDefault : labeled
     }
 }
