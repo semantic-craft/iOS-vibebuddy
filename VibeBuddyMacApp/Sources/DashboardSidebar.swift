@@ -21,13 +21,17 @@ struct DashboardSidebar: View {
     var onOpenSpeech: () -> Void
     var speechPanelPresented: Bool
     var onOpenProject: (DashboardSessionList.ProjectScope) -> Void
+    /// The column's width right now: a settled width, or the pointer's while
+    /// a drag on the right edge is live (`DashboardSidebarWidth`). Every row
+    /// reads its lettering from it, so labels truncate and fade as the
+    /// column narrows and the glyphs never move.
+    var width: CGFloat = DashboardSidebarWidth.labeledDefault
     @AppStorage(VoiceSettings.companionEnabledKey) private var companionEnabled = false
     /// The one-line "where voice lives" note shows until the dashboard has been
     /// closed once with it on screen (ADR-0017 §3).
     @AppStorage("dashboard.voiceHintSeen") private var voiceHintSeen = false
 
-    static let width: CGFloat = 216
-
+    private var labels: SidebarLabelStyle { .at(width: width) }
     private var waiting: Int { TaskPresentationSummary(currentIn: model.sessions, now: Date()).pendingCount }
 
     var body: some View {
@@ -65,7 +69,9 @@ struct DashboardSidebar: View {
             }
             .padding(.horizontal, 8).padding(.vertical, 6)
         }
-        .frame(width: Self.width).frame(maxHeight: .infinity)
+        .environment(\.sidebarLabels, labels)
+        .frame(width: width).frame(maxHeight: .infinity)
+        .clipped()
         .background(MacTheme.bg2)
         .sheet(isPresented: Binding(get: { voice.showConsent && !speechPanelPresented }, set: { voice.showConsent = $0 })) { VoiceConsentSheet(voice: voice) }
         .onDisappear { if !companionEnabled { voiceHintSeen = true } }
@@ -82,28 +88,48 @@ struct DashboardSidebar: View {
             Button { voice.toggle() } label: {
                 HStack(spacing: 8) {
                     MicGlyph(phase: voice.phase, enabled: companionEnabled)
-                    if voice.isActive {
-                        PetFace(state: model.buddyState, voice: .init(voice.phase), plain: true, scale: 0.36)
-                            .frame(width: 18, height: 18)
+                    if !labels.iconOnly {
+                        Group {
+                            if voice.isActive {
+                                PetFace(state: model.buddyState, voice: .init(voice.phase), plain: true, scale: 0.36)
+                                    .frame(width: 18, height: 18)
+                            }
+                            Text("Voice").font(MacTheme.font(12, .medium)).foregroundStyle(MacTheme.ink).lineLimit(1)
+                            Spacer(minLength: 4)
+                            Text(stateWord).font(MacTheme.mono(10)).foregroundStyle(stateTint).lineLimit(1)
+                        }
+                        .opacity(labels.opacity)
+                        .transition(.opacity)
                     }
-                    Text("Voice").font(MacTheme.font(12, .medium)).foregroundStyle(MacTheme.ink)
-                    Spacer(minLength: 4)
-                    Text(stateWord).font(MacTheme.mono(10)).foregroundStyle(stateTint).lineLimit(1)
                 }
+                .frame(minHeight: 20)
                 .padding(.horizontal, 8).padding(.vertical, 5)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             }
             .buttonStyle(SidebarRowStyle(selected: voice.isActive))
-            .help(voice.phase == .idle ? "Start voice conversation" : "End voice conversation")
+            .help(voiceHelp)
             .accessibilityLabel("Toggle voice companion")
-            if let line = secondLine {
+            if let line = secondLine, !labels.iconOnly {
                 Text(line.text).font(MacTheme.font(10.5))
                     .foregroundStyle(line.isError ? MacTheme.status(.error) : MacTheme.ink2)
                     .lineLimit(2).padding(.horizontal, 8).padding(.bottom, 4)
                     .fixedSize(horizontal: false, vertical: true)
+                    .opacity(labels.opacity)
+                    .transition(.opacity)
             }
         }
+    }
+
+    /// On the rail the row's words move into its tooltip: the phase, then the
+    /// line the row would have shown under it.
+    private var voiceHelp: Text {
+        let action: LocalizedStringKey = voice.phase == .idle ? "Start voice conversation" : "End voice conversation"
+        guard labels.iconOnly else { return Text(action) }
+        var tip = Text("Voice")
+        if !companionEnabled || voice.phase != .idle { tip = tip + Text(" · ") + Text(stateWord) }
+        if let line = secondLine { tip = tip + Text(" — ") + Text(line.text) }
+        return tip
     }
 
     private var stateWord: LocalizedStringKey {
@@ -153,6 +179,7 @@ struct DashboardSidebar: View {
             ProjectRow(title: String(localized: "All projects"),
                        count: historyProjects.reduce(0) { $0 + $1.count },
                        selected: historyProject == nil) { historyProject = nil }
+                .help("All projects")
             ForEach(historyProjects, id: \.path) { project in
                 let label = labels[project.path]!
                 ProjectRow(title: project.path.isEmpty ? String(localized: "Unknown project") : label.title,
@@ -184,26 +211,51 @@ struct SidebarRow: View {
     var shortcut: String? = nil
     var selected = false
     let action: () -> Void
+    @Environment(\.sidebarLabels) private var labels
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 8) {
                 Image(systemName: systemName).font(.system(size: 11, weight: .medium))
                     .foregroundStyle(selected ? MacTheme.accent : MacTheme.ink2).frame(width: 14)
-                Text(title).font(MacTheme.font(12, .medium)).foregroundStyle(selected ? MacTheme.accentText : MacTheme.ink).lineLimit(1)
-                Spacer(minLength: 4)
-                if count > 0 {
-                    Text("\(count)").font(MacTheme.mono(10, .medium)).foregroundStyle(countTint)
-                } else if let shortcut {
-                    Text(shortcut).font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink3)
+                    .overlay(alignment: .topTrailing) {
+                        // On the rail a count is a dot in its tint; the number is in the tooltip.
+                        if labels.iconOnly, count > 0 {
+                            Circle().fill(countTint).frame(width: 5, height: 5).offset(x: 2, y: -2)
+                        }
+                    }
+                if !labels.iconOnly {
+                    Group {
+                        Text(title).font(MacTheme.font(12, .medium)).foregroundStyle(selected ? MacTheme.accentText : MacTheme.ink).lineLimit(1)
+                        Spacer(minLength: 4)
+                        if count > 0 {
+                            Text("\(count)").font(MacTheme.mono(10, .medium)).foregroundStyle(countTint)
+                        } else if let shortcut {
+                            Text(shortcut).font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink3)
+                        }
+                    }
+                    .opacity(labels.opacity)
+                    .transition(.opacity)
                 }
             }
+            // One height in both shapes, so nothing shifts as the labels leave.
+            .frame(minHeight: 16)
             .padding(.horizontal, 8).padding(.vertical, 5)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
         .buttonStyle(SidebarRowStyle(selected: selected))
+        .help(labels.iconOnly ? railTip : Text(""))
+        .accessibilityLabel(Text(title))
+        .accessibilityValue(count > 0 ? Text("\(count)") : Text(""))
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    /// The row's words, for the tooltip when only its glyph is on screen.
+    private var railTip: Text {
+        var tip = Text(title)
+        if count > 0 { tip = tip + Text(" · \(count)") } else if let shortcut { tip = tip + Text("  \(shortcut)") }
+        return tip
     }
 }
 
@@ -213,27 +265,50 @@ struct ProjectRow: View {
     let count: Int
     let selected: Bool
     let action: () -> Void
+    @Environment(\.sidebarLabels) private var labels
 
     var body: some View {
         Button(action: action) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(MacTheme.font(12)).foregroundStyle(selected ? MacTheme.accentText : MacTheme.ink2)
-                        .lineLimit(1).truncationMode(.middle)
-                    if let subtitle {
-                        Text(subtitle).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink3)
-                            .fixedSize(horizontal: false, vertical: true)
+                if labels.iconOnly {
+                    // Projects have no glyph, so the rail draws a monogram tile
+                    // where the glyph column is; the name is in the tooltip.
+                    monogram
+                } else {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title).font(MacTheme.font(12)).foregroundStyle(selected ? MacTheme.accentText : MacTheme.ink2)
+                            .lineLimit(1).truncationMode(.middle)
+                        if let subtitle {
+                            Text(subtitle).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink3)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
+                    Spacer(minLength: 4)
+                    Text("\(count)").font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink3)
                 }
-                Spacer(minLength: 4)
-                Text("\(count)").font(MacTheme.mono(10)).foregroundStyle(MacTheme.ink3)
             }
+            .opacity(labels.iconOnly ? 1 : labels.opacity)
+            .frame(minHeight: 16)
             .padding(.horizontal, 8).padding(.vertical, 4)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
         .buttonStyle(SidebarRowStyle(selected: selected))
+        .accessibilityLabel(Text(title))
+        .accessibilityValue(Text("\(count)"))
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private var monogram: some View {
+        Text(String(title.trimmingCharacters(in: .whitespaces).prefix(1)).uppercased())
+            .font(MacTheme.mono(8, .semibold))
+            .foregroundStyle(selected ? MacTheme.accentText : MacTheme.ink2)
+            .frame(width: 14, height: 14)
+            .background(selected ? MacTheme.accent.opacity(0.18) : MacTheme.bg3,
+                        in: RoundedRectangle(cornerRadius: 3, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .strokeBorder(MacTheme.line, lineWidth: CompanionType.hairline))
+            .transition(.opacity)
     }
 }
 
@@ -241,10 +316,22 @@ struct ProjectRow: View {
 /// "Projects" and "Repositories".
 struct SidebarHeading: View {
     let title: LocalizedStringKey
+    @Environment(\.sidebarLabels) private var labels
     var body: some View {
         Text(title).font(MacTheme.mono(10, .medium)).foregroundStyle(MacTheme.ink3)
-            .textCase(.uppercase).kerning(0.6)
+            .textCase(.uppercase).kerning(0.6).lineLimit(1)
+            .opacity(labels.opacity)
+            // The rail keeps the section break as a short hairline in the
+            // heading's own frame, so the rows below never shift.
+            .overlay {
+                if labels.iconOnly {
+                    Rectangle().fill(MacTheme.line).frame(width: 14, height: CompanionType.hairline)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 8)
+                        .transition(.opacity)
+                }
+            }
             .padding(.horizontal, 8).padding(.top, 14).padding(.bottom, 4)
+            .accessibilityAddTraits(.isHeader)
     }
 }
 
