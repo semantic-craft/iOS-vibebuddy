@@ -90,7 +90,13 @@ selection is still a 2 pt accent ring.
 
 ### Dashboard window
 *Revised 2026-09-13 to Cursor's main-window skeleton (`DashboardSidebar.swift`).*
-One sidebar (216 pt, `bg2`) on the left, nothing in the title bar. Top rows:
+One sidebar (`bg2`) on the left, nothing in the title bar. *(2026-09-20: its right
+edge resizes like Cursor's — 216 pt is the default labeled width and the snap
+target, not a lock. Hover shows a short handle and "Drag to resize"; the width
+follows the pointer between 48 and 320 pt while labels truncate and fade; release
+snaps to the icon-only rail below 108 pt or to a labeled width of 168–320 pt,
+landing on 216 when within 28 pt; double-click toggles the two; both are remembered.
+On the rail every row keeps its glyph and moves its words into a tooltip.)* Top rows:
 **New task** (⌘N, always enabled — the sheet says which agent needs what when
 none can start), **Search** (⌘F, focuses the list's search field) and
 **Voice** (the mic circle from ADR-0017 §3 on its own row; the trailing word is

@@ -12,6 +12,7 @@ struct QuotaPlinth: View {
     /// Collapsed by default: one line says whether you can keep working, the
     /// detail is a click away, and the choice is remembered.
     @AppStorage("dashboard.quotaExpanded") private var expanded = false
+    @Environment(\.sidebarLabels) private var labels
 
     private var providers: [AccountUsageProvider] {
         AccountUsageProvider.allCases.filter { model.isUsageCollectionEnabled($0) }
@@ -20,52 +21,85 @@ struct QuotaPlinth: View {
     var body: some View {
         if !providers.isEmpty {
             TimelineView(.periodic(from: .now, by: 30)) { context in
-                VStack(alignment: .leading, spacing: 9) {
-                    Divider()
-                    Button { expanded.toggle() } label: {
-                        HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 8, weight: .bold)).foregroundStyle(MacTheme.ink3)
-                                .rotationEffect(.degrees(expanded ? 90 : 0))
-                            Text("Account quota")
-                                .font(MacTheme.font(10, .semibold)).foregroundStyle(MacTheme.ink3)
-                                .textCase(.uppercase).kerning(0.6)
-                            Spacer(minLength: 4)
-                            if expanded, let updated = latestFetch {
-                                Text(updated, style: .time)
-                                    .font(MacTheme.mono(9)).foregroundStyle(MacTheme.ink3)
-                            }
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Account quota")
-                    .accessibilityValue(expanded ? "Expanded" : "Collapsed")
-                    if !expanded, let tight = tightestOverall(now: context.date) {
-                        Text(tight.text).font(MacTheme.mono(10, .semibold)).foregroundStyle(tight.tint)
-                            .lineLimit(1)
-                    }
-                    if expanded {
-                        ForEach(providers, id: \.self) { provider in
-                            row(provider, now: context.date)
-                        }
-                        if let spend = todaySpend {
-                            Divider()
-                            HStack {
-                                Text("Today's spend").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
-                                Spacer(minLength: 4)
-                                Text(spend).font(MacTheme.mono(10, .semibold)).foregroundStyle(MacTheme.ink)
-                            }
-                        }
-                    } else if let issue = anomaly(now: context.date) {
-                        Text(issue).font(MacTheme.font(10)).foregroundStyle(QuotaPresentation.Severity.warning.tint)
-                            .lineLimit(1)
-                    }
+                if labels.iconOnly {
+                    railPlinth(now: context.date)
+                } else {
+                    plinth(now: context.date)
                 }
-                .padding(.horizontal, 12).padding(.vertical, 10)
-                .animation(.smooth(duration: 0.15), value: expanded)
             }
         }
+    }
+
+    /// The rail's plinth: one gauge in the tightest window's tint where the
+    /// glyph column is, the collapsed line in its tooltip, and a click that
+    /// opens the Usage page — the reading itself lives there (ADR-0017 §6).
+    private func railPlinth(now: Date) -> some View {
+        let tight = tightestOverall(now: now)
+        let reading = tight?.text ?? anomaly(now: now)
+        return VStack(alignment: .leading, spacing: 0) {
+            Divider()
+            Button { DashboardRoute.open(.usage) } label: {
+                Image(systemName: "gauge.with.needle")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(tight?.tint ?? MacTheme.ink2).frame(width: 14)
+                    .sidebarRowFrame()
+            }
+            .buttonStyle(SidebarRowStyle(selected: false))
+            .help(reading.map { Text("Account quota · \($0)") } ?? Text("Account quota"))
+            .accessibilityLabel("Account quota")
+            .accessibilityValue(reading ?? "")
+            .padding(.horizontal, 8).padding(.top, 6)
+        }
+        .transition(.opacity)
+    }
+
+    private func plinth(now: Date) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Divider()
+            Button { expanded.toggle() } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 8, weight: .bold)).foregroundStyle(MacTheme.ink3)
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                    Text("Account quota")
+                        .font(MacTheme.font(10, .semibold)).foregroundStyle(MacTheme.ink3)
+                        .textCase(.uppercase).kerning(0.6).lineLimit(1)
+                    Spacer(minLength: 4)
+                    if expanded, let updated = latestFetch {
+                        Text(updated, style: .time)
+                            .font(MacTheme.mono(9)).foregroundStyle(MacTheme.ink3)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Account quota")
+            .accessibilityValue(expanded ? "Expanded" : "Collapsed")
+            if !expanded, let tight = tightestOverall(now: now) {
+                Text(tight.text).font(MacTheme.mono(10, .semibold)).foregroundStyle(tight.tint)
+                    .lineLimit(1)
+            }
+            if expanded {
+                ForEach(providers, id: \.self) { provider in
+                    row(provider, now: now)
+                }
+                if let spend = todaySpend {
+                    Divider()
+                    HStack {
+                        Text("Today's spend").font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
+                        Spacer(minLength: 4)
+                        Text(spend).font(MacTheme.mono(10, .semibold)).foregroundStyle(MacTheme.ink)
+                    }
+                }
+            } else if let issue = anomaly(now: now) {
+                Text(issue).font(MacTheme.font(10)).foregroundStyle(QuotaPresentation.Severity.warning.tint)
+                    .lineLimit(1)
+            }
+        }
+        .opacity(labels.opacity)
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .animation(.smooth(duration: 0.15), value: expanded)
+        .transition(.opacity)
     }
 
     /// The collapsed line: the provider with the least left, its remaining

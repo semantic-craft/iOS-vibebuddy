@@ -73,6 +73,72 @@ struct DashboardView: View {
     /// pane (which all rebuild the reading column), and a selection change
     /// shows the other session's own draft, never this one.
     @State private var composerDrafts: [String: String] = [:]
+    /// The sidebar's two settled shapes, remembered like the quota plinth:
+    /// its last labeled width and whether it is folded to the icon rail.
+    /// `DashboardSidebarWidth` holds the bounds and the snap rule.
+    @AppStorage("dashboard.sidebarLabeledWidth") private var sidebarLabeledWidth = Double(DashboardSidebarWidth.labeledDefault)
+    @AppStorage("dashboard.sidebarIconOnly") private var sidebarIconOnly = false
+    /// The pointer's width while a drag on the sidebar's edge is live; nil at rest.
+    @State private var sidebarDragWidth: CGFloat?
+    @State private var sidebarDragOrigin: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var sidebarSettledWidth: CGFloat {
+        sidebarIconOnly ? DashboardSidebarWidth.iconOnly : DashboardSidebarWidth.clampedLabeled(CGFloat(sidebarLabeledWidth))
+    }
+    private var sidebarWidth: CGFloat { sidebarDragWidth ?? sidebarSettledWidth }
+    /// Release and the double-click settle with a short snappy spring; with
+    /// Reduce Motion on, the width just changes.
+    private var sidebarSettle: Animation? { reduceMotion ? nil : .snappy }
+
+    private func sidebarDragBegan() {
+        sidebarDragOrigin = sidebarSettledWidth
+        var live = Transaction()
+        live.disablesAnimations = true
+        withTransaction(live) { sidebarDragWidth = sidebarSettledWidth }
+    }
+
+    /// Follow the pointer inside the hard bounds; no snap, no rubber-band.
+    private func sidebarDragChanged(by delta: CGFloat) {
+        var live = Transaction()
+        live.disablesAnimations = true
+        withTransaction(live) { sidebarDragWidth = DashboardSidebarWidth.clampedDuringDrag(sidebarDragOrigin + delta) }
+    }
+
+    private func sidebarDragEnded() {
+        guard let released = sidebarDragWidth else { return }
+        let target = DashboardSidebarWidth.settled(released: released)
+        withAnimation(sidebarSettle) {
+            sidebarIconOnly = target == DashboardSidebarWidth.iconOnly
+            if !sidebarIconOnly { sidebarLabeledWidth = Double(target) }
+            sidebarDragWidth = nil
+        }
+    }
+
+    private func sidebarToggleIconOnly() {
+        withAnimation(sidebarSettle) { sidebarIconOnly.toggle() }
+    }
+
+    /// One accessibility increment or decrement: a step through the labeled
+    /// range, folding to the rail below the narrowest labeled width and
+    /// unfolding from it.
+    private func sidebarStep(_ direction: Int) {
+        withAnimation(sidebarSettle) {
+            if sidebarIconOnly {
+                if direction > 0 { sidebarIconOnly = false }  // back to the remembered labeled width
+                return
+            }
+            let current = DashboardSidebarWidth.clampedLabeled(CGFloat(sidebarLabeledWidth))
+            if direction < 0, current <= DashboardSidebarWidth.minLabeled { sidebarIconOnly = true; return }
+            let stepped = current + CGFloat(direction) * DashboardSidebarWidth.accessibilityStep
+            sidebarLabeledWidth = Double(DashboardSidebarWidth.clampedLabeled(stepped))
+        }
+    }
+
+    private var sidebarAccessibilityValue: String {
+        sidebarIconOnly ? String(localized: "Icons only")
+            : String(localized: "Labeled, \(Int(sidebarSettledWidth.rounded())) points")
+    }
 
     private func draftBinding(for sessionID: String) -> Binding<String> {
         let key = (model.completionSourceID ?? "unknown") + "/" + sessionID
@@ -129,8 +195,20 @@ struct DashboardView: View {
                                  if libraryScope == "inbox" { openBucket(nil) }
                                  projectScope = scope
                                  libraryScope = "live"
-                             })
+                             },
+                             width: sidebarWidth)
             Rectangle().fill(MacTheme.line).frame(width: CompanionType.hairline)
+                // The drag handle straddles the hairline; it draws above the
+                // content column so its pill and tip are never covered.
+                .overlay {
+                    SidebarResizeHandle(dragging: sidebarDragWidth != nil, accessibilityValue: sidebarAccessibilityValue,
+                                        onDragBegan: sidebarDragBegan,
+                                        onDragChanged: sidebarDragChanged,
+                                        onDragEnded: sidebarDragEnded,
+                                        onDoubleClick: sidebarToggleIconOnly,
+                                        onStep: sidebarStep)
+                }
+                .zIndex(1)
             Group {
                 if libraryScope == "inbox" {
                     MacInboxHomeView(projection: projection, recap: model.recap,
