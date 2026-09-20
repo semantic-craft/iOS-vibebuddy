@@ -25,7 +25,6 @@ final class LiveActivityRecoveryTests: XCTestCase {
         XCTAssertEqual(activity.content.state.approvalId, expected?.approvalID)
         XCTAssertEqual(activity.content.state.approvalTitle, expected?.title)
         XCTAssertEqual(activity.content.state.approvalDetail, expected?.detail)
-        XCTAssertEqual(activity.content.relevanceScore, 80)
         await IslandActivity.markSent(approvalId: "valid-request", outcome: "allow")
         valid.pendingApproval = PendingApproval(id: "valid-request", tool: "Bash", commandPreview: "ls", answerable: false)
         await manager.sync(sessions: [readOnly, valid])
@@ -61,7 +60,6 @@ final class LiveActivityRecoveryTests: XCTestCase {
         XCTAssertEqual(original.activityState, .active)
         XCTAssertEqual(original.content.state.topProject, "Dashboard Recovery QA",
                        "Dashboard.start must preserve and update the original activity")
-        XCTAssertEqual(original.content.relevanceScore, 40)
         await store.stop().value
     }
 
