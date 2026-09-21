@@ -6,7 +6,7 @@ iPhone and Apple Watch. Contributions in English or Simplified Chinese are welco
 ## Useful ways to help
 
 - Reproduce a Claude Code, Codex or Grok Build issue with the actual agent, or
-  improve Grok Bot observation and Cursor account-usage integration.
+  improve Cursor and Grok Bot account-usage integration.
 - Improve English or Chinese UI text and keep the two READMEs consistent.
 - Document a device workflow, especially Watch interactions and reconnects.
 - Fix a focused bug or improve an existing provider adapter.

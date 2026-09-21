@@ -25,7 +25,7 @@ struct RequestCard: View {
                 Label(WaitHandling.resolve(for: session).message, systemImage: "keyboard")
                     .font(MacTheme.font(11, .semibold)).foregroundStyle(MacTheme.ink2)
                 if session.canJump {
-                    Button(session.agent == .grokBot ? "Open Grok Bot" : session.jumpsToDesktopThread ? "Open thread" : "Jump ⏎") { model.jump(session) }
+                    Button(session.jumpsToDesktopThread ? "Open thread" : "Jump ⏎") { model.jump(session) }
                         .buttonStyle(PillButtonStyle(kind: .filled(MacTheme.accent)))
                 }
             } else {

@@ -86,9 +86,6 @@ public enum WatchStopBlock: String, Codable, Equatable, Sendable {
             guard let agent else {
                 return String(localized: "This agent can't take instructions from the phone yet — use the terminal.", bundle: .module)
             }
-            if agent == .grokBot {
-                return String(localized: "Respond in Grok Bot on your Mac. Remote instructions are unavailable.", bundle: .module)
-            }
             return String(localized: "\(agent.displayName) sessions can't take instructions from the phone yet — use the terminal.", bundle: .module)
         }
     }

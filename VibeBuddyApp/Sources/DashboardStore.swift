@@ -1212,10 +1212,9 @@ final class DashboardStore: ObservableObject {
         guard let pairing else { showToast(String(localized: "Couldn't reach your Mac")); return }
         let session = allSessions.first { $0.id == sessionId }
         let desktopThread = session?.jumpsToDesktopThread ?? false
-        let grokBot = session?.agent == .grokBot
         Task {
             let outcome = await decisionClient.jump(pairing, sessionId: sessionId)
-            showToast(Self.jumpMessage(outcome, desktopThread: desktopThread, grokBot: grokBot))
+            showToast(Self.jumpMessage(outcome, desktopThread: desktopThread))
         }
     }
 
@@ -1365,14 +1364,7 @@ final class DashboardStore: ObservableObject {
     /// say so; `nil` means the Mac wasn't reachable. `activatedApp` is the case
     /// worth naming: the right app is now in front, but the session's own window
     /// wasn't reachable, so the user still has to find the tab themselves.
-    static func jumpMessage(_ outcome: JumpOutcome?, desktopThread: Bool = false, grokBot: Bool = false) -> String {
-        if grokBot {
-            switch outcome {
-            case .activatedApp: return String(localized: "Opened Grok Bot on your Mac — select the task in the app")
-            case nil: return String(localized: "Couldn't reach your Mac")
-            default: return String(localized: "Couldn't open Grok Bot on your Mac")
-            }
-        }
+    static func jumpMessage(_ outcome: JumpOutcome?, desktopThread: Bool = false) -> String {
         // A Codex Desktop session has no terminal at either end: the Mac opened
         // its thread in ChatGPT, so saying "terminal" here would name a thing
         // the user never had.

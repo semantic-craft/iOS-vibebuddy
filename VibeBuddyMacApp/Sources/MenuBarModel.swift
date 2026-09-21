@@ -73,7 +73,6 @@ final class MenuBarModel: ObservableObject {
     /// the rollout tailer + hooks keep covering Codex whenever it is off or
     /// the daemon is not running.
     @Published var codexAppServerEnabled: Bool = true
-    @Published var grokBotEnabled = false
     /// Settings override for the presence policy: hold every prompt for the
     /// phone even while the person is at the Mac. Off by default.
     @Published var alwaysAskPhone: Bool = false
@@ -149,12 +148,10 @@ final class MenuBarModel: ObservableObject {
     /// acceptance, so it reports unsupported and spawns nothing.
     private let cursorACP: CursorACPMonitor
     private let grokACP: GrokACPMonitor
-    private let grokBotMonitor: GrokBotMonitor
     /// Live account usage from Claude's status line and the Codex daemon,
     /// consumed by the usage coordinator ahead of its spawning collectors.
     private let usageFeed = AccountUsageLiveFeed()
     static let codexAppServerEnabledKey = "codexAppServerEnabled"
-    static let grokBotEnabledKey = "grokBotObserverEnabled"
     // Live Activity push tokens + the last content we pushed, so we only push on change.
     private let activityTokens = ActivityTokens()
     private var lastActivityKey: String?
@@ -256,8 +253,7 @@ final class MenuBarModel: ObservableObject {
                 if UserDefaults.standard.bool(forKey: ReadAloud.silenceViewedKey) {
                     let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
                     let nativePresence = !Presence.screenIsLocked() && Presence.idleSeconds() < 120
-                        && (ForegroundTerminal.sourceAppSuppressesSpeech(for: current, frontmostBundleID: front)
-                            || ForegroundTerminal.focusedSessionIDs(among: [current], frontmostBundleID: front).contains(current.id))
+                        && ForegroundTerminal.focusedSessionIDs(among: [current], frontmostBundleID: front).contains(current.id)
                     if self.isViewing(current.id) || nativePresence { return false }
                 }
             }
@@ -391,9 +387,6 @@ final class MenuBarModel: ObservableObject {
         showGlance = UserDefaults.standard.bool(forKey: "showGlance", default: true)
         let appServerOn = E2ERunConfiguration.current.map { $0.codexThreadID != nil } ?? UserDefaults.standard.bool(forKey: Self.codexAppServerEnabledKey, default: true)
         codexAppServerEnabled = appServerOn
-        let grokBotOn = E2ERunConfiguration.current == nil && UserDefaults.standard.bool(forKey: Self.grokBotEnabledKey)
-        grokBotEnabled = grokBotOn
-        grokBotMonitor = GrokBotMonitor(enabled: grokBotOn)
         alwaysAskPhone = UserDefaults.standard.bool(forKey: Self.alwaysAskPhoneKey)
         // Presence is read on the main actor from the live snapshot; the
         // daemon and the monitor ask through this closure right before they
@@ -554,7 +547,6 @@ final class MenuBarModel: ObservableObject {
                                      activityTokens: activityTokens,
                                      codexRolloutMonitor: menuRolloutMonitor,
                                      codexAppServerMonitor: E2ERunConfiguration.current == nil || codexAppServerEnabled ? codexAppServerMonitor : nil,
-                                     grokBotMonitor: E2ERunConfiguration.current == nil ? grokBotMonitor : nil,
                                      usageFeed: usageFeed,
                                      approvalRegistry: approvalRegistry,
                                      rules: { agent in
@@ -860,13 +852,6 @@ final class MenuBarModel: ObservableObject {
         let nextDeviceRegistry = await deviceTokens.summary()
         if deviceRegistry != nextDeviceRegistry { deviceRegistry = nextDeviceRegistry }
         await refreshPairedPhone()
-    }
-
-    func setGrokBotEnabled(_ on: Bool) {
-        guard E2ERunConfiguration.current == nil else { return }
-        grokBotEnabled = on
-        UserDefaults.standard.set(on, forKey: Self.grokBotEnabledKey)
-        Task { [grokBotMonitor] in await grokBotMonitor.setEnabled(on) }
     }
 
     func setAlwaysAskPhone(_ on: Bool) {
@@ -1263,14 +1248,6 @@ final class MenuBarModel: ObservableObject {
     func jump(_ session: AgentSession) {
         guard E2ERunConfiguration.current == nil else {
             showJumpFeedback(.noTerminal, for: session.id)
-            return
-        }
-        if session.agent == .grokBot {
-            Task { [weak self] in
-                let outcome = await GrokBotJumper.jump()
-                self?.showJumpFeedback(outcome, for: session.id)
-                await self?.store.recordInteraction(sessionID: session.id)
-            }
             return
         }
         Task { [store] in await store.recordInteraction(sessionID: session.id) }

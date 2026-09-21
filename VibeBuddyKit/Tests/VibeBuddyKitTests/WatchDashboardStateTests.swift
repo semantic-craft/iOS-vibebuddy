@@ -562,7 +562,6 @@ struct WatchDashboardStateTests {
         // Claude Code has no remote interrupt contract; say where to go instead.
         #expect(followed(running(agent: .claudeCode))?.stop == .blocked(.macOnly))
         #expect(followed(running(agent: .grok))?.stop == .blocked(.agentUnsupported))
-        #expect(followed(running(agent: .grokBot))?.stop == .blocked(.agentUnsupported))
         // Codex seen only through the rollout tailer cannot be interrupted at all.
         #expect(followed(running(source: .rollout))?.stop == .blocked(.macNotConnected))
         #expect(followed(running(health: .eventsMissing))?.stop == .blocked(.macNotConnected))
@@ -574,7 +573,7 @@ struct WatchDashboardStateTests {
         // The wording must match what the daemon would refuse with, so the
         // wrist and the Mac never explain the same fact differently.
         for session in [running(agent: .claudeCode), running(agent: .grok),
-                        running(agent: .grokBot), running(source: .rollout)] {
+                        running(source: .rollout)] {
             let block = try #require(followed(session)?.stop?.block)
             #expect(block.message(agent: session.agent)
                     == SessionActionSupport.resolveStop(for: session).unsupportedReason)
@@ -671,8 +670,6 @@ struct WaitDestinationTests {
             (session(approval: short), .watchApproval, true),
             (session(approval: diff), .remoteAvailable, false),
             (session(approval: readOnly), .macNativePrompt, false),
-            (session(agent: .grokBot, approval: short), .macGrokBot, false),
-            (session(agent: .grokBot), .macGrokBot, false),
             (session(question: PendingQuestion(id: "q", prompt: "Choose")), .remoteAvailable, false),
             (session(question: PendingQuestion(id: "q", prompt: "Choose", answerable: false)), .macNativePrompt, false),
             (session(question: PendingQuestion(id: " ", prompt: "Choose")), .unavailable, false),
@@ -693,9 +690,9 @@ struct WaitDestinationTests {
         #expect(offline.topAlert?.handling == .remoteAvailable)
         #expect(offline.connection(now: now, phoneReachable: true) == .macDisconnected)
         #expect(current.connection(now: now, phoneReachable: true) == .live)
-        let changed = try projection(session(agent: .grokBot, question: q))
+        let changed = try projection(session(question: PendingQuestion(id: "q", prompt: "Choose", answerable: false)))
         #expect(!current.isEquivalent(to: changed))
-        #expect(changed.topAlert?.handling == .macGrokBot)
+        #expect(changed.topAlert?.handling == .macNativePrompt)
         #expect(changed.topAlert?.approvalId == nil)
     }
 

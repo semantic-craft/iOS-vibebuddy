@@ -1,7 +1,7 @@
 # Getting started with VibeBuddy
 
-VibeBuddy's Mac app tracks Claude Code, Codex and Grok Build tasks, optionally
-observes Grok Bot, and reads Cursor account usage. Add the iPhone and Apple Watch
+VibeBuddy's Mac app tracks Claude Code, Codex and Grok Build tasks, and reads
+Cursor and Grok Bot account usage. Add the iPhone and Apple Watch
 companions to bring those views with you. [Back to the homepage](../README.md).
 
 ## Install and pair
@@ -200,16 +200,14 @@ before enabling it. Task observation and account usage do not require that gate.
 
 ### Grok Bot
 
-Sign in through the official Grok Bot app, then enable **Observe Grok Bot tasks**
-in VibeBuddy's Mac settings. The observer is off by default. Its read-only view
-supports task status, verified ordinary completions and optional completion
-summaries/read-aloud; replies and approvals stay in Grok Bot. Question
-continuations, automated tasks and turns spanning a disconnect are not yet
-supported, so check those results in the official app.
+Grok Bot is an account-usage source only — VibeBuddy shows its remaining
+allowance and nothing else. Tasks, replies and approvals all stay in the
+official app.
 
-For its separate quota, use the **Grok Bot** section in Usage settings. If access
-is needed, use **Authorize Grok Bot account access…** there, then enable collection
-and refresh. Renew expired login in Grok Bot itself.
+Sign in through the official Grok Bot app, then use the **Grok Bot** section in
+Usage settings. If access is needed, use **Authorize Grok Bot account access…**
+there, then enable collection and refresh. Renew expired login in Grok Bot
+itself.
 
 ### Cursor
 

@@ -12,6 +12,8 @@ public enum ObservationSource: String, Codable, Sendable, CaseIterable, Comparab
     /// source there is for one, and it speaks for `bc-`-prefixed conversations
     /// alone. Local Cursor conversations are unaffected by it.
     case cloud
+    /// No longer produced: Grok Bot is a quota provider only. Retained so an
+    /// older cached snapshot still decodes.
     case gateway
     case hook
     /// Claude Code's status line JSON, forwarded by vibebuddy's wrapper script

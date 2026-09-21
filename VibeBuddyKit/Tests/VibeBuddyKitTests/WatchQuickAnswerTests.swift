@@ -299,10 +299,6 @@ final class WatchQuickAnswerTests: XCTestCase {
         XCTAssertNil(WatchQuickAnswers.resolve(for: readOnly))
         // The card falls through to this sentence instead of a button.
         XCTAssertEqual(readOnly.handling, .macNativePrompt)
-
-        let grok = try alert(asking(agent: .grokBot))
-        XCTAssertNil(WatchQuickAnswers.resolve(for: grok))
-        XCTAssertEqual(grok.handling, .macGrokBot)
     }
 
     func testAPermissionIsNeverAnswerableFromTheWrist() throws {

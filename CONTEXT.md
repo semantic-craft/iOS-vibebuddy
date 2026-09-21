@@ -498,23 +498,14 @@ code, and tests — don't drift to synonyms.
   utility task behind a size+mtime memo, so a refresh costs the files that
   actually changed.
 - **Grok Bot** — the cloud bot product opened by `com.anysphere.sand`, distinct
-  from Grok Build CLI (`grok`). Its account quota has the independent `grokBot`
-  provider identity. The optional Mac observer uses the official client's
-  active-account gateway credentials for read-only observations; it does not
-  start tasks or answer questions. A Session belongs to account + bot, and a
-  completion additionally belongs to the initiating turn. Message IDs alone
-  are insufficient because different bots can reuse them.
-- **Grok Bot gateway** — `ObservationSource.gateway`. Connection health is
-  separate from task state: reconnecting or losing access does not prove that
-  a task finished. User-visible final replies must match the initiating user
-  request and its terminal settlement before entering completion summaries.
-  Without a verified exact-bot jump, Jump opens the official app. Foreground
-  Grok Bot can suppress speech but does not acknowledge every bot's completion.
-  A current unanswered native `widget` is needsResponse even when the roster
-  reports idle and an old successful settlement. Answering the widget may start
-  a new request without a new associated settlement; this continuation's completion
-  is currently unverifiable and keeps degraded observation health. It must not
-  inherit the earlier turn's success or enter summaries by temporal proximity.
+  from Grok Build CLI (`grok`). It is an **account-usage provider only**
+  (ADR-0031): the independent `grokBot` provider identity reads the signed-in
+  account's Sand allowance, and nothing else. There is no task observation, no
+  Session, no jump and no approval path — `AgentKind.grokBot` exists so a quota
+  row can carry the brand mark, and a `?agent=grokbot` hook is rejected rather
+  than mistaken for another CLI. `ObservationSource.gateway` and
+  `WaitHandling.macGrokBot` remain in their wire enums only so a snapshot
+  written by an older build still decodes; nothing produces them.
 
 ## Completion summaries and Mac reading
 

@@ -165,7 +165,11 @@ struct LifecycleJournal {
         for entry in entries { latest[entry.sessionID] = entry }
         for (id, entry) in completions { latest[id] = entry }
         return latest.values.compactMap { entry in
-            guard let status = entry.status,
+            // A journal written before Grok Bot became quota-only can still hold
+            // its rows. Nothing observes them any more, so they would never move
+            // or end: drop them instead of restoring a permanently stuck task.
+            guard entry.agent != .grokBot,
+                  let status = entry.status,
                   (status == .working || status == .needsResponse || entry.completionID != nil),
                   (entry.completionID != nil || now.timeIntervalSince(entry.timestamp) <= max(0, meaningfulFor))
             else { return nil }
