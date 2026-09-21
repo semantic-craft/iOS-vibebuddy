@@ -794,9 +794,15 @@ struct CursorComposerStoreTests {
             + #""contextTokenLimit":256000,"modelConfig":{"modelName":"grok-4.6"},"#
             + #""lastUpdatedAt":1788895069198,"isDraft":false}"#
         var sql = """
-            CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value BLOB);
+            CREATE TABLE cursorDiskKV (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB);
             INSERT INTO cursorDiskKV VALUES ('composerData:c1', '\(detail)');
             INSERT INTO cursorDiskKV VALUES ('bubbleId:c1:b1', '{"text":"hi"}');
+            -- Neighbours of the prefix in key order; none is a conversation.
+            INSERT INTO cursorDiskKV VALUES ('composerData', '{"status":"completed","name":"no colon"}');
+            INSERT INTO cursorDiskKV VALUES ('composerData:', '{"status":"completed","name":"empty id"}');
+            INSERT INTO cursorDiskKV VALUES ('composerData;zz', '{"status":"completed","name":"after"}');
+            INSERT INTO cursorDiskKV VALUES ('composerDatb:c9', '{"status":"completed","name":"other"}');
+            INSERT INTO cursorDiskKV VALUES ('composerdata:c9', '{"status":"completed","name":"lower"}');
             """
         if headers {
             sql += """
@@ -882,6 +888,84 @@ struct CursorComposerStoreTests {
         var store = CursorComposerStore(database: URL(fileURLWithPath: path))
         let composers = try #require(try store.refresh())
         #expect(composers.first { $0.id == "c1" }?.hasRun == false)
+    }
+
+    /// Cursor's store is mostly chat bubbles and grows past a gigabyte; the
+    /// conversation rows must come off the key index. `LIKE 'composerData:%'`
+    /// cannot (SQLite's prefix optimisation needs a BINARY-collated column and
+    /// `LIKE` is case-insensitive by default), so it scanned every row.
+    @Test func detailsAreReadThroughTheKeyIndexNotAScan() throws {
+        let path = temporaryPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        try database(path)
+        var db: OpaquePointer?
+        #expect(sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK)
+        defer { sqlite3_close(db) }
+        var statement: OpaquePointer?
+        let sql = "EXPLAIN QUERY PLAN " + CursorComposerStore.detailsSQL
+        #expect(sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK)
+        defer { sqlite3_finalize(statement) }
+        var plan: [String] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            plan.append(String(cString: sqlite3_column_text(statement, 3)))
+        }
+        let joined = plan.joined(separator: "\n")
+        #expect(joined.contains("USING INDEX"), Comment(rawValue: joined))
+        #expect(!joined.contains("SCAN"), Comment(rawValue: joined))
+    }
+
+    /// The range is exactly the keys with the prefix: the bare key, the
+    /// character after `:`, another spelling and another case all stay out.
+    @Test func onlyPrefixedKeysAreConversations() throws {
+        let path = temporaryPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        try database(path, headers: false)
+        var store = CursorComposerStore(database: URL(fileURLWithPath: path))
+        let composers = try #require(try store.refresh())
+        #expect(composers.map(\.id) == ["c1"])
+    }
+
+    /// Cursor rewrites the file for every bubble, so the index changes far
+    /// more often than the conversations in it. A row whose bytes did not
+    /// move is reused, not decoded again.
+    @Test func anUnchangedConversationIsNotDecodedAgain() throws {
+        let path = temporaryPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        try database(path)
+        var store = CursorComposerStore(database: URL(fileURLWithPath: path))
+        let first = try #require(try store.refresh())
+        #expect(store.lastRefreshParsedDetails == 1)
+
+        func execute(_ sql: String) {
+            var db: OpaquePointer?
+            #expect(sqlite3_open(path, &db) == SQLITE_OK)
+            defer { sqlite3_close(db) }
+            #expect(sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK)
+        }
+        // A bubble landed; the conversation itself is as it was.
+        execute("INSERT INTO cursorDiskKV VALUES ('bubbleId:c1:b2', '{\"text\":\"more\"}')")
+        try bumpModificationDate(path)
+        let second = try #require(try store.refresh())
+        #expect(store.lastRefreshParsedDetails == 0)
+        #expect(second == first)
+
+        // The conversation moved on: decoded once more, and the facts follow.
+        execute("""
+            UPDATE cursorDiskKV SET value = replace(value, '"status":"completed"', '"status":"aborted"')
+            WHERE key = 'composerData:c1'
+            """)
+        try bumpModificationDate(path)
+        let third = try #require(try store.refresh())
+        #expect(store.lastRefreshParsedDetails == 1)
+        #expect(third.first { $0.id == "c1" }?.status == "aborted")
+    }
+
+    /// The signature is size and mtime; a same-second rewrite of the fixture
+    /// must still register as a change.
+    private func bumpModificationDate(_ path: String) throws {
+        let attributes = try FileManager.default.attributesOfItem(atPath: path)
+        let modified = (attributes[.modificationDate] as? Date) ?? Date()
+        try FileManager.default.setAttributes([.modificationDate: modified.addingTimeInterval(2)], ofItemAtPath: path)
     }
 
     @Test func factsFillLiveRowsAndHistoryGetsItsOwn() async throws {
