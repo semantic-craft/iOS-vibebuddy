@@ -209,30 +209,24 @@ struct ProviderQuotaProjectionTests {
 
     // MARK: Claude, on the same contract
 
-    /// The `/usage` envelope the CLI actually writes, wrapped the way the
-    /// adapter receives it. Recorded output, never the tester's own account.
-    private func claudeUsage(_ body: String, isError: Bool = false) throws -> Data {
-        try JSONSerialization.data(withJSONObject: ["is_error": isError, "result": body])
+    /// Claude's allowance reaches the app one way: the `rate_limits` block of
+    /// the status line document the CLI writes on every event. Recorded shape,
+    /// never the tester's own account.
+    private func claudeQuota(_ limits: [String: Any], now: Date) throws -> ProviderQuota {
+        let document: [String: Any] = ["session_id": "s1", "rate_limits": limits]
+        let sample = try #require(StatusLineSample.decode(document))
+        let snapshot = try #require(sample.usageSnapshot(fetchedAt: now))
+        return ProviderQuota(.available(snapshot, nextRefreshAt: nil), provider: .claude)
     }
 
-    private func claudeQuota(_ body: String, now: Date) throws -> ProviderQuota {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = try #require(TimeZone(identifier: "Asia/Shanghai"))
-        let decoded = try ClaudeUsageResponseDecoder.decode(
-            try claudeUsage(body), fetchedAt: now, calendar: calendar)
-        return ProviderQuota(.available(decoded, nextRefreshAt: nil), provider: .claude)
-    }
-
-    @Test("A recorded Claude /usage reading becomes the same normalized quota as Codex")
+    @Test("A recorded Claude status-line reading becomes the same normalized quota as Codex")
     func claudeReadingNormalizes() throws {
         let now = Date(timeIntervalSince1970: 1_788_400_000)
-        let result = try claudeQuota("""
-        You are currently using your subscription to power your Claude Code usage
-
-        Current session: 43% used · resets Sep 3 at 2:30pm (Asia/Shanghai)
-        Current week (all models): 58% used · resets Sep 5 at 8pm (Asia/Shanghai)
-        Current week (Fable): 58% used · resets Sep 5 at 8pm (Asia/Shanghai)
-        """, now: now)
+        let result = try claudeQuota([
+            "five_hour": ["used_percentage": 43, "resets_at": 1_788_410_000],
+            "seven_day": ["used_percentage": 58, "resets_at": 1_788_900_000],
+            "seven_day_fable": ["used_percentage": 58, "resets_at": 1_788_900_000],
+        ], now: now)
 
         #expect(result.provider == .claude)
         #expect(result.weeklyRemainingPercent == 42)
@@ -240,32 +234,39 @@ struct ProviderQuotaProjectionTests {
         #expect(result.weeklyResetsAt != nil)
         #expect(result.observedAt == now)
         #expect(result.freshness(now: now) == .live)
+        // A model-scoped week is a subdivision of the same allowance, so it
+        // must not reach the slot the Watch and the widgets fall back to.
+        #expect(result.otherWindows == nil)
+        #expect(result.scopedWindows?.first?.label == "Fable only")
     }
 
     @Test("A Claude reading with only the session window says nothing about the week")
     func claudeWithoutWeeklyIsAvailable() throws {
         let now = Date(timeIntervalSince1970: 1_788_400_000)
         let result = try claudeQuota(
-            "Current session: 43% used · resets Sep 3 at 2:30pm (Asia/Shanghai)", now: now)
+            ["five_hour": ["used_percentage": 43, "resets_at": 1_788_410_000]], now: now)
         #expect(result.weeklyRemainingPercent == nil)
         #expect(result.shortWindowRemainingPercent == 57)
         #expect(result.freshness(now: now) == .live)
         #expect(result.unavailableReason == nil)
     }
 
-    @Test("A signed-out or malformed Claude reply never becomes a number")
+    @Test("A missing or out-of-range Claude window never becomes a number")
     func claudeFailuresNeverBecomeNumbers() throws {
-        #expect(throws: AccountUsageError.notLoggedIn) {
-            try ClaudeUsageResponseDecoder.decode(
-                try claudeUsage("You are not logged in", isError: true), fetchedAt: fetchedAt)
-        }
-        #expect(throws: AccountUsageError.incompatibleFormat) {
-            try ClaudeUsageResponseDecoder.decode(Data("not json".utf8), fetchedAt: fetchedAt)
-        }
-        #expect(throws: AccountUsageError.incompatibleFormat) {
-            try ClaudeUsageResponseDecoder.decode(
-                try claudeUsage("Nothing about usage here"), fetchedAt: fetchedAt)
-        }
+        let empty: [String: Any] = ["session_id": "s1"]
+        #expect(StatusLineSample.decode(empty)?.usageSnapshot(fetchedAt: fetchedAt) == nil)
+
+        let outOfRange: [String: Any] = ["session_id": "s1", "rate_limits": [
+            "five_hour": ["used_percentage": 101],
+            "seven_day": ["used_percentage": 58, "resets_at": 1_788_900_000],
+        ]]
+        let sample = try #require(StatusLineSample.decode(outOfRange))
+        let snapshot = try #require(sample.usageSnapshot(fetchedAt: fetchedAt))
+        // One malformed window cannot discard the other, and cannot read as 0%.
+        #expect(snapshot.primary == nil)
+        let quota = ProviderQuota(.available(snapshot, nextRefreshAt: nil), provider: .claude)
+        #expect(quota.shortWindowRemainingPercent == nil)
+        #expect(quota.weeklyRemainingPercent == 42)
     }
 
     // MARK: Cursor / Grok billing periods (#113 H3)

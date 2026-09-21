@@ -692,6 +692,10 @@
 "Rate-limited" = "被限流";
 "Loading" = "加载中";
 "Unavailable" = "不可用";
+"No session yet" = "尚无会话";
+"Awaiting reset" = "等待重置";
+"Status line off" = "状态栏未接入";
+"Window reset · awaiting a new reading" = "窗口已重置 · 等待新读数";
 "stale" = "已过期";
 "No usage sources are on" = "没有开启任何用量来源";
 "Turn a provider on in Settings › Usage to collect its account quota." = "在设置 › 用量中开启某个服务商，以收集其账号配额。";

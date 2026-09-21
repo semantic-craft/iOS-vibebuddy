@@ -915,6 +915,17 @@ final class MenuBarModel: ObservableObject {
         usage.state(for: provider)
     }
 
+    /// False when Claude's status line is not forwarding to vibebuddy — the
+    /// one source of its account quota, so the quota surfaces say that rather
+    /// than blaming a missing session.
+    var claudeStatusLineWired: Bool { usage.isClaudeStatusLineWired() }
+
+    /// True for the one provider whose readings can only arrive through a
+    /// forwarder that is currently not installed.
+    func usageStatusLineUnwired(_ provider: AccountUsageProvider) -> Bool {
+        provider == .claude && !claudeStatusLineWired
+    }
+
     func setUsageCollectionEnabled(_ enabled: Bool, provider: AccountUsageProvider) {
         usage.setCollectionEnabled(enabled, provider: provider)
     }

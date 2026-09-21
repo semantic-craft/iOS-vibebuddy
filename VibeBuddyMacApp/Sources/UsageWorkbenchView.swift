@@ -107,7 +107,7 @@ struct QuotaPlinth: View {
     private func tightestOverall(now: Date) -> (text: String, tint: Color)? {
         var best: (provider: AccountUsageProvider, window: AccountUsageWindow)?
         for provider in providers {
-            let snapshot = model.usageState(for: provider).snapshot?.excludingExpiredGrokWindows(at: now)
+            let snapshot = model.usageState(for: provider).snapshot?.excludingExpiredWindows(at: now)
             if let window = tightest(snapshot), best == nil || window.usedPercent > best!.window.usedPercent {
                 best = (provider, window)
             }
@@ -123,9 +123,13 @@ struct QuotaPlinth: View {
     private func anomaly(now: Date) -> String? {
         for provider in providers {
             let state = model.usageState(for: provider)
-            let snapshot = state.snapshot?.excludingExpiredGrokWindows(at: now)
-            if state.isStale { return "\(provider.displayName) · \(String(localized: "stale"))" }
-            if tightest(snapshot) == nil { return "\(provider.displayName) · \(Self.shortReason(state))" }
+            let snapshot = state.snapshot?.excludingExpiredWindows(at: now)
+            if tightest(snapshot) == nil {
+                return "\(provider.displayName) · \(Self.shortReason(state, filtered: snapshot, unwiredStatusLine: unwired(provider)))"
+            }
+            if state.isStale, let observed = state.snapshot?.fetchedAt {
+                return "\(provider.displayName) · \(QuotaPresentation.age(from: observed, now: now))"
+            }
         }
         return nil
     }
@@ -134,7 +138,7 @@ struct QuotaPlinth: View {
     /// that is the one that decides whether the next turn goes through.
     @ViewBuilder private func row(_ provider: AccountUsageProvider, now: Date) -> some View {
         let state = model.usageState(for: provider)
-        let snapshot = state.snapshot?.excludingExpiredGrokWindows(at: now)
+        let snapshot = state.snapshot?.excludingExpiredWindows(at: now)
         VStack(alignment: .leading, spacing: 3) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(provider.displayName).font(MacTheme.font(11, .medium))
@@ -144,7 +148,8 @@ struct QuotaPlinth: View {
                         .font(MacTheme.mono(11, .semibold))
                         .foregroundStyle(QuotaPresentation.severity(usedPercent: window.usedPercent).tint)
                 } else {
-                    Text(Self.shortReason(state)).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink3)
+                    Text(Self.shortReason(state, filtered: snapshot, unwiredStatusLine: unwired(provider)))
+                        .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink3)
                 }
             }
             if let window = tightest(snapshot) {
@@ -154,8 +159,12 @@ struct QuotaPlinth: View {
                 HStack(spacing: 4) {
                     Text(windowName(window, provider: provider))
                     Spacer(minLength: 4)
-                    if state.isStale {
-                        Text("stale").foregroundStyle(QuotaPresentation.Severity.warning.tint)
+                    if unwired(provider) {
+                        Text("Status line off")
+                            .foregroundStyle(QuotaPresentation.Severity.warning.tint)
+                    } else if state.isStale, let observed = state.snapshot?.fetchedAt {
+                        Text(QuotaPresentation.age(from: observed, now: now))
+                            .foregroundStyle(QuotaPresentation.Severity.warning.tint)
                     } else if let reset = window.resetsAt {
                         Text(QuotaPresentation.resetCountdown(from: reset, now: now))
                     }
@@ -164,6 +173,10 @@ struct QuotaPlinth: View {
             }
         }
         .accessibilityElement(children: .combine)
+    }
+
+    private func unwired(_ provider: AccountUsageProvider) -> Bool {
+        model.usageStatusLineUnwired(provider)
     }
 
     private func tightest(_ snapshot: AccountUsageSnapshot?) -> AccountUsageWindow? {
@@ -179,13 +192,25 @@ struct QuotaPlinth: View {
         return String(localized: "\(minutes)-minute")
     }
 
-    static func shortReason(_ state: AccountUsageState) -> String {
+    /// `filtered` is the snapshot with expired windows already removed. A
+    /// provider that has a reading but no live window has not failed — its
+    /// window reset and the source has not reported the new one yet, which is
+    /// a different thing from "loading" and from "unavailable".
+    static func shortReason(_ state: AccountUsageState, filtered: AccountUsageSnapshot?,
+                            unwiredStatusLine: Bool = false) -> String {
+        // No forwarder means no future sample, so "waiting" would be a lie.
+        if unwiredStatusLine { return String(localized: "Status line off") }
+        if state.snapshot != nil, filtered?.displayWindows.isEmpty ?? true,
+           state.unavailableReason == nil || state.unavailableReason == .cachedData {
+            return String(localized: "Awaiting reset")
+        }
         guard let reason = state.unavailableReason else { return String(localized: "No reading") }
         switch reason {
         case .notLoggedIn: return String(localized: "Signed out")
         case .offline: return String(localized: "Offline")
         case .rateLimited: return String(localized: "Rate-limited")
         case .collectionDisabled: return String(localized: "Off")
+        case .awaitingLiveSample: return String(localized: "No session yet")
         case .notYetLoaded, .cachedData: return String(localized: "Loading")
         default: return String(localized: "Unavailable")
         }
@@ -250,8 +275,8 @@ struct UsageWorkbenchView: View {
 
     private func railRow(_ provider: AccountUsageProvider, now: Date) -> some View {
         let state = model.usageState(for: provider)
-        let window = state.snapshot?.excludingExpiredGrokWindows(at: now).displayWindows
-            .max { $0.usedPercent < $1.usedPercent }
+        let snapshot = state.snapshot?.excludingExpiredWindows(at: now)
+        let window = snapshot?.displayWindows.max { $0.usedPercent < $1.usedPercent }
         return VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline) {
                 Text(provider.displayName).font(MacTheme.font(12, .medium))
@@ -267,7 +292,9 @@ struct UsageWorkbenchView: View {
                             pacePercent: AccountUsageSummaryView.pacePercent(window, now: now),
                             height: 8)
             } else {
-                Text(QuotaPlinth.shortReason(state)).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink3)
+                Text(QuotaPlinth.shortReason(state, filtered: snapshot,
+                                             unwiredStatusLine: model.usageStatusLineUnwired(provider)))
+                    .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink3)
             }
         }
         .padding(9)

@@ -94,122 +94,8 @@ struct AccountUsageTests {
         #expect(quota.spend?.first?.label == "Extra usage")
     }
 
-    @Test("Claude extra usage dollars and credits remaining parse beside Fable week")
-    func claudeCreditsAndSpend() throws {
-        let output = """
-        Current session: 9% used · resets Sep 2 at 6:39pm (UTC)
-        Current week (all models): 15% used · resets Sep 5 at 7:59pm (UTC)
-        Extra usage: $6.50
-        Credits remaining: 80
-        """
-        let data = try JSONSerialization.data(withJSONObject: ["is_error": false, "result": output])
-        let snapshot = try ClaudeUsageResponseDecoder.decode(data, fetchedAt: now)
-        #expect(snapshot.spend?.first?.amount == 6.5)
-        #expect(snapshot.credits?.remaining == 80)
-    }
-
-    @Test("official Claude usage output maps session and weekly windows")
-    func claudeResponseDecoding() throws {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = try #require(TimeZone(identifier: "Asia/Shanghai"))
-        let fetchedAt = try #require(calendar.date(from: DateComponents(
-            year: 2026, month: 9, day: 2, hour: 12
-        )))
-        let output = """
-        You are currently using your subscription to power your Claude Code usage
-
-        Current session: 9% used · resets Sep 2 at 6:39pm (Asia/Shanghai)
-        Current week (all models): 15% used · resets Sep 5 at 7:59pm (Asia/Shanghai)
-        Current week (Fable): 18% used · resets Sep 5 at 7:59pm (Asia/Shanghai)
-
-        What's contributing to your limits usage?
-        """
-        let data = try JSONSerialization.data(withJSONObject: [
-            "is_error": false,
-            "result": output,
-        ])
-
-        let snapshot = try ClaudeUsageResponseDecoder.decode(
-            data,
-            fetchedAt: fetchedAt,
-            calendar: calendar
-        )
-
-        #expect(snapshot.provider == .claude)
-        #expect(snapshot.primary?.usedPercent == 9)
-        #expect(snapshot.primary?.windowDurationMinutes == 300)
-        #expect(snapshot.secondary?.usedPercent == 15)
-        #expect(snapshot.secondary?.windowDurationMinutes == 10_080)
-        #expect(snapshot.primary?.resetsAt == calendar.date(from: DateComponents(
-            year: 2026, month: 9, day: 2, hour: 18, minute: 39
-        )))
-        #expect(snapshot.secondary?.resetsAt == calendar.date(from: DateComponents(
-            year: 2026, month: 9, day: 5, hour: 19, minute: 59
-        )))
-        #expect(snapshot.extraWindows?.map(\.key) == ["claude-weekly-scoped-fable"])
-        #expect(snapshot.extraWindows?.first?.label == "Fable only")
-        #expect(snapshot.extraWindows?.first?.usedPercent == 18)
-        #expect(snapshot.extraWindows?.first?.windowDurationMinutes == 10_080)
-        let quota = ProviderQuota(.available(snapshot, nextRefreshAt: nil), provider: .claude)
-        #expect(quota.weeklyRemainingPercent == 85)
-        #expect(quota.scopedWindows?.first?.label == "Fable only")
-        #expect(quota.scopedWindows?.first?.remainingPercent == 82)
-        // The Watch strip and the widgets fall back to otherWindows; a scoped
-        // week must never become the number they show as Claude's remaining.
-        #expect(quota.otherWindows == nil)
-        #expect(quota.displayWindow(preferring: .weekly).remainingPercent == 85)
-    }
-
-    @Test("a Claude window that resets on the hour prints no minutes and still parses")
-    func claudeWholeHourReset() throws {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = try #require(TimeZone(identifier: "Asia/Shanghai"))
-        let fetchedAt = try #require(calendar.date(from: DateComponents(
-            year: 2026, month: 9, day: 3, hour: 12
-        )))
-        // Recorded verbatim from `claude -p /usage --output-format json`: the CLI
-        // writes "8pm", not "8:00pm", whenever a window happens to reset on the hour.
-        let output = """
-        You are currently using your subscription to power your Claude Code usage
-
-        Current session: 43% used · resets Sep 3 at 2:30pm (Asia/Shanghai)
-        Current week (all models): 58% used · resets Sep 5 at 8pm (Asia/Shanghai)
-        Current week (Fable): 58% used · resets Sep 5 at 8pm (Asia/Shanghai)
-
-        What's contributing to your limits usage?
-        """
-        let data = try JSONSerialization.data(withJSONObject: [
-            "is_error": false,
-            "result": output,
-        ])
-
-        let snapshot = try ClaudeUsageResponseDecoder.decode(
-            data, fetchedAt: fetchedAt, calendar: calendar)
-
-        #expect(snapshot.secondary?.usedPercent == 58)
-        #expect(snapshot.secondary?.resetsAt == calendar.date(from: DateComponents(
-            year: 2026, month: 9, day: 5, hour: 20
-        )))
-        #expect(snapshot.primary?.resetsAt == calendar.date(from: DateComponents(
-            year: 2026, month: 9, day: 3, hour: 14, minute: 30
-        )))
-        #expect(snapshot.extraWindows?.first?.label == "Fable only")
-    }
-
     @Test("provider percentages outside zero through one hundred are rejected")
     func percentageBounds() throws {
-        let output = """
-        Current session: 101% used · resets Sep 2 at 6:39pm (Asia/Shanghai)
-        Current week (all models): 15% used · resets Sep 5 at 7:59pm (Asia/Shanghai)
-        """
-        let claudeData = try JSONSerialization.data(withJSONObject: [
-            "is_error": false,
-            "result": output,
-        ])
-        let partial = try ClaudeUsageResponseDecoder.decode(claudeData, fetchedAt: now)
-        #expect(partial.primary == nil)
-        #expect(partial.secondary?.usedPercent == 15)
-
         let codexLimits = Data(#"{"jsonrpc":"2.0","id":2,"result":{"rateLimits":{"primary":{"usedPercent":-1,"windowDurationMins":300}}}}"#.utf8)
         let codexUsage = Data(#"{"jsonrpc":"2.0","id":3,"result":{"summary":{}}}"#.utf8)
         let invalid = try CodexUsageResponseDecoder.decode(
@@ -217,110 +103,63 @@ struct AccountUsageTests {
         #expect(invalid.primary == nil)
     }
 
-    @Test("Claude CLI timeout and cancellation reap their child process")
-    func claudeProcessCleanup() async {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("vibebuddy-claude-process-\(UUID().uuidString)", isDirectory: true)
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+    /// Claude has no headless command that reports the account allowance, so
+    /// its collector has no provider at all: it bootstraps from cache and then
+    /// only ever learns from the status line's live samples.
+    @Test("a collector without a pull source waits for a live sample instead of polling")
+    func liveOnlyCollector() async {
+        let cache = MemoryUsageCache()
+        let collector = AccountUsageCollector(cache: cache, enabled: true)
+        #expect(collector.hasPullSource == false)
 
-        // Outcomes below are decided by the thrown error / decoded snapshot, never
-        // by elapsed wall-clock time: a regression that waits for pipe EOF or the
-        // full timeout surfaces as `.timedOut` instead of the expected result.
-        // Timeouts are long enough that a loaded test host cannot hit them on the
-        // success path, leaked sleeps outlive the timeout so a leak cannot look
-        // like success, and the child's exit is polled (bounded) in expectProcessExited.
-        let timeoutPIDFile = directory.appendingPathComponent("timeout.pid")
-        let timeoutProvider = claudeSleepingProvider(pidFile: timeoutPIDFile, timeout: 1)
-        let timeoutFetch = Task { try await timeoutProvider.fetch() }
-        // The child must have written its pid before the timeout kills it, or
-        // there is nothing to check for reaping.
-        #expect(await waitForPID(in: timeoutPIDFile) != nil)
-        do {
-            _ = try await timeoutFetch.value
-            Issue.record("Expected a timeout")
-        } catch let error as AccountUsageError {
-            #expect(error == .timedOut)
-        } catch {
-            Issue.record("Unexpected error: \(error)")
-        }
-        await expectProcessExited(pidFile: timeoutPIDFile)
+        let initial = await collector.setEnabled(true, now: now)
+        #expect(initial.snapshot == nil)
+        #expect(initial.unavailableReason == .awaitingLiveSample)
+        // A refresh has nothing to ask, so it must not invent a failure state.
+        let refreshed = await collector.refresh(now: now)
+        #expect(refreshed.unavailableReason == .awaitingLiveSample)
+        #expect(await cache.saveCount() == 0)
 
-        let cancellationPIDFile = directory.appendingPathComponent("cancellation.pid")
-        let cancellationProvider = claudeSleepingProvider(pidFile: cancellationPIDFile, timeout: 5)
-        let fetch = Task { try await cancellationProvider.fetch() }
-        #expect(await waitForPID(in: cancellationPIDFile) != nil)
-        fetch.cancel()
-        do {
-            _ = try await fetch.value
-            Issue.record("Expected cancellation")
-        } catch {
-            #expect(error is CancellationError)
-        }
-        await expectProcessExited(pidFile: cancellationPIDFile)
+        let live = await collector.acceptLive(
+            sampleSnapshot(provider: .claude, percent: 12), holdFor: 900, now: now)
+        #expect(live.snapshot?.primary?.usedPercent == 12)
+        #expect(live.isStale == false)
+        #expect(await cache.saveCount() == 1)
+    }
 
-        let overflowPIDFile = directory.appendingPathComponent("overflow.pid")
-        let overflowProvider = ClaudeCLIUsageProvider(
-            executableURL: URL(fileURLWithPath: "/bin/sh"),
-            arguments: [
-                "-c", "echo $$ > \"$1\"; (yes o | head -c 700000) & (yes e | head -c 700000 >&2) & wait; exec sleep 30",
-                "vibebuddy-test", overflowPIDFile.path,
-            ],
-            timeout: 5
-        )
-        do {
-            _ = try await overflowProvider.fetch()
-            Issue.record("Expected the output limit to be enforced")
-        } catch let error as AccountUsageError {
-            #expect(error == .incompatibleFormat)
-        } catch {
-            Issue.record("Unexpected error: \(error)")
-        }
-        await expectProcessExited(pidFile: overflowPIDFile)
+    /// The reading that started this: a week-long window whose reset passed
+    /// nine days ago was still being drawn as a current percentage.
+    @Test("a window whose reset has passed is dropped for every provider")
+    func expiredWindowsAreDropped() {
+        let snapshot = AccountUsageSnapshot(
+            provider: .claude, planType: nil,
+            primary: AccountUsageWindow(kind: .primary, usedPercent: 2,
+                                        windowDurationMinutes: 300,
+                                        resetsAt: now.addingTimeInterval(-3600)),
+            secondary: AccountUsageWindow(kind: .secondary, usedPercent: 78,
+                                          windowDurationMinutes: 10_080,
+                                          resetsAt: now.addingTimeInterval(-9 * 86_400)),
+            lifetimeTokens: nil, latestDailyTokens: nil, fetchedAt: now.addingTimeInterval(-11 * 86_400),
+            extraWindows: [
+                .extra(key: "claude-weekly-scoped-fable", label: "Fable only", usedPercent: 60,
+                       windowDurationMinutes: 10_080, resetsAt: now.addingTimeInterval(-9 * 86_400)),
+                .extra(key: "claude-weekly-scoped-opus", label: "Opus only", usedPercent: 30,
+                       windowDurationMinutes: 10_080, resetsAt: now.addingTimeInterval(86_400)),
+            ])
 
-        let descendantPIDFile = directory.appendingPathComponent("descendant.pid")
-        let liveOutput = """
-        Current session: 10% used · resets Sep 2 at 6:39pm (Asia/Shanghai)
-        Current week (all models): 15% used · resets Sep 5 at 7:59pm (Asia/Shanghai)
-        """
-        let liveEnvelope = try? JSONSerialization.data(withJSONObject: [
-            "is_error": false,
-            "result": liveOutput,
-        ])
-        let inheritedWriterProvider = ClaudeCLIUsageProvider(
-            executableURL: URL(fileURLWithPath: "/bin/sh"),
-            arguments: [
-                "-c", "(trap '' TERM; exec sleep 30) & echo $! > \"$1\"; exec /usr/bin/printf '%s' \"$2\"",
-                "vibebuddy-test", descendantPIDFile.path,
-                liveEnvelope.map { String(decoding: $0, as: UTF8.self) } ?? "",
-            ],
-            timeout: 5
-        )
-        do {
-            let snapshot = try await inheritedWriterProvider.fetch()
-            #expect(snapshot.primary?.usedPercent == 10)
-        } catch {
-            Issue.record("Inherited writer should be cleaned up after valid output: \(error)")
-        }
-        await expectProcessExited(pidFile: descendantPIDFile)
+        let live = snapshot.excludingExpiredWindows(at: now)
+        #expect(live.primary == nil)
+        #expect(live.secondary == nil)
+        #expect(live.extraWindows?.map(\.label) == ["Opus only"])
 
-        let detachedPIDFile = directory.appendingPathComponent("detached-descendant.pid")
-        let detachedProvider = ClaudeCLIUsageProvider(
-            executableURL: URL(fileURLWithPath: "/bin/sh"),
-            arguments: [
-                "-c", "(trap '' TERM; exec sleep 30 </dev/null >/dev/null 2>&1) & echo $! > \"$1\"; exec /usr/bin/printf '%s' \"$2\"",
-                "vibebuddy-test", detachedPIDFile.path,
-                liveEnvelope.map { String(decoding: $0, as: UTF8.self) } ?? "",
-            ],
-            timeout: 5
-        )
-        do {
-            let snapshot = try await detachedProvider.fetch()
-            #expect(snapshot.primary?.usedPercent == 10)
-        } catch {
-            Issue.record("Detached descendant should be cleaned up after valid output: \(error)")
-        }
-        await expectProcessExited(pidFile: detachedPIDFile)
+        // The relayed quota keeps the window so the phone and the Watch can
+        // judge it on their own clocks — and judge it the same way.
+        let quota = ProviderQuota(.stale(snapshot, reason: .cachedData, lastAttemptAt: nil, nextRefreshAt: nil),
+                                  provider: .claude, now: now)
+        #expect(quota.weeklyResetsAt != nil)
+        #expect(quota.window(.weekly).status(now: now) == .awaitingReset)
+        #expect(quota.window(.weekly).currentRemainingPercent(now: now) == nil)
+        #expect(quota.window(.short).currentRemainingPercent(now: now) == nil)
     }
 
     @Test("a changed response shape is unavailable instead of becoming zero usage")
@@ -868,17 +707,6 @@ struct AccountUsageTests {
             timeout: timeout,
             afterProcessInstall: afterProcessInstall,
             signalProcess: signalProcess
-        )
-    }
-
-    private func claudeSleepingProvider(pidFile: URL, timeout: TimeInterval) -> ClaudeCLIUsageProvider {
-        ClaudeCLIUsageProvider(
-            executableURL: URL(fileURLWithPath: "/bin/sh"),
-            arguments: [
-                "-c", "echo $$ > \"$1\"; trap '' TERM; exec sleep 5",
-                "vibebuddy-test", pidFile.path,
-            ],
-            timeout: timeout
         )
     }
 

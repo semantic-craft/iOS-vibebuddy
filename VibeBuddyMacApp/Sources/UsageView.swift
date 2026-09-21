@@ -19,7 +19,7 @@ struct AccountUsageSummaryView: View {
 
     @ViewBuilder
     private func summary(now: Date) -> some View {
-            if let snapshot = state.snapshot?.excludingExpiredGrokWindows(at: now) {
+            if let snapshot = state.snapshot?.excludingExpiredWindows(at: now) {
                 if let account = snapshot.accountLabel {
                     Text(account).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                 }
@@ -43,7 +43,13 @@ struct AccountUsageSummaryView: View {
                     }
                 }
                 if snapshot.displayWindows.isEmpty {
-                    if provider != .grok && provider != .grokBot {
+                    if !(state.snapshot?.displayWindows.isEmpty ?? true) {
+                        // Every window this reading had has already reset, so
+                        // it says nothing about the current allowance.
+                        Label("Window reset · awaiting a new reading",
+                              systemImage: "arrow.trianglehead.counterclockwise")
+                            .foregroundStyle(MacTheme.ink2)
+                    } else if provider != .grok && provider != .grokBot {
                         Label("No quota windows supplied", systemImage: "gauge.with.dots.needle.0percent")
                             .foregroundStyle(MacTheme.ink2)
                     }
@@ -175,6 +181,7 @@ struct AccountUsageSummaryView: View {
         case .incompatibleFormat: "questionmark.app.dashed"
         case .providerUnavailable: "terminal"
         case .cachedData, .notYetLoaded: "arrow.clockwise"
+        case .awaitingLiveSample: "dot.radiowaves.left.and.right"
         case .unknown: "exclamationmark.triangle"
         }
     }

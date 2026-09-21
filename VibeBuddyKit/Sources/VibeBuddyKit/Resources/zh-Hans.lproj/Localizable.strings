@@ -148,6 +148,10 @@
 "in %lldh %lldm" = "%lld 小时 %lld 分后";
 "in %lldh" = "%lld 小时后";
 "in %lldm" = "%lld 分钟后";
+"just now" = "刚刚";
+"%lldd ago" = "%lld 天前";
+"%lldh ago" = "%lld 小时前";
+"%lldm ago" = "%lld 分钟前";
 "tomorrow, %@" = "明天 %@";
 "Resets now" = "现在重置";
 "Resets %@ · %@" = "%@重置 · %@";

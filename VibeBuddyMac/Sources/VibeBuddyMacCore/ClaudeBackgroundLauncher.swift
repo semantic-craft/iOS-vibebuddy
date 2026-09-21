@@ -13,7 +13,7 @@ public actor ClaudeBackgroundLauncher {
     private let launchTimeout: TimeInterval
     private var supported: Bool?
 
-    public init(executable: URL? = ClaudeCLIUsageProvider.resolveClaudeExecutable(),
+    public init(executable: URL? = ClaudeExecutable.resolve(),
                 jobsDirectory: URL = ClaudeBackgroundSessions.jobsDirectory(),
                 launchTimeout: TimeInterval = 30) {
         self.executable = executable

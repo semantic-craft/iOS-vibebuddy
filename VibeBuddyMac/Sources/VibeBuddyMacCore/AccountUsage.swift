@@ -146,16 +146,38 @@ public struct AccountUsageSnapshot: Codable, Equatable, Sendable {
         return result
     }
 
-    /// Grok's last period is not a reading of its new allowance.
-    public func excludingExpiredGrokWindows(at now: Date) -> Self {
-        guard provider == .grok || provider == .grokBot else { return self }
+    /// A window whose reset has already passed is not a reading of the new
+    /// allowance, whoever produced it. Claude Code's own status line applies
+    /// exactly this rule — it reports a window only "while its `resets_at` has
+    /// not passed" — so an expired percentage is dropped rather than ageing
+    /// quietly on a dashboard as if it still meant something.
+    ///
+    /// This is a *render-time* filter, against the clock of whoever is reading.
+    /// It deliberately does not run where the snapshot is stored or relayed:
+    /// the wire format keeps `resetsAt`, so the phone and the Watch make the
+    /// same judgment on their own clocks (`QuotaWindow.status`), and a detail
+    /// view can still say when the window it is missing will come back.
+    public func excludingExpiredWindows(at now: Date) -> Self {
         var result = self
         if let end = primary?.resetsAt, end <= now {
             result.primary = nil
             if provider == .grokBot { result.hasAvailableUsage = nil }
         }
         if let end = secondary?.resetsAt, end <= now { result.secondary = nil }
+        if let extras = extraWindows {
+            let live = extras.filter { ($0.resetsAt).map { $0 > now } ?? true }
+            result.extraWindows = live.isEmpty ? nil : live
+        }
         return result
+    }
+
+    /// Grok's last period is not a reading of its new allowance. Unlike the
+    /// general filter above this one *is* applied where the snapshot is stored
+    /// and relayed: for Grok an ended billing period is a fact about the
+    /// account, not a question about whose clock is reading it.
+    public func excludingExpiredGrokWindows(at now: Date) -> Self {
+        guard provider == .grok || provider == .grokBot else { return self }
+        return excludingExpiredWindows(at: now)
     }
 
 }
@@ -164,6 +186,7 @@ public enum AccountUsageUnavailableReason: String, Codable, Equatable, Sendable 
     case collectionDisabled
     case cachedData
     case notYetLoaded
+    case awaitingLiveSample
     case providerUnavailable
     case notLoggedIn
     case offline
@@ -177,6 +200,7 @@ public enum AccountUsageUnavailableReason: String, Codable, Equatable, Sendable 
         case .collectionDisabled: return "Collection is turned off"
         case .cachedData: return "Showing cached data while refreshing"
         case .notYetLoaded: return "Waiting for the first refresh"
+        case .awaitingLiveSample: return "Waiting for a \(provider.displayName) session to report"
         case .providerUnavailable: return provider == .grokBot ? "Grok Bot usage service is unavailable" : "\(provider.displayName) CLI is unavailable"
         case .notLoggedIn: return "\(provider.displayName) is not signed in"
         case .offline: return "Offline"
@@ -460,7 +484,10 @@ public actor AccountUsageFileCache: AccountUsageCaching {
 /// Refresh/cache policy for account usage. This actor has no reference to
 /// SessionStore or SessionReducer; failures only change `AccountUsageState`.
 public actor AccountUsageCollector {
-    private let provider: any AccountUsageProviding
+    /// Nil for a provider with no pull source of its own: Claude Code has no
+    /// headless command that reports the account allowance, so its collector
+    /// only ever learns from `acceptLive` (the status line forwarder).
+    private let provider: (any AccountUsageProviding)?
     private let cache: any AccountUsageCaching
     private let refreshInterval: TimeInterval
     private let baseBackoff: TimeInterval
@@ -473,8 +500,12 @@ public actor AccountUsageCollector {
     private var failureCount = 0
     private var state: AccountUsageState
 
+    /// False when the collector has no way to ask for a reading, so the caller
+    /// must not run a refresh loop against it.
+    public nonisolated let hasPullSource: Bool
+
     public init(
-        provider: any AccountUsageProviding,
+        provider: (any AccountUsageProviding)? = nil,
         cache: any AccountUsageCaching,
         refreshInterval: TimeInterval = 15 * 60,
         baseBackoff: TimeInterval = 60,
@@ -482,13 +513,16 @@ public actor AccountUsageCollector {
         enabled: Bool
     ) {
         self.provider = provider
+        self.hasPullSource = provider != nil
         self.cache = cache
         self.refreshInterval = refreshInterval
         self.baseBackoff = baseBackoff
         self.maxBackoff = maxBackoff
         cacheCommitGate = AccountUsageCacheCommitGate(generation: 0, enabled: enabled)
         isEnabled = enabled
-        state = enabled ? .unavailable(.notYetLoaded, lastAttemptAt: nil, nextRefreshAt: nil) : .disabled
+        state = enabled
+            ? .unavailable(provider == nil ? .awaitingLiveSample : .notYetLoaded, lastAttemptAt: nil, nextRefreshAt: nil)
+            : .disabled
     }
 
     public func bootstrap(now: Date = Date()) async -> AccountUsageState {
@@ -498,10 +532,11 @@ public actor AccountUsageCollector {
         didBootstrap = true
         let cached = await cache.load()
         guard isEnabled, generation == currentGeneration else { return state }
-        if let snapshot = cached, provider.acceptsCachedSnapshot(snapshot) {
+        if let snapshot = cached, provider?.acceptsCachedSnapshot(snapshot) ?? true {
             state = .stale(snapshot.excludingExpiredGrokWindows(at: now), reason: .cachedData, lastAttemptAt: nil, nextRefreshAt: now)
         } else {
-            state = .unavailable(.notYetLoaded, lastAttemptAt: nil, nextRefreshAt: now)
+            state = .unavailable(hasPullSource ? .notYetLoaded : .awaitingLiveSample,
+                                 lastAttemptAt: nil, nextRefreshAt: now)
         }
         return state
     }
@@ -510,6 +545,8 @@ public actor AccountUsageCollector {
         guard isEnabled else { return .disabled }
         if !didBootstrap { _ = await bootstrap(now: now) }
         guard isEnabled else { return state }
+        // Nothing to ask: the live feed is the only way in for this provider.
+        guard let provider else { return state }
         if !ignoringBackoff, let next = state.nextRefreshAt, next > now {
             return state
         }
@@ -574,7 +611,8 @@ public actor AccountUsageCollector {
             state = .disabled
             return state
         }
-        state = .unavailable(.notYetLoaded, lastAttemptAt: nil, nextRefreshAt: now)
+        state = .unavailable(hasPullSource ? .notYetLoaded : .awaitingLiveSample,
+                             lastAttemptAt: nil, nextRefreshAt: now)
         return await bootstrap(now: now)
     }
 }
