@@ -28,12 +28,13 @@ enum BannerActionRunner {
         client: DecisionClient,
         epoch: String = "",
         now: Date = Date(),
-        hold: ((QueuedSessionAction, ConnectionFailureReason?) -> Void)? = nil,
+        hold: ((QueuedSessionAction, ConnectionFailureReason?) async -> Void)? = nil,
         phoneHasTailnet: () -> Bool = { PhoneNetwork.hasTailnetAddress() }
     ) async -> BannerActionOutcome {
         guard let action = NotificationActionID(rawValue: actionIdentifier) else { return .ignored }
         let sessionId = userInfo[NotificationUserInfoKey.sessionId] as? String
         let approvalId = userInfo[NotificationUserInfoKey.approvalId] as? String
+        let questionId = userInfo[NotificationUserInfoKey.questionId] as? String
         guard let sessionId, !sessionId.isEmpty else { return .ignored }
         guard let pairing else { return .openSession(sessionId) }
 
@@ -49,11 +50,11 @@ enum BannerActionRunner {
         case .answer:
             let reply = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard !reply.isEmpty else { return .openSession(sessionId) }
-            // A banner reply names no question id; the Mac answers whichever
-            // one the session is asking, as before. Held, it is aimed at the
-            // question the live snapshot shows when it is delivered — the
-            // phone's own answer path re-reads the Mac before sending.
-            holdable = nil
+            // The Mac answers whichever question the session is asking, as
+            // before. A reply can be held only when the notification named
+            // its question (a newer Mac's push, or this phone's own cue); an
+            // older push leaves it unnamed, and an unnamed reply is not held.
+            holdable = questionId.flatMap { $0.isEmpty ? nil : .answer(pendingId: $0, text: reply) }
             result = await client.answerResult(pairing, sessionId: sessionId, answer: reply)
         }
         switch result {
@@ -68,8 +69,8 @@ enum BannerActionRunner {
             guard let hold, let holdable else { return .openSession(sessionId) }
             let reason = ConnectionDiagnosis.diagnose(endpoint: pairing.endpoint, kind: .unreachable,
                                                       phoneHasTailnet: phoneHasTailnet())
-            hold(QueuedSessionAction(id: key, sessionId: sessionId, action: holdable, origin: .banner,
-                                     pairingEpoch: epoch, queuedAt: now), reason)
+            await hold(QueuedSessionAction(id: key, sessionId: sessionId, action: holdable, origin: .banner,
+                                           pairingEpoch: epoch, queuedAt: now), reason)
             return .held(sessionId: sessionId, key: key)
         }
     }

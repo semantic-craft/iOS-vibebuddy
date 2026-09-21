@@ -72,7 +72,16 @@ Three things were wrong, and they were wrong on different surfaces.
    never when the Mac answered: a refusal stays `failed` (tap again), a
    receipt lost after the Mac may have acted stays `unknown` (look, do not
    tap), exactly as before. That keeps the rule *ambiguous POSTs are never
-   replayed*; the key is what makes the held path's own retries safe.
+   replayed*; the key is what makes the held path's own retries safe. On
+   the banner path only a POST that never left (no route, no host, no
+   network) is held; a timeout or reset is a lost receipt. A held decision
+   whose request is gone by the time the phone can ask is reported *gone —
+   nothing applied* only if the phone never posted it; after a posted
+   attempt without a receipt it is reported *could not be confirmed*. On
+   the Mac, a replay whose twin is still in flight answers 503, as `/answer`
+   does, so the phone keeps it unconfirmed rather than reporting delivery.
+   A decision whose earlier decision on the same target is being posted
+   this instant is refused rather than queued behind it.
 4. **Every surface says where the decision is.** The Watch's reply
    vocabulary gains `queued` with a `reason`; the card reads *Your iPhone is
    holding this — Surge or Tailscale is off on it. It will be sent when the

@@ -65,7 +65,9 @@ final class DashboardStore: ObservableObject {
     func phoneActionDisabled(for session: AgentSession) -> Bool {
         guard isDemo || state == .connected else { return true }
         guard let result = phoneActionState(for: session) else { return false }
-        return result == .sending || result == .unconfirmed
+        // `held` counts as in flight: the queue will post it on reconnect,
+        // and a second tap beside that would be a second decision.
+        return result == .sending || result == .unconfirmed || result == .held
             || (result == .received && (session.pendingApproval != nil || session.pendingQuestion != nil))
     }
 
@@ -490,7 +492,10 @@ final class DashboardStore: ObservableObject {
         // delivered when the link returns; a stop is not, and the wrist is
         // told which link is missing (ADR-0032).
         guard isDemo || state == .connected else {
-            if case .refused = watchActions.admit(request, sessions: allSessions) {
+            // An empty memory (a cold launch, no snapshot yet) is not proof
+            // the prompt is gone; only a loaded session that no longer shows
+            // it is. The flush judges a held tap against the Mac's own copy.
+            if !allSessions.isEmpty, case .refused = watchActions.admit(request, sessions: allSessions) {
                 return result(.refused)
             }
             if let reason = hold(request.action, sessionId: request.sessionId,
@@ -748,6 +753,7 @@ final class DashboardStore: ObservableObject {
         lastServerTime = .distantPast
         groups = SessionGroups([])
         state = .connecting
+        linkAbandoned = false
         relayToWatch([])
         policy = SoundPolicy()                        // fresh connection → suppress the backlog
         let generation = connectionGeneration
@@ -805,6 +811,7 @@ final class DashboardStore: ObservableObject {
         CompletionNoticePhoneContext.sessions = []
         runTask?.cancel()
         runTask = nil
+        linkAbandoned = true
         state = .failed(String(localized: "Disconnected"))
         failure = nil
         relayToWatch(allSessions)
@@ -950,6 +957,8 @@ final class DashboardStore: ObservableObject {
             if action.origin == .phone { showToast(String(localized: "The request was resolved before your held decision could be sent.")) }
         case .dropped:
             if action.origin == .phone { showToast(String(localized: "Your held decision could not be delivered. Decide again.")) }
+        case .uncertain:
+            if action.origin == .phone { showToast(String(localized: "Your held decision could not be confirmed. Check the task on your Mac.")) }
         case .stillHeld, .superseded, .cancelled:
             break
         }
@@ -976,25 +985,31 @@ final class DashboardStore: ObservableObject {
     /// state of this phone rather than guessed.
     private func currentFailureReason() -> ConnectionFailureReason {
         if let failure { return failure }
-        return ConnectionDiagnosis.diagnose(endpoint: pairing?.endpoint, kind: .unreachable,
-                                            phoneHasTailnet: phoneHasTailnet())
+        return ConnectionDiagnosis.diagnose(endpoint: (pairing ?? ConnectionStore().pairing)?.endpoint,
+                                            kind: .unreachable, phoneHasTailnet: phoneHasTailnet())
     }
+
+    /// True after `stop()` / `forgetPairing()` until the next `start`: the
+    /// person ended the link, so nothing is held for it.
+    private var linkAbandoned = false
 
     /// Keep a decision the Mac could not be given, if it is one that keeps.
     /// Returns the reason it was held under, or nil when it was not held.
     @discardableResult
     private func hold(_ action: WatchSessionAction, sessionId: String, key: String,
                       origin: QueuedSessionAction.Origin) -> ConnectionFailureReason? {
-        // A stopped store (no pairing, or the person disconnected) has no
-        // link to wait for; only a live pairing that is reconnecting holds.
-        guard !isDemo, !action.isDestructive, pairing != nil, runTask != nil else { return nil }
+        // A pairing the person ended has no link to wait for. A pairing that
+        // is merely not started yet — a wrist tap waking the app cold, before
+        // the stream is up — does: the saved one is what the flush will use.
+        guard !isDemo, !action.isDestructive, !linkAbandoned,
+              pairing != nil || ConnectionStore().pairing != nil else { return nil }
         let reason = currentFailureReason()
         guard reason.isRetryable else { return nil }
         let session = allSessions.first { $0.id == sessionId }
-        pendingActions.hold(QueuedSessionAction(
+        let stored = pendingActions.hold(QueuedSessionAction(
             id: key, sessionId: sessionId, action: action, origin: origin, pairingEpoch: pairingEpoch,
             queuedAt: Date(), project: session?.project, agent: session?.agent), reason: reason)
-        return reason
+        return stored ? reason : nil
     }
 
     /// The transport's error, in the three shapes the diagnosis reads.
@@ -1630,7 +1645,9 @@ final class DashboardStore: ObservableObject {
         confirmConnectedPairing()
         // The link is back: deliver what was held while it was down, once
         // each, under the keys the Mac already knows (ADR-0032).
-        if wasDisconnected || !pendingActions.isEmpty, let pairing, !isDemo {
+        // On the reconnect only, not on every frame: a wedged route must not
+        // burn the queue's attempts at the stream's pace.
+        if wasDisconnected, !pendingActions.isEmpty, let pairing, !isDemo {
             let epoch = pairingEpoch
             Task { [weak self] in
                 guard let self else { return }

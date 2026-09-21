@@ -115,25 +115,33 @@ public struct SessionActionQueue: Codable, Equatable, Sendable {
     public var isEmpty: Bool { items.isEmpty }
     public var count: Int { items.count }
 
+    /// What `hold` did, so the caller never reports a hold that did not happen.
+    public enum HoldResult: Equatable, Sendable {
+        /// In the queue, with the earlier decision on the same target it
+        /// replaced, if there was one.
+        case stored(replaced: QueuedSessionAction?)
+        /// Not stored: a destructive action, or the queue is full. Nothing
+        /// changed, and the caller must report a failure, not a hold.
+        case rejected
+    }
+
     /// Hold an action. A later action on the same target replaces the earlier
     /// one — a Deny after a held Approve is a change of mind, and delivering
-    /// both would be delivering neither. Returns the action it replaced.
-    /// A destructive action or one beyond the limit is not held; the caller
-    /// reports failure instead.
+    /// both would be delivering neither.
     @discardableResult
-    public mutating func hold(_ action: QueuedSessionAction) -> QueuedSessionAction? {
-        guard action.isHoldable else { return nil }
+    public mutating func hold(_ action: QueuedSessionAction) -> HoldResult {
+        guard action.isHoldable else { return .rejected }
         if let existing = items.firstIndex(where: { $0.id == action.id }) {
             items[existing] = action
-            return nil
+            return .stored(replaced: nil)
         }
-        var superseded: QueuedSessionAction?
-        if let same = items.firstIndex(where: { $0.targetKey == action.targetKey }) {
-            superseded = items.remove(at: same)
-        }
-        guard items.count < Self.limit else { return superseded }
+        let sameTarget = items.firstIndex { $0.targetKey == action.targetKey }
+        // Full, and nothing of this target's to replace: refuse before
+        // touching anything.
+        guard sameTarget != nil || items.count < Self.limit else { return .rejected }
+        let superseded = sameTarget.map { items.remove(at: $0) }
         items.append(action)
-        return superseded
+        return .stored(replaced: superseded)
     }
 
     @discardableResult

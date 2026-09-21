@@ -147,7 +147,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         // Snapshot them before leaving the delegate's isolation context.
         let userInfo = [
             NotificationUserInfoKey.sessionId: request.content.userInfo[NotificationUserInfoKey.sessionId] as? String,
-            NotificationUserInfoKey.approvalId: request.content.userInfo[NotificationUserInfoKey.approvalId] as? String
+            NotificationUserInfoKey.approvalId: request.content.userInfo[NotificationUserInfoKey.approvalId] as? String,
+            NotificationUserInfoKey.questionId: request.content.userInfo[NotificationUserInfoKey.questionId] as? String
         ].compactMapValues { $0 }
         // The async delegate bridge can finish on a cooperative executor. UIKit's
         // notification-response completion restores scene state and requires main.
@@ -201,14 +202,19 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             client: HTTPDecisionClient(),
             epoch: epoch,
             hold: { action, reason in
-                Task { @MainActor in PendingActionStore.shared.hold(action, reason: reason) }
+                // Saved and reported before this returns: iOS may suspend the
+                // process the moment the completion handler runs, and an
+                // unfinished hold would be the silent drop all over again.
+                await MainActor.run { _ = PendingActionStore.shared.hold(action, reason: reason) }
             })
         switch outcome {
         case .openSession(let id):
             await MainActor.run {
                 _ = UIApplication.shared.open(VibeBuddyDeepLink.sessionURL(id: id))
             }
-        case .held, .ignored:
+        case .held:
+            await LocalNotifier.settle()
+        case .ignored:
             break
         }
     }
@@ -231,6 +237,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         case .unreachable(let reason):
             guard reason.isRetryable else { return .noData }
             LocalNotifier().warnUnreachable(reason, macName: pairing.macName)
+            await LocalNotifier.settle()
             return .newData
         }
     }

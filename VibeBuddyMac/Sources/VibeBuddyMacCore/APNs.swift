@@ -196,6 +196,7 @@ public actor APNsPusher {
                      category: String? = nil,
                      timeSensitive: Bool = false,
                      approvalId: String? = nil,
+                     questionId: String? = nil,
                      waitSince: Date? = nil,
                      holdForPhone: Bool = false,
                      notificationID: String? = nil,
@@ -244,7 +245,7 @@ public actor APNsPusher {
         request.httpBody = Data(Self.alertPayload(title: title, body: body, sound: sound,
                                                   sessionID: sessionID, localized: localized,
                                                   category: category, timeSensitive: timeSensitive,
-                                                  approvalId: approvalId,
+                                                  approvalId: approvalId, questionId: questionId,
                                                   contentAvailable: category != nil).utf8)
         do {
             guard await validate() else {
@@ -288,6 +289,7 @@ public actor APNsPusher {
                                          category: String? = nil,
                                          timeSensitive: Bool = false,
                                          approvalId: String? = nil,
+                                         questionId: String? = nil,
                                          contentAvailable: Bool = false) -> String {
         var alert = #""title":"\#(escape(title))","body":"\#(escape(body))""#
         if let localized {
@@ -307,7 +309,8 @@ public actor APNsPusher {
         let wakeField = contentAvailable ? #","content-available":1"# : ""
         let sessionField = sessionID.map { #","sessionId":"\#(escape($0))""# } ?? ""
         let approvalField = approvalId.map { #","approvalId":"\#(escape($0))""# } ?? ""
-        return #"{"aps":{"alert":{\#(alert)}\#(soundField)\#(threadField)\#(categoryField)\#(interruptionField)\#(wakeField)}\#(sessionField)\#(approvalField)}"#
+        let questionField = questionId.map { #","questionId":"\#(escape($0))""# } ?? ""
+        return #"{"aps":{"alert":{\#(alert)}\#(soundField)\#(threadField)\#(categoryField)\#(interruptionField)\#(wakeField)}\#(sessionField)\#(approvalField)\#(questionField)}"#
     }
 
     /// APNs answers every failure with `{"reason":"…"}`; success bodies are empty.

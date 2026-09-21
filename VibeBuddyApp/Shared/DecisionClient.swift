@@ -329,11 +329,21 @@ struct HTTPDecisionClient: DecisionClient {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let body = ["approvalId": approvalId, "decision": decision.rawValue, "requestId": requestID]
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        // No answer at all — refused route, no route, timeout — is the one
-        // ending a decision may be held on. With the key on the wire, a
-        // timeout that did land is answered as a duplicate later, not applied.
-        guard let (_, response) = try? await URLSession.shared.data(for: req) else { return .unreachable }
-        return WaitActionResult(statusCode: (response as? HTTPURLResponse)?.statusCode)
+        // Only a POST that never left — no route, no host, no network — is
+        // `unreachable` and may be held. A timeout or a reset after the body
+        // went out is a lost receipt: the Mac may have acted, so it is
+        // reported as failed-to-confirm rather than replayed.
+        do {
+            let (_, response) = try await URLSession.shared.data(for: req)
+            return WaitActionResult(statusCode: (response as? HTTPURLResponse)?.statusCode)
+        } catch let error as URLError {
+            switch error.code {
+            case .cannotConnectToHost, .cannotFindHost, .notConnectedToInternet, .dnsLookupFailed:
+                return .unreachable
+            default:
+                return .failed
+            }
+        } catch { return .failed }
     }
 
     func answerResult(_ pairing: PairingPayload, sessionId: String, answer: String) async -> WaitActionResult {
@@ -342,10 +352,21 @@ struct HTTPDecisionClient: DecisionClient {
         req.httpMethod = "POST"
         req.setValue("Bearer \(pairing.token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.timeoutInterval = 15
         req.httpBody = try? JSONSerialization.data(withJSONObject: ["sessionId": sessionId, "answer": answer])
-        guard let (_, response) = try? await URLSession.shared.data(for: req) else { return .failed }
-        let status = (response as? HTTPURLResponse)?.statusCode
-        return status == 202 ? .alreadyResolved : WaitActionResult(statusCode: status)
+        do {
+            let (_, response) = try await URLSession.shared.data(for: req)
+            let status = (response as? HTTPURLResponse)?.statusCode
+            return status == 202 ? .alreadyResolved : WaitActionResult(statusCode: status)
+        } catch let error as URLError {
+            // Same rule as `decideResult`: only a POST that never left may be held.
+            switch error.code {
+            case .cannotConnectToHost, .cannotFindHost, .notConnectedToInternet, .dnsLookupFailed:
+                return .unreachable
+            default:
+                return .failed
+            }
+        } catch { return .failed }
     }
 
     func dispatch(_ pairing: PairingPayload, request: DispatchRequest) async -> DispatchOutcome? {

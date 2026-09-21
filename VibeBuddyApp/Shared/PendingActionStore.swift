@@ -9,9 +9,13 @@ enum HeldDeliveryEvent: Equatable {
     case superseded(QueuedSessionAction, by: QueuedSessionAction)
     /// The Mac took it — once, under its request id.
     case delivered(QueuedSessionAction)
-    /// The Mac says the request is no longer waiting: resolved elsewhere or
-    /// expired. Nothing was applied.
+    /// The Mac says the request is no longer waiting, and this phone never
+    /// managed to send the decision: nothing was applied.
     case gone(QueuedSessionAction)
+    /// The request is no longer waiting *after* this phone sent the decision
+    /// at least once without a receipt. Whether it was applied is not
+    /// something the phone can say; the person has to look.
+    case uncertain(QueuedSessionAction)
     /// A pass ran and the Mac still could not be reached.
     case stillHeld(QueuedSessionAction, reason: ConnectionFailureReason?)
     /// Too old, too many tries, or a re-pairing: given up, nothing applied.
@@ -21,7 +25,7 @@ enum HeldDeliveryEvent: Equatable {
 
     var action: QueuedSessionAction {
         switch self {
-        case .held(let a, _), .superseded(let a, _), .delivered(let a), .gone(let a),
+        case .held(let a, _), .superseded(let a, _), .delivered(let a), .gone(let a), .uncertain(let a),
              .stillHeld(let a, _), .dropped(let a), .cancelled(let a):
             return a
         }
@@ -46,6 +50,12 @@ final class PendingActionStore: ObservableObject {
     /// the wrist, toasts, and hands notifications to the notifier.
     var onEvent: ((HeldDeliveryEvent) -> Void)?
     private(set) var isFlushing = false
+    /// A pass was asked for while one was running; run once more after it.
+    private var followUp: (pairing: PairingPayload, epoch: String, client: DecisionClient)?
+    /// Items whose POST is out right now. A decision on the same target may
+    /// not replace one of these: the earlier POST cannot be recalled, and
+    /// delivering the later one on top would be delivering neither.
+    private var inFlight: Set<String> = []
 
     private let url: URL?
 
@@ -70,20 +80,27 @@ final class PendingActionStore: ObservableObject {
 
     var isEmpty: Bool { queue.isEmpty }
 
-    /// Take a decision the Mac could not be given. Reports the hold, and the
-    /// earlier decision it replaced if there was one.
-    func hold(_ action: QueuedSessionAction, reason: ConnectionFailureReason?) {
-        guard action.isHoldable else { return }
+    /// Take a decision the Mac could not be given. Returns whether it is now
+    /// in the queue; only then is a hold reported. A queue that is full, or a
+    /// target whose earlier decision is being delivered this instant, refuses.
+    @discardableResult
+    func hold(_ action: QueuedSessionAction, reason: ConnectionFailureReason?) -> Bool {
+        guard action.isHoldable else { return false }
+        if let sameTarget = queue.items.first(where: { $0.targetKey == action.targetKey }),
+           sameTarget.id != action.id, inFlight.contains(sameTarget.id) {
+            return false
+        }
         var held = action
         held.lastReason = reason
-        let replaced = queue.hold(held)
+        guard case .stored(let replaced) = queue.hold(held) else { return false }
         save()
         if let replaced { onEvent?(.superseded(replaced, by: held)) }
         onEvent?(.held(held, reason: reason))
+        return true
     }
 
     func cancel(id: String) {
-        guard let removed = queue.remove(id: id) else { return }
+        guard !inFlight.contains(id), let removed = queue.remove(id: id) else { return }
         save()
         onEvent?(.cancelled(removed))
     }
@@ -101,9 +118,14 @@ final class PendingActionStore: ObservableObject {
 
     /// One delivery pass. Reads the Mac's own snapshot first, so a held
     /// decision is judged against the live request the way a fresh tap is,
-    /// and never against the phone's memory of it.
+    /// and never against the phone's memory of it. An attempt is counted only
+    /// when a decision was actually posted; a snapshot that could not be read
+    /// says nothing about the decision.
     func flush(pairing: PairingPayload, epoch: String, client: DecisionClient, now: Date = Date()) async {
-        guard !isFlushing else { return }
+        guard !isFlushing else {
+            followUp = (pairing, epoch, client)
+            return
+        }
         prune(now: now, epoch: epoch)
         guard !queue.isEmpty else { return }
         isFlushing = true
@@ -111,32 +133,34 @@ final class PendingActionStore: ObservableObject {
         guard let snapshot = await client.actionSnapshot(pairing) else {
             let reason = ConnectionDiagnosis.diagnose(endpoint: pairing.endpoint, kind: .unreachable,
                                                       phoneHasTailnet: PhoneNetwork.hasTailnetAddress())
-            for item in queue.items {
-                queue.noteAttempt(id: item.id, reason: reason)
-                onEvent?(.stillHeld(item, reason: reason))
-            }
-            save()
-            prune(now: now, epoch: epoch)
+            for item in queue.items { onEvent?(.stillHeld(item, reason: reason)) }
             return
         }
-        for item in queue.items where item.pairingEpoch == epoch {
+        for stale in queue.items where stale.pairingEpoch == epoch {
+            // Re-read right before the POST: the person may have cancelled or
+            // revised it while an earlier item's POST was out.
+            guard let item = queue.item(id: stale.id) else { continue }
             guard let session = snapshot.sessions.first(where: { $0.id == item.sessionId }) else {
-                settle(item, .gone); continue
+                settle(item, targetGone: true); continue
             }
             let result: PhoneActionResult
+            inFlight.insert(item.id)
+            defer { inFlight.remove(item.id) }
             switch item.action {
             case .approval(let id, let choice):
-                guard ApprovalEligibility.approval(for: session)?.id == id else { settle(item, .gone); continue }
+                guard ApprovalEligibility.approval(for: session)?.id == id else {
+                    settle(item, targetGone: true); continue
+                }
                 result = await client.phoneDecision(pairing, approvalId: id, decision: choice.decision,
                                                     requestID: item.id)
             case .answer(let pendingId, let text):
                 guard let question = session.pendingQuestion, question.id == pendingId,
-                      question.isAnswerable else { settle(item, .gone); continue }
+                      question.isAnswerable else { settle(item, targetGone: true); continue }
                 result = await client.phoneAnswer(pairing, session: session, text: text, answers: nil,
                                                   requestID: item.id)
             case .answerAll(let pendingId, let answers):
                 guard let question = session.pendingQuestion, question.id == pendingId,
-                      question.isAnswerable else { settle(item, .gone); continue }
+                      question.isAnswerable else { settle(item, targetGone: true); continue }
                 result = await client.phoneAnswer(pairing, session: session, text: nil, answers: answers,
                                                   requestID: item.id)
             case .stop:
@@ -146,7 +170,10 @@ final class PendingActionStore: ObservableObject {
             case .received:
                 settle(item, .delivered)
             case .expired:
-                settle(item, .gone)
+                // The Mac answered and the request is gone. On a first
+                // attempt nothing was applied; on a later one the earlier
+                // receipt may simply have been lost, and only a look can say.
+                settle(item, targetGone: true)
             case .failed, .unconfirmed, .sending, .notPaired, .held:
                 // A lost receipt is retried under the same id; the Mac's
                 // request log answers a repeat without applying it again.
@@ -158,17 +185,29 @@ final class PendingActionStore: ObservableObject {
             }
         }
         prune(now: now, epoch: epoch)
+        if let next = followUp {
+            followUp = nil
+            isFlushing = false
+            await flush(pairing: next.pairing, epoch: next.epoch, client: next.client, now: Date())
+        }
     }
 
-    private func settle(_ item: QueuedSessionAction, _ disposal: QueuedActionDisposal) {
+    /// The request this decision was for is no longer waiting. Whether that
+    /// means "nothing applied" depends on whether this phone ever posted it.
+    private func settle(_ item: QueuedSessionAction, targetGone: Bool) {
+        settle(item, item.attempts > 0 ? .uncertain : .gone)
+    }
+
+    private enum Settlement { case delivered, gone, uncertain, dropped }
+
+    private func settle(_ item: QueuedSessionAction, _ settlement: Settlement) {
         guard queue.remove(id: item.id) != nil else { return }
         save()
-        switch disposal {
+        switch settlement {
         case .delivered: onEvent?(.delivered(item))
         case .gone: onEvent?(.gone(item))
+        case .uncertain: onEvent?(.uncertain(item))
         case .dropped: onEvent?(.dropped(item))
-        case .cancelled: onEvent?(.cancelled(item))
-        case .superseded: break
         }
     }
 

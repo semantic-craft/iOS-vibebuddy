@@ -1209,7 +1209,9 @@ private struct EmptyStateView: View {
                     }
                 }
                 .sheet(isPresented: $showMacHelp) { MacCompanionSetupSheet() }
-                .navigationDestination(isPresented: $showRemoteSetup) { RemoteConnectionView() }
+                // A sheet, not a navigation destination: this view sits in a
+                // list row, where a pushed destination does not reliably fire.
+                .sheet(isPresented: $showRemoteSetup) { NavigationStack { RemoteConnectionView() } }
             } else {
                 PhoneEmptyState(symbol: "wifi.exclamationmark",
                                 title: String(localized: "Disconnected"),

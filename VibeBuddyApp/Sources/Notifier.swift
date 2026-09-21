@@ -152,6 +152,7 @@ struct LocalNotifier: AttentionNotifier {
                 try await Self.post(title: title, body: body, sound: sound, delivery: delivery,
                                     id: cue.identifier, sessionID: sessionID,
                                     approvalId: alert.session.pendingApproval?.id,
+                                    questionId: alert.session.pendingQuestion?.id,
                                     timeSensitive: alert.isTimeSensitive, category: alert.actionCategory)
             } catch {
                 return false   // nothing shown, so nothing for the Mac to stand down for
@@ -207,6 +208,10 @@ struct LocalNotifier: AttentionNotifier {
         case .gone:
             title = String(localized: "\(what) for \(project) no longer needed")
             body = String(localized: "The request was resolved before your iPhone could send it. Nothing was applied.")
+        case .uncertain:
+            title = String(localized: "\(what) for \(project) could not be confirmed")
+            body = String(localized: "Your iPhone sent it, lost the receipt, and the request is now gone. Check the task on \(mac).")
+            sound = .needsApproval
         case .dropped:
             title = String(localized: "\(what) for \(project) was not delivered")
             body = String(localized: "\(mac) stayed unreachable. Open VibeBuddy to decide again.")
@@ -225,6 +230,13 @@ struct LocalNotifier: AttentionNotifier {
             try? await Self.post(title: title, body: body, sound: cue, delivery: delivery,
                                  id: id, sessionID: sessionID, timeSensitive: urgent)
         }
+    }
+
+    /// Wait until every notification asked for so far has been handed to the
+    /// system. A background wake ends the moment its completion handler runs;
+    /// what is still queued here at that point may never be posted.
+    static func settle() async {
+        await chain.enqueue { }.value
     }
 
     /// Posted once per outage, replaced in place, withdrawn on reconnect.
@@ -253,7 +265,8 @@ struct LocalNotifier: AttentionNotifier {
     private static func post(title: String, body: String, sound: NotificationSound,
                              delivery: DeliveryLevel = .bannerSound,
                              id: String, sessionID: String? = nil,
-                             approvalId: String? = nil, timeSensitive: Bool = false,
+                             approvalId: String? = nil, questionId: String? = nil,
+                             timeSensitive: Bool = false,
                              category: NotificationCategoryID? = nil) async throws {
         let content = UNMutableNotificationContent()
         content.title = title
@@ -274,7 +287,8 @@ struct LocalNotifier: AttentionNotifier {
         if let sessionID {
             content.threadIdentifier = sessionID
             content.targetContentIdentifier = sessionID
-            content.userInfo = NotificationUserInfoKey.make(sessionId: sessionID, approvalId: approvalId)
+            content.userInfo = NotificationUserInfoKey.make(sessionId: sessionID, approvalId: approvalId,
+                                                            questionId: questionId)
         }
         let center = UNUserNotificationCenter.current()
         // Simulator QA (`VIBEBUDDY_SKIP_NOTIFICATIONS=1`) must not raise the

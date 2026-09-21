@@ -30,6 +30,11 @@ private final class ScriptedWaitClient: DecisionClient, @unchecked Sendable {
     func setAttention(_ pairing: PairingPayload, sessionId: String, level: SessionAttention?) async {}
 }
 
+private actor HeldRecorder {
+    private(set) var entries: [(QueuedSessionAction, ConnectionFailureReason?)] = []
+    func record(_ action: QueuedSessionAction, _ reason: ConnectionFailureReason?) { entries.append((action, reason)) }
+}
+
 final class BannerActionRunnerTests: XCTestCase {
     private let pairing = PairingPayload(host: "127.0.0.1", port: 9, token: "t")
     private var info: [AnyHashable: Any] {
@@ -93,19 +98,39 @@ final class BannerActionRunnerTests: XCTestCase {
 
     func testAnUnreachableMacHoldsApproveUnderTheRequestKey() async {
         let client = ScriptedWaitClient(decideStatus: .unreachable)
-        var held: [(QueuedSessionAction, ConnectionFailureReason?)] = []
+        let held = HeldRecorder()
         let outcome = await BannerActionRunner.perform(
             actionIdentifier: NotificationActionID.approve.rawValue,
-            userInfo: info, text: nil, pairing: PairingPayload(host: "100.64.0.2", port: 9876, token: "t"),
-            client: client, epoch: "e1", hold: { held.append(($0, $1)) }, phoneHasTailnet: { false })
+            userInfo: info, text: nil, pairing: PairingPayload(host: "100.100.0.7", port: 9876, token: "t"),
+            client: client, epoch: "e1", hold: { await held.record($0, $1) }, phoneHasTailnet: { false })
         guard case .held(let sessionId, let key) = outcome else { return XCTFail("\(outcome)") }
         XCTAssertEqual(sessionId, "s1")
-        XCTAssertEqual(held.count, 1)
-        XCTAssertEqual(held.first?.0.id, key, "the hold is filed under the key the Mac was asked with")
-        XCTAssertEqual(held.first?.0.action, .approval(id: "ap-1", choice: .allow))
-        XCTAssertEqual(held.first?.0.origin, .banner)
-        XCTAssertEqual(held.first?.0.pairingEpoch, "e1")
-        XCTAssertEqual(held.first?.1, .tailnetOff(host: "100.64.0.2"))
+        let entries = await held.entries
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries.first?.0.id, key, "the hold is filed under the key the Mac was asked with")
+        XCTAssertEqual(entries.first?.0.action, .approval(id: "ap-1", choice: .allow))
+        XCTAssertEqual(entries.first?.0.origin, .banner)
+        XCTAssertEqual(entries.first?.0.pairingEpoch, "e1")
+        XCTAssertEqual(entries.first?.1, .tailnetOff(host: "100.100.0.7"))
+    }
+
+    func testAReplyThatNamesItsQuestionIsHeldAndAnUnnamedOneIsNot() async {
+        let client = ScriptedWaitClient(answerStatus: .unreachable)
+        let held = HeldRecorder()
+        var named = info
+        named[NotificationUserInfoKey.questionId] = "q-7"
+        let outcome = await BannerActionRunner.perform(
+            actionIdentifier: NotificationActionID.answer.rawValue, userInfo: named, text: "ship it",
+            pairing: pairing, client: client, epoch: "e1", hold: { await held.record($0, $1) },
+            phoneHasTailnet: { true })
+        guard case .held = outcome else { return XCTFail("\(outcome)") }
+        let entries = await held.entries
+        XCTAssertEqual(entries.first?.0.action, .answer(pendingId: "q-7", text: "ship it"))
+        // An older Mac's push names no question: nothing to hold against.
+        let unnamed = await BannerActionRunner.perform(
+            actionIdentifier: NotificationActionID.answer.rawValue, userInfo: info, text: "ship it",
+            pairing: pairing, client: client, epoch: "e1", hold: { _, _ in XCTFail("an unnamed reply was held") })
+        XCTAssertEqual(unnamed, .openSession("s1"))
     }
 
     func testAnUnreachableMacWithoutAQueueStillOpensTheSession() async {
@@ -116,11 +141,6 @@ final class BannerActionRunnerTests: XCTestCase {
                 pairing: pairing, client: client)
             XCTAssertEqual(outcome, .openSession("s1"))
         }
-        // A reply names no question, so it is never held even with a queue.
-        let outcome = await BannerActionRunner.perform(
-            actionIdentifier: NotificationActionID.answer.rawValue, userInfo: info, text: "yes",
-            pairing: pairing, client: client, hold: { _, _ in XCTFail("an answer was held") })
-        XCTAssertEqual(outcome, .openSession("s1"))
     }
 
     func testNoPairingOpensTheSession() async {

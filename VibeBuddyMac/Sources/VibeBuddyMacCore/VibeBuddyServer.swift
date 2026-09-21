@@ -382,6 +382,7 @@ public struct VibeBuddyServer: Sendable {
                                                                category: alert.actionCategory?.rawValue,
                                                                timeSensitive: alert.isTimeSensitive && recipient.level == .bannerSound,
                                                                approvalId: alert.actionCategory == .approval ? session.pendingApproval?.id : nil,
+                                                               questionId: alert.actionCategory == .question ? session.pendingQuestion?.id : nil,
                                                                waitSince: session.statusSince, holdForPhone: hold)
                                 await deviceTokens.applySendResult(result, token: deviceToken)
                             }
@@ -967,9 +968,11 @@ public struct VibeBuddyServer: Sendable {
             let requestID = (obj["requestId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             if let requestID, let prior = await self.actionRequests.claim(requestID) {
                 switch prior {
-                // `.unknown` is the twin of this request still in flight; it
-                // will resolve the prompt, so this copy landed too.
-                case .accepted, .unknown: return .ok
+                case .accepted: return .ok
+                // The twin of this request is still in flight and may yet be
+                // refused: say so with the same 503 `/answer` gives, which the
+                // phone keeps as unconfirmed rather than reporting delivery.
+                case .unknown: return .serviceUnavailable
                 case .refused, .failed: return .conflict
                 }
             }

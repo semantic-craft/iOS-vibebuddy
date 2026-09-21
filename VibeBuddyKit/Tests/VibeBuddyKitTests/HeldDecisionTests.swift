@@ -47,8 +47,8 @@ final class HeldDecisionTests: XCTestCase {
 
     func testLaterDecisionOnSameTargetSupersedesEarlier() {
         var queue = SessionActionQueue()
-        XCTAssertNil(queue.hold(approve("a")))
-        let replaced = queue.hold(approve("b", choice: .deny))
+        XCTAssertEqual(queue.hold(approve("a")), .stored(replaced: nil))
+        guard case .stored(let replaced) = queue.hold(approve("b", choice: .deny)) else { return XCTFail() }
         XCTAssertEqual(replaced?.id, "a")
         XCTAssertEqual(queue.items.map(\.id), ["b"])
         XCTAssertEqual(queue.held(approvalId: "ap-1")?.choice, .deny)
@@ -62,8 +62,19 @@ final class HeldDecisionTests: XCTestCase {
         let stop = QueuedSessionAction(id: "x", sessionId: "s1", action: .stop(statusSince: now),
                                        origin: .watch, pairingEpoch: "e1", queuedAt: now)
         XCTAssertFalse(stop.isHoldable)
-        queue.hold(stop)
+        XCTAssertEqual(queue.hold(stop), .rejected)
         XCTAssertTrue(queue.isEmpty)
+    }
+
+    func testAFullQueueRefusesANewTargetButStillRevisesAnOldOne() {
+        var queue = SessionActionQueue()
+        for i in 0..<SessionActionQueue.limit { queue.hold(approve("id-\(i)", approvalId: "ap-\(i)")) }
+        XCTAssertEqual(queue.hold(approve("late", approvalId: "ap-late")), .rejected)
+        XCTAssertEqual(queue.count, SessionActionQueue.limit)
+        guard case .stored(let replaced) = queue.hold(approve("revise", approvalId: "ap-3", choice: .deny))
+        else { return XCTFail() }
+        XCTAssertEqual(replaced?.id, "id-3")
+        XCTAssertEqual(queue.count, SessionActionQueue.limit)
     }
 
     func testPruneDropsOtherEpochsOldAndExhausted() {
