@@ -82,6 +82,7 @@ public struct VibeBuddyServer: Sendable {
     /// Nil (route tests, an older wiring) leaves the terminal launcher in
     /// charge and Cursor sessions on their hooks.
     public let cursorACP: CursorACPMonitor?
+    public let grokACP: GrokACPMonitor?
     /// Tails Cursor's agent transcripts. Optional so route tests consume no
     /// host state, exactly like the Codex rollout source.
     public let cursorTranscriptMonitor: CursorTranscriptMonitor?
@@ -140,6 +141,7 @@ public struct VibeBuddyServer: Sendable {
                 claudeLauncher: ClaudeBackgroundLauncher = ClaudeBackgroundLauncher(),
                 cursorLauncher: CursorLauncher = CursorLauncher(),
                 cursorACP: CursorACPMonitor? = nil,
+                grokACP: GrokACPMonitor? = nil,
                 cursorTranscriptMonitor: CursorTranscriptMonitor? = nil,
                 cursorCloud: CursorCloudAgentClient = CursorCloudAgentClient(),
                 cursorCloudMonitor: CursorCloudAgentMonitor? = nil,
@@ -181,6 +183,7 @@ public struct VibeBuddyServer: Sendable {
         self.claudeLauncher = claudeLauncher
         self.cursorLauncher = cursorLauncher
         self.cursorACP = cursorACP
+        self.grokACP = grokACP
         self.cursorTranscriptMonitor = cursorTranscriptMonitor
         self.cursorCloud = cursorCloud
         self.cursorCloudMonitor = cursorCloudMonitor
@@ -206,6 +209,7 @@ public struct VibeBuddyServer: Sendable {
         await store.setCursorModels(cursor ? await cursorACP?.models() ?? [] : [])
         if !cursor { cursor = await cursorLauncher.isSupported() }
         if cursor { agents.append(.cursor) }
+        if let grokACP, await grokACP.isSupported() { agents.append(.grok) }
         // Remembered by the store so pushed snapshots say the same as GET /snapshot.
         await store.setDispatchAgents(agents)
         return agents
@@ -253,6 +257,7 @@ public struct VibeBuddyServer: Sendable {
             try await buildApplication().runService()
         } catch {
             await cursorACP?.shutdown()
+            await grokACP?.shutdown()
             grokTask?.cancel()
             await grokTask?.value
             monitorTask?.cancel()
@@ -262,6 +267,7 @@ public struct VibeBuddyServer: Sendable {
             throw error
         }
         await cursorACP?.shutdown()
+            await grokACP?.shutdown()
         grokTask?.cancel()
         await grokTask?.value
         monitorTask?.cancel()
@@ -799,6 +805,12 @@ public struct VibeBuddyServer: Sendable {
             if agent == .cursor, await store.isACPHosted(sessionID) {
                 return Response(status: .ok)
             }
+            // A Grok session hosted over ACP receives its permission and
+            // question requests on that pipe (ADR-0030); its hooks still fire,
+            // and their gate must not raise a second card.
+            if agent == .grok, await store.isACPHosted(sessionID) {
+                return Response(status: .ok)
+            }
             if agent == .cursor, tool == CursorToolVocabulary.askQuestionTool {
                 guard let question = CursorAskQuestionInput.pendingQuestion(from: input, id: makeID()) else {
                     return Response(status: .ok)
@@ -1100,6 +1112,7 @@ public struct VibeBuddyServer: Sendable {
         // agent, 503 launcher unavailable.
         let dispatcher = TaskDispatcher(store: store, codex: codexAppServerMonitor,
                                         claude: claudeLauncher, cursor: cursorLauncher, cursorACP: cursorACP,
+                                        grokACP: grokACP,
                                         launchOverride: onDispatch)
         authed.post("dispatch") { request, _ -> Response in
             let buffer = try await request.body.collect(upTo: 64 * 1024)
@@ -1166,16 +1179,25 @@ public struct VibeBuddyServer: Sendable {
         let cursorCloud = self.cursorCloud
         let dispatch = AnswerDispatch(store: store, questions: questionRegistry, inject: self.onAnswer,
                                       steer: { sessionID, text in
-                                          await monitor?.steer(threadID: sessionID, text: text) ?? false
+                                          if let grokACP, await grokACP.hosts(sessionID) {
+                                              return await grokACP.queueFollowup(sessionID: sessionID, text: text)
+                                          }
+                                          return await monitor?.steer(threadID: sessionID, text: text) ?? false
                                       },
                                       startTurn: { sessionID, text in
-                                          await monitor?.startTurn(threadID: sessionID, text: text) ?? false
+                                          if let grokACP, await grokACP.hosts(sessionID) {
+                                              return await grokACP.prompt(sessionID: sessionID, text: text)
+                                          }
+                                          return await monitor?.startTurn(threadID: sessionID, text: text) ?? false
                                       },
                                       interrupt: { sessionID in
-                                          // A hosted Cursor conversation is cancelled on its
-                                          // own pipe; everything else is Codex's interrupt.
+                                          // A hosted Cursor or Grok conversation is cancelled on
+                                          // its own pipe; everything else is Codex's interrupt.
                                           if let cursorACP, await cursorACP.hosts(sessionID) {
                                               return await cursorACP.cancel(sessionID: sessionID)
+                                          }
+                                          if let grokACP, await grokACP.hosts(sessionID) {
+                                              return await grokACP.cancel(sessionID: sessionID)
                                           }
                                           return await monitor?.interrupt(threadID: sessionID)
                                               ?? .notSent(String(localized: "This Mac isn't watching Codex."))

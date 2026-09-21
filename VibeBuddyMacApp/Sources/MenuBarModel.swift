@@ -148,6 +148,7 @@ final class MenuBarModel: ObservableObject {
     /// Cursor task all travel this pipe. Given no executable during isolated
     /// acceptance, so it reports unsupported and spawns nothing.
     private let cursorACP: CursorACPMonitor
+    private let grokACP: GrokACPMonitor
     private let grokBotMonitor: GrokBotMonitor
     /// Live account usage from Claude's status line and the Codex daemon,
     /// consumed by the usage coordinator ahead of its spawning collectors.
@@ -422,6 +423,12 @@ final class MenuBarModel: ObservableObject {
             questions: questionRegistry, allowStore: allowStore, sessionAllow: sessionAllow,
             followups: cursorFollowups,
             executable: cursorExecutable, recoveryDirectory: cursorRecovery)
+        // Isolated acceptance never spawns the real grok; the E2E rig has no
+        // Grok agent, so the host simply reports unsupported there.
+        grokACP = GrokACPMonitor(
+            store: store, approvals: approvalRegistry, approvalContext: approvalContext,
+            questions: questionRegistry, allowStore: allowStore, sessionAllow: sessionAllow,
+            executable: E2ERunConfiguration.current == nil ? GrokUsageProvider.resolveGrokExecutable() : nil)
         let apnsConfig = APNsConfig.load()
         let deliveryURL = (E2ERunConfiguration.current == nil ? ProcessInfo.processInfo.environment["VIBEBUDDY_DELIVERY_LOG_PATH"] : nil).map {
             URL(fileURLWithPath: $0)
@@ -579,6 +586,7 @@ final class MenuBarModel: ObservableObject {
                                      claudeLauncher: claudeLauncher,
                                      cursorLauncher: cursorLauncher,
                                      cursorACP: cursorACP,
+                                     grokACP: grokACP,
                                      cursorTranscriptMonitor: cursorTranscriptMonitor,
                                      cursorCloudMonitor: cursorCloudMonitor,
                                      onCompletionReminder: { [weak self] session in
@@ -754,6 +762,7 @@ final class MenuBarModel: ObservableObject {
                 await self.store.setCursorModels(cursorReady ? await self.cursorACP.models() : [])
                 if !cursorReady { cursorReady = await self.cursorLauncher.isSupported() }
                 if cursorReady { agents.append(.cursor) }
+                if await self.grokACP.isSupported() { agents.append(.grok) }
                 if self.dispatchAgents != agents { self.dispatchAgents = agents }
                 let nextLifecycleTimeline = await self.store.recentLifecycle()
                 if self.lifecycleTimeline != nextLifecycleTimeline { self.lifecycleTimeline = nextLifecycleTimeline }
@@ -1155,6 +1164,7 @@ final class MenuBarModel: ObservableObject {
     func answer(_ sessionID: String, answers: QuestionAnswers, text: String? = nil) {
         let monitor = codexAppServerMonitor
         let acp = cursorACP
+        let grok = grokACP
         let followups = cursorFollowups
         let store = store
         let session = sessions.first { $0.id == sessionID }
@@ -1162,8 +1172,14 @@ final class MenuBarModel: ObservableObject {
         let dispatch = AnswerDispatch(
             store: store, questions: questionRegistry,
             inject: { ref, answer in TerminalInjector.inject(answer, into: ref) },
-            steer: { id, text in await monitor.steer(threadID: id, text: text) },
-            startTurn: { id, text in await monitor.startTurn(threadID: id, text: text) },
+            steer: { id, text in
+                if await grok.hosts(id) { return await grok.queueFollowup(sessionID: id, text: text) }
+                return await monitor.steer(threadID: id, text: text)
+            },
+            startTurn: { id, text in
+                if await grok.hosts(id) { return await grok.prompt(sessionID: id, text: text) }
+                return await monitor.startTurn(threadID: id, text: text)
+            },
             queueCursorFollowup: { id, text in
                 await followups.queue(conversationID: id, text: text) != nil
             },
@@ -1198,6 +1214,7 @@ final class MenuBarModel: ObservableObject {
     func stop(_ session: AgentSession) {
         let monitor = codexAppServerMonitor
         let acp = cursorACP
+        let grok = grokACP
         let cloud = voiceCursorCloud
         let store = store
         let dispatch = AnswerDispatch(
@@ -1205,6 +1222,7 @@ final class MenuBarModel: ObservableObject {
             inject: { _, _ in },
             interrupt: { id in
                 if await acp.hosts(id) { return await acp.cancel(sessionID: id) }
+                if await grok.hosts(id) { return await grok.cancel(sessionID: id) }
                 return await monitor.interrupt(threadID: id)
             },
             cancelCursorCloud: { id in
@@ -1277,7 +1295,10 @@ final class MenuBarModel: ObservableObject {
 
     /// End every `cursor-agent acp` process this app is hosting. Called on quit:
     /// the CLI has no detached mode over ACP, so a turn cannot outlive the host.
-    func shutdownCursorHosts() async { await cursorACP.shutdown() }
+    func shutdownCursorHosts() async {
+        await cursorACP.shutdown()
+        await grokACP.shutdown()
+    }
 
     /// Start a new task from the Mac, the same way `/dispatch` does for the
     /// phone: Codex through the app-server daemon; other agents once they have

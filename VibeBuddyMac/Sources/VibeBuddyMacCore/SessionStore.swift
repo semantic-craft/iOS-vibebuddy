@@ -285,6 +285,11 @@ public actor SessionStore {
             if session.observations?.contains(where: { $0.source == .cloud && $0.health.isHealthy }) == true { return .cloud }
             if fresh(.hook, within: Self.cursorHookAuthorityWindow) { return .hook }
             return ControlChannel.none
+        case .grok:
+            // A Grok Build session vibebuddy hosts over ACP (ADR-0030) is the
+            // only Grok write path; a session seen through hooks alone keeps
+            // the agent's rule (no stamp: the phone says "use the terminal").
+            return acpHosted.contains(session.id) ? .acp : nil
         default:
             return nil
         }
@@ -849,7 +854,7 @@ public actor SessionStore {
     /// or mint a second completion. `sessionEnd` passes: a process that has
     /// really gone is a fact the pipe reports by closing, not by an event.
     private func acpOutranks(_ event: HookEvent, from source: ObservationSource) -> Bool {
-        event.agent == .cursor && source != .acp && event.kind != .sessionEnd
+        (event.agent == .cursor || event.agent == .grok) && source != .acp && event.kind != .sessionEnd
             && acpHosted.contains(event.sessionID)
     }
 
