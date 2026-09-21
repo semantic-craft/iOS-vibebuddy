@@ -1,30 +1,37 @@
 import XCTest
 import Combine
 import SwiftUI
+import UIKit
 import VibeBuddyKit
 @testable import VibeBuddyApp
 
 @MainActor
 final class ObservationDiagnosticsTests: XCTestCase {
     func testReasonPresentationAndLegacyFallback() {
+        // The row reads Companion tokens, not system colours (ADR-0017 §1):
+        // accent for healthy, tertiary ink for information, the needs-you tint
+        // for a problem.
+        let healthy = CompanionPalette.accent
+        let informational = CompanionPalette.ink3
+        let problem = CompanionPalette.status(.requiresInput)
         let cases: [(ObservationSource, ObservationHealth, String?, String, Color)] = [
-            (.hook, .healthy, nil, "Healthy", .green),
-            (.hook, .temporarilySilent, "awaitingActivity", "Configured, awaiting first activity", .gray),
-            (.transcript, .temporarilySilent, nil, "No recent activity", .gray),
-            (.statusline, .notInstalled, "optionalSourceNotConfigured", "Status line information not enabled", .gray),
-            (.statusline, .notInstalled, nil, "Status line information not enabled", .gray),
-            (.statusline, .notInstalled, "futureReason", "Status line information not enabled", .gray),
-            (.rollout, .unknownVersion, "versionUnverified", "Version 0.153.4 not yet verified", .gray),
-            (.rollout, .unknownVersion, "invalidSourceData", "Invalid source data", .orange),
-            (.hook, .eventsMissing, "configurationIncomplete", "Configuration incomplete", .orange),
-            (.rollout, .sourceUnreadable, nil, "Unreadable", .orange),
-            (.hook, .eventsMissing, "futureReason", "Events missing", .orange)
+            (.hook, .healthy, nil, "Healthy", healthy),
+            (.hook, .temporarilySilent, "awaitingActivity", "Configured, awaiting first activity", informational),
+            (.transcript, .temporarilySilent, nil, "No recent activity", informational),
+            (.statusline, .notInstalled, "optionalSourceNotConfigured", "Status line information not enabled", informational),
+            (.statusline, .notInstalled, nil, "Status line information not enabled", informational),
+            (.statusline, .notInstalled, "futureReason", "Status line information not enabled", informational),
+            (.rollout, .unknownVersion, "versionUnverified", "Version 0.153.4 not yet verified", informational),
+            (.rollout, .unknownVersion, "invalidSourceData", "Invalid source data", problem),
+            (.hook, .eventsMissing, "configurationIncomplete", "Configuration incomplete", problem),
+            (.rollout, .sourceUnreadable, nil, "Unreadable", problem),
+            (.hook, .eventsMissing, "futureReason", "Events missing", problem)
         ]
         for (source, health, reason, title, color) in cases {
             let row = ObservationSourceDiagnostic(source: source, health: health,
                 reasonCode: reason, sourceVersion: "0.153.4")
             XCTAssertEqual(row.diagnosticTitle, title)
-            XCTAssertEqual(row.diagnosticColor, color)
+            XCTAssertEqual(resolvedAppearances(row.diagnosticColor), resolvedAppearances(color))
             if health == .healthy || health == .temporarilySilent {
                 XCTAssertNil(row.phoneNextStep)
             } else {
@@ -121,6 +128,15 @@ final class ObservationDiagnosticsTests: XCTestCase {
             XCTAssertEqual(store.allSessions.map(\.status), snapshot.sessions.map(\.status))
             XCTAssertEqual(store.observationDiagnostics, snapshot.observationDiagnostics)
         }
+    }
+}
+
+/// `CompanionPalette.status(_:)` builds a fresh dynamic `UIColor` on every call,
+/// so two equal tokens are different objects. Compare the light and dark values
+/// they resolve to instead of the wrappers.
+private func resolvedAppearances(_ color: Color) -> [UIColor] {
+    [UIUserInterfaceStyle.light, .dark].map {
+        UIColor(color).resolvedColor(with: UITraitCollection(userInterfaceStyle: $0))
     }
 }
 
