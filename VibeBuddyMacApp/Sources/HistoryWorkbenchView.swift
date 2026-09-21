@@ -313,12 +313,14 @@ struct HistoryWorkbenchView: View {
     /// The sidebar owns the project choice (shared with the live library).
     @Binding var project: String?
     var searchFocused: FocusState<Bool>.Binding
+    /// The list's compact flag, owned by the dashboard (one owner for ⌘F,
+    /// the strip's search glyph and the split's own drag / double-click).
+    @Binding var listCompact: Bool
     @State private var agent: SessionHistoryAgent?
     @State private var archiveScope = "all"
     private var archived: Bool? { archiveScope == "all" ? nil : archiveScope == "archived" }
     @State private var selection: String?
     @State private var targetMessage: String?
-    @AppStorage(DashboardListColumn.compactKey) private var listCompact = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var archiveTitle: String {
@@ -455,7 +457,6 @@ struct HistoryWorkbenchView: View {
                                     targetMessage = hit.messageID
                                 } label: { HistoryRow(session: session, excerpt: hit.excerpt, active: selection == session.id && targetMessage == hit.messageID) }
                                 .buttonStyle(.plain)
-                                .compactRowWords(listLabels, tip: Self.compactTip(session), title: session.title)
                             }
                         }
                     } else {
@@ -464,7 +465,6 @@ struct HistoryWorkbenchView: View {
                                 HistoryRow(session: session, excerpt: nil, active: selection == session.id)
                             }
                             .buttonStyle(.plain)
-                            .compactRowWords(listLabels, tip: Self.compactTip(session), title: session.title)
                         }
                     }
                     if !history.loading && !(isSearching && history.searching) && (isSearching ? history.results.isEmpty && history.searchError == nil : sessions.isEmpty) {
@@ -480,11 +480,6 @@ struct HistoryWorkbenchView: View {
                     .opacity(listLabels.opacity)
             }
         }
-    }
-
-    /// The row's words, for the tooltip when only its agent tile is on screen.
-    static func compactTip(_ session: SessionHistorySession) -> String {
-        session.title + "\n" + session.agent.displayName + " · " + session.updatedAt.formatted(date: .abbreviated, time: .shortened)
     }
 
     /// The record with its live counterpart, when exactly one live session
@@ -518,11 +513,22 @@ private struct HistoryRow: View {
     /// width truncates them at the row's edge instead of reflowing.
     @State private var restWordsWidth: CGFloat?
 
+    /// The agent and the date, the row's second line.
+    private var byline: String {
+        session.agent.displayName + " · " + session.updatedAt.formatted(date: .abbreviated, time: .shortened)
+    }
+
     var body: some View {
         Group {
             if labels.iconOnly {
+                // The tile is the whole row here, so it carries the words as
+                // its tooltip and accessibility text; the branch is inside
+                // the row, so its identity (and measured rest width) survives.
                 AgentAvatar(agent: session.agent.kind, size: 28)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .help(session.title + "\n" + byline)
+                    .accessibilityLabel(session.title)
+                    .accessibilityValue(byline)
             } else {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .top) {
@@ -530,8 +536,7 @@ private struct HistoryRow: View {
                         if session.isPinned == true { Image(systemName: "pin.fill").foregroundStyle(MacTheme.ink2) }
                         if session.isFavorite { Image(systemName: "star.fill").foregroundStyle(.yellow) }
                     }
-                    Text("\(session.agent.displayName) · \(session.updatedAt.formatted(date: .abbreviated, time: .shortened))")
-                        .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
+                    Text(byline).font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
                     if session.isArchived { Label(session.sourceArchived == true ? "Archived in Codex" : "Archived in library", systemImage: "archivebox").font(MacTheme.font(10)) }
                     if let excerpt { Text(excerpt).font(MacTheme.font(10)).lineLimit(3) }
                     if !session.isAvailable { Label("Source unavailable", systemImage: "exclamationmark.triangle").font(MacTheme.font(10)) }

@@ -112,8 +112,11 @@ public struct DashboardColumnWidth: Sendable, Equatable {
     /// remembered full width.
     public func stepped(full: CGFloat, compact isCompact: Bool, direction: Int,
                         available: CGFloat? = nil) -> (full: CGFloat, compact: Bool) {
+        // From the strip the remembered full width is kept as it is, even
+        // one the window cannot show right now; only a full-width step
+        // moves it.
+        if isCompact { return (full, direction <= 0) }
         let current = clampedFull(full, available: available)
-        if isCompact { return (current, direction <= 0) }
         if direction < 0, current <= minFull { return (current, true) }
         return (clampedFull(current + CGFloat(direction.signum()) * accessibilityStep, available: available), false)
     }

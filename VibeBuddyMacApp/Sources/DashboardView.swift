@@ -243,7 +243,8 @@ struct DashboardView: View {
                 } else {
                     HistoryWorkbenchView(history: history, model: model, reader: reader, query: $query,
                                          favoritesOnly: libraryScope == "favorites",
-                                         project: $historyProject, searchFocused: $searchFocused)
+                                         project: $historyProject, searchFocused: $searchFocused,
+                                         listCompact: $listCompact)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -643,14 +644,24 @@ private struct SummaryRow: View {
         HStack(alignment: .top, spacing: 8) {
             Button(action: onSelect) {
                 HStack(alignment: .top, spacing: 10) {
-                    AgentTile(agent: session.agent, state: state, ground: isSelected ? MacTheme.bg2 : MacTheme.bg3)
-                    if !labels.iconOnly { words }
+                    // On the strip the tile is the whole row, so it carries
+                    // the words as its tooltip and accessibility text; the
+                    // branch is inside the row, so the row's identity (and
+                    // its measured rest width) survives the switch.
+                    if labels.iconOnly {
+                        AgentTile(agent: session.agent, state: state, ground: isSelected ? MacTheme.bg2 : MacTheme.bg3)
+                            .help(compactTip)
+                            .accessibilityLabel(session.displayTitle)
+                            .accessibilityValue(presentation.activityOrResult)
+                    } else {
+                        AgentTile(agent: session.agent, state: state, ground: isSelected ? MacTheme.bg2 : MacTheme.bg3)
+                        words
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .compactRowWords(labels, tip: compactTip, title: session.displayTitle, value: presentation.activityOrResult)
             .accessibilityAddTraits(isSelected ? .isSelected : [])
             if showInclude, !labels.iconOnly {
                 Button(action: onToggleInclude) {

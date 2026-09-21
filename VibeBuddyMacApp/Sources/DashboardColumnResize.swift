@@ -365,7 +365,7 @@ struct ResizableListSplit<List: View, Reader: View>: View {
         let next = Self.policy.stepped(full: CGFloat(fullWidth), compact: compact, direction: direction, available: available)
         withAnimation(settle) {
             compact = next.compact
-            fullWidth = Double(next.full)
+            if !next.compact { fullWidth = Double(next.full) }
         }
     }
 
@@ -383,20 +383,6 @@ enum DashboardListColumn {
     static let compactKey = "dashboard.listCompact"
     /// The reader never goes narrower than this; the list yields first.
     static let readerMinWidth: CGFloat = 340
-}
-
-extension View {
-    /// On the compact strip a row's words are gone, so they become its
-    /// tooltip and its accessibility label and value; at every other width
-    /// the row keeps its own text (and its children's tooltips).
-    @ViewBuilder
-    func compactRowWords(_ labels: ColumnLabelStyle, tip: String, title: String, value: String? = nil) -> some View {
-        if labels.iconOnly {
-            help(tip).accessibilityLabel(title).accessibilityValue(value ?? "")
-        } else {
-            self
-        }
-    }
 }
 
 /// The compact strip's head: the search pill folded to one glyph. A click
