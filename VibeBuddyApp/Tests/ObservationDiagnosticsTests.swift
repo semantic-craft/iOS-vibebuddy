@@ -1,30 +1,41 @@
 import XCTest
 import Combine
 import SwiftUI
+import UIKit
 import VibeBuddyKit
 @testable import VibeBuddyApp
 
 @MainActor
 final class ObservationDiagnosticsTests: XCTestCase {
     func testReasonPresentationAndLegacyFallback() {
+        // Rows carry Companion tokens, not system colours: the accent for
+        // healthy, tertiary ink for information, the needs-you tint for a
+        // problem (ObservationDiagnosticPresentation.diagnosticColor). The
+        // tokens are dynamic, so they are compared by what they resolve to.
+        let ok = CompanionPalette.accent
+        let info = CompanionPalette.ink3
+        let problem = CompanionPalette.status(.requiresInput)
         let cases: [(ObservationSource, ObservationHealth, String?, String, Color)] = [
-            (.hook, .healthy, nil, "Healthy", .green),
-            (.hook, .temporarilySilent, "awaitingActivity", "Configured, awaiting first activity", .gray),
-            (.transcript, .temporarilySilent, nil, "No recent activity", .gray),
-            (.statusline, .notInstalled, "optionalSourceNotConfigured", "Status line information not enabled", .gray),
-            (.statusline, .notInstalled, nil, "Status line information not enabled", .gray),
-            (.statusline, .notInstalled, "futureReason", "Status line information not enabled", .gray),
-            (.rollout, .unknownVersion, "versionUnverified", "Version 0.153.4 not yet verified", .gray),
-            (.rollout, .unknownVersion, "invalidSourceData", "Invalid source data", .orange),
-            (.hook, .eventsMissing, "configurationIncomplete", "Configuration incomplete", .orange),
-            (.rollout, .sourceUnreadable, nil, "Unreadable", .orange),
-            (.hook, .eventsMissing, "futureReason", "Events missing", .orange)
+            (.hook, .healthy, nil, "Healthy", ok),
+            (.hook, .temporarilySilent, "awaitingActivity", "Configured, awaiting first activity", info),
+            (.transcript, .temporarilySilent, nil, "No recent activity", info),
+            (.statusline, .notInstalled, "optionalSourceNotConfigured", "Status line information not enabled", info),
+            (.statusline, .notInstalled, nil, "Status line information not enabled", info),
+            (.statusline, .notInstalled, "futureReason", "Status line information not enabled", info),
+            (.rollout, .unknownVersion, "versionUnverified", "Version 0.153.4 not yet verified", info),
+            (.rollout, .unknownVersion, "invalidSourceData", "Invalid source data", problem),
+            (.hook, .eventsMissing, "configurationIncomplete", "Configuration incomplete", problem),
+            (.rollout, .sourceUnreadable, nil, "Unreadable", problem),
+            (.hook, .eventsMissing, "futureReason", "Events missing", problem)
         ]
         for (source, health, reason, title, color) in cases {
             let row = ObservationSourceDiagnostic(source: source, health: health,
                 reasonCode: reason, sourceVersion: "0.153.4")
             XCTAssertEqual(row.diagnosticTitle, title)
-            XCTAssertEqual(row.diagnosticColor, color)
+            for style in [UIUserInterfaceStyle.light, .dark] {
+                XCTAssertEqual(resolved(row.diagnosticColor, style), resolved(color, style),
+                               "\(source.rawValue)/\(health.rawValue)/\(reason ?? "none") in \(style == .light ? "light" : "dark")")
+            }
             if health == .healthy || health == .temporarilySilent {
                 XCTAssertNil(row.phoneNextStep)
             } else {
@@ -122,6 +133,13 @@ final class ObservationDiagnosticsTests: XCTestCase {
             XCTAssertEqual(store.observationDiagnostics, snapshot.observationDiagnostics)
         }
     }
+}
+
+/// `CompanionPalette.status(_:)` builds a fresh dynamic colour on each call and
+/// SwiftUI compares the boxed platform colour, so two equal tokens are not `==`.
+/// Resolving pins the comparison to the value each token actually paints.
+private func resolved(_ color: Color, _ style: UIUserInterfaceStyle) -> UIColor {
+    UIColor(color).resolvedColor(with: UITraitCollection(userInterfaceStyle: style))
 }
 
 private struct ControlledDiagnosticStreamer: SnapshotStreaming {
