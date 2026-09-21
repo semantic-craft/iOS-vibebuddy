@@ -110,10 +110,11 @@ public struct DashboardColumnWidth: Sendable, Equatable {
     /// shape: a step through the full range, folding to the strip below
     /// the narrowest full width and unfolding from it back to the
     /// remembered full width.
-    public func stepped(full: CGFloat, compact isCompact: Bool, direction: Int) -> (full: CGFloat, compact: Bool) {
-        let current = clampedFull(full)
+    public func stepped(full: CGFloat, compact isCompact: Bool, direction: Int,
+                        available: CGFloat? = nil) -> (full: CGFloat, compact: Bool) {
+        let current = clampedFull(full, available: available)
         if isCompact { return (current, direction <= 0) }
         if direction < 0, current <= minFull { return (current, true) }
-        return (clampedFull(current + CGFloat(direction.signum()) * accessibilityStep), false)
+        return (clampedFull(current + CGFloat(direction.signum()) * accessibilityStep, available: available), false)
     }
 }

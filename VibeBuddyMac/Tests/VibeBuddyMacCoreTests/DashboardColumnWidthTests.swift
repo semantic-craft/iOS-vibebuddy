@@ -66,5 +66,8 @@ struct DashboardColumnWidthTests {
         #expect(!unfolded.compact && unfolded.full == 333)
         let stillFolded = list.stepped(full: 333, compact: true, direction: -1)
         #expect(stillFolded.compact)
+        // Under a window cap the step never stores a width the window cannot show.
+        let windowed = list.stepped(full: 300, compact: false, direction: 1, available: 300)
+        #expect(windowed.full == 300 && !windowed.compact)
     }
 }

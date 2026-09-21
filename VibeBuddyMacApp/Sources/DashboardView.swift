@@ -82,8 +82,9 @@ struct DashboardView: View {
     @State private var sidebarDragWidth: CGFloat?
     @State private var sidebarDragOrigin: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// The list's compact flag, shared with `ResizableListSplit`: ⌘F and the
-    /// strip's search glyph unfold the list so the field can take focus.
+    /// The list's compact flag, owned here and driven by `ResizableListSplit`
+    /// (the drag, the double-click); ⌘F and the strip's search glyph unfold
+    /// the list so the field can take focus.
     @AppStorage(DashboardListColumn.compactKey) private var listCompact = false
 
     private static let sidebarPolicy = DashboardColumnWidth.sidebar
@@ -236,7 +237,7 @@ struct DashboardView: View {
                 } else if libraryScope == "live" {
                     // The list's right edge resizes like the sidebar's; the
                     // reader takes what is left (ADR-0024: no right column).
-                    ResizableListSplit { labels in sessionsColumn(labels) } reader: { detailColumn }
+                    ResizableListSplit(compact: $listCompact) { labels in sessionsColumn(labels) } reader: { detailColumn }
                 } else if libraryScope == "usage" {
                     UsageWorkbenchView(model: model)
                 } else {
@@ -649,10 +650,8 @@ private struct SummaryRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(session.displayTitle)
-            .accessibilityValue(presentation.activityOrResult)
+            .compactRowWords(labels, tip: compactTip, title: session.displayTitle, value: presentation.activityOrResult)
             .accessibilityAddTraits(isSelected ? .isSelected : [])
-            .help(labels.iconOnly ? compactTip : "")
             if showInclude, !labels.iconOnly {
                 Button(action: onToggleInclude) {
                     Image(systemName: included ? "waveform.circle.fill" : "waveform.circle")

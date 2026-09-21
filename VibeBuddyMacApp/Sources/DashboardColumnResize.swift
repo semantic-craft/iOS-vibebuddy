@@ -273,15 +273,18 @@ private struct ColumnEdgeTracker: NSViewRepresentable {
 /// owning view cannot read `\.listLabels` from its own environment; only
 /// the rows it builds can), and the rows read the same value from it.
 struct ResizableListSplit<List: View, Reader: View>: View {
+    /// Whether the list is folded to the compact strip — the owner's
+    /// `@AppStorage(DashboardListColumn.compactKey)`, passed in so that an
+    /// unfold from outside the split (⌘F, the strip's search glyph) lands
+    /// in the same transaction as the width it animates.
+    @Binding var compact: Bool
     @ViewBuilder var list: (ColumnLabelStyle) -> List
     @ViewBuilder var reader: () -> Reader
 
     private static var policy: DashboardColumnWidth { .list }
 
-    /// The list's two settled shapes, remembered like the sidebar's: its
-    /// last full width and whether it is folded to the compact strip.
+    /// The list's last full width, remembered like the sidebar's.
     @AppStorage(DashboardListColumn.fullWidthKey) private var fullWidth = Double(DashboardColumnWidth.list.fullDefault)
-    @AppStorage(DashboardListColumn.compactKey) private var compact = false
     /// The pointer's width while a drag on the list's edge is live; nil at rest.
     @State private var dragWidth: CGFloat?
     @State private var dragOrigin: CGFloat = 0
@@ -311,7 +314,7 @@ struct ResizableListSplit<List: View, Reader: View>: View {
                                            onDragChanged: { dragChanged(by: $0, available: available) },
                                            onDragEnded: { dragEnded(available: available) },
                                            onDoubleClick: toggleCompact,
-                                           onStep: step)
+                                           onStep: { step($0, available: available) })
                     }
                     .zIndex(1)
                 reader()
@@ -356,9 +359,10 @@ struct ResizableListSplit<List: View, Reader: View>: View {
         withAnimation(settle) { compact.toggle() }
     }
 
-    /// One accessibility increment or decrement, by the policy's rule.
-    private func step(_ direction: Int) {
-        let next = Self.policy.stepped(full: CGFloat(fullWidth), compact: compact, direction: direction)
+    /// One accessibility increment or decrement, by the policy's rule,
+    /// inside the window's cap so the stored width never outruns the screen.
+    private func step(_ direction: Int, available: CGFloat) {
+        let next = Self.policy.stepped(full: CGFloat(fullWidth), compact: compact, direction: direction, available: available)
         withAnimation(settle) {
             compact = next.compact
             fullWidth = Double(next.full)
@@ -372,13 +376,27 @@ struct ResizableListSplit<List: View, Reader: View>: View {
 }
 
 /// What `ResizableListSplit` shares with the views on either side of it:
-/// the defaults keys (⌘F and the compact strip's search glyph unfold the
-/// list from outside the split) and the reader's floor.
+/// the defaults keys (the owner holds the compact flag and passes it in)
+/// and the reader's floor.
 enum DashboardListColumn {
     static let fullWidthKey = "dashboard.listFullWidth"
     static let compactKey = "dashboard.listCompact"
     /// The reader never goes narrower than this; the list yields first.
     static let readerMinWidth: CGFloat = 340
+}
+
+extension View {
+    /// On the compact strip a row's words are gone, so they become its
+    /// tooltip and its accessibility label and value; at every other width
+    /// the row keeps its own text (and its children's tooltips).
+    @ViewBuilder
+    func compactRowWords(_ labels: ColumnLabelStyle, tip: String, title: String, value: String? = nil) -> some View {
+        if labels.iconOnly {
+            help(tip).accessibilityLabel(title).accessibilityValue(value ?? "")
+        } else {
+            self
+        }
+    }
 }
 
 /// The compact strip's head: the search pill folded to one glyph. A click

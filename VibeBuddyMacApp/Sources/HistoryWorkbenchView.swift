@@ -344,7 +344,7 @@ struct HistoryWorkbenchView: View {
     }
 
     var body: some View {
-        ResizableListSplit { labels in sessionList(labels) } reader: { readingPane }
+        ResizableListSplit(compact: $listCompact) { labels in sessionList(labels) } reader: { readingPane }
         .task(id: searchKey) { await history.search(query, project: project, favorites: favoritesOnly, agent: agent, archived: archived) }
         .onChange(of: agent) { _, _ in clearSelection() }
         .onChange(of: archiveScope) { _, _ in clearSelection() }
@@ -439,9 +439,11 @@ struct HistoryWorkbenchView: View {
                 }
             }
             .padding(.horizontal, 12).padding(.top, 12)
-            if isSearching && history.searching { ProgressView("Searching…") }
-            if isSearching, let error = history.searchError {
+            // In-flight search chrome has no place on the compact strip.
+            if isSearching && history.searching, !listLabels.iconOnly { ProgressView("Searching…").opacity(listLabels.opacity) }
+            if isSearching, let error = history.searchError, !listLabels.iconOnly {
                 Text("Search could not complete: \(error)").font(MacTheme.font(10)).foregroundStyle(MacTheme.status(.error)).padding(12)
+                    .opacity(listLabels.opacity)
             }
             ScrollView {
                 LazyVStack(spacing: 2) {
@@ -451,20 +453,18 @@ struct HistoryWorkbenchView: View {
                                 Button {
                                     selection = session.id
                                     targetMessage = hit.messageID
-                                } label: { row(session, excerpt: hit.excerpt, active: selection == session.id && targetMessage == hit.messageID, labels: listLabels) }
+                                } label: { HistoryRow(session: session, excerpt: hit.excerpt, active: selection == session.id && targetMessage == hit.messageID) }
                                 .buttonStyle(.plain)
-                                .accessibilityLabel(session.title)
-                                .help(listLabels.iconOnly ? compactTip(session) : "")
+                                .compactRowWords(listLabels, tip: Self.compactTip(session), title: session.title)
                             }
                         }
                     } else {
                         ForEach(sessions) { session in
                             Button { selection = session.id; targetMessage = nil } label: {
-                                row(session, excerpt: nil, active: selection == session.id, labels: listLabels)
+                                HistoryRow(session: session, excerpt: nil, active: selection == session.id)
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel(session.title)
-                            .help(listLabels.iconOnly ? compactTip(session) : "")
+                            .compactRowWords(listLabels, tip: Self.compactTip(session), title: session.title)
                         }
                     }
                     if !history.loading && !(isSearching && history.searching) && (isSearching ? history.results.isEmpty && history.searchError == nil : sessions.isEmpty) {
@@ -483,53 +483,9 @@ struct HistoryWorkbenchView: View {
     }
 
     /// The row's words, for the tooltip when only its agent tile is on screen.
-    private func compactTip(_ session: SessionHistorySession) -> String {
+    static func compactTip(_ session: SessionHistorySession) -> String {
         session.title + "\n" + session.agent.displayName + " · " + session.updatedAt.formatted(date: .abbreviated, time: .shortened)
     }
-
-    /// A history row has no tile at full width; the compact strip stands
-    /// the agent's tile in for its words, fading in as they fade out.
-    private func row(_ session: SessionHistorySession, excerpt: String?, active: Bool, labels listLabels: ColumnLabelStyle) -> some View {
-        Group {
-            if listLabels.iconOnly {
-                AgentAvatar(agent: session.agent.kind, size: 28)
-                    .frame(maxWidth: .infinity)
-            } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(alignment: .top) {
-                        Text(session.title).font(MacTheme.font(13, .medium)).lineLimit(2)
-                        if session.isPinned == true { Image(systemName: "pin.fill").foregroundStyle(MacTheme.ink2) }
-                        if session.isFavorite { Image(systemName: "star.fill").foregroundStyle(.yellow) }
-                    }
-                    Text("\(session.agent.displayName) · \(session.updatedAt.formatted(date: .abbreviated, time: .shortened))")
-                        .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
-                    if session.isArchived { Label(session.sourceArchived == true ? "Archived in Codex" : "Archived in library", systemImage: "archivebox").font(MacTheme.font(10)) }
-                    if let excerpt { Text(excerpt).font(MacTheme.font(10)).lineLimit(3) }
-                    if !session.isAvailable { Label("Source unavailable", systemImage: "exclamationmark.triangle").font(MacTheme.font(10)) }
-                    else if !session.warnings.isEmpty { Label("Partial or limited record", systemImage: "info.circle").font(MacTheme.font(10)) }
-                }
-                // Under the narrowest full width the words keep their rest
-                // layout and truncate at the row's edge instead of reflowing.
-                .frame(width: listLabels.transitional ? Self.narrowestWordsWidth : nil, alignment: .leading)
-                .opacity(listLabels.opacity)
-                .overlay(alignment: .topLeading) {
-                    if listLabels.transitional {
-                        AgentAvatar(agent: session.agent.kind, size: 28).opacity(1 - listLabels.opacity)
-                    }
-                }
-                // Min 0, or the frame would grow to the frozen block instead of clipping it.
-                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-                .clipped()
-            }
-        }
-        .padding(10)
-        .clipped()
-        .background(active ? MacTheme.accent.opacity(0.14) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .contentShape(Rectangle())
-    }
-
-    /// The words' width at the narrowest full width: 240 − 8·2 outer − 10·2 row.
-    private static var narrowestWordsWidth: CGFloat { DashboardColumnWidth.list.minFull - 16 - 20 }
 
     /// The record with its live counterpart, when exactly one live session
     /// carries the same native id in the same checkout (never by title).
@@ -547,4 +503,64 @@ struct HistoryWorkbenchView: View {
     }
 
     private func clearSelection() { selection = nil; targetMessage = nil }
+}
+
+
+/// A history row. It has no tile at full width; the compact strip stands
+/// the agent's tile in for its words, fading in as they fade out, at the
+/// words' own leading origin so it never slides.
+private struct HistoryRow: View {
+    let session: SessionHistorySession
+    var excerpt: String?
+    var active: Bool
+    @Environment(\.listLabels) private var labels
+    /// The words' width at rest, kept so a drag under the narrowest full
+    /// width truncates them at the row's edge instead of reflowing.
+    @State private var restWordsWidth: CGFloat?
+
+    var body: some View {
+        Group {
+            if labels.iconOnly {
+                AgentAvatar(agent: session.agent.kind, size: 28)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .top) {
+                        Text(session.title).font(MacTheme.font(13, .medium)).lineLimit(2)
+                        if session.isPinned == true { Image(systemName: "pin.fill").foregroundStyle(MacTheme.ink2) }
+                        if session.isFavorite { Image(systemName: "star.fill").foregroundStyle(.yellow) }
+                    }
+                    Text("\(session.agent.displayName) · \(session.updatedAt.formatted(date: .abbreviated, time: .shortened))")
+                        .font(MacTheme.font(10)).foregroundStyle(MacTheme.ink2)
+                    if session.isArchived { Label(session.sourceArchived == true ? "Archived in Codex" : "Archived in library", systemImage: "archivebox").font(MacTheme.font(10)) }
+                    if let excerpt { Text(excerpt).font(MacTheme.font(10)).lineLimit(3) }
+                    if !session.isAvailable { Label("Source unavailable", systemImage: "exclamationmark.triangle").font(MacTheme.font(10)) }
+                    else if !session.warnings.isEmpty { Label("Partial or limited record", systemImage: "info.circle").font(MacTheme.font(10)) }
+                }
+                // Under the narrowest full width the words keep their rest
+                // layout and truncate at the row's edge instead of reflowing.
+                .frame(width: labels.transitional ? restWordsWidth ?? Self.narrowestWordsWidth : nil, alignment: .leading)
+                .opacity(labels.opacity)
+                .overlay(alignment: .topLeading) {
+                    if labels.transitional {
+                        AgentAvatar(agent: session.agent.kind, size: 28).opacity(1 - labels.opacity)
+                    }
+                }
+                // Min 0, or the frame would grow to the frozen block instead of clipping it.
+                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+                .clipped()
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+                    if !labels.transitional { restWordsWidth = width }
+                }
+            }
+        }
+        .padding(10)
+        .clipped()
+        .background(active ? MacTheme.accent.opacity(0.14) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .contentShape(Rectangle())
+    }
+
+    /// The words' width at the narrowest full width, for a row first laid
+    /// out mid-drag: 240 − 8·2 outer − 10·2 row.
+    private static var narrowestWordsWidth: CGFloat { DashboardColumnWidth.list.minFull - 16 - 20 }
 }
