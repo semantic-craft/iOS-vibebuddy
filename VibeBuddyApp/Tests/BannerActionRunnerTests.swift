@@ -32,7 +32,12 @@ private final class ScriptedWaitClient: DecisionClient, @unchecked Sendable {
 
 private actor HeldRecorder {
     private(set) var entries: [(QueuedSessionAction, ConnectionFailureReason?)] = []
-    func record(_ action: QueuedSessionAction, _ reason: ConnectionFailureReason?) { entries.append((action, reason)) }
+    var stores = true
+    func refuse() { stores = false }
+    func record(_ action: QueuedSessionAction, _ reason: ConnectionFailureReason?) -> Bool {
+        entries.append((action, reason))
+        return stores
+    }
 }
 
 final class BannerActionRunnerTests: XCTestCase {
@@ -86,14 +91,34 @@ final class BannerActionRunnerTests: XCTestCase {
         XCTAssertEqual(outcome, .openSession("s1"))
     }
 
-    func testFailedBackgroundRequestOpensTheSession() async {
+    func testALostReceiptIsReportedUnconfirmedNotHeld() async {
+        // A refusal or a timeout after the body went out: the Mac may have
+        // acted, so the tap is neither held nor retried, and the person is
+        // told to look. A reply an older push left unnamed has nothing to
+        // describe, so it opens the session as before.
         let client = ScriptedWaitClient(decideStatus: .failed, answerStatus: .failed)
-        for action in [NotificationActionID.approve, .deny, .answer] {
+        for action in [NotificationActionID.approve, .deny] {
             let outcome = await BannerActionRunner.perform(
-                actionIdentifier: action.rawValue, userInfo: info, text: "yes",
-                pairing: pairing, client: client)
-            XCTAssertEqual(outcome, .openSession("s1"))
+                actionIdentifier: action.rawValue, userInfo: info, text: nil,
+                pairing: pairing, client: client, hold: { _, _ in XCTFail("a lost receipt was held"); return true })
+            guard case .unconfirmed(let record) = outcome else { return XCTFail("\(outcome)") }
+            XCTAssertEqual(record.approvalId, "ap-1")
         }
+        let reply = await BannerActionRunner.perform(
+            actionIdentifier: NotificationActionID.answer.rawValue, userInfo: info, text: "yes",
+            pairing: pairing, client: client)
+        XCTAssertEqual(reply, .openSession("s1"))
+    }
+
+    func testAHoldTheStoreRefusesIsReportedNotHeld() async {
+        let client = ScriptedWaitClient(decideStatus: .unreachable)
+        let held = HeldRecorder()
+        await held.refuse()
+        let outcome = await BannerActionRunner.perform(
+            actionIdentifier: NotificationActionID.approve.rawValue, userInfo: info, text: nil,
+            pairing: pairing, client: client, epoch: "e1", hold: { await held.record($0, $1) })
+        guard case .notHeld(let record) = outcome else { return XCTFail("\(outcome)") }
+        XCTAssertEqual(record.action, .approval(id: "ap-1", choice: .allow))
     }
 
     func testAnUnreachableMacHoldsApproveUnderTheRequestKey() async {
@@ -129,7 +154,7 @@ final class BannerActionRunnerTests: XCTestCase {
         // An older Mac's push names no question: nothing to hold against.
         let unnamed = await BannerActionRunner.perform(
             actionIdentifier: NotificationActionID.answer.rawValue, userInfo: info, text: "ship it",
-            pairing: pairing, client: client, epoch: "e1", hold: { _, _ in XCTFail("an unnamed reply was held") })
+            pairing: pairing, client: client, epoch: "e1", hold: { _, _ in XCTFail("an unnamed reply was held"); return true })
         XCTAssertEqual(unnamed, .openSession("s1"))
     }
 

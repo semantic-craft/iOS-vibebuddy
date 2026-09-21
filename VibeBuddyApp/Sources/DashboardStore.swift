@@ -71,6 +71,28 @@ final class DashboardStore: ObservableObject {
             || (result == .received && (session.pendingApproval != nil || session.pendingQuestion != nil))
     }
 
+    /// The decision this phone is holding for the session's current wait,
+    /// whichever surface it came from.
+    private func heldDecision(for session: AgentSession) -> QueuedSessionAction? {
+        if let approvalId = session.pendingApproval?.id, let held = pendingActions.queue.held(approvalId: approvalId) {
+            return held
+        }
+        if let question = session.pendingQuestion,
+           let held = pendingActions.queue.held(sessionId: session.id, pendingId: question.id) {
+            return held
+        }
+        return nil
+    }
+
+    /// A fresh decision from the phone's own card on a target the queue
+    /// already holds one for. The held one is withdrawn so the card's is the
+    /// only decision, unless its POST is out this instant — then the card's
+    /// tap is refused as "sending", never sent beside it.
+    private func replaceHeldDecision(for session: AgentSession) -> Bool {
+        guard let held = heldDecision(for: session) else { return true }
+        return pendingActions.cancel(id: held.id, quietly: true)
+    }
+
     /// Every attempt reads authenticated authority before sending. Ambiguous POSTs
     /// are never replayed: an unchanged snapshot cannot prove non-execution.
     private func sendPhoneAction(_ session: AgentSession, requiresAnswerableWait: Bool = true,
@@ -830,7 +852,9 @@ final class DashboardStore: ObservableObject {
         pairingEpoch = ConnectionStore.pairingEpoch
         state = .connecting
         failure = nil
-        // A held decision was aimed at the old pairing; it cannot follow.
+        // A held decision was aimed at the old pairing; it cannot follow, and
+        // neither can a pass that was asked for on its behalf.
+        pendingActions.discardFollowUp()
         pendingActions.prune(epoch: pairingEpoch)
         groups = SessionGroups([])
         lastProviderQuota = []
@@ -944,6 +968,24 @@ final class DashboardStore: ObservableObject {
         refreshHeldActions()
         relayToWatch(allSessions)
         let action = event.action
+        // The phone's own card shows the held decision as its receipt, whichever
+        // surface it came from, so its buttons cannot send a second one beside it.
+        if let session = allSessions.first(where: { $0.id == action.sessionId }) {
+            let receipt: PhoneActionResult? = switch event {
+            case .held, .stillHeld, .superseded: .held
+            case .delivered: .received
+            case .gone: .expired
+            case .uncertain: .unconfirmed
+            case .dropped: .failed
+            case .cancelled: nil
+            }
+            if let receipt {
+                phoneActionIdentity[session.id] = actionIdentity(session)
+                phoneActions[session.id] = receipt
+            } else if phoneActions[session.id] == .held {
+                phoneActions[session.id] = nil
+            }
+        }
         switch event {
         case .held(_, let reason):
             if action.origin == .phone {
@@ -1167,6 +1209,7 @@ final class DashboardStore: ObservableObject {
         if isDemo { return decideDemo(approvalId) }
         guard let session = allSessions.first(where: { $0.pendingApproval?.id == approvalId }),
               ApprovalEligibility.approval(for: session) != nil else { return .expired }
+        guard replaceHeldDecision(for: session) else { return .sending }
         // One key for the send and for the hold it may become (ADR-0032).
         let key = UUID().uuidString
         let result = await sendPhoneAction(session) { pairing, current in
@@ -1239,6 +1282,7 @@ final class DashboardStore: ObservableObject {
             let spoken = text ?? answers?.values.flatMap { $0 }.joined(separator: ", ") ?? ""
             return answerDemo(sessionId, text: spoken) ? .received : .expired
         }
+        guard replaceHeldDecision(for: session) else { return .sending }
         // One key for the send and for the hold it may become (ADR-0032).
         let key = UUID().uuidString
         let result = await sendPhoneAction(session) { pairing, current in

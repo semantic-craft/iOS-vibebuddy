@@ -81,7 +81,14 @@ Three things were wrong, and they were wrong on different surfaces.
    the Mac, a replay whose twin is still in flight answers 503, as `/answer`
    does, so the phone keeps it unconfirmed rather than reporting delivery.
    A decision whose earlier decision on the same target is being posted
-   this instant is refused rather than queued behind it.
+   this instant is refused rather than queued behind it. One decision per
+   target across surfaces: the phone's card shows a wrist- or banner-held
+   decision as its own receipt (buttons off), and a fresh card decision on
+   that target withdraws the held one first. A banner tap whose receipt was
+   lost (timeout, reset, refusal) is neither held nor retried; it posts
+   *could not be confirmed — check the task*, the wrist's `unknown` in a
+   notification. A hold the queue refuses (full, or the target in flight)
+   posts *was not delivered — decide again*, never *on hold*.
 4. **Every surface says where the decision is.** The Watch's reply
    vocabulary gains `queued` with a `reason`; the card reads *Your iPhone is
    holding this — Surge or Tailscale is off on it. It will be sent when the

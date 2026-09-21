@@ -28,11 +28,16 @@ protocol AttentionNotifier: Sendable {
     /// A waiting cue just arrived and this phone cannot reach the Mac: say so
     /// before the person taps Approve into the void.
     func warnUnreachable(_ reason: ConnectionFailureReason, macName: String?)
+    /// A banner tap went out and its receipt was lost. Nothing is held or
+    /// retried for it: the Mac may have acted, so the word is "look, do not
+    /// tap again" — the same sentence the wrist gets for `unknown`.
+    func warnUnconfirmed(_ action: QueuedSessionAction, macName: String?)
 }
 
 extension AttentionNotifier {
     func reportDelivery(_ event: HeldDeliveryEvent, macName: String?) {}
     func warnUnreachable(_ reason: ConnectionFailureReason, macName: String?) {}
+    func warnUnconfirmed(_ action: QueuedSessionAction, macName: String?) {}
 }
 
 /// One sentence per missing link, shared by the phone's screens, the toast
@@ -237,6 +242,26 @@ struct LocalNotifier: AttentionNotifier {
     /// what is still queued here at that point may never be posted.
     static func settle() async {
         await chain.enqueue { }.value
+    }
+
+    func warnUnconfirmed(_ action: QueuedSessionAction, macName: String?) {
+        let mac = macName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? macName! : String(localized: "your Mac")
+        let project = action.project?.isEmpty == false ? action.project! : String(localized: "a task")
+        let what: String = switch action.action {
+        case .approval(_, .allow): String(localized: "Approve")
+        case .approval(_, .deny): String(localized: "Deny")
+        case .answer, .answerAll: String(localized: "Answer")
+        case .stop: String(localized: "Stop")
+        }
+        let title = String(localized: "\(what) for \(project) could not be confirmed")
+        let body = String(localized: "Your iPhone sent it and lost the receipt. Check the task on \(mac) before deciding again.")
+        let id = "held-" + action.targetKey
+        let sessionID = action.sessionId
+        Self.chain.enqueue {
+            try? await Self.post(title: title, body: body, sound: .needsApproval, delivery: .bannerSound,
+                                 id: id, sessionID: sessionID, timeSensitive: true)
+        }
     }
 
     /// Posted once per outage, replaced in place, withdrawn on reconnect.

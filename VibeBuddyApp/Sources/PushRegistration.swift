@@ -205,14 +205,22 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
                 // Saved and reported before this returns: iOS may suspend the
                 // process the moment the completion handler runs, and an
                 // unfinished hold would be the silent drop all over again.
-                await MainActor.run { _ = PendingActionStore.shared.hold(action, reason: reason) }
+                await MainActor.run { PendingActionStore.shared.hold(action, reason: reason) }
             })
+        let macName = pairing?.macName
         switch outcome {
         case .openSession(let id):
             await MainActor.run {
                 _ = UIApplication.shared.open(VibeBuddyDeepLink.sessionURL(id: id))
             }
         case .held:
+            await LocalNotifier.settle()
+        case .notHeld(let action):
+            // The same failure the wrist gets: nothing applied, decide again.
+            LocalNotifier().reportDelivery(.dropped(action), macName: macName)
+            await LocalNotifier.settle()
+        case .unconfirmed(let action):
+            LocalNotifier().warnUnconfirmed(action, macName: macName)
             await LocalNotifier.settle()
         case .ignored:
             break
@@ -233,6 +241,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         case .reachable:
             let epoch = await MainActor.run { ConnectionStore.pairingEpoch }
             await PendingActionStore.shared.flush(pairing: pairing, epoch: epoch, client: client)
+            // The "delivered" / "could not be confirmed" posts the flush
+            // asked for must reach the system before this wake ends.
+            await LocalNotifier.settle()
             return .newData
         case .unreachable(let reason):
             guard reason.isRetryable else { return .noData }

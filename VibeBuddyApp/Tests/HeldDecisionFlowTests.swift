@@ -253,6 +253,35 @@ final class HeldDecisionFlowTests: XCTestCase {
         XCTAssertTrue(store.heldActions.isEmpty)
     }
 
+    func testThePhoneCardNeverSendsASecondDecisionBesideAHeldOne() async throws {
+        let transport = HeldTransport()
+        let mac = IntermittentMac()
+        let notifier = DeliveryNotifier()
+        let queue = PendingActionStore(url: nil)
+        let stream = snapshot([waitingSession()])
+        mac.set(snapshot: stream, reachable: true)
+        let store = try await store(transport: transport, mac: mac, notifier: notifier, queue: queue,
+                                    streamer: OneShotStreamer(stream))
+        for _ in 0..<200 where store.state == .connected { try await Task.sleep(for: .milliseconds(5)) }
+        mac.set(snapshot: stream, reachable: false)
+        // The wrist holds an Allow; the phone's card shows it as its receipt.
+        let request = try relayedApproval(transport, attempt: "wrist-allow")
+        let wrist = await transport.tap(request)
+        XCTAssertEqual(wrist.outcome, .queued)
+        XCTAssertEqual(store.phoneActionState(for: waitingSession()), .held)
+        XCTAssertTrue(store.phoneActionDisabled(for: waitingSession()))
+        // A Deny from the card replaces the held Allow: one decision, the newest.
+        let receipt = await store.decideConfirmed("ap-1", .deny)
+        XCTAssertEqual(receipt, .held)
+        XCTAssertEqual(store.heldActions.map(\.choice), [.deny])
+        XCTAssertNotEqual(store.heldActions.first?.id, "wrist-allow")
+        // The link returns: exactly one decision reaches the Mac, the Deny.
+        mac.set(snapshot: stream, reachable: true)
+        await store.retryHeldDecisions()
+        XCTAssertEqual(mac.decisions.map(\.decision), [.deny])
+        XCTAssertEqual(store.phoneActionState(for: waitingSession()), .received)
+    }
+
     func testThePhonesOwnApproveIsHeldWhenTheMacIsUnreachable() async throws {
         let transport = HeldTransport()
         let mac = IntermittentMac()

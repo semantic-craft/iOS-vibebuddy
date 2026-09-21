@@ -11,6 +11,13 @@ enum BannerActionOutcome: Equatable {
     /// the wrist or the lock screen, and opening the app there is not an
     /// answer.
     case held(sessionId: String, key: String)
+    /// The Mac could not be reached and the decision could not be held
+    /// either (queue full, or the same target is being delivered right now).
+    /// Nothing was applied; the person is told to decide again.
+    case notHeld(QueuedSessionAction)
+    /// The POST went out and the receipt was lost: the Mac may have acted.
+    /// Never held or retried; the person is told to look before tapping again.
+    case unconfirmed(QueuedSessionAction)
 }
 
 /// Maps the three shared action ids onto `DecisionClient`. Default tap stays
@@ -28,7 +35,7 @@ enum BannerActionRunner {
         client: DecisionClient,
         epoch: String = "",
         now: Date = Date(),
-        hold: ((QueuedSessionAction, ConnectionFailureReason?) async -> Void)? = nil,
+        hold: ((QueuedSessionAction, ConnectionFailureReason?) async -> Bool)? = nil,
         phoneHasTailnet: () -> Bool = { PhoneNetwork.hasTailnetAddress() }
     ) async -> BannerActionOutcome {
         guard let action = NotificationActionID(rawValue: actionIdentifier) else { return .ignored }
@@ -57,20 +64,29 @@ enum BannerActionRunner {
             holdable = questionId.flatMap { $0.isEmpty ? nil : .answer(pendingId: $0, text: reply) }
             result = await client.answerResult(pairing, sessionId: sessionId, answer: reply)
         }
+        let record = holdable.map {
+            QueuedSessionAction(id: key, sessionId: sessionId, action: $0, origin: .banner,
+                                pairingEpoch: epoch, queuedAt: now)
+        }
         switch result {
         case .accepted:
             return .ignored
-        case .alreadyResolved, .failed:
-            // The Mac answered: gone, or refused. Nothing to hold.
+        case .alreadyResolved:
+            // The Mac answered: the request is gone. Look at the session.
             return .openSession(sessionId)
+        case .failed:
+            // Refused by the Mac, or a timeout / reset after the body went
+            // out. The Mac may have acted; say so rather than open an app
+            // that a background action cannot bring forward anyway.
+            guard let record else { return .openSession(sessionId) }
+            return .unconfirmed(record)
         case .unreachable:
             // Nothing reached the Mac. Hold what can be held; the rest brings
             // the person to the session, where the connection state explains.
-            guard let hold, let holdable else { return .openSession(sessionId) }
+            guard let hold, let record else { return .openSession(sessionId) }
             let reason = ConnectionDiagnosis.diagnose(endpoint: pairing.endpoint, kind: .unreachable,
                                                       phoneHasTailnet: phoneHasTailnet())
-            await hold(QueuedSessionAction(id: key, sessionId: sessionId, action: holdable, origin: .banner,
-                                           pairingEpoch: epoch, queuedAt: now), reason)
+            guard await hold(record, reason) else { return .notHeld(record) }
             return .held(sessionId: sessionId, key: key)
         }
     }
